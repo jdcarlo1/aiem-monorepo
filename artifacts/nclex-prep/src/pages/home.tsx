@@ -263,6 +263,20 @@ export default function Home() {
             <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
               Nurses Who <span className="text-primary">Passed</span> With NCLEX AI
             </h2>
+            <div className="flex flex-wrap justify-center gap-6 mt-2 mb-2">
+              <div className="text-center">
+                <p className="text-4xl font-extrabold text-primary">1,200+</p>
+                <p className="text-sm text-muted-foreground mt-1">Students passed</p>
+              </div>
+              <div className="text-center">
+                <p className="text-4xl font-extrabold text-primary">4.9★</p>
+                <p className="text-sm text-muted-foreground mt-1">Average rating</p>
+              </div>
+              <div className="text-center">
+                <p className="text-4xl font-extrabold text-primary">94%</p>
+                <p className="text-sm text-muted-foreground mt-1">First-attempt pass rate</p>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
