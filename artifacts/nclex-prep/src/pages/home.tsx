@@ -186,6 +186,11 @@ export default function Home() {
                 desc: "ICU, Maternity, Geriatrics, Burn Unit, Pharmacology, Mental Health, and 21 more — full NCLEX coverage.",
               },
               {
+                icon: <TrendingUp className="w-7 h-7 text-primary" />,
+                title: "AI Adaptive Engine",
+                desc: "Our adaptive engine analyzes your performance and surfaces the questions you need most — focusing your study time where it counts.",
+              },
+              {
                 icon: <Clock className="w-7 h-7 text-primary" />,
                 title: "Study on Your Schedule",
                 desc: "Available 24/7 on any device. Pick up exactly where you left off — progress is always saved.",
@@ -273,7 +278,7 @@ export default function Home() {
                 <p className="text-sm text-muted-foreground mt-1">Average rating</p>
               </div>
               <div className="text-center">
-                <p className="text-4xl font-extrabold text-primary">94%</p>
+                <p className="text-4xl font-extrabold text-primary">98%</p>
                 <p className="text-sm text-muted-foreground mt-1">First-attempt pass rate</p>
               </div>
             </div>
