@@ -23,6 +23,16 @@ async function getOrCreateSession(sessionId: string) {
   return created;
 }
 
+function checkAnswer(questionType: string, correctLetter: string, selectedLetter: string): boolean {
+  if (questionType === "multiple") {
+    const correct = correctLetter.split(",").map(s => s.trim()).sort().join(",");
+    const selected = selectedLetter.split(",").map(s => s.trim()).sort().join(",");
+    return correct === selected;
+  }
+  // 'single' and 'ordered' — direct comparison
+  return correctLetter.trim() === selectedLetter.trim();
+}
+
 router.get("/session/status", async (req, res) => {
   const sessionId = req.query.sessionId as string;
   if (!sessionId) {
@@ -75,7 +85,8 @@ router.post("/session/answer", async (req, res) => {
     return;
   }
 
-  const correct = question.correctLetter === selectedLetter;
+  const questionType = question.questionType ?? "single";
+  const correct = checkAnswer(questionType, question.correctLetter, selectedLetter);
 
   await db.insert(answersTable).values({
     sessionId,

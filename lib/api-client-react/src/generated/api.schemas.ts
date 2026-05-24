@@ -26,6 +26,8 @@ export interface Question {
   category: string;
   text: string;
   options: QuestionOption[];
+  /** single | multiple | ordered */
+  questionType?: string;
 }
 
 export interface SessionStatus {
@@ -41,6 +43,7 @@ export interface SessionStatus {
 export interface AnswerInput {
   sessionId: string;
   questionId: number;
+  /** For single: "A". For multiple: sorted comma-separated "A,C,D". For ordered: ordered "1,2,3,4". */
   selectedLetter: string;
 }
 
@@ -77,4 +80,3 @@ export interface CancelResult {
 export type GetSessionStatusParams = {
 sessionId: string;
 };
-

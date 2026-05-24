@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, questionsTable } from "@workspace/db";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -31,6 +31,7 @@ router.get("/questions/:id", async (req, res) => {
       category: questionsTable.category,
       text: questionsTable.text,
       options: questionsTable.options,
+      questionType: questionsTable.questionType,
     })
     .from(questionsTable)
     .where(eq(questionsTable.id, id))
@@ -43,7 +44,5 @@ router.get("/questions/:id", async (req, res) => {
 
   res.json(question);
 });
-
-import { eq } from "drizzle-orm";
 
 export default router;
