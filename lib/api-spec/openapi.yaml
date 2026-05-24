@@ -1,22 +1,24 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: NCLEX Prep API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: questions
+    description: Practice questions
+  - name: session
+    description: Session and subscription management
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +26,242 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /questions:
+    get:
+      operationId: listQuestions
+      tags: [questions]
+      summary: List all questions (titles only, for reference)
+      responses:
+        "200":
+          description: List of questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuestionSummary"
+
+  /questions/{id}:
+    get:
+      operationId: getQuestion
+      tags: [questions]
+      summary: Get a specific question by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Question detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+        "404":
+          description: Not found
+
+  /session/status:
+    get:
+      operationId: getSessionStatus
+      tags: [session]
+      summary: Get session status including free questions used and subscription state
+      parameters:
+        - name: sessionId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+
+  /session/answer:
+    post:
+      operationId: submitAnswer
+      tags: [session]
+      summary: Submit an answer and get result + explanation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnswerInput"
+      responses:
+        "200":
+          description: Answer result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnswerResult"
+        "403":
+          description: Free limit reached, subscription required
+
+  /subscription/checkout:
+    post:
+      operationId: createCheckout
+      tags: [session]
+      summary: Initiate subscription checkout (Stripe placeholder)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutInput"
+      responses:
+        "200":
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+
+  /subscription/cancel:
+    post:
+      operationId: cancelSubscription
+      tags: [session]
+      summary: Cancel active subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelInput"
+      responses:
+        "200":
+          description: Subscription cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelResult"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    QuestionSummary:
+      type: object
+      required: [id, category, questionNumber]
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        questionNumber:
+          type: integer
+
+    Question:
+      type: object
+      required: [id, questionNumber, category, text, options]
+      properties:
+        id:
+          type: integer
+        questionNumber:
+          type: integer
+        category:
+          type: string
+        text:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuestionOption"
+
+    QuestionOption:
+      type: object
+      required: [letter, text]
+      properties:
+        letter:
+          type: string
+        text:
+          type: string
+
+    SessionStatus:
+      type: object
+      required: [sessionId, questionsAnswered, freeLimit, isSubscribed, canAnswerMore]
+      properties:
+        sessionId:
+          type: string
+        questionsAnswered:
+          type: integer
+        freeLimit:
+          type: integer
+        isSubscribed:
+          type: boolean
+        canAnswerMore:
+          type: boolean
+        subscriptionEndDate:
+          type: ["string", "null"]
+
+    AnswerInput:
+      type: object
+      required: [sessionId, questionId, selectedLetter]
+      properties:
+        sessionId:
+          type: string
+        questionId:
+          type: integer
+        selectedLetter:
+          type: string
+
+    AnswerResult:
+      type: object
+      required: [correct, correctLetter, explanation, questionsAnswered, canAnswerMore]
+      properties:
+        correct:
+          type: boolean
+        correctLetter:
+          type: string
+        explanation:
+          type: string
+        questionsAnswered:
+          type: integer
+        canAnswerMore:
+          type: boolean
+
+    CheckoutInput:
+      type: object
+      required: [sessionId]
+      properties:
+        sessionId:
+          type: string
+        email:
+          type: ["string", "null"]
+
+    CheckoutSession:
+      type: object
+      required: [message, sessionId]
+      properties:
+        message:
+          type: string
+        sessionId:
+          type: string
+        checkoutUrl:
+          type: ["string", "null"]
+
+    CancelInput:
+      type: object
+      required: [sessionId]
+      properties:
+        sessionId:
+          type: string
+
+    CancelResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
