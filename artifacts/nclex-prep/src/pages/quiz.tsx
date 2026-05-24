@@ -69,16 +69,10 @@ export default function Quiz() {
     }, {
       onSuccess: (result) => {
         setAnswerResult(result);
-        
-        // Update session cache to reflect the increment
-        queryClient.setQueryData(getGetSessionStatusQueryKey({ sessionId }), (old: any) => {
-          if (!old) return old;
-          return {
-            ...old,
-            questionsAnswered: result.questionsAnswered,
-            canAnswerMore: result.canAnswerMore
-          };
-        });
+        // Do NOT update the session cache here — updating questionsAnswered now
+        // would cause currentIndex to advance, swapping in the next question's
+        // text while this question's explanation is still displayed.
+        // The cache is updated in handleNext, after the user moves on.
       }
     });
   };
@@ -87,6 +81,17 @@ export default function Quiz() {
     if (answerResult && !answerResult.canAnswerMore) {
       setLocation("/paywall");
       return;
+    }
+    // Now that the user is moving on, update the session cache so currentIndex advances.
+    if (answerResult) {
+      queryClient.setQueryData(getGetSessionStatusQueryKey({ sessionId }), (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          questionsAnswered: answerResult.questionsAnswered,
+          canAnswerMore: answerResult.canAnswerMore
+        };
+      });
     }
     setSelectedLetter(null);
     setAnswerResult(null);
