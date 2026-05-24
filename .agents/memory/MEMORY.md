@@ -1,0 +1,1 @@
+- [NCLEX Prep project state](nclex-prep-state.md) — question bank counts, categories, next question number, stack, and key constraints
