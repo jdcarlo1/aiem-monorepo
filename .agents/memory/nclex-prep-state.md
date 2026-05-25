@@ -40,12 +40,12 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - 'ordered': correctLetter = correct position order "1,2,3,4,5"; items use numeric letters; direct string compare
 
 ## Question Bank State
-- **Total questions in DB: ~1363 (mix of NCLEX and nursing school)**
-- **Next question number to use: 1364**
+- **Total questions in DB: ~1393 (mix of NCLEX and nursing school)**
+- **Next question number to use: 1394**
 - Nursing school questions use question_type='single' and CLIENT-SIDE answer checking (no submitAnswer call — avoids corrupting NCLEX session counter)
 - Interview prep also uses client-side checking
 
-## Nursing School Page — 24 Categories (7 sections)
+## Nursing School Page — 26 Categories (7 sections)
 
 **Semester 1 — Fundamentals (1 category)**
 1. Fundamentals of Nursing (30 questions)

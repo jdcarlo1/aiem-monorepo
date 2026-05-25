@@ -183,6 +183,15 @@ const specialtyNursing = [
     color: "bg-purple-50 text-purple-700 border-purple-200",
     iconBg: "bg-purple-100",
   },
+  {
+    category: "Seizure & Epilepsy Nursing",
+    label: "Seizure & Epilepsy Nursing",
+    icon: <Zap className="w-6 h-6" />,
+    questions: 30,
+    desc: "Seizure types (tonic-clonic, absence, focal, status epilepticus), seizure precautions, AED pharmacology (phenytoin, Keppra, valproic acid), postictal care, febrile seizures, and eclampsia management.",
+    color: "bg-amber-50 text-amber-700 border-amber-200",
+    iconBg: "bg-amber-100",
+  },
 ];
 
 const advancedPractice = [
