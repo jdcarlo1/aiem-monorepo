@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Clock,
   Users,
+  Briefcase,
 } from "lucide-react";
 
 const testimonials = [
@@ -58,7 +59,7 @@ const comparisonRows = [
   { feature: "Extended multiple response", us: true, them: false },
   { feature: "Drag & drop ordering questions", us: true, them: false },
   { feature: "AI-powered clinical explanations", us: true, them: false },
-  { feature: "540+ questions across 27 categories", us: true, them: "Limited" },
+  { feature: "613+ questions across 29 categories", us: true, them: "Limited" },
   { feature: "Instant answer feedback", us: true, them: false },
   { feature: "Available 24/7 on any device", us: true, them: true },
   { feature: "Cost", us: "$15/mo or $49 lifetime", them: "$50–$200+" },
@@ -134,8 +135,8 @@ export default function Home() {
 
           <div className="flex flex-wrap justify-center gap-6 text-sm font-medium text-muted-foreground">
             {[
-              { icon: <Zap className="w-4 h-4 text-primary" />, label: "540+ Questions" },
-              { icon: <ShieldCheck className="w-4 h-4 text-primary" />, label: "27 Clinical Categories" },
+              { icon: <Zap className="w-4 h-4 text-primary" />, label: "613+ Questions" },
+              { icon: <ShieldCheck className="w-4 h-4 text-primary" />, label: "29 Categories" },
               { icon: <Brain className="w-4 h-4 text-primary" />, label: "AI Explanations" },
               { icon: <TrendingUp className="w-4 h-4 text-primary" />, label: "NGN Question Formats" },
             ].map((stat) => (
@@ -182,8 +183,13 @@ export default function Home() {
               },
               {
                 icon: <ShieldCheck className="w-7 h-7 text-primary" />,
-                title: "27 Clinical Categories",
-                desc: "ICU, Maternity, Geriatrics, Burn Unit, Pharmacology, Mental Health, and 21 more — full NCLEX coverage.",
+                title: "28 Clinical Categories",
+                desc: "ICU, Maternity, Geriatrics, Burn Unit, Pharmacology, Mental Health, and 22 more — full NCLEX coverage.",
+              },
+              {
+                icon: <Briefcase className="w-7 h-7 text-primary" />,
+                title: "Nursing Interview Prep",
+                desc: "20 real interview questions with detailed rationales — ace your first RN job interview with confidence.",
               },
               {
                 icon: <TrendingUp className="w-7 h-7 text-primary" />,
@@ -207,6 +213,49 @@ export default function Home() {
                 <p className="text-muted-foreground text-sm leading-relaxed">{f.desc}</p>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* Interview Prep Banner */}
+        <section className="px-6 py-16 bg-gradient-to-br from-primary/8 via-primary/5 to-background">
+          <div className="max-w-4xl mx-auto">
+            <div className="rounded-2xl border border-primary/20 bg-card shadow-md overflow-hidden">
+              <div className="grid md:grid-cols-2 gap-0">
+                <div className="p-8 md:p-10">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold mb-4 border border-primary/20">
+                    <Briefcase className="w-3.5 h-3.5" />
+                    NEW — Nursing Interview Prep
+                  </div>
+                  <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight mb-3">
+                    Ace Your First <span className="text-primary">RN Job Interview</span>
+                  </h2>
+                  <p className="text-muted-foreground leading-relaxed mb-6">
+                    Passing NCLEX is just the first step. We've added 20 real nursing interview questions with detailed rationales — covering everything hiring managers actually ask newly licensed nurses.
+                  </p>
+                  <Link href="/quiz">
+                    <Button className="rounded-full px-6">
+                      Practice Interview Questions
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </Link>
+                </div>
+                <div className="bg-secondary/40 p-8 md:p-10 flex flex-col justify-center gap-4">
+                  {[
+                    "How to answer behavioral questions using STAR",
+                    "Prioritization & conflict with physicians",
+                    "Medication safety & scope of practice",
+                    "Patient advocacy & end-of-life care",
+                    "What to ask your interviewer",
+                    "How to handle your greatest weakness question",
+                  ].map((item) => (
+                    <div key={item} className="flex items-start gap-3">
+                      <CheckCircle className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                      <span className="text-sm text-foreground font-medium">{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -332,7 +381,7 @@ export default function Home() {
                 </div>
                 <p className="text-xs text-muted-foreground mb-6">Cancel anytime</p>
                 <ul className="space-y-3 mb-8 flex-1">
-                  {["All 593 questions", "28 clinical categories", "NGN question formats", "AI explanations", "AI Adaptive Engine"].map((f) => (
+                  {["All 613 questions", "29 categories incl. Interview Prep", "NGN question formats", "AI explanations", "AI Adaptive Engine"].map((f) => (
                     <li key={f} className="flex items-center gap-2 text-sm text-foreground">
                       <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                       {f}
@@ -357,7 +406,7 @@ export default function Home() {
                 </div>
                 <p className="text-xs text-muted-foreground mb-6">Pay once · Access forever</p>
                 <ul className="space-y-3 mb-8 flex-1">
-                  {["All 593 questions", "28 clinical categories", "NGN question formats", "AI explanations", "AI Adaptive Engine", "All future updates included"].map((f) => (
+                  {["All 613 questions", "29 categories incl. Interview Prep", "NGN question formats", "AI explanations", "AI Adaptive Engine", "All future updates included"].map((f) => (
                     <li key={f} className="flex items-center gap-2 text-sm text-foreground">
                       <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                       {f}
