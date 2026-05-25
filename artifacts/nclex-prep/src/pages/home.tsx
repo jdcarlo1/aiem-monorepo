@@ -232,13 +232,13 @@ export default function Home() {
                 <div className="p-8 md:p-10">
                   <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold mb-4 border border-primary/20">
                     <Briefcase className="w-3.5 h-3.5" />
-                    NEW — Nursing Interview Prep
+                    BONUS — Included with Every Plan
                   </div>
                   <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight mb-3">
-                    Built for <span className="text-primary">Newly Hired Nurses</span> Too
+                    Pass NCLEX. <span className="text-primary">Then Land the Job.</span>
                   </h2>
                   <p className="text-muted-foreground leading-relaxed mb-6">
-                    Just passed your NCLEX? Your next challenge is landing the job. We've added 20 real nursing interview questions with detailed rationales — covering exactly what hiring managers ask new RNs walking in for their first hospital interview.
+                    Most nurses pass the exam and then blank during the interview. We include 20 real hospital interview questions with in-depth rationales so you walk in confident — knowing exactly what to say when they ask about clinical errors, patient advocacy, prioritization, and more.
                   </p>
                   <Link href="/quiz">
                     <Button className="rounded-full px-6">
