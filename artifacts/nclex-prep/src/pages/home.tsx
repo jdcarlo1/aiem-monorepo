@@ -82,7 +82,15 @@ export default function Home() {
             </div>
             <span className="text-xl font-bold tracking-tight text-foreground">NCLEX<span className="text-primary"> AI</span></span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {sessionStatus?.isSubscribed && (
+              <Link href="/interview-prep">
+                <Button size="sm" variant="ghost" className="rounded-full hidden sm:flex items-center gap-1.5">
+                  <Briefcase className="w-3.5 h-3.5" />
+                  Interview Prep
+                </Button>
+              </Link>
+            )}
             {sessionStatus && (
               <span className="text-sm font-medium text-muted-foreground hidden sm:block">
                 {sessionStatus.isSubscribed ? "✦ Premium" : "Free Tier"}
@@ -358,6 +366,30 @@ export default function Home() {
             ))}
           </div>
         </section>
+
+        {/* Returning Member Section */}
+        {sessionStatus?.isSubscribed && (
+          <section className="px-6 py-10">
+            <div className="max-w-4xl mx-auto">
+              <div className="rounded-2xl border border-primary/30 bg-primary/5 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold mb-3 border border-primary/20">
+                    <Briefcase className="w-3.5 h-3.5" />
+                    Welcome Back, Premium Member
+                  </div>
+                  <h3 className="text-xl font-extrabold tracking-tight mb-1">Ready for Your Nursing Interview?</h3>
+                  <p className="text-muted-foreground text-sm">You've got full access to all 20 nursing interview prep questions with detailed rationales — practice anytime.</p>
+                </div>
+                <Link href="/interview-prep" className="shrink-0">
+                  <Button className="rounded-full px-6 shadow-md">
+                    Go to Interview Prep
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Pricing */}
         <section className="px-6 py-16 bg-secondary/30">

@@ -8,6 +8,7 @@ import Home from "@/pages/home";
 import Quiz from "@/pages/quiz";
 import Paywall from "@/pages/paywall";
 import SubscribeSuccess from "@/pages/subscribe-success";
+import InterviewPrep from "@/pages/interview-prep";
 
 const queryClient = new QueryClient();
 
@@ -18,6 +19,7 @@ function Router() {
       <Route path="/quiz" component={Quiz} />
       <Route path="/paywall" component={Paywall} />
       <Route path="/subscribe-success" component={SubscribeSuccess} />
+      <Route path="/interview-prep" component={InterviewPrep} />
       <Route component={NotFound} />
     </Switch>
   );
