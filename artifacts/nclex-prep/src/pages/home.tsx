@@ -227,10 +227,10 @@ export default function Home() {
                     NEW — Nursing Interview Prep
                   </div>
                   <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight mb-3">
-                    Ace Your First <span className="text-primary">RN Job Interview</span>
+                    Built for <span className="text-primary">Newly Hired Nurses</span> Too
                   </h2>
                   <p className="text-muted-foreground leading-relaxed mb-6">
-                    Passing NCLEX is just the first step. We've added 20 real nursing interview questions with detailed rationales — covering everything hiring managers actually ask newly licensed nurses.
+                    Just passed your NCLEX? Your next challenge is landing the job. We've added 20 real nursing interview questions with detailed rationales — covering exactly what hiring managers ask new RNs walking in for their first hospital interview.
                   </p>
                   <Link href="/quiz">
                     <Button className="rounded-full px-6">
