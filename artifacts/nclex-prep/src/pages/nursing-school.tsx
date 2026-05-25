@@ -229,6 +229,15 @@ const clinicalReasoning = [
 
 const pharmacology = [
   {
+    category: "Pharmacology: Antidepressants",
+    label: "Antidepressant Drugs",
+    icon: <Brain className="w-6 h-6" />,
+    questions: 30,
+    desc: "SSRIs, SNRIs, TCAs, MAOIs, bupropion, mirtazapine, and lithium — mechanisms, side effects, black box warnings, drug interactions, serotonin syndrome, and MAOI dietary restrictions.",
+    color: "bg-violet-50 text-violet-700 border-violet-200",
+    iconBg: "bg-violet-100",
+  },
+  {
     category: "Pharmacology: Cardiac Meds",
     label: "Cardiac Medications",
     icon: <Pill className="w-6 h-6" />,

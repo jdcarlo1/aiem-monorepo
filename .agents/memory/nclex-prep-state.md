@@ -40,8 +40,8 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - 'ordered': correctLetter = correct position order "1,2,3,4,5"; items use numeric letters; direct string compare
 
 ## Question Bank State
-- **Total questions in DB: ~1333 (mix of NCLEX and nursing school)**
-- **Next question number to use: 1334**
+- **Total questions in DB: ~1363 (mix of NCLEX and nursing school)**
+- **Next question number to use: 1364**
 - Nursing school questions use question_type='single' and CLIENT-SIDE answer checking (no submitAnswer call — avoids corrupting NCLEX session counter)
 - Interview prep also uses client-side checking
 
@@ -79,11 +79,12 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 19. ABG Interpretation (30) — Q1274–Q1303
 20. EKG Interpretation (30) — Q1304–Q1333
 
-**Pharmacology (4 categories)**
-21. Pharmacology: Cardiac Meds (30)
-22. Pharmacology: Respiratory Meds (30)
-23. Pharmacology: Diabetes & Insulin (30)
-24. Pharmacology: Anticoagulation (30)
+**Pharmacology (5 categories)**
+21. Pharmacology: Antidepressants (30) — Q1334–Q1363
+22. Pharmacology: Cardiac Meds (30)
+23. Pharmacology: Respiratory Meds (30)
+24. Pharmacology: Diabetes & Insulin (30)
+25. Pharmacology: Anticoagulation (30)
 
 ## NCLEX Prep Categories (legacy — 613+ questions, various types)
 Burn Unit Nursing, Cardiac Surgery, Chest Tube Nursing, Dermatology, Diabetes, Fundamentals, Gastroenterology, Geriatric, Hematology-Oncology, High-Frequency NCLEX, ICU Nursing, Integumentary, Leadership, Lymphatic, Maternal-Newborn, Maternity Nursing, Medical-Surgical, Mental Health, Nervous System, NGN-Clinical Judgment (53, mixed types), Ophthalmology, Orthopedic Nursing, Pediatrics, Pharmacology, Psychiatric Nursing, Reproductive System, Urology
