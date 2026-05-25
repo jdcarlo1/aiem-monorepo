@@ -235,10 +235,10 @@ export default function Home() {
                     BONUS — Included with Every Plan
                   </div>
                   <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight mb-3">
-                    Pass NCLEX. <span className="text-primary">Then Land the Job.</span>
+                    Ace Your Nursing Interview <span className="text-primary">with Confidence.</span>
                   </h2>
                   <p className="text-muted-foreground leading-relaxed mb-6">
-                    Most nurses pass the exam and then blank during the interview. We include 20 real hospital interview questions with in-depth rationales so you walk in confident — knowing exactly what to say when they ask about clinical errors, patient advocacy, prioritization, and more.
+                    Most nurses pass the exam and blank when the hiring manager asks, "Tell me about a time you made a mistake." We include 20 real hospital interview questions with expert rationales — so you walk in prepared, polished, and ready to get the job.
                   </p>
                   <Link href="/quiz">
                     <Button className="rounded-full px-6">
