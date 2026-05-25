@@ -20,7 +20,7 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - `artifacts/api-server/src/webhookHandlers.ts` — Stripe webhook + session update logic
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType column)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
-- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 24-category nursing school page (7 sections)
+- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 26-category nursing school page (7 sections)
 - `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, redirects to Stripe URL
 - `scripts/src/seed-products.ts` — run after connecting Stripe to create products
 
@@ -65,26 +65,27 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 11. Infectious Disease: Tuberculosis (30)
 12. Infectious Disease: HIV/AIDS (30)
 
-**Specialty Nursing (4 categories)**
+**Specialty Nursing (5 categories)**
 13. Pediatric Nursing (30)
 14. Maternity & OB Nursing (30)
 15. Psychiatric/Mental Health (30)
 16. Oncology Nursing (30)
+17. Seizure & Epilepsy Nursing (30) — Q1364–Q1393
 
 **Advanced Practice (2 categories)**
-17. Critical Care/ICU (30)
-18. Fluid & Electrolytes (30)
+18. Critical Care/ICU (30)
+19. Fluid & Electrolytes (30)
 
 **Clinical Reasoning (2 categories)**
-19. ABG Interpretation (30) — Q1274–Q1303
-20. EKG Interpretation (30) — Q1304–Q1333
+20. ABG Interpretation (30) — Q1274–Q1303
+21. EKG Interpretation (30) — Q1304–Q1333
 
 **Pharmacology (5 categories)**
-21. Pharmacology: Antidepressants (30) — Q1334–Q1363
-22. Pharmacology: Cardiac Meds (30)
-23. Pharmacology: Respiratory Meds (30)
-24. Pharmacology: Diabetes & Insulin (30)
-25. Pharmacology: Anticoagulation (30)
+22. Pharmacology: Antidepressants (30) — Q1334–Q1363
+23. Pharmacology: Cardiac Meds (30)
+24. Pharmacology: Respiratory Meds (30)
+25. Pharmacology: Diabetes & Insulin (30)
+26. Pharmacology: Anticoagulation (30)
 
 ## NCLEX Prep Categories (legacy — 613+ questions, various types)
 Burn Unit Nursing, Cardiac Surgery, Chest Tube Nursing, Dermatology, Diabetes, Fundamentals, Gastroenterology, Geriatric, Hematology-Oncology, High-Frequency NCLEX, ICU Nursing, Integumentary, Leadership, Lymphatic, Maternal-Newborn, Maternity Nursing, Medical-Surgical, Mental Health, Nervous System, NGN-Clinical Judgment (53, mixed types), Ophthalmology, Orthopedic Nursing, Pediatrics, Pharmacology, Psychiatric Nursing, Reproductive System, Urology
@@ -94,5 +95,8 @@ Burn Unit Nursing, Cardiac Surgery, Chest Tube Nursing, Dermatology, Diabetes, F
 - Nursing school + interview prep: client-side answer checking only (do NOT call /api/session/submit)
 - Stripe: stripeClient.ts reads from REPLIT_CONNECTORS_HOSTNAME; user must connect via Integrations tab
 - seed-products.ts must be run after Stripe is connected
+
+## Lucide Icons in nursing-school.tsx (already imported — do not duplicate)
+Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical, BookOpen, Flame, Lock, Syringe, Bone, Stethoscope, Bug, Baby, HeartPulse, ShieldAlert, Radiation, Monitor, Waves, TestTube
 
 **Why:** User explicitly asked this to be saved so context isn't lost across sessions.
