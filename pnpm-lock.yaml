@@ -642,6 +642,13 @@ importers:
         version: 0.31.10
 
   scripts:
+    dependencies:
+      stripe:
+        specifier: 20.0.0
+        version: 20.0.0(@types/node@25.6.2)
+      stripe-replit-sync:
+        specifier: 1.0.0
+        version: 1.0.0(stripe@20.0.0(@types/node@25.6.2))
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -2959,6 +2966,15 @@ packages:
     resolution: {integrity: sha512-Bkbih3k+IX/GugN8bKWNpwDiI2xkSLOAR+P34W7pjaR8fXyVay/QqztbrvbHZcU1JlfXncmBhuODY5TYY6DXlw==}
     peerDependencies:
       stripe: '> 11'
+
+  stripe@20.0.0:
+    resolution: {integrity: sha512-EaZeWpbJOCcDytdjKSwdrL5BxzbDGNueiCfHjHXlPdBQvLqoxl6AAivC35SPzTmVXJb5duXQlXFGS45H0+e6Gg==}
+    engines: {node: '>=16'}
+    peerDependencies:
+      '@types/node': '>=16'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   stripe@22.1.1:
     resolution: {integrity: sha512-cmodIYP27tBkJ8G7DuGgWw0PFuemlFZbuF3Wwr1TrjFjUa3T7NIgCe6TVwX8BO2ynu+xtTuDGfHafNDCPt9lXA==}
@@ -5569,6 +5585,18 @@ snapshots:
 
   strip-json-comments@5.0.3: {}
 
+  stripe-replit-sync@1.0.0(stripe@20.0.0(@types/node@25.6.2)):
+    dependencies:
+      pg: 8.20.0
+      pg-node-migrations: 0.0.8
+      stripe: 20.0.0(@types/node@25.6.2)
+      ws: 8.21.0
+      yesql: 7.0.0
+    transitivePeerDependencies:
+      - bufferutil
+      - pg-native
+      - utf-8-validate
+
   stripe-replit-sync@1.0.0(stripe@22.1.1(@types/node@25.6.2)):
     dependencies:
       pg: 8.20.0
@@ -5580,6 +5608,12 @@ snapshots:
       - bufferutil
       - pg-native
       - utf-8-validate
+
+  stripe@20.0.0(@types/node@25.6.2):
+    dependencies:
+      qs: 6.15.1
+    optionalDependencies:
+      '@types/node': 25.6.2
 
   stripe@22.1.1(@types/node@25.6.2):
     optionalDependencies:
