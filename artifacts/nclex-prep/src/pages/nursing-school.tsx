@@ -1,0 +1,313 @@
+import { Link, useLocation } from "wouter";
+import { useGetSessionStatus } from "@workspace/api-client-react";
+import { getSessionId } from "@/lib/session";
+import { Button } from "@/components/ui/button";
+import {
+  Brain,
+  ChevronLeft,
+  ArrowRight,
+  Heart,
+  Wind,
+  Zap,
+  Activity,
+  Droplets,
+  Pill,
+  FlaskConical,
+  BookOpen,
+  Flame,
+  Lock,
+  Syringe,
+} from "lucide-react";
+
+const fundamentals = [
+  {
+    category: "Fundamentals of Nursing",
+    label: "Fundamentals of Nursing",
+    icon: <BookOpen className="w-6 h-6" />,
+    questions: 30,
+    desc: "Patient safety, infection control, vital signs, wound care, documentation, communication, and core nursing skills.",
+    color: "bg-blue-50 text-blue-700 border-blue-200",
+    iconBg: "bg-blue-100",
+  },
+];
+
+const medsurg = [
+  {
+    category: "MedSurg: Cardiac",
+    label: "Cardiac System",
+    icon: <Heart className="w-6 h-6" />,
+    questions: 30,
+    desc: "Heart failure, MI, dysrhythmias, hypertension, cardiac assessment, and hemodynamic monitoring.",
+    color: "bg-red-50 text-red-700 border-red-200",
+    iconBg: "bg-red-100",
+  },
+  {
+    category: "MedSurg: Respiratory",
+    label: "Respiratory System",
+    icon: <Wind className="w-6 h-6" />,
+    questions: 30,
+    desc: "COPD, pneumonia, asthma, ARDS, oxygen therapy, ventilators, and pulmonary assessment.",
+    color: "bg-sky-50 text-sky-700 border-sky-200",
+    iconBg: "bg-sky-100",
+  },
+  {
+    category: "MedSurg: Neurological",
+    label: "Neurological System",
+    icon: <Zap className="w-6 h-6" />,
+    questions: 30,
+    desc: "Stroke, TBI, seizures, ICP management, neuro assessment, and spinal cord injuries.",
+    color: "bg-purple-50 text-purple-700 border-purple-200",
+    iconBg: "bg-purple-100",
+  },
+  {
+    category: "MedSurg: Endocrine",
+    label: "Endocrine System",
+    icon: <Activity className="w-6 h-6" />,
+    questions: 30,
+    desc: "Diabetes, thyroid disorders, adrenal dysfunction, DKA, HHNS, and hormonal imbalances.",
+    color: "bg-orange-50 text-orange-700 border-orange-200",
+    iconBg: "bg-orange-100",
+  },
+  {
+    category: "MedSurg: Renal & Urology",
+    label: "Renal & Urology",
+    icon: <Droplets className="w-6 h-6" />,
+    questions: 30,
+    desc: "AKI, CKD, dialysis, UTIs, fluid/electrolyte balance, and urinary disorders.",
+    color: "bg-cyan-50 text-cyan-700 border-cyan-200",
+    iconBg: "bg-cyan-100",
+  },
+  {
+    category: "MedSurg: Gastrointestinal",
+    label: "Gastrointestinal System",
+    icon: <FlaskConical className="w-6 h-6" />,
+    questions: 30,
+    desc: "GI bleeds, IBD, liver disease, bowel obstruction, GI assessment, and nutrition support.",
+    color: "bg-green-50 text-green-700 border-green-200",
+    iconBg: "bg-green-100",
+  },
+  {
+    category: "MedSurg: Burns & Integumentary",
+    label: "Burns & Integumentary",
+    icon: <Flame className="w-6 h-6" />,
+    questions: 30,
+    desc: "Burn classification, fluid resuscitation, wound care, pressure injuries, and skin assessment.",
+    color: "bg-amber-50 text-amber-700 border-amber-200",
+    iconBg: "bg-amber-100",
+  },
+];
+
+const pharmacology = [
+  {
+    category: "Pharmacology: Cardiac Meds",
+    label: "Cardiac Medications",
+    icon: <Pill className="w-6 h-6" />,
+    questions: 30,
+    desc: "Beta blockers, ACE inhibitors, digoxin, antiarrhythmics, diuretics, and antianginals.",
+    color: "bg-rose-50 text-rose-700 border-rose-200",
+    iconBg: "bg-rose-100",
+  },
+  {
+    category: "Pharmacology: Respiratory Meds",
+    label: "Respiratory Medications",
+    icon: <Wind className="w-6 h-6" />,
+    questions: 30,
+    desc: "Bronchodilators, corticosteroids, mucolytics, and oxygen therapy pharmacology.",
+    color: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    iconBg: "bg-indigo-100",
+  },
+  {
+    category: "Pharmacology: Diabetes & Insulin",
+    label: "Diabetes & Insulin",
+    icon: <Syringe className="w-6 h-6" />,
+    questions: 30,
+    desc: "Insulin types, oral hypoglycemics, administration timing, hypoglycemia, and DKA management.",
+    color: "bg-teal-50 text-teal-700 border-teal-200",
+    iconBg: "bg-teal-100",
+  },
+  {
+    category: "Pharmacology: Anticoagulation",
+    label: "Anticoagulation / Coumadin",
+    icon: <Droplets className="w-6 h-6" />,
+    questions: 30,
+    desc: "Warfarin, heparin, DOACs, INR monitoring, reversal agents, and bleeding precautions.",
+    color: "bg-red-50 text-red-700 border-red-200",
+    iconBg: "bg-red-100",
+  },
+];
+
+function CategoryCard({
+  item,
+  isSubscribed,
+  onLockClick,
+}: {
+  item: (typeof fundamentals)[0];
+  isSubscribed: boolean;
+  onLockClick: () => void;
+}) {
+  const encodedCategory = encodeURIComponent(item.category);
+
+  if (!isSubscribed) {
+    return (
+      <button
+        onClick={onLockClick}
+        className={`w-full text-left p-5 rounded-2xl border-2 bg-card border-border hover:border-primary/30 hover:shadow-sm transition-all duration-200 opacity-80 cursor-pointer`}
+      >
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
+            <Lock className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="font-semibold text-foreground">{item.label}</h3>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{item.questions} questions</span>
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+          </div>
+        </div>
+      </button>
+    );
+  }
+
+  return (
+    <Link href={`/study?category=${encodedCategory}`}>
+      <div className={`w-full text-left p-5 rounded-2xl border-2 bg-card border-border hover:border-primary/40 hover:shadow-md transition-all duration-200 cursor-pointer group`}>
+        <div className="flex items-start gap-4">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${item.iconBg}`}>
+            <div className={item.color.split(" ")[1]}>{item.icon}</div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">{item.label}</h3>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary">{item.questions} questions</span>
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+          </div>
+          <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0 mt-1" />
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+export default function NursingSchool() {
+  const [, setLocation] = useLocation();
+  const sessionId = getSessionId();
+  const { data: sessionStatus } = useGetSessionStatus(
+    { sessionId },
+    { query: { enabled: !!sessionId } }
+  );
+
+  const isSubscribed = sessionStatus?.isSubscribed ?? false;
+
+  const handleLockClick = () => setLocation("/paywall");
+
+  return (
+    <div className="min-h-[100dvh] flex flex-col bg-background">
+      <header className="px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <Link href="/" className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+            <ChevronLeft className="w-4 h-4 mr-1" />
+            Home
+          </Link>
+          <div className="flex items-center gap-2">
+            <Brain className="w-4 h-4 text-primary" />
+            <span className="text-sm font-bold text-primary">NCLEX AI</span>
+          </div>
+          <div className="w-16" />
+        </div>
+      </header>
+
+      <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 sm:px-6 pb-16">
+        <div className="mb-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold mb-4 border border-primary/20">
+            <BookOpen className="w-3.5 h-3.5" />
+            Nursing School Question Banks
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-3">
+            Study by System. <span className="text-primary">Ace Every Exam.</span>
+          </h1>
+          <p className="text-muted-foreground text-lg leading-relaxed max-w-2xl">
+            Pick exactly what you're studying. Whether it's Fundamentals in semester one or Cardiac in Med-Surg, drill 30 focused questions per topic and walk into every exam prepared.
+          </p>
+          {!isSubscribed && (
+            <div className="mt-4 flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20">
+              <Lock className="w-5 h-5 text-primary shrink-0" />
+              <p className="text-sm text-foreground">
+                <span className="font-semibold">Premium feature.</span> Unlock all question banks with a $49 lifetime plan.{" "}
+                <button onClick={handleLockClick} className="text-primary font-semibold underline underline-offset-2 hover:no-underline">
+                  Unlock now →
+                </button>
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Fundamentals */}
+        <section className="mb-10">
+          <h2 className="text-lg font-bold tracking-tight mb-1">Semester 1 — Fundamentals</h2>
+          <p className="text-sm text-muted-foreground mb-4">The foundation every nursing student builds on first.</p>
+          <div className="space-y-3">
+            {fundamentals.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Med-Surg by System */}
+        <section className="mb-10">
+          <h2 className="text-lg font-bold tracking-tight mb-1">Medical-Surgical — By Body System</h2>
+          <p className="text-sm text-muted-foreground mb-4">Study exactly the system you're covering in class this week.</p>
+          <div className="space-y-3">
+            {medsurg.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Pharmacology */}
+        <section className="mb-10">
+          <h2 className="text-lg font-bold tracking-tight mb-1">Pharmacology</h2>
+          <p className="text-sm text-muted-foreground mb-4">Meds, dosing, interactions, and nursing implications — by drug class.</p>
+          <div className="space-y-3">
+            {pharmacology.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* NCLEX + Interview links */}
+        <div className="grid sm:grid-cols-2 gap-4 mt-6">
+          <Link href="/quiz">
+            <div className="p-5 rounded-2xl border-2 border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 cursor-pointer group">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Brain className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-semibold group-hover:text-primary transition-colors">NCLEX Prep</h3>
+                  <p className="text-xs text-muted-foreground">613+ questions, all categories</p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary ml-auto transition-colors" />
+              </div>
+            </div>
+          </Link>
+          <Link href="/interview-prep">
+            <div className="p-5 rounded-2xl border-2 border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 cursor-pointer group">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <BookOpen className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-semibold group-hover:text-primary transition-colors">Interview Prep</h3>
+                  <p className="text-xs text-muted-foreground">20 real nursing job interview questions</p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary ml-auto transition-colors" />
+              </div>
+            </div>
+          </Link>
+        </div>
+      </main>
+    </div>
+  );
+}

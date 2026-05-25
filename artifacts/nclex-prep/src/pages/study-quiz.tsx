@@ -20,13 +20,13 @@ import {
   Lock,
 } from "lucide-react";
 
-interface AnswerResultState {
+interface LocalAnswerResult {
   correct: boolean;
   correctLetter: string;
   explanation: string;
 }
 
-// ─── Single Choice (same as quiz.tsx) ────────────────────────────────────────
+// ─── Single Choice ─────────────────────────────────────────────────────────
 function SingleChoice({
   options,
   selected,
@@ -35,7 +35,7 @@ function SingleChoice({
 }: {
   options: { letter: string; text: string }[];
   selected: string | null;
-  answerResult: AnswerResultState | null;
+  answerResult: LocalAnswerResult | null;
   onSelect: (letter: string) => void;
 }) {
   return (
@@ -47,8 +47,7 @@ function SingleChoice({
         const isCorrectAnswer = correctLetters.includes(opt.letter);
         const isWrongSelection = showResult && isSelected && !isCorrectAnswer;
 
-        let cls =
-          "w-full p-4 rounded-xl border-2 text-left transition-all duration-200 flex items-start gap-4 ";
+        let cls = "w-full p-4 rounded-xl border-2 text-left transition-all duration-200 flex items-start gap-4 ";
         if (!showResult) {
           cls += isSelected
             ? "border-primary bg-primary/5 shadow-sm"
@@ -62,12 +61,7 @@ function SingleChoice({
         }
 
         return (
-          <button
-            key={opt.letter}
-            onClick={() => onSelect(opt.letter)}
-            disabled={showResult}
-            className={cls}
-          >
+          <button key={opt.letter} onClick={() => onSelect(opt.letter)} disabled={showResult} className={cls}>
             <div
               className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 font-semibold text-sm ${
                 !showResult && isSelected
@@ -95,15 +89,18 @@ function SingleChoice({
   );
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-export default function InterviewPrep() {
+// ─── Main ──────────────────────────────────────────────────────────────────
+export default function StudyQuiz() {
   const [, setLocation] = useLocation();
   const sessionId = getSessionId();
 
+  const category = new URLSearchParams(window.location.search).get("category") ?? "";
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
-  const [answerResult, setAnswerResult] = useState<AnswerResultState | null>(null);
+  const [answerResult, setAnswerResult] = useState<LocalAnswerResult | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [score, setScore] = useState({ correct: 0, total: 0 });
 
   const { data: sessionStatus, isLoading: isSessionLoading } = useGetSessionStatus(
     { sessionId },
@@ -112,14 +109,14 @@ export default function InterviewPrep() {
 
   const { data: questionsList, isLoading: isListLoading } = useListQuestions();
 
-  const interviewQuestions = useMemo(() => {
+  const filteredQuestions = useMemo(() => {
     if (!questionsList) return [];
     return [...questionsList]
-      .filter((q) => q.category === "Nursing Interview Prep")
+      .filter((q) => q.category === category)
       .sort((a, b) => a.questionNumber - b.questionNumber);
-  }, [questionsList]);
+  }, [questionsList, category]);
 
-  const currentQuestionSummary = interviewQuestions[currentIndex];
+  const currentQuestionSummary = filteredQuestions[currentIndex];
 
   const { data: currentQuestion, isLoading: isQuestionLoading } = useGetQuestion(
     currentQuestionSummary?.id ?? 0,
@@ -139,10 +136,11 @@ export default function InterviewPrep() {
       correctLetter: currentQuestion.correctLetter,
       explanation: currentQuestion.explanation,
     });
+    setScore((s) => ({ correct: s.correct + (correct ? 1 : 0), total: s.total + 1 }));
   };
 
   const handleNext = () => {
-    if (currentIndex + 1 >= interviewQuestions.length) {
+    if (currentIndex + 1 >= filteredQuestions.length) {
       setCompleted(true);
     } else {
       setCurrentIndex((i) => i + 1);
@@ -157,7 +155,11 @@ export default function InterviewPrep() {
     setSelectedLetter(null);
     setAnswerResult(null);
     setCompleted(false);
+    setScore({ correct: 0, total: 0 });
   };
+
+  const backLink = "/nursing-school";
+  const backLabel = "Nursing School";
 
   if (isSessionLoading || isListLoading) {
     return (
@@ -171,24 +173,20 @@ export default function InterviewPrep() {
     );
   }
 
-  // ─── Not subscribed ──────────────────────────────────────────────────────
+  // ─── Not subscribed ────────────────────────────────────────────────────
   if (!sessionStatus?.isSubscribed) {
     return (
       <div className="min-h-[100dvh] flex flex-col bg-background">
         <header className="px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
           <div className="max-w-3xl mx-auto flex items-center justify-between">
-            <Link
-              href="/"
-              className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4 mr-1" />
-              Home
+            <Link href={backLink} className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              <ChevronLeft className="w-4 h-4 mr-1" />{backLabel}
             </Link>
             <div className="flex items-center gap-2">
               <Brain className="w-4 h-4 text-primary" />
               <span className="text-sm font-bold text-primary">NCLEX AI</span>
             </div>
-            <div className="w-16" />
+            <div className="w-24" />
           </div>
         </header>
         <div className="flex-1 flex items-center justify-center p-6">
@@ -197,18 +195,18 @@ export default function InterviewPrep() {
               <Lock className="w-8 h-8 text-primary" />
             </div>
             <h1 className="text-2xl font-extrabold tracking-tight mb-3">
-              Interview Prep is a Premium Feature
+              {category || "This Question Bank"} is a Premium Feature
             </h1>
             <p className="text-muted-foreground mb-8 leading-relaxed">
-              Unlock all 20 nursing interview questions with detailed rationales — plus 613 NCLEX practice questions — with a one-time $49 lifetime plan.
+              Unlock all nursing school question banks, NCLEX prep, and interview prep with a one-time $49 lifetime plan.
             </p>
             <div className="flex flex-col gap-3">
               <Button size="lg" className="rounded-xl w-full" onClick={() => setLocation("/paywall")}>
                 Unlock Lifetime Access — $49
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
-              <Link href="/">
-                <Button variant="ghost" className="w-full">Back to Home</Button>
+              <Link href={backLink}>
+                <Button variant="ghost" className="w-full">Back to Nursing School</Button>
               </Link>
             </div>
           </div>
@@ -217,40 +215,65 @@ export default function InterviewPrep() {
     );
   }
 
-  // ─── Completed ───────────────────────────────────────────────────────────
-  if (completed) {
+  // ─── No questions found ────────────────────────────────────────────────
+  if (!isListLoading && filteredQuestions.length === 0) {
     return (
       <div className="min-h-[100dvh] flex flex-col bg-background">
         <header className="px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
           <div className="max-w-3xl mx-auto flex items-center justify-between">
-            <Link
-              href="/"
-              className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4 mr-1" />
-              Home
+            <Link href={backLink} className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              <ChevronLeft className="w-4 h-4 mr-1" />{backLabel}
             </Link>
             <div className="flex items-center gap-2">
               <Brain className="w-4 h-4 text-primary" />
               <span className="text-sm font-bold text-primary">NCLEX AI</span>
             </div>
-            <div className="w-16" />
+            <div className="w-24" />
+          </div>
+        </header>
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center">
+            <p className="text-muted-foreground">No questions found for "{category}".</p>
+            <Link href={backLink}><Button className="mt-4">Back to Nursing School</Button></Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Completed ─────────────────────────────────────────────────────────
+  if (completed) {
+    const pct = filteredQuestions.length > 0 ? Math.round((score.correct / score.total) * 100) : 0;
+    return (
+      <div className="min-h-[100dvh] flex flex-col bg-background">
+        <header className="px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
+          <div className="max-w-3xl mx-auto flex items-center justify-between">
+            <Link href={backLink} className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              <ChevronLeft className="w-4 h-4 mr-1" />{backLabel}
+            </Link>
+            <div className="flex items-center gap-2">
+              <Brain className="w-4 h-4 text-primary" />
+              <span className="text-sm font-bold text-primary">NCLEX AI</span>
+            </div>
+            <div className="w-24" />
           </div>
         </header>
         <div className="flex-1 flex items-center justify-center p-6">
           <Card className="max-w-md w-full text-center p-8">
             <CheckCircle2 className="w-16 h-16 text-primary mx-auto mb-4" />
-            <h2 className="text-2xl font-bold mb-2">Interview Prep Complete!</h2>
-            <p className="text-muted-foreground mb-6">
-              You've reviewed all {interviewQuestions.length} nursing interview questions. Go get that job!
+            <h2 className="text-2xl font-bold mb-2">Section Complete!</h2>
+            <p className="text-muted-foreground mb-2">{category}</p>
+            <div className="text-4xl font-extrabold text-primary mb-1">{pct}%</div>
+            <p className="text-sm text-muted-foreground mb-6">
+              {score.correct} correct out of {score.total} questions
             </p>
             <div className="flex flex-col gap-3">
               <Button className="w-full" onClick={handleRestart}>
                 <RotateCcw className="w-4 h-4 mr-2" />
-                Start Over
+                Retry This Section
               </Button>
-              <Link href="/quiz">
-                <Button variant="outline" className="w-full">Back to NCLEX Practice</Button>
+              <Link href={backLink}>
+                <Button variant="outline" className="w-full">Choose Another Section</Button>
               </Link>
             </div>
           </Card>
@@ -259,28 +282,23 @@ export default function InterviewPrep() {
     );
   }
 
-  // ─── Quiz ────────────────────────────────────────────────────────────────
+  // ─── Quiz ───────────────────────────────────────────────────────────────
   const isLoading = isQuestionLoading || !currentQuestion;
-  const progressPercent =
-    interviewQuestions.length > 0 ? (currentIndex / interviewQuestions.length) * 100 : 0;
+  const progressPercent = filteredQuestions.length > 0 ? (currentIndex / filteredQuestions.length) * 100 : 0;
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
       <header className="px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <Link
-            href="/"
-            className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4 mr-1" />
-            Home
+          <Link href={backLink} className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+            <ChevronLeft className="w-4 h-4 mr-1" />{backLabel}
           </Link>
           <div className="flex items-center gap-2">
             <Brain className="w-4 h-4 text-primary" />
             <span className="text-sm font-bold text-primary">NCLEX AI</span>
           </div>
           <div className="text-xs font-semibold px-2.5 py-1 rounded-full bg-secondary text-secondary-foreground">
-            {currentIndex + 1} / {interviewQuestions.length}
+            {currentIndex + 1} / {filteredQuestions.length}
           </div>
         </div>
       </header>
@@ -288,8 +306,8 @@ export default function InterviewPrep() {
       <main className="flex-1 w-full max-w-3xl mx-auto p-4 sm:p-6 pb-24">
         <div className="mb-6 space-y-2">
           <div className="flex justify-between text-sm font-medium text-muted-foreground">
-            <span>Question {currentIndex + 1} of {interviewQuestions.length}</span>
-            <span>Nursing Interview Prep</span>
+            <span>Question {currentIndex + 1} of {filteredQuestions.length}</span>
+            <span>{category}</span>
           </div>
           <Progress value={progressPercent} className="h-2" />
         </div>
@@ -324,13 +342,7 @@ export default function InterviewPrep() {
                   }`}
                 >
                   <CardContent className="p-6">
-                    <h3
-                      className={`text-lg font-bold flex items-center gap-2 mb-3 ${
-                        answerResult.correct
-                          ? "text-green-700 dark:text-green-400"
-                          : "text-destructive"
-                      }`}
-                    >
+                    <h3 className={`text-lg font-bold flex items-center gap-2 mb-3 ${answerResult.correct ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
                       {answerResult.correct ? (
                         <><CheckCircle2 className="w-6 h-6" /> Correct!</>
                       ) : (
@@ -342,7 +354,7 @@ export default function InterviewPrep() {
                     </p>
                     <div className="mt-6">
                       <Button size="lg" className="w-full sm:w-auto" onClick={handleNext}>
-                        {currentIndex + 1 >= interviewQuestions.length ? "Finish" : "Next Question"}
+                        {currentIndex + 1 >= filteredQuestions.length ? "See Results" : "Next Question"}
                         <ArrowRight className="w-4 h-4 ml-2" />
                       </Button>
                     </div>

@@ -17,6 +17,7 @@ import {
   Clock,
   Users,
   Briefcase,
+  BookOpen,
 } from "lucide-react";
 
 const testimonials = [
@@ -82,7 +83,13 @@ export default function Home() {
             </div>
             <span className="text-xl font-bold tracking-tight text-foreground">NCLEX<span className="text-primary"> AI</span></span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Link href="/nursing-school">
+              <Button size="sm" variant="ghost" className="rounded-full hidden sm:flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5" />
+                Nursing School
+              </Button>
+            </Link>
             {sessionStatus?.isSubscribed && (
               <Link href="/interview-prep">
                 <Button size="sm" variant="ghost" className="rounded-full hidden sm:flex items-center gap-1.5">
@@ -90,11 +97,6 @@ export default function Home() {
                   Interview Prep
                 </Button>
               </Link>
-            )}
-            {sessionStatus && (
-              <span className="text-sm font-medium text-muted-foreground hidden sm:block">
-                {sessionStatus.isSubscribed ? "✦ Premium" : "Free Tier"}
-              </span>
             )}
             <Link href="/quiz">
               <Button size="sm" variant="outline" className="rounded-full">
@@ -114,17 +116,17 @@ export default function Home() {
 
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-6 border border-primary/20">
             <Sparkles className="w-3.5 h-3.5" />
-            AI-Powered NCLEX Prep — NGN Ready
+            The Complete Nursing Platform
           </div>
 
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-foreground leading-tight max-w-4xl mx-auto mb-6">
-            The Smarter Way to
+            From First Semester
             <br />
-            <span className="text-primary">Pass Your NCLEX</span>
+            <span className="text-primary">to First RN Job.</span>
           </h1>
 
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-            AI-powered explanations, NGN question formats, extended multiple response, and drag-and-drop ordering — everything the new NCLEX tests, all in one place.
+            Study by system in nursing school. Pass the NCLEX. Ace your first job interview. One platform — built for the full journey.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center gap-4 mb-12">
@@ -143,8 +145,8 @@ export default function Home() {
 
           <div className="flex flex-wrap justify-center gap-6 text-sm font-medium text-muted-foreground">
             {[
-              { icon: <Zap className="w-4 h-4 text-primary" />, label: "613+ Questions" },
-              { icon: <ShieldCheck className="w-4 h-4 text-primary" />, label: "29 Categories" },
+              { icon: <Zap className="w-4 h-4 text-primary" />, label: "1,000+ Questions" },
+              { icon: <ShieldCheck className="w-4 h-4 text-primary" />, label: "40+ Categories" },
               { icon: <Brain className="w-4 h-4 text-primary" />, label: "AI Explanations" },
               { icon: <TrendingUp className="w-4 h-4 text-primary" />, label: "NGN Question Formats" },
             ].map((stat) => (
@@ -153,6 +155,60 @@ export default function Home() {
                 <span>{stat.label}</span>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* 3 Pillars */}
+        <section className="px-6 py-12 max-w-6xl mx-auto w-full">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight mb-2">
+              One Platform. <span className="text-primary">Three Pillars.</span>
+            </h2>
+            <p className="text-muted-foreground">Everything a nursing student needs — from orientation week to orientation day at your first hospital.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <Link href="/nursing-school">
+              <div className="group h-full p-7 rounded-2xl border-2 border-border bg-card hover:border-primary/50 hover:shadow-lg transition-all duration-200 cursor-pointer flex flex-col">
+                <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center mb-5">
+                  <BookOpen className="w-6 h-6 text-blue-700" />
+                </div>
+                <div className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Pillar 1</div>
+                <h3 className="text-xl font-extrabold tracking-tight mb-2 group-hover:text-primary transition-colors">Nursing School</h3>
+                <p className="text-muted-foreground text-sm leading-relaxed flex-1">Study by system — Fundamentals, Med-Surg, Pharmacology. Pick Cardiac one week, Renal the next. 30 focused questions per topic.</p>
+                <div className="mt-5 flex items-center gap-1 text-primary text-sm font-semibold">
+                  Explore question banks <ArrowRight className="w-3.5 h-3.5 ml-1 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </Link>
+            <Link href="/quiz">
+              <div className="group h-full p-7 rounded-2xl border-2 border-primary bg-card shadow-lg hover:shadow-xl transition-all duration-200 cursor-pointer flex flex-col relative">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                  <Zap className="w-3 h-3" /> Most Popular
+                </div>
+                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-5">
+                  <Brain className="w-6 h-6 text-primary" />
+                </div>
+                <div className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Pillar 2</div>
+                <h3 className="text-xl font-extrabold tracking-tight mb-2 group-hover:text-primary transition-colors">NCLEX Prep</h3>
+                <p className="text-muted-foreground text-sm leading-relaxed flex-1">613+ questions, NGN formats, drag-and-drop, extended multiple response, and AI explanations. Everything the new NCLEX tests.</p>
+                <div className="mt-5 flex items-center gap-1 text-primary text-sm font-semibold">
+                  Start practicing <ArrowRight className="w-3.5 h-3.5 ml-1 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </Link>
+            <Link href="/interview-prep">
+              <div className="group h-full p-7 rounded-2xl border-2 border-border bg-card hover:border-primary/50 hover:shadow-lg transition-all duration-200 cursor-pointer flex flex-col">
+                <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center mb-5">
+                  <Briefcase className="w-6 h-6 text-green-700" />
+                </div>
+                <div className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Pillar 3</div>
+                <h3 className="text-xl font-extrabold tracking-tight mb-2 group-hover:text-primary transition-colors">Interview Prep</h3>
+                <p className="text-muted-foreground text-sm leading-relaxed flex-1">20 real nursing job interview questions with expert rationales. Walk into your first hospital interview confident and prepared.</p>
+                <div className="mt-5 flex items-center gap-1 text-primary text-sm font-semibold">
+                  Ace your interview <ArrowRight className="w-3.5 h-3.5 ml-1 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </Link>
           </div>
         </section>
 

@@ -9,6 +9,8 @@ import Quiz from "@/pages/quiz";
 import Paywall from "@/pages/paywall";
 import SubscribeSuccess from "@/pages/subscribe-success";
 import InterviewPrep from "@/pages/interview-prep";
+import NursingSchool from "@/pages/nursing-school";
+import StudyQuiz from "@/pages/study-quiz";
 
 const queryClient = new QueryClient();
 
@@ -17,6 +19,8 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/quiz" component={Quiz} />
+      <Route path="/study" component={StudyQuiz} />
+      <Route path="/nursing-school" component={NursingSchool} />
       <Route path="/paywall" component={Paywall} />
       <Route path="/subscribe-success" component={SubscribeSuccess} />
       <Route path="/interview-prep" component={InterviewPrep} />
