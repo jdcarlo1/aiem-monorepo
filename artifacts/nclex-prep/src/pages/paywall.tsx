@@ -1,33 +1,46 @@
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { getSessionId } from "@/lib/session";
-import { useCreateCheckout } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Brain, Check, Lock, ShieldCheck, Zap } from "lucide-react";
 
 const features = [
-  "Unlimited access to all 593 NCLEX questions",
-  "All 28 clinical categories including ICU, Maternity, Burns",
-  "NGN question formats: multi-select & drag-and-drop",
+  "Unlimited NCLEX Prep — 613+ questions with NGN formats",
+  "Nursing School question banks across 12 clinical categories",
+  "Interview Prep — 20 nursing job interview questions",
   "AI-powered clinical explanations after every answer",
   "AI Adaptive Engine — focuses on your weak spots",
   "Updated regularly with new questions",
 ];
 
 export default function Paywall() {
-  const [, setLocation] = useLocation();
   const [selectedPlan, setSelectedPlan] = useState<"monthly" | "lifetime">("lifetime");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const sessionId = getSessionId();
-  const createCheckout = useCreateCheckout();
 
-  const handleSubscribe = () => {
-    createCheckout.mutate({
-      data: { sessionId, plan: selectedPlan }
-    }, {
-      onSuccess: () => {
-        setLocation("/subscribe-success");
+  const handleSubscribe = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, plan: selectedPlan }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setError(data.error ?? "Something went wrong. Please try again.");
+        return;
       }
-    });
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -47,7 +60,6 @@ export default function Paywall() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          {/* Monthly Plan */}
           <button
             onClick={() => setSelectedPlan("monthly")}
             className={`relative rounded-2xl border-2 p-6 text-left transition-all duration-200 ${
@@ -69,7 +81,6 @@ export default function Paywall() {
             )}
           </button>
 
-          {/* Lifetime Plan */}
           <button
             onClick={() => setSelectedPlan("lifetime")}
             className={`relative rounded-2xl border-2 p-6 text-left transition-all duration-200 ${
@@ -108,14 +119,20 @@ export default function Paywall() {
           </div>
         </div>
 
+        {error && (
+          <div className="mb-4 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-sm text-destructive text-center">
+            {error}
+          </div>
+        )}
+
         <Button
           size="lg"
           className="w-full text-lg py-6 rounded-xl shadow-md mb-3"
           onClick={handleSubscribe}
-          disabled={createCheckout.isPending}
+          disabled={loading}
         >
-          {createCheckout.isPending
-            ? "Processing..."
+          {loading
+            ? "Redirecting to checkout..."
             : selectedPlan === "lifetime"
             ? "Get Lifetime Access — $49"
             : "Start Monthly Plan — $15/mo"}
@@ -123,7 +140,7 @@ export default function Paywall() {
 
         <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground font-medium">
           <ShieldCheck className="w-4 h-4" />
-          Secure payment · 30-day money-back guarantee
+          Secure payment via Stripe · 30-day money-back guarantee
         </div>
       </div>
     </div>
