@@ -1,10 +1,10 @@
 ---
 name: NCLEX Prep project state
-description: Current question bank size, all 28 categories, next question number, tech stack, question types, and key constraints for the NCLEX Prep app
+description: Current question bank size, all categories, next question number, tech stack, question types, and key constraints for the NCLEX Prep app
 ---
 
 ## Project Overview
-Full-stack NCLEX Prep web app with freemium model (5 free questions, then $10/month). Stripe not yet connected. Branded as "NCLEX AI" with AI-powered theme.
+Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question banks, NCLEX Prep, Interview Prep. Freemium (5 free questions, then $15/mo or $49 lifetime). Stripe backend is wired but not yet connected via Integrations tab.
 
 ## Tech Stack
 - Frontend: React + Vite (wouter routing, TanStack Query, Shadcn UI) — artifact: `artifacts/nclex-prep`
@@ -15,18 +15,21 @@ Full-stack NCLEX Prep web app with freemium model (5 free questions, then $10/mo
 ## Key Files
 - `artifacts/api-server/src/routes/session.ts` — free limit enforcement (5 questions), multi-type answer checking
 - `artifacts/api-server/src/routes/questions.ts` — question routes (returns questionType field)
+- `artifacts/api-server/src/routes/stripe.ts` — Stripe checkout endpoint
+- `artifacts/api-server/src/stripeClient.ts` — reads Stripe creds from Replit connector
+- `artifacts/api-server/src/webhookHandlers.ts` — Stripe webhook + session update logic
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType column)
-- `lib/db/src/schema/sessions.ts` — sessions schema
-- `lib/api-client-react/src/generated/api.schemas.ts` — manually maintained (no codegen script)
-- `artifacts/nclex-prep/src/pages/home.tsx` — AI-themed landing page with testimonials + comparison
-- `artifacts/nclex-prep/src/pages/quiz.tsx` — quiz engine with 3 question type renderers
+- `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
+- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 22-category nursing school page
+- `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, redirects to Stripe URL
+- `scripts/src/seed-products.ts` — run after connecting Stripe to create products
 
 ## Database Schema (questions table)
 - id (serial PK)
 - question_number (int) — NOT a unique constraint
 - category (text)
 - text (text)
-- options (jsonb array of {letter, text})
+- options (jsonb — {"A":"...","B":"...","C":"...","D":"..."})
 - correct_letter (text) — for 'multiple': sorted comma-sep "A,C,D"; for 'ordered': "1,2,3,4"
 - explanation (text)
 - question_type (text, default 'single') — values: 'single' | 'multiple' | 'ordered'
@@ -37,49 +40,54 @@ Full-stack NCLEX Prep web app with freemium model (5 free questions, then $10/mo
 - 'ordered': correctLetter = correct position order "1,2,3,4,5"; items use numeric letters; direct string compare
 
 ## Question Bank State
-- **Total questions: 593**
-- **Total categories: 28**
-- **Last question number used: 593**
-- **Next questions should start at: 594**
+- **Total questions in DB: ~1273+ (mix of NCLEX and nursing school)**
+- **Next question number to use: 1274**
+- Nursing school questions use question_type='single' and CLIENT-SIDE answer checking (no submitAnswer call — avoids corrupting NCLEX session counter)
+- Interview prep also uses client-side checking
 
-## All 28 Categories
-1. Burn Unit Nursing (20 questions)
-2. Cardiac Surgery Nursing (20)
-3. Chest Tube Nursing (20)
-4. Dermatology (20)
-5. Diabetes (20)
-6. Fundamentals (20)
-7. Gastroenterology (20)
-8. Geriatric Nursing (20)
-9. Hematology-Oncology (20)
-10. High-Frequency NCLEX (20)
-11. ICU Nursing (20)
-12. Integumentary System (20)
-13. Leadership (20)
-14. Lymphatic System (20)
-15. Maternal-Newborn (20)
-16. Maternity Nursing (20)
-17. Medical-Surgical (20)
-18. Mental Health (20)
-19. Nervous System (20)
-20. NGN - Clinical Judgment (53 — mixed: 20 single, 20 multiple, 13 ordered)
-21. Ophthalmology (20)
-22. Orthopedic Nursing (20)
-23. Pediatric Nursing (20)
-24. Pediatrics (20)
-25. Pharmacology (20)
-26. Psychiatric Nursing (20)
-27. Reproductive System (20)
-28. Urology (20)
+## Nursing School Page — 22 Categories (6 sections)
 
-## Landing Page (home.tsx)
-- Branding: "NCLEX AI" with Brain icon
-- Hero: "The Smarter Way to Pass Your NCLEX"
-- 6-feature grid, AI vs Traditional comparison table, 4 testimonials, CTA
+**Semester 1 — Fundamentals (1 category)**
+1. Fundamentals of Nursing (30 questions)
+
+**Medical-Surgical — By Body System (9 categories)**
+2. MedSurg: Cardiac (30)
+3. MedSurg: Respiratory (30)
+4. MedSurg: Neurological (30)
+5. MedSurg: Endocrine (30)
+6. MedSurg: Renal & Urology (30)
+7. MedSurg: Gastrointestinal (30)
+8. MedSurg: Burns & Integumentary (30)
+9. MedSurg: Orthopedic (30) ← NEW
+10. MedSurg: Chest Tubes (30) ← NEW
+
+**Infectious Disease (2 categories)**
+11. Infectious Disease: Tuberculosis (30) ← NEW
+12. Infectious Disease: HIV/AIDS (30) ← NEW
+
+**Specialty Nursing (4 categories)**
+13. Pediatric Nursing (30) ← NEW
+14. Maternity & OB Nursing (30) ← NEW
+15. Psychiatric/Mental Health (30) ← NEW
+16. Oncology Nursing (30) ← NEW
+
+**Advanced Practice (2 categories)**
+17. Critical Care/ICU (30) ← NEW
+18. Fluid & Electrolytes (30) ← NEW
+
+**Pharmacology (4 categories)**
+19. Pharmacology: Cardiac Meds (30)
+20. Pharmacology: Respiratory Meds (30)
+21. Pharmacology: Diabetes & Insulin (30)
+22. Pharmacology: Anticoagulation (30)
+
+## NCLEX Prep Categories (legacy — 613+ questions, various types)
+Burn Unit Nursing, Cardiac Surgery, Chest Tube Nursing, Dermatology, Diabetes, Fundamentals, Gastroenterology, Geriatric, Hematology-Oncology, High-Frequency NCLEX, ICU Nursing, Integumentary, Leadership, Lymphatic, Maternal-Newborn, Maternity Nursing, Medical-Surgical, Mental Health, Nervous System, NGN-Clinical Judgment (53, mixed types), Ophthalmology, Orthopedic Nursing, Pediatrics, Pharmacology, Psychiatric Nursing, Reproductive System, Urology
 
 ## Business Logic
-- Free limit = 5 questions, enforced server-side in `session.ts`
-- `/api/subscription/checkout` returns a placeholder message — Stripe NOT connected
-- Artifact ID for presenting: `artifacts/nclex-prep`
+- Free limit = 5 questions, enforced server-side in session.ts
+- Nursing school + interview prep: client-side answer checking only (do NOT call /api/session/submit)
+- Stripe: stripeClient.ts reads from REPLIT_CONNECTORS_HOSTNAME; user must connect via Integrations tab
+- seed-products.ts must be run after Stripe is connected
 
 **Why:** User explicitly asked this to be saved so context isn't lost across sessions.

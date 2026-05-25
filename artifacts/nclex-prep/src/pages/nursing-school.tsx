@@ -17,6 +17,15 @@ import {
   Flame,
   Lock,
   Syringe,
+  Bone,
+  Stethoscope,
+  Bug,
+  Baby,
+  HeartPulse,
+  ShieldAlert,
+  Radiation,
+  Monitor,
+  Waves,
 } from "lucide-react";
 
 const fundamentals = [
@@ -94,6 +103,105 @@ const medsurg = [
     desc: "Burn classification, fluid resuscitation, wound care, pressure injuries, and skin assessment.",
     color: "bg-amber-50 text-amber-700 border-amber-200",
     iconBg: "bg-amber-100",
+  },
+  {
+    category: "MedSurg: Orthopedic",
+    label: "Orthopedic Nursing",
+    icon: <Bone className="w-6 h-6" />,
+    questions: 30,
+    desc: "Fractures, compartment syndrome, joint replacement, traction, cast care, pin sites, and neurovascular assessment.",
+    color: "bg-stone-50 text-stone-700 border-stone-200",
+    iconBg: "bg-stone-100",
+  },
+  {
+    category: "MedSurg: Chest Tubes",
+    label: "Chest Tube Management",
+    icon: <Stethoscope className="w-6 h-6" />,
+    questions: 30,
+    desc: "Chest tube insertion, drainage systems (Pleur-evac), air leaks, tidaling, pneumothorax, and removal procedure.",
+    color: "bg-blue-50 text-blue-700 border-blue-200",
+    iconBg: "bg-blue-100",
+  },
+];
+
+const infectiousDisease = [
+  {
+    category: "Infectious Disease: Tuberculosis",
+    label: "Tuberculosis (TB)",
+    icon: <Bug className="w-6 h-6" />,
+    questions: 30,
+    desc: "TB transmission, airborne precautions, RIPE therapy, DOT, Mantoux/IGRA testing, latent vs active TB, and drug side effects.",
+    color: "bg-yellow-50 text-yellow-700 border-yellow-200",
+    iconBg: "bg-yellow-100",
+  },
+  {
+    category: "Infectious Disease: HIV/AIDS",
+    label: "HIV/AIDS Nursing",
+    icon: <ShieldAlert className="w-6 h-6" />,
+    questions: 30,
+    desc: "CD4 counts, viral load, ART adherence, opportunistic infections (PCP, CMV, MAC), PEP, PrEP, and patient education.",
+    color: "bg-red-50 text-red-700 border-red-200",
+    iconBg: "bg-red-100",
+  },
+];
+
+const specialtyNursing = [
+  {
+    category: "Pediatric Nursing",
+    label: "Pediatric Nursing",
+    icon: <Baby className="w-6 h-6" />,
+    questions: 30,
+    desc: "Developmental milestones, immunizations, pediatric vital signs, weight-based dosing, dehydration, and common pediatric conditions.",
+    color: "bg-pink-50 text-pink-700 border-pink-200",
+    iconBg: "bg-pink-100",
+  },
+  {
+    category: "Maternity & OB Nursing",
+    label: "Maternity & OB Nursing",
+    icon: <HeartPulse className="w-6 h-6" />,
+    questions: 30,
+    desc: "Prenatal care, fetal monitoring, labor stages, preeclampsia, postpartum hemorrhage, APGAR scoring, and newborn assessment.",
+    color: "bg-rose-50 text-rose-700 border-rose-200",
+    iconBg: "bg-rose-100",
+  },
+  {
+    category: "Psychiatric/Mental Health",
+    label: "Psychiatric / Mental Health",
+    icon: <Brain className="w-6 h-6" />,
+    questions: 30,
+    desc: "Therapeutic communication, schizophrenia, bipolar disorder, depression, anxiety, antipsychotics, lithium toxicity, and crisis intervention.",
+    color: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    iconBg: "bg-indigo-100",
+  },
+  {
+    category: "Oncology Nursing",
+    label: "Oncology Nursing",
+    icon: <Radiation className="w-6 h-6" />,
+    questions: 30,
+    desc: "Chemotherapy side effects, neutropenic precautions, tumor lysis syndrome, SVCS, nadir, vesicants, port-a-cath care, and palliative care.",
+    color: "bg-purple-50 text-purple-700 border-purple-200",
+    iconBg: "bg-purple-100",
+  },
+];
+
+const advancedPractice = [
+  {
+    category: "Critical Care/ICU",
+    label: "Critical Care / ICU",
+    icon: <Monitor className="w-6 h-6" />,
+    questions: 30,
+    desc: "ABG interpretation, mechanical ventilation, VAP prevention, hemodynamic monitoring, sepsis bundle, delirium (CAM-ICU), and ACLS medications.",
+    color: "bg-slate-50 text-slate-700 border-slate-200",
+    iconBg: "bg-slate-100",
+  },
+  {
+    category: "Fluid & Electrolytes",
+    label: "Fluid & Electrolytes",
+    icon: <Waves className="w-6 h-6" />,
+    questions: 30,
+    desc: "Sodium, potassium, calcium, magnesium imbalances, acid-base disorders, IV fluid types, SIADH, DI, and refeeding syndrome.",
+    color: "bg-teal-50 text-teal-700 border-teal-200",
+    iconBg: "bg-teal-100",
   },
 ];
 
@@ -202,6 +310,9 @@ export default function NursingSchool() {
 
   const handleLockClick = () => setLocation("/paywall");
 
+  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + pharmacology.length;
+  const totalQuestions = totalCategories * 30;
+
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
       <header className="px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
@@ -228,13 +339,13 @@ export default function NursingSchool() {
             Study by System. <span className="text-primary">Ace Every Exam.</span>
           </h1>
           <p className="text-muted-foreground text-lg leading-relaxed max-w-2xl">
-            Pick exactly what you're studying. Whether it's Fundamentals in semester one or Cardiac in Med-Surg, drill 30 focused questions per topic and walk into every exam prepared.
+            {totalCategories} question banks covering every nursing specialty — {totalQuestions}+ targeted practice questions. Pick exactly what you're studying and drill it until it clicks.
           </p>
           {!isSubscribed && (
             <div className="mt-4 flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20">
               <Lock className="w-5 h-5 text-primary shrink-0" />
               <p className="text-sm text-foreground">
-                <span className="font-semibold">Premium feature.</span> Unlock all question banks with a $49 lifetime plan.{" "}
+                <span className="font-semibold">Premium feature.</span> Unlock all {totalCategories} question banks with a $49 lifetime plan.{" "}
                 <button onClick={handleLockClick} className="text-primary font-semibold underline underline-offset-2 hover:no-underline">
                   Unlock now →
                 </button>
@@ -257,9 +368,42 @@ export default function NursingSchool() {
         {/* Med-Surg by System */}
         <section className="mb-10">
           <h2 className="text-lg font-bold tracking-tight mb-1">Medical-Surgical — By Body System</h2>
-          <p className="text-sm text-muted-foreground mb-4">Study exactly the system you're covering in class this week.</p>
+          <p className="text-sm text-muted-foreground mb-4">Study exactly the system you're covering in class this week — including orthopedics and chest tube management.</p>
           <div className="space-y-3">
             {medsurg.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Infectious Disease */}
+        <section className="mb-10">
+          <h2 className="text-lg font-bold tracking-tight mb-1">Infectious Disease</h2>
+          <p className="text-sm text-muted-foreground mb-4">Transmission, isolation precautions, drug therapy, and patient education for high-stakes infections.</p>
+          <div className="space-y-3">
+            {infectiousDisease.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Specialty Nursing */}
+        <section className="mb-10">
+          <h2 className="text-lg font-bold tracking-tight mb-1">Specialty Nursing</h2>
+          <p className="text-sm text-muted-foreground mb-4">Pediatrics, maternity, psychiatry, and oncology — the four high-yield specialties on every nursing exam.</p>
+          <div className="space-y-3">
+            {specialtyNursing.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Advanced Practice */}
+        <section className="mb-10">
+          <h2 className="text-lg font-bold tracking-tight mb-1">Advanced Practice</h2>
+          <p className="text-sm text-muted-foreground mb-4">ICU-level critical thinking and fluid/electrolyte mastery — essential for senior semesters and NCLEX.</p>
+          <div className="space-y-3">
+            {advancedPractice.map((item) => (
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
           </div>
