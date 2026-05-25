@@ -1,84 +1,130 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { getSessionId } from "@/lib/session";
 import { useCreateCheckout } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookOpen, Check, Lock, ShieldCheck } from "lucide-react";
+import { Brain, Check, Lock, ShieldCheck, Zap } from "lucide-react";
+
+const features = [
+  "Unlimited access to all 593 NCLEX questions",
+  "All 28 clinical categories including ICU, Maternity, Burns",
+  "NGN question formats: multi-select & drag-and-drop",
+  "AI-powered clinical explanations after every answer",
+  "AI Adaptive Engine — focuses on your weak spots",
+  "Updated regularly with new questions",
+];
 
 export default function Paywall() {
   const [, setLocation] = useLocation();
+  const [selectedPlan, setSelectedPlan] = useState<"monthly" | "lifetime">("lifetime");
   const sessionId = getSessionId();
   const createCheckout = useCreateCheckout();
 
   const handleSubscribe = () => {
     createCheckout.mutate({
-      data: { sessionId }
+      data: { sessionId, plan: selectedPlan }
     }, {
       onSuccess: () => {
-        // Since Stripe is placeholder, it returns a message and we manually route to success
         setLocation("/subscribe-success");
       }
     });
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-slate-50 dark:bg-background justify-center p-4 sm:p-8">
-      <div className="max-w-md w-full mx-auto">
+    <div className="min-h-[100dvh] flex flex-col bg-background justify-center p-4 sm:p-8">
+      <div className="max-w-2xl w-full mx-auto">
         <Link href="/" className="inline-flex items-center gap-2 text-primary hover:opacity-80 transition-opacity mb-8 font-semibold">
-          <BookOpen className="w-5 h-5" />
-          <span>NCLEX Prep</span>
+          <Brain className="w-5 h-5" />
+          <span>NCLEX AI</span>
         </Link>
-        
-        <Card className="border-border shadow-xl rounded-2xl overflow-hidden">
-          <div className="bg-primary px-6 py-8 text-primary-foreground text-center">
-            <Lock className="w-12 h-12 mx-auto mb-4 opacity-90" />
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
-              Unlock Full Access
-            </h1>
-            <p className="text-primary-foreground/80 font-medium">
-              You've used your 5 free questions.
-            </p>
+
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-4">
+            <Lock className="w-7 h-7 text-primary" />
           </div>
-          
-          <CardContent className="p-6 sm:p-8 space-y-6">
-            <div className="text-center">
-              <div className="flex items-baseline justify-center gap-1">
-                <span className="text-5xl font-extrabold text-foreground">$10</span>
-                <span className="text-muted-foreground font-medium">/month</span>
+          <h1 className="text-3xl font-extrabold tracking-tight mb-2">Unlock Full Access</h1>
+          <p className="text-muted-foreground text-lg">You've used your 5 free questions. Choose a plan to keep going.</p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          {/* Monthly Plan */}
+          <button
+            onClick={() => setSelectedPlan("monthly")}
+            className={`relative rounded-2xl border-2 p-6 text-left transition-all duration-200 ${
+              selectedPlan === "monthly"
+                ? "border-primary bg-primary/5 shadow-md"
+                : "border-border bg-card hover:border-primary/40"
+            }`}
+          >
+            <p className="text-sm font-semibold text-muted-foreground mb-1">Monthly</p>
+            <div className="flex items-baseline gap-1 mb-1">
+              <span className="text-4xl font-extrabold text-foreground">$15</span>
+              <span className="text-muted-foreground font-medium">/month</span>
+            </div>
+            <p className="text-xs text-muted-foreground">Cancel anytime</p>
+            {selectedPlan === "monthly" && (
+              <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                <Check className="w-3 h-3 text-primary-foreground" />
               </div>
-              <p className="text-sm text-muted-foreground mt-2">Cancel anytime. No hidden fees.</p>
-            </div>
+            )}
+          </button>
 
-            <div className="space-y-3">
-              {[
-                "Unlimited access to all NCLEX questions",
-                "Detailed explanations for every answer",
-                "Progress tracking and performance insights",
-                "Updated regularly with new questions"
-              ].map((feature, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <Check className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-                  <span className="text-foreground text-sm font-medium">{feature}</span>
-                </div>
-              ))}
+          {/* Lifetime Plan */}
+          <button
+            onClick={() => setSelectedPlan("lifetime")}
+            className={`relative rounded-2xl border-2 p-6 text-left transition-all duration-200 ${
+              selectedPlan === "lifetime"
+                ? "border-primary bg-primary/5 shadow-md"
+                : "border-border bg-card hover:border-primary/40"
+            }`}
+          >
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-xs font-bold mb-2">
+              <Zap className="w-3 h-3" />
+              Most Popular
             </div>
-          </CardContent>
+            <p className="text-sm font-semibold text-muted-foreground mb-1">Lifetime</p>
+            <div className="flex items-baseline gap-1 mb-1">
+              <span className="text-4xl font-extrabold text-foreground">$49</span>
+              <span className="text-muted-foreground font-medium">one-time</span>
+            </div>
+            <p className="text-xs text-muted-foreground">Pay once, access forever</p>
+            {selectedPlan === "lifetime" && (
+              <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                <Check className="w-3 h-3 text-primary-foreground" />
+              </div>
+            )}
+          </button>
+        </div>
 
-          <CardFooter className="p-6 sm:p-8 pt-0 flex flex-col gap-4">
-            <Button 
-              size="lg" 
-              className="w-full text-lg py-6 rounded-xl shadow-md"
-              onClick={handleSubscribe}
-              disabled={createCheckout.isPending}
-            >
-              {createCheckout.isPending ? "Processing..." : "Subscribe Now"}
-            </Button>
-            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground font-medium">
-              <ShieldCheck className="w-4 h-4" />
-              Secure payment processing
-            </div>
-          </CardFooter>
-        </Card>
+        <div className="bg-card border border-border rounded-2xl p-6 mb-6">
+          <p className="text-sm font-semibold text-foreground mb-4">Everything included:</p>
+          <div className="space-y-3">
+            {features.map((feature, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                <span className="text-sm text-foreground">{feature}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <Button
+          size="lg"
+          className="w-full text-lg py-6 rounded-xl shadow-md mb-3"
+          onClick={handleSubscribe}
+          disabled={createCheckout.isPending}
+        >
+          {createCheckout.isPending
+            ? "Processing..."
+            : selectedPlan === "lifetime"
+            ? "Get Lifetime Access — $49"
+            : "Start Monthly Plan — $15/mo"}
+        </Button>
+
+        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground font-medium">
+          <ShieldCheck className="w-4 h-4" />
+          Secure payment · 30-day money-back guarantee
+        </div>
       </div>
     </div>
   );

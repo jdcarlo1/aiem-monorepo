@@ -47,7 +47,7 @@ const testimonials = [
     name: "David K., BSN-RN",
     school: "UCLA School of Nursing",
     quote:
-      "27 categories covering every clinical area I needed. The burn unit, ICU, and maternity questions were detailed and realistic. For $10/month vs. $150 for prep books? This is a no-brainer for any nursing student.",
+      "27 categories covering every clinical area I needed. The burn unit, ICU, and maternity questions were detailed and realistic. For $15/month vs. $150 for prep books? This is a no-brainer for any nursing student.",
     stars: 5,
     tag: "1st attempt pass",
   },
@@ -61,7 +61,7 @@ const comparisonRows = [
   { feature: "540+ questions across 27 categories", us: true, them: "Limited" },
   { feature: "Instant answer feedback", us: true, them: false },
   { feature: "Available 24/7 on any device", us: true, them: true },
-  { feature: "Cost", us: "$10/month", them: "$50–$200+" },
+  { feature: "Cost", us: "$15/mo or $49 lifetime", them: "$50–$200+" },
 ];
 
 export default function Home() {
@@ -127,7 +127,7 @@ export default function Home() {
             </Link>
             {(!sessionStatus || !sessionStatus.isSubscribed) && (
               <p className="text-sm text-muted-foreground">
-                5 free questions · Then $10/month
+                5 free questions · Then $15/mo or $49 lifetime
               </p>
             )}
           </div>
@@ -310,6 +310,72 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Pricing */}
+        <section className="px-6 py-16 bg-secondary/30">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
+                Simple, <span className="text-primary">Transparent Pricing</span>
+              </h2>
+              <p className="text-muted-foreground text-lg">
+                Start free. Upgrade when you're ready.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-2xl mx-auto">
+              {/* Monthly */}
+              <div className="rounded-2xl border border-border bg-card p-8 flex flex-col shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200">
+                <p className="text-sm font-semibold text-muted-foreground mb-2">Monthly</p>
+                <div className="flex items-baseline gap-1 mb-1">
+                  <span className="text-5xl font-extrabold text-foreground">$15</span>
+                  <span className="text-muted-foreground font-medium">/month</span>
+                </div>
+                <p className="text-xs text-muted-foreground mb-6">Cancel anytime</p>
+                <ul className="space-y-3 mb-8 flex-1">
+                  {["All 593 questions", "28 clinical categories", "NGN question formats", "AI explanations", "AI Adaptive Engine"].map((f) => (
+                    <li key={f} className="flex items-center gap-2 text-sm text-foreground">
+                      <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/quiz">
+                  <Button variant="outline" className="w-full rounded-xl">Get Started</Button>
+                </Link>
+              </div>
+
+              {/* Lifetime */}
+              <div className="relative rounded-2xl border-2 border-primary bg-card p-8 flex flex-col shadow-lg">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                  <Zap className="w-3 h-3" />
+                  Most Popular
+                </div>
+                <p className="text-sm font-semibold text-muted-foreground mb-2">Lifetime</p>
+                <div className="flex items-baseline gap-1 mb-1">
+                  <span className="text-5xl font-extrabold text-foreground">$49</span>
+                  <span className="text-muted-foreground font-medium">one-time</span>
+                </div>
+                <p className="text-xs text-muted-foreground mb-6">Pay once · Access forever</p>
+                <ul className="space-y-3 mb-8 flex-1">
+                  {["All 593 questions", "28 clinical categories", "NGN question formats", "AI explanations", "AI Adaptive Engine", "All future updates included"].map((f) => (
+                    <li key={f} className="flex items-center gap-2 text-sm text-foreground">
+                      <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/quiz">
+                  <Button className="w-full rounded-xl shadow-md">Get Lifetime Access</Button>
+                </Link>
+              </div>
+            </div>
+
+            <p className="text-center text-sm text-muted-foreground mt-8">
+              🔒 Secure payment · 30-day money-back guarantee · No hidden fees
+            </p>
+          </div>
+        </section>
+
         {/* Final CTA */}
         <section className="px-6 py-20 text-center bg-gradient-to-br from-primary/5 via-background to-background">
           <div className="max-w-2xl mx-auto">
@@ -325,7 +391,7 @@ export default function Home() {
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </Link>
-            <p className="text-sm text-muted-foreground mt-4">5 free questions · Then $10/month · Cancel anytime</p>
+            <p className="text-sm text-muted-foreground mt-4">5 free questions · $15/month or $49 lifetime · Cancel anytime</p>
           </div>
         </section>
       </main>
