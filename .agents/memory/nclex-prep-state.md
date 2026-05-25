@@ -20,7 +20,7 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - `artifacts/api-server/src/webhookHandlers.ts` — Stripe webhook + session update logic
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType column)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
-- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 22-category nursing school page
+- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 24-category nursing school page (7 sections)
 - `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, redirects to Stripe URL
 - `scripts/src/seed-products.ts` — run after connecting Stripe to create products
 
@@ -40,12 +40,12 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - 'ordered': correctLetter = correct position order "1,2,3,4,5"; items use numeric letters; direct string compare
 
 ## Question Bank State
-- **Total questions in DB: ~1273+ (mix of NCLEX and nursing school)**
-- **Next question number to use: 1274**
+- **Total questions in DB: ~1333 (mix of NCLEX and nursing school)**
+- **Next question number to use: 1334**
 - Nursing school questions use question_type='single' and CLIENT-SIDE answer checking (no submitAnswer call — avoids corrupting NCLEX session counter)
 - Interview prep also uses client-side checking
 
-## Nursing School Page — 22 Categories (6 sections)
+## Nursing School Page — 24 Categories (7 sections)
 
 **Semester 1 — Fundamentals (1 category)**
 1. Fundamentals of Nursing (30 questions)
@@ -58,28 +58,32 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 6. MedSurg: Renal & Urology (30)
 7. MedSurg: Gastrointestinal (30)
 8. MedSurg: Burns & Integumentary (30)
-9. MedSurg: Orthopedic (30) ← NEW
-10. MedSurg: Chest Tubes (30) ← NEW
+9. MedSurg: Orthopedic (30)
+10. MedSurg: Chest Tubes (30)
 
 **Infectious Disease (2 categories)**
-11. Infectious Disease: Tuberculosis (30) ← NEW
-12. Infectious Disease: HIV/AIDS (30) ← NEW
+11. Infectious Disease: Tuberculosis (30)
+12. Infectious Disease: HIV/AIDS (30)
 
 **Specialty Nursing (4 categories)**
-13. Pediatric Nursing (30) ← NEW
-14. Maternity & OB Nursing (30) ← NEW
-15. Psychiatric/Mental Health (30) ← NEW
-16. Oncology Nursing (30) ← NEW
+13. Pediatric Nursing (30)
+14. Maternity & OB Nursing (30)
+15. Psychiatric/Mental Health (30)
+16. Oncology Nursing (30)
 
 **Advanced Practice (2 categories)**
-17. Critical Care/ICU (30) ← NEW
-18. Fluid & Electrolytes (30) ← NEW
+17. Critical Care/ICU (30)
+18. Fluid & Electrolytes (30)
+
+**Clinical Reasoning (2 categories)**
+19. ABG Interpretation (30) — Q1274–Q1303
+20. EKG Interpretation (30) — Q1304–Q1333
 
 **Pharmacology (4 categories)**
-19. Pharmacology: Cardiac Meds (30)
-20. Pharmacology: Respiratory Meds (30)
-21. Pharmacology: Diabetes & Insulin (30)
-22. Pharmacology: Anticoagulation (30)
+21. Pharmacology: Cardiac Meds (30)
+22. Pharmacology: Respiratory Meds (30)
+23. Pharmacology: Diabetes & Insulin (30)
+24. Pharmacology: Anticoagulation (30)
 
 ## NCLEX Prep Categories (legacy — 613+ questions, various types)
 Burn Unit Nursing, Cardiac Surgery, Chest Tube Nursing, Dermatology, Diabetes, Fundamentals, Gastroenterology, Geriatric, Hematology-Oncology, High-Frequency NCLEX, ICU Nursing, Integumentary, Leadership, Lymphatic, Maternal-Newborn, Maternity Nursing, Medical-Surgical, Mental Health, Nervous System, NGN-Clinical Judgment (53, mixed types), Ophthalmology, Orthopedic Nursing, Pediatrics, Pharmacology, Psychiatric Nursing, Reproductive System, Urology

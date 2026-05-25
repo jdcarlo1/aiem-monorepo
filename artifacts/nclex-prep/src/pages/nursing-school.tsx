@@ -26,6 +26,7 @@ import {
   Radiation,
   Monitor,
   Waves,
+  TestTube,
 } from "lucide-react";
 
 const fundamentals = [
@@ -190,7 +191,7 @@ const advancedPractice = [
     label: "Critical Care / ICU",
     icon: <Monitor className="w-6 h-6" />,
     questions: 30,
-    desc: "ABG interpretation, mechanical ventilation, VAP prevention, hemodynamic monitoring, sepsis bundle, delirium (CAM-ICU), and ACLS medications.",
+    desc: "Mechanical ventilation, VAP prevention, hemodynamic monitoring, sepsis bundle, delirium (CAM-ICU), and ACLS medications.",
     color: "bg-slate-50 text-slate-700 border-slate-200",
     iconBg: "bg-slate-100",
   },
@@ -202,6 +203,27 @@ const advancedPractice = [
     desc: "Sodium, potassium, calcium, magnesium imbalances, acid-base disorders, IV fluid types, SIADH, DI, and refeeding syndrome.",
     color: "bg-teal-50 text-teal-700 border-teal-200",
     iconBg: "bg-teal-100",
+  },
+];
+
+const clinicalReasoning = [
+  {
+    category: "ABG Interpretation",
+    label: "ABG Interpretation",
+    icon: <TestTube className="w-6 h-6" />,
+    questions: 30,
+    desc: "Step-by-step ABG analysis: respiratory acidosis, respiratory alkalosis, metabolic acidosis, metabolic alkalosis — uncompensated, partially compensated, and fully compensated.",
+    color: "bg-lime-50 text-lime-700 border-lime-200",
+    iconBg: "bg-lime-100",
+  },
+  {
+    category: "EKG Interpretation",
+    label: "EKG / Rhythm Interpretation",
+    icon: <Activity className="w-6 h-6" />,
+    questions: 30,
+    desc: "Normal sinus rhythm, AV blocks (1°, 2° Mobitz I/II, 3°), A-fib, A-flutter, SVT, VT, VF, PVCs, bundle branch blocks, STEMI patterns, and life-threatening arrhythmia management.",
+    color: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    iconBg: "bg-emerald-100",
   },
 ];
 
@@ -310,7 +332,7 @@ export default function NursingSchool() {
 
   const handleLockClick = () => setLocation("/paywall");
 
-  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + pharmacology.length;
+  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length;
   const totalQuestions = totalCategories * 30;
 
   return (
@@ -404,6 +426,17 @@ export default function NursingSchool() {
           <p className="text-sm text-muted-foreground mb-4">ICU-level critical thinking and fluid/electrolyte mastery — essential for senior semesters and NCLEX.</p>
           <div className="space-y-3">
             {advancedPractice.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Clinical Reasoning */}
+        <section className="mb-10">
+          <h2 className="text-lg font-bold tracking-tight mb-1">Clinical Reasoning</h2>
+          <p className="text-sm text-muted-foreground mb-4">Master ABG interpretation and EKG rhythms — two of the highest-yield skills on NCLEX and in clinical practice.</p>
+          <div className="space-y-3">
+            {clinicalReasoning.map((item) => (
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
           </div>
