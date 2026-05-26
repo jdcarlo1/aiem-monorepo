@@ -4,25 +4,38 @@ description: Current question bank size, all categories, next question number, t
 ---
 
 ## Project Overview
-Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question banks, NCLEX Prep, Interview Prep. Freemium (5 free questions, then $15/mo or $49 lifetime). Stripe backend is wired but not yet connected via Integrations tab.
+Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question banks, NCLEX Prep, Interview Prep. Freemium (5 free questions, then $15/mo or $49 lifetime). Stripe live payments working. Clerk auth fully integrated.
 
 ## Tech Stack
 - Frontend: React + Vite (wouter routing, TanStack Query, Shadcn UI) — artifact: `artifacts/nclex-prep`
 - Backend: Express 5 API server — artifact: `artifacts/api-server`
 - ORM: Drizzle ORM + PostgreSQL
-- Session tracking: UUID in localStorage as "nclex_session_id" — no auth required
+- Auth: Clerk (provisioned, app_3EEtvOk987ELQSncQZqVjiIuB02). useSessionId() hook returns Clerk userId when signed in, localStorage UUID when not.
+- Payments: Stripe live key (STRIPE_SECRET_KEY env var). Products: prod_UaJXZTmKruPrEx (monthly), prod_UaJXMqt2zCm0Q4 (lifetime).
+
+## Clerk Auth — Key Implementation Details
+- `useSessionId()` hook at `artifacts/nclex-prep/src/hooks/useSessionId.ts` — returns Clerk userId when signed in, localStorage UUID when not
+- Sign-in page: `/sign-in`, Sign-up page: `/sign-up` — both use Clerk's SignIn/SignUp components with routing="path"
+- ClerkProvider wraps entire app in App.tsx; proxy middleware mounted in api-server/src/app.ts before body parsers
+- `index.css` has `@layer theme, base, clerk, components, utilities;` before `@import "tailwindcss"`
+- `vite.config.ts` has `tailwindcss({ optimize: false })` to prevent prod build breakage
+- logo.svg at `artifacts/nclex-prep/public/logo.svg`
+- clerkPubKey uses `publishableKeyFromHost` from `@clerk/react/internal` — never raw env var
+- proxyUrl is `import.meta.env.VITE_CLERK_PROXY_URL` unconditionally — empty in dev, auto-set in prod
+- Home page header shows "Sign In" when signed out, username + "Sign Out" when signed in
 
 ## Key Files
 - `artifacts/api-server/src/routes/session.ts` — free limit enforcement (5 questions), multi-type answer checking
 - `artifacts/api-server/src/routes/questions.ts` — question routes (returns questionType field)
 - `artifacts/api-server/src/routes/stripe.ts` — Stripe checkout endpoint
-- `artifacts/api-server/src/stripeClient.ts` — reads Stripe creds from Replit connector
+- `artifacts/api-server/src/stripeClient.ts` — reads Stripe creds from STRIPE_SECRET_KEY env var first (sk_live_), falls back to connector
 - `artifacts/api-server/src/webhookHandlers.ts` — Stripe webhook + session update logic
+- `artifacts/api-server/src/app.ts` — Clerk proxy + clerkMiddleware wired in
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType column)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
 - `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 26-category nursing school page (7 sections)
 - `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, redirects to Stripe URL
-- `scripts/src/seed-products.ts` — run after connecting Stripe to create products
+- `scripts/src/seed-products-live.ts` — seeds products to live Stripe account (use this, NOT seed-products.ts)
 
 ## Database Schema (questions table)
 - id (serial PK)
@@ -90,11 +103,14 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 ## NCLEX Prep Categories (legacy — 613+ questions, various types)
 Burn Unit Nursing, Cardiac Surgery, Chest Tube Nursing, Dermatology, Diabetes, Fundamentals, Gastroenterology, Geriatric, Hematology-Oncology, High-Frequency NCLEX, ICU Nursing, Integumentary, Leadership, Lymphatic, Maternal-Newborn, Maternity Nursing, Medical-Surgical, Mental Health, Nervous System, NGN-Clinical Judgment (53, mixed types), Ophthalmology, Orthopedic Nursing, Pediatrics, Pharmacology, Psychiatric Nursing, Reproductive System, Urology
 
+## Interview Prep
+20 questions (Q594–Q613), category "Nursing Interview Prep" — all verified correct nursing JOB INTERVIEW questions. Client-side answer checking only.
+
 ## Business Logic
 - Free limit = 5 questions, enforced server-side in session.ts
 - Nursing school + interview prep: client-side answer checking only (do NOT call /api/session/submit)
-- Stripe: stripeClient.ts reads from REPLIT_CONNECTORS_HOSTNAME; user must connect via Integrations tab
-- seed-products.ts must be run after Stripe is connected
+- Session ID: Clerk userId when signed in, localStorage UUID when not (handled by useSessionId hook)
+- Stripe live: STRIPE_SECRET_KEY env var set. Do NOT re-run seed-products.ts (uses test connector). Use seed-products-live.ts.
 
 ## Lucide Icons in nursing-school.tsx (already imported — do not duplicate)
 Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical, BookOpen, Flame, Lock, Syringe, Bone, Stethoscope, Bug, Baby, HeartPulse, ShieldAlert, Radiation, Monitor, Waves, TestTube

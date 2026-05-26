@@ -8,7 +8,7 @@ import {
   getGetSessionStatusQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getSessionId } from "@/lib/session";
+import { useSessionId } from "@/hooks/useSessionId";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -326,7 +326,7 @@ interface AnswerResultState {
 // ─── Main Quiz ────────────────────────────────────────────────────────────────
 export default function Quiz() {
   const [, setLocation] = useLocation();
-  const sessionId = getSessionId();
+  const sessionId = useSessionId();
   const queryClient = useQueryClient();
 
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);

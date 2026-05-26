@@ -1,7 +1,8 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useGetSessionStatus } from "@workspace/api-client-react";
-import { getSessionId } from "@/lib/session";
+import { useSessionId } from "@/hooks/useSessionId";
+import { Show, useClerk, useUser } from "@clerk/react";
 import {
   Brain,
   CheckCircle,
@@ -67,7 +68,9 @@ const comparisonRows = [
 ];
 
 export default function Home() {
-  const sessionId = getSessionId();
+  const sessionId = useSessionId();
+  const { signOut } = useClerk();
+  const { user, isLoaded } = useUser();
   const { data: sessionStatus } = useGetSessionStatus(
     { sessionId },
     { query: { enabled: !!sessionId } }
@@ -103,6 +106,23 @@ export default function Home() {
                 Start Practicing
               </Button>
             </Link>
+            <Show when="signed-out">
+              <Link href="/sign-in">
+                <Button size="sm" variant="ghost" className="rounded-full">
+                  Sign In
+                </Button>
+              </Link>
+            </Show>
+            <Show when="signed-in">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="rounded-full text-muted-foreground text-xs"
+                onClick={() => signOut({ redirectUrl: "/" })}
+              >
+                {isLoaded && user ? user.primaryEmailAddress?.emailAddress?.split("@")[0] : ""} · Sign Out
+              </Button>
+            </Show>
           </div>
         </div>
       </header>

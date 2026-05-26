@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useGetSessionStatus } from "@workspace/api-client-react";
-import { getSessionId } from "@/lib/session";
+import { useSessionId } from "@/hooks/useSessionId";
 import { Button } from "@/components/ui/button";
 import {
   Brain,
@@ -340,7 +340,7 @@ function CategoryCard({
 
 export default function NursingSchool() {
   const [, setLocation] = useLocation();
-  const sessionId = getSessionId();
+  const sessionId = useSessionId();
   const { data: sessionStatus } = useGetSessionStatus(
     { sessionId },
     { query: { enabled: !!sessionId } }

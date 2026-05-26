@@ -5,7 +5,7 @@ import {
   useListQuestions,
   useGetQuestion,
 } from "@workspace/api-client-react";
-import { getSessionId } from "@/lib/session";
+import { useSessionId } from "@/hooks/useSessionId";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -92,7 +92,7 @@ function SingleChoice({
 // ─── Main ──────────────────────────────────────────────────────────────────
 export default function StudyQuiz() {
   const [, setLocation] = useLocation();
-  const sessionId = getSessionId();
+  const sessionId = useSessionId();
 
   const category = new URLSearchParams(window.location.search).get("category") ?? "";
 

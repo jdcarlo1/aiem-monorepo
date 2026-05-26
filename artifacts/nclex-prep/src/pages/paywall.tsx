@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { getSessionId } from "@/lib/session";
+import { useSessionId } from "@/hooks/useSessionId";
 import { Button } from "@/components/ui/button";
 import { Brain, Check, Lock, ShieldCheck, Zap } from "lucide-react";
 
@@ -17,7 +17,7 @@ export default function Paywall() {
   const [selectedPlan, setSelectedPlan] = useState<"monthly" | "lifetime">("lifetime");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const sessionId = getSessionId();
+  const sessionId = useSessionId();
 
   const handleSubscribe = async () => {
     setLoading(true);
