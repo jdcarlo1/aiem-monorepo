@@ -163,6 +163,8 @@ export default function Home() {
             )}
           </div>
 
+          <p className="text-sm font-semibold text-primary mb-6 tracking-wide">🌐 nclexai.org</p>
+
           <div className="flex flex-wrap justify-center gap-6 text-sm font-medium text-muted-foreground">
             {[
               { icon: <Zap className="w-4 h-4 text-primary" />, label: "1,000+ Questions" },
