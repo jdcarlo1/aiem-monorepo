@@ -28,6 +28,8 @@ import {
   Monitor,
   Waves,
   TestTube,
+  ListChecks,
+  GripVertical,
 } from "lucide-react";
 
 const fundamentals = [
@@ -285,6 +287,27 @@ const pharmacology = [
   },
 ];
 
+const ngnFormats = [
+  {
+    category: "Select All That Apply",
+    label: "Select All That Apply (SATA)",
+    icon: <ListChecks className="w-6 h-6" />,
+    questions: 30,
+    desc: "Master the most commonly missed NCLEX question type. Select every correct answer — partial credit isn't given on the real exam.",
+    color: "bg-violet-50 text-violet-700 border-violet-200",
+    iconBg: "bg-violet-100",
+  },
+  {
+    category: "Drag & Drop Ordering",
+    label: "Drag & Drop Ordering",
+    icon: <GripVertical className="w-6 h-6" />,
+    questions: 30,
+    desc: "Put nursing interventions, assessment steps, and clinical protocols in the correct priority order — just like the real Next Generation NCLEX.",
+    color: "bg-orange-50 text-orange-700 border-orange-200",
+    iconBg: "bg-orange-100",
+  },
+];
+
 function CategoryCard({
   item,
   isSubscribed,
@@ -353,7 +376,7 @@ export default function NursingSchool() {
 
   const handleLockClick = () => setLocation("/paywall");
 
-  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length;
+  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + ngnFormats.length;
   const totalQuestions = totalCategories * 30;
 
   return (
@@ -469,6 +492,21 @@ export default function NursingSchool() {
           <p className="text-sm text-muted-foreground mb-4">Meds, dosing, interactions, and nursing implications — by drug class.</p>
           <div className="space-y-3">
             {pharmacology.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* NGN Question Formats */}
+        <section className="mb-10">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-100 text-violet-700 text-xs font-bold mb-3 border border-violet-200">
+            <ListChecks className="w-3 h-3" />
+            New on NCLEX
+          </div>
+          <h2 className="text-lg font-bold tracking-tight mb-1">NGN Question Formats</h2>
+          <p className="text-sm text-muted-foreground mb-4">The newer NCLEX formats that trip up most test-takers — practice them until they feel natural.</p>
+          <div className="space-y-3">
+            {ngnFormats.map((item) => (
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
           </div>
