@@ -33,7 +33,8 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - `artifacts/api-server/src/app.ts` — Clerk proxy + clerkMiddleware wired in
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType column)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
-- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 27-category nursing school page (7 sections)
+- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 29-category nursing school page (8 sections, includes NGN formats)
+- `artifacts/nclex-prep/src/pages/study-quiz.tsx` — supports all 3 question types (single, multiple, ordered) + polished results screen
 - `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, has "Restore Access" (stores email to localStorage on success)
 - `artifacts/nclex-prep/src/pages/subscribe-success.tsx` — calls verify-checkout, stores payment email to localStorage
 - `artifacts/nclex-prep/src/hooks/useAutoRestore.ts` — two hooks: useAutoRestore (quiz page, fires when canAnswerMore=false) and useEagerRestore (fires on mount when isSubscribed is falsy)
@@ -69,23 +70,31 @@ Removing this normalization will cause blank page crashes in the quiz.
 - category (text)
 - text (text)
 - options (jsonb) — TWO formats exist: old `{"A":"..."}`, new `[{letter,text}]` — API normalizes
-- correct_letter (text) — for 'multiple': sorted comma-sep "A,C,D"; for 'ordered': "1,2,3,4"
+- correct_letter (text) — for 'multiple': sorted comma-sep "A,C,D"; for 'ordered': correct sequence "B,A,D,C"
 - explanation (text)
 - question_type (text, default 'single') — values: 'single' | 'multiple' | 'ordered'
 
 ## Answer Type Encoding
 - 'single': correctLetter = "A" (one letter)
-- 'multiple': correctLetter = sorted comma-separated letters "A,C,D"; server sorts both sides before comparing
-- 'ordered': correctLetter = correct position order "1,2,3,4,5"; items use numeric letters; direct string compare
+- 'multiple': correctLetter = sorted comma-separated letters "A,C,D"; server and client both sort before comparing
+- 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
 ## Question Bank State (production, verified 2026-05-27)
-- 27 nursing school categories, all with 30 questions (Pediatric Nursing has 70)
+- 29 nursing school categories (27 original + SATA + Drag & Drop), all with 30 questions (Pediatric Nursing has 70)
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
-- 5 hard "hook" questions seeded at questionNumbers -5 through -1 (DB ids 1394–1398) — always appear first in the main NCLEX quiz. ABG, Fluid/Electrolytes, Critical Care, Pharmacology, Priority/Triage.
-- Next question number to use: 1434
+- 5 hard "hook" questions at questionNumbers -5 through -1 (DB ids 1394–1398) — always appear first in main NCLEX quiz
+- Next question number to use: 1494
 - Nursing school + interview prep use CLIENT-SIDE answer checking (no submitAnswer API call)
+- study-quiz.tsx supports all 3 question types AND shows polished results screen (pass = 75%)
 
-## All 27 Nursing School Categories (exact strings — must match DB)
+## Results Screen (study-quiz.tsx)
+- Shows after completing all questions in a category
+- Displays score as large XX% with pass/fail badge (75% threshold = passing, mirrors NCLEX)
+- Score bar with 75% passing marker, 3-stat grid (correct/missed/total), contextual message
+- Green = passing (≥75%), amber = close (60-74%), red = below 60%
+- Retry and Choose Another Section buttons
+
+## All 29 Nursing School Categories (exact strings — must match DB)
 Fundamentals of Nursing, MedSurg: Cardiac, MedSurg: Respiratory, MedSurg: Neurological,
 MedSurg: Endocrine, MedSurg: Renal & Urology, MedSurg: Gastrointestinal,
 MedSurg: Burns & Integumentary, MedSurg: Orthopedic, MedSurg: Chest Tubes,
@@ -94,7 +103,10 @@ Maternity & OB Nursing, Psychiatric/Mental Health, Oncology Nursing,
 Seizure & Epilepsy Nursing, Critical Care/ICU, Fluid & Electrolytes,
 ABG Interpretation, EKG Interpretation, Pharmacology: Antidepressants,
 Pharmacology: Cardiac Meds, Pharmacology: Respiratory Meds,
-Pharmacology: Diabetes & Insulin, Pharmacology: Anticoagulation, Nursing Interview Prep
+Pharmacology: Diabetes & Insulin, Pharmacology: Anticoagulation, Nursing Interview Prep,
+Select All That Apply, Drag & Drop Ordering
 
 ## Lucide Icons in nursing-school.tsx (already imported — do not duplicate)
-Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical, BookOpen, Flame, Lock, Syringe, Bone, Stethoscope, Bug, Baby, HeartPulse, ShieldAlert, Radiation, Monitor, Waves, TestTube
+Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical,
+BookOpen, Flame, Lock, Syringe, Bone, Stethoscope, Bug, Baby, HeartPulse, ShieldAlert,
+Radiation, Monitor, Waves, TestTube, ListChecks, GripVertical
