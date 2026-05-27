@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   useGetSessionStatus,
@@ -342,6 +342,13 @@ export default function Quiz() {
 
   useAutoRestore(sessionId, sessionStatus?.canAnswerMore);
 
+  // If session is loaded and free limit already hit, send straight to paywall
+  useEffect(() => {
+    if (sessionStatus && !sessionStatus.canAnswerMore && !sessionStatus.isSubscribed) {
+      setLocation("/paywall");
+    }
+  }, [sessionStatus, setLocation]);
+
   const { data: questionsList, isLoading: isListLoading } = useListQuestions();
 
   const sortedQuestions = useMemo(() => {
@@ -424,6 +431,9 @@ export default function Quiz() {
       {
         onSuccess: (result) => {
           setAnswerResult(result);
+        },
+        onError: () => {
+          setLocation("/paywall");
         },
       }
     );
