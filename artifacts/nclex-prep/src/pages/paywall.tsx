@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useSessionId } from "@/hooks/useSessionId";
 import { Button } from "@/components/ui/button";
 import { Brain, Check, Lock, ShieldCheck, Zap } from "lucide-react";
@@ -17,7 +17,36 @@ export default function Paywall() {
   const [selectedPlan, setSelectedPlan] = useState<"monthly" | "lifetime">("lifetime");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showRestore, setShowRestore] = useState(false);
+  const [restoreEmail, setRestoreEmail] = useState("");
+  const [restoreLoading, setRestoreLoading] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
   const sessionId = useSessionId();
+  const [, setLocation] = useLocation();
+
+  const handleRestore = async () => {
+    if (!restoreEmail || !sessionId) return;
+    setRestoreLoading(true);
+    setRestoreMsg(null);
+    try {
+      const resp = await fetch("/api/stripe/restore-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, email: restoreEmail }),
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setRestoreMsg("✅ Access restored! Redirecting...");
+        setTimeout(() => setLocation("/quiz"), 1500);
+      } else {
+        setRestoreMsg(data.message ?? "No payment found for that email.");
+      }
+    } catch {
+      setRestoreMsg("Network error. Please try again.");
+    } finally {
+      setRestoreLoading(false);
+    }
+  };
 
   const handleSubscribe = async () => {
     setLoading(true);
@@ -141,6 +170,41 @@ export default function Paywall() {
         <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground font-medium">
           <ShieldCheck className="w-4 h-4" />
           Secure payment via Stripe · 30-day money-back guarantee
+        </div>
+
+        <div className="mt-6 pt-6 border-t border-border text-center">
+          {!showRestore ? (
+            <button
+              onClick={() => setShowRestore(true)}
+              className="text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            >
+              Already subscribed? Restore access
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-foreground">Enter the email you used to pay:</p>
+              <input
+                type="email"
+                value={restoreEmail}
+                onChange={(e) => setRestoreEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="w-full px-4 py-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <Button
+                onClick={handleRestore}
+                disabled={restoreLoading || !restoreEmail}
+                className="w-full rounded-xl"
+                variant="outline"
+              >
+                {restoreLoading ? "Checking..." : "Restore Access"}
+              </Button>
+              {restoreMsg && (
+                <p className={`text-sm text-center ${restoreMsg.startsWith("✅") ? "text-green-600" : "text-destructive"}`}>
+                  {restoreMsg}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

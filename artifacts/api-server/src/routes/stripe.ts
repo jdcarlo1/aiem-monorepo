@@ -135,4 +135,47 @@ router.post("/stripe/verify-checkout", async (req, res) => {
   }
 });
 
+router.post("/stripe/restore-access", async (req, res) => {
+  const { sessionId, email } = req.body as { sessionId: string; email: string };
+
+  if (!sessionId || !email) {
+    res.status(400).json({ error: "sessionId and email are required" });
+    return;
+  }
+
+  const stripe = await getUncachableStripeClient();
+
+  const customers = await stripe.customers.list({ email: email.trim().toLowerCase(), limit: 10 });
+
+  if (customers.data.length === 0) {
+    res.json({ success: false, message: "No account found with that email." });
+    return;
+  }
+
+  for (const customer of customers.data) {
+    // Check for completed checkout sessions
+    const checkouts = await stripe.checkout.sessions.list({ customer: customer.id, status: "complete", limit: 10 });
+    if (checkouts.data.length > 0) {
+      const cs = checkouts.data[0];
+      const subscriptionId = typeof cs.subscription === "string" ? cs.subscription : null;
+
+      await db
+        .update(sessionsTable)
+        .set({ isSubscribed: true, stripeCustomerId: customer.id, stripeSubscriptionId: subscriptionId })
+        .where(eq(sessionsTable.sessionId, sessionId));
+
+      // Also insert if not existing
+      const [existing] = await db.select().from(sessionsTable).where(eq(sessionsTable.sessionId, sessionId)).limit(1);
+      if (!existing) {
+        await db.insert(sessionsTable).values({ sessionId, questionsAnswered: 0, isSubscribed: true, stripeCustomerId: customer.id, stripeSubscriptionId: subscriptionId });
+      }
+
+      res.json({ success: true, message: "Access restored!" });
+      return;
+    }
+  }
+
+  res.json({ success: false, message: "No completed payment found for that email." });
+});
+
 export default router;
