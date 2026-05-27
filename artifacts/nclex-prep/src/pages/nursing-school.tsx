@@ -31,6 +31,7 @@ import {
   TestTube,
   ListChecks,
   GripVertical,
+  Calculator,
 } from "lucide-react";
 
 const fundamentals = [
@@ -288,6 +289,19 @@ const pharmacology = [
   },
 ];
 
+const dosageCalculations = [
+  {
+    category: "Dosage Calculations",
+    label: "Dosage Calculations",
+    icon: <Calculator className="w-6 h-6" />,
+    questions: 30,
+    desc: "Tablet/liquid dosing, IV rates (mL/hr & gtt/min), weight-based dosing, drip calculations (heparin, dopamine, norepinephrine), unit conversions, reconstitution, safe dose ranges, and pediatric dosing — every calculation type tested on NCLEX.",
+    color: "bg-amber-50 text-amber-700 border-amber-200",
+    iconBg: "bg-amber-100",
+    badge: "Math",
+  },
+];
+
 const ngnFormats = [
   {
     category: "Select All That Apply",
@@ -404,8 +418,8 @@ export default function NursingSchool() {
 
   const handleLockClick = () => setLocation("/paywall");
 
-  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + ngnFormats.length;
-  const totalQuestions = (totalCategories - 1) * 30 + 20;
+  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + dosageCalculations.length + ngnFormats.length;
+  const totalQuestions = (totalCategories - 2) * 30 + 20 + 30;
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -520,6 +534,21 @@ export default function NursingSchool() {
           <p className="text-sm text-muted-foreground mb-4">Meds, dosing, interactions, and nursing implications — by drug class.</p>
           <div className="space-y-3">
             {pharmacology.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Dosage Calculations */}
+        <section className="mb-10">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold mb-3 border border-amber-200">
+            <Calculator className="w-3 h-3" />
+            Always on NCLEX
+          </div>
+          <h2 className="text-lg font-bold tracking-tight mb-1">Dosage Calculations</h2>
+          <p className="text-sm text-muted-foreground mb-4">Every calculation type that appears on NCLEX — work through them until the math is automatic.</p>
+          <div className="space-y-3">
+            {dosageCalculations.map((item) => (
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
           </div>
