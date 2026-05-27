@@ -1,96 +1,96 @@
+const W = 1000;
+const H = 240;
+const BL = 155;
+const SMALL = 10;
+const LARGE = 50;
 
-const W = 900;
-const H = 200;
-const BL = 130;
-
-function nsr(x: number, bl = BL, ra = 90, prLen = 32, stElev = 0): string {
-  const pe = x + 18;
+function nsr(x: number, bl = BL, ra = 95, prLen = 34, stElev = 0): string {
+  const pe = x + 20;
   const qs = pe + prLen;
-  const rp = qs + 6;
-  const se = qs + 12;
-  const stEnd = se + 22;
-  const tp = se + 38;
-  const te = se + 58;
+  const qEnd = qs + 4;
+  const rp = qEnd + 4;
+  const sEnd = rp + 5;
+  const se = sEnd + 4;
+  const stEnd = se + 24;
+  const tp = stEnd + 14;
+  const te = stEnd + 40;
   return [
     `L ${x},${bl}`,
-    `C ${x + 4},${bl} ${x + 7},${bl - 20} ${x + 9},${bl - 20}`,
-    `C ${x + 11},${bl - 20} ${x + 14},${bl} ${pe},${bl}`,
+    `C ${x + 5},${bl} ${x + 8},${bl - 14} ${x + 10},${bl - 14}`,
+    `C ${x + 12},${bl - 14} ${x + 16},${bl} ${pe},${bl}`,
     `L ${qs},${bl}`,
-    `L ${qs + 2},${bl + 8}`,
+    `L ${qEnd},${bl + 5}`,
     `L ${rp},${bl - ra}`,
-    `L ${qs + 10},${bl + 12}`,
+    `L ${sEnd},${bl + 8}`,
     `L ${se},${bl}`,
     `L ${stEnd},${bl - stElev}`,
-    `C ${stEnd + 7},${bl - stElev} ${tp - 3},${bl - stElev - 22} ${tp},${bl - stElev - 22}`,
-    `C ${tp + 3},${bl - stElev - 22} ${te - 5},${bl} ${te},${bl}`,
+    `C ${stEnd + 5},${bl - stElev} ${tp - 2},${bl - stElev - 26} ${tp},${bl - stElev - 26}`,
+    `C ${tp + 2},${bl - stElev - 26} ${te - 4},${bl} ${te},${bl}`,
   ].join(" ");
 }
 
-function wideQRS(x: number, bl = BL, amplitude = 75, width = 45): string {
+function wideQRS(x: number, bl = BL, amplitude = 80, width = 52): string {
+  const half = Math.floor(width / 2);
   return [
     `L ${x},${bl}`,
-    `L ${x + 6},${bl + 12}`,
-    `C ${x + 12},${bl + 12} ${x + 16},${bl - amplitude} ${x + Math.floor(width / 2)},${bl - amplitude}`,
-    `C ${x + width - 10},${bl - amplitude} ${x + width - 5},${bl + 16} ${x + width},${bl + 16}`,
-    `L ${x + width + 8},${bl}`,
+    `L ${x + 5},${bl + 10}`,
+    `C ${x + 10},${bl + 10} ${x + half - 4},${bl - amplitude} ${x + half},${bl - amplitude}`,
+    `C ${x + half + 4},${bl - amplitude} ${x + width - 6},${bl + 12} ${x + width},${bl + 12}`,
+    `L ${x + width + 7},${bl}`,
   ].join(" ");
 }
 
 function pWave(x: number, bl = BL): string {
   return [
     `L ${x},${bl}`,
-    `C ${x + 4},${bl} ${x + 7},${bl - 18} ${x + 9},${bl - 18}`,
-    `C ${x + 11},${bl - 18} ${x + 14},${bl} ${x + 18},${bl}`,
+    `C ${x + 4},${bl} ${x + 7},${bl - 14} ${x + 10},${bl - 14}`,
+    `C ${x + 13},${bl - 14} ${x + 16},${bl} ${x + 20},${bl}`,
   ].join(" ");
 }
 
 function sawtooth(x: number, count: number, bl = BL): string {
   let d = `L ${x},${bl}`;
   for (let i = 0; i < count; i++) {
-    const ox = x + i * 30;
-    d += ` L ${ox + 22},${bl - 24} L ${ox + 30},${bl}`;
+    const ox = x + i * 28;
+    d += ` L ${ox + 20},${bl - 22} L ${ox + 28},${bl}`;
   }
   return d;
 }
 
 function fibBaseline(x: number, length: number, bl = BL): string {
-  const seed = [0, 6, -4, 9, -7, 3, -10, 5, -3, 8, -6, 2, -8, 4, 0, 7, -5, 10, -2, 6];
-  let d = `L ${x},${bl}`;
+  const seed = [0, 5, -3, 7, -6, 2, -8, 4, -2, 6, -5, 1, -7, 3, 0, 5, -4, 8, -2, 5];
+  let d = "";
   const step = length / seed.length;
   for (let i = 0; i < seed.length; i++) {
     const cx = x + i * step;
     const cy = bl + seed[i];
     const nx = x + (i + 1) * step;
-    const ny = bl + (seed[(i + 1) % seed.length] * 0.6);
+    const ny = bl + (seed[(i + 1) % seed.length] * 0.5);
     d += ` C ${cx + step * 0.3},${cy} ${nx - step * 0.3},${ny} ${nx},${ny}`;
   }
   return d;
 }
 
 function vfibPath(): string {
-  const pts: [number, number][] = [];
-  let x = 10;
-  let y = BL;
-  const noise = [20, -35, 55, -18, 40, -60, 25, -42, 30, -50, 38, -22, 48, -65, 18,
-    -30, 45, -55, 22, -38, 50, -28, 35, -48, 20, -32, 42, -58, 28, -40,
-    52, -18, 38, -62, 24, -44, 46, -20, 34, -56, 26, -36, 48, -64, 22, -42,
-    40, -24, 50, -52, 30, -38, 44, -60, 20, -28, 46, -48, 32, -66, 28, -34,
-    54, -22, 36, -58, 42, -16, 30, -50, 44, -34, 52, -60, 18, -40, 38, -54,
-    24, -30, 46, -68, 22, -44, 48, -20, 34, -62, 26];
+  const noiseSeq = [18,-32,52,-16,38,-58,24,-40,28,-48,36,-20,46,-62,16,
+    -28,44,-52,20,-36,48,-26,32,-46,18,-30,40,-56,26,-38,
+    50,-16,36,-60,22,-42,44,-18,32,-54,24,-34,46,-62,20,-40,
+    38,-22,48,-50,28,-36,42,-58,18,-26,44,-46,30,-64,26,-32,
+    52,-20,34,-56,40,-14,28,-48,42,-32,50,-58,16,-38,36,-52];
   let d = `M 0,${BL}`;
-  let xi = 10;
-  for (let i = 0; i < noise.length; i++) {
-    const step = 4 + Math.abs(noise[i]) / 12;
+  let xi = 8;
+  for (let i = 0; i < noiseSeq.length; i++) {
+    const step = 3 + Math.abs(noiseSeq[i]) / 10;
     xi += step;
-    if (xi > W - 10) break;
-    y = BL + noise[i];
-    pts.push([xi, y]);
-  }
-  for (const [px, py] of pts) {
-    d += ` L ${px},${py}`;
+    if (xi > W - 8) break;
+    d += ` L ${xi},${BL + noiseSeq[i]}`;
   }
   d += ` L ${W},${BL}`;
   return d;
+}
+
+function calPulse(): string {
+  return `M 8,${BL} L 8,${BL} L 8,${BL - 50} L 28,${BL - 50} L 28,${BL}`;
 }
 
 const RHYTHM_CONFIGS: Record<string, {
@@ -101,14 +101,14 @@ const RHYTHM_CONFIGS: Record<string, {
 }> = {
   normal: {
     label: "Normal Sinus Rhythm",
-    rate: "Rate: 60–100 bpm",
+    rate: "60–100 bpm",
     features: ["Regular P waves before each QRS", "Normal PR interval (0.12–0.20s)", "Narrow QRS < 0.12s"],
     buildPath: () => {
-      const RR = 160;
-      let d = `M 0,${BL} L 40,${BL}`;
+      const RR = 166;
+      let d = `M 0,${BL} L 50,${BL}`;
       for (let i = 0; i < 5; i++) {
-        d += nsr(40 + i * RR);
-        if (i < 4) d += ` L ${40 + i * RR + 120},${BL}`;
+        d += nsr(50 + i * RR);
+        if (i < 4) d += ` L ${50 + i * RR + 130},${BL}`;
       }
       d += ` L ${W},${BL}`;
       return d;
@@ -116,14 +116,14 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   bradycardia: {
     label: "Sinus Bradycardia",
-    rate: "Rate: < 60 bpm",
+    rate: "< 60 bpm",
     features: ["Regular P waves before each QRS", "Prolonged RR interval", "Normal P-QRS-T morphology"],
     buildPath: () => {
-      const RR = 280;
-      let d = `M 0,${BL} L 20,${BL}`;
+      const RR = 300;
+      let d = `M 0,${BL} L 30,${BL}`;
       for (let i = 0; i < 3; i++) {
-        d += nsr(20 + i * RR);
-        if (i < 2) d += ` L ${20 + i * RR + 120},${BL}`;
+        d += nsr(30 + i * RR);
+        if (i < 2) d += ` L ${30 + i * RR + 130},${BL}`;
       }
       d += ` L ${W},${BL}`;
       return d;
@@ -131,13 +131,14 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   tachycardia: {
     label: "Sinus Tachycardia",
-    rate: "Rate: > 100 bpm",
+    rate: "> 100 bpm",
     features: ["P wave before each QRS (may merge with T)", "Short RR interval", "Normal QRS morphology"],
     buildPath: () => {
-      const RR = 96;
+      const RR = 100;
       let d = `M 0,${BL} L 20,${BL}`;
-      for (let i = 0; i < 8; i++) {
-        d += nsr(20 + i * RR, BL, 80, 24);
+      for (let i = 0; i < 9; i++) {
+        d += nsr(20 + i * RR, BL, 82, 26);
+        if (i < 8) d += ` L ${20 + i * RR + 112},${BL}`;
       }
       d += ` L ${W},${BL}`;
       return d;
@@ -145,17 +146,17 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   afib: {
     label: "Atrial Fibrillation",
-    rate: "Rate: 100–175 bpm (irregular)",
+    rate: "100–175 bpm (irregular)",
     features: ["No distinct P waves — fibrillatory baseline", "Irregularly irregular RR intervals", "Narrow QRS (unless aberrant)"],
     buildPath: () => {
-      const qrsOffsets = [50, 150, 280, 370, 490, 600, 700, 810];
+      const qrsOffsets = [55, 165, 305, 400, 530, 650, 760, 875];
       let d = `M 0,${BL}`;
       d += fibBaseline(0, qrsOffsets[0], BL);
       for (let i = 0; i < qrsOffsets.length; i++) {
         const xq = qrsOffsets[i];
         const nextX = qrsOffsets[i + 1] ?? W;
-        const se = xq + 8;
-        d += ` L ${xq},${BL} L ${xq + 2},${BL + 7} L ${xq + 5},${BL - 72} L ${xq + 8},${BL + 10} L ${se},${BL}`;
+        const se = xq + 9;
+        d += ` L ${xq},${BL} L ${xq + 2},${BL + 6} L ${xq + 5},${BL - 78} L ${xq + 8},${BL + 9} L ${se},${BL}`;
         d += fibBaseline(se, nextX - se, BL);
       }
       return d;
@@ -163,16 +164,17 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   flutter: {
     label: "Atrial Flutter",
-    rate: "Atrial: 300 bpm  |  Ventricular: 150 bpm",
-    features: ["Regular sawtooth P waves at 300 bpm", "2:1 AV block (QRS every other flutter wave)", "Narrow QRS"],
+    rate: "Atrial 300 bpm  |  Ventricular 150 bpm",
+    features: ["Regular sawtooth P waves at 300 bpm", "2:1 AV block — QRS every other flutter wave", "Narrow QRS complexes"],
     buildPath: () => {
-      const qrsOffsets = [80, 140, 200, 260, 320, 380, 440, 500, 560, 620, 680, 740, 800];
       let d = `M 0,${BL}`;
-      d += sawtooth(0, 30, BL);
-      for (let i = 0; i < qrsOffsets.length; i++) {
+      d += sawtooth(0, 35, BL);
+      const qrsAt = [56, 112, 168, 224, 280, 336, 392, 448, 504, 560, 616, 672, 728, 784, 840, 896, 952];
+      for (let i = 0; i < qrsAt.length; i++) {
         if (i % 2 !== 0) continue;
-        const xq = qrsOffsets[i];
-        d += ` L ${xq},${BL} L ${xq + 2},${BL + 7} L ${xq + 5},${BL - 70} L ${xq + 8},${BL + 10} L ${xq + 14},${BL}`;
+        const xq = qrsAt[i];
+        if (xq > W - 20) break;
+        d += ` L ${xq},${BL} L ${xq + 2},${BL + 6} L ${xq + 5},${BL - 74} L ${xq + 8},${BL + 9} L ${xq + 14},${BL}`;
         d += sawtooth(xq + 14, 2, BL);
       }
       return d;
@@ -180,16 +182,16 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   svt: {
     label: "Supraventricular Tachycardia (SVT)",
-    rate: "Rate: 150–250 bpm",
-    features: ["Very fast, regular rhythm", "Narrow QRS", "P waves hidden in or after QRS"],
+    rate: "150–250 bpm",
+    features: ["Very fast, regular rhythm", "Narrow QRS complexes", "P waves hidden in or after QRS"],
     buildPath: () => {
-      const RR = 72;
-      let d = `M 0,${BL} L 15,${BL}`;
+      const RR = 76;
+      let d = `M 0,${BL} L 12,${BL}`;
       for (let i = 0; i < 12; i++) {
-        const x = 15 + i * RR;
-        const se = x + 12;
-        d += ` L ${x},${BL} L ${x + 2},${BL + 7} L ${x + 5},${BL - 72} L ${x + 8},${BL + 10} L ${se},${BL}`;
-        d += ` C ${se + 8},${BL} ${se + 16},${BL - 10} ${se + 24},${BL - 10} C ${se + 32},${BL - 10} ${se + 38},${BL} ${se + 40},${BL}`;
+        const x = 12 + i * RR;
+        const se = x + 13;
+        d += ` L ${x},${BL} L ${x + 2},${BL + 6} L ${x + 5},${BL - 76} L ${x + 8},${BL + 9} L ${se},${BL}`;
+        d += ` C ${se + 9},${BL} ${se + 18},${BL - 9} ${se + 26},${BL - 9} C ${se + 34},${BL - 9} ${se + 40},${BL} ${se + 42},${BL}`;
       }
       d += ` L ${W},${BL}`;
       return d;
@@ -197,19 +199,19 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   pvcs: {
     label: "Premature Ventricular Contractions (PVCs)",
-    rate: "Rate: 60–80 bpm (with ectopic beats)",
-    features: ["Wide, bizarre QRS complexes", "No preceding P wave for PVC", "Compensatory pause follows PVC"],
+    rate: "60–80 bpm with ectopic beats",
+    features: ["Wide, bizarre QRS — no preceding P wave", "Compensatory pause follows PVC", "Normal beats between PVCs"],
     buildPath: () => {
       const pvcAt = [2, 5];
-      let d = `M 0,${BL} L 30,${BL}`;
-      let x = 30;
-      for (let i = 0; i < 7; i++) {
+      let d = `M 0,${BL} L 28,${BL}`;
+      let x = 28;
+      for (let i = 0; i < 6; i++) {
         if (pvcAt.includes(i)) {
-          d += wideQRS(x, BL, 82, 48);
-          x += 120;
+          d += wideQRS(x, BL, 86, 52);
+          x += 130;
         } else {
           d += nsr(x);
-          x += 158;
+          x += 164;
         }
         d += ` L ${x},${BL}`;
       }
@@ -219,15 +221,15 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   vtach: {
     label: "Ventricular Tachycardia (VTach)",
-    rate: "Rate: 100–250 bpm",
-    features: ["Wide, bizarre QRS (> 0.12s)", "No discernible P waves", "Regular rhythm"],
+    rate: "100–250 bpm",
+    features: ["Wide, bizarre QRS > 0.12s", "No discernible P waves", "Regular rapid rhythm"],
     buildPath: () => {
-      const RR = 88;
-      let d = `M 0,${BL} L 18,${BL}`;
+      const RR = 90;
+      let d = `M 0,${BL} L 15,${BL}`;
       for (let i = 0; i < 10; i++) {
-        const x = 18 + i * RR;
-        d += wideQRS(x, BL, 80, 48);
-        d += ` L ${x + 56},${BL}`;
+        const x = 15 + i * RR;
+        d += wideQRS(x, BL, 82, 50);
+        d += ` L ${x + 58},${BL}`;
       }
       d += ` L ${W},${BL}`;
       return d;
@@ -235,20 +237,20 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   vfib: {
     label: "Ventricular Fibrillation (VFib)",
-    rate: "No effective rate",
-    features: ["Chaotic, irregular waveform", "No organized P waves or QRS", "No cardiac output — EMERGENCY"],
+    rate: "No organized rate",
+    features: ["Chaotic, irregular waveform", "No P waves or QRS complexes", "No cardiac output — EMERGENCY"],
     buildPath: vfibPath,
   },
   block1: {
     label: "First Degree AV Block",
-    rate: "Rate: 60–100 bpm",
-    features: ["PR interval > 0.20s (> 40px)", "Every P wave followed by QRS", "Normal QRS morphology"],
+    rate: "60–100 bpm",
+    features: ["PR interval > 0.20s (prolonged)", "Every P wave followed by QRS", "Normal QRS morphology"],
     buildPath: () => {
-      const RR = 168;
-      let d = `M 0,${BL} L 30,${BL}`;
+      const RR = 172;
+      let d = `M 0,${BL} L 28,${BL}`;
       for (let i = 0; i < 5; i++) {
-        d += nsr(30 + i * RR, BL, 88, 60);
-        if (i < 4) d += ` L ${30 + i * RR + 136},${BL}`;
+        d += nsr(28 + i * RR, BL, 90, 64);
+        if (i < 4) d += ` L ${28 + i * RR + 140},${BL}`;
       }
       d += ` L ${W},${BL}`;
       return d;
@@ -256,45 +258,42 @@ const RHYTHM_CONFIGS: Record<string, {
   },
   block3: {
     label: "Third Degree (Complete) AV Block",
-    rate: "Ventricular rate: 20–40 bpm  |  Atrial rate: 60–100 bpm",
-    features: ["P waves and QRS are completely independent", "Wide, slow ventricular escape rhythm", "No association between P and QRS"],
+    rate: "Ventricular: 20–40 bpm  |  Atrial: 60–100 bpm",
+    features: ["P waves & QRS completely independent", "Wide, slow ventricular escape rhythm", "No P-to-QRS association"],
     buildPath: () => {
       let d = `M 0,${BL} L 10,${BL}`;
-      const pWaveOffsets = [10, 80, 150, 220, 290, 360, 430, 500, 570, 640, 710, 780, 850];
-      const qrsOffsets = [50, 280, 510, 740];
-      let i = 0;
-      let pi = 0;
+      const pWaveOffsets = [10, 82, 154, 226, 298, 370, 442, 514, 586, 658, 730, 802, 874, 946];
+      const qrsOffsets = [50, 290, 530, 770];
       const events: Array<{ x: number; type: "p" | "q" }> = [
         ...pWaveOffsets.map(x => ({ x, type: "p" as const })),
         ...qrsOffsets.map(x => ({ x, type: "q" as const })),
       ].sort((a, b) => a.x - b.x);
-
       let cx = 10;
       for (const ev of events) {
         if (ev.x > W - 10) break;
         d += ` L ${ev.x},${BL}`;
         if (ev.type === "p") {
           d += pWave(ev.x, BL);
-          cx = ev.x + 18;
+          cx = ev.x + 20;
         } else {
-          d += wideQRS(ev.x, BL, 76, 50);
-          cx = ev.x + 58;
+          d += wideQRS(ev.x, BL, 78, 52);
+          cx = ev.x + 60;
         }
       }
       d += ` L ${W},${BL}`;
-      return d;
+      return cx > 0 ? d : d;
     },
   },
   stemi: {
     label: "ST Elevation (STEMI)",
-    rate: "Rate: 60–100 bpm",
-    features: ["ST segment elevated > 1mm (2px/mm)", "Indicates acute myocardial infarction", "ST elevation in contiguous leads"],
+    rate: "60–100 bpm",
+    features: ["ST segment elevated > 1mm above isoelectric", "Acute myocardial infarction pattern", "ST elevation in contiguous leads"],
     buildPath: () => {
-      const RR = 160;
-      let d = `M 0,${BL} L 40,${BL}`;
+      const RR = 166;
+      let d = `M 0,${BL} L 50,${BL}`;
       for (let i = 0; i < 5; i++) {
-        d += nsr(40 + i * RR, BL, 90, 32, 22);
-        if (i < 4) d += ` L ${40 + i * RR + 120},${BL}`;
+        d += nsr(50 + i * RR, BL, 92, 34, 24);
+        if (i < 4) d += ` L ${50 + i * RR + 130},${BL}`;
       }
       d += ` L ${W},${BL}`;
       return d;
@@ -330,58 +329,65 @@ export default function EkgDisplay({ rhythm }: { rhythm: string }) {
   }
 
   const path = config.buildPath();
+  const uid = `ekg-${key}`;
 
   return (
     <div className="mb-8">
-      <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-white">
-        <div className="bg-slate-700 px-4 py-2 flex items-center gap-2">
-          <div className="flex gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-red-400" />
-            <div className="w-3 h-3 rounded-full bg-yellow-400" />
-            <div className="w-3 h-3 rounded-full bg-green-400" />
-          </div>
-          <span className="text-slate-200 text-xs font-mono ml-2">ECG Monitor — Lead II</span>
-        </div>
-
+      <div className="rounded-xl overflow-hidden border-2 border-[#c8a090] shadow-md">
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          className="w-full"
-          style={{ background: "#fffaf5" }}
+          className="w-full block"
+          style={{ background: "#fff3ee" }}
           aria-label={`ECG strip showing ${config.label}`}
         >
           <defs>
-            <pattern id={`smallgrid-${key}`} width="8" height="8" patternUnits="userSpaceOnUse">
-              <path d="M 8 0 L 0 0 0 8" fill="none" stroke="#ffd0c4" strokeWidth="0.3" />
+            <pattern id={`sg-${uid}`} width={SMALL} height={SMALL} patternUnits="userSpaceOnUse">
+              <path d={`M ${SMALL} 0 L 0 0 0 ${SMALL}`} fill="none" stroke="rgba(210,100,80,0.22)" strokeWidth="0.4" />
             </pattern>
-            <pattern id={`grid-${key}`} width="40" height="40" patternUnits="userSpaceOnUse">
-              <rect width="40" height="40" fill={`url(#smallgrid-${key})`} />
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#ffb0a0" strokeWidth="0.7" />
+            <pattern id={`lg-${uid}`} width={LARGE} height={LARGE} patternUnits="userSpaceOnUse">
+              <rect width={LARGE} height={LARGE} fill={`url(#sg-${uid})`} />
+              <path d={`M ${LARGE} 0 L 0 0 0 ${LARGE}`} fill="none" stroke="rgba(200,80,60,0.50)" strokeWidth="0.9" />
             </pattern>
           </defs>
-          <rect width={W} height={H} fill={`url(#grid-${key})`} />
-          <line x1="0" y1={BL} x2={W} y2={BL} stroke="#ffb0a0" strokeWidth="0.5" strokeDasharray="4 4" />
+
+          <rect width={W} height={H} fill={`url(#lg-${uid})`} />
+
+          <line x1="0" y1={BL} x2={W} y2={BL} stroke="rgba(200,80,60,0.35)" strokeWidth="0.6" />
+
+          <path d={calPulse()} fill="none" stroke="#111" strokeWidth="1.6" strokeLinecap="square" strokeLinejoin="miter" />
+
           <path
             d={path}
             fill="none"
             stroke="#111"
-            strokeWidth="2.2"
+            strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+
+          <text x={W - 8} y={H - 8} textAnchor="end" fontSize="11" fill="rgba(120,60,50,0.6)" fontFamily="monospace" fontWeight="500">
+            Lead II  25mm/s  10mm/mV
+          </text>
         </svg>
       </div>
 
-      <div className="mt-3 px-1">
-        <div className="flex flex-wrap gap-2">
-          {config.features.map((f) => (
-            <span
-              key={f}
-              className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100 font-medium"
-            >
-              {f}
-            </span>
-          ))}
-        </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">
+          {config.label}
+        </span>
+        <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">
+          {config.rate}
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {config.features.map((f) => (
+          <span
+            key={f}
+            className="inline-flex items-center text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100"
+          >
+            {f}
+          </span>
+        ))}
       </div>
     </div>
   );

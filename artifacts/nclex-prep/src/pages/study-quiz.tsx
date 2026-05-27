@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -176,6 +176,9 @@ function OrderedQuestion({
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [touchDragIdx, setTouchDragIdx] = useState<number | null>(null);
+  const [touchOverIdx, setTouchOverIdx] = useState<number | null>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const correctOrder = correctLetter.split(",").map((s) => s.trim());
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -189,19 +192,38 @@ function OrderedQuestion({
   };
   const handleDrop = (e: React.DragEvent, dropIndex: number) => {
     e.preventDefault();
-    if (dragIndex === null || dragIndex === dropIndex) {
-      setDragIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-    const newItems = [...items];
-    const [moved] = newItems.splice(dragIndex, 1);
-    newItems.splice(dropIndex, 0, moved);
-    setItems(newItems);
-    setDragIndex(null);
-    setDragOverIndex(null);
+    if (dragIndex === null || dragIndex === dropIndex) { setDragIndex(null); setDragOverIndex(null); return; }
+    const n = [...items]; const [m] = n.splice(dragIndex, 1); n.splice(dropIndex, 0, m);
+    setItems(n); setDragIndex(null); setDragOverIndex(null);
   };
   const handleDragEnd = () => { setDragIndex(null); setDragOverIndex(null); };
+
+  const handleTouchStart = (e: React.TouchEvent, index: number) => {
+    if (answerResult) return;
+    setTouchDragIdx(index);
+    setTouchOverIdx(index);
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchDragIdx === null) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    for (let i = 0; i < itemRefs.current.length; i++) {
+      const el = itemRefs.current[i];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+        setTouchOverIdx(i);
+        break;
+      }
+    }
+  };
+  const handleTouchEnd = () => {
+    if (touchDragIdx !== null && touchOverIdx !== null && touchDragIdx !== touchOverIdx) {
+      const n = [...items]; const [m] = n.splice(touchDragIdx, 1); n.splice(touchOverIdx, 0, m);
+      setItems(n);
+    }
+    setTouchDragIdx(null); setTouchOverIdx(null);
+  };
 
   const moveUp = (i: number) => {
     if (i === 0 || answerResult) return;
@@ -215,21 +237,21 @@ function OrderedQuestion({
   return (
     <div className="space-y-2 mb-8">
       <p className="text-sm font-semibold text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 inline-block mb-3">
-        Drag to arrange in the correct order
+        Tap ▲▼ to reorder · drag on desktop
       </p>
       {items.map((item, i) => {
         const isCorrectPos = !!answerResult && correctOrder[i] === item.letter;
-        const isWrongPos = !!answerResult && correctOrder[i] !== item.letter;
-        const isDragging = dragIndex === i;
-        const isDragOver = dragOverIndex === i && dragIndex !== i;
+        const isDragging = dragIndex === i || touchDragIdx === i;
+        const isDragOver = (dragOverIndex === i && dragIndex !== null && dragIndex !== i) ||
+                           (touchOverIdx === i && touchDragIdx !== null && touchDragIdx !== i);
 
-        let cls = "w-full p-4 rounded-xl border-2 flex items-center gap-3 transition-all duration-200 ";
+        let cls = "w-full rounded-xl border-2 flex items-stretch gap-0 transition-all duration-150 overflow-hidden ";
         if (!answerResult) {
           cls += isDragging
-            ? "opacity-50 border-primary bg-primary/5 scale-95"
+            ? "opacity-40 border-primary bg-primary/5 scale-[0.98]"
             : isDragOver
-            ? "border-primary/60 bg-primary/10 scale-[1.02]"
-            : "border-border bg-card hover:border-primary/40 cursor-grab active:cursor-grabbing";
+            ? "border-primary bg-primary/10 scale-[1.01]"
+            : "border-border bg-card";
         } else {
           cls += isCorrectPos
             ? "border-green-500 bg-green-50 text-green-900 cursor-default"
@@ -239,28 +261,53 @@ function OrderedQuestion({
         return (
           <div
             key={item.letter}
+            ref={(el) => { itemRefs.current[i] = el; }}
             draggable={!answerResult}
             onDragStart={(e) => handleDragStart(e, i)}
             onDragOver={(e) => handleDragOver(e, i)}
             onDrop={(e) => handleDrop(e, i)}
             onDragEnd={handleDragEnd}
+            onTouchStart={(e) => handleTouchStart(e, i)}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             className={cls}
+            style={{ touchAction: "none" }}
           >
-            {!answerResult && <GripVertical className="w-5 h-5 text-muted-foreground shrink-0" />}
-            {answerResult && (isCorrectPos
-              ? <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
-              : <XCircle className="w-5 h-5 text-destructive/70 shrink-0" />
-            )}
-            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground shrink-0">
-              {i + 1}
-            </div>
-            <p className="text-base font-medium flex-1 leading-snug">{item.text}</p>
             {!answerResult && (
-              <div className="flex flex-col gap-1 shrink-0">
-                <button onClick={() => moveUp(i)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 text-xs leading-none px-1">▲</button>
-                <button onClick={() => moveDown(i)} disabled={i === items.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30 text-xs leading-none px-1">▼</button>
+              <div className="flex flex-col shrink-0 border-r border-border">
+                <button
+                  onClick={(e) => { e.stopPropagation(); moveUp(i); }}
+                  disabled={i === 0}
+                  className="flex-1 flex items-center justify-center w-11 text-muted-foreground hover:text-primary hover:bg-primary/5 active:bg-primary/10 disabled:opacity-20 transition-colors"
+                  aria-label="Move up"
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clipRule="evenodd" /></svg>
+                </button>
+                <div className="h-px bg-border" />
+                <button
+                  onClick={(e) => { e.stopPropagation(); moveDown(i); }}
+                  disabled={i === items.length - 1}
+                  className="flex-1 flex items-center justify-center w-11 text-muted-foreground hover:text-primary hover:bg-primary/5 active:bg-primary/10 disabled:opacity-20 transition-colors"
+                  aria-label="Move down"
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clipRule="evenodd" /></svg>
+                </button>
               </div>
             )}
+            {answerResult && (
+              <div className="flex items-center justify-center w-12 shrink-0 border-r border-border">
+                {isCorrectPos
+                  ? <CheckCircle2 className="w-5 h-5 text-green-500" />
+                  : <XCircle className="w-5 h-5 text-destructive/70" />}
+              </div>
+            )}
+            <div className="flex items-center gap-3 px-4 py-4 flex-1 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground shrink-0">
+                {i + 1}
+              </div>
+              <p className="text-base font-medium flex-1 leading-snug">{item.text}</p>
+              {!answerResult && <GripVertical className="w-4 h-4 text-muted-foreground/40 shrink-0 hidden sm:block" />}
+            </div>
           </div>
         );
       })}
