@@ -50,7 +50,16 @@ router.get("/questions/:id", async (req, res) => {
     return;
   }
 
-  res.json(question);
+  // Normalize options: old questions store as {A: "text", B: "text"},
+  // new questions store as [{letter: "A", text: "..."}]. Always return array.
+  let options = question.options as unknown;
+  if (options && !Array.isArray(options) && typeof options === "object") {
+    options = Object.entries(options as Record<string, string>).map(
+      ([letter, text]) => ({ letter, text })
+    );
+  }
+
+  res.json({ ...question, options });
 });
 
 export default router;
