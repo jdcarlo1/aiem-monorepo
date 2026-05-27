@@ -375,14 +375,13 @@ export default function Quiz() {
   const questionType = currentQuestion?.questionType ?? "single";
 
   // Initialize orderedItems when a new ordered question loads
-  const orderedKey = currentQuestion?.id;
-  useMemo(() => {
+  useEffect(() => {
     if (currentQuestion?.questionType === "ordered" && !answerResult) {
       const shuffled = [...(currentQuestion.options ?? [])].sort(() => Math.random() - 0.5);
       setOrderedItems(shuffled);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderedKey]);
+  }, [currentQuestion?.id]);
 
   const submitAnswer = useSubmitAnswer();
 

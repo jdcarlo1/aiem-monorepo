@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -462,14 +462,13 @@ export default function StudyQuiz() {
   );
 
   // Initialize orderedItems when a new ordered question loads
-  const questionKey = currentQuestion?.id;
-  useMemo(() => {
+  useEffect(() => {
     if (currentQuestion?.questionType === "ordered" && !answerResult) {
       const shuffled = [...(currentQuestion.options ?? [])].sort(() => Math.random() - 0.5);
       setOrderedItems(shuffled);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questionKey]);
+  }, [currentQuestion?.id]);
 
   const questionType = currentQuestion?.questionType ?? "single";
 
