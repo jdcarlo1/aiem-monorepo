@@ -32,6 +32,8 @@ import {
   ListChecks,
   GripVertical,
   Calculator,
+  Bandage,
+  ClipboardList,
 } from "lucide-react";
 
 const fundamentals = [
@@ -289,6 +291,32 @@ const pharmacology = [
   },
 ];
 
+const nursingSkillsLab = [
+  {
+    category: "Nursing Skills Lab",
+    label: "Nursing Skills Lab",
+    icon: <ClipboardList className="w-6 h-6" />,
+    questions: 40,
+    desc: "Sterile technique, Foley catheter insertion (male & female), tracheostomy care and suctioning, IV insertion, NG tube placement, central line management, hand hygiene, and safe procedural skills — mastering the hands-on skills NCLEX tests.",
+    color: "bg-teal-50 text-teal-700 border-teal-200",
+    iconBg: "bg-teal-100",
+    badge: "Skills",
+  },
+];
+
+const woundCare = [
+  {
+    category: "Wound Care Management",
+    label: "Wound Care Management",
+    icon: <Bandage className="w-6 h-6" />,
+    questions: 30,
+    desc: "Pressure injury staging (Stage I–IV, unstageable, DTPI), wound VAC (NPWT) setup and troubleshooting, Braden Scale risk assessment, wound irrigation, débridement types, dressing selection, repositioning schedules, and nutrition for healing.",
+    color: "bg-rose-50 text-rose-700 border-rose-200",
+    iconBg: "bg-rose-100",
+    badge: "Wounds",
+  },
+];
+
 const dosageCalculations = [
   {
     category: "Dosage Calculations",
@@ -418,8 +446,8 @@ export default function NursingSchool() {
 
   const handleLockClick = () => setLocation("/paywall");
 
-  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + dosageCalculations.length + ngnFormats.length;
-  const totalQuestions = (totalCategories - 2) * 30 + 20 + 30;
+  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + nursingSkillsLab.length + woundCare.length + dosageCalculations.length + ngnFormats.length;
+  const totalQuestions = totalCategories * 30;
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -534,6 +562,36 @@ export default function NursingSchool() {
           <p className="text-sm text-muted-foreground mb-4">Meds, dosing, interactions, and nursing implications — by drug class.</p>
           <div className="space-y-3">
             {pharmacology.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Nursing Skills Lab */}
+        <section className="mb-10">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-100 text-teal-700 text-xs font-bold mb-3 border border-teal-200">
+            <ClipboardList className="w-3 h-3" />
+            Procedures
+          </div>
+          <h2 className="text-lg font-bold tracking-tight mb-1">Nursing Skills Lab</h2>
+          <p className="text-sm text-muted-foreground mb-4">Sterile technique, Foley catheters, trach care, IV insertion, NG tubes — the procedural skills tested on NCLEX.</p>
+          <div className="space-y-3">
+            {nursingSkillsLab.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Wound Care Management */}
+        <section className="mb-10">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 text-xs font-bold mb-3 border border-rose-200">
+            <Bandage className="w-3 h-3" />
+            Wound Care
+          </div>
+          <h2 className="text-lg font-bold tracking-tight mb-1">Wound Care Management</h2>
+          <p className="text-sm text-muted-foreground mb-4">Pressure injury staging, wound VAC therapy, Braden Scale, and everything you need for wound-focused NCLEX questions.</p>
+          <div className="space-y-3">
+            {woundCare.map((item) => (
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
           </div>

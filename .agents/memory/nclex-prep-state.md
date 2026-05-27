@@ -92,12 +92,15 @@ Removing this normalization will cause blank page crashes in the quiz.
 - 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
 ## Question Bank State (verified 2026-05-27)
-- 31 nursing school categories (27 original + SATA + Drag & Drop + EKG Strip Recognition + Dosage Calculations)
-- EKG Strip Recognition: 20 questions (Q#1494–1513, category "EKG Strip Recognition")
-- Dosage Calculations: 30 questions (Q#1514–1543, category "Dosage Calculations") — seeded to production
+- 33 nursing school categories (includes Nursing Skills Lab, Wound Care Management, Dosage Calculations, EKG, SATA, Drag & Drop)
+- EKG Strip Recognition: 20 questions (Q#1494–1513)
+- Dosage Calculations: 30 questions (Q#1514–1543)
+- Nursing Skills Lab: 40 questions (Q#1544–1583) — seeded to production
+- Wound Care Management: 30 questions (Q#1584–1613) — seeded to production
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
 - 5 hard "hook" questions at questionNumbers -5 through -1 — always appear first in main NCLEX quiz
-- Next question number to use: 1544
+- Next question number to use: 1614
+- totalQuestions formula: totalCategories * 30 (EKG -10 and SkillsLab +10 cancel out)
 - Nursing school + interview prep use CLIENT-SIDE answer checking (no submitAnswer API call)
 - study-quiz.tsx supports all 3 question types AND shows polished results screen (pass = 75%)
 
