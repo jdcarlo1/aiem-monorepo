@@ -81,6 +81,7 @@ Removing this normalization will cause blank page crashes in the quiz.
 ## Question Bank State (production, verified 2026-05-27)
 - 27 nursing school categories, all with 30 questions (Pediatric Nursing has 70)
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
+- 5 hard "hook" questions seeded at questionNumbers -5 through -1 (DB ids 1394–1398) — always appear first in the main NCLEX quiz. ABG, Fluid/Electrolytes, Critical Care, Pharmacology, Priority/Triage.
 - Next question number to use: 1434
 - Nursing school + interview prep use CLIENT-SIDE answer checking (no submitAnswer API call)
 
