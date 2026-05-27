@@ -7,7 +7,7 @@ import { Brain, Check, Lock, ShieldCheck, Zap, Loader2 } from "lucide-react";
 
 const features = [
   "Unlimited NCLEX Prep — 1,600+ questions with NGN formats",
-  "27 Nursing School question banks — 824+ targeted practice questions",
+  "40 Nursing School question banks — 1,140+ targeted practice questions",
   "Interview Prep — 20 nursing job interview questions",
   "AI-powered clinical explanations after every answer",
   "AI Adaptive Engine — focuses on your weak spots",
