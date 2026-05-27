@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useGetSessionStatus } from "@workspace/api-client-react";
 import { useSessionId } from "@/hooks/useSessionId";
+import { useEagerRestore } from "@/hooks/useAutoRestore";
 import { Button } from "@/components/ui/button";
 import {
   Brain,
@@ -345,6 +346,8 @@ export default function NursingSchool() {
     { sessionId },
     { query: { enabled: !!sessionId } }
   );
+
+  useEagerRestore(sessionId, sessionStatus?.isSubscribed);
 
   const isSubscribed = sessionStatus?.isSubscribed ?? false;
 

@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useGetSessionStatus } from "@workspace/api-client-react";
 import { useSessionId } from "@/hooks/useSessionId";
+import { useEagerRestore } from "@/hooks/useAutoRestore";
 import { Show, useClerk, useUser } from "@clerk/react";
 import {
   Brain,
@@ -75,6 +76,8 @@ export default function Home() {
     { sessionId },
     { query: { enabled: !!sessionId } }
   );
+
+  useEagerRestore(sessionId, sessionStatus?.isSubscribed);
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
