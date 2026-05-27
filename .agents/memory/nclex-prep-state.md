@@ -27,15 +27,28 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 ## Key Files
 - `artifacts/api-server/src/routes/session.ts` — free limit enforcement (5 questions), multi-type answer checking
 - `artifacts/api-server/src/routes/questions.ts` — question routes (returns questionType field)
-- `artifacts/api-server/src/routes/stripe.ts` — Stripe checkout endpoint
+- `artifacts/api-server/src/routes/stripe.ts` — Stripe checkout, verify-checkout (returns email), restore-access endpoints
 - `artifacts/api-server/src/stripeClient.ts` — reads Stripe creds from STRIPE_SECRET_KEY env var first (sk_live_), falls back to connector
 - `artifacts/api-server/src/webhookHandlers.ts` — Stripe webhook + session update logic
 - `artifacts/api-server/src/app.ts` — Clerk proxy + clerkMiddleware wired in
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType column)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
 - `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 26-category nursing school page (7 sections)
-- `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, redirects to Stripe URL
+- `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, has "Restore Access" (stores email to localStorage on success)
+- `artifacts/nclex-prep/src/pages/subscribe-success.tsx` — calls verify-checkout, stores payment email to localStorage
+- `artifacts/nclex-prep/src/hooks/useAutoRestore.ts` — silently restores subscription using stored payment email if canAnswerMore=false
+- `artifacts/nclex-prep/src/lib/session.ts` — getSessionId(), getPaymentEmail(), setPaymentEmail()
 - `scripts/src/seed-products-live.ts` — seeds products to live Stripe account (use this, NOT seed-products.ts)
+
+## Subscription System — How It Works
+- Session ID = Clerk userId (signed in) or localStorage UUID (anonymous)
+- On payment: verify-checkout endpoint marks session as subscribed + returns customer email
+- Email stored in localStorage as `nclex_payment_email`
+- `useAutoRestore` hook on quiz page: if canAnswerMore=false AND email in localStorage → silently POSTs to /api/stripe/restore-access → invalidates session status query
+- "Restore Access" button on paywall: enter payment email → marks current session subscribed + stores email
+- Home page: subscribed users see "Continue Practicing", no pricing cards, "Welcome Back" CTA
+- Root issue: Stripe webhooks not firing → webhook never activates subscription. Restore Access + auto-restore are the workaround.
+- All existing UUID sessions were bulk-activated in DB on 2026-05-27 as emergency fix.
 
 ## Database Schema (questions table)
 - id (serial PK)
