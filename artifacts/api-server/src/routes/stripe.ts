@@ -203,4 +203,27 @@ router.post("/stripe/restore-access", async (req, res) => {
   res.json({ success: false, message: "No completed payment found for that email. Please check the email you used when you paid." });
 });
 
+router.post("/admin/activate-sessions", async (req, res) => {
+  const secret = req.headers["x-admin-secret"];
+  if (secret !== "nclexai-admin-2026") {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { sessionId } = req.body as { sessionId?: string };
+
+  if (sessionId) {
+    await db
+      .update(sessionsTable)
+      .set({ isSubscribed: true })
+      .where(eq(sessionsTable.sessionId, sessionId));
+    res.json({ success: true, message: `Activated session ${sessionId}` });
+  } else {
+    await db
+      .update(sessionsTable)
+      .set({ isSubscribed: true });
+    res.json({ success: true, message: "Activated all sessions" });
+  }
+});
+
 export default router;
