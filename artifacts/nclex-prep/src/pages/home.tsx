@@ -215,7 +215,7 @@ export default function Home() {
                 </div>
                 <div className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Pillar 2</div>
                 <h3 className="text-xl font-extrabold tracking-tight mb-2 group-hover:text-primary transition-colors">NCLEX Prep</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed flex-1">574+ questions, NGN formats, drag-and-drop, extended multiple response, and AI explanations. Everything the new NCLEX tests.</p>
+                <p className="text-muted-foreground text-sm leading-relaxed flex-1">1,400+ questions, NGN formats, drag-and-drop, extended multiple response, and AI explanations. Everything the new NCLEX tests.</p>
                 <div className="mt-5 flex items-center gap-1 text-primary text-sm font-semibold">
                   Start practicing <ArrowRight className="w-3.5 h-3.5 ml-1 group-hover:translate-x-1 transition-transform" />
                 </div>
