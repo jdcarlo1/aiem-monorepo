@@ -296,8 +296,8 @@ const nursingSkillsLab = [
     category: "Nursing Skills Lab",
     label: "Nursing Skills Lab",
     icon: <ClipboardList className="w-6 h-6" />,
-    questions: 40,
-    desc: "Sterile technique, Foley catheter insertion (male & female), tracheostomy care and suctioning, IV insertion, NG tube placement, central line management, hand hygiene, and safe procedural skills — mastering the hands-on skills NCLEX tests.",
+    questions: 50,
+    desc: "Sterile technique, Foley catheter insertion (male & female), tracheostomy care and suctioning, IV insertion, NG tube placement, central line management, hand hygiene, ostomy care (colostomy, ileostomy, urostomy) — every procedural skill tested on NCLEX.",
     color: "bg-teal-50 text-teal-700 border-teal-200",
     iconBg: "bg-teal-100",
     badge: "Skills",
@@ -447,7 +447,7 @@ export default function NursingSchool() {
   const handleLockClick = () => setLocation("/paywall");
 
   const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + nursingSkillsLab.length + woundCare.length + dosageCalculations.length + ngnFormats.length;
-  const totalQuestions = totalCategories * 30;
+  const totalQuestions = totalCategories * 30 + 10;
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">

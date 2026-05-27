@@ -95,11 +95,11 @@ Removing this normalization will cause blank page crashes in the quiz.
 - 33 nursing school categories (includes Nursing Skills Lab, Wound Care Management, Dosage Calculations, EKG, SATA, Drag & Drop)
 - EKG Strip Recognition: 20 questions (Q#1494–1513)
 - Dosage Calculations: 30 questions (Q#1514–1543)
-- Nursing Skills Lab: 40 questions (Q#1544–1583) — seeded to production
+- Nursing Skills Lab: 50 questions (Q#1544–1623, includes ostomy care Q#1614–1623) — seeded to production
 - Wound Care Management: 30 questions (Q#1584–1613) — seeded to production
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
 - 5 hard "hook" questions at questionNumbers -5 through -1 — always appear first in main NCLEX quiz
-- Next question number to use: 1614
+- Next question number to use: 1624
 - totalQuestions formula: totalCategories * 30 (EKG -10 and SkillsLab +10 cancel out)
 - Nursing school + interview prep use CLIENT-SIDE answer checking (no submitAnswer API call)
 - study-quiz.tsx supports all 3 question types AND shows polished results screen (pass = 75%)
