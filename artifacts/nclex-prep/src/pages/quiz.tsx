@@ -190,19 +190,72 @@ function OrderedQuestion({
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const [touchDragIdx, setTouchDragIdx] = useState<number | null>(null);
-  const [touchOverIdx, setTouchOverIdx] = useState<number | null>(null);
+  const [touchDrag, setTouchDrag] = useState<{ dragIdx: number; overIdx: number } | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const touchStateRef = useRef<{ dragIdx: number; overIdx: number } | null>(null);
   const correctOrder = correctLetter.split(",").map(s => s.trim());
 
+  const itemsRef = useRef(items);
+  useEffect(() => { itemsRef.current = items; }, [items]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchStateRef.current) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      let hit = touchStateRef.current.overIdx;
+      for (let i = 0; i < itemRefs.current.length; i++) {
+        const el = itemRefs.current[i];
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) { hit = i; break; }
+      }
+      if (hit !== touchStateRef.current.overIdx) {
+        touchStateRef.current = { ...touchStateRef.current, overIdx: hit };
+        setTouchDrag({ dragIdx: touchStateRef.current.dragIdx, overIdx: hit });
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (touchStateRef.current) {
+        const { dragIdx, overIdx } = touchStateRef.current;
+        if (dragIdx !== overIdx) {
+          const n = [...itemsRef.current];
+          const [m] = n.splice(dragIdx, 1);
+          n.splice(overIdx, 0, m);
+          setItems(n);
+        }
+      }
+      touchStateRef.current = null;
+      setTouchDrag(null);
+    };
+
+    container.addEventListener("touchmove", onTouchMove, { passive: false });
+    container.addEventListener("touchend", onTouchEnd);
+    container.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", onTouchEnd);
+      container.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [setItems]);
+
+  const handleTouchStart = (index: number) => {
+    if (answerResult) return;
+    touchStateRef.current = { dragIdx: index, overIdx: index };
+    setTouchDrag({ dragIdx: index, overIdx: index });
+  };
+
   const handleDragStart = (e: React.DragEvent, index: number) => {
-    setDragIndex(index);
-    e.dataTransfer.effectAllowed = "move";
+    setDragIndex(index); e.dataTransfer.effectAllowed = "move";
   };
   const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverIndex(index);
+    e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverIndex(index);
   };
   const handleDrop = (e: React.DragEvent, dropIndex: number) => {
     e.preventDefault();
@@ -211,33 +264,6 @@ function OrderedQuestion({
     setItems(n); setDragIndex(null); setDragOverIndex(null);
   };
   const handleDragEnd = () => { setDragIndex(null); setDragOverIndex(null); };
-
-  const handleTouchStart = (e: React.TouchEvent, index: number) => {
-    if (answerResult) return;
-    setTouchDragIdx(index);
-    setTouchOverIdx(index);
-  };
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchDragIdx === null) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    for (let i = 0; i < itemRefs.current.length; i++) {
-      const el = itemRefs.current[i];
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-        setTouchOverIdx(i);
-        break;
-      }
-    }
-  };
-  const handleTouchEnd = () => {
-    if (touchDragIdx !== null && touchOverIdx !== null && touchDragIdx !== touchOverIdx) {
-      const n = [...items]; const [m] = n.splice(touchDragIdx, 1); n.splice(touchOverIdx, 0, m);
-      setItems(n);
-    }
-    setTouchDragIdx(null); setTouchOverIdx(null);
-  };
 
   const moveUp = (i: number) => {
     if (i === 0 || answerResult) return;
@@ -249,22 +275,23 @@ function OrderedQuestion({
   };
 
   return (
-    <div className="space-y-2 mb-8">
+    <div ref={containerRef} className="space-y-2 mb-8">
       <p className="text-sm font-semibold text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 inline-block mb-3">
-        Tap ▲▼ to reorder · drag on desktop
+        Hold &amp; drag to reorder · or tap ▲▼
       </p>
       {items.map((item, i) => {
         const isCorrectPos = answerResult && correctOrder[i] === item.letter;
-        const isDragging = dragIndex === i || touchDragIdx === i;
-        const isDragOver = (dragOverIndex === i && dragIndex !== null && dragIndex !== i) ||
-                           (touchOverIdx === i && touchDragIdx !== null && touchDragIdx !== i);
+        const isDragging = dragIndex === i || touchDrag?.dragIdx === i;
+        const isDragOver =
+          (dragOverIndex === i && dragIndex !== null && dragIndex !== i) ||
+          (touchDrag !== null && touchDrag.overIdx === i && touchDrag.dragIdx !== i);
 
-        let cls = "w-full rounded-xl border-2 flex items-stretch gap-0 transition-all duration-150 overflow-hidden ";
+        let cls = "w-full rounded-xl border-2 flex items-stretch transition-all duration-150 overflow-hidden select-none ";
         if (!answerResult) {
           cls += isDragging
             ? "opacity-40 border-primary bg-primary/5 scale-[0.98]"
             : isDragOver
-            ? "border-primary bg-primary/10 scale-[1.01]"
+            ? "border-primary bg-primary/10 scale-[1.01] shadow-md"
             : "border-border bg-card";
         } else {
           cls += isCorrectPos
@@ -281,31 +308,14 @@ function OrderedQuestion({
             onDragOver={(e) => handleDragOver(e, i)}
             onDrop={(e) => handleDrop(e, i)}
             onDragEnd={handleDragEnd}
-            onTouchStart={(e) => handleTouchStart(e, i)}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
             className={cls}
-            style={{ touchAction: "none" }}
           >
             {!answerResult && (
-              <div className="flex flex-col shrink-0 border-r border-border">
-                <button
-                  onClick={(e) => { e.stopPropagation(); moveUp(i); }}
-                  disabled={i === 0}
-                  className="flex-1 flex items-center justify-center w-11 text-muted-foreground hover:text-primary hover:bg-primary/5 active:bg-primary/10 disabled:opacity-20 transition-colors"
-                  aria-label="Move up"
-                >
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clipRule="evenodd" /></svg>
-                </button>
-                <div className="h-px bg-border" />
-                <button
-                  onClick={(e) => { e.stopPropagation(); moveDown(i); }}
-                  disabled={i === items.length - 1}
-                  className="flex-1 flex items-center justify-center w-11 text-muted-foreground hover:text-primary hover:bg-primary/5 active:bg-primary/10 disabled:opacity-20 transition-colors"
-                  aria-label="Move down"
-                >
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clipRule="evenodd" /></svg>
-                </button>
+              <div
+                className="flex items-center justify-center w-12 shrink-0 border-r border-border bg-muted/30 cursor-grab active:cursor-grabbing touch-none"
+                onTouchStart={() => handleTouchStart(i)}
+              >
+                <GripVertical className="w-5 h-5 text-muted-foreground" />
               </div>
             )}
             {answerResult && (
@@ -315,13 +325,35 @@ function OrderedQuestion({
                   : <XCircle className="w-5 h-5 text-destructive/70" />}
               </div>
             )}
-            <div className="flex items-center gap-3 px-4 py-4 flex-1 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground shrink-0">
+            <div className="flex items-center gap-3 px-3 py-3 flex-1 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground shrink-0">
                 {i + 1}
               </div>
               <p className="text-base font-medium flex-1 leading-snug">{item.text}</p>
-              {!answerResult && <GripVertical className="w-4 h-4 text-muted-foreground/40 shrink-0 hidden sm:block" />}
             </div>
+            {!answerResult && (
+              <div className="flex flex-col shrink-0 border-l border-border">
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); moveUp(i); }}
+                  disabled={i === 0}
+                  className="flex-1 flex items-center justify-center w-11 text-muted-foreground hover:text-primary hover:bg-primary/5 active:bg-primary/10 disabled:opacity-20 transition-colors"
+                  aria-label="Move up"
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clipRule="evenodd" /></svg>
+                </button>
+                <div className="h-px bg-border" />
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); moveDown(i); }}
+                  disabled={i === items.length - 1}
+                  className="flex-1 flex items-center justify-center w-11 text-muted-foreground hover:text-primary hover:bg-primary/5 active:bg-primary/10 disabled:opacity-20 transition-colors"
+                  aria-label="Move down"
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clipRule="evenodd" /></svg>
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
