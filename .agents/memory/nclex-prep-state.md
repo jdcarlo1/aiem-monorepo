@@ -26,36 +26,49 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 
 ## Key Files
 - `artifacts/api-server/src/routes/session.ts` — free limit enforcement (5 questions), multi-type answer checking
-- `artifacts/api-server/src/routes/questions.ts` — question routes (returns questionType field)
+- `artifacts/api-server/src/routes/questions.ts` — question routes; normalizes options format at API layer (see below)
 - `artifacts/api-server/src/routes/stripe.ts` — Stripe checkout, verify-checkout (returns email), restore-access endpoints
 - `artifacts/api-server/src/stripeClient.ts` — reads Stripe creds from STRIPE_SECRET_KEY env var first (sk_live_), falls back to connector
 - `artifacts/api-server/src/webhookHandlers.ts` — Stripe webhook + session update logic
 - `artifacts/api-server/src/app.ts` — Clerk proxy + clerkMiddleware wired in
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType column)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
-- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 26-category nursing school page (7 sections)
+- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 27-category nursing school page (7 sections)
 - `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, has "Restore Access" (stores email to localStorage on success)
 - `artifacts/nclex-prep/src/pages/subscribe-success.tsx` — calls verify-checkout, stores payment email to localStorage
-- `artifacts/nclex-prep/src/hooks/useAutoRestore.ts` — silently restores subscription using stored payment email if canAnswerMore=false
+- `artifacts/nclex-prep/src/hooks/useAutoRestore.ts` — two hooks: useAutoRestore (quiz page, fires when canAnswerMore=false) and useEagerRestore (fires on mount when isSubscribed is falsy)
 - `artifacts/nclex-prep/src/lib/session.ts` — getSessionId(), getPaymentEmail(), setPaymentEmail()
 - `scripts/src/seed-products-live.ts` — seeds products to live Stripe account (use this, NOT seed-products.ts)
+
+## CRITICAL: Options Format Bug (fixed in API, do not revert)
+Old seeded questions store options as `{"A": "text", "B": "text"}` (plain object).
+New questions store options as `[{letter: "A", text: "..."}]` (array).
+The fix is in `artifacts/api-server/src/routes/questions.ts` GET /questions/:id — normalizes to array before returning.
+**Never assume options are arrays in the DB. Always normalize at the API layer.**
+Removing this normalization will cause blank page crashes in the quiz.
 
 ## Subscription System — How It Works
 - Session ID = Clerk userId (signed in) or localStorage UUID (anonymous)
 - On payment: verify-checkout endpoint marks session as subscribed + returns customer email
 - Email stored in localStorage as `nclex_payment_email`
-- `useAutoRestore` hook on quiz page: if canAnswerMore=false AND email in localStorage → silently POSTs to /api/stripe/restore-access → invalidates session status query
+- `useEagerRestore` hook on home, nursing-school, study-quiz, interview-prep pages: if isSubscribed=false AND email in localStorage → silently POSTs to /api/stripe/restore-access → invalidates session status query
 - "Restore Access" button on paywall: enter payment email → marks current session subscribed + stores email
-- Home page: subscribed users see "Continue Practicing", no pricing cards, "Welcome Back" CTA
 - Root issue: Stripe webhooks not firing → webhook never activates subscription. Restore Access + auto-restore are the workaround.
 - All existing UUID sessions were bulk-activated in DB on 2026-05-27 as emergency fix.
+
+## Key Constraints — Do NOT Change Without User Approval
+- FREE_LIMIT stays at 5 questions — user explicitly rejected changing to 10
+- Do NOT re-run `seed-products.ts` (test keys) — use `seed-products-live.ts`
+- User is very sensitive to breaking changes — always test thoroughly before publishing
+- Always run a full category check script across all 27 categories before publishing any question/API changes
+- Admin endpoints secured with header `x-admin-secret: nclexai-admin-2026`
 
 ## Database Schema (questions table)
 - id (serial PK)
 - question_number (int) — NOT a unique constraint
 - category (text)
 - text (text)
-- options (jsonb — {"A":"...","B":"...","C":"...","D":"..."})
+- options (jsonb) — TWO formats exist: old `{"A":"..."}`, new `[{letter,text}]` — API normalizes
 - correct_letter (text) — for 'multiple': sorted comma-sep "A,C,D"; for 'ordered': "1,2,3,4"
 - explanation (text)
 - question_type (text, default 'single') — values: 'single' | 'multiple' | 'ordered'
@@ -65,67 +78,22 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - 'multiple': correctLetter = sorted comma-separated letters "A,C,D"; server sorts both sides before comparing
 - 'ordered': correctLetter = correct position order "1,2,3,4,5"; items use numeric letters; direct string compare
 
-## Question Bank State
-- **Total questions in DB: ~1393 (mix of NCLEX and nursing school)**
-- **Next question number to use: 1394**
-- Nursing school questions use question_type='single' and CLIENT-SIDE answer checking (no submitAnswer call — avoids corrupting NCLEX session counter)
-- Interview prep also uses client-side checking
+## Question Bank State (production, verified 2026-05-27)
+- 27 nursing school categories, all with 30 questions (Pediatric Nursing has 70)
+- 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
+- Next question number to use: 1434
+- Nursing school + interview prep use CLIENT-SIDE answer checking (no submitAnswer API call)
 
-## Nursing School Page — 26 Categories (7 sections)
-
-**Semester 1 — Fundamentals (1 category)**
-1. Fundamentals of Nursing (30 questions)
-
-**Medical-Surgical — By Body System (9 categories)**
-2. MedSurg: Cardiac (30)
-3. MedSurg: Respiratory (30)
-4. MedSurg: Neurological (30)
-5. MedSurg: Endocrine (30)
-6. MedSurg: Renal & Urology (30)
-7. MedSurg: Gastrointestinal (30)
-8. MedSurg: Burns & Integumentary (30)
-9. MedSurg: Orthopedic (30)
-10. MedSurg: Chest Tubes (30)
-
-**Infectious Disease (2 categories)**
-11. Infectious Disease: Tuberculosis (30)
-12. Infectious Disease: HIV/AIDS (30)
-
-**Specialty Nursing (5 categories)**
-13. Pediatric Nursing (30)
-14. Maternity & OB Nursing (30)
-15. Psychiatric/Mental Health (30)
-16. Oncology Nursing (30)
-17. Seizure & Epilepsy Nursing (30) — Q1364–Q1393
-
-**Advanced Practice (2 categories)**
-18. Critical Care/ICU (30)
-19. Fluid & Electrolytes (30)
-
-**Clinical Reasoning (2 categories)**
-20. ABG Interpretation (30) — Q1274–Q1303
-21. EKG Interpretation (30) — Q1304–Q1333
-
-**Pharmacology (5 categories)**
-22. Pharmacology: Antidepressants (30) — Q1334–Q1363
-23. Pharmacology: Cardiac Meds (30)
-24. Pharmacology: Respiratory Meds (30)
-25. Pharmacology: Diabetes & Insulin (30)
-26. Pharmacology: Anticoagulation (30)
-
-## NCLEX Prep Categories (legacy — 613+ questions, various types)
-Burn Unit Nursing, Cardiac Surgery, Chest Tube Nursing, Dermatology, Diabetes, Fundamentals, Gastroenterology, Geriatric, Hematology-Oncology, High-Frequency NCLEX, ICU Nursing, Integumentary, Leadership, Lymphatic, Maternal-Newborn, Maternity Nursing, Medical-Surgical, Mental Health, Nervous System, NGN-Clinical Judgment (53, mixed types), Ophthalmology, Orthopedic Nursing, Pediatrics, Pharmacology, Psychiatric Nursing, Reproductive System, Urology
-
-## Interview Prep
-20 questions (Q594–Q613), category "Nursing Interview Prep" — all verified correct nursing JOB INTERVIEW questions. Client-side answer checking only.
-
-## Business Logic
-- Free limit = 5 questions, enforced server-side in session.ts
-- Nursing school + interview prep: client-side answer checking only (do NOT call /api/session/submit)
-- Session ID: Clerk userId when signed in, localStorage UUID when not (handled by useSessionId hook)
-- Stripe live: STRIPE_SECRET_KEY env var set. Do NOT re-run seed-products.ts (uses test connector). Use seed-products-live.ts.
+## All 27 Nursing School Categories (exact strings — must match DB)
+Fundamentals of Nursing, MedSurg: Cardiac, MedSurg: Respiratory, MedSurg: Neurological,
+MedSurg: Endocrine, MedSurg: Renal & Urology, MedSurg: Gastrointestinal,
+MedSurg: Burns & Integumentary, MedSurg: Orthopedic, MedSurg: Chest Tubes,
+Infectious Disease: Tuberculosis, Infectious Disease: HIV/AIDS, Pediatric Nursing,
+Maternity & OB Nursing, Psychiatric/Mental Health, Oncology Nursing,
+Seizure & Epilepsy Nursing, Critical Care/ICU, Fluid & Electrolytes,
+ABG Interpretation, EKG Interpretation, Pharmacology: Antidepressants,
+Pharmacology: Cardiac Meds, Pharmacology: Respiratory Meds,
+Pharmacology: Diabetes & Insulin, Pharmacology: Anticoagulation, Nursing Interview Prep
 
 ## Lucide Icons in nursing-school.tsx (already imported — do not duplicate)
 Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical, BookOpen, Flame, Lock, Syringe, Bone, Stethoscope, Bug, Baby, HeartPulse, ShieldAlert, Radiation, Monitor, Waves, TestTube
-
-**Why:** User explicitly asked this to be saved so context isn't lost across sessions.
