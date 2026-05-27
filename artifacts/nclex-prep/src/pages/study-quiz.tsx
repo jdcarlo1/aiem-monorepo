@@ -6,6 +6,7 @@ import {
   useGetQuestion,
 } from "@workspace/api-client-react";
 import { useSessionId } from "@/hooks/useSessionId";
+import { useEagerRestore } from "@/hooks/useAutoRestore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -106,6 +107,8 @@ export default function StudyQuiz() {
     { sessionId },
     { query: { enabled: !!sessionId } }
   );
+
+  useEagerRestore(sessionId, sessionStatus?.isSubscribed);
 
   const { data: filteredQuestions = [], isLoading: isListLoading } = useQuery({
     queryKey: ["questions", "category", category],
