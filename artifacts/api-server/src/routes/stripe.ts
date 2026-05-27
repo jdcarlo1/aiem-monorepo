@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, sessionsTable } from "@workspace/db";
+import { db, sessionsTable, questionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 
@@ -201,6 +201,42 @@ router.post("/stripe/restore-access", async (req, res) => {
   }
 
   res.json({ success: false, message: "No completed payment found for that email. Please check the email you used when you paid." });
+});
+
+router.post("/admin/seed-questions", async (req, res) => {
+  const secret = req.headers["x-admin-secret"];
+  if (secret !== "nclexai-admin-2026") {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { questions } = req.body as {
+    questions: {
+      questionNumber: number;
+      category: string;
+      text: string;
+      options: Record<string, string>;
+      correctLetter: string;
+      explanation: string;
+      questionType: string;
+    }[];
+  };
+
+  if (!questions || !Array.isArray(questions) || questions.length === 0) {
+    res.status(400).json({ error: "questions array required" });
+    return;
+  }
+
+  // Insert in batches of 50
+  const batchSize = 50;
+  let inserted = 0;
+  for (let i = 0; i < questions.length; i += batchSize) {
+    const batch = questions.slice(i, i + batchSize);
+    await db.insert(questionsTable).values(batch).onConflictDoNothing();
+    inserted += batch.length;
+  }
+
+  res.json({ success: true, message: `Inserted ${inserted} questions` });
 });
 
 router.post("/admin/activate-sessions", async (req, res) => {
