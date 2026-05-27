@@ -120,15 +120,19 @@ router.post("/stripe/verify-checkout", async (req, res) => {
       ? checkoutSession.subscription
       : checkoutSession.subscription?.id ?? null;
 
+    const customerId = typeof checkoutSession.customer === "string" ? checkoutSession.customer : null;
     const customerEmail = checkoutSession.customer_details?.email ?? null;
+
+    // Save email onto the Stripe customer record so restore-access can find them later
+    if (customerId && customerEmail) {
+      try {
+        await stripe.customers.update(customerId, { email: customerEmail });
+      } catch (_) {}
+    }
 
     await db
       .update(sessionsTable)
-      .set({
-        isSubscribed: true,
-        stripeCustomerId: typeof checkoutSession.customer === "string" ? checkoutSession.customer : null,
-        stripeSubscriptionId: subscriptionId,
-      })
+      .set({ isSubscribed: true, stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId })
       .where(eq(sessionsTable.sessionId, sessionId));
 
     res.json({ success: true, isSubscribed: true, email: customerEmail });
@@ -146,38 +150,57 @@ router.post("/stripe/restore-access", async (req, res) => {
   }
 
   const stripe = await getUncachableStripeClient();
+  const normalizedEmail = email.trim().toLowerCase();
 
-  const customers = await stripe.customers.list({ email: email.trim().toLowerCase(), limit: 10 });
-
-  if (customers.data.length === 0) {
-    res.json({ success: false, message: "No account found with that email." });
-    return;
+  async function activateSession(customerId: string, subscriptionId: string | null) {
+    const [existing] = await db.select().from(sessionsTable).where(eq(sessionsTable.sessionId, sessionId)).limit(1);
+    if (existing) {
+      await db.update(sessionsTable)
+        .set({ isSubscribed: true, stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId })
+        .where(eq(sessionsTable.sessionId, sessionId));
+    } else {
+      await db.insert(sessionsTable).values({ sessionId, questionsAnswered: 0, isSubscribed: true, stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId });
+    }
   }
 
+  // Strategy 1: Search checkout sessions directly by customer_details.email
+  try {
+    const searchResults = await stripe.checkout.sessions.search({
+      query: `customer_details.email:"${normalizedEmail}" AND status:"complete"`,
+      limit: 5,
+    });
+
+    if (searchResults.data.length > 0) {
+      const cs = searchResults.data[0];
+      const customerId = typeof cs.customer === "string" ? cs.customer : "";
+      const subscriptionId = typeof cs.subscription === "string" ? cs.subscription : null;
+
+      // Also update customer record email for future lookups
+      if (customerId) {
+        try { await stripe.customers.update(customerId, { email: normalizedEmail }); } catch (_) {}
+      }
+
+      await activateSession(customerId, subscriptionId);
+      res.json({ success: true, message: "Access restored!" });
+      return;
+    }
+  } catch (_) {}
+
+  // Strategy 2: Look up customer by email (works if email was saved to customer record)
+  const customers = await stripe.customers.list({ email: normalizedEmail, limit: 10 });
+
   for (const customer of customers.data) {
-    // Check for completed checkout sessions
-    const checkouts = await stripe.checkout.sessions.list({ customer: customer.id, status: "complete", limit: 10 });
+    const checkouts = await stripe.checkout.sessions.list({ customer: customer.id, status: "complete", limit: 5 });
     if (checkouts.data.length > 0) {
       const cs = checkouts.data[0];
       const subscriptionId = typeof cs.subscription === "string" ? cs.subscription : null;
-
-      await db
-        .update(sessionsTable)
-        .set({ isSubscribed: true, stripeCustomerId: customer.id, stripeSubscriptionId: subscriptionId })
-        .where(eq(sessionsTable.sessionId, sessionId));
-
-      // Also insert if not existing
-      const [existing] = await db.select().from(sessionsTable).where(eq(sessionsTable.sessionId, sessionId)).limit(1);
-      if (!existing) {
-        await db.insert(sessionsTable).values({ sessionId, questionsAnswered: 0, isSubscribed: true, stripeCustomerId: customer.id, stripeSubscriptionId: subscriptionId });
-      }
-
+      await activateSession(customer.id, subscriptionId);
       res.json({ success: true, message: "Access restored!" });
       return;
     }
   }
 
-  res.json({ success: false, message: "No completed payment found for that email." });
+  res.json({ success: false, message: "No completed payment found for that email. Please check the email you used when you paid." });
 });
 
 export default router;
