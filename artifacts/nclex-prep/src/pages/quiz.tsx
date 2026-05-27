@@ -430,10 +430,6 @@ export default function Quiz() {
   };
 
   const handleNext = () => {
-    if (answerResult && !answerResult.canAnswerMore) {
-      setLocation("/paywall");
-      return;
-    }
     if (answerResult) {
       queryClient.setQueryData(
         getGetSessionStatusQueryKey({ sessionId }),
@@ -446,6 +442,11 @@ export default function Quiz() {
           };
         }
       );
+      // Only redirect to paywall if user is confirmed not subscribed
+      if (!answerResult.canAnswerMore && !sessionStatus?.isSubscribed) {
+        setLocation("/paywall");
+        return;
+      }
     }
     setSelectedLetter(null);
     setSelectedLetters([]);
