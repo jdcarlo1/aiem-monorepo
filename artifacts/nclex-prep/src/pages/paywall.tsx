@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Brain, Check, Lock, ShieldCheck, Zap, Loader2 } from "lucide-react";
 
 const features = [
-  "Unlimited NCLEX Prep — 613+ questions with NGN formats",
-  "26 Nursing School question banks — 780+ targeted practice questions",
+  "Unlimited NCLEX Prep — 574+ questions with NGN formats",
+  "27 Nursing School question banks — 824+ targeted practice questions",
   "Interview Prep — 20 nursing job interview questions",
   "AI-powered clinical explanations after every answer",
   "AI Adaptive Engine — focuses on your weak spots",

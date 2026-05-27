@@ -62,7 +62,7 @@ const comparisonRows = [
   { feature: "Extended multiple response", us: true, them: false },
   { feature: "Drag & drop ordering questions", us: true, them: false },
   { feature: "AI-powered clinical explanations", us: true, them: false },
-  { feature: "613+ questions across 29 categories", us: true, them: "Limited" },
+  { feature: "1,400+ questions across 28 categories", us: true, them: "Limited" },
   { feature: "Instant answer feedback", us: true, them: false },
   { feature: "Available 24/7 on any device", us: true, them: true },
   { feature: "Cost", us: "$15/mo or $49 lifetime", them: "$50–$200+" },
@@ -170,7 +170,7 @@ export default function Home() {
 
           <div className="flex flex-wrap justify-center gap-6 text-sm font-medium text-muted-foreground">
             {[
-              { icon: <Zap className="w-4 h-4 text-primary" />, label: "1,000+ Questions" },
+              { icon: <Zap className="w-4 h-4 text-primary" />, label: "1,400+ Questions" },
               { icon: <ShieldCheck className="w-4 h-4 text-primary" />, label: "40+ Categories" },
               { icon: <Brain className="w-4 h-4 text-primary" />, label: "AI Explanations" },
               { icon: <TrendingUp className="w-4 h-4 text-primary" />, label: "NGN Question Formats" },
@@ -215,7 +215,7 @@ export default function Home() {
                 </div>
                 <div className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Pillar 2</div>
                 <h3 className="text-xl font-extrabold tracking-tight mb-2 group-hover:text-primary transition-colors">NCLEX Prep</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed flex-1">613+ questions, NGN formats, drag-and-drop, extended multiple response, and AI explanations. Everything the new NCLEX tests.</p>
+                <p className="text-muted-foreground text-sm leading-relaxed flex-1">574+ questions, NGN formats, drag-and-drop, extended multiple response, and AI explanations. Everything the new NCLEX tests.</p>
                 <div className="mt-5 flex items-center gap-1 text-primary text-sm font-semibold">
                   Start practicing <ArrowRight className="w-3.5 h-3.5 ml-1 group-hover:translate-x-1 transition-transform" />
                 </div>
@@ -491,7 +491,7 @@ export default function Home() {
                   Active Member
                 </div>
                 <h3 className="text-2xl font-extrabold tracking-tight mb-2">You have full access.</h3>
-                <p className="text-muted-foreground mb-6">All 613+ questions, every category, and AI explanations — unlocked.</p>
+                <p className="text-muted-foreground mb-6">All 1,400+ questions, every category, and AI explanations — unlocked.</p>
                 <Link href="/quiz">
                   <Button className="rounded-full px-8 shadow-md">
                     Continue Practicing
@@ -511,7 +511,7 @@ export default function Home() {
                     </div>
                     <p className="text-xs text-muted-foreground mb-6">Cancel anytime</p>
                     <ul className="space-y-3 mb-8 flex-1">
-                      {["All 613 questions", "29 categories incl. Interview Prep", "NGN question formats", "AI explanations", "AI Adaptive Engine"].map((f) => (
+                      {["All 1,400+ questions", "28 categories incl. Interview Prep", "NGN question formats", "AI explanations", "AI Adaptive Engine"].map((f) => (
                         <li key={f} className="flex items-center gap-2 text-sm text-foreground">
                           <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                           {f}
@@ -536,7 +536,7 @@ export default function Home() {
                     </div>
                     <p className="text-xs text-muted-foreground mb-6">Pay once · Access forever</p>
                     <ul className="space-y-3 mb-8 flex-1">
-                      {["All 613 questions", "29 categories incl. Interview Prep", "NGN question formats", "AI explanations", "AI Adaptive Engine", "All future updates included"].map((f) => (
+                      {["All 1,400+ questions", "28 categories incl. Interview Prep", "NGN question formats", "AI explanations", "AI Adaptive Engine", "All future updates included"].map((f) => (
                         <li key={f} className="flex items-center gap-2 text-sm text-foreground">
                           <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                           {f}

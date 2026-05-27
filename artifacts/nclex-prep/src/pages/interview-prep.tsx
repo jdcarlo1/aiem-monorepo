@@ -203,7 +203,7 @@ export default function InterviewPrep() {
               Interview Prep is a Premium Feature
             </h1>
             <p className="text-muted-foreground mb-8 leading-relaxed">
-              Unlock all 20 nursing interview questions with detailed rationales — plus 613 NCLEX practice questions — with a one-time $49 lifetime plan.
+              Unlock all 20 nursing interview questions with detailed rationales — plus 574 NCLEX practice questions — with a one-time $49 lifetime plan.
             </p>
             <div className="flex flex-col gap-3">
               <Button size="lg" className="rounded-xl w-full" onClick={() => setLocation("/paywall")}>
