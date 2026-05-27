@@ -34,7 +34,7 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType + imageUrl columns)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
 - `artifacts/nclex-prep/src/components/EkgDisplay.tsx` — self-contained SVG ECG strip renderer; takes `rhythm` prop; 12 supported rhythms: normal, bradycardia, tachycardia, afib, flutter, svt, pvcs, vtach, vfib, block1, block3, stemi
-- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 30-category nursing school page (includes NGN formats + EKG Strip Recognition with badge)
+- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 40-category nursing school page (includes 7 new Skills Lab subcategories)
 - `artifacts/nclex-prep/src/pages/study-quiz.tsx` — supports all 3 question types + EKG/image rendering above question text
 - `artifacts/nclex-prep/src/pages/quiz.tsx` — main NCLEX quiz; supports EKG/image rendering above question text
 - `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, has "Restore Access" (stores email to localStorage on success)
@@ -63,7 +63,7 @@ Removing this normalization will cause blank page crashes in the quiz.
 - FREE_LIMIT stays at 5 questions — user explicitly rejected changing to 10
 - Do NOT re-run `seed-products.ts` (test keys) — use `seed-products-live.ts`
 - User is very sensitive to breaking changes — always test thoroughly before publishing
-- Always run a full category check script across all 27 categories before publishing any question/API changes
+- Always run a full category check script across all 40 categories before publishing any question/API changes
 - Admin endpoints secured with header `x-admin-secret: nclexai-admin-2026`
 
 ## Database Schema (questions table)
@@ -91,17 +91,43 @@ Removing this normalization will cause blank page crashes in the quiz.
 - 'multiple': correctLetter = sorted comma-separated letters "A,C,D"; server and client both sort before comparing
 - 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
-## Question Bank State (verified 2026-05-27)
-- 33 nursing school categories (includes Nursing Skills Lab, Wound Care Management, Dosage Calculations, EKG, SATA, Drag & Drop)
+## Question Bank State (updated 2026-05-27)
+- 40 nursing school categories total (33 original + 7 new Nursing Skills Lab subcategories)
 - EKG Strip Recognition: 20 questions (Q#1494–1513)
 - Dosage Calculations: 30 questions (Q#1514–1543)
-- Nursing Skills Lab: 50 questions (Q#1544–1623, includes ostomy care Q#1614–1623) — seeded to production
-- Wound Care Management: 30 questions (Q#1584–1613) — seeded to production
+- Nursing Skills Lab (core): 50 questions (Q#1544–1623, includes ostomy care Q#1614–1623)
+- Wound Care Management: 30 questions (Q#1584–1613)
+- NEW: IV Therapy Skills: 20 questions (Q#1624–1643) — seeded to production
+- NEW: Hygiene & ADLs: 20 questions (Q#1644–1663) — seeded to production
+- NEW: Safety & Mobility: 20 questions (Q#1664–1683) — seeded to production
+- NEW: Wound Care & Dressing Changes: 20 questions (Q#1684–1703) — seeded to production
+- NEW: Elimination Skills: 20 questions (Q#1704–1723) — seeded to production
+- NEW: Respiratory Care Skills: 20 questions (Q#1724–1743) — seeded to production
+- NEW: GI & Nutrition Skills: 20 questions (Q#1744–1763) — seeded to production
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
 - 5 hard "hook" questions at questionNumbers -5 through -1 — always appear first in main NCLEX quiz
-- Next question number to use: 1624
-- totalQuestions formula: totalCategories * 30 (EKG -10 and SkillsLab +10 cancel out)
-- Nursing school + interview prep use CLIENT-SIDE answer checking (no submitAnswer API call)
+- Next question number to use: 1764
+- totalCategories = 40, totalQuestions formula: totalCategories * 30 - 60 = 1,140
+- Marketing copy: "1,600+ questions" (used on home, paywall, interview-prep, nursing-school pages)
+- "40 categories" shown on home.tsx comparison table
+
+## nursing-school.tsx Array Structure (all arrays)
+fundamentals (1), medsurg (10), infectiousDisease (2), specialtyNursing (4), advancedPractice (2),
+clinicalReasoning (2), pharmacology (6), nursingSkillsLab (1), woundCare (1), dosageCalculations (1), ngnFormats (3),
+ivTherapy (1), hygieneADLs (1), safetyMobility (1), woundDressing (1), eliminationSkills (1), respiratorySkills (1), giNutritionSkills (1)
+Total: 40 categories
+
+## Icons Added (2026-05-27) — nursing-school.tsx now imports these additional icons:
+ShieldCheck (Safety & Mobility), Scissors (Wound Care & Dressing Changes), Droplet (Elimination Skills),
+Utensils (GI & Nutrition Skills), Sparkles (Hygiene & ADLs)
+Wind (Respiratory Care Skills) and Syringe (IV Therapy) were already imported.
+
+## Nursing Skills Lab JSX Section
+All 8 arrays (nursingSkillsLab + 7 new) render in a single "Nursing Skills Lab" section with "Procedures" badge.
+Section description updated to reflect expanded coverage.
+
+## Nursing School + Interview Prep
+- Both use CLIENT-SIDE answer checking (no submitAnswer API call)
 - study-quiz.tsx supports all 3 question types AND shows polished results screen (pass = 75%)
 
 ## Results Screen (study-quiz.tsx)
@@ -111,7 +137,7 @@ Removing this normalization will cause blank page crashes in the quiz.
 - Green = passing (≥75%), amber = close (60-74%), red = below 60%
 - Retry and Choose Another Section buttons
 
-## All 30 Nursing School Categories (exact strings — must match DB)
+## All 40 Nursing School Categories (exact strings — must match DB)
 Fundamentals of Nursing, MedSurg: Cardiac, MedSurg: Respiratory, MedSurg: Neurological,
 MedSurg: Endocrine, MedSurg: Renal & Urology, MedSurg: Gastrointestinal,
 MedSurg: Burns & Integumentary, MedSurg: Orthopedic, MedSurg: Chest Tubes,
@@ -121,10 +147,15 @@ Seizure & Epilepsy Nursing, Critical Care/ICU, Fluid & Electrolytes,
 ABG Interpretation, EKG Interpretation, Pharmacology: Antidepressants,
 Pharmacology: Cardiac Meds, Pharmacology: Respiratory Meds,
 Pharmacology: Diabetes & Insulin, Pharmacology: Anticoagulation, Nursing Interview Prep,
-Select All That Apply, Drag & Drop Ordering, EKG Strip Recognition
+Select All That Apply, Drag & Drop Ordering, EKG Strip Recognition,
+Nursing Skills Lab (core 50q), Wound Care Management,
+Dosage Calculations,
+IV Therapy Skills, Hygiene & ADLs, Safety & Mobility, Wound Care & Dressing Changes,
+Elimination Skills, Respiratory Care Skills, GI & Nutrition Skills
 
 ## Lucide Icons in nursing-school.tsx (already imported — do not duplicate)
 Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical,
 BookOpen, Flame, Lock, Syringe, Bone, Stethoscope, Bug, Baby, HeartPulse, ShieldAlert,
-Radiation, Monitor, Waves, TestTube, ListChecks, GripVertical
+Radiation, Monitor, Waves, TestTube, ListChecks, GripVertical, Calculator, Bandage, ClipboardList,
+ShieldCheck, Scissors, Droplet, Utensils, Sparkles
 (ReactNode also imported from react)

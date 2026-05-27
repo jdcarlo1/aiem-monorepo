@@ -34,6 +34,11 @@ import {
   Calculator,
   Bandage,
   ClipboardList,
+  ShieldCheck,
+  Scissors,
+  Droplet,
+  Utensils,
+  Sparkles,
 } from "lucide-react";
 
 const fundamentals = [
@@ -330,6 +335,97 @@ const dosageCalculations = [
   },
 ];
 
+const ivTherapy = [
+  {
+    category: "IV Therapy Skills",
+    label: "IV Therapy",
+    icon: <Syringe className="w-6 h-6" />,
+    questions: 20,
+    desc: "Peripheral IV insertion, vein selection, gauge selection for blood transfusion, phlebitis vs. infiltration vs. extravasation, vesicant management, IV fluid types (isotonic/hypotonic/hypertonic), air embolism, IV compatibility, and catheter maintenance.",
+    color: "bg-blue-50 text-blue-700 border-blue-200",
+    iconBg: "bg-blue-100",
+    badge: "Skills",
+  },
+];
+
+const hygieneADLs = [
+  {
+    category: "Hygiene & ADLs",
+    label: "Hygiene & ADLs",
+    icon: <Sparkles className="w-6 h-6" />,
+    questions: 20,
+    desc: "Bed bath sequence (clean-to-dirty), oral care for unconscious patients (VAP bundle), denture care, perineal care (front-to-back), occupied bed making, gown changes with IV access, diabetic nail care, eye care, body mechanics, and patient autonomy in hygiene.",
+    color: "bg-sky-50 text-sky-700 border-sky-200",
+    iconBg: "bg-sky-100",
+    badge: "Skills",
+  },
+];
+
+const safetyMobility = [
+  {
+    category: "Safety & Mobility",
+    label: "Safety & Mobility",
+    icon: <ShieldCheck className="w-6 h-6" />,
+    questions: 20,
+    desc: "Morse Fall Scale interpretation, fall prevention (hourly rounding, bed position, call light), gait belt application, wheelchair transfers (stronger side), mechanical lifts, restraint orders and monitoring (every 2 hours), cane/walker/crutch walking gaits, orthostatic hypotension management.",
+    color: "bg-green-50 text-green-700 border-green-200",
+    iconBg: "bg-green-100",
+    badge: "Skills",
+  },
+];
+
+const woundDressing = [
+  {
+    category: "Wound Care & Dressing Changes",
+    label: "Wound Care & Dressing Changes",
+    icon: <Scissors className="w-6 h-6" />,
+    questions: 20,
+    desc: "Sterile dressing change sequence, wet-to-dry débridement, JP and Hemovac drain management (recompression technique), suture and staple removal timing, wound dehiscence and evisceration response, dressing selection (alginate/hydrogel/film), wound packing, and documentation.",
+    color: "bg-orange-50 text-orange-700 border-orange-200",
+    iconBg: "bg-orange-100",
+    badge: "Skills",
+  },
+];
+
+const eliminationSkills = [
+  {
+    category: "Elimination Skills",
+    label: "Elimination Skills",
+    icon: <Droplet className="w-6 h-6" />,
+    questions: 20,
+    desc: "Enema administration (position, insertion depth, hang height), fecal impaction assessment and management, bladder scanner interpretation (PVR), condom catheter application, post-void residual management, ostomy output monitoring, bowel sounds auscultation, bladder training for urge incontinence.",
+    color: "bg-cyan-50 text-cyan-700 border-cyan-200",
+    iconBg: "bg-cyan-100",
+    badge: "Skills",
+  },
+];
+
+const respiratorySkills = [
+  {
+    category: "Respiratory Care Skills",
+    label: "Respiratory Care Skills",
+    icon: <Wind className="w-6 h-6" />,
+    questions: 20,
+    desc: "Oxygen delivery devices (nasal cannula max 6 L/min, simple mask min 5 L/min, NRB bag rule, Venturi mask for COPD), incentive spirometry technique, MDI with spacer, suction indication vs. routine schedule, closed-system suctioning, pursed-lip breathing, SpO₂ interpretation, and diaphragmatic breathing.",
+    color: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    iconBg: "bg-indigo-100",
+    badge: "Skills",
+  },
+];
+
+const giNutritionSkills = [
+  {
+    category: "GI & Nutrition Skills",
+    label: "GI & Nutrition Skills",
+    icon: <Utensils className="w-6 h-6" />,
+    questions: 20,
+    desc: "NG tube insertion and X-ray verification (gold standard), HOB elevation ≥30° for tube feedings, gastric residual volume management (return the aspirate), TPN via central access (blood glucose monitoring), I&O calculation, aspiration risk assessment, dysphagia diet modifications (nectar-thick), and PEG tube care.",
+    color: "bg-lime-50 text-lime-700 border-lime-200",
+    iconBg: "bg-lime-100",
+    badge: "Skills",
+  },
+];
+
 const ngnFormats = [
   {
     category: "Select All That Apply",
@@ -446,8 +542,8 @@ export default function NursingSchool() {
 
   const handleLockClick = () => setLocation("/paywall");
 
-  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + nursingSkillsLab.length + woundCare.length + dosageCalculations.length + ngnFormats.length;
-  const totalQuestions = totalCategories * 30 + 10;
+  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + nursingSkillsLab.length + woundCare.length + dosageCalculations.length + ngnFormats.length + ivTherapy.length + hygieneADLs.length + safetyMobility.length + woundDressing.length + eliminationSkills.length + respiratorySkills.length + giNutritionSkills.length;
+  const totalQuestions = totalCategories * 30 - 60;
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -574,9 +670,30 @@ export default function NursingSchool() {
             Procedures
           </div>
           <h2 className="text-lg font-bold tracking-tight mb-1">Nursing Skills Lab</h2>
-          <p className="text-sm text-muted-foreground mb-4">Sterile technique, Foley catheters, trach care, IV insertion, NG tubes — the procedural skills tested on NCLEX.</p>
+          <p className="text-sm text-muted-foreground mb-4">Every hands-on procedural skill tested on NCLEX — from sterile technique and ostomy care to IV therapy, respiratory management, and patient safety.</p>
           <div className="space-y-3">
             {nursingSkillsLab.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {ivTherapy.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {hygieneADLs.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {safetyMobility.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {woundDressing.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {eliminationSkills.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {respiratorySkills.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {giNutritionSkills.map((item) => (
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
           </div>
@@ -637,7 +754,7 @@ export default function NursingSchool() {
                 </div>
                 <div>
                   <h3 className="font-semibold group-hover:text-primary transition-colors">NCLEX Prep</h3>
-                  <p className="text-xs text-muted-foreground">1,400+ questions, all categories</p>
+                  <p className="text-xs text-muted-foreground">1,600+ questions, all categories</p>
                 </div>
                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary ml-auto transition-colors" />
               </div>
