@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useSessionId } from "@/hooks/useSessionId";
-import { setPaymentEmail } from "@/lib/session";
+import { getPaymentEmail, setPaymentEmail } from "@/lib/session";
 import { Button } from "@/components/ui/button";
-import { Brain, Check, Lock, ShieldCheck, Zap } from "lucide-react";
+import { Brain, Check, Lock, ShieldCheck, Zap, Loader2 } from "lucide-react";
 
 const features = [
   "Unlimited NCLEX Prep — 613+ questions with NGN formats",
@@ -22,8 +22,36 @@ export default function Paywall() {
   const [restoreEmail, setRestoreEmail] = useState("");
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
+  const [autoRestoring, setAutoRestoring] = useState(false);
   const sessionId = useSessionId();
   const [, setLocation] = useLocation();
+
+  // Auto-restore on mount if we have a stored payment email
+  useEffect(() => {
+    if (!sessionId) return;
+    const email = getPaymentEmail();
+    if (!email) return;
+
+    setAutoRestoring(true);
+    fetch("/api/stripe/restore-access", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, email }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          setPaymentEmail(email);
+          setLocation("/quiz");
+        } else {
+          setAutoRestoring(false);
+        }
+      })
+      .catch(() => {
+        setAutoRestoring(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   const handleRestore = async () => {
     if (!restoreEmail || !sessionId) return;
@@ -73,6 +101,16 @@ export default function Paywall() {
       setLoading(false);
     }
   };
+
+  if (autoRestoring) {
+    return (
+      <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-background gap-4">
+        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+        <p className="text-lg font-semibold text-foreground">Checking your membership...</p>
+        <p className="text-sm text-muted-foreground">Just a moment</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background justify-center p-4 sm:p-8">
