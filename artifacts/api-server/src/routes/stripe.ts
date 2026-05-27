@@ -103,4 +103,36 @@ router.post("/stripe/checkout", async (req, res) => {
   }
 });
 
+router.post("/stripe/verify-checkout", async (req, res) => {
+  const { sessionId, checkoutSessionId } = req.body as { sessionId: string; checkoutSessionId: string };
+
+  if (!sessionId || !checkoutSessionId) {
+    res.status(400).json({ error: "sessionId and checkoutSessionId are required" });
+    return;
+  }
+
+  const stripe = await getUncachableStripeClient();
+
+  const checkoutSession = await stripe.checkout.sessions.retrieve(checkoutSessionId);
+
+  if (checkoutSession.payment_status === "paid" || checkoutSession.status === "complete") {
+    const subscriptionId = typeof checkoutSession.subscription === "string"
+      ? checkoutSession.subscription
+      : checkoutSession.subscription?.id ?? null;
+
+    await db
+      .update(sessionsTable)
+      .set({
+        isSubscribed: true,
+        stripeCustomerId: typeof checkoutSession.customer === "string" ? checkoutSession.customer : null,
+        stripeSubscriptionId: subscriptionId,
+      })
+      .where(eq(sessionsTable.sessionId, sessionId));
+
+    res.json({ success: true, isSubscribed: true });
+  } else {
+    res.json({ success: false, isSubscribed: false, status: checkoutSession.payment_status });
+  }
+});
+
 export default router;
