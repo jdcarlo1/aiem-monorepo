@@ -9,6 +9,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSessionId } from "@/hooks/useSessionId";
+import { useAutoRestore } from "@/hooks/useAutoRestore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -338,6 +339,8 @@ export default function Quiz() {
     { sessionId },
     { query: { enabled: !!sessionId } }
   );
+
+  useAutoRestore(sessionId, sessionStatus?.canAnswerMore);
 
   const { data: questionsList, isLoading: isListLoading } = useListQuestions();
 

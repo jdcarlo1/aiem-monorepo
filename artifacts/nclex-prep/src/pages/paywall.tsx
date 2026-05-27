@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useSessionId } from "@/hooks/useSessionId";
+import { setPaymentEmail } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Brain, Check, Lock, ShieldCheck, Zap } from "lucide-react";
 
@@ -36,6 +37,7 @@ export default function Paywall() {
       });
       const data = await resp.json();
       if (data.success) {
+        setPaymentEmail(restoreEmail.trim().toLowerCase());
         setRestoreMsg("✅ Access restored! Redirecting...");
         setTimeout(() => setLocation("/quiz"), 1500);
       } else {

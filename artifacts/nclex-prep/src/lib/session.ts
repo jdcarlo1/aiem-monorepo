@@ -6,3 +6,11 @@ export function getSessionId(): string {
   }
   return sessionId;
 }
+
+export function getPaymentEmail(): string | null {
+  return localStorage.getItem("nclex_payment_email");
+}
+
+export function setPaymentEmail(email: string): void {
+  localStorage.setItem("nclex_payment_email", email);
+}

@@ -120,6 +120,8 @@ router.post("/stripe/verify-checkout", async (req, res) => {
       ? checkoutSession.subscription
       : checkoutSession.subscription?.id ?? null;
 
+    const customerEmail = checkoutSession.customer_details?.email ?? null;
+
     await db
       .update(sessionsTable)
       .set({
@@ -129,7 +131,7 @@ router.post("/stripe/verify-checkout", async (req, res) => {
       })
       .where(eq(sessionsTable.sessionId, sessionId));
 
-    res.json({ success: true, isSubscribed: true });
+    res.json({ success: true, isSubscribed: true, email: customerEmail });
   } else {
     res.json({ success: false, isSubscribed: false, status: checkoutSession.payment_status });
   }

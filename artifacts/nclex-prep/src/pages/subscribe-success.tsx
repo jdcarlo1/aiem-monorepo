@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { useSessionId } from "@/hooks/useSessionId";
+import { setPaymentEmail } from "@/lib/session";
 
 export default function SubscribeSuccess() {
   const [verified, setVerified] = useState(false);
   const [verifying, setVerifying] = useState(true);
   const sessionId = useSessionId();
-  const [location] = useLocation();
 
   useEffect(() => {
     if (!sessionId) return;
@@ -29,6 +29,9 @@ export default function SubscribeSuccess() {
       .then((r) => r.json())
       .then((data) => {
         setVerified(data.isSubscribed === true);
+        if (data.email) {
+          setPaymentEmail(data.email);
+        }
       })
       .catch(() => {})
       .finally(() => setVerifying(false));
