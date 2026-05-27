@@ -219,6 +219,7 @@ router.post("/admin/seed-questions", async (req, res) => {
       correctLetter: string;
       explanation: string;
       questionType: string;
+      imageUrl?: string | null;
     }[];
   };
 

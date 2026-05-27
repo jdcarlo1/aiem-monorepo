@@ -25,6 +25,7 @@ import {
   GripVertical,
   BookOpen,
 } from "lucide-react";
+import EkgDisplay from "@/components/EkgDisplay";
 
 interface LocalAnswerResult {
   correct: boolean;
@@ -666,6 +667,16 @@ export default function StudyQuiz() {
           </div>
         ) : (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {currentQuestion.imageUrl?.startsWith("ekg:") ? (
+              <EkgDisplay rhythm={currentQuestion.imageUrl.slice(4)} />
+            ) : currentQuestion.imageUrl ? (
+              <img
+                src={currentQuestion.imageUrl}
+                alt="Clinical image"
+                className="w-full rounded-xl border border-slate-200 shadow-sm mb-6 object-contain max-h-64"
+              />
+            ) : null}
+
             <h2 className="text-xl sm:text-2xl font-semibold leading-relaxed text-foreground mb-8">
               {currentQuestion.text}
             </h2>

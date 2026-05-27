@@ -11,6 +11,7 @@ export const questionsTable = pgTable("questions", {
   correctLetter: text("correct_letter").notNull(),
   explanation: text("explanation").notNull(),
   questionType: text("question_type").notNull().default("single"),
+  imageUrl: text("image_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

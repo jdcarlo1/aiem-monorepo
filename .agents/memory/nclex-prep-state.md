@@ -26,15 +26,17 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 
 ## Key Files
 - `artifacts/api-server/src/routes/session.ts` — free limit enforcement (5 questions), multi-type answer checking
-- `artifacts/api-server/src/routes/questions.ts` — question routes; normalizes options format at API layer (see below)
-- `artifacts/api-server/src/routes/stripe.ts` — Stripe checkout, verify-checkout (returns email), restore-access endpoints
+- `artifacts/api-server/src/routes/questions.ts` — question routes; normalizes options format at API layer (see below); returns imageUrl
+- `artifacts/api-server/src/routes/stripe.ts` — Stripe checkout, verify-checkout (returns email), restore-access endpoints; admin seed endpoint accepts imageUrl
 - `artifacts/api-server/src/stripeClient.ts` — reads Stripe creds from STRIPE_SECRET_KEY env var first (sk_live_), falls back to connector
 - `artifacts/api-server/src/webhookHandlers.ts` — Stripe webhook + session update logic
 - `artifacts/api-server/src/app.ts` — Clerk proxy + clerkMiddleware wired in
-- `lib/db/src/schema/questions.ts` — DB schema (includes questionType column)
+- `lib/db/src/schema/questions.ts` — DB schema (includes questionType + imageUrl columns)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
-- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 29-category nursing school page (8 sections, includes NGN formats)
-- `artifacts/nclex-prep/src/pages/study-quiz.tsx` — supports all 3 question types (single, multiple, ordered) + polished results screen
+- `artifacts/nclex-prep/src/components/EkgDisplay.tsx` — self-contained SVG ECG strip renderer; takes `rhythm` prop; 12 supported rhythms: normal, bradycardia, tachycardia, afib, flutter, svt, pvcs, vtach, vfib, block1, block3, stemi
+- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 30-category nursing school page (includes NGN formats + EKG Strip Recognition with badge)
+- `artifacts/nclex-prep/src/pages/study-quiz.tsx` — supports all 3 question types + EKG/image rendering above question text
+- `artifacts/nclex-prep/src/pages/quiz.tsx` — main NCLEX quiz; supports EKG/image rendering above question text
 - `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, has "Restore Access" (stores email to localStorage on success)
 - `artifacts/nclex-prep/src/pages/subscribe-success.tsx` — calls verify-checkout, stores payment email to localStorage
 - `artifacts/nclex-prep/src/hooks/useAutoRestore.ts` — two hooks: useAutoRestore (quiz page, fires when canAnswerMore=false) and useEagerRestore (fires on mount when isSubscribed is falsy)
@@ -73,17 +75,28 @@ Removing this normalization will cause blank page crashes in the quiz.
 - correct_letter (text) — for 'multiple': sorted comma-sep "A,C,D"; for 'ordered': correct sequence "B,A,D,C"
 - explanation (text)
 - question_type (text, default 'single') — values: 'single' | 'multiple' | 'ordered'
+- image_url (text, nullable) — 'ekg:rhythm_name' for EKG strips, or external URL for photos
+
+## imageUrl / EKG System
+- DB column: `image_url` (text, nullable)
+- Values: `ekg:vfib`, `ekg:afib`, `ekg:vtach`, `ekg:normal`, `ekg:bradycardia`, `ekg:tachycardia`, `ekg:svt`, `ekg:flutter`, `ekg:pvcs`, `ekg:block1`, `ekg:block3`, `ekg:stemi`
+- Frontend: quiz.tsx and study-quiz.tsx both check `imageUrl?.startsWith('ekg:')` and render `<EkgDisplay rhythm={imageUrl.slice(4)} />`, else `<img src={imageUrl} />` for external images
+- EkgDisplay.tsx also accepts aliases: normal-sinus, sinus-bradycardia, etc.
+- API returns imageUrl in GET /questions/:id response
+- Seed endpoint (POST /api/admin/seed-questions) accepts `imageUrl` field
+- **Production note**: image_url column added to dev DB. Will be applied to production DB on next Publish. After publishing, must re-seed EKG questions to production (20 questions, Q#1494–1513, category "EKG Strip Recognition").
 
 ## Answer Type Encoding
 - 'single': correctLetter = "A" (one letter)
 - 'multiple': correctLetter = sorted comma-separated letters "A,C,D"; server and client both sort before comparing
 - 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
-## Question Bank State (production, verified 2026-05-27)
-- 29 nursing school categories (27 original + SATA + Drag & Drop), all with 30 questions (Pediatric Nursing has 70)
+## Question Bank State (dev DB, verified 2026-05-27)
+- 30 nursing school categories (27 original + SATA + Drag & Drop + EKG Strip Recognition)
+- EKG Strip Recognition: 20 questions (Q#1494–1513, DB ids ~1459–1478)
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
 - 5 hard "hook" questions at questionNumbers -5 through -1 (DB ids 1394–1398) — always appear first in main NCLEX quiz
-- Next question number to use: 1494
+- Next question number to use: 1514
 - Nursing school + interview prep use CLIENT-SIDE answer checking (no submitAnswer API call)
 - study-quiz.tsx supports all 3 question types AND shows polished results screen (pass = 75%)
 
@@ -94,7 +107,7 @@ Removing this normalization will cause blank page crashes in the quiz.
 - Green = passing (≥75%), amber = close (60-74%), red = below 60%
 - Retry and Choose Another Section buttons
 
-## All 29 Nursing School Categories (exact strings — must match DB)
+## All 30 Nursing School Categories (exact strings — must match DB)
 Fundamentals of Nursing, MedSurg: Cardiac, MedSurg: Respiratory, MedSurg: Neurological,
 MedSurg: Endocrine, MedSurg: Renal & Urology, MedSurg: Gastrointestinal,
 MedSurg: Burns & Integumentary, MedSurg: Orthopedic, MedSurg: Chest Tubes,
@@ -104,9 +117,10 @@ Seizure & Epilepsy Nursing, Critical Care/ICU, Fluid & Electrolytes,
 ABG Interpretation, EKG Interpretation, Pharmacology: Antidepressants,
 Pharmacology: Cardiac Meds, Pharmacology: Respiratory Meds,
 Pharmacology: Diabetes & Insulin, Pharmacology: Anticoagulation, Nursing Interview Prep,
-Select All That Apply, Drag & Drop Ordering
+Select All That Apply, Drag & Drop Ordering, EKG Strip Recognition
 
 ## Lucide Icons in nursing-school.tsx (already imported — do not duplicate)
 Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical,
 BookOpen, Flame, Lock, Syringe, Bone, Stethoscope, Bug, Baby, HeartPulse, ShieldAlert,
 Radiation, Monitor, Waves, TestTube, ListChecks, GripVertical
+(ReactNode also imported from react)

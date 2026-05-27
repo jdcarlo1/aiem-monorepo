@@ -28,6 +28,10 @@ export interface Question {
   options: QuestionOption[];
   /** single | multiple | ordered */
   questionType?: string;
+  /** ekg:rhythm_name or external URL, nullable */
+  imageUrl?: string | null;
+  correctLetter?: string;
+  explanation?: string;
 }
 
 export interface SessionStatus {

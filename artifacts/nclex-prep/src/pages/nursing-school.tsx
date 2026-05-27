@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useGetSessionStatus } from "@workspace/api-client-react";
 import { useSessionId } from "@/hooks/useSessionId";
@@ -306,14 +307,35 @@ const ngnFormats = [
     color: "bg-orange-50 text-orange-700 border-orange-200",
     iconBg: "bg-orange-100",
   },
+  {
+    category: "EKG Strip Recognition",
+    label: "EKG Strip Recognition",
+    icon: <Activity className="w-6 h-6" />,
+    questions: 20,
+    desc: "Read real EKG strips and identify the rhythm — NSR, A-fib, V-tach, V-fib, heart blocks, STEMI, SVT, and more. Strips display right in the question, exactly like NGN clinical exhibits.",
+    color: "bg-rose-50 text-rose-700 border-rose-200",
+    iconBg: "bg-rose-100",
+    badge: "Picture Questions",
+  },
 ];
+
+type CategoryItem = {
+  category: string;
+  label: string;
+  icon: ReactNode;
+  questions: number;
+  desc: string;
+  color: string;
+  iconBg: string;
+  badge?: string;
+};
 
 function CategoryCard({
   item,
   isSubscribed,
   onLockClick,
 }: {
-  item: (typeof fundamentals)[0];
+  item: CategoryItem;
   isSubscribed: boolean;
   onLockClick: () => void;
 }) {
@@ -330,9 +352,12 @@ function CategoryCard({
             <Lock className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
               <h3 className="font-semibold text-foreground">{item.label}</h3>
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{item.questions} questions</span>
+              {item.badge && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">{item.badge}</span>
+              )}
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
           </div>
@@ -349,9 +374,12 @@ function CategoryCard({
             <div className={item.color.split(" ")[1]}>{item.icon}</div>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
               <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">{item.label}</h3>
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary">{item.questions} questions</span>
+              {item.badge && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">{item.badge}</span>
+              )}
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
           </div>
@@ -377,7 +405,7 @@ export default function NursingSchool() {
   const handleLockClick = () => setLocation("/paywall");
 
   const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + ngnFormats.length;
-  const totalQuestions = totalCategories * 30;
+  const totalQuestions = (totalCategories - 1) * 30 + 20;
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">

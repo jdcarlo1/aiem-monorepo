@@ -40,6 +40,7 @@ router.get("/questions/:id", async (req, res) => {
       correctLetter: questionsTable.correctLetter,
       explanation: questionsTable.explanation,
       questionType: questionsTable.questionType,
+      imageUrl: questionsTable.imageUrl,
     })
     .from(questionsTable)
     .where(eq(questionsTable.id, id))
