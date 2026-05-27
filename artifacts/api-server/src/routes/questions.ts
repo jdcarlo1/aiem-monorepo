@@ -4,8 +4,10 @@ import { asc, eq } from "drizzle-orm";
 
 const router = Router();
 
-router.get("/questions", async (_req, res) => {
-  const questions = await db
+router.get("/questions", async (req, res) => {
+  const category = req.query.category as string | undefined;
+
+  const query = db
     .select({
       id: questionsTable.id,
       questionNumber: questionsTable.questionNumber,
@@ -13,6 +15,10 @@ router.get("/questions", async (_req, res) => {
     })
     .from(questionsTable)
     .orderBy(asc(questionsTable.questionNumber));
+
+  const questions = category
+    ? await query.where(eq(questionsTable.category, category))
+    : await query;
 
   res.json(questions);
 });
@@ -31,6 +37,8 @@ router.get("/questions/:id", async (req, res) => {
       category: questionsTable.category,
       text: questionsTable.text,
       options: questionsTable.options,
+      correctLetter: questionsTable.correctLetter,
+      explanation: questionsTable.explanation,
       questionType: questionsTable.questionType,
     })
     .from(questionsTable)

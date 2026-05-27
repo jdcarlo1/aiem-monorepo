@@ -1,8 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   useGetSessionStatus,
-  useListQuestions,
   useGetQuestion,
 } from "@workspace/api-client-react";
 import { useSessionId } from "@/hooks/useSessionId";
@@ -107,14 +107,14 @@ export default function StudyQuiz() {
     { query: { enabled: !!sessionId } }
   );
 
-  const { data: questionsList, isLoading: isListLoading } = useListQuestions();
-
-  const filteredQuestions = useMemo(() => {
-    if (!questionsList) return [];
-    return [...questionsList]
-      .filter((q) => q.category === category)
-      .sort((a, b) => a.questionNumber - b.questionNumber);
-  }, [questionsList, category]);
+  const { data: filteredQuestions = [], isLoading: isListLoading } = useQuery({
+    queryKey: ["questions", "category", category],
+    queryFn: async () => {
+      const resp = await fetch(`/api/questions?category=${encodeURIComponent(category)}`);
+      return resp.json() as Promise<{ id: number; questionNumber: number; category: string }[]>;
+    },
+    enabled: !!category,
+  });
 
   const currentQuestionSummary = filteredQuestions[currentIndex];
 
