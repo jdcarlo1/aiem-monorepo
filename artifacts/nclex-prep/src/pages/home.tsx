@@ -58,7 +58,7 @@ const testimonials = [
 ];
 
 const comparisonRows = [
-  { feature: "NGN (Next Generation NCLEX) formatted questions", us: true, them: false },
+  { feature: "NGN (Next Generation NCLEX Test) formatted questions", us: true, them: false },
   { feature: "Extended multiple response", us: true, them: false },
   { feature: "Drag & drop ordering questions", us: true, them: false },
   { feature: "AI-powered clinical explanations", us: true, them: false },
@@ -173,7 +173,7 @@ export default function Home() {
               { icon: <Zap className="w-4 h-4 text-primary" />, label: "2,000+ Questions" },
               { icon: <ShieldCheck className="w-4 h-4 text-primary" />, label: "48+ Categories" },
               { icon: <Brain className="w-4 h-4 text-primary" />, label: "AI Explanations" },
-              { icon: <TrendingUp className="w-4 h-4 text-primary" />, label: "NGN (Next Generation NCLEX) Formats" },
+              { icon: <TrendingUp className="w-4 h-4 text-primary" />, label: "NGN (Next Generation NCLEX Test) Formats" },
             ].map((stat) => (
               <div key={stat.label} className="flex items-center gap-1.5">
                 {stat.icon}
@@ -267,7 +267,7 @@ export default function Home() {
                 </div>
                 <div className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Pillar 2</div>
                 <h3 className="text-xl font-extrabold tracking-tight mb-2 group-hover:text-primary transition-colors">NCLEX Prep</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed flex-1">Train exactly like the real CAT (Computerized Adaptive Test). Our AI Adaptive Engine adjusts every question to your performance — NGN (Next Generation NCLEX) formats, drag-and-drop, extended multiple response. When the computer shuts off at 85, you'll know why.</p>
+                <p className="text-muted-foreground text-sm leading-relaxed flex-1">Train exactly like the real CAT (Computerized Adaptive Test). Our AI Adaptive Engine adjusts every question to your performance — NGN (Next Generation NCLEX Test) formats, drag-and-drop, extended multiple response. When the computer shuts off at 85, you'll know why.</p>
                 <div className="mt-5 flex items-center gap-1 text-primary text-sm font-semibold">
                   Start practicing <ArrowRight className="w-3.5 h-3.5 ml-1 group-hover:translate-x-1 transition-transform" />
                 </div>
@@ -310,7 +310,7 @@ export default function Home() {
               {
                 icon: <SquareCheck className="w-7 h-7 text-primary" />,
                 title: "Extended Multiple Response",
-                desc: "Select all that apply — the NGN (Next Generation NCLEX) format that trips most students. Practice until it feels natural.",
+                desc: "Select all that apply — the NGN (Next Generation NCLEX Test) format that trips most students. Practice until it feels natural.",
               },
               {
                 icon: <GripVertical className="w-7 h-7 text-primary" />,
@@ -319,8 +319,8 @@ export default function Home() {
               },
               {
                 icon: <Zap className="w-7 h-7 text-primary" />,
-                title: "NGN (Next Generation NCLEX) Clinical Judgment",
-                desc: "50+ Next Generation NCLEX questions built around the clinical judgment measurement model (CJMM).",
+                title: "NGN (Next Generation NCLEX Test) Clinical Judgment",
+                desc: "50+ Next Generation NCLEX Test questions built around the clinical judgment measurement model (CJMM).",
               },
               {
                 icon: <ShieldCheck className="w-7 h-7 text-primary" />,
@@ -511,7 +511,7 @@ export default function Home() {
                     </div>
                     <p className="text-xs text-muted-foreground mb-6">Cancel anytime</p>
                     <ul className="space-y-3 mb-8 flex-1">
-                      {["All 2,000+ questions", "48 categories incl. Interview Prep", "NGN (Next Generation NCLEX) question formats", "AI explanations", "AI Adaptive Engine"].map((f) => (
+                      {["All 2,000+ questions", "48 categories incl. Interview Prep", "NGN (Next Generation NCLEX Test) question formats", "AI explanations", "AI Adaptive Engine"].map((f) => (
                         <li key={f} className="flex items-center gap-2 text-sm text-foreground">
                           <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                           {f}
@@ -536,7 +536,7 @@ export default function Home() {
                     </div>
                     <p className="text-xs text-muted-foreground mb-6">Pay once · Access forever</p>
                     <ul className="space-y-3 mb-8 flex-1">
-                      {["All 2,000+ questions", "48 categories incl. Interview Prep", "NGN (Next Generation NCLEX) question formats", "AI explanations", "AI Adaptive Engine", "All future updates included"].map((f) => (
+                      {["All 2,000+ questions", "48 categories incl. Interview Prep", "NGN (Next Generation NCLEX Test) question formats", "AI explanations", "AI Adaptive Engine", "All future updates included"].map((f) => (
                         <li key={f} className="flex items-center gap-2 text-sm text-foreground">
                           <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                           {f}
