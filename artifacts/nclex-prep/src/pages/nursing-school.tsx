@@ -39,6 +39,9 @@ import {
   Droplet,
   Utensils,
   Sparkles,
+  Eye,
+  AlertTriangle,
+  Thermometer,
 } from "lucide-react";
 
 const fundamentals = [
@@ -457,6 +460,114 @@ const ngnFormats = [
   },
 ];
 
+const hematologic = [
+  {
+    category: "Hematologic Disorders",
+    label: "Hematologic Disorders",
+    icon: <Droplets className="w-6 h-6" />,
+    questions: 30,
+    desc: "Anemia, sickle cell disease, hemophilia, DIC, thrombocytopenia, polycythemia, blood transfusion reactions, and CBC interpretation.",
+    color: "bg-red-50 text-red-700 border-red-200",
+    iconBg: "bg-red-100",
+  },
+];
+
+const immuneRheum = [
+  {
+    category: "Immune & Rheumatologic Disorders",
+    label: "Immune & Rheumatologic Disorders",
+    icon: <ShieldAlert className="w-6 h-6" />,
+    questions: 30,
+    desc: "SLE, rheumatoid arthritis, gout, ankylosing spondylitis, scleroderma, fibromyalgia, anaphylaxis, and immunosuppressant therapy.",
+    color: "bg-orange-50 text-orange-700 border-orange-200",
+    iconBg: "bg-orange-100",
+  },
+];
+
+const sensory = [
+  {
+    category: "Sensory Disorders",
+    label: "Sensory Disorders",
+    icon: <Eye className="w-6 h-6" />,
+    questions: 30,
+    desc: "Glaucoma, cataracts, macular degeneration, retinal detachment, Meniere's disease, otitis media/externa, hearing loss, and sensory aid management.",
+    color: "bg-sky-50 text-sky-700 border-sky-200",
+    iconBg: "bg-sky-100",
+  },
+];
+
+const perioperative = [
+  {
+    category: "Perioperative Care",
+    label: "Perioperative Care",
+    icon: <Scissors className="w-6 h-6" />,
+    questions: 30,
+    desc: "Pre-op assessment, NPO guidelines, informed consent, intraoperative nursing, PACU management, malignant hyperthermia, DVT prevention, and post-op complications.",
+    color: "bg-slate-50 text-slate-700 border-slate-200",
+    iconBg: "bg-slate-100",
+  },
+];
+
+const painManagement = [
+  {
+    category: "Pain Management",
+    label: "Pain Management",
+    icon: <Zap className="w-6 h-6" />,
+    questions: 30,
+    desc: "Pain assessment scales, opioid pharmacology, multimodal analgesia, PCA, epidural management, non-pharmacologic interventions, and opioid toxicity reversal.",
+    color: "bg-yellow-50 text-yellow-700 border-yellow-200",
+    iconBg: "bg-yellow-100",
+  },
+];
+
+const infectionInflammation = [
+  {
+    category: "Infection & Inflammation",
+    label: "Infection & Inflammation",
+    icon: <Bug className="w-6 h-6" />,
+    questions: 30,
+    desc: "SIRS, sepsis criteria, isolation precautions (contact, droplet, airborne), MRSA, C. diff, VAP/CLABSI/CAUTI prevention bundles, and antibiotic stewardship.",
+    color: "bg-lime-50 text-lime-700 border-lime-200",
+    iconBg: "bg-lime-100",
+  },
+];
+
+const shockSepsis = [
+  {
+    category: "Shock, Sepsis & Multi-Organ Dysfunction",
+    label: "Shock, Sepsis & Multi-Organ Dysfunction",
+    icon: <AlertTriangle className="w-6 h-6" />,
+    questions: 30,
+    desc: "Hypovolemic, cardiogenic, distributive, and obstructive shock; septic shock vasopressors; Hour-1 Bundle; MODS; lactate monitoring; and hemodynamic resuscitation endpoints.",
+    color: "bg-rose-50 text-rose-700 border-rose-200",
+    iconBg: "bg-rose-100",
+  },
+];
+
+const endOfLife = [
+  {
+    category: "End-of-Life & Palliative Care",
+    label: "End-of-Life & Palliative Care",
+    icon: <HeartPulse className="w-6 h-6" />,
+    questions: 30,
+    desc: "Palliative vs. hospice care, advance directives, DNR/POLST, comfort-focused medications, signs of approaching death, grief support, and ethical principles (double effect, autonomy).",
+    color: "bg-violet-50 text-violet-700 border-violet-200",
+    iconBg: "bg-violet-100",
+  },
+];
+
+const emergencyCritical = [
+  {
+    category: "Emergency & Critical Care",
+    label: "Emergency & Critical Care",
+    icon: <Thermometer className="w-6 h-6" />,
+    questions: 30,
+    desc: "Triage priorities, stroke protocol, ACLS rhythms, DKA/HHS management, overdose antidotes, trauma assessment (ABCDE), anaphylaxis, post-ROSC care, and hypertensive emergencies.",
+    color: "bg-amber-50 text-amber-700 border-amber-200",
+    iconBg: "bg-amber-100",
+  },
+];
+
 type CategoryItem = {
   category: string;
   label: string;
@@ -542,7 +653,7 @@ export default function NursingSchool() {
 
   const handleLockClick = () => setLocation("/paywall");
 
-  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + nursingSkillsLab.length + woundCare.length + dosageCalculations.length + ngnFormats.length + ivTherapy.length + hygieneADLs.length + safetyMobility.length + woundDressing.length + eliminationSkills.length + respiratorySkills.length + giNutritionSkills.length;
+  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + nursingSkillsLab.length + woundCare.length + dosageCalculations.length + ngnFormats.length + ivTherapy.length + hygieneADLs.length + safetyMobility.length + woundDressing.length + eliminationSkills.length + respiratorySkills.length + giNutritionSkills.length + hematologic.length + immuneRheum.length + sensory.length + perioperative.length + painManagement.length + infectionInflammation.length + shockSepsis.length + endOfLife.length + emergencyCritical.length;
   const totalQuestions = totalCategories * 30 - 60;
 
   return (
@@ -636,6 +747,45 @@ export default function NursingSchool() {
           <p className="text-sm text-muted-foreground mb-4">ICU-level critical thinking and fluid/electrolyte mastery — essential for senior semesters and NCLEX.</p>
           <div className="space-y-3">
             {advancedPractice.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Advanced Clinical Topics */}
+        <section className="mb-10">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 text-xs font-bold mb-3 border border-rose-200">
+            <AlertTriangle className="w-3 h-3" />
+            New Categories
+          </div>
+          <h2 className="text-lg font-bold tracking-tight mb-1">Advanced Clinical Topics</h2>
+          <p className="text-sm text-muted-foreground mb-4">High-acuity clinical areas that appear on NCLEX and in practice — from hematology and sensory disorders to emergency response and end-of-life care.</p>
+          <div className="space-y-3">
+            {hematologic.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {immuneRheum.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {sensory.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {perioperative.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {painManagement.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {infectionInflammation.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {shockSepsis.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {endOfLife.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+            {emergencyCritical.map((item) => (
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
           </div>
@@ -754,7 +904,7 @@ export default function NursingSchool() {
                 </div>
                 <div>
                   <h3 className="font-semibold group-hover:text-primary transition-colors">NCLEX Prep</h3>
-                  <p className="text-xs text-muted-foreground">1,700+ questions, all categories</p>
+                  <p className="text-xs text-muted-foreground">2,000+ questions, all categories</p>
                 </div>
                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary ml-auto transition-colors" />
               </div>
