@@ -161,7 +161,7 @@ export default function Home() {
             </Link>
             {(!sessionStatus || !sessionStatus.isSubscribed) && (
               <p className="text-sm text-muted-foreground">
-                5 free questions · Then $15/mo or $49 lifetime
+                10 free questions · Then $15/mo or $49 lifetime
               </p>
             )}
           </div>
@@ -589,7 +589,7 @@ export default function Home() {
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </Button>
                 </Link>
-                <p className="text-sm text-muted-foreground mt-4">5 free questions · $15/month or $49 lifetime · Cancel anytime</p>
+                <p className="text-sm text-muted-foreground mt-4">10 free questions · $15/month or $49 lifetime · Cancel anytime</p>
               </>
             )}
           </div>

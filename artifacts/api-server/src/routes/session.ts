@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 
 const router = Router();
 
-const FREE_LIMIT = 5;
+const FREE_LIMIT = 10;
 
 async function getOrCreateSession(sessionId: string) {
   const [existing] = await db

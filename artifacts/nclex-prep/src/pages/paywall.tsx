@@ -125,7 +125,7 @@ export default function Paywall() {
             <Lock className="w-7 h-7 text-primary" />
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight mb-2">Unlock Full Access</h1>
-          <p className="text-muted-foreground text-lg">You've used your 5 free questions. Choose a plan to keep going.</p>
+          <p className="text-muted-foreground text-lg">You've used your 10 free questions. Choose a plan to keep going.</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">

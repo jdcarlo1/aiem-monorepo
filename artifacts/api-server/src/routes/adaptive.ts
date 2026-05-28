@@ -44,16 +44,23 @@ async function computeAdaptiveNext(sessionId: string): Promise<{
     }
   }
 
-  // 3. Get all unanswered questions
-  const unanswered =
+  // 3. Get all unanswered questions (include questionType for difficulty bias)
+  const allUnanswered =
     answeredIds.length > 0
       ? await db
-          .select({ id: questionsTable.id, category: questionsTable.category })
+          .select({ id: questionsTable.id, category: questionsTable.category, questionType: questionsTable.questionType })
           .from(questionsTable)
           .where(notInArray(questionsTable.id, answeredIds))
       : await db
-          .select({ id: questionsTable.id, category: questionsTable.category })
+          .select({ id: questionsTable.id, category: questionsTable.category, questionType: questionsTable.questionType })
           .from(questionsTable);
+
+  // For first 10 questions: bias strongly toward hard NGN formats (multiple/ordered)
+  const HARD_TYPES = ["multiple", "ordered"];
+  const hardUnanswered = allUnanswered.filter(q => HARD_TYPES.includes(q.questionType ?? ""));
+  const unanswered = totalAnswered < 10 && hardUnanswered.length >= 3
+    ? hardUnanswered
+    : allUnanswered;
 
   const categoryPerformance: CategoryStat[] = Object.entries(categoryMap)
     .map(([category, s]) => ({
