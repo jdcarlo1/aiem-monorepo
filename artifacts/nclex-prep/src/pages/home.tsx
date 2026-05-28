@@ -139,17 +139,17 @@ export default function Home() {
 
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-6 border border-primary/20">
             <Sparkles className="w-3.5 h-3.5" />
-            The Complete Nursing Platform
+            AI Adaptive Engine — Trains Like the Real NCLEX CAT
           </div>
 
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-foreground leading-tight max-w-4xl mx-auto mb-6">
-            From First Semester
+            The NCLEX Is Adaptive.
             <br />
-            <span className="text-primary">to First RN Job.</span>
+            <span className="text-primary">Your Training Should Be Too.</span>
           </h1>
 
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-            Study by system in nursing school. Pass the NCLEX. Ace your first job interview. One platform — built for the full journey.
+            The real NCLEX CAT shuts off when you've proven yourself — or haven't. Our AI Adaptive Engine works the same way: finding your weak spots, raising the difficulty, and drilling you until you're above the passing standard.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center gap-4 mb-12">
@@ -215,7 +215,7 @@ export default function Home() {
                 </div>
                 <div className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Pillar 2</div>
                 <h3 className="text-xl font-extrabold tracking-tight mb-2 group-hover:text-primary transition-colors">NCLEX Prep</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed flex-1">2,000+ questions, NGN formats, drag-and-drop, extended multiple response, and AI explanations. Everything the new NCLEX tests.</p>
+                <p className="text-muted-foreground text-sm leading-relaxed flex-1">Train exactly like the real CAT. Our AI Adaptive Engine adjusts every question to your performance — NGN formats, drag-and-drop, extended multiple response. When the computer shuts off at 85, you'll know why.</p>
                 <div className="mt-5 flex items-center gap-1 text-primary text-sm font-semibold">
                   Start practicing <ArrowRight className="w-3.5 h-3.5 ml-1 group-hover:translate-x-1 transition-transform" />
                 </div>
