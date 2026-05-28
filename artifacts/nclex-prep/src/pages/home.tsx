@@ -183,6 +183,58 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Testimonials */}
+        <section className="px-6 py-16 max-w-6xl mx-auto w-full">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-4 border border-primary/20">
+              <Users className="w-3.5 h-3.5" />
+              Real Students · Real Results
+            </div>
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
+              Nurses Who <span className="text-primary">Passed</span> With NCLEX AI
+            </h2>
+            <div className="flex flex-wrap justify-center gap-6 mt-2 mb-2">
+              <div className="text-center">
+                <p className="text-4xl font-extrabold text-primary">1,200+</p>
+                <p className="text-sm text-muted-foreground mt-1">Students passed</p>
+              </div>
+              <div className="text-center">
+                <p className="text-4xl font-extrabold text-primary">4.9★</p>
+                <p className="text-sm text-muted-foreground mt-1">Average rating</p>
+              </div>
+              <div className="text-center">
+                <p className="text-4xl font-extrabold text-primary">98%</p>
+                <p className="text-sm text-muted-foreground mt-1">First-attempt pass rate</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {testimonials.map((t) => (
+              <div
+                key={t.name}
+                className="p-6 rounded-2xl bg-card border border-border shadow-sm flex flex-col gap-4 hover:shadow-md hover:border-primary/30 transition-all duration-200"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold text-foreground">{t.name}</p>
+                    <p className="text-sm text-muted-foreground">{t.school}</p>
+                  </div>
+                  <span className="shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400">
+                    {t.tag}
+                  </span>
+                </div>
+                <div className="flex gap-0.5">
+                  {Array.from({ length: t.stars }).map((_, i) => (
+                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  ))}
+                </div>
+                <p className="text-muted-foreground text-sm leading-relaxed">"{t.quote}"</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* 3 Pillars */}
         <section className="px-6 py-12 max-w-6xl mx-auto w-full">
           <div className="text-center mb-8">
@@ -393,58 +445,6 @@ export default function Home() {
                 </div>
               ))}
             </div>
-          </div>
-        </section>
-
-        {/* Testimonials */}
-        <section className="px-6 py-16 max-w-6xl mx-auto w-full">
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-4 border border-primary/20">
-              <Users className="w-3.5 h-3.5" />
-              Real Students · Real Results
-            </div>
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
-              Nurses Who <span className="text-primary">Passed</span> With NCLEX AI
-            </h2>
-            <div className="flex flex-wrap justify-center gap-6 mt-2 mb-2">
-              <div className="text-center">
-                <p className="text-4xl font-extrabold text-primary">1,200+</p>
-                <p className="text-sm text-muted-foreground mt-1">Students passed</p>
-              </div>
-              <div className="text-center">
-                <p className="text-4xl font-extrabold text-primary">4.9★</p>
-                <p className="text-sm text-muted-foreground mt-1">Average rating</p>
-              </div>
-              <div className="text-center">
-                <p className="text-4xl font-extrabold text-primary">98%</p>
-                <p className="text-sm text-muted-foreground mt-1">First-attempt pass rate</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {testimonials.map((t) => (
-              <div
-                key={t.name}
-                className="p-6 rounded-2xl bg-card border border-border shadow-sm flex flex-col gap-4 hover:shadow-md hover:border-primary/30 transition-all duration-200"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-foreground">{t.name}</p>
-                    <p className="text-sm text-muted-foreground">{t.school}</p>
-                  </div>
-                  <span className="shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400">
-                    {t.tag}
-                  </span>
-                </div>
-                <div className="flex gap-0.5">
-                  {Array.from({ length: t.stars }).map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  ))}
-                </div>
-                <p className="text-muted-foreground text-sm leading-relaxed">"{t.quote}"</p>
-              </div>
-            ))}
           </div>
         </section>
 
