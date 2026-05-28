@@ -1,8 +1,7 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import {
   useGetSessionStatus,
-  useListQuestions,
   useGetQuestion,
   useSubmitAnswer,
   getGetSessionStatusQueryKey,
@@ -381,6 +380,13 @@ interface AnswerResultState {
   questionsAnswered: number;
 }
 
+interface CategoryStat {
+  category: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+}
+
 // ─── Main Quiz ────────────────────────────────────────────────────────────────
 export default function Quiz() {
   const [, setLocation] = useLocation();
@@ -392,6 +398,15 @@ export default function Quiz() {
   const [orderedItems, setOrderedItems] = useState<{ letter: string; text: string }[] | null>(null);
   const [answerResult, setAnswerResult] = useState<AnswerResultState | null>(null);
 
+  // Adaptive engine state
+  const [currentQuestionId, setCurrentQuestionId] = useState<number | null>(null);
+  const [isFinished, setIsFinished] = useState(false);
+  const [isLoadingNext, setIsLoadingNext] = useState(false);
+  const [categoryPerformance, setCategoryPerformance] = useState<CategoryStat[]>([]);
+  const [totalAnswered, setTotalAnswered] = useState(0);
+  const [showPerformance, setShowPerformance] = useState(false);
+  const fetchingRef = useRef(false);
+
   const { data: sessionStatus, isLoading: isSessionLoading } = useGetSessionStatus(
     { sessionId },
     { query: { enabled: !!sessionId } }
@@ -399,38 +414,48 @@ export default function Quiz() {
 
   useAutoRestore(sessionId, sessionStatus?.canAnswerMore);
 
-  // If session is loaded and free limit already hit, send straight to paywall
   useEffect(() => {
     if (sessionStatus && !sessionStatus.canAnswerMore && !sessionStatus.isSubscribed) {
       setLocation("/paywall");
     }
   }, [sessionStatus, setLocation]);
 
-  const { data: questionsList, isLoading: isListLoading } = useListQuestions();
+  // Fetch next adaptive question from the engine
+  const fetchNextQuestion = useCallback(async () => {
+    if (!sessionId || fetchingRef.current) return;
+    fetchingRef.current = true;
+    setIsLoadingNext(true);
+    try {
+      const resp = await fetch(`/api/adaptive/next?sessionId=${encodeURIComponent(sessionId)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data.questionId === null) {
+        setIsFinished(true);
+      } else {
+        setCurrentQuestionId(data.questionId);
+        setCategoryPerformance(data.categoryPerformance ?? []);
+        setTotalAnswered(data.totalAnswered ?? 0);
+      }
+    } finally {
+      setIsLoadingNext(false);
+      fetchingRef.current = false;
+    }
+  }, [sessionId]);
 
-  const sortedQuestions = useMemo(() => {
-    if (!questionsList) return [];
-    return [...questionsList].sort((a, b) => a.questionNumber - b.questionNumber);
-  }, [questionsList]);
-
-  const currentIndex = sessionStatus ? sessionStatus.questionsAnswered : 0;
-  const currentQuestionSummary = sortedQuestions[currentIndex];
-  const isFinished = sortedQuestions.length > 0 && currentIndex >= sortedQuestions.length;
+  // Load first question once session is ready
+  useEffect(() => {
+    if (sessionId && sessionStatus?.canAnswerMore && currentQuestionId === null && !isFinished && !fetchingRef.current) {
+      fetchNextQuestion();
+    }
+  }, [sessionId, sessionStatus, currentQuestionId, isFinished, fetchNextQuestion]);
 
   const { data: currentQuestion, isLoading: isQuestionLoading } = useGetQuestion(
-    currentQuestionSummary?.id ?? 0,
-    {
-      query: {
-        enabled: !!currentQuestionSummary?.id,
-        // When question changes, reset ordered items
-      },
-    }
+    currentQuestionId ?? 0,
+    { query: { enabled: !!currentQuestionId } }
   );
 
-  // Shuffle ordered items when question loads (only for 'ordered' type)
   const questionType = currentQuestion?.questionType ?? "single";
 
-  // Initialize orderedItems when a new ordered question loads
   useEffect(() => {
     if (currentQuestion?.questionType === "ordered" && !answerResult) {
       const shuffled = [...(currentQuestion.options ?? [])].sort(() => Math.random() - 0.5);
@@ -477,13 +502,7 @@ export default function Quiz() {
     if (!answer) return;
 
     submitAnswer.mutate(
-      {
-        data: {
-          sessionId,
-          questionId: currentQuestion.id,
-          selectedLetter: answer,
-        },
-      },
+      { data: { sessionId, questionId: currentQuestion.id, selectedLetter: answer } },
       {
         onSuccess: (result) => {
           setAnswerResult(result);
@@ -501,14 +520,9 @@ export default function Quiz() {
         getGetSessionStatusQueryKey({ sessionId }),
         (old: any) => {
           if (!old) return old;
-          return {
-            ...old,
-            questionsAnswered: answerResult.questionsAnswered,
-            canAnswerMore: answerResult.canAnswerMore,
-          };
+          return { ...old, questionsAnswered: answerResult.questionsAnswered, canAnswerMore: answerResult.canAnswerMore };
         }
       );
-      // Only redirect to paywall if user is confirmed not subscribed
       if (!answerResult.canAnswerMore && !sessionStatus?.isSubscribed) {
         setLocation("/paywall");
         return;
@@ -518,10 +532,28 @@ export default function Quiz() {
     setSelectedLetters([]);
     setOrderedItems(null);
     setAnswerResult(null);
+    setCurrentQuestionId(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  if (isSessionLoading || isListLoading) {
+  // ─── Finished state ───────────────────────────────────────────────────────
+  if (isFinished) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background p-6">
+        <Card className="max-w-md w-full text-center p-8">
+          <CheckCircle2 className="w-16 h-16 text-primary mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2">You've completed all questions!</h2>
+          <p className="text-muted-foreground mb-6">You've answered every question in the bank. More coming soon.</p>
+          <Link href="/">
+            <Button className="w-full">Return Home</Button>
+          </Link>
+        </Card>
+      </div>
+    );
+  }
+
+  // ─── Loading state ────────────────────────────────────────────────────────
+  if (isSessionLoading || (isLoadingNext && !currentQuestion)) {
     return (
       <div className="min-h-[100dvh] flex flex-col bg-background p-6">
         <Skeleton className="h-10 w-full max-w-3xl mx-auto mb-8" />
@@ -535,24 +567,8 @@ export default function Quiz() {
     );
   }
 
-  if (isFinished) {
-    return (
-      <div className="min-h-[100dvh] flex items-center justify-center bg-background p-6">
-        <Card className="max-w-md w-full text-center p-8">
-          <CheckCircle2 className="w-16 h-16 text-primary mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-2">You've completed all questions!</h2>
-          <p className="text-muted-foreground mb-6">More questions will be added soon.</p>
-          <Link href="/">
-            <Button className="w-full">Return Home</Button>
-          </Link>
-        </Card>
-      </div>
-    );
-  }
-
   const isLoading = isQuestionLoading || !currentQuestion;
-  const progressPercent =
-    sortedQuestions.length > 0 ? (currentIndex / sortedQuestions.length) * 100 : 0;
+  const questionsAnsweredCount = answerResult?.questionsAnswered ?? sessionStatus?.questionsAnswered ?? totalAnswered;
 
   const questionTypeLabel =
     questionType === "multiple"
@@ -560,6 +576,9 @@ export default function Quiz() {
       : questionType === "ordered"
       ? "Drag & Drop Ordering"
       : null;
+
+  // Top 3 weakest categories (with at least 1 answer)
+  const weakCategories = categoryPerformance.filter(c => c.total > 0).slice(0, 3);
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -576,23 +595,70 @@ export default function Quiz() {
             <Brain className="w-4 h-4 text-primary" />
             <span className="text-sm font-bold text-primary">NCLEX AI</span>
           </div>
-          {sessionStatus && !sessionStatus.isSubscribed && (
-            <div className="text-xs font-semibold px-2.5 py-1 rounded-full bg-secondary text-secondary-foreground">
-              {Math.min(currentIndex, sessionStatus.freeLimit)} / {sessionStatus.freeLimit} free
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {categoryPerformance.length > 0 && (
+              <button
+                onClick={() => setShowPerformance(p => !p)}
+                className="text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors"
+              >
+                📊 Stats
+              </button>
+            )}
+            {sessionStatus && !sessionStatus.isSubscribed && (
+              <div className="text-xs font-semibold px-2.5 py-1 rounded-full bg-secondary text-secondary-foreground">
+                {Math.min(questionsAnsweredCount, sessionStatus.freeLimit)} / {sessionStatus.freeLimit} free
+              </div>
+            )}
+          </div>
         </div>
       </header>
+
+      {/* Adaptive performance panel */}
+      {showPerformance && categoryPerformance.length > 0 && (
+        <div className="border-b border-border bg-card/50 px-4 py-4">
+          <div className="max-w-3xl mx-auto">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">
+              Your Performance — AI is focusing on your weak areas
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {categoryPerformance.slice(0, 8).map((c) => (
+                <div key={c.category} className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="truncate text-foreground font-medium">{c.category}</span>
+                      <span className="text-muted-foreground ml-2 shrink-0">{c.correct}/{c.total}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          c.accuracy >= 0.8 ? "bg-green-500" :
+                          c.accuracy >= 0.6 ? "bg-yellow-500" : "bg-red-500"
+                        }`}
+                        style={{ width: `${Math.round(c.accuracy * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className={`text-xs font-bold w-8 text-right shrink-0 ${
+                    c.accuracy >= 0.8 ? "text-green-600" :
+                    c.accuracy >= 0.6 ? "text-yellow-600" : "text-red-600"
+                  }`}>
+                    {Math.round(c.accuracy * 100)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1 w-full max-w-3xl mx-auto p-4 sm:p-6 pb-24">
         <div className="mb-6 space-y-2">
           <div className="flex justify-between text-sm font-medium text-muted-foreground">
-            <span>Question {currentIndex + 1} of {sortedQuestions.length}</span>
+            <span>{questionsAnsweredCount} answered · adapting to your performance</span>
             <span>{currentQuestion?.category || "Loading..."}</span>
           </div>
-          <Progress value={progressPercent} className="h-2" />
           {questionTypeLabel && (
-            <div className="flex justify-end">
+            <div className="flex justify-start">
               <span className="text-xs font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
                 {questionTypeLabel}
               </span>
@@ -649,7 +715,7 @@ export default function Quiz() {
             )}
 
             {answerResult ? (
-              <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="animate-in fade-in slide-in-from-top-4 duration-500 space-y-4">
                 <Card
                   className={`border-2 ${
                     answerResult.correct
@@ -660,30 +726,37 @@ export default function Quiz() {
                   <CardContent className="p-6">
                     <h3
                       className={`text-lg font-bold flex items-center gap-2 mb-3 ${
-                        answerResult.correct
-                          ? "text-green-700 dark:text-green-400"
-                          : "text-destructive"
+                        answerResult.correct ? "text-green-700 dark:text-green-400" : "text-destructive"
                       }`}
                     >
                       {answerResult.correct ? (
-                        <>
-                          <CheckCircle2 className="w-6 h-6" /> Correct!
-                        </>
+                        <><CheckCircle2 className="w-6 h-6" /> Correct!</>
                       ) : (
-                        <>
-                          <XCircle className="w-6 h-6" /> Incorrect
-                        </>
+                        <><XCircle className="w-6 h-6" /> Incorrect</>
                       )}
                     </h3>
                     <p className="text-foreground leading-relaxed text-sm sm:text-base">
                       {answerResult.explanation}
                     </p>
+                    {weakCategories.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-border">
+                        <p className="text-xs text-muted-foreground font-semibold mb-2">
+                          🎯 AI is drilling your weakest areas:
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {weakCategories.map(c => (
+                            <span
+                              key={c.category}
+                              className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 font-medium"
+                            >
+                              {c.category} · {Math.round(c.accuracy * 100)}%
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="mt-6">
-                      <Button
-                        size="lg"
-                        className="w-full sm:w-auto"
-                        onClick={handleNext}
-                      >
+                      <Button size="lg" className="w-full sm:w-auto" onClick={handleNext}>
                         {answerResult.canAnswerMore ? "Next Question" : "Continue"}
                         <ArrowRight className="w-4 h-4 ml-2" />
                       </Button>

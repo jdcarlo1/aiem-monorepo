@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import questionsRouter from "./questions";
 import sessionRouter from "./session";
 import stripeRouter from "./stripe";
+import adaptiveRouter from "./adaptive";
 
 const router: IRouter = Router();
 
@@ -10,5 +11,6 @@ router.use(healthRouter);
 router.use(questionsRouter);
 router.use(sessionRouter);
 router.use(stripeRouter);
+router.use(adaptiveRouter);
 
 export default router;
