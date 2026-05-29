@@ -368,6 +368,16 @@ const ivTherapy = [
     iconBg: "bg-cyan-100",
     badge: "Skills",
   },
+  {
+    category: "Central Line Management",
+    label: "Central Line Management",
+    icon: <Monitor className="w-6 h-6" />,
+    questions: 50,
+    desc: "CLABSI prevention bundle, maximal barrier precautions, chlorhexidine skin prep, CVP monitoring and interpretation, multi-lumen catheter management, TPN through central lines, catheter occlusion and alteplase use, tunneled vs. non-tunneled catheters, implanted ports, and complication recognition.",
+    color: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    iconBg: "bg-indigo-100",
+    badge: "Skills",
+  },
 ];
 
 const hygieneADLs = [
