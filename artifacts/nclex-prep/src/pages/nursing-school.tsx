@@ -268,6 +268,16 @@ const clinicalReasoning = [
     color: "bg-emerald-50 text-emerald-700 border-emerald-200",
     iconBg: "bg-emerald-100",
   },
+  {
+    category: "Laboratory & Diagnostics",
+    label: "Laboratory & Diagnostics",
+    icon: <TestTube className="w-6 h-6" />,
+    questions: 50,
+    desc: "Critical/panic lab values, electrolyte imbalances (hypo/hyperkalemia, hyponatremia, hypocalcemia, hypomagnesemia), ABG interpretation with compensation, anticoagulation monitoring (heparin/warfarin/HIT), cardiac biomarkers, DKA vs. HHS, thyroid/renal/hepatic panels, CBC interpretation, therapeutic drug levels (digoxin, lithium, phenytoin, vancomycin), and diagnostic procedure nursing care.",
+    color: "bg-teal-50 text-teal-700 border-teal-200",
+    iconBg: "bg-teal-100",
+    badge: "New",
+  },
 ];
 
 const pharmacology = [
