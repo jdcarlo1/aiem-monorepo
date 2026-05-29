@@ -119,6 +119,7 @@ function Router() {
       <Route path="/subscribe-success" component={SubscribeSuccess} />
       <Route path="/interview-prep" component={InterviewPrep} />
       <Route path="/start" component={Landing} />
+      <Route path="/flyer" component={Flyer} />
       <Route path="/sign-in/*?" component={SignInPage} />
       <Route path="/sign-up/*?" component={SignUpPage} />
       <Route component={NotFound} />
