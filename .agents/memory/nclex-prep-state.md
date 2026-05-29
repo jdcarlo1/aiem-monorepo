@@ -90,14 +90,16 @@ Removing this normalization will cause blank page crashes in the quiz.
 - 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
 ## Question Bank State (updated 2026-05-29)
-- 55 nursing school categories total
-- Next question number to use: **Q2144**
-- Assessment categories seeded (250 questions):
+- 57 nursing school categories total
+- Next question number to use: **Q2204**
+- Assessment categories seeded (310 questions):
   - Assessment: Cardiac — Q1894–Q1943 (50q)
   - Assessment: Respiratory — Q1944–Q1993 (50q)
   - Assessment: Neurological — Q1994–Q2043 (50q)
   - Assessment: Gastrointestinal — Q2044–Q2093 (50q)
   - Assessment: Genitourinary — Q2094–Q2143 (50q)
+  - GI High-Yield NCLEX — Q2144–Q2173 (30q)
+  - GU High-Yield NCLEX — Q2174–Q2203 (30q)
 - Laboratory & Diagnostics — Q1844–Q1893 (50q)
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
 - 5 hard "hook" questions at questionNumbers -5 through -1 — always appear first in main NCLEX quiz
@@ -110,7 +112,7 @@ Removing this normalization will cause blank page crashes in the quiz.
 
 ## nursing-school.tsx Array Structure
 fundamentals (1), medsurg (9), infectiousDisease (2), specialtyNursing (6), advancedPractice (2),
-assessments (5 — Cardiac, Respiratory, Neurological, Gastrointestinal, Genitourinary — "Physical Assessment" section),
+assessments (7 — Cardiac, Respiratory, Neurological, Gastrointestinal, Genitourinary, GI High-Yield NCLEX, GU High-Yield NCLEX — "Physical Assessment" section),
 clinicalReasoning (3 — ABG, EKG, Laboratory & Diagnostics),
 pharmacology (5), nursingSkillsLab (1), woundCare (1), dosageCalculations (1), ngnFormats (3),
 ivTherapy (2), hygieneADLs (1), safetyMobility (1), woundDressing (1), eliminationSkills (1),

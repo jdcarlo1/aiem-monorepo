@@ -279,6 +279,26 @@ const assessments = [
     iconBg: "bg-indigo-100",
     badge: "New",
   },
+  {
+    category: "GI High-Yield NCLEX",
+    label: "GI High-Yield NCLEX",
+    icon: <Utensils className="w-6 h-6" />,
+    questions: 30,
+    desc: "Crohn vs. UC distinctions, esophageal varices (Sengstaken-Blakemore tube), hepatic encephalopathy (lactulose mechanism, protein management), acute pancreatitis care, C. diff infection control (soap + water, bleach), bowel obstruction management, GERD lifestyle modifications, peptic ulcer H. pylori eradication, celiac disease diet, SBP management with albumin, TPN monitoring, post-bariatric complications, and cholangitis (Charcot's triad, Reynolds' pentad).",
+    color: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    iconBg: "bg-emerald-100",
+    badge: "New",
+  },
+  {
+    category: "GU High-Yield NCLEX",
+    label: "GU High-Yield NCLEX",
+    icon: <Droplets className="w-6 h-6" />,
+    questions: 30,
+    desc: "AKI differentiation (prerenal vs. intrarenal vs. postrenal), CKD dietary restrictions (K, P, Na, protein), HD safety (no BP/IV on fistula arm), dialysis complications (disequilibrium, air embolism, hypotension), hyperkalemia management (CBIGU-D), contrast nephropathy prevention, EPO therapy and iron requirements, phosphate binders (timing with meals), BPH medications (alpha-blockers vs. 5-ARIs), neurogenic bladder and autonomic dysreflexia, post-transplant care, and AEIOU dialysis indications.",
+    color: "bg-violet-50 text-violet-700 border-violet-200",
+    iconBg: "bg-violet-100",
+    badge: "New",
+  },
 ];
 
 const advancedPractice = [
