@@ -18,6 +18,7 @@ import StudyQuiz from "@/pages/study-quiz";
 import SignInPage from "@/pages/sign-in";
 import SignUpPage from "@/pages/sign-up";
 import Landing from "@/pages/landing";
+import Flyer from "@/pages/flyer";
 
 const queryClient = new QueryClient();
 
