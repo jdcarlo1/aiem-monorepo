@@ -281,6 +281,16 @@ const pharmacology = [
     iconBg: "bg-violet-100",
   },
   {
+    category: "Pharmacology: Antipsychotic Drugs",
+    label: "Antipsychotic Drugs",
+    icon: <Brain className="w-6 h-6" />,
+    questions: 50,
+    desc: "Typical vs. atypical antipsychotics, four dopamine pathways, extrapyramidal side effects (acute dystonia, akathisia, pseudoparkinsonism, tardive dyskinesia), neuroleptic malignant syndrome (NMS), clozapine agranulocytosis and REMS monitoring, metabolic syndrome, QTc prolongation, hyperprolactinemia, and antipsychotic use in special populations.",
+    color: "bg-purple-50 text-purple-700 border-purple-200",
+    iconBg: "bg-purple-100",
+    badge: "New",
+  },
+  {
     category: "Pharmacology: Cardiac Meds",
     label: "Cardiac Medications",
     icon: <Pill className="w-6 h-6" />,
