@@ -85,7 +85,7 @@ export default function Landing() {
           </div>
           <div>
             <span className="font-bold text-gray-900 text-lg">NCLEX AI</span>
-            <span className="text-sm font-semibold text-gray-900 ml-2">nclexai.org</span>
+            <span className="text-base font-bold text-black ml-2">nclexai.org</span>
           </div>
         </div>
         <Link href="/quiz">
