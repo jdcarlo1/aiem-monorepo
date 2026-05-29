@@ -259,6 +259,26 @@ const assessments = [
     iconBg: "bg-amber-100",
     badge: "New",
   },
+  {
+    category: "Assessment: Gastrointestinal",
+    label: "Gastrointestinal Assessment",
+    icon: <Utensils className="w-6 h-6" />,
+    questions: 50,
+    desc: "Abdominal assessment sequence, bowel sound classification, Murphy sign, Rovsing/psoas/obturator signs (appendicitis), Cullen and Grey Turner signs (hemorrhagic pancreatitis), ascites (fluid wave, shifting dullness), stool types (melena, hematochezia, steatorrhea), NG tube placement, abdominal percussion, peritonitis signs, and rebound tenderness.",
+    color: "bg-green-50 text-green-700 border-green-200",
+    iconBg: "bg-green-100",
+    badge: "New",
+  },
+  {
+    category: "Assessment: Genitourinary",
+    label: "Genitourinary Assessment",
+    icon: <Droplets className="w-6 h-6" />,
+    questions: 50,
+    desc: "Urinary output norms (oliguria, anuria, polyuria), CVA tenderness, urinalysis interpretation, UTI vs. pyelonephritis, bladder scanning, CAUTI prevention, AV fistula (thrill and bruit), renal colic, testicular torsion, BPH LUTS, urinary incontinence types, CKD staging and GFR, nephrotic vs. nephritic syndrome, and post-renal transplant assessment.",
+    color: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    iconBg: "bg-indigo-100",
+    badge: "New",
+  },
 ];
 
 const advancedPractice = [
