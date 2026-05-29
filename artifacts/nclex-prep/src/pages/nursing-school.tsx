@@ -207,6 +207,15 @@ const specialtyNursing = [
     color: "bg-amber-50 text-amber-700 border-amber-200",
     iconBg: "bg-amber-100",
   },
+  {
+    category: "Reproductive System",
+    label: "Reproductive System",
+    icon: <HeartPulse className="w-6 h-6" />,
+    questions: 50,
+    desc: "Breast disorders, mastectomy care, lymphedema, prostate cancer, TURP, radical prostatectomy, BPH, testicular torsion, testicular cancer, endometriosis, ovarian cancer, hysterectomy, PID, cervical cancer, and postmenopausal bleeding.",
+    color: "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200",
+    iconBg: "bg-fuchsia-100",
+  },
 ];
 
 const advancedPractice = [
