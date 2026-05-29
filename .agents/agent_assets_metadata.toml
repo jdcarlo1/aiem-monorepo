@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "kDnVKVF2Pd6R3Yb6BkMzz"
+uri = "file://screenshots/landing-page.jpg"
+type = "image"
+title = "Landing Page — nclexai.org/start"
