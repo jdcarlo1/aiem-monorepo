@@ -280,6 +280,16 @@ const assessments = [
     badge: "New",
   },
   {
+    category: "Assessment: Musculoskeletal",
+    label: "Musculoskeletal Assessment",
+    icon: <Bone className="w-6 h-6" />,
+    questions: 50,
+    desc: "6 Ps of compartment syndrome (Pain, Paresthesia, Pulselessness, Pallor, Paralysis, Poikilothermia), bivalving a cast for vascular compromise, CMS neurovascular checks, hip precautions (posterior vs. anterior approach), THA dislocation signs, fat embolism syndrome (petechiae triad), Buck's and skeletal traction, ORIF hip fracture care, crutch gaits, cane use technique, osteoporosis and bisphosphonate teaching, DVT prophylaxis, fall prevention, compartment syndrome fasciotomy post-op, gout assessment, RA vs OA, and open fracture priority management.",
+    color: "bg-orange-50 text-orange-700 border-orange-200",
+    iconBg: "bg-orange-100",
+    badge: "New",
+  },
+  {
     category: "GI High-Yield NCLEX",
     label: "GI High-Yield NCLEX",
     icon: <Utensils className="w-6 h-6" />,
