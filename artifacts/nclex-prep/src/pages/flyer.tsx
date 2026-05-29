@@ -42,6 +42,7 @@ export default function Flyer() {
             />
           </div>
           <p className="text-xs text-gray-500 text-center">Scan to start 10 free questions</p>
+          <p className="text-sm font-bold text-blue-600 text-center mt-1">or visit: nclexai.org/start</p>
         </div>
 
         {/* Bullets */}
