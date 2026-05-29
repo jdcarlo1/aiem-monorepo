@@ -595,6 +595,26 @@ const emergencyCritical = [
     color: "bg-amber-50 text-amber-700 border-amber-200",
     iconBg: "bg-amber-100",
   },
+  {
+    category: "ACLS: Adult Advanced Cardiac Life Support",
+    label: "ACLS: Adult Advanced Cardiac Life Support",
+    icon: <HeartPulse className="w-6 h-6" />,
+    questions: 50,
+    desc: "BLS/CPR quality, shockable vs. non-shockable rhythms, defibrillation and synchronized cardioversion, epinephrine and amiodarone dosing, bradycardia and tachycardia algorithms, reversible causes (H and T), post-ROSC care, targeted temperature management, stroke recognition, and team dynamics.",
+    color: "bg-red-50 text-red-700 border-red-200",
+    iconBg: "bg-red-100",
+    badge: "Advanced",
+  },
+  {
+    category: "PALS: Pediatric Advanced Life Support",
+    label: "PALS: Pediatric Advanced Life Support",
+    icon: <Heart className="w-6 h-6" />,
+    questions: 50,
+    desc: "Infant and child BLS differences, pediatric assessment triangle, weight-based defibrillation (2 J/kg), epinephrine dosing, SVT in children, pediatric bradycardia algorithm, septic shock resuscitation, respiratory failure, foreign body airway obstruction, drowning, anaphylaxis, neonatal resuscitation, and PALS chain of survival.",
+    color: "bg-pink-50 text-pink-700 border-pink-200",
+    iconBg: "bg-pink-100",
+    badge: "Advanced",
+  },
 ];
 
 type CategoryItem = {
