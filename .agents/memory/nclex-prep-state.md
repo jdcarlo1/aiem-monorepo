@@ -4,7 +4,7 @@ description: Current question bank size, all categories, next question number, t
 ---
 
 ## Project Overview
-Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question banks, NCLEX Prep, Interview Prep. Freemium (5 free questions, then $15/mo or $49 lifetime). Stripe live payments working. Clerk auth fully integrated.
+Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question banks, NCLEX Prep, Interview Prep. Freemium ($15/mo or $49 lifetime). FREE_LIMIT = 10 questions (do NOT change without user approval). Stripe live payments working. Clerk auth fully integrated.
 
 ## Tech Stack
 - Frontend: React + Vite (wouter routing, TanStack Query, Shadcn UI) — artifact: `artifacts/nclex-prep`
@@ -25,7 +25,7 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - Home page header shows "Sign In" when signed out, username + "Sign Out" when signed in
 
 ## Key Files
-- `artifacts/api-server/src/routes/session.ts` — free limit enforcement (5 questions), multi-type answer checking
+- `artifacts/api-server/src/routes/session.ts` — free limit enforcement (FREE_LIMIT = 10), multi-type answer checking
 - `artifacts/api-server/src/routes/questions.ts` — question routes; normalizes options format at API layer (see below); returns imageUrl
 - `artifacts/api-server/src/routes/stripe.ts` — Stripe checkout, verify-checkout (returns email), restore-access endpoints; admin seed endpoint accepts imageUrl
 - `artifacts/api-server/src/stripeClient.ts` — reads Stripe creds from STRIPE_SECRET_KEY env var first (sk_live_), falls back to connector
@@ -34,7 +34,7 @@ Full-stack nursing platform "NCLEX AI" with 3 modes: Nursing School question ban
 - `lib/db/src/schema/questions.ts` — DB schema (includes questionType + imageUrl columns)
 - `lib/db/src/schema/sessions.ts` — sessions schema (has stripeCustomerId, stripeSubscriptionId)
 - `artifacts/nclex-prep/src/components/EkgDisplay.tsx` — self-contained SVG ECG strip renderer; takes `rhythm` prop; 12 supported rhythms: normal, bradycardia, tachycardia, afib, flutter, svt, pvcs, vtach, vfib, block1, block3, stemi
-- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 48-category nursing school page
+- `artifacts/nclex-prep/src/pages/nursing-school.tsx` — 53-category nursing school page
 - `artifacts/nclex-prep/src/pages/study-quiz.tsx` — supports all 3 question types + EKG/image rendering above question text
 - `artifacts/nclex-prep/src/pages/quiz.tsx` — main NCLEX quiz; supports EKG/image rendering above question text
 - `artifacts/nclex-prep/src/pages/paywall.tsx` — calls /api/stripe/checkout, has "Restore Access" (stores email to localStorage on success)
@@ -60,7 +60,7 @@ Removing this normalization will cause blank page crashes in the quiz.
 - All existing UUID sessions were bulk-activated in DB on 2026-05-27 as emergency fix.
 
 ## Key Constraints — Do NOT Change Without User Approval
-- FREE_LIMIT stays at 5 questions — user explicitly rejected changing to 10
+- FREE_LIMIT = 10 questions (in artifacts/api-server/src/routes/session.ts)
 - Do NOT re-run `seed-products.ts` (test keys) — use `seed-products-live.ts`
 - User is very sensitive to breaking changes — always test thoroughly before publishing
 - Admin endpoints secured with header `x-admin-secret: nclexai-admin-2026`
@@ -83,7 +83,6 @@ Removing this normalization will cause blank page crashes in the quiz.
 - EkgDisplay.tsx also accepts aliases: normal-sinus, sinus-bradycardia, etc.
 - API returns imageUrl in GET /questions/:id response
 - Seed endpoint (POST /api/admin/seed-questions) accepts `imageUrl` field
-- **Production note**: image_url column added to dev DB. Will be applied to production DB on next Publish. After publishing, must re-seed EKG questions to production (20 questions, Q#1494–1513, category "EKG Strip Recognition").
 
 ## Answer Type Encoding
 - 'single': correctLetter = "A" (one letter)
@@ -91,46 +90,51 @@ Removing this normalization will cause blank page crashes in the quiz.
 - 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
 ## Question Bank State (updated 2026-05-29)
-- 50 nursing school categories total (48 + Reproductive System + Lines & Vascular Access)
-- Next question number to use: 1574 (Lines questions used 1544–1573; note earlier sessions used higher numbers for other categories — always check max(question_number) in prod DB before seeding)
-- Reproductive System: 50 questions (Q#1514–1543 + 20 earlier ones)
-- Lines & Vascular Access: 30 questions (Q#1544–1573, seeded to production)
-- 9 new categories seeded (Q#1764–2033, 270 questions):
-  - Hematologic Disorders: Q#1764–1793 (30q)
-  - Immune & Rheumatologic Disorders: Q#1794–1823 (30q)
-  - Sensory Disorders: Q#1824–1853 (30q)
-  - Perioperative Care: Q#1854–1883 (30q)
-  - Pain Management: Q#1884–1913 (30q)
-  - Infection & Inflammation: Q#1914–1943 (30q)
-  - Shock, Sepsis & Multi-Organ Dysfunction: Q#1944–1973 (30q)
-  - End-of-Life & Palliative Care: Q#1974–2003 (30q)
-  - Emergency & Critical Care: Q#2004–2033 (30q)
+- 53 nursing school categories total
+- Next question number to use: **Q2044**
+- Assessment categories seeded (150 questions):
+  - Assessment: Cardiac — Q1894–Q1943 (50q)
+  - Assessment: Respiratory — Q1944–Q1993 (50q)
+  - Assessment: Neurological — Q1994–Q2043 (50q)
+- Laboratory & Diagnostics — Q1844–Q1893 (50q)
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
 - 5 hard "hook" questions at questionNumbers -5 through -1 — always appear first in main NCLEX quiz
-- totalCategories computed dynamically from array lengths = 48
-- Marketing copy: "2,000+ questions" (used on nursing-school NCLEX Prep link)
-- "48 question banks" shown on nursing-school page header
+- totalCategories computed dynamically from array lengths (includes assessments array now)
+
+## Admin Seeding
+- Endpoint: POST https://nclexai.org/api/admin/seed-questions
+- Header: x-admin-secret: nclexai-admin-2026
+- Always use Python urllib (not bash curl) to avoid apostrophe/shell escaping issues
 
 ## nursing-school.tsx Array Structure
-fundamentals (1), medsurg (9), infectiousDisease (2), specialtyNursing (6 — includes Reproductive System), advancedPractice (2),
-clinicalReasoning (2), pharmacology (5), nursingSkillsLab (1), woundCare (1), dosageCalculations (1), ngnFormats (3),
-ivTherapy (2 — includes Lines & Vascular Access), hygieneADLs (1), safetyMobility (1), woundDressing (1), eliminationSkills (1), respiratorySkills (1), giNutritionSkills (1),
-hematologic (1), immuneRheum (1), sensory (1), perioperative (1), painManagement (1), infectionInflammation (1), shockSepsis (1), endOfLife (1), emergencyCritical (1)
-Total: 50 categories
+fundamentals (1), medsurg (9), infectiousDisease (2), specialtyNursing (6), advancedPractice (2),
+assessments (3 — Cardiac, Respiratory, Neurological — "Physical Assessment" section),
+clinicalReasoning (3 — ABG, EKG, Laboratory & Diagnostics),
+pharmacology (5), nursingSkillsLab (1), woundCare (1), dosageCalculations (1), ngnFormats (3),
+ivTherapy (2), hygieneADLs (1), safetyMobility (1), woundDressing (1), eliminationSkills (1),
+respiratorySkills (1), giNutritionSkills (1),
+hematologic (1), immuneRheum (1), sensory (1), perioperative (1), painManagement (1),
+infectionInflammation (1), shockSepsis (1), endOfLife (1), emergencyCritical (1)
+Total: 53 categories
 
-## Icons in nursing-school.tsx (all currently imported from lucide-react)
+## JSX Section Order (nursing-school.tsx)
+1. Fundamentals
+2. Medical-Surgical Nursing
+3. Infectious Disease
+4. Specialty Nursing
+5. Advanced Practice
+6. Advanced Clinical Topics (New badge) — hematologic, immuneRheum, sensory, perioperative, painManagement, infectionInflammation, shockSepsis, endOfLife, emergencyCritical
+7. Physical Assessment (New badge) — assessments array (Cardiac, Respiratory, Neurological)
+8. Clinical Reasoning — ABG, EKG, Laboratory & Diagnostics
+9. Pharmacology
+10. Nursing Skills Lab (Procedures badge) — nursingSkillsLab + 7 subcategory arrays
+
+## Icons imported from lucide-react (nursing-school.tsx)
 Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical,
 BookOpen, Flame, Lock, Syringe, Bone, Stethoscope, Bug, Baby, HeartPulse, ShieldAlert,
 Radiation, Monitor, Waves, TestTube, ListChecks, GripVertical, Calculator, Bandage, ClipboardList,
 ShieldCheck, Scissors, Droplet, Utensils, Sparkles, Eye, AlertTriangle, Thermometer
 (ReactNode also imported from react)
-
-## Nursing Skills Lab JSX Section
-All 8 arrays (nursingSkillsLab + 7 subcategories) render in a single "Nursing Skills Lab" section with "Procedures" badge.
-
-## Advanced Clinical Topics JSX Section (NEW 2026-05-28)
-9 new arrays render in a single "Advanced Clinical Topics" section with "New Categories" badge (AlertTriangle icon).
-Placed after the existing "Advanced Practice" section, before "Clinical Reasoning".
 
 ## Nursing School + Interview Prep
 - Both use CLIENT-SIDE answer checking (no submitAnswer API call)
@@ -142,22 +146,3 @@ Placed after the existing "Advanced Practice" section, before "Clinical Reasonin
 - Score bar with 75% passing marker, 3-stat grid (correct/missed/total), contextual message
 - Green = passing (≥75%), amber = close (60-74%), red = below 60%
 - Retry and Choose Another Section buttons
-
-## All 48 Nursing School Category Strings (exact — must match DB)
-Fundamentals of Nursing, MedSurg: Cardiac, MedSurg: Respiratory, MedSurg: Neurological,
-MedSurg: Endocrine, MedSurg: Renal & Urology, MedSurg: Gastrointestinal,
-MedSurg: Burns & Integumentary, MedSurg: Orthopedic, MedSurg: Chest Tubes,
-Infectious Disease: Tuberculosis, Infectious Disease: HIV/AIDS, Pediatric Nursing,
-Maternity & OB Nursing, Psychiatric/Mental Health, Oncology Nursing,
-Seizure & Epilepsy Nursing, Critical Care/ICU, Fluid & Electrolytes,
-ABG Interpretation, EKG Interpretation, Pharmacology: Antidepressants,
-Pharmacology: Cardiac Meds, Pharmacology: Respiratory Meds,
-Pharmacology: Diabetes & Insulin, Pharmacology: Anticoagulation,
-Select All That Apply, Drag & Drop Ordering, EKG Strip Recognition,
-Nursing Skills Lab, Wound Care Management, Dosage Calculations,
-IV Therapy Skills, Hygiene & ADLs, Safety & Mobility, Wound Care & Dressing Changes,
-Elimination Skills, Respiratory Care Skills, GI & Nutrition Skills,
-Hematologic Disorders, Immune & Rheumatologic Disorders, Sensory Disorders,
-Perioperative Care, Pain Management, Infection & Inflammation,
-Shock, Sepsis & Multi-Organ Dysfunction, End-of-Life & Palliative Care,
-Emergency & Critical Care

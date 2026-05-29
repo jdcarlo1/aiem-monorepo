@@ -228,6 +228,39 @@ const specialtyNursing = [
   },
 ];
 
+const assessments = [
+  {
+    category: "Assessment: Cardiac",
+    label: "Cardiac Assessment",
+    icon: <Heart className="w-6 h-6" />,
+    questions: 50,
+    desc: "Heart sounds (S1–S4, murmurs, gallops), JVD, edema grading, PMI, peripheral pulses, capillary refill, left vs. right heart failure, orthostatic hypotension, pulsus paradoxus, Beck's triad, pericardial friction rub, ABI, arterial vs. venous insufficiency, DVT, infective endocarditis signs, and auscultation landmarks.",
+    color: "bg-red-50 text-red-700 border-red-200",
+    iconBg: "bg-red-100",
+    badge: "New",
+  },
+  {
+    category: "Assessment: Respiratory",
+    label: "Respiratory Assessment",
+    icon: <Wind className="w-6 h-6" />,
+    questions: 50,
+    desc: "Breath sounds (vesicular, bronchovesicular, bronchial, crackles, wheezes, rhonchi, stridor, pleural friction rub), percussion findings, tactile fremitus, respiratory patterns (Kussmaul, Cheyne-Stokes, Biot's), barrel chest, accessory muscle use, SpO2 limitations, egophony, pneumothorax and pleural effusion assessment, ARDS, and chest tube care.",
+    color: "bg-sky-50 text-sky-700 border-sky-200",
+    iconBg: "bg-sky-100",
+    badge: "New",
+  },
+  {
+    category: "Assessment: Neurological",
+    label: "Neurological Assessment",
+    icon: <Brain className="w-6 h-6" />,
+    questions: 50,
+    desc: "Glasgow Coma Scale, levels of consciousness, pupil assessment (PERRLA, blown pupil, herniation), Cushing's triad, decorticate vs. decerebrate posturing, cranial nerve assessment, Babinski and Romberg signs, stroke recognition (BE-FAST, NIHSS), meningeal signs (Kernig's, Brudzinski's), DTR grading, cerebellar tests, autonomic dysreflexia, ICP management, and aphasia types.",
+    color: "bg-amber-50 text-amber-700 border-amber-200",
+    iconBg: "bg-amber-100",
+    badge: "New",
+  },
+];
+
 const advancedPractice = [
   {
     category: "Critical Care/ICU",
@@ -732,7 +765,7 @@ export default function NursingSchool() {
 
   const handleLockClick = () => setLocation("/paywall");
 
-  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + nursingSkillsLab.length + woundCare.length + dosageCalculations.length + ngnFormats.length + ivTherapy.length + hygieneADLs.length + safetyMobility.length + woundDressing.length + eliminationSkills.length + respiratorySkills.length + giNutritionSkills.length + hematologic.length + immuneRheum.length + sensory.length + perioperative.length + painManagement.length + infectionInflammation.length + shockSepsis.length + endOfLife.length + emergencyCritical.length;
+  const totalCategories = fundamentals.length + medsurg.length + infectiousDisease.length + specialtyNursing.length + advancedPractice.length + clinicalReasoning.length + pharmacology.length + nursingSkillsLab.length + woundCare.length + dosageCalculations.length + ngnFormats.length + ivTherapy.length + hygieneADLs.length + safetyMobility.length + woundDressing.length + eliminationSkills.length + respiratorySkills.length + giNutritionSkills.length + hematologic.length + immuneRheum.length + sensory.length + perioperative.length + painManagement.length + infectionInflammation.length + shockSepsis.length + endOfLife.length + emergencyCritical.length + assessments.length;
   const totalQuestions = totalCategories * 30 - 60;
 
   return (
@@ -865,6 +898,21 @@ export default function NursingSchool() {
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
             {emergencyCritical.map((item) => (
+              <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
+            ))}
+          </div>
+        </section>
+
+        {/* Physical Assessment */}
+        <section className="mb-10">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 text-xs font-bold mb-3 border border-rose-200">
+            <AlertTriangle className="w-3 h-3" />
+            New Categories
+          </div>
+          <h2 className="text-lg font-bold tracking-tight mb-1">Physical Assessment</h2>
+          <p className="text-sm text-muted-foreground mb-4">System-by-system assessment skills — the clinical foundation of every nursing exam. Cardiac, respiratory, and neurological assessment are consistently the highest-yield assessment topics on NCLEX.</p>
+          <div className="space-y-3">
+            {assessments.map((item) => (
               <CategoryCard key={item.category} item={item} isSubscribed={isSubscribed} onLockClick={handleLockClick} />
             ))}
           </div>
