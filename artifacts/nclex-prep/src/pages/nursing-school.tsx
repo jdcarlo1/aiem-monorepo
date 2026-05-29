@@ -309,6 +309,16 @@ const assessments = [
     iconBg: "bg-violet-100",
     badge: "New",
   },
+  {
+    category: "Assessment: Integumentary",
+    label: "Integumentary Assessment",
+    icon: <Bone className="w-6 h-6" />,
+    questions: 50,
+    desc: "Pressure injury staging (NPUAP Stages 1–4, Unstageable, DTPI), Braden Scale subscales, Rule of Nines, Parkland formula, burn depth classification (superficial to fourth-degree), wound healing phases, moist wound healing principles, debridement methods, wound exudate types, NPWT (wound VAC), skin graft care, MASD vs. pressure injury, diabetic foot ulcer prevention, melanoma ABCDE, cellulitis border marking, psoriasis triggers, herpes zoster precautions, radiation dermatitis, TEN/SJS, keloid vs. hypertrophic scar, and skin assessment in dark skin tones.",
+    color: "bg-rose-50 text-rose-700 border-rose-200",
+    iconBg: "bg-rose-100",
+    badge: "New",
+  },
 ];
 
 const advancedPractice = [

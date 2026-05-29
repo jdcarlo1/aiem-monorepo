@@ -90,9 +90,10 @@ Removing this normalization will cause blank page crashes in the quiz.
 - 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
 ## Question Bank State (updated 2026-05-29)
-- 58 nursing school categories total
-- Next question number to use: **Q2254**
-- Assessment categories seeded (360 questions):
+- 59 nursing school categories total (9 in assessments array)
+- Production question count: **2,778** (confirmed via /api/questions endpoint)
+- Next question number to use: **Q2304**
+- Assessment categories seeded (410 questions):
   - Assessment: Cardiac — Q1894–Q1943 (50q)
   - Assessment: Respiratory — Q1944–Q1993 (50q)
   - Assessment: Neurological — Q1994–Q2043 (50q)
@@ -101,10 +102,12 @@ Removing this normalization will cause blank page crashes in the quiz.
   - GI High-Yield NCLEX — Q2144–Q2173 (30q)
   - GU High-Yield NCLEX — Q2174–Q2203 (30q)
   - Assessment: Musculoskeletal — Q2204–Q2253 (50q)
+  - Assessment: Integumentary — Q2254–Q2303 (50q)
 - Laboratory & Diagnostics — Q1844–Q1893 (50q)
 - 20 Nursing Interview Prep questions (category: "Nursing Interview Prep")
 - 5 hard "hook" questions at questionNumbers -5 through -1 — always appear first in main NCLEX quiz
 - totalCategories computed dynamically from array lengths (includes assessments array now)
+- executeSql tool checks DEV database (shows ~1508); production count verified via /api/questions fetch
 
 ## Admin Seeding
 - Endpoint: POST https://nclexai.org/api/admin/seed-questions
