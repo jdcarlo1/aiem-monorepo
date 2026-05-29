@@ -181,6 +181,16 @@ const specialtyNursing = [
     iconBg: "bg-rose-100",
   },
   {
+    category: "NICU & Neonatal Care",
+    label: "NICU & Neonatal Care",
+    icon: <Baby className="w-6 h-6" />,
+    questions: 50,
+    desc: "Fetal heart rate monitoring (early/late/variable decelerations, Category I-III strips, sinusoidal pattern), APGAR scoring, neonatal resuscitation (NRP), RDS vs. TTN vs. meconium aspiration, hyperbilirubinemia/phototherapy, prematurity complications (NEC, IVH, ROP, BPD), congenital anomalies (TEF, CDH, omphalocele), TORCH infections, GBS prophylaxis, neonatal abstinence syndrome, and newborn medications.",
+    color: "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200",
+    iconBg: "bg-fuchsia-100",
+    badge: "New",
+  },
+  {
     category: "Psychiatric/Mental Health",
     label: "Psychiatric / Mental Health",
     icon: <Brain className="w-6 h-6" />,
