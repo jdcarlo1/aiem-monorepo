@@ -90,9 +90,11 @@ Removing this normalization will cause blank page crashes in the quiz.
 - 'multiple': correctLetter = sorted comma-separated letters "A,C,D"; server and client both sort before comparing
 - 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
-## Question Bank State (updated 2026-05-28)
-- 48 nursing school categories total (original 39 + 9 new Advanced Clinical Topics)
-- Next question number to use: 2034
+## Question Bank State (updated 2026-05-29)
+- 50 nursing school categories total (48 + Reproductive System + Lines & Vascular Access)
+- Next question number to use: 1574 (Lines questions used 1544–1573; note earlier sessions used higher numbers for other categories — always check max(question_number) in prod DB before seeding)
+- Reproductive System: 50 questions (Q#1514–1543 + 20 earlier ones)
+- Lines & Vascular Access: 30 questions (Q#1544–1573, seeded to production)
 - 9 new categories seeded (Q#1764–2033, 270 questions):
   - Hematologic Disorders: Q#1764–1793 (30q)
   - Immune & Rheumatologic Disorders: Q#1794–1823 (30q)
@@ -110,11 +112,11 @@ Removing this normalization will cause blank page crashes in the quiz.
 - "48 question banks" shown on nursing-school page header
 
 ## nursing-school.tsx Array Structure
-fundamentals (1), medsurg (9), infectiousDisease (2), specialtyNursing (5), advancedPractice (2),
+fundamentals (1), medsurg (9), infectiousDisease (2), specialtyNursing (6 — includes Reproductive System), advancedPractice (2),
 clinicalReasoning (2), pharmacology (5), nursingSkillsLab (1), woundCare (1), dosageCalculations (1), ngnFormats (3),
-ivTherapy (1), hygieneADLs (1), safetyMobility (1), woundDressing (1), eliminationSkills (1), respiratorySkills (1), giNutritionSkills (1),
+ivTherapy (2 — includes Lines & Vascular Access), hygieneADLs (1), safetyMobility (1), woundDressing (1), eliminationSkills (1), respiratorySkills (1), giNutritionSkills (1),
 hematologic (1), immuneRheum (1), sensory (1), perioperative (1), painManagement (1), infectionInflammation (1), shockSepsis (1), endOfLife (1), emergencyCritical (1)
-Total: 48 categories
+Total: 50 categories
 
 ## Icons in nursing-school.tsx (all currently imported from lucide-react)
 Brain, ChevronLeft, ArrowRight, Heart, Wind, Zap, Activity, Droplets, Pill, FlaskConical,
