@@ -28,6 +28,9 @@ export default function Flyer() {
             2,778+ AI-powered practice questions.<br />
             NGN format · 59 categories · Free to start.
           </p>
+          <div className="mt-3 inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-full">
+            ✅ Created by a Registered Nurse
+          </div>
         </div>
 
         {/* QR Code */}
