@@ -362,7 +362,7 @@ const ivTherapy = [
     category: "Lines & Vascular Access",
     label: "Lines & Vascular Access",
     icon: <Activity className="w-6 h-6" />,
-    questions: 30,
+    questions: 50,
     desc: "PICC lines, central venous catheters (CVC), arterial lines (A-line), Swan-Ganz/pulmonary artery catheters, Introducer/Cordis, hemodialysis catheters, intraosseous (IO) access, epidural catheters, JP drains, Hemovac drains, TPN lines, and air embolism prevention.",
     color: "bg-cyan-50 text-cyan-700 border-cyan-200",
     iconBg: "bg-cyan-100",
