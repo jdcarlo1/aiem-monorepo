@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, sessionsTable, questionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
@@ -240,6 +240,25 @@ router.post("/admin/seed-questions", async (req, res) => {
   res.json({ success: true, message: `Inserted ${inserted} questions` });
 });
 
+router.post("/admin/fix-sessions", async (req, res) => {
+  const secret = req.headers["x-admin-secret"];
+  if (secret !== "nclexai-admin-2026") {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const result = await db
+    .update(sessionsTable)
+    .set({ isSubscribed: false })
+    .where(
+      and(
+        eq(sessionsTable.isSubscribed, true),
+        isNull(sessionsTable.stripeCustomerId)
+      )
+    )
+    .returning({ id: sessionsTable.id });
+  res.json({ success: true, fixed: result.length });
+});
+
 router.post("/admin/activate-sessions", async (req, res) => {
   const secret = req.headers["x-admin-secret"];
   if (secret !== "nclexai-admin-2026") {
@@ -249,18 +268,16 @@ router.post("/admin/activate-sessions", async (req, res) => {
 
   const { sessionId } = req.body as { sessionId?: string };
 
-  if (sessionId) {
-    await db
-      .update(sessionsTable)
-      .set({ isSubscribed: true })
-      .where(eq(sessionsTable.sessionId, sessionId));
-    res.json({ success: true, message: `Activated session ${sessionId}` });
-  } else {
-    await db
-      .update(sessionsTable)
-      .set({ isSubscribed: true });
-    res.json({ success: true, message: "Activated all sessions" });
+  if (!sessionId) {
+    res.status(400).json({ error: "sessionId is required" });
+    return;
   }
+
+  await db
+    .update(sessionsTable)
+    .set({ isSubscribed: true })
+    .where(eq(sessionsTable.sessionId, sessionId));
+  res.json({ success: true, message: `Activated session ${sessionId}` });
 });
 
 export default router;
