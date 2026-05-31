@@ -1,1 +1,2 @@
 - [NCLEX Prep project state](nclex-prep-state.md) — question bank counts, categories, next question number, stack, and key constraints
+- [Payment flow fixes](payment-flow-fixes.md) — three critical bugs fixed: webhook URL, success/cancel URL, webhook handler crash
