@@ -55,23 +55,11 @@ async function computeAdaptiveNext(sessionId: string): Promise<{
           .select({ id: questionsTable.id, category: questionsTable.category, questionType: questionsTable.questionType })
           .from(questionsTable);
 
-  // Onboarding ramp: start simple, introduce harder formats gradually
-  const EASY_TYPES = ["single"];
-  const HARD_TYPES = ["multiple", "ordered"];
-  const easyUnanswered = allUnanswered.filter(q => EASY_TYPES.includes(q.questionType ?? "single"));
-  const hardUnanswered = allUnanswered.filter(q => HARD_TYPES.includes(q.questionType ?? ""));
-
-  let unanswered: typeof allUnanswered;
-  if (totalAnswered === 0 && easyUnanswered.length >= 1) {
-    // First question: always a simple single-choice to ease them in
-    unanswered = easyUnanswered;
-  } else if (totalAnswered < 3 && easyUnanswered.length >= 1) {
-    // Questions 2-3: still mostly easy
-    unanswered = easyUnanswered;
-  } else {
-    // Question 4+: full mix of all types
-    unanswered = allUnanswered;
-  }
+  // First question: single-choice to orient the user, then full NGN mix immediately
+  const easyUnanswered = allUnanswered.filter(q => (q.questionType ?? "single") === "single");
+  const unanswered = (totalAnswered === 0 && easyUnanswered.length >= 1)
+    ? easyUnanswered
+    : allUnanswered;
 
   const categoryPerformance: CategoryStat[] = Object.entries(categoryMap)
     .map(([category, s]) => ({
