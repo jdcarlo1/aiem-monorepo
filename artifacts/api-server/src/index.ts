@@ -31,7 +31,7 @@ async function initStripe() {
 
     const stripeSync = await getStripeSync();
 
-    const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
+    const webhookBaseUrl = process.env.SITE_URL ?? "https://nclexai.org";
     await stripeSync.findOrCreateManagedWebhook(`${webhookBaseUrl}/api/stripe/webhook`);
     logger.info('Stripe webhook configured');
 

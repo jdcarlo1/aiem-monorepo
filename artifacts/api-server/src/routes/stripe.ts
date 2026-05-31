@@ -44,7 +44,7 @@ router.post("/stripe/checkout", async (req, res) => {
     }
   }
 
-  const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
+  const baseUrl = process.env.SITE_URL ?? "https://nclexai.org";
 
   if (plan === "monthly") {
     const products = await stripe.products.search({
