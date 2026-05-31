@@ -1,6 +1,7 @@
 import { db, sessionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getStripeSync } from './stripeClient';
+import { logger } from './lib/logger';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -11,17 +12,20 @@ export class WebhookHandlers {
       );
     }
 
-    const sync = await getStripeSync();
-
-    // stripe-replit-sync validates the signature and syncs to stripe schema
-    await sync.processWebhook(payload, signature);
-
-    // Parse the raw event for custom session-level handling
+    // Parse the raw event first so we can handle it even if sync fails
     let event: any;
     try {
       event = JSON.parse(payload.toString());
     } catch {
       return;
+    }
+
+    // Attempt stripe-replit-sync — non-critical, never block session unlock
+    try {
+      const sync = await getStripeSync();
+      await sync.processWebhook(payload, signature);
+    } catch (err) {
+      logger.warn({ err }, 'stripe-replit-sync processWebhook failed (non-critical) — continuing with session handling');
     }
 
     if (event.type === 'checkout.session.completed') {
@@ -39,6 +43,7 @@ export class WebhookHandlers {
             stripeSubscriptionId: subscriptionId,
           })
           .where(eq(sessionsTable.sessionId, sessionId));
+        logger.info({ sessionId, customerId }, 'Session unlocked after successful checkout');
       }
     }
 
@@ -50,6 +55,7 @@ export class WebhookHandlers {
           .update(sessionsTable)
           .set({ isSubscribed: false, subscriptionEndDate: null, stripeSubscriptionId: null })
           .where(eq(sessionsTable.stripeCustomerId, customerId));
+        logger.info({ customerId }, 'Session deactivated after subscription cancelled');
       }
     }
   }
