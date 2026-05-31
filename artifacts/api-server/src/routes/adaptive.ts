@@ -55,10 +55,13 @@ async function computeAdaptiveNext(sessionId: string): Promise<{
           .select({ id: questionsTable.id, category: questionsTable.category, questionType: questionsTable.questionType })
           .from(questionsTable);
 
-  // First question: single-choice to orient the user, then full NGN mix immediately
-  const easyUnanswered = allUnanswered.filter(q => (q.questionType ?? "single") === "single");
-  const unanswered = (totalAnswered === 0 && easyUnanswered.length >= 1)
-    ? easyUnanswered
+  // First 2 questions: single-choice cardiac to orient the user, then full NGN mix
+  const cardiacSingle = allUnanswered.filter(q =>
+    (q.questionType ?? "single") === "single" &&
+    q.category.toLowerCase().includes("cardiac")
+  );
+  const unanswered = (totalAnswered < 2 && cardiacSingle.length >= 1)
+    ? cardiacSingle
     : allUnanswered;
 
   const categoryPerformance: CategoryStat[] = Object.entries(categoryMap)
