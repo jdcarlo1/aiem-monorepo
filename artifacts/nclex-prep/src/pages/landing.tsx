@@ -133,7 +133,7 @@ export default function Landing() {
           </Link>
         </div>
 
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-gray-900 font-semibold">
           No credit card required · 10 free questions · $15/mo or $49 lifetime to unlock all
         </p>
       </section>
@@ -293,7 +293,7 @@ export default function Landing() {
             <ArrowRight className="w-5 h-5 ml-2" />
           </Button>
         </Link>
-        <p className="text-gray-500 text-sm mt-4">
+        <p className="text-gray-900 text-sm mt-4 font-semibold">
           nclexai.org · $15/mo or $49 lifetime after free trial
         </p>
       </section>
