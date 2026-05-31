@@ -134,7 +134,7 @@ export default function Landing() {
         </div>
 
         <p className="text-sm text-gray-400">
-          No signup required · Start instantly · $15/mo or $49 lifetime after free trial
+          No credit card required · 10 free questions · $15/mo or $49 lifetime to unlock all
         </p>
       </section>
 
@@ -282,7 +282,7 @@ export default function Landing() {
           Ready to pass the NCLEX?
         </h2>
         <p className="text-gray-400 text-lg mb-8 max-w-xl mx-auto">
-          Start with 10 free questions right now. No account needed, no credit card.
+          Start with 10 free questions right now. No credit card required.
         </p>
         <Link href="/quiz">
           <Button
