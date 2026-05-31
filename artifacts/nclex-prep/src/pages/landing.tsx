@@ -85,7 +85,7 @@ export default function Landing() {
           </div>
           <div>
             <span className="font-bold text-gray-900 text-lg">NCLEX AI</span>
-            <span className="text-base font-bold text-black ml-2">nclexai.org</span>
+            <span className="text-xl font-extrabold text-black ml-2">nclexai.org</span>
           </div>
         </div>
         <Link href="/quiz">
@@ -292,8 +292,11 @@ export default function Landing() {
             <ArrowRight className="w-5 h-5 ml-2" />
           </Button>
         </Link>
-        <p className="text-gray-900 text-sm mt-4 font-semibold">
-          nclexai.org · $15/mo or $49 lifetime after free trial
+        <p className="text-white text-2xl font-extrabold mt-6 tracking-wide">
+          nclexai.org
+        </p>
+        <p className="text-gray-400 text-sm mt-1">
+          $15/mo or $49 lifetime after free trial
         </p>
       </section>
     </div>
