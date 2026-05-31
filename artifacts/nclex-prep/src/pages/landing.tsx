@@ -64,8 +64,8 @@ const features = [
   },
   {
     icon: <Clock className="w-6 h-6 text-rose-500" />,
-    title: "Study Anywhere, Anytime",
-    desc: "Works on your phone or laptop — no downloads needed. Study between classes or on break.",
+    title: "CAT Adaptive Testing",
+    desc: "Just like the real NCLEX — the engine adapts to your performance and targets your weak areas automatically.",
   },
 ];
 
@@ -74,7 +74,7 @@ export default function Landing() {
     <div className="min-h-screen bg-white">
       {/* Top bar */}
       <div className="bg-blue-600 text-white text-center text-sm py-2 px-4 font-medium">
-        🎉 Try 10 questions free — no credit card required
+        🎉 Try 10 questions free — no sign-up needed
       </div>
 
       {/* Nav */}
@@ -108,8 +108,7 @@ export default function Landing() {
         </h1>
 
         <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
-          2,778+ practice questions with AI-powered explanations. NGN-format
-          questions, 59 categories, and a free mode — no credit card needed.
+          2,778+ practice questions with AI-powered explanations. CAT adaptive testing, NGN-format questions, and 59 categories — try 10 free, then $15/mo or $49 lifetime.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-6">
@@ -134,7 +133,7 @@ export default function Landing() {
         </div>
 
         <p className="text-sm text-gray-900 font-semibold">
-          No credit card required · 10 free questions · $15/mo or $49 lifetime to unlock all
+          10 free questions · no sign-up · $15/mo or $49 lifetime to unlock all
         </p>
       </section>
 
@@ -157,8 +156,8 @@ export default function Landing() {
           </div>
           <div className="hidden sm:block w-px h-10 bg-gray-200" />
           <div>
-            <div className="text-3xl font-extrabold text-gray-900">FREE</div>
-            <div className="text-sm text-gray-500 mt-1">To Start — No Card</div>
+            <div className="text-3xl font-extrabold text-gray-900">CAT</div>
+            <div className="text-sm text-gray-500 mt-1">Adaptive Testing</div>
           </div>
         </div>
       </section>
@@ -282,7 +281,7 @@ export default function Landing() {
           Ready to pass the NCLEX?
         </h2>
         <p className="text-gray-400 text-lg mb-8 max-w-xl mx-auto">
-          Start with 10 free questions right now. No credit card required.
+          Start with 10 free questions right now. No sign-up needed.
         </p>
         <Link href="/quiz">
           <Button
