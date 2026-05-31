@@ -97,9 +97,15 @@ export default function Landing() {
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-6 pt-16 pb-12 text-center">
-        <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 text-sm font-medium px-4 py-1.5 rounded-full mb-6">
-          <Star className="w-4 h-4 fill-blue-600 text-blue-600" />
-          Trusted by nursing students across the US
+        <div className="flex flex-wrap justify-center gap-3 mb-6">
+          <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 text-sm font-medium px-4 py-1.5 rounded-full">
+            <Star className="w-4 h-4 fill-blue-600 text-blue-600" />
+            Trusted by nursing students across the US
+          </div>
+          <div className="inline-flex items-center gap-2 bg-green-50 text-green-700 text-sm font-medium px-4 py-1.5 rounded-full">
+            <ShieldCheck className="w-4 h-4 text-green-600" />
+            Created by a Registered Nurse
+          </div>
         </div>
 
         <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 leading-tight mb-6">
