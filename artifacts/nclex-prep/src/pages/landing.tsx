@@ -128,7 +128,7 @@ export default function Landing() {
 
         {/* Secondary unlock line */}
         <p className="text-sm text-blue-700 font-semibold mt-3 mb-4">
-          or unlock everything for $49 lifetime — not $299/yr like UWorld
+          or unlock everything — $15/mo or $49 one-time lifetime access
         </p>
 
         {/* Social proof near CTA */}
