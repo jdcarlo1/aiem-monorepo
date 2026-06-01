@@ -111,14 +111,14 @@ function ClerkQueryClientCacheInvalidator() {
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home} />
+      <Route path="/" component={Landing} />
       <Route path="/quiz" component={Quiz} />
       <Route path="/study" component={StudyQuiz} />
       <Route path="/nursing-school" component={NursingSchool} />
       <Route path="/paywall" component={Paywall} />
       <Route path="/subscribe-success" component={SubscribeSuccess} />
       <Route path="/interview-prep" component={InterviewPrep} />
-      <Route path="/start" component={Landing} />
+      <Route path="/home" component={Home} />
       <Route path="/flyer" component={Flyer} />
       <Route path="/sign-in/*?" component={SignInPage} />
       <Route path="/sign-up/*?" component={SignUpPage} />

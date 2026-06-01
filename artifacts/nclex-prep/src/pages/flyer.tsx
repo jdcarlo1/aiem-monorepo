@@ -37,7 +37,7 @@ export default function Flyer() {
         <div className="flex flex-col items-center py-4 px-6">
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-2">
             <QRCodeSVG
-              value="https://nclexai.org/start"
+              value="https://nclexai.org"
               size={160}
               bgColor="#f9fafb"
               fgColor="#1e3a8a"
@@ -45,7 +45,7 @@ export default function Flyer() {
             />
           </div>
           <p className="text-xs text-gray-500 text-center">Scan to start 10 free questions</p>
-          <p className="text-sm font-bold text-blue-600 text-center mt-1">or visit: nclexai.org/start</p>
+          <p className="text-sm font-bold text-blue-600 text-center mt-1">or visit: nclexai.org</p>
         </div>
 
         {/* Bullets */}
@@ -63,7 +63,7 @@ export default function Flyer() {
 
         {/* Footer band */}
         <div className="bg-blue-600 text-white text-center py-3 px-6">
-          <p className="text-sm font-bold tracking-wide">nclexai.org/start</p>
+          <p className="text-sm font-bold tracking-wide">nclexai.org</p>
         </div>
       </div>
 
