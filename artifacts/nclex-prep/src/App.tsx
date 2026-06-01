@@ -108,10 +108,17 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
+function RedirectToHome() {
+  const [, setLocation] = useLocation();
+  useEffect(() => { setLocation("/"); }, []);
+  return null;
+}
+
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
+      <Route path="/start" component={RedirectToHome} />
       <Route path="/quiz" component={Quiz} />
       <Route path="/study" component={StudyQuiz} />
       <Route path="/nursing-school" component={NursingSchool} />
