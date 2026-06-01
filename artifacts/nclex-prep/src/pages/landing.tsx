@@ -84,6 +84,7 @@ export default function Landing() {
             <Brain className="w-5 h-5 text-white" />
           </div>
           <span className="font-bold text-gray-900 text-xl">NCLEX AI</span>
+          <span className="text-2xl font-extrabold text-blue-600 ml-1">nclexai.org</span>
         </div>
         <Link href="/quiz">
           <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
