@@ -29,3 +29,7 @@ First 2 questions are now single-choice cardiac questions to orient new users, t
 
 ## Bulk activate bug
 Admin endpoint `/admin/activate-sessions` without a sessionId was activating ALL sessions for free. Fixed to require sessionId. 580 incorrectly-free sessions were reset in production via `/admin/fix-sessions` endpoint (now removed from codebase concern — the fix was run).
+
+## Critical routing bug — landing page was never seen by ad traffic
+Landing page (landing.tsx) was at `/start` while home.tsx was at `/`. All Google Ads traffic (241 clicks) hit the wrong page. Fixed by swapping routes: Landing → `/`, Home → `/home`. Flyer QR code updated from `nclexai.org/start` to `nclexai.org`.
+**Why this matters:** Always verify the root route `/` is the conversion-optimized landing page, not an interior app page.
