@@ -96,8 +96,8 @@ export default function Landing() {
       </nav>
 
       {/* Hero */}
-      <section className="max-w-4xl mx-auto px-6 pt-16 pb-12 text-center">
-        <div className="flex flex-wrap justify-center gap-3 mb-6">
+      <section className="max-w-4xl mx-auto px-6 pt-8 pb-10 text-center">
+        <div className="flex flex-wrap justify-center gap-3 mb-4">
           <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 text-sm font-medium px-4 py-1.5 rounded-full">
             <Star className="w-4 h-4 fill-blue-600 text-blue-600" />
             Trusted by nursing students across the US
@@ -108,39 +108,39 @@ export default function Landing() {
           </div>
         </div>
 
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 leading-tight mb-6">
+        <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 leading-tight mb-4">
           Pass the NCLEX on{" "}
           <span className="text-blue-600">your first attempt</span>
         </h1>
 
-        <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
-          2,778+ practice questions with AI-powered explanations. CAT adaptive testing, NGN-format questions, and 59 categories — try 10 free, then $15/mo or $49 lifetime.
+        <p className="text-lg text-gray-600 mb-6 max-w-xl mx-auto">
+          2,778+ NGN-format questions with AI explanations. CAT adaptive testing — just like the real test.
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-6">
-          <Link href="/quiz">
-            <Button
-              size="lg"
-              className="bg-blue-600 hover:bg-blue-700 text-white text-lg px-10 py-6 rounded-xl shadow-lg shadow-blue-200 w-full sm:w-auto"
-            >
-              Start 10 Free Questions
-              <ArrowRight className="w-5 h-5 ml-2" />
-            </Button>
-          </Link>
-          <Link href="/nursing-school">
-            <Button
-              size="lg"
-              variant="outline"
-              className="text-lg px-8 py-6 rounded-xl w-full sm:w-auto border-gray-300 text-gray-700"
-            >
-              Browse All 59 Categories
-            </Button>
-          </Link>
-        </div>
+        {/* Primary CTA — high on page, big, impossible to miss */}
+        <Link href="/quiz">
+          <Button
+            size="lg"
+            className="bg-blue-600 hover:bg-blue-700 text-white text-xl px-12 py-7 rounded-xl shadow-lg shadow-blue-200 w-full sm:w-auto mb-4"
+          >
+            Start 10 Free Questions
+            <ArrowRight className="w-5 h-5 ml-2" />
+          </Button>
+        </Link>
 
-        <p className="text-sm text-gray-900 font-semibold">
-          10 free questions · no sign-up · $15/mo or $49 lifetime to unlock all
+        {/* Comparison line — answers "why not UWorld?" */}
+        <p className="text-sm text-gray-700 font-semibold mb-5">
+          ✓ Not $299/yr like UWorld &nbsp;·&nbsp; ✓ Same NGN format &nbsp;·&nbsp; ✓ $49 lifetime
         </p>
+
+        <Link href="/nursing-school">
+          <Button
+            variant="outline"
+            className="text-sm px-6 py-3 rounded-xl border-gray-300 text-gray-600"
+          >
+            Browse All 59 Categories
+          </Button>
+        </Link>
       </section>
 
       {/* Social proof strip */}
