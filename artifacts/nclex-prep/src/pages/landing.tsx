@@ -86,19 +86,19 @@ export default function Landing() {
           <span className="font-bold text-gray-900 text-xl">NCLEX AI</span>
           <span className="text-2xl font-extrabold text-blue-600 ml-1">nclexai.org</span>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/home">
-            <Button size="sm" variant="outline" className="border-2 border-gray-900 text-gray-900 font-bold hover:bg-gray-900 hover:text-white">
-              Member Login
-            </Button>
-          </Link>
-          <Link href="/quiz">
-            <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
-              Start Free
-            </Button>
-          </Link>
-        </div>
+        <Link href="/quiz">
+          <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+            Start Free
+          </Button>
+        </Link>
       </nav>
+
+      {/* Member login bar */}
+      <div className="bg-gray-900 text-white text-center py-2 px-4">
+        <Link href="/home">
+          <span className="font-bold text-sm cursor-pointer hover:underline">Already a member? Click here to log in →</span>
+        </Link>
+      </div>
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-6 pt-8 pb-10 text-center">
