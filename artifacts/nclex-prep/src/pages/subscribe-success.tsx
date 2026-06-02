@@ -56,10 +56,15 @@ export default function SubscribeSuccess() {
               You now have unlimited access to all NCLEX practice questions and detailed explanations.
             </p>
 
-            <div className="pt-6">
+            <div className="pt-6 space-y-3">
               <Link href="/quiz">
                 <Button size="lg" className="w-full py-6 text-lg rounded-xl">
                   Start Practicing
+                </Button>
+              </Link>
+              <Link href="/home">
+                <Button size="lg" variant="outline" className="w-full py-6 text-lg rounded-xl">
+                  Explore All Categories
                 </Button>
               </Link>
             </div>
