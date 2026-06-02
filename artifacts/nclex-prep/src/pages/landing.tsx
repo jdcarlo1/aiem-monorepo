@@ -88,7 +88,9 @@ export default function Landing() {
         </div>
         <div className="flex items-center gap-3">
           <Link href="/home">
-            <span className="text-sm text-gray-600 hover:text-blue-600 font-medium cursor-pointer">Member Login</span>
+            <Button size="sm" variant="outline" className="border-2 border-gray-900 text-gray-900 font-bold hover:bg-gray-900 hover:text-white">
+              Member Login
+            </Button>
           </Link>
           <Link href="/quiz">
             <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
