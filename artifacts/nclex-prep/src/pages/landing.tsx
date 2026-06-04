@@ -809,7 +809,7 @@ function QuestionCarousel() {
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-3">Each one appears on the real Next Generation NCLEX</p>
+          <p className="text-sm font-bold text-gray-700 mt-3">Each one appears on the real Next Generation NCLEX</p>
         </div>
       </div>
     </section>
