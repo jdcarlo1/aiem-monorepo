@@ -108,116 +108,103 @@ function MatrixDemo() {
   const [submitted, setSubmitted] = useState(false);
 
   const allSelected = matrixRows.every((_, i) => selections[i]);
+  const correctCount = submitted
+    ? matrixRows.filter((r, i) => selections[i] === r.correct).length
+    : 0;
 
   function select(rowIdx: number, col: string) {
     if (submitted) return;
     setSelections((prev) => ({ ...prev, [rowIdx]: col }));
   }
 
-  const correctCount = submitted
-    ? matrixRows.filter((r, i) => selections[i] === r.correct).length
-    : 0;
-
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
       {/* Header */}
-      <div className="bg-blue-600 px-6 py-3 flex items-center gap-2">
+      <div className="bg-blue-600 px-6 py-3 flex items-center gap-2 rounded-t-2xl">
         <span className="bg-white text-blue-600 text-xs font-bold px-2 py-0.5 rounded">MATRIX / GRID</span>
         <span className="text-white text-xs font-medium">NGN Question Type</span>
       </div>
 
       {/* Scenario */}
-      <div className="px-6 pt-5 pb-3">
+      <div className="px-6 pt-5 pb-4">
         <p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-2">Clinical Scenario</p>
         <p className="text-sm text-gray-800 leading-relaxed">
           A nurse is caring for a <strong>72-year-old client</strong> admitted with <strong>acute decompensated heart failure</strong>.
-          The client has +2 pitting edema bilateral lower extremities, bilateral crackles on auscultation,
-          weight gain of 4 lbs in 2 days, and BP 158/92 mmHg.
+          The client has +2 pitting edema, bilateral crackles, weight gain of 4 lbs in 2 days, and BP 158/92 mmHg.
         </p>
         <p className="text-sm font-semibold text-gray-900 mt-3">
-          For each nursing action, select whether it is <em>Indicated</em>, <em>Contraindicated</em>, or <em>Non-Essential</em>.
+          For each nursing action below, tap <em>Indicated</em>, <em>Contraindicated</em>, or <em>Non-Essential</em>:
         </p>
       </div>
 
-      {/* Table */}
-      <div className="px-6 pb-2 overflow-x-auto">
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="border-b border-gray-200">
-              <th className="text-left py-2 pr-4 text-gray-600 font-semibold w-1/2">Nursing Action</th>
-              {matrixColumns.map((col) => (
-                <th key={col} className="text-center py-2 px-2 text-gray-600 font-semibold text-xs w-1/6">{col}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {matrixRows.map((row, i) => {
-              const sel = selections[i];
-              const isCorrect = submitted && sel === row.correct;
-              const isWrong = submitted && sel && sel !== row.correct;
-              return (
-                <Fragment key={i}>
-                  <tr
-                    className={`border-b border-gray-100 transition-colors ${
-                      isCorrect ? "bg-green-50" : isWrong ? "bg-red-50" : "hover:bg-gray-50"
-                    }`}
-                  >
-                    <td className="py-3 pr-4 text-gray-800 leading-snug">
-                      <div className="flex items-start gap-2">
-                        {submitted && isCorrect && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />}
-                        {submitted && isWrong && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />}
-                        {row.action}
-                      </div>
-                    </td>
-                    {matrixColumns.map((col) => {
-                      const isSelected = sel === col;
-                      const isCorrectCell = submitted && col === row.correct;
-                      return (
-                        <td key={col} className="text-center py-3 px-2">
-                          <button
-                            onClick={() => select(i, col)}
-                            disabled={submitted}
-                            className={`w-5 h-5 rounded-full border-2 mx-auto flex items-center justify-center transition-all
-                              ${isCorrectCell && submitted
-                                ? "border-green-500 bg-green-500"
-                                : isSelected && !submitted
-                                ? "border-blue-600 bg-blue-600"
-                                : isSelected && submitted && !isCorrectCell
-                                ? "border-red-400 bg-red-400"
-                                : "border-gray-300 bg-white hover:border-blue-400"
-                              }`}
-                          >
-                            {(isSelected || (isCorrectCell && submitted)) && (
-                              <div className="w-2 h-2 rounded-full bg-white" />
-                            )}
-                          </button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  {submitted && (
-                    <tr key={`rationale-${i}`} className={isCorrect ? "bg-green-50" : "bg-red-50"}>
-                      <td colSpan={4} className="pb-2 pt-0 px-4 pl-10">
-                        <p className={`text-xs italic ${isCorrect ? "text-green-700" : "text-red-700"}`}>
-                          <strong>Correct: {row.correct}.</strong> {row.rationale}
-                        </p>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+      {/* Card-based rows — large tap targets, no table */}
+      <div className="px-6 pb-4 space-y-3">
+        {matrixRows.map((row, i) => {
+          const sel = selections[i];
+          const isCorrect = submitted && sel === row.correct;
+          const isWrong = submitted && sel && sel !== row.correct;
+          return (
+            <div
+              key={i}
+              className={`rounded-xl border p-4 transition-colors ${
+                isCorrect ? "border-green-300 bg-green-50"
+                : isWrong ? "border-red-300 bg-red-50"
+                : "border-gray-200 bg-gray-50"
+              }`}
+            >
+              {/* Action label */}
+              <div className="flex items-start gap-2 mb-3">
+                {submitted && isCorrect && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />}
+                {submitted && isWrong && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />}
+                <p className="text-sm font-medium text-gray-800">{row.action}</p>
+              </div>
+              {/* Big pill buttons */}
+              <div className="flex flex-wrap gap-2">
+                {matrixColumns.map((col) => {
+                  const isSelected = sel === col;
+                  const isCorrectCol = submitted && col === row.correct;
+                  return (
+                    <button
+                      key={col}
+                      type="button"
+                      onClick={() => select(i, col)}
+                      disabled={submitted}
+                      className={`px-4 py-2 rounded-lg text-sm font-semibold border-2 transition-all cursor-pointer
+                        ${isCorrectCol
+                          ? "border-green-500 bg-green-500 text-white"
+                          : isSelected && isWrong
+                          ? "border-red-400 bg-red-400 text-white"
+                          : isSelected
+                          ? "border-blue-600 bg-blue-600 text-white"
+                          : submitted
+                          ? "border-gray-200 bg-white text-gray-400"
+                          : "border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600"
+                        }`}
+                    >
+                      {col}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Rationale */}
+              {submitted && (
+                <p className={`text-xs mt-2 italic ${isCorrect ? "text-green-700" : "text-red-700"}`}>
+                  <strong>Correct: {row.correct}.</strong> {row.rationale}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Footer */}
       <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-wrap gap-3">
         {!submitted ? (
           <Button
+            type="button"
             onClick={() => setSubmitted(true)}
             disabled={!allSelected}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 disabled:opacity-50"
           >
             Check My Answers
           </Button>
@@ -234,7 +221,7 @@ function MatrixDemo() {
           </div>
         )}
         {!allSelected && !submitted && (
-          <span className="text-xs text-gray-400">Select an answer for each row</span>
+          <span className="text-xs text-gray-400">Select an answer for each row above</span>
         )}
       </div>
     </div>
@@ -320,16 +307,59 @@ function BowtieDemo() {
   const [submitted, setSubmitted] = useState(false);
 
   const allSelected = leftSel && centerSel && rightSel;
-
   const leftCorrect = submitted && bowtieLeft.find((o) => o.id === leftSel)?.correct;
   const centerCorrect = submitted && bowtieCenter.find((o) => o.id === centerSel)?.correct;
   const rightCorrect = submitted && bowtieRight.find((o) => o.id === rightSel)?.correct;
   const score = submitted ? [leftCorrect, centerCorrect, rightCorrect].filter(Boolean).length : 0;
 
+  function renderColumn(
+    title: string,
+    accent: string,
+    options: typeof bowtieLeft,
+    selected: string | null,
+    onSelect: (id: string) => void,
+  ) {
+    return (
+      <div className="flex-1 min-w-0">
+        <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${accent}`}>{title}</p>
+        <div className="space-y-2">
+          {options.map((opt) => {
+            const isSelected = selected === opt.id;
+            const isCorrectOpt = submitted && opt.correct;
+            const isWrongOpt = submitted && isSelected && !opt.correct;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => !submitted && onSelect(opt.id)}
+                disabled={submitted}
+                className={`w-full text-left text-sm px-4 py-3 rounded-xl border-2 transition-all font-medium cursor-pointer
+                  ${isCorrectOpt
+                    ? "border-green-500 bg-green-50 text-green-800"
+                    : isWrongOpt
+                    ? "border-red-400 bg-red-50 text-red-800"
+                    : isSelected
+                    ? "border-blue-500 bg-blue-50 text-blue-800"
+                    : submitted
+                    ? "border-gray-200 bg-white text-gray-400"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50"
+                  }`}
+              >
+                <span className="font-bold mr-1">{opt.id}.</span> {opt.text}
+                {isCorrectOpt && <span className="ml-1 text-green-600">✓</span>}
+                {isWrongOpt && <span className="ml-1 text-red-500">✗</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
       {/* Header */}
-      <div className="bg-purple-600 px-6 py-3 flex items-center gap-2">
+      <div className="bg-purple-600 px-6 py-3 flex items-center gap-2 rounded-t-2xl">
         <span className="bg-white text-purple-600 text-xs font-bold px-2 py-0.5 rounded">BOW-TIE</span>
         <span className="text-white text-xs font-medium">NGN Question Type</span>
       </div>
@@ -343,55 +373,25 @@ function BowtieDemo() {
           Vital signs: BP 110/70, HR 102, RR 18, Temp 98.4°F, SpO₂ 98%.
         </p>
         <p className="text-sm font-semibold text-gray-900 mt-3">
-          Complete the Bow-Tie: select the most appropriate <em>Action</em>, identify the <em>Condition</em>, and choose the <em>Parameter to Monitor</em>.
+          Select one answer in each column — Action → Condition → Parameter to Monitor:
         </p>
       </div>
 
-      {/* Bowtie columns */}
-      <div className="px-6 pb-4 flex gap-3 items-start">
-        <BowtieColumn
-          title="Action to Take"
-          color="text-blue-600"
-          options={bowtieLeft}
-          selected={leftSel}
-          onSelect={setLeftSel}
-          submitted={submitted}
-        />
-
-        {/* Center diamond */}
-        <div className="flex flex-col items-center justify-start pt-6 flex-shrink-0 w-8">
-          <div className="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-b-[12px] border-b-gray-300" />
-          <div className="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[12px] border-t-gray-300" />
-          <div className="h-4" />
-          <div className="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-b-[12px] border-b-gray-300" />
-          <div className="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[12px] border-t-gray-300" />
+      {/* Three columns — stacks on mobile, side by side on desktop */}
+      <div className="px-6 pb-4">
+        <div className="flex flex-col sm:flex-row gap-4">
+          {renderColumn("Action to Take", "text-blue-600", bowtieLeft, leftSel, setLeftSel)}
+          <div className="hidden sm:flex flex-col items-center justify-center flex-shrink-0 gap-1 pt-6">
+            <div className="w-3 h-3 bg-gray-300 rotate-45" />
+            <div className="w-3 h-3 bg-gray-300 rotate-45" />
+          </div>
+          {renderColumn("Condition", "text-purple-600", bowtieCenter, centerSel, setCenterSel)}
+          <div className="hidden sm:flex flex-col items-center justify-center flex-shrink-0 gap-1 pt-6">
+            <div className="w-3 h-3 bg-gray-300 rotate-45" />
+            <div className="w-3 h-3 bg-gray-300 rotate-45" />
+          </div>
+          {renderColumn("Parameter to Monitor", "text-green-600", bowtieRight, rightSel, setRightSel)}
         </div>
-
-        <BowtieColumn
-          title="Condition"
-          color="text-purple-600"
-          options={bowtieCenter}
-          selected={centerSel}
-          onSelect={setCenterSel}
-          submitted={submitted}
-        />
-
-        <div className="flex flex-col items-center justify-start pt-6 flex-shrink-0 w-8">
-          <div className="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-b-[12px] border-b-gray-300" />
-          <div className="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[12px] border-t-gray-300" />
-          <div className="h-4" />
-          <div className="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-b-[12px] border-b-gray-300" />
-          <div className="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[12px] border-t-gray-300" />
-        </div>
-
-        <BowtieColumn
-          title="Parameter to Monitor"
-          color="text-green-600"
-          options={bowtieRight}
-          selected={rightSel}
-          onSelect={setRightSel}
-          submitted={submitted}
-        />
       </div>
 
       {/* AI Explanation */}
@@ -406,9 +406,10 @@ function BowtieDemo() {
       <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-wrap gap-3">
         {!submitted ? (
           <Button
+            type="button"
             onClick={() => setSubmitted(true)}
             disabled={!allSelected}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-6"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-6 disabled:opacity-50"
           >
             Check My Answers
           </Button>
@@ -425,7 +426,7 @@ function BowtieDemo() {
           </div>
         )}
         {!allSelected && !submitted && (
-          <span className="text-xs text-gray-400">Select one from each column</span>
+          <span className="text-xs text-gray-400">Select one from each column above</span>
         )}
       </div>
     </div>
