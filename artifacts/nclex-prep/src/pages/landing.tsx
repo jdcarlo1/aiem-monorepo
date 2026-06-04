@@ -12,6 +12,8 @@ import {
   Clock,
   Trophy,
   XCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 const testimonials = [
@@ -430,6 +432,266 @@ function BowtieDemo() {
   );
 }
 
+// ── Question Preview Carousel ──────────────────────────────────────────────────
+const slides = [
+  {
+    badge: "MATRIX / GRID",
+    badgeColor: "bg-blue-600",
+    label: "Case Study — Heart Failure",
+    question: (
+      <div className="text-xs text-gray-800 leading-relaxed">
+        <p className="font-semibold text-gray-500 uppercase tracking-wider text-[10px] mb-1">Clinical Scenario</p>
+        <p className="mb-3">A <strong>72-year-old client</strong> admitted with acute decompensated heart failure has +2 pitting edema, bilateral crackles, and BP 158/92 mmHg. Select whether each action is <em>Indicated</em>, <em>Contraindicated</em>, or <em>Non-Essential</em>.</p>
+        <table className="w-full text-[11px] border-collapse">
+          <thead>
+            <tr className="border-b border-gray-200">
+              <th className="text-left py-1 pr-2 text-gray-500 font-medium">Nursing Action</th>
+              <th className="text-center px-1 text-gray-500 font-medium w-16">Indicated</th>
+              <th className="text-center px-1 text-gray-500 font-medium w-20">Contraind.</th>
+              <th className="text-center px-1 text-gray-500 font-medium w-16">Non-Ess.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ["Elevate HOB to 45°", true, false, false],
+              ["Give furosemide as ordered", true, false, false],
+              ["Encourage 3 L fluid/day", false, true, false],
+              ["Weigh patient daily", true, false, false],
+              ["IV 0.9% NS bolus", false, true, false],
+            ].map(([action, ind, contra], i) => (
+              <tr key={i} className="border-b border-gray-100">
+                <td className="py-1.5 pr-2 text-gray-700">{action as string}</td>
+                {[ind, contra, false].map((val, j) => (
+                  <td key={j} className="text-center py-1.5 px-1">
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 mx-auto flex items-center justify-center
+                      ${val ? "border-blue-600 bg-blue-600" : "border-gray-300"}`}>
+                      {val && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ),
+    explanation: (
+      <div className="text-xs text-gray-700 leading-relaxed space-y-2">
+        <p className="font-bold text-green-700 text-sm">✓ 4/5 Correct</p>
+        <p><strong>Elevate HOB 45°</strong> — Reduces preload and eases dyspnea in fluid-overloaded patients. <span className="text-green-600 font-medium">Indicated ✓</span></p>
+        <p><strong>Furosemide</strong> — Loop diuretic; removes excess fluid. Primary HF treatment. <span className="text-green-600 font-medium">Indicated ✓</span></p>
+        <p><strong>3 L fluids/day</strong> — Contraindicated. Fluid restriction (1–1.5 L/day) is standard. <span className="text-red-500 font-medium">Contraindicated ✓</span></p>
+        <p><strong>Daily weight</strong> — 1 kg gain ≈ 1 L retained. Detects worsening early. <span className="text-green-600 font-medium">Indicated ✓</span></p>
+      </div>
+    ),
+  },
+  {
+    badge: "BOW-TIE",
+    badgeColor: "bg-purple-600",
+    label: "Standalone — Diabetes Emergency",
+    question: (
+      <div className="text-xs text-gray-800 leading-relaxed">
+        <p className="font-semibold text-gray-500 uppercase tracking-wider text-[10px] mb-1">Clinical Scenario</p>
+        <p className="mb-3">A <strong>28-year-old</strong> Type 1 diabetic arrives confused, diaphoretic, trembling. Took insulin this morning but skipped breakfast. HR 102, BP 110/70.</p>
+        <div className="grid grid-cols-3 gap-2 mt-2">
+          {[
+            { title: "Action to Take", color: "text-blue-600 border-blue-200 bg-blue-50", options: ["✓ Give 15g fast carbs", "Administer insulin", "Restrict oral intake"], correct: 0 },
+            { title: "Condition", color: "text-purple-600 border-purple-200 bg-purple-50", options: ["Diabetic ketoacidosis", "✓ Hypoglycemia", "Hyperosm. state"], correct: 1 },
+            { title: "Monitor", color: "text-green-600 border-green-200 bg-green-50", options: ["Serum potassium", "✓ Blood glucose", "Urine output"], correct: 1 },
+          ].map((col, ci) => (
+            <div key={ci}>
+              <p className={`text-[10px] font-bold mb-1 ${col.color.split(" ")[0]}`}>{col.title}</p>
+              <div className="space-y-1">
+                {col.options.map((opt, oi) => (
+                  <div key={oi} className={`text-[10px] px-2 py-1.5 rounded border ${oi === col.correct ? col.color : "border-gray-200 bg-white text-gray-600"}`}>
+                    {opt}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+    explanation: (
+      <div className="text-xs text-gray-700 leading-relaxed space-y-2">
+        <p className="font-bold text-green-700 text-sm">✓ 3/3 Correct — Perfect!</p>
+        <p><strong>Condition:</strong> Hypoglycemia — confusion + diaphoresis + trembling after insulin + missed meal is the classic presentation.</p>
+        <p><strong>Action:</strong> Rule of 15 — give 15g fast-acting carbs (juice, glucose tabs), recheck glucose in 15 min. <em>Never</em> give more insulin.</p>
+        <p><strong>Monitor:</strong> Blood glucose every 15 min until &gt;70 mg/dL. Level of consciousness is also critical.</p>
+      </div>
+    ),
+  },
+  {
+    badge: "MULTIPLE SELECT",
+    badgeColor: "bg-green-600",
+    label: "Select All That Apply — Pharmacology",
+    question: (
+      <div className="text-xs text-gray-800 leading-relaxed">
+        <p className="font-semibold text-gray-500 uppercase tracking-wider text-[10px] mb-1">Question</p>
+        <p className="mb-3">A nurse is administering <strong>metformin</strong> to a client with Type 2 diabetes. Which findings require the nurse to <strong>hold the medication and notify the provider</strong>? Select all that apply.</p>
+        <div className="space-y-1.5">
+          {[
+            { text: "Serum creatinine 2.8 mg/dL", correct: true },
+            { text: "Blood glucose 142 mg/dL", correct: false },
+            { text: "Scheduled CT scan with contrast today", correct: true },
+            { text: "Client reports mild nausea", correct: false },
+            { text: "eGFR of 28 mL/min/1.73m²", correct: true },
+            { text: "Client ate a full breakfast", correct: false },
+          ].map((opt, i) => (
+            <div key={i} className={`flex items-center gap-2 px-2 py-1.5 rounded border text-[11px] ${opt.correct ? "border-green-400 bg-green-50 text-green-800" : "border-gray-200 bg-white text-gray-600"}`}>
+              <div className={`w-3 h-3 rounded flex-shrink-0 flex items-center justify-center border ${opt.correct ? "border-green-500 bg-green-500" : "border-gray-300"}`}>
+                {opt.correct && <CheckCircle className="w-2.5 h-2.5 text-white" />}
+              </div>
+              {opt.text}
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+    explanation: (
+      <div className="text-xs text-gray-700 leading-relaxed space-y-2">
+        <p className="font-bold text-green-700 text-sm">✓ 3 correct answers</p>
+        <p><strong>Creatinine 2.8</strong> — Metformin is contraindicated with renal impairment (risk of lactic acidosis).</p>
+        <p><strong>CT with contrast</strong> — Iodinated contrast can cause acute kidney injury; hold metformin 48h before and after.</p>
+        <p><strong>eGFR 28</strong> — Metformin is contraindicated when eGFR &lt;30. Kidney function cannot clear the drug safely.</p>
+        <p className="text-gray-500 italic">Nausea is a common side effect — not a reason to hold. Glucose of 142 and eating are not contraindications.</p>
+      </div>
+    ),
+  },
+  {
+    badge: "ORDERING / DRAG & DROP",
+    badgeColor: "bg-orange-500",
+    label: "Priority Ordering — Code Response",
+    question: (
+      <div className="text-xs text-gray-800 leading-relaxed">
+        <p className="font-semibold text-gray-500 uppercase tracking-wider text-[10px] mb-1">Question</p>
+        <p className="mb-3">A client is found unresponsive and pulseless. Place the following nursing actions in the <strong>correct priority order</strong> (1 = first).</p>
+        <div className="space-y-1.5">
+          {[
+            { n: "1", text: "Call for help / activate emergency response", color: "bg-blue-600" },
+            { n: "2", text: "Begin high-quality chest compressions (100–120/min)", color: "bg-blue-500" },
+            { n: "3", text: "Apply AED / defibrillator as soon as available", color: "bg-blue-400" },
+            { n: "4", text: "Establish IV access for medication administration", color: "bg-blue-300" },
+            { n: "5", text: "Administer epinephrine 1 mg IV every 3–5 min", color: "bg-blue-200" },
+          ].map((step, i) => (
+            <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded border border-blue-200 bg-blue-50">
+              <div className={`w-5 h-5 rounded-full ${step.color} text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0`}>{step.n}</div>
+              <span className="text-[11px] text-gray-700">{step.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+    explanation: (
+      <div className="text-xs text-gray-700 leading-relaxed space-y-2">
+        <p className="font-bold text-green-700 text-sm">✓ Correct Order — AHA Guidelines</p>
+        <p><strong>1. Call for help</strong> — Activate the emergency response system immediately so advanced care is coming.</p>
+        <p><strong>2. CPR first</strong> — Begin compressions within 10 seconds. Every minute without CPR decreases survival by 7–10%.</p>
+        <p><strong>3. Defibrillate</strong> — Shockable rhythms (VF/pVT) respond to early defibrillation. Time is muscle.</p>
+        <p><strong>4–5. IV/Meds</strong> — Vascular access and epinephrine come after the ABCs are established.</p>
+      </div>
+    ),
+  },
+];
+
+function QuestionCarousel() {
+  const [current, setCurrent] = useState(0);
+  const prev = () => setCurrent((c) => (c === 0 ? slides.length - 1 : c - 1));
+  const next = () => setCurrent((c) => (c === slides.length - 1 ? 0 : c + 1));
+  const slide = slides[current];
+
+  return (
+    <section className="py-14 px-6 bg-white">
+      <div className="max-w-5xl mx-auto">
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">
+            NCLEX Prep Questions That{" "}
+            <span className="text-blue-600">Mirror the Real Exam</span>
+          </h2>
+          <p className="text-gray-500 text-lg max-w-2xl mx-auto">
+            Every question type on the Next Generation NCLEX — with detailed AI explanations for every answer choice.
+          </p>
+        </div>
+
+        {/* Carousel */}
+        <div className="relative">
+          {/* Card */}
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-lg overflow-hidden">
+            {/* Badge row */}
+            <div className={`${slide.badgeColor} px-6 py-3 flex items-center justify-between`}>
+              <div className="flex items-center gap-3">
+                <span className="bg-white bg-opacity-20 text-white text-xs font-bold px-3 py-1 rounded-full border border-white border-opacity-30">
+                  {slide.badge}
+                </span>
+                <span className="text-white text-sm font-medium opacity-90">{slide.label}</span>
+              </div>
+              <span className="text-white text-xs opacity-70">{current + 1} / {slides.length}</span>
+            </div>
+
+            {/* Two-panel layout */}
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+              {/* Question panel */}
+              <div className="p-6">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Question</p>
+                {slide.question}
+              </div>
+
+              {/* Explanation panel */}
+              <div className="p-6 bg-gray-50">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">🤖 AI Explanation</p>
+                {slide.explanation}
+              </div>
+            </div>
+          </div>
+
+          {/* Arrow buttons */}
+          <button
+            onClick={prev}
+            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-5 w-10 h-10 bg-white border border-gray-200 rounded-full shadow-md flex items-center justify-center hover:bg-gray-50 transition-colors z-10"
+          >
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <button
+            onClick={next}
+            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-5 w-10 h-10 bg-white border border-gray-200 rounded-full shadow-md flex items-center justify-center hover:bg-gray-50 transition-colors z-10"
+          >
+            <ChevronRight className="w-5 h-5 text-gray-600" />
+          </button>
+        </div>
+
+        {/* Dot navigation */}
+        <div className="flex justify-center gap-2 mt-5">
+          {slides.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrent(i)}
+              className={`rounded-full transition-all ${i === current ? "w-6 h-2.5 bg-blue-600" : "w-2.5 h-2.5 bg-gray-300 hover:bg-gray-400"}`}
+            />
+          ))}
+        </div>
+
+        {/* Question type pills */}
+        <div className="flex flex-wrap justify-center gap-2 mt-5">
+          {slides.map((s, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrent(i)}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${
+                i === current
+                  ? `${s.badgeColor} text-white border-transparent`
+                  : "border-gray-200 text-gray-500 hover:border-gray-300"
+              }`}
+            >
+              {s.badge}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Landing Page ───────────────────────────────────────────────────────────────
 export default function Landing() {
   return (
@@ -505,6 +767,9 @@ export default function Landing() {
           <p className="text-sm text-gray-700 font-medium">"The questions looked identical to what I saw on test day." — James T., BSN</p>
         </div>
       </section>
+
+      {/* Question Preview Carousel */}
+      <QuestionCarousel />
 
       {/* Social proof strip */}
       <section className="bg-gray-50 border-y border-gray-100 py-6 px-6">
