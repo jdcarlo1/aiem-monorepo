@@ -736,7 +736,7 @@ function QuestionCarousel() {
             NCLEX Prep Questions That{" "}
             <span className="text-blue-600">Mirror the Real Exam</span>
           </h2>
-          <p className="text-gray-500 text-lg max-w-2xl mx-auto">
+          <p className="text-gray-600 text-xl font-medium max-w-2xl mx-auto">
             Every question type on the Next Generation NCLEX — with detailed AI explanations for every answer choice.
           </p>
         </div>
@@ -765,8 +765,8 @@ function QuestionCarousel() {
               </div>
 
               {/* Explanation panel */}
-              <div className="p-6 bg-gray-50">
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">🤖 AI Explanation</p>
+              <div className="p-6 bg-blue-50 border-l-4 border-blue-400">
+                <p className="text-[11px] font-bold text-blue-600 uppercase tracking-widest mb-3">🤖 AI Explanation</p>
                 {slide.explanation}
               </div>
             </div>
@@ -788,10 +788,10 @@ function QuestionCarousel() {
         </div>
 
         {/* Try each type prompt */}
-        <div className="mt-6 text-center">
-          <div className="inline-flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded-full px-5 py-2 mb-4 animate-bounce">
-            <span className="text-lg">👆</span>
-            <span className="text-sm font-bold text-yellow-800">Try each question type — click below!</span>
+        <div className="mt-8 text-center">
+          <div className="inline-flex items-center gap-2 bg-yellow-400 border-2 border-yellow-500 rounded-full px-6 py-3 mb-5 animate-bounce shadow-md">
+            <span className="text-xl">👆</span>
+            <span className="text-base font-extrabold text-yellow-900">Try each question type — click below!</span>
           </div>
 
           <div className="flex flex-wrap justify-center gap-3">
@@ -799,17 +799,17 @@ function QuestionCarousel() {
               <button
                 key={i}
                 onClick={() => setCurrent(i)}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 font-bold text-sm transition-all shadow-sm
+                className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 font-extrabold text-sm transition-all shadow
                   ${i === current
-                    ? `${s.badgeColor} text-white border-transparent shadow-md scale-105`
-                    : "border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600 hover:shadow-md hover:scale-105"
+                    ? `${s.badgeColor} text-white border-transparent shadow-lg scale-105`
+                    : "border-gray-400 bg-white text-gray-700 hover:border-blue-500 hover:text-blue-700 hover:shadow-lg hover:scale-105"
                   }`}
               >
                 {i === current ? "✓ " : ""}{s.badge}
               </button>
             ))}
           </div>
-          <p className="text-sm font-bold text-gray-700 mt-3">Each one appears on the real Next Generation NCLEX</p>
+          <p className="text-sm font-bold text-gray-700 mt-4">Each one appears on the real Next Generation NCLEX</p>
         </div>
       </div>
     </section>
