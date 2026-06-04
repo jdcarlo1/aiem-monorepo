@@ -661,32 +661,29 @@ function QuestionCarousel() {
           </button>
         </div>
 
-        {/* Dot navigation */}
-        <div className="flex justify-center gap-2 mt-5">
-          {slides.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setCurrent(i)}
-              className={`rounded-full transition-all ${i === current ? "w-6 h-2.5 bg-blue-600" : "w-2.5 h-2.5 bg-gray-300 hover:bg-gray-400"}`}
-            />
-          ))}
-        </div>
+        {/* Try each type prompt */}
+        <div className="mt-6 text-center">
+          <div className="inline-flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded-full px-5 py-2 mb-4 animate-bounce">
+            <span className="text-lg">👆</span>
+            <span className="text-sm font-bold text-yellow-800">Try each question type — click below!</span>
+          </div>
 
-        {/* Question type pills */}
-        <div className="flex flex-wrap justify-center gap-2 mt-5">
-          {slides.map((s, i) => (
-            <button
-              key={i}
-              onClick={() => setCurrent(i)}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${
-                i === current
-                  ? `${s.badgeColor} text-white border-transparent`
-                  : "border-gray-200 text-gray-500 hover:border-gray-300"
-              }`}
-            >
-              {s.badge}
-            </button>
-          ))}
+          <div className="flex flex-wrap justify-center gap-3">
+            {slides.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrent(i)}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 font-bold text-sm transition-all shadow-sm
+                  ${i === current
+                    ? `${s.badgeColor} text-white border-transparent shadow-md scale-105`
+                    : "border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600 hover:shadow-md hover:scale-105"
+                  }`}
+              >
+                {i === current ? "✓ " : ""}{s.badge}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-3">Each one appears on the real Next Generation NCLEX</p>
         </div>
       </div>
     </section>
