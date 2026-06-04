@@ -565,10 +565,20 @@ export default function Landing() {
             <h2 className="text-3xl font-bold text-gray-900 mb-3">
               The new NCLEX asks questions like these
             </h2>
-            <p className="text-gray-500 text-lg max-w-2xl mx-auto">
+            <p className="text-gray-500 text-lg max-w-2xl mx-auto mb-5">
               Matrix/Grid and Bow-Tie questions are on the Next Generation NCLEX.
               Most prep books don't cover them. We do — with AI explanations for every answer.
             </p>
+            <div className="flex flex-wrap justify-center gap-3 max-w-2xl mx-auto">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 text-sm text-left">
+                <p className="font-bold text-blue-800 mb-0.5">📊 Matrix / Grid</p>
+                <p className="text-blue-700">The real NCLEX includes <strong>3 scored case studies</strong> — each with 6 matrix questions (18 total). You must evaluate nursing interventions using a grid.</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-xl px-5 py-3 text-sm text-left">
+                <p className="font-bold text-purple-800 mb-0.5">🎀 Bow-Tie</p>
+                <p className="text-purple-700">Bow-Tie questions ask you to connect a <strong>condition → action → monitoring parameter</strong> in one question. Up to 2 standalone bow-ties appear on your exam.</p>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-8">
