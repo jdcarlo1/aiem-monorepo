@@ -867,7 +867,7 @@ export default function Landing() {
         </h1>
 
         <p className="text-lg text-gray-600 mb-6 max-w-xl mx-auto">
-          AI explains why each wrong answer is wrong — just like the real NCLEX tests your reasoning.
+          AI explains the reasoning behind every answer — just like the real NCLEX tests your thinking.
         </p>
 
         <Link href="/quiz">
@@ -881,14 +881,14 @@ export default function Landing() {
         </Link>
 
         <p className="text-sm text-blue-700 font-semibold mt-3 mb-4">
-          or unlock everything — $15/mo or $49 one-time lifetime access
+          or unlock everything — <strong>$15/mo</strong> or <strong>$49</strong> one-time lifetime access
         </p>
 
         <div className="inline-flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-5 py-3 mt-1">
           <div className="flex gap-0.5">
             {[1,2,3,4,5].map(s => <Star key={s} className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />)}
           </div>
-          <p className="text-sm text-gray-700 font-medium">"The questions looked identical to what I saw on test day." — James T., BSN</p>
+          <p className="text-sm text-gray-700 font-medium">"The questions looked identical to what I saw on test day." — Sarah M., BSN · Florida · Passed 1st attempt</p>
         </div>
       </section>
 
