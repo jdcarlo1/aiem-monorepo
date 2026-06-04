@@ -594,6 +594,132 @@ const slides = [
       </div>
     ),
   },
+  {
+    badge: "CLOZE / DROP-DOWN",
+    badgeColor: "bg-teal-600",
+    label: "Fill-in-the-Blank — Respiratory Assessment",
+    question: (
+      <div className="text-xs text-gray-800 leading-relaxed">
+        <p className="font-semibold text-gray-500 uppercase tracking-wider text-[10px] mb-1">Clinical Scenario</p>
+        <p className="mb-4">A nurse is assessing a client with pneumonia. Complete the following documentation by selecting the correct term from each drop-down.</p>
+        <div className="space-y-3">
+          {[
+            {
+              prefix: "The nurse auscultates",
+              selected: "crackles (rales)",
+              options: ["crackles (rales)", "wheezes", "stridor"],
+              correct: 0,
+              suffix: "in the lower lung fields.",
+            },
+            {
+              prefix: "This finding is consistent with",
+              selected: "fluid in the alveoli",
+              options: ["bronchospasm", "fluid in the alveoli", "upper airway obstruction"],
+              correct: 1,
+              suffix: ".",
+            },
+            {
+              prefix: "The nurse should prioritize",
+              selected: "oxygen therapy",
+              options: ["ambulation", "oral hygiene", "oxygen therapy"],
+              correct: 2,
+              suffix: "as the next intervention.",
+            },
+          ].map((item, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-1 text-[11px] text-gray-700 leading-relaxed">
+              <span>{item.prefix}</span>
+              <span className="inline-flex items-center gap-1 bg-teal-100 border border-teal-400 text-teal-800 font-bold px-2 py-0.5 rounded">
+                {item.selected} ▾
+              </span>
+              <span>{item.suffix}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+    explanation: (
+      <div className="text-xs text-gray-700 leading-relaxed space-y-2">
+        <p className="font-bold text-green-700 text-sm">✓ 3/3 Correct</p>
+        <p><strong>Crackles (rales)</strong> — Discontinuous popping sounds caused by fluid-filled alveoli snapping open. Classic for pneumonia and pulmonary edema.</p>
+        <p><strong>Fluid in the alveoli</strong> — Pneumonia causes exudate to fill air sacs, impairing gas exchange and producing crackles on auscultation.</p>
+        <p><strong>Oxygen therapy</strong> — Hypoxia is the priority concern. Administer O₂ to maintain SpO₂ ≥ 95% before any other intervention.</p>
+      </div>
+    ),
+  },
+  {
+    badge: "HOT SPOT / HIGHLIGHT",
+    badgeColor: "bg-rose-500",
+    label: "Enhanced Hot Spot — EHR Note",
+    question: (
+      <div className="text-xs text-gray-800 leading-relaxed">
+        <p className="font-semibold text-gray-500 uppercase tracking-wider text-[10px] mb-2">Question</p>
+        <p className="mb-3">Read the nurse's note below. <strong>Click to highlight</strong> the findings that indicate a deteriorating neurological status.</p>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 text-[11px] leading-relaxed text-gray-700 space-y-1.5">
+          <p className="font-bold text-gray-500 text-[10px] uppercase mb-2">Nurse's Note — 0800</p>
+          <p>Client is a <span className="bg-yellow-200 px-0.5 rounded">65-year-old male</span> admitted with hypertension. VS: T 98.6°F, HR 88, BP <span className="bg-rose-200 border border-rose-400 px-0.5 rounded font-semibold text-rose-800">192/104 mmHg</span>, SpO₂ 97%. Client <span className="bg-rose-200 border border-rose-400 px-0.5 rounded font-semibold text-rose-800">reports sudden severe headache</span> rated 10/10, onset 20 minutes ago. Pupils <span className="bg-rose-200 border border-rose-400 px-0.5 rounded font-semibold text-rose-800">unequal — right 4mm, left 6mm</span>. Speech <span className="bg-rose-200 border border-rose-400 px-0.5 rounded font-semibold text-rose-800">slurred and difficult to understand</span>. Bowel sounds present ×4. Skin warm and dry. IV access patent in left AC.</p>
+        </div>
+        <p className="text-[10px] text-rose-600 font-semibold mt-2">🔴 Highlighted = correct findings to select</p>
+      </div>
+    ),
+    explanation: (
+      <div className="text-xs text-gray-700 leading-relaxed space-y-2">
+        <p className="font-bold text-green-700 text-sm">✓ 4 correct findings identified</p>
+        <p><strong>BP 192/104</strong> — Hypertensive crisis. Combined with neuro symptoms, raises concern for hemorrhagic stroke.</p>
+        <p><strong>Sudden severe headache 10/10</strong> — "Thunderclap headache" is a hallmark warning sign of subarachnoid hemorrhage.</p>
+        <p><strong>Unequal pupils</strong> — Anisocoria (right 4mm / left 6mm) indicates increased intracranial pressure or herniation risk.</p>
+        <p><strong>Slurred speech</strong> — A stroke alert sign (FAST: Face, Arm, Speech, Time). Requires immediate provider notification.</p>
+      </div>
+    ),
+  },
+  {
+    badge: "TREND",
+    badgeColor: "bg-indigo-600",
+    label: "Trend Analysis — Sepsis Progression",
+    question: (
+      <div className="text-xs text-gray-800 leading-relaxed">
+        <p className="font-semibold text-gray-500 uppercase tracking-wider text-[10px] mb-1">Clinical Scenario</p>
+        <p className="mb-3">Review the following vital sign trend for a <strong>58-year-old post-op client</strong>. Select what the data indicates and the priority nursing action.</p>
+        <table className="w-full text-[11px] border-collapse mb-3">
+          <thead>
+            <tr className="bg-indigo-50 border-b border-indigo-200">
+              <th className="text-left py-1.5 px-2 text-indigo-700 font-bold">Vital</th>
+              <th className="text-center py-1.5 px-2 text-indigo-700 font-bold">0600</th>
+              <th className="text-center py-1.5 px-2 text-indigo-700 font-bold">0800</th>
+              <th className="text-center py-1.5 px-2 text-indigo-700 font-bold">1000</th>
+              <th className="text-center py-1.5 px-2 text-indigo-700 font-bold">Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ["Temp (°F)", "98.8", "100.4", "102.6", "↑ 📈"],
+              ["HR (bpm)", "78", "96", "118", "↑ 📈"],
+              ["BP (mmHg)", "128/76", "112/70", "88/54", "↓ ⚠️"],
+              ["RR (/min)", "14", "18", "24", "↑ 📈"],
+              ["SpO₂ (%)", "98", "96", "91", "↓ ⚠️"],
+            ].map(([vital, t1, t2, t3, trend], i) => (
+              <tr key={i} className={`border-b border-gray-100 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                <td className="py-1.5 px-2 font-medium text-gray-700">{vital}</td>
+                <td className="text-center py-1.5 px-2 text-gray-500">{t1}</td>
+                <td className="text-center py-1.5 px-2 text-gray-600">{t2}</td>
+                <td className="text-center py-1.5 px-2 font-bold text-red-600">{t3}</td>
+                <td className="text-center py-1.5 px-2">{trend}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="text-[10px] text-gray-500 italic">What does this trend indicate and what is your first action?</p>
+      </div>
+    ),
+    explanation: (
+      <div className="text-xs text-gray-700 leading-relaxed space-y-2">
+        <p className="font-bold text-red-600 text-sm">⚠️ Septic Shock — Notify provider STAT</p>
+        <p><strong>Pattern = Sepsis → Septic Shock:</strong> Rising fever + tachycardia + falling BP + rising RR + dropping SpO₂ over 4 hours is the classic trajectory.</p>
+        <p><strong>BP 88/54</strong> — Hypotension despite likely fluid resuscitation = septic shock. Mean arterial pressure (MAP) &lt; 65 is a critical threshold.</p>
+        <p><strong>Priority action:</strong> Notify the rapid response team / provider immediately. Anticipate IV fluid bolus, blood cultures ×2, broad-spectrum antibiotics, and possible vasopressors.</p>
+        <p className="text-indigo-700 font-semibold">Trend questions test your ability to recognize deterioration over time — a key NGN clinical judgment skill.</p>
+      </div>
+    ),
+  },
 ];
 
 function QuestionCarousel() {
