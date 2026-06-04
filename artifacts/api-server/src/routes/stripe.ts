@@ -68,7 +68,7 @@ router.post("/stripe/checkout", async (req, res) => {
       line_items: [{ price: prices.data[0].id, quantity: 1 }],
       mode: "subscription",
       success_url: `${baseUrl}/subscribe-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/upgrade`,
+      cancel_url: `${baseUrl}/paywall`,
       metadata: { sessionId },
     });
 
@@ -95,7 +95,7 @@ router.post("/stripe/checkout", async (req, res) => {
       line_items: [{ price: prices.data[0].id, quantity: 1 }],
       mode: "payment",
       success_url: `${baseUrl}/subscribe-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/upgrade`,
+      cancel_url: `${baseUrl}/paywall`,
       metadata: { sessionId },
     });
 
