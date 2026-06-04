@@ -120,12 +120,18 @@ export default function Paywall() {
           <span>NCLEX AI</span>
         </Link>
 
+        {/* Urgency banner */}
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl px-5 py-4 mb-6 text-center">
+          <p className="text-amber-900 font-bold text-sm">⏰ You've seen what the real NGN looks like.</p>
+          <p className="text-amber-800 text-sm mt-1">2,768 more questions are waiting — including every NGN format the real exam uses.</p>
+        </div>
+
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-4">
             <Lock className="w-7 h-7 text-primary" />
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight mb-2">Unlock Full Access</h1>
-          <p className="text-muted-foreground text-lg">You've used your 10 free questions. Choose a plan to keep going.</p>
+          <h1 className="text-3xl font-extrabold tracking-tight mb-2">Don't Stop Now</h1>
+          <p className="text-muted-foreground text-lg">You've used your 10 free questions. Most students who pass practice <strong>daily</strong> — keep your momentum going.</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
@@ -193,6 +199,8 @@ export default function Paywall() {
             {error}
           </div>
         )}
+
+        <p className="text-center text-xs text-muted-foreground mb-3">⭐⭐⭐⭐⭐ &nbsp;"The questions looked identical to what I saw on test day." — Sarah M., BSN · Florida</p>
 
         <Button
           size="lg"
