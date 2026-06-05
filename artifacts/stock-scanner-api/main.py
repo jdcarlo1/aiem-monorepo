@@ -271,7 +271,9 @@ def smart_money_detail(ticker):
             spy_ret = float((sc.iloc[-1] - sc.iloc[-21]) / sc.iloc[-21])
     except Exception:
         pass
-    result = compute_smart_money(ticker, df, spy_ret)
+    from smart_money import fetch_options_data
+    opts = fetch_options_data(ticker)
+    result = compute_smart_money(ticker, df, spy_ret, opts)
     if result is None:
         return jsonify({"error": f"Insufficient data for {ticker}"}), 404
     return jsonify(_safe(result))

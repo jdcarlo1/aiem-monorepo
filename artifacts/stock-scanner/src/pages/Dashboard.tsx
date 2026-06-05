@@ -790,16 +790,48 @@ function SmartMoneyTab() {
                           <td colSpan={6} className="p-4">
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                               {/* Score Breakdown */}
-                              <div>
-                                <h4 className="text-white text-sm font-semibold mb-3">📊 Score Breakdown <span className="text-slate-500 font-normal">(out of 100)</span></h4>
-                                <div className="space-y-2.5">
-                                  <SmScoreBar label="Call Sweep Proxy"     value={s.score_breakdown.call_sweep}       max={25} color="#a855f7" />
-                                  <SmScoreBar label="Volume / OI"          value={s.score_breakdown.volume_oi}        max={20} color="#06b6d4" />
-                                  <SmScoreBar label="Ask-Side Aggression"  value={s.score_breakdown.ask_aggression}   max={15} color="#10b981" />
-                                  <SmScoreBar label="Dark Pool Proxy"      value={s.score_breakdown.dark_pool}        max={15} color="#6366f1" />
-                                  <SmScoreBar label="Sector Strength"      value={s.score_breakdown.sector_strength}  max={10} color="#f59e0b" />
-                                  <SmScoreBar label="Historical Similarity" value={s.score_breakdown.historical}      max={15} color="#f97316" />
+                              <div className="space-y-4">
+                                <div>
+                                  <h4 className="text-white text-sm font-semibold mb-3">📊 Score Breakdown <span className="text-slate-500 font-normal">(out of 100)</span></h4>
+                                  <div className="space-y-2.5">
+                                    <SmScoreBar label={s.options_summary ? "Call Sweep (Real Vol/OI)" : "Call Sweep Proxy"}     value={s.score_breakdown.call_sweep}       max={25} color="#a855f7" />
+                                    <SmScoreBar label={s.options_summary ? "Volume / OI (Real Data)"  : "Volume / OI"}          value={s.score_breakdown.volume_oi}        max={20} color="#06b6d4" />
+                                    <SmScoreBar label="Ask-Side Aggression"  value={s.score_breakdown.ask_aggression}   max={15} color="#10b981" />
+                                    <SmScoreBar label="Dark Pool Proxy"      value={s.score_breakdown.dark_pool}        max={15} color="#6366f1" />
+                                    <SmScoreBar label="Sector Strength"      value={s.score_breakdown.sector_strength}  max={10} color="#f59e0b" />
+                                    <SmScoreBar label="Historical Similarity" value={s.score_breakdown.historical}      max={15} color="#f97316" />
+                                  </div>
                                 </div>
+
+                                {/* Real Options Chain Panel */}
+                                {s.options_summary && (
+                                  <div className="bg-slate-900/80 border border-cyan-800/30 rounded-xl p-3.5">
+                                    <div className="flex items-center justify-between mb-2.5">
+                                      <span className="text-cyan-400 text-xs font-semibold">📡 Real Options Chain</span>
+                                      <span className="text-slate-500 text-xs">{s.options_summary.expiry} expiry · 15-min delayed</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                      {[
+                                        { label: "Call Vol / OI",    value: s.options_summary.call_vol_oi.toFixed(3),   highlight: s.options_summary.call_vol_oi >= 0.5 ? "text-purple-400" : s.options_summary.call_vol_oi >= 0.2 ? "text-yellow-400" : "text-slate-300" },
+                                        { label: "Put Vol / OI",     value: s.options_summary.put_vol_oi.toFixed(3),    highlight: "text-slate-300" },
+                                        { label: "Call / Put Vol",   value: `${s.options_summary.call_put_ratio.toFixed(2)}x`, highlight: s.options_summary.call_put_ratio >= 2 ? "text-emerald-400" : s.options_summary.call_put_ratio >= 1.3 ? "text-yellow-400" : "text-slate-300" },
+                                        { label: "Call / Put OI",   value: `${s.options_summary.cp_oi_ratio.toFixed(2)}x`,    highlight: s.options_summary.cp_oi_ratio >= 1.5 ? "text-emerald-400" : "text-slate-300" },
+                                        { label: "Total Call Vol",   value: s.options_summary.total_call_vol.toLocaleString(), highlight: "text-slate-300" },
+                                        { label: "Total Call OI",    value: s.options_summary.total_call_oi.toLocaleString(),  highlight: "text-slate-300" },
+                                        { label: "OTM Call Vol",     value: s.options_summary.otm_call_vol.toLocaleString(),   highlight: s.options_summary.otm_call_vol > 0 ? "text-cyan-400" : "text-slate-300" },
+                                        { label: "ATM IV",           value: s.options_summary.atm_iv != null ? `${s.options_summary.atm_iv}%` : "N/A", highlight: s.options_summary.atm_iv != null && s.options_summary.atm_iv > 60 ? "text-red-400" : s.options_summary.atm_iv != null && s.options_summary.atm_iv > 35 ? "text-yellow-400" : "text-slate-300" },
+                                      ].map(item => (
+                                        <div key={item.label} className="bg-slate-800/60 rounded-lg p-2">
+                                          <div className="text-slate-500 text-xs">{item.label}</div>
+                                          <div className={`font-mono font-semibold mt-0.5 ${item.highlight}`}>{item.value}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="mt-2 text-slate-600 text-xs">
+                                      Vol/OI &gt; 0.5 = unusual activity · &gt; 1.0 = sweep territory · Call/Put &gt; 2x = directional conviction
+                                    </div>
+                                  </div>
+                                )}
                               </div>
 
                               {/* Stats + Thesis */}
