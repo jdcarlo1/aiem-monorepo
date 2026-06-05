@@ -663,7 +663,7 @@ function EmailSignupBanner() {
         <span className="text-3xl">✅</span>
         <div className="flex-1">
           <div className="text-emerald-300 font-bold text-sm">You're subscribed to StockScanner AI Pro!</div>
-          <div className="text-emerald-700 text-xs mt-1">4 emails every trading day — pre-market, opening bell, pre-close, and EOD wrap — with ranked buy signals and real options flow.</div>
+          <div className="text-emerald-700 text-xs mt-1">Daily text alerts + 4 scans every trading day — pre-market, opening bell, pre-close, and EOD wrap — with ranked signals, real options flow &amp; high premium alerts.</div>
           <button onClick={() => setShowManage(!showManage)} className="mt-2 text-xs text-slate-500 hover:text-slate-300 underline transition-colors">
             Manage or cancel subscription →
           </button>
@@ -681,55 +681,130 @@ function EmailSignupBanner() {
   }
 
   return (
-    <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-emerald-800/30 rounded-xl p-5">
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xl">📬</span>
-            <span className="text-white font-bold text-sm">StockScanner AI Pro — Daily Email Alerts</span>
-            <span className="bg-emerald-900/60 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-semibold">$29/mo</span>
-          </div>
-          <p className="text-slate-500 text-xs leading-relaxed">
-            4 emails every trading day: Pre-market OI · Opening bell · Pre-close · EOD wrap — ranked buy signals with real options flow &amp; historical win rates.
-          </p>
-          <div className="flex flex-wrap gap-3 mt-1.5">
-            {["Top ranked daily signals", "Real options flow data", "Historical win-rate table"].map(f => (
-              <span key={f} className="text-emerald-600 text-xs flex items-center gap-1">✓ {f}</span>
-            ))}
-          </div>
+    <div className="rounded-2xl overflow-hidden border border-emerald-900/40" style={{background: "linear-gradient(135deg, #020d1a 0%, #0a1628 50%, #020d1a 100%)"}}>
+
+      {/* Hero */}
+      <div className="px-6 pt-8 pb-6 text-center border-b border-slate-800/60">
+        <div className="inline-flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/50 rounded-full px-4 py-1.5 text-xs text-emerald-400 font-semibold mb-4">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block"></span>
+          ONLY SERVICE THAT TEXTS YOU EVERY MORNING
         </div>
-        <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[230px]">
-          <div className="flex gap-2">
-            <input
-              type="email"
-              value={email}
-              onChange={e => { setEmail(e.target.value); setStatus("idle"); }}
-              onKeyDown={e => e.key === "Enter" && handleSubscribe()}
-              placeholder="your@email.com"
-              className="flex-1 sm:w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-            />
-            <button
-              onClick={handleSubscribe}
-              disabled={status === "loading"}
-              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap"
-            >
-              {status === "loading" ? "…" : "Subscribe $29/mo"}
-            </button>
-          </div>
-          <button onClick={() => setShowManage(!showManage)} className="text-xs text-slate-600 hover:text-slate-400 text-left transition-colors">
-            Already subscribed? Manage →
-          </button>
-          {showManage && (
-            <div className="flex gap-2">
-              <input type="email" value={manageEmail} onChange={e => setManageEmail(e.target.value)}
-                placeholder="your@email.com"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-slate-500" />
-              <button onClick={handleManage} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs transition-colors">Manage →</button>
+        <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-2">
+          Smart Money Signals.<br />
+          <span className="text-emerald-400">Straight to Your Phone.</span>
+        </h2>
+        <p className="text-slate-400 text-sm max-w-lg mx-auto leading-relaxed">
+          While competitors send you a dashboard to stare at, we text you exactly what to watch — AI-filtered, noise-free, before the market opens.
+        </p>
+      </div>
+
+      {/* What makes us different */}
+      <div className="px-6 py-6 border-b border-slate-800/60">
+        <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">What you get that no one else offers</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {[
+            { icon: "📱", title: "Daily Text Alerts", desc: "Top signals texted to your phone every morning. No other service does this." },
+            { icon: "🚨", title: "High Premium Flow Alerts", desc: "$5M+ options bets flagged instantly — even if they rank low on the leaderboard." },
+            { icon: "🤖", title: "AI Win Rate + Expected Move", desc: "Not just raw flow — we tell you historically how often this signal actually works." },
+            { icon: "🏆", title: "Smart Money Score", desc: "One number combining options sweep, dark pool, sector strength & historical similarity." },
+            { icon: "🏦", title: "Institutional Accumulation Scan", desc: "CMF + OBV + net flow ratio shows where hedge funds are quietly loading up." },
+            { icon: "⚡", title: "0DTE & Deep ITM Filtering", desc: "Noise the big desks already priced in is automatically removed. Only actionable strikes shown." },
+            { icon: "🏛️", title: "Congressional Trading Tab", desc: "Track what senators and reps are buying — the ultimate insider signal." },
+            { icon: "📊", title: "Backtesting & Prop Desk Sim", desc: "Test strategies on real historical data before risking a dollar." },
+          ].map(f => (
+            <div key={f.title} className="flex items-start gap-3 bg-slate-900/50 rounded-xl p-3 border border-slate-800/40">
+              <span className="text-xl mt-0.5">{f.icon}</span>
+              <div>
+                <div className="text-white text-xs font-bold mb-0.5">{f.title}</div>
+                <div className="text-slate-500 text-xs leading-relaxed">{f.desc}</div>
+              </div>
             </div>
-          )}
+          ))}
         </div>
       </div>
-      {status === "err" && <p className="text-red-400 text-xs mt-2">{errMsg}</p>}
+
+      {/* Competitor comparison */}
+      <div className="px-6 py-6 border-b border-slate-800/60">
+        <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">How we compare</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-800">
+                <th className="text-left py-2 text-slate-500 font-semibold">Service</th>
+                <th className="text-center py-2 text-slate-500 font-semibold">Price</th>
+                <th className="text-center py-2 text-slate-500 font-semibold">Text Alerts</th>
+                <th className="text-center py-2 text-slate-500 font-semibold">AI Score</th>
+                <th className="text-center py-2 text-slate-500 font-semibold">Noise Filter</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { name: "Unusual Whales",   price: "$50/mo", sms: false, ai: false, filter: false },
+                { name: "FlowAlgo",          price: "$97/mo", sms: false, ai: false, filter: false },
+                { name: "Cheddar Flow",      price: "$49/mo", sms: false, ai: false, filter: false },
+                { name: "BlackBoxStocks",    price: "$99/mo", sms: false, ai: false, filter: false },
+                { name: "Tradytics",         price: "$47/mo", sms: false, ai: true,  filter: false },
+              ].map(r => (
+                <tr key={r.name} className="border-b border-slate-800/40">
+                  <td className="py-2.5 text-slate-400">{r.name}</td>
+                  <td className="py-2.5 text-center text-red-400 font-mono font-semibold">{r.price}</td>
+                  <td className="py-2.5 text-center text-slate-600">✕</td>
+                  <td className="py-2.5 text-center">{r.ai ? <span className="text-slate-400">✓</span> : <span className="text-slate-600">✕</span>}</td>
+                  <td className="py-2.5 text-center text-slate-600">✕</td>
+                </tr>
+              ))}
+              <tr className="bg-emerald-950/30 border border-emerald-800/40 rounded-lg">
+                <td className="py-3 px-2 text-emerald-300 font-black">StockScanner AI ⭐</td>
+                <td className="py-3 text-center text-emerald-400 font-black font-mono">$29/mo</td>
+                <td className="py-3 text-center text-emerald-400 font-bold">✓</td>
+                <td className="py-3 text-center text-emerald-400 font-bold">✓</td>
+                <td className="py-3 text-center text-emerald-400 font-bold">✓</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Signup */}
+      <div className="px-6 py-6">
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end justify-between">
+          <div>
+            <div className="text-white font-black text-lg mb-1">$29<span className="text-slate-400 font-normal text-sm">/month</span></div>
+            <div className="text-slate-500 text-xs">Cancel anytime · 4 scans/day · SMS + email alerts</div>
+          </div>
+          <div className="flex flex-col gap-2 w-full sm:w-auto">
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={email}
+                onChange={e => { setEmail(e.target.value); setStatus("idle"); }}
+                onKeyDown={e => e.key === "Enter" && handleSubscribe()}
+                placeholder="your@email.com"
+                className="flex-1 sm:w-48 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                onClick={handleSubscribe}
+                disabled={status === "loading"}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors whitespace-nowrap"
+              >
+                {status === "loading" ? "…" : "Get Started →"}
+              </button>
+            </div>
+            {status === "err" && <div className="text-red-400 text-xs">{errMsg}</div>}
+            <button onClick={() => setShowManage(!showManage)} className="text-xs text-slate-600 hover:text-slate-400 text-left transition-colors">
+              Already subscribed? Manage →
+            </button>
+            {showManage && (
+              <div className="flex gap-2">
+                <input type="email" value={manageEmail} onChange={e => setManageEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-slate-500" />
+                <button onClick={handleManage} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs transition-colors">Manage →</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
