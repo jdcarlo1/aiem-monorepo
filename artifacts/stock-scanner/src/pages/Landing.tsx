@@ -271,37 +271,57 @@ export default function Landing() {
       </div>
 
       {/* Comparison */}
-      <div className="px-6 pb-20 max-w-3xl mx-auto">
+      <div className="px-6 pb-20 max-w-5xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">vs. the competition</p>
         <h2 className="text-center font-black mb-12" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Why pay more for less?</h2>
-        <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)" }}>
-          <div className="grid grid-cols-5 px-5 py-3.5 text-sm font-bold text-slate-600 uppercase tracking-wider" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}>
-            <span className="col-span-2">Service</span>
-            <span className="text-center">Price</span>
-            <span className="text-center">Bull Flow</span>
-            <span className="text-center">Congress</span>
-          </div>
-          {[
-            { name: "Unusual Whales", price: "$50/mo", flow: false, congress: true },
-            { name: "FlowAlgo",        price: "$97/mo", flow: false, congress: false },
-            { name: "Cheddar Flow",    price: "$49/mo", flow: false, congress: false },
-            { name: "BlackBoxStocks",  price: "$99/mo", flow: false, congress: false },
-          ].map(r => (
-            <div key={r.name} className="grid grid-cols-5 px-5 py-4 text-base items-center" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-              <span className="col-span-2 text-slate-400 font-semibold">{r.name}</span>
-              <span className="text-center text-red-400 font-black">{r.price}</span>
-              <span className="text-center text-xl" style={{ color: r.flow ? "#4ade80" : "#1e3a2a" }}>{r.flow ? "✓" : "✕"}</span>
-              <span className="text-center text-xl" style={{ color: r.congress ? "#4ade80" : "#1e3a2a" }}>{r.congress ? "✓" : "✕"}</span>
+        <div className="overflow-x-auto">
+          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "660px" }}>
+            {/* Header */}
+            <div className="grid px-5 py-3.5 text-xs font-bold text-slate-600 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}>
+              <span>Service</span>
+              <span className="text-center">Price</span>
+              <span className="text-center">Bull Flow</span>
+              <span className="text-center">Congress</span>
+              <span className="text-center">Squeeze</span>
+              <span className="text-center">AI Thesis</span>
+              <span className="text-center">Insiders</span>
             </div>
-          ))}
-          <div className="grid grid-cols-5 px-5 py-6 text-base items-center" style={{ background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
-            <span className="col-span-2 font-black text-emerald-300 text-lg">StockScanner AI ⭐</span>
-            <span className="text-center text-emerald-400 font-black text-lg">$29/mo</span>
-            <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
-            <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
+            {/* Competitor rows */}
+            {[
+              { name: "Unusual Whales", price: "$50/mo", flow: false, congress: true,  squeeze: false, thesis: false, insiders: false },
+              { name: "FlowAlgo",        price: "$97/mo", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
+              { name: "Cheddar Flow",    price: "$49/mo", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
+              { name: "BlackBoxStocks",  price: "$99/mo", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
+            ].map(r => (
+              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                <span className="text-slate-400 font-semibold">{r.name}</span>
+                <span className="text-center text-red-400 font-black">{r.price}</span>
+                {[r.flow, r.congress, r.squeeze, r.thesis, r.insiders].map((v, i) => (
+                  <span key={i} className="text-center text-lg font-black" style={{ color: v ? "#4ade80" : "#2d1a1a" }}>{v ? "✓" : "✕"}</span>
+                ))}
+              </div>
+            ))}
+            {/* StockScanner AI row */}
+            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
+              <span className="font-black text-emerald-300 text-base leading-tight">StockScanner AI ⭐</span>
+              <span className="text-center text-emerald-400 font-black text-base">$29/mo</span>
+              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
+            </div>
           </div>
         </div>
-        <p className="text-center text-slate-600 text-sm mt-4">StockScanner AI costs less than a single bad trade. The scanner pays for itself in one good signal.</p>
+        {/* Legend */}
+        <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 mt-5 text-slate-500 text-xs">
+          <span><span className="text-emerald-400 font-bold">Bull Flow</span> — options premium scanner ranked by size</span>
+          <span><span className="text-emerald-400 font-bold">Congress</span> — live STOCK Act filings from senators &amp; reps</span>
+          <span><span className="text-emerald-400 font-bold">Squeeze</span> — short float + options flow combined score</span>
+          <span><span className="text-emerald-400 font-bold">AI Thesis</span> — instant AI explanation for every signal</span>
+          <span><span className="text-emerald-400 font-bold">Insiders</span> — SEC Form 4 CEO/CFO buy &amp; sell alerts</span>
+        </div>
+        <p className="text-center text-slate-600 text-sm mt-3">StockScanner AI costs less than a single bad trade. The scanner pays for itself in one good signal.</p>
       </div>
 
       {/* Testimonials */}
