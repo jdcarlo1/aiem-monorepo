@@ -1544,8 +1544,10 @@ export default function Dashboard() {
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 shrink-0">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">S</div>
-            <h1 className="text-lg font-bold text-white hidden sm:block">StockScanner AI</h1>
+            <button onClick={() => window.location.href = import.meta.env.BASE_URL} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">S</div>
+              <h1 className="text-lg font-bold text-white hidden sm:block">StockScanner AI</h1>
+            </button>
           </div>
           <nav className="flex gap-1 flex-wrap">
             {TABS.map(t => (

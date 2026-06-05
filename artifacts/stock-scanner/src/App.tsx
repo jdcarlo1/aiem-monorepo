@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
+import Landing from "@/pages/Landing";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,7 +22,8 @@ function App() {
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <Switch>
-            <Route path="/" component={Dashboard} />
+            <Route path="/" component={Landing} />
+            <Route path="/app" component={Dashboard} />
             <Route component={NotFound} />
           </Switch>
         </WouterRouter>
