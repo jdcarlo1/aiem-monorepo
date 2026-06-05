@@ -1486,6 +1486,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [error, setError]       = useState<string | null>(null);
   const [scanned, setScanned]   = useState(0);
   const [lastRun, setLastRun]   = useState<Date | null>(null);
+  const [flowView, setFlowView] = useState<"bullish"|"bearish">("bullish");
 
   const run = async () => {
     setLoading(true); setError(null);
@@ -1521,17 +1522,23 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const fmtPrem = (m: number) =>
     m >= 1 ? `$${m.toFixed(1)}M` : `$${(m * 1000).toFixed(0)}K`;
 
+  const bullish = results.filter(r => r.call_put_ratio >= 1);
+  const bearish = results.filter(r => r.call_put_ratio < 1);
+  const displayed = flowView === "bullish" ? bullish : bearish;
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div className="flex items-start justify-between gap-4 mb-2">
+        <div className="flex items-start justify-between gap-4 mb-3">
           <div>
             <h2 className="text-white font-bold text-lg flex items-center gap-2">
-              🔥 Top 20 Bullish Flow
+              {flowView === "bullish" ? "🟢 Bullish Flow" : "🔴 Bearish Flow"}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
-              Ranked by total call premium traded today — highest dollar flow first. Updated on demand.
+              {flowView === "bullish"
+                ? "Calls dominating — smart money betting stocks go up."
+                : "Puts dominating — smart money hedging or betting stocks drop."}
             </p>
           </div>
           <button
@@ -1542,8 +1549,25 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
             {loading ? <><Spinner /> Scanning…</> : "🔥 Run Scan"}
           </button>
         </div>
+
+        {/* Bullish / Bearish toggle */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setFlowView("bullish")}
+            className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${flowView === "bullish" ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
+          >
+            🟢 Bullish {results.length > 0 && `(${bullish.length})`}
+          </button>
+          <button
+            onClick={() => setFlowView("bearish")}
+            className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${flowView === "bearish" ? "bg-red-700 border-red-600 text-white" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
+          >
+            🔴 Bearish {results.length > 0 && `(${bearish.length})`}
+          </button>
+        </div>
+
         {lastRun && (
-          <p className="text-slate-600 text-xs">
+          <p className="text-slate-600 text-xs mt-2">
             Last scanned {scanned} tickers · {lastRun.toLocaleTimeString()}
           </p>
         )}
@@ -1554,15 +1578,15 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       {!loading && results.length === 0 && !error && (
         <div className="text-center py-20 text-slate-500">
           <div className="text-5xl mb-4">🔥</div>
-          <div className="font-semibold text-slate-400 mb-1">Run the scan to see today's top bullish flow</div>
-          <div className="text-sm">Ranks {scanned || 25}+ stocks by call premium — highest smart money bets first</div>
+          <div className="font-semibold text-slate-400 mb-1">Run the scan to see today's flow</div>
+          <div className="text-sm">Ranks {scanned || 25}+ stocks by options premium — then splits by direction</div>
         </div>
       )}
 
       {/* Results */}
-      {results.length > 0 && (
+      {displayed.length > 0 && (
         <div className="space-y-2">
-          {results.map(row => (
+          {displayed.map(row => (
             <button
               key={row.ticker}
               onClick={() => onSelectTicker(row.ticker)}
