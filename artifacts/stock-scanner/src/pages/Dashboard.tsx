@@ -1522,8 +1522,8 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const fmtPrem = (m: number) =>
     m >= 1 ? `$${m.toFixed(1)}M` : `$${(m * 1000).toFixed(0)}K`;
 
-  const bullish = results.filter(r => r.call_put_ratio >= 1);
-  const bearish = results.filter(r => r.call_put_ratio < 1);
+  const bullish = results.filter(r => r.call_put_ratio >= 1).slice(0, 20);
+  const bearish = results.filter(r => r.call_put_ratio < 1).slice(0, 20);
   const displayed = flowView === "bullish" ? bullish : bearish;
 
   return (

@@ -476,11 +476,11 @@ def bull_flow_top10():
                 rows.append(r)
 
     rows.sort(key=lambda x: x["premium_m"], reverse=True)
-    top10 = rows[:20]
-    for i, r in enumerate(top10):
+    top40 = rows[:40]
+    for i, r in enumerate(top40):
         r["rank"] = i + 1
 
-    return jsonify({"results": top10, "scanned": len(tickers), "returned": len(top10)})
+    return jsonify({"results": top40, "scanned": len(tickers), "returned": len(top40)})
 
 
 @app.route("/stock-api/", methods=["GET"])
