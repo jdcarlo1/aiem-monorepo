@@ -1525,6 +1525,9 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const bullish = results.filter(r => r.call_put_ratio >= 1).slice(0, 20);
   const bearish = results.filter(r => r.call_put_ratio < 1).slice(0, 20);
   const displayed = flowView === "bullish" ? bullish : bearish;
+  const highConviction = flowView === "bullish"
+    ? bullish.filter(r => r.call_put_ratio >= 5).sort((a, b) => b.call_put_ratio - a.call_put_ratio)
+    : bearish.filter(r => r.call_put_ratio < 0.2).sort((a, b) => a.call_put_ratio - b.call_put_ratio);
 
   return (
     <div className="space-y-4">
@@ -1584,6 +1587,38 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       )}
 
       {/* Results */}
+      {/* 🚨 High Conviction Spotlight */}
+      {highConviction.length > 0 && (
+        <div className="bg-yellow-950/30 border border-yellow-600/40 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-yellow-400 font-black text-sm">🚨 HIGH CONVICTION — SOMEBODY KNOWS SOMETHING</span>
+          </div>
+          <div className="space-y-2">
+            {highConviction.map(row => (
+              <button
+                key={row.ticker}
+                onClick={() => onSelectTicker(row.ticker)}
+                className="w-full text-left bg-yellow-900/20 hover:bg-yellow-900/40 border border-yellow-700/30 rounded-lg p-3 transition-all"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-white font-black text-xl">{row.ticker}</span>
+                    <span className="text-slate-400 text-sm">${row.price.toLocaleString()}</span>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                      {row.call_put_ratio.toFixed(1)}x C/P
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-yellow-400 font-black">{fmtPrem(row.premium_m)}</div>
+                    <div className="text-slate-500 text-xs">{row.strike ? `$${row.strike}C` : "—"} · {fmtExp(row.expiry)}</div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {displayed.length > 0 && (
         <div className="space-y-2">
           {displayed.map(row => (
