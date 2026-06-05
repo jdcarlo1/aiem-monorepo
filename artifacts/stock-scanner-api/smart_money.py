@@ -6,9 +6,21 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DEFAULT_LEADERBOARD = [
+    # Mega-cap tech
     "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD",
-    "NFLX", "PLTR", "COIN", "SOFI", "MARA", "RBLX", "UBER", "SMCI",
-    "ARM", "INTC", "MU", "AI", "SPY", "QQQ", "JPM", "V", "PYPL",
+    # Finance / banks
+    "JPM", "GS", "MS", "BAC", "WFC", "C", "V", "MA",
+    # Healthcare / biotech
+    "LLY", "UNH", "JNJ", "ABBV", "PFE", "MRK",
+    # Industrials / energy
+    "CAT", "GE", "XOM", "CVX", "BA",
+    # Growth / meme / crypto-adjacent
+    "NFLX", "PLTR", "COIN", "SOFI", "MARA", "RBLX", "HOOD", "UBER",
+    "SMCI", "ARM", "INTC", "MU", "AI",
+    # ETFs
+    "SPY", "QQQ", "IWM",
+    # Others
+    "ORCL", "CRM", "SHOP", "SNOW", "PYPL", "BABA", "RIVN",
 ]
 
 

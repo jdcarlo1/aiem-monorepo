@@ -1500,6 +1500,8 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
     }
   };
 
+  useEffect(() => { run(); }, []);
+
   const rankLabel = (rank: number) =>
     rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
 
