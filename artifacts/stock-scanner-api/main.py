@@ -31,6 +31,19 @@ try:
 
     _ET = pytz.timezone("US/Eastern")
 
+    def _run_premarket_scan():
+        """9:00 AM ET — pre-market OI watch. Options haven't opened yet so we use
+        overnight Open Interest from yfinance (prior day's settled OI). Shows who
+        loaded up positions yesterday heading into today."""
+        try:
+            result   = scan_smart_money(DEFAULT_LEADERBOARD)
+            signals  = result.get("leaderboard", [])
+            base_url = os.getenv("PUBLIC_URL", "")
+            out = send_daily_digest(signals, base_url, session="premarket")
+            print(f"[scheduler] Pre-market OI scan sent: {out}")
+        except Exception as e:
+            print(f"[scheduler] pre-market scan error: {e}")
+
     def _run_morning_scan():
         """9:45 AM ET — first real options data 15 min after open. Catch opening sweeps."""
         try:
