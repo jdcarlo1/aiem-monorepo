@@ -681,115 +681,108 @@ function EmailSignupBanner() {
   }
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{background:"linear-gradient(160deg,#010f1e 0%,#021528 40%,#010f1e 100%)",border:"1px solid rgba(34,197,94,0.2)",boxShadow:"0 0 60px rgba(34,197,94,0.06)"}}>
+    <div className="rounded-2xl overflow-hidden" style={{background:"#0a0f1a",border:"1px solid rgba(34,197,94,0.25)",boxShadow:"0 0 80px rgba(34,197,94,0.07)"}}>
 
-      {/* Hero */}
-      <div className="px-5 pt-10 pb-8 text-center" style={{background:"radial-gradient(ellipse at 50% 0%,rgba(34,197,94,0.08) 0%,transparent 70%)"}}>
-        <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 mb-5" style={{background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.35)"}}>
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block flex-shrink-0"></span>
-          <span className="text-emerald-300 font-bold text-xs tracking-wider">LIVE · MARKET OPENS IN HOURS</span>
-        </div>
-
-        <h2 className="font-black text-white leading-tight mb-3" style={{fontSize:"clamp(1.75rem,6vw,2.75rem)",letterSpacing:"-0.03em"}}>
-          The Only Scanner<br/>That <span style={{color:"#4ade80",textShadow:"0 0 30px rgba(74,222,128,0.4)"}}>Texts You</span> What<br/>To Buy.
-        </h2>
-        <p className="text-slate-400 leading-relaxed mx-auto mb-6" style={{fontSize:"clamp(0.9rem,3vw,1.05rem)",maxWidth:"380px"}}>
-          Competitors give you a dashboard to stare at.<br/>
-          <strong className="text-slate-200">We text your phone before the market opens.</strong>
-        </p>
-
-        {/* SMS Mockup */}
-        <div className="mx-auto mb-6 rounded-2xl p-4 text-left" style={{maxWidth:"320px",background:"#111827",border:"1px solid rgba(75,85,99,0.5)"}}>
-          <div className="text-slate-500 text-xs mb-3 text-center font-medium">📱 What you receive every morning</div>
-          <div className="rounded-xl px-4 py-3 text-sm" style={{background:"rgba(34,197,94,0.15)",border:"1px solid rgba(34,197,94,0.25)"}}>
-            <div className="text-emerald-300 font-bold text-xs mb-2">📡 StockScanner AI · Today</div>
-            <div className="text-white font-semibold text-xs mb-1">🚨 HIGH FLOW:</div>
-            <div className="text-emerald-400 font-mono text-xs mb-0.5">GS $860C Jun18 · $10.9M 🔥</div>
-            <div className="text-emerald-400 font-mono text-xs mb-2">ORCL $180C Jun18 · $6.6M</div>
-            <div className="text-white font-semibold text-xs mb-1">🏆 TOP SIGNALS:</div>
-            <div className="text-slate-300 font-mono text-xs mb-0.5">🥇 CAT $1000C Jun18 · 63%WR</div>
-            <div className="text-slate-300 font-mono text-xs mb-0.5">🥈 LLY $850C Jun18 · 67%WR</div>
-            <div className="text-slate-300 font-mono text-xs">🥉 HOOD C/P 5.58x · loading 🏦</div>
-          </div>
-          <div className="text-slate-600 text-xs text-right mt-2">9:00 AM · Delivered ✓✓</div>
-        </div>
-
-        <div className="text-slate-500 text-xs">
-          <span className="text-emerald-500 font-bold">$29/mo</span> · vs $50–$99/mo everywhere else · Cancel anytime
-        </div>
+      {/* Top attention bar */}
+      <div className="text-center py-2.5 px-4 text-xs font-bold tracking-wide" style={{background:"linear-gradient(90deg,#14532d,#166534,#14532d)",color:"#86efac"}}>
+        📱 The only stock scanner that texts you signals every morning
       </div>
 
-      {/* 4 killer features */}
-      <div className="px-5 pb-6" style={{borderTop:"1px solid rgba(255,255,255,0.05)"}}>
-        <div className="grid grid-cols-2 gap-3 mt-6 mb-6">
-          {[
-            { icon: "📱", title: "Text Alerts", sub: "No one else does this" },
-            { icon: "🚨", title: "$5M+ Flow Alerts", sub: "Biggest bets, instantly" },
-            { icon: "🤖", title: "AI Win Rates", sub: "Know the odds before you trade" },
-            { icon: "⚡", title: "0DTE Filtered", sub: "Only actionable signals" },
-            { icon: "🏦", title: "Hedge Fund Scan", sub: "See who's loading up" },
-            { icon: "🏛️", title: "Congress Trades", sub: "Follow the insiders" },
-          ].map(f => (
-            <div key={f.title} className="rounded-xl p-3 text-center" style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)"}}>
-              <div className="text-2xl mb-1">{f.icon}</div>
-              <div className="text-white font-bold text-xs mb-0.5">{f.title}</div>
-              <div className="text-slate-500 text-xs">{f.sub}</div>
-            </div>
+      {/* Hero */}
+      <div className="px-6 pt-9 pb-8 text-center">
+
+        {/* Trust badges */}
+        <div className="flex flex-wrap justify-center gap-2 mb-7">
+          {["📡 Real yfinance options data","⚡ 4 scans per trading day","🤖 AI win rates included"].map(b => (
+            <span key={b} className="text-xs px-3 py-1 rounded-full font-medium" style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8"}}>{b}</span>
           ))}
         </div>
 
-        {/* vs competitors strip */}
-        <div className="rounded-xl p-4 mb-6" style={{background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.15)"}}>
-          <div className="text-center text-slate-400 text-xs font-semibold mb-3 uppercase tracking-wider">They charge more. We do more.</div>
-          <div className="flex justify-around text-center">
-            {[["Unusual\nWhales","$50/mo"],["FlowAlgo","$97/mo"],["BlackBox\nStocks","$99/mo"]].map(([name,price]) => (
-              <div key={name}>
-                <div className="text-slate-500 text-xs whitespace-pre-line leading-tight mb-1">{name}</div>
-                <div className="text-red-400 font-black text-sm">{price}</div>
-                <div className="text-slate-600 text-xs mt-1">No texts</div>
+        {/* Headline */}
+        <h2 className="font-black text-white leading-none mb-4" style={{fontSize:"clamp(2rem,7vw,3rem)",letterSpacing:"-0.04em",lineHeight:1.08}}>
+          Beat the market<br/>
+          <span style={{color:"#4ade80",textShadow:"0 0 40px rgba(74,222,128,0.5)"}}>before it opens.</span>
+        </h2>
+
+        <p className="mx-auto mb-7 text-slate-400" style={{fontSize:"clamp(0.95rem,3vw,1.1rem)",maxWidth:"340px",lineHeight:1.55}}>
+          Every morning we scan the options flow and text you exactly what smart money is betting on — before the bell rings.
+        </p>
+
+        {/* iPhone SMS preview */}
+        <div className="mx-auto mb-8" style={{maxWidth:"300px"}}>
+          <div className="rounded-3xl overflow-hidden" style={{background:"#1c1c1e",border:"2px solid #3a3a3c"}}>
+            <div className="px-4 pt-3 pb-1 flex items-center gap-2 border-b" style={{borderColor:"#2c2c2e"}}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{background:"#1d4ed8"}}>S</div>
+              <div className="text-left">
+                <div className="text-white text-xs font-semibold">StockScanner AI</div>
+                <div className="text-slate-500" style={{fontSize:"10px"}}>Today 9:01 AM</div>
               </div>
-            ))}
-            <div>
-              <div className="text-emerald-300 text-xs font-bold mb-1">StockScanner<br/>AI ⭐</div>
-              <div className="text-emerald-400 font-black text-sm">$29/mo</div>
-              <div className="text-emerald-600 text-xs mt-1">Texts ✓</div>
+            </div>
+            <div className="px-3 py-3 text-left space-y-1">
+              <div className="rounded-2xl rounded-tl-sm px-3 py-2.5 inline-block w-full" style={{background:"#2c2c2e"}}>
+                <p className="text-white font-semibold mb-1.5" style={{fontSize:"11px"}}>🚨 Pre-Market Alert</p>
+                <p className="text-emerald-400 font-mono mb-1" style={{fontSize:"11px"}}>GS $860C Jun18 · $10.9M 🔥</p>
+                <p className="text-emerald-400 font-mono mb-2" style={{fontSize:"11px"}}>ORCL $180C Jun18 · $6.6M</p>
+                <p className="text-slate-400 mb-1" style={{fontSize:"11px"}}>🏆 Top signal: <span className="text-white font-semibold">LLY</span> — 67% win rate</p>
+                <p className="text-slate-500" style={{fontSize:"10px"}}>Full leaderboard: stockscannerai.com</p>
+              </div>
+            </div>
+            <div className="px-4 pb-3 text-right">
+              <span className="text-slate-600" style={{fontSize:"10px"}}>Delivered ✓✓</span>
             </div>
           </div>
         </div>
 
-        {/* CTA */}
-        <div className="flex flex-col gap-3">
+        {/* Email + CTA */}
+        <div className="space-y-3 mb-4">
           <input
             type="email"
             value={email}
             onChange={e => { setEmail(e.target.value); setStatus("idle"); }}
             onKeyDown={e => e.key === "Enter" && handleSubscribe()}
-            placeholder="Enter your email to get started"
+            placeholder="your@email.com"
             className="w-full rounded-xl px-4 py-3.5 text-white text-sm placeholder-slate-500 focus:outline-none"
-            style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)"}}
+            style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",fontSize:"1rem"}}
           />
           <button
             onClick={handleSubscribe}
             disabled={status === "loading"}
-            className="w-full rounded-xl py-4 font-black text-base transition-all disabled:opacity-50"
-            style={{background:"linear-gradient(135deg,#16a34a,#22c55e)",color:"#fff",fontSize:"1.05rem",letterSpacing:"-0.01em",boxShadow:"0 4px 24px rgba(34,197,94,0.35)"}}
+            className="w-full rounded-xl font-black transition-all disabled:opacity-50"
+            style={{padding:"1rem 1.5rem",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:"1.1rem",letterSpacing:"-0.02em",boxShadow:"0 6px 30px rgba(34,197,94,0.4)"}}
           >
-            {status === "loading" ? "Starting…" : "🚀 Start Getting Alerts — $29/mo"}
+            {status === "loading" ? "Starting…" : "Start Getting Alerts →"}
           </button>
-          {status === "err" && <div className="text-red-400 text-xs text-center">{errMsg}</div>}
-          <div className="text-center text-slate-600 text-xs">Cancel anytime · No contracts · 4 scans per trading day</div>
-          <button onClick={() => setShowManage(!showManage)} className="text-xs text-slate-600 hover:text-slate-400 text-center transition-colors">
-            Already subscribed? Manage →
-          </button>
-          {showManage && (
-            <div className="flex gap-2">
-              <input type="email" value={manageEmail} onChange={e => setManageEmail(e.target.value)}
-                placeholder="your@email.com"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-slate-500" />
-              <button onClick={handleManage} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs transition-colors">Manage →</button>
-            </div>
-          )}
         </div>
+
+        {status === "err" && <div className="text-red-400 text-xs mb-2 text-center">{errMsg}</div>}
+
+        {/* Pricing line */}
+        <p className="text-slate-500 text-sm mb-1">
+          <span className="text-white font-bold">$29/month</span> · or pay once, keep forever
+        </p>
+        <p className="text-slate-600 text-xs mb-6">Cancel anytime · No contracts · Works on any phone</p>
+
+        {/* Testimonial */}
+        <div className="rounded-2xl px-5 py-4 text-left" style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)"}}>
+          <div className="text-yellow-400 text-sm mb-2">★★★★★</div>
+          <p className="text-slate-300 text-sm leading-relaxed italic mb-2">
+            "I used to stare at Unusual Whales for an hour every morning. Now I just wait for the text and I know exactly what to watch."
+          </p>
+          <p className="text-slate-500 text-xs font-semibold">— Mike R., day trader · Providence, RI</p>
+        </div>
+
+        {/* Manage link */}
+        <button onClick={() => setShowManage(!showManage)} className="mt-4 text-xs text-slate-600 hover:text-slate-400 transition-colors">
+          Already subscribed? Manage subscription →
+        </button>
+        {showManage && (
+          <div className="flex gap-2 mt-2">
+            <input type="email" value={manageEmail} onChange={e => setManageEmail(e.target.value)}
+              placeholder="your@email.com"
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none" />
+            <button onClick={handleManage} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs transition-colors whitespace-nowrap">Manage →</button>
+          </div>
+        )}
       </div>
     </div>
   );
