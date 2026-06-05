@@ -297,6 +297,30 @@ export function fetchSubscriberCount() {
   return fetchJson<{ subscribers: number; smtp_configured: boolean }>("/alerts/count");
 }
 
+export interface BullFlowRow {
+  rank: number;
+  ticker: string;
+  price: number;
+  strike: number | null;
+  expiry: string | null;
+  premium_m: number;
+  premium_k: number;
+  call_put_ratio: number;
+  call_vol_oi: number;
+  total_call_vol: number;
+}
+
+export function fetchBullFlow(tickers?: string[]) {
+  return fetchJson<{ results: BullFlowRow[]; scanned: number; returned: number }>(
+    "/bull-flow/top10",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers: tickers ?? [] }),
+    }
+  );
+}
+
 export async function createStockScannerCheckout(email: string): Promise<{ url: string }> {
   const res = await fetch("/api/stock-scanner/checkout", {
     method: "POST",

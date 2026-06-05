@@ -416,6 +416,63 @@ def test_digest():
     return jsonify(out)
 
 
+@app.route("/stock-api/bull-flow/top10", methods=["POST"])
+def bull_flow_top10():
+    """
+    Rank tickers by most bullish options activity today.
+    Returns top 10 sorted by call premium (highest dollar flow first).
+    Each row: ticker, price, strike, expiry, premium_m, call_put_ratio, call_vol_oi, total_call_vol
+    """
+    import yfinance as yf
+    from smart_money import fetch_options_data
+
+    body    = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", DEFAULT_LEADERBOARD)
+    if not isinstance(tickers, list) or not tickers:
+        tickers = DEFAULT_LEADERBOARD
+    tickers = [t.strip().upper() for t in tickers[:50]]
+
+    def _get_row(ticker):
+        try:
+            opts = fetch_options_data(ticker)
+            if not opts or opts.get("top_prem_value", 0) <= 0:
+                return None
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0:
+                hist = tkr.history(period="1d")
+                price = float(hist["Close"].iloc[-1]) if not hist.empty else 0
+            prem_k = float(opts.get("top_prem_value", 0))   # in $K
+            return {
+                "ticker":         ticker,
+                "price":          round(price, 2),
+                "strike":         opts.get("top_prem_strike"),
+                "expiry":         opts.get("top_prem_expiry"),
+                "premium_m":      round(prem_k / 1000, 2),   # convert to $M
+                "premium_k":      round(prem_k, 1),
+                "call_put_ratio": round(float(opts.get("call_put_ratio", 0)), 2),
+                "call_vol_oi":    round(float(opts.get("call_vol_oi", 0)), 2),
+                "total_call_vol": int(opts.get("total_call_vol", 0)),
+            }
+        except Exception:
+            return None
+
+    rows = []
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(_get_row, t): t for t in tickers}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                rows.append(r)
+
+    rows.sort(key=lambda x: x["premium_m"], reverse=True)
+    top10 = rows[:10]
+    for i, r in enumerate(top10):
+        r["rank"] = i + 1
+
+    return jsonify({"results": top10, "scanned": len(tickers), "returned": len(top10)})
+
+
 @app.route("/stock-api/", methods=["GET"])
 @app.route("/stock-api", methods=["GET"])
 @app.route("/stock-api/healthz", methods=["GET"])

@@ -6,9 +6,10 @@ import {
   propScan, propTrade, propReset, smartMoneyScan,
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
+  fetchBullFlow,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
-  CongressTrade, CongressResult,
+  CongressTrade, CongressResult, BullFlowRow,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -1476,13 +1477,153 @@ function PropDeskTab() {
   );
 }
 
+// ─── Bull Flow Top 10 ────────────────────────────────────────────────────────
+
+function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults]   = useState<BullFlowRow[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [scanned, setScanned]   = useState(0);
+  const [lastRun, setLastRun]   = useState<Date | null>(null);
+
+  const run = async () => {
+    setLoading(true); setError(null);
+    try {
+      const data = await fetchBullFlow();
+      setResults(data.results);
+      setScanned(data.scanned);
+      setLastRun(new Date());
+    } catch (e: any) {
+      setError(e.message ?? "Scan failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rankLabel = (rank: number) =>
+    rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
+
+  const rankBg = (rank: number) =>
+    rank === 1 ? "bg-yellow-900/20 border-yellow-700/30" :
+    rank === 2 ? "bg-slate-700/20 border-slate-600/30" :
+    rank === 3 ? "bg-orange-900/20 border-orange-700/30" :
+    "bg-slate-900/40 border-slate-800/40";
+
+  const fmtExp = (exp: string | null) => {
+    if (!exp) return "—";
+    const d = new Date(exp + "T00:00:00");
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const fmtPrem = (m: number) =>
+    m >= 1 ? `$${m.toFixed(1)}M` : `$${(m * 1000).toFixed(0)}K`;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <div>
+            <h2 className="text-white font-bold text-lg flex items-center gap-2">
+              🔥 Top 10 Bullish Flow
+            </h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Ranked by total call premium traded today — highest dollar flow first. Updated on demand.
+            </p>
+          </div>
+          <button
+            onClick={run}
+            disabled={loading}
+            className="shrink-0 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+          >
+            {loading ? <><Spinner /> Scanning…</> : "🔥 Run Scan"}
+          </button>
+        </div>
+        {lastRun && (
+          <p className="text-slate-600 text-xs">
+            Last scanned {scanned} tickers · {lastRun.toLocaleTimeString()}
+          </p>
+        )}
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+      </div>
+
+      {/* Empty state */}
+      {!loading && results.length === 0 && !error && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">🔥</div>
+          <div className="font-semibold text-slate-400 mb-1">Run the scan to see today's top bullish flow</div>
+          <div className="text-sm">Ranks {scanned || 25}+ stocks by call premium — highest smart money bets first</div>
+        </div>
+      )}
+
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="space-y-2">
+          {results.map(row => (
+            <button
+              key={row.ticker}
+              onClick={() => onSelectTicker(row.ticker)}
+              className={`w-full text-left rounded-xl border p-4 transition-all hover:border-emerald-700/50 hover:bg-emerald-950/10 ${rankBg(row.rank)}`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                {/* Rank + Ticker */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xl w-8 text-center shrink-0">{rankLabel(row.rank)}</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-black text-lg">{row.ticker}</span>
+                      <span className="text-slate-500 text-sm">${row.price.toLocaleString()}</span>
+                    </div>
+                    <div className="text-slate-400 text-xs mt-0.5">
+                      {row.strike ? `$${row.strike}C` : "—"}
+                      {row.expiry ? ` · ${fmtExp(row.expiry)}` : ""}
+                      {" · "}
+                      <span className="text-slate-500">{row.total_call_vol.toLocaleString()} contracts</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div className="flex items-center gap-4 shrink-0 text-right">
+                  <div>
+                    <div className={`font-black text-lg ${row.rank <= 3 ? "text-emerald-400" : "text-emerald-500"}`}>
+                      {fmtPrem(row.premium_m)}
+                    </div>
+                    <div className="text-slate-600 text-xs">premium</div>
+                  </div>
+                  <div className="hidden sm:block">
+                    <div className={`font-bold text-sm ${row.call_put_ratio >= 2 ? "text-emerald-400" : row.call_put_ratio >= 1 ? "text-slate-300" : "text-slate-500"}`}>
+                      {row.call_put_ratio.toFixed(1)}x
+                    </div>
+                    <div className="text-slate-600 text-xs">C/P ratio</div>
+                  </div>
+                  <div className="hidden md:block">
+                    <div className={`font-bold text-sm ${row.call_vol_oi >= 1 ? "text-yellow-400" : "text-slate-400"}`}>
+                      {row.call_vol_oi.toFixed(2)}
+                    </div>
+                    <div className="text-slate-600 text-xs">Vol/OI</div>
+                  </div>
+                </div>
+              </div>
+            </button>
+          ))}
+
+          <p className="text-center text-slate-600 text-xs pt-2">
+            Tap any stock to analyze it in Stock Lookup · Data from yfinance
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Main Dashboard ------------------------------------------------------
 
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk">("lookup");
+  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow">("lookup");
   const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
   const qc = useQueryClient();
@@ -1537,6 +1678,7 @@ export default function Dashboard() {
     { id: "propdesk",   label: "⚡ Prop Desk" },
     { id: "smartmoney", label: "🏆 Smart Money" },
     { id: "congress",   label: "🏛️ Congress" },
+    { id: "bullflow",   label: "🔥 Bull Flow" },
   ] as const;
 
   return (
@@ -1751,6 +1893,11 @@ export default function Dashboard() {
             {!portfolio && !loadingPortfolio && <div className="text-center py-16 text-slate-500">Portfolio data unavailable</div>}
           </div>
         )}
+        {/* --- Bull Flow Top 10 --- */}
+        {tab === "bullflow" && (
+          <BullFlowTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
+        )}
+
       </main>
     </div>
   );
