@@ -1478,7 +1478,7 @@ function PropDeskTab() {
   );
 }
 
-// ─── Bull Flow Top 10 ────────────────────────────────────────────────────────
+// ─── Bull Flow Top 20 ────────────────────────────────────────────────────────
 
 function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [results, setResults]   = useState<BullFlowRow[]>([]);
@@ -1528,7 +1528,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         <div className="flex items-start justify-between gap-4 mb-2">
           <div>
             <h2 className="text-white font-bold text-lg flex items-center gap-2">
-              🔥 Top 10 Bullish Flow
+              🔥 Top 20 Bullish Flow
             </h2>
             <p className="text-slate-400 text-sm mt-1">
               Ranked by total call premium traded today — highest dollar flow first. Updated on demand.

@@ -476,7 +476,7 @@ def bull_flow_top10():
                 rows.append(r)
 
     rows.sort(key=lambda x: x["premium_m"], reverse=True)
-    top10 = rows[:10]
+    top10 = rows[:20]
     for i, r in enumerate(top10):
         r["rank"] = i + 1
 
