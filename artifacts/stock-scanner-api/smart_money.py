@@ -114,25 +114,37 @@ def fetch_options_data(ticker: str) -> dict:
                     best_exp_vol   = se_total_vol
                     top_vol_expiry = se
 
-                # Highest-volume strike in this expiry
-                if not sc.empty and "volume" in sc.columns and "strike" in sc.columns:
-                    best_row = sc.loc[sc["volume"].idxmax()]
-                    sv = _f(best_row["volume"])
-                    if sv > top_vol_contracts:
-                        top_vol_contracts = int(sv)
-                        top_vol_strike    = float(best_row["strike"])
-                        top_vol_expiry    = se
+                # Highest-volume strike — OTM/near-ATM only (strike 80%–150% of spot)
+                # Excludes deep-ITM strikes (e.g. LEAPS) which skew the signal
+                if not sc.empty and "volume" in sc.columns and "strike" in sc.columns and cur_price > 0:
+                    atm_otm = sc[
+                        (sc["strike"] >= cur_price * 0.80) &
+                        (sc["strike"] <= cur_price * 1.50)
+                    ]
+                    if not atm_otm.empty:
+                        best_row = atm_otm.loc[atm_otm["volume"].idxmax()]
+                        sv = _f(best_row["volume"])
+                        if sv > top_vol_contracts:
+                            top_vol_contracts = int(sv)
+                            top_vol_strike    = float(best_row["strike"])
+                            top_vol_expiry    = se
 
-                # Highest-premium strike: ask × volume (dollar value of contracts traded)
-                if "ask" in sc.columns and "volume" in sc.columns and "strike" in sc.columns:
-                    sc["_prem"] = sc["ask"] * sc["volume"] * 100
-                    best_prem_row = sc.loc[sc["_prem"].idxmax()]
-                    pv = _f(best_prem_row["_prem"])
-                    if pv > top_prem_value:
-                        top_prem_value     = pv
-                        top_prem_strike    = float(best_prem_row["strike"])
-                        top_prem_contracts = int(_f(best_prem_row["volume"]))
-                        top_prem_expiry    = se
+                # Highest-premium strike — OTM/near-ATM only (strike 80%–150% of spot)
+                # Excludes deep-ITM LEAPS from distorting the dollar-premium signal
+                if "ask" in sc.columns and "volume" in sc.columns and "strike" in sc.columns and cur_price > 0:
+                    atm_otm_p = sc[
+                        (sc["strike"] >= cur_price * 0.80) &
+                        (sc["strike"] <= cur_price * 1.50)
+                    ].copy()
+                    if not atm_otm_p.empty:
+                        atm_otm_p["_prem"] = atm_otm_p["ask"] * atm_otm_p["volume"] * 100
+                        best_prem_row = atm_otm_p.loc[atm_otm_p["_prem"].idxmax()]
+                        pv = _f(best_prem_row["_prem"])
+                        if pv > top_prem_value:
+                            top_prem_value     = pv
+                            top_prem_strike    = float(best_prem_row["strike"])
+                            top_prem_contracts = int(_f(best_prem_row["volume"]))
+                            top_prem_expiry    = se
             except Exception:
                 continue
 
