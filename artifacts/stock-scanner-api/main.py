@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+import math
 
 from scanner import analyze_ticker, scan_tickers, WATCHLIST_DEFAULT, fetch_stock_data
 from portfolio import get_portfolio, add_position, remove_position, get_portfolio_value
@@ -13,6 +14,17 @@ import pnl
 
 app = Flask(__name__)
 CORS(app)
+
+
+def _safe(v):
+    """Replace NaN/Infinity with None so jsonify never emits invalid JSON."""
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    if isinstance(v, dict):
+        return {k: _safe(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_safe(i) for i in v]
+    return v
 
 PORT = int(os.environ.get("STOCK_API_PORT", 5050))
 
@@ -168,7 +180,10 @@ def prop_scan():
             sig = prop_signal(df)
             if sig is None:
                 continue
-            price = float(df["Close"].iloc[-1])
+            close_series = df["Close"].squeeze().dropna()
+            if close_series.empty:
+                continue
+            price = float(close_series.iloc[-1])
             sig["ticker"] = ticker
             sig["price"] = round(price, 2)
             signals.append(sig)
@@ -188,13 +203,13 @@ def prop_scan():
         pnl_unrealized = round((current_price - pos["entry"]) * pos["size"], 2)
         enriched_positions[ticker] = {**pos, "current_price": round(current_price, 2), "unrealized_pnl": pnl_unrealized}
 
-    return jsonify({
+    return jsonify(_safe({
         "signals": signals,
         "positions": enriched_positions,
         "cash": round(execution.get_cash(), 2),
         "realized_pnl": pnl.total_pnl(),
         "trades": pnl.get_trades()[-20:],
-    })
+    }))
 
 
 @app.route("/stock-api/prop/trade/<ticker>/<action>", methods=["POST"])
