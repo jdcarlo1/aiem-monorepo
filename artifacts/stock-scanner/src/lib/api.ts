@@ -45,6 +45,35 @@ export function sellStock(ticker: string, shares: number, price: number) {
   });
 }
 
+export function runBacktest(ticker: string, buyThreshold: number, sellThreshold: number, initialCash: number) {
+  return fetchJson<BacktestResult>("/backtest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ticker,
+      buy_threshold: buyThreshold,
+      sell_threshold: sellThreshold,
+      initial_cash: initialCash,
+    }),
+  });
+}
+
+export function fetchAlerts() {
+  return fetchJson<{ alerts: Alert[] }>("/alerts");
+}
+
+export function createAlert(ticker: string, type: string, value: number, direction: string) {
+  return fetchJson<{ success: boolean; alert: Alert }>("/alerts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticker, type, value, direction }),
+  });
+}
+
+export function deleteAlert(id: number) {
+  return fetchJson<{ success: boolean }>(`/alerts/${id}`, { method: "DELETE" });
+}
+
 export interface StockAnalysis {
   ticker: string;
   info: {
@@ -152,4 +181,49 @@ export interface TradeResult {
   error?: string;
   message?: string;
   cash_remaining?: number;
+}
+
+export interface BacktestResult {
+  ticker: string;
+  initial_cash: number;
+  final_value: number;
+  total_return_pct: number;
+  buy_hold_return_pct: number;
+  alpha: number;
+  n_trades: number;
+  win_rate: number;
+  max_drawdown_pct: number;
+  buy_threshold: number;
+  sell_threshold: number;
+  trades: BacktestTrade[];
+  equity_curve: EquityPoint[];
+}
+
+export interface BacktestTrade {
+  type: string;
+  date: string;
+  price: number;
+  shares: number;
+  score: number;
+  pnl?: number;
+  pnl_pct?: number;
+}
+
+export interface EquityPoint {
+  date: string;
+  value: number;
+  close?: number;
+  in_position?: boolean;
+}
+
+export interface Alert {
+  id: number;
+  ticker: string;
+  type: string;
+  value: number;
+  direction: string;
+  triggered: boolean;
+  created: string;
+  triggered_at?: string;
+  triggered_value?: number;
 }
