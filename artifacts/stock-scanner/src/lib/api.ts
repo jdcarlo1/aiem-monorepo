@@ -297,6 +297,32 @@ export function fetchSubscriberCount() {
   return fetchJson<{ subscribers: number; smtp_configured: boolean }>("/alerts/count");
 }
 
+export async function createStockScannerCheckout(email: string): Promise<{ url: string }> {
+  const res = await fetch("/api/stock-scanner/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
+export async function manageStockScannerSubscription(email: string): Promise<{ url: string }> {
+  const res = await fetch("/api/stock-scanner/manage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
 export interface AnalyticsResult {
   tickers_analyzed: string[];
   failed: string[];

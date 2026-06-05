@@ -259,6 +259,87 @@ router.post("/admin/fix-sessions", async (req, res) => {
   res.json({ success: true, fixed: result.length });
 });
 
+// ─── StockScanner AI subscription checkout ───────────────────────────────────
+
+router.post("/stock-scanner/checkout", async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email || !email.includes("@")) {
+    res.status(400).json({ error: "Valid email is required" });
+    return;
+  }
+
+  const stripe = await getUncachableStripeClient();
+
+  const allProducts = await stripe.products.list({ active: true, limit: 100 });
+  const products = { data: allProducts.data.filter(p => p.name === 'StockScanner AI Pro') };
+
+  if (products.data.length === 0) {
+    res.status(500).json({ error: "StockScanner AI Pro product not found. Please seed products first." });
+    return;
+  }
+
+  const prices = await stripe.prices.list({
+    product: products.data[0].id,
+    active: true,
+    limit: 1,
+  });
+
+  if (prices.data.length === 0) {
+    res.status(500).json({ error: "Subscription price not found." });
+    return;
+  }
+
+  // Find or create customer so email is attached to checkout
+  const existingCustomers = await stripe.customers.list({ email: email.trim().toLowerCase(), limit: 1 });
+  let customerId: string;
+  if (existingCustomers.data.length > 0) {
+    customerId = existingCustomers.data[0].id;
+  } else {
+    const customer = await stripe.customers.create({ email: email.trim().toLowerCase() });
+    customerId = customer.id;
+  }
+
+  const domains = process.env.REPLIT_DOMAINS?.split(",") ?? [];
+  const host = domains[0] ?? "localhost";
+  const baseUrl = `https://${host}/stock-scanner`;
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    payment_method_types: ["card"],
+    line_items: [{ price: prices.data[0].id, quantity: 1 }],
+    mode: "subscription",
+    success_url: `${baseUrl}?subscribed=true`,
+    cancel_url: `${baseUrl}`,
+    customer_email: undefined,
+    metadata: { product: "stock-scanner" },
+  });
+
+  res.json({ url: session.url });
+});
+
+router.post("/stock-scanner/manage", async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email) { res.status(400).json({ error: "Email required" }); return; }
+
+  const stripe = await getUncachableStripeClient();
+  const customers = await stripe.customers.list({ email: email.trim().toLowerCase(), limit: 1 });
+
+  if (customers.data.length === 0) {
+    res.status(404).json({ error: "No subscription found for that email." });
+    return;
+  }
+
+  const domains = process.env.REPLIT_DOMAINS?.split(",") ?? [];
+  const host = domains[0] ?? "localhost";
+
+  const portal = await stripe.billingPortal.sessions.create({
+    customer: customers.data[0].id,
+    return_url: `https://${host}/stock-scanner`,
+  });
+
+  res.json({ url: portal.url });
+});
+
 router.post("/admin/activate-sessions", async (req, res) => {
   const secret = req.headers["x-admin-secret"];
   if (secret !== "nclexai-admin-2026") {

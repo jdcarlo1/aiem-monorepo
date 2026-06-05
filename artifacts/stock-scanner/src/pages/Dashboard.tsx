@@ -5,6 +5,7 @@ import {
   runBacktest, runHistoricalAnalytics, fetchAlerts, createAlert, deleteAlert,
   propScan, propTrade, propReset, smartMoneyScan,
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
+  createStockScannerCheckout, manageStockScannerSubscription,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult,
@@ -613,70 +614,119 @@ function PropScoreBar({ value, label, color = "#3b82f6" }: { value: number; labe
   );
 }
 
-// ─── Email Signup Banner ──────────────────────────────────────────────────────
+// ─── Email Signup Banner (paid subscription) ──────────────────────────────────
 
 function EmailSignupBanner() {
-  const [email, setEmail]     = useState("");
-  const [status, setStatus]   = useState<"idle"|"loading"|"ok"|"err">("idle");
-  const [errMsg, setErrMsg]   = useState("");
-  const { data: info }        = useQuery({
-    queryKey: ["sub-count"],
-    queryFn: fetchSubscriberCount,
-    staleTime: 1000 * 60 * 5,
-  });
+  const [email, setEmail]           = useState("");
+  const [manageEmail, setManageEmail] = useState("");
+  const [status, setStatus]         = useState<"idle"|"loading"|"ok"|"err">("idle");
+  const [errMsg, setErrMsg]         = useState("");
+  const [showManage, setShowManage] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("subscribed") === "true") {
+      setStatus("ok");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("subscribed");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
 
   const handleSubscribe = async () => {
     if (!email.trim() || !email.includes("@")) { setErrMsg("Enter a valid email"); setStatus("err"); return; }
     setStatus("loading");
     try {
-      const r = await subscribeEmail(email.trim());
-      if (r.ok) { setStatus("ok"); setEmail(""); }
-      else { setErrMsg(r.error ?? "Failed"); setStatus("err"); }
-    } catch { setErrMsg("Network error"); setStatus("err"); }
+      const { url } = await createStockScannerCheckout(email.trim());
+      window.location.href = url;
+    } catch (err: any) {
+      setErrMsg(err.message ?? "Failed to start checkout");
+      setStatus("err");
+    }
+  };
+
+  const handleManage = async () => {
+    if (!manageEmail.trim() || !manageEmail.includes("@")) return;
+    setStatus("loading");
+    try {
+      const { url } = await manageStockScannerSubscription(manageEmail.trim());
+      window.location.href = url;
+    } catch (err: any) {
+      setErrMsg(err.message ?? "No subscription found for that email");
+      setStatus("err");
+    }
   };
 
   if (status === "ok") {
     return (
-      <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-xl p-4 flex items-center gap-3">
-        <span className="text-emerald-400 text-2xl">✅</span>
-        <div>
-          <div className="text-emerald-300 font-semibold text-sm">You're subscribed!</div>
-          <div className="text-emerald-700 text-xs mt-0.5">Daily buy signals land in your inbox at 4:30 PM ET every trading day.</div>
+      <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-xl p-5 flex items-start gap-4">
+        <span className="text-3xl">✅</span>
+        <div className="flex-1">
+          <div className="text-emerald-300 font-bold text-sm">You're subscribed to StockScanner AI Pro!</div>
+          <div className="text-emerald-700 text-xs mt-1">4 emails every trading day — pre-market, opening bell, pre-close, and EOD wrap — with ranked buy signals and real options flow.</div>
+          <button onClick={() => setShowManage(!showManage)} className="mt-2 text-xs text-slate-500 hover:text-slate-300 underline transition-colors">
+            Manage or cancel subscription →
+          </button>
+          {showManage && (
+            <div className="flex gap-2 mt-2">
+              <input type="email" value={manageEmail} onChange={e => setManageEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+              <button onClick={handleManage} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs transition-colors">Manage →</button>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-gradient-to-r from-purple-950/60 to-slate-900 border border-purple-800/40 rounded-xl p-4">
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+    <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-emerald-800/30 rounded-xl p-5">
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
         <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">📧</span>
-            <span className="text-white font-semibold text-sm">Get Daily Buy Signals in Your Email</span>
-            {info && <span className="text-purple-400 text-xs">{info.subscribers.toLocaleString()} subscriber{info.subscribers !== 1 ? "s" : ""}</span>}
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl">📬</span>
+            <span className="text-white font-bold text-sm">StockScanner AI Pro — Daily Email Alerts</span>
+            <span className="bg-emerald-900/60 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-semibold">$29/mo</span>
           </div>
-          <p className="text-slate-500 text-xs mt-1">
-            Every day at 4:30 PM ET — top Smart Money signals with real options data, automatically delivered.
-            {!info?.smtp_configured && <span className="text-amber-500"> (SMTP setup required — see admin)</span>}
+          <p className="text-slate-500 text-xs leading-relaxed">
+            4 emails every trading day: Pre-market OI · Opening bell · Pre-close · EOD wrap — ranked buy signals with real options flow &amp; historical win rates.
           </p>
+          <div className="flex flex-wrap gap-3 mt-1.5">
+            {["Top ranked daily signals", "Real options flow data", "Historical win-rate table"].map(f => (
+              <span key={f} className="text-emerald-600 text-xs flex items-center gap-1">✓ {f}</span>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <input
-            type="email"
-            value={email}
-            onChange={e => { setEmail(e.target.value); setStatus("idle"); }}
-            onKeyDown={e => e.key === "Enter" && handleSubscribe()}
-            placeholder="your@email.com"
-            className="flex-1 sm:w-52 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
-          />
-          <button
-            onClick={handleSubscribe}
-            disabled={status === "loading"}
-            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
-          >
-            {status === "loading" ? "…" : "Subscribe"}
+        <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[230px]">
+          <div className="flex gap-2">
+            <input
+              type="email"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setStatus("idle"); }}
+              onKeyDown={e => e.key === "Enter" && handleSubscribe()}
+              placeholder="your@email.com"
+              className="flex-1 sm:w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            />
+            <button
+              onClick={handleSubscribe}
+              disabled={status === "loading"}
+              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap"
+            >
+              {status === "loading" ? "…" : "Subscribe $29/mo"}
+            </button>
+          </div>
+          <button onClick={() => setShowManage(!showManage)} className="text-xs text-slate-600 hover:text-slate-400 text-left transition-colors">
+            Already subscribed? Manage →
           </button>
+          {showManage && (
+            <div className="flex gap-2">
+              <input type="email" value={manageEmail} onChange={e => setManageEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-slate-500" />
+              <button onClick={handleManage} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs transition-colors">Manage →</button>
+            </div>
+          )}
         </div>
       </div>
       {status === "err" && <p className="text-red-400 text-xs mt-2">{errMsg}</p>}

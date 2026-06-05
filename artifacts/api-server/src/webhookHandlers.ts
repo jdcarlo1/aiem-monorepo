@@ -1,7 +1,8 @@
 import { db, sessionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getStripeSync } from './stripeClient';
 import { logger } from './lib/logger';
+import crypto from 'crypto';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -31,19 +32,39 @@ export class WebhookHandlers {
     if (event.type === 'checkout.session.completed') {
       const session = event.data?.object ?? {};
       const sessionId = session.metadata?.sessionId;
-      const customerId = session.customer;
+      const product = session.metadata?.product;
+      const customerId = session.customer ?? null;
       const subscriptionId = session.subscription ?? null;
 
+      // NCLEX session unlock
       if (sessionId) {
         await db
           .update(sessionsTable)
           .set({
             isSubscribed: true,
-            stripeCustomerId: customerId ?? null,
+            stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId,
           })
           .where(eq(sessionsTable.sessionId, sessionId));
         logger.info({ sessionId, customerId }, 'Session unlocked after successful checkout');
+      }
+
+      // StockScanner AI subscription activation
+      if (product === 'stock-scanner') {
+        const email = session.customer_details?.email ?? session.customer_email ?? null;
+        if (email) {
+          const token = crypto.randomUUID().replace(/-/g, '');
+          await db.execute(sql`
+            INSERT INTO sm_subscribers (email, token, active, stripe_customer_id, stripe_subscription_id, paid)
+            VALUES (${email}, ${token}, true, ${customerId}, ${subscriptionId}, true)
+            ON CONFLICT (email) DO UPDATE SET
+              active = true,
+              stripe_customer_id = COALESCE(${customerId}, sm_subscribers.stripe_customer_id),
+              stripe_subscription_id = COALESCE(${subscriptionId}, sm_subscribers.stripe_subscription_id),
+              paid = true
+          `);
+          logger.info({ email, customerId }, 'StockScanner subscriber activated after checkout');
+        }
       }
     }
 
@@ -51,11 +72,20 @@ export class WebhookHandlers {
       const subscription = event.data?.object ?? {};
       const customerId = subscription.customer;
       if (customerId) {
+        // Deactivate NCLEX session
         await db
           .update(sessionsTable)
           .set({ isSubscribed: false, subscriptionEndDate: null, stripeSubscriptionId: null })
           .where(eq(sessionsTable.stripeCustomerId, customerId));
-        logger.info({ customerId }, 'Session deactivated after subscription cancelled');
+
+        // Deactivate StockScanner subscriber
+        await db.execute(sql`
+          UPDATE sm_subscribers
+          SET active = false, paid = false, stripe_subscription_id = null
+          WHERE stripe_customer_id = ${customerId}
+        `);
+
+        logger.info({ customerId }, 'Subscriptions deactivated after cancellation');
       }
     }
   }
