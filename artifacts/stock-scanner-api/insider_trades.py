@@ -1,134 +1,99 @@
 """
-C-Suite Insider Trades via SEC EDGAR Form 4 filings.
+C-Suite Insider Trades via yfinance insider_transactions.
 """
-import requests
-import xml.etree.ElementTree as ET
+import math
 from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
-
-HEADERS = {
-    "User-Agent": "StockScannerAI research@nclexai.org",
-    "Accept-Encoding": "gzip, deflate",
-}
-
-_CIK_CACHE: dict = {}
-_CIK_TS: float = 0.0
 
 
-def _get_cik_map() -> dict:
-    global _CIK_CACHE, _CIK_TS
-    now = time.time()
-    if _CIK_CACHE and now - _CIK_TS < 3600:
-        return _CIK_CACHE
+def _f(v, default=0.0):
     try:
-        r = requests.get(
-            "https://www.sec.gov/files/company_tickers.json",
-            headers=HEADERS, timeout=10
-        )
-        data = r.json()
-        _CIK_CACHE = {v["ticker"]: str(v["cik_str"]).zfill(10) for v in data.values()}
-        _CIK_TS = now
+        x = float(v)
+        return x if math.isfinite(x) else default
     except Exception:
-        pass
-    return _CIK_CACHE
+        return default
 
 
-def _parse_form4(xml_text: str, ticker: str, filing_date: str) -> list:
-    trades = []
+def _classify_trade(text: str) -> str | None:
+    """Return 'Buy' or 'Sell' based on the transaction text, or None to skip."""
+    if not isinstance(text, str):
+        return None
+    t = text.lower()
+    if any(k in t for k in ("purchase", "acquisition", "bought", "buy")):
+        return "Buy"
+    if any(k in t for k in ("sale", "sold", "sell")):
+        return "Sell"
+    # Stock gifts, option exercises, conversions — skip
+    return None
+
+
+def _fetch_ticker_trades(ticker: str, cutoff: str) -> list:
     try:
-        root = ET.fromstring(xml_text)
+        import yfinance as yf
+        import pandas as pd
 
-        insider_name = ""
-        insider_title = ""
-        owner = root.find(".//reportingOwner")
-        if owner is not None:
-            n = owner.find(".//rptOwnerName")
-            if n is not None:
-                insider_name = (n.text or "").strip()
-            rel = owner.find(".//reportingOwnerRelationship")
-            if rel is not None:
-                titles = []
-                off = rel.find("isOfficer")
-                if off is not None and off.text == "1":
-                    ot = rel.find("officerTitle")
-                    titles.append(ot.text.strip() if ot is not None and ot.text else "Officer")
-                if rel.findtext("isDirector") == "1":
-                    titles.append("Director")
-                if rel.findtext("isTenPercentOwner") == "1":
-                    titles.append("10% Owner")
-                insider_title = ", ".join(titles) if titles else "Insider"
+        tkr = yf.Ticker(ticker)
+        df  = tkr.insider_transactions
 
-        for txn in root.findall(".//nonDerivativeTransaction"):
-            try:
-                code = (txn.findtext(".//transactionCode") or "").strip()
-                if code not in ("P", "S"):
-                    continue
-                shares_v = txn.findtext(".//transactionShares/value")
-                price_v  = txn.findtext(".//transactionPricePerShare/value")
-                date_v   = txn.findtext(".//transactionDate/value") or filing_date
-                shares = float(shares_v) if shares_v else 0
-                price  = float(price_v)  if price_v  else 0
-                if shares <= 0:
-                    continue
-                trades.append({
-                    "ticker":       ticker,
-                    "insider_name": insider_name,
-                    "title":        insider_title,
-                    "trade_type":   "Buy" if code == "P" else "Sell",
-                    "shares":       int(shares),
-                    "price":        round(price, 2),
-                    "value":        round(shares * price),
-                    "date":         date_v,
-                })
-            except Exception:
+        if df is None or df.empty:
+            return []
+
+        # Normalise column names (yfinance can vary slightly)
+        df.columns = [c.strip() for c in df.columns]
+
+        trades = []
+        for _, row in df.iterrows():
+            # Date filter
+            raw_date = row.get("Start Date") or row.get("startDate") or ""
+            if hasattr(raw_date, "date"):
+                trade_date = str(raw_date.date())
+            else:
+                trade_date = str(raw_date)[:10]
+
+            if trade_date < cutoff:
                 continue
-    except Exception:
-        pass
-    return trades
 
+            text = str(row.get("Text", "") or row.get("text", "") or "")
+            trade_type = _classify_trade(text)
+            if trade_type is None:
+                continue
 
-def _fetch_for_ticker(ticker: str, cik_map: dict, start_date: str) -> list:
-    trades = []
-    cik = cik_map.get(ticker.upper())
-    if not cik:
+            shares = int(_f(row.get("Shares", 0)))
+            value  = _f(row.get("Value", 0))
+            price  = round(value / shares, 2) if shares > 0 else 0.0
+
+            insider_name = str(row.get("Insider", "") or "").strip()
+            title        = str(row.get("Position", "") or "").strip()
+
+            if shares <= 0:
+                continue
+
+            trades.append({
+                "ticker":       ticker,
+                "insider_name": insider_name,
+                "title":        title,
+                "trade_type":   trade_type,
+                "shares":       shares,
+                "price":        price,
+                "value":        round(value),
+                "date":         trade_date,
+            })
+
         return trades
-    try:
-        url = f"https://data.sec.gov/submissions/CIK{cik}.json"
-        r = requests.get(url, headers=HEADERS, timeout=8)
-        if r.status_code != 200:
-            return trades
-        data   = r.json()
-        recent = data.get("filings", {}).get("recent", {})
-        forms  = recent.get("form", [])
-        dates  = recent.get("filingDate", [])
-        accnos = recent.get("accessionNumber", [])
-        docs   = recent.get("primaryDocument", [])
-        cik_int = int(cik)
-        for form, fdate, accno, doc in zip(forms, dates, accnos, docs):
-            if form != "4" or fdate < start_date:
-                continue
-            accno_clean = accno.replace("-", "")
-            xml_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{accno_clean}/{doc}"
-            try:
-                xr = requests.get(xml_url, headers=HEADERS, timeout=6)
-                if xr.status_code == 200:
-                    trades.extend(_parse_form4(xr.text, ticker, fdate))
-            except Exception:
-                pass
-            time.sleep(0.06)
+
     except Exception:
-        pass
-    return trades
+        return []
 
 
 def fetch_insider_trades(tickers: list, days: int = 30) -> list:
-    cik_map    = _get_cik_map()
-    start_date = (date.today() - timedelta(days=days)).isoformat()
+    cutoff     = (date.today() - timedelta(days=days)).isoformat()
     all_trades: list = []
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {ex.submit(_fetch_for_ticker, t, cik_map, start_date): t for t in tickers[:18]}
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_fetch_ticker_trades, t, cutoff): t for t in tickers}
         for fut in as_completed(futures):
             all_trades.extend(fut.result())
+
+    # Sort: most recent first, then by value descending
     all_trades.sort(key=lambda x: (x["date"], x["value"]), reverse=True)
     return all_trades
