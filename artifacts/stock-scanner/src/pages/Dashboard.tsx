@@ -6,10 +6,10 @@ import {
   propScan, propTrade, propReset, smartMoneyScan,
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
-  fetchBullFlow, fetchMarketOverview,
+  fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
-  CongressTrade, CongressResult, BullFlowRow, MarketOverview,
+  CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -1585,6 +1585,244 @@ function MarketTab() {
 
 // ─── Bull Flow Top 20 ────────────────────────────────────────────────────────
 
+function SqueezeTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<SqueezeSignal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+
+  const run = async () => {
+    setLoading(true); setError(null);
+    try {
+      const data = await fetchSqueezeSignals();
+      setResults(data.results);
+      setScanned(data.scanned);
+      setLastRun(new Date());
+    } catch (e: any) {
+      setError(e.message ?? "Scan failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { run(); }, []);
+
+  const scoreColor = (s: number) =>
+    s >= 80 ? "text-red-400"
+    : s >= 60 ? "text-orange-400"
+    : s >= 40 ? "text-yellow-400"
+    : "text-slate-400";
+
+  const scoreBg = (s: number) =>
+    s >= 80 ? "bg-red-500"
+    : s >= 60 ? "bg-orange-500"
+    : s >= 40 ? "bg-yellow-500"
+    : "bg-slate-500";
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <div>
+            <h2 className="text-white font-bold text-lg flex items-center gap-2">💥 Short Squeeze Detector</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Stocks with high short interest + bullish options flow — classic squeeze setup. Squeeze Score combines short float (max 50 pts) + options conviction (max 50 pts).
+            </p>
+          </div>
+          <button
+            onClick={run} disabled={loading}
+            className="shrink-0 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+          >
+            {loading ? <><Spinner /> Scanning…</> : "💥 Run Scan"}
+          </button>
+        </div>
+        {lastRun && <p className="text-slate-600 text-xs">Scanned {scanned} tickers · {lastRun.toLocaleTimeString()}</p>}
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+      </div>
+
+      {!loading && results.length === 0 && !error && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">💥</div>
+          <div className="font-semibold text-slate-400 mb-1">Run the scan to find squeeze candidates</div>
+          <div className="text-sm">Combines short interest + options flow to surface potential squeezes</div>
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div className="space-y-2">
+          {results.map(row => (
+            <button
+              key={row.ticker}
+              onClick={() => onSelectTicker(row.ticker)}
+              className="w-full text-left bg-slate-900/60 hover:bg-slate-800/60 border border-slate-800 hover:border-red-700/40 rounded-xl p-4 transition-all"
+            >
+              <div className="flex items-center gap-4">
+                <span className="text-slate-500 text-sm w-6 shrink-0">#{row.rank}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-white font-black text-lg">{row.ticker}</span>
+                    <span className="text-slate-400 text-sm">${row.price.toLocaleString()}</span>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-900/40 text-red-300 border border-red-700/40">
+                      🔥 {row.short_float_pct}% short
+                    </span>
+                    {row.call_put_ratio >= 2 && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-900/30 text-emerald-400 border border-emerald-700/30">
+                        {row.call_put_ratio.toFixed(1)}x C/P
+                      </span>
+                    )}
+                  </div>
+                  {/* Score bar */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-slate-800 rounded-full h-2 max-w-48">
+                      <div
+                        className={`h-2 rounded-full ${scoreBg(row.squeeze_score)}`}
+                        style={{ width: `${Math.min(row.squeeze_score, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs font-bold ${scoreColor(row.squeeze_score)}`}>
+                      {row.squeeze_score.toFixed(0)} Squeeze Score
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className={`font-black text-lg ${scoreColor(row.squeeze_score)}`}>
+                    {row.squeeze_score.toFixed(0)}
+                  </div>
+                  <div className="text-slate-600 text-xs">{row.short_ratio.toFixed(1)}d to cover</div>
+                </div>
+              </div>
+            </button>
+          ))}
+          <p className="text-center text-slate-600 text-xs pt-2">
+            Tap any stock to analyze it · Short data from yfinance · Scores are relative, not absolute
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InsidersTab() {
+  const [trades,  setTrades]  = useState<InsiderTrade[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [days,    setDays]    = useState(30);
+  const [filter,  setFilter]  = useState<"all"|"Buy"|"Sell">("all");
+
+  const run = async (d = days) => {
+    setLoading(true); setError(null);
+    try {
+      const data = await fetchInsiderTrades(d);
+      setTrades(data.trades);
+      setLastRun(new Date());
+    } catch (e: any) {
+      setError(e.message ?? "Fetch failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { run(); }, []);
+
+  const displayed = filter === "all" ? trades : trades.filter(t => t.trade_type === filter);
+  const fmtVal = (v: number) =>
+    v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M`
+    : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}K`
+    : `$${v.toLocaleString()}`;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <h2 className="text-white font-bold text-lg flex items-center gap-2">🏢 C-Suite Insider Trades</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Form 4 filings from SEC EDGAR. CEOs, CFOs, and directors putting their own money in — or cashing out.
+            </p>
+          </div>
+          <button
+            onClick={() => run(days)} disabled={loading}
+            className="shrink-0 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+          >
+            {loading ? <><Spinner /> Loading…</> : "🔄 Refresh"}
+          </button>
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          {([30, 14, 7] as const).map(d => (
+            <button key={d} onClick={() => { setDays(d); run(d); }}
+              className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${days === d ? "bg-blue-700 border-blue-600 text-white" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>
+              {d}d
+            </button>
+          ))}
+          <span className="w-px bg-slate-700 mx-1" />
+          {(["all", "Buy", "Sell"] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                filter === f
+                  ? f === "Buy" ? "bg-emerald-700 border-emerald-600 text-white"
+                    : f === "Sell" ? "bg-red-800 border-red-700 text-white"
+                    : "bg-slate-700 border-slate-600 text-white"
+                  : "border-slate-700 text-slate-400 hover:text-slate-200"
+              }`}>
+              {f === "all" ? "All" : f === "Buy" ? "🟢 Buys" : "🔴 Sells"}
+            </button>
+          ))}
+        </div>
+        {lastRun && <p className="text-slate-600 text-xs mt-2">Fetched via SEC EDGAR · {lastRun.toLocaleTimeString()}</p>}
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+      </div>
+
+      {!loading && displayed.length === 0 && !error && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">🏢</div>
+          <div className="font-semibold text-slate-400 mb-1">
+            {trades.length === 0 ? "Loading Form 4 filings from SEC EDGAR…" : "No trades match current filter"}
+          </div>
+          <div className="text-sm">SEC EDGAR may take a moment to respond</div>
+        </div>
+      )}
+
+      {displayed.length > 0 && (
+        <div className="space-y-2">
+          {displayed.map((t, i) => (
+            <div key={i} className={`rounded-xl border p-4 ${t.trade_type === "Buy" ? "bg-emerald-950/20 border-emerald-800/30" : "bg-red-950/20 border-red-800/30"}`}>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className={`text-xs font-black px-2.5 py-1 rounded-full ${t.trade_type === "Buy" ? "bg-emerald-600 text-white" : "bg-red-700 text-white"}`}>
+                    {t.trade_type === "Buy" ? "BUY" : "SELL"}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-white font-black text-lg">{t.ticker}</span>
+                      <span className="text-slate-400 text-sm truncate">{t.insider_name}</span>
+                      {t.title && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400">{t.title}</span>
+                      )}
+                    </div>
+                    <div className="text-slate-500 text-xs mt-0.5">
+                      {t.shares.toLocaleString()} shares @ ${t.price.toFixed(2)} · {t.date}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className={`font-black text-lg ${t.trade_type === "Buy" ? "text-emerald-400" : "text-red-400"}`}>
+                    {fmtVal(t.value)}
+                  </div>
+                  <div className="text-slate-600 text-xs">total value</div>
+                </div>
+              </div>
+            </div>
+          ))}
+          <p className="text-center text-slate-600 text-xs pt-2">
+            Data sourced from SEC EDGAR Form 4 filings · Not financial advice
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [results, setResults]   = useState<BullFlowRow[]>([]);
   const [loading, setLoading]   = useState(false);
@@ -1592,6 +1830,9 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [scanned, setScanned]   = useState(0);
   const [lastRun, setLastRun]   = useState<Date | null>(null);
   const [flowView, setFlowView] = useState<"bullish"|"strong"|"bearish">("bullish");
+  const [theses,       setTheses]       = useState<Record<string, string>>({});
+  const [loadThesis,   setLoadThesis]   = useState<Record<string, boolean>>({});
+  const [expandThesis, setExpandThesis] = useState<Set<string>>(new Set());
 
   const run = async () => {
     setLoading(true); setError(null);
@@ -1604,6 +1845,28 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       setError(e.message ?? "Scan failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleThesis = async (row: BullFlowRow) => {
+    if (theses[row.ticker]) {
+      setExpandThesis(prev => {
+        const next = new Set(prev);
+        if (next.has(row.ticker)) next.delete(row.ticker); else next.add(row.ticker);
+        return next;
+      });
+      return;
+    }
+    setLoadThesis(prev => ({ ...prev, [row.ticker]: true }));
+    try {
+      const data = await fetchAIThesis(row);
+      setTheses(prev => ({ ...prev, [row.ticker]: data.thesis }));
+      setExpandThesis(prev => new Set([...prev, row.ticker]));
+    } catch {
+      setTheses(prev => ({ ...prev, [row.ticker]: "Thesis unavailable." }));
+      setExpandThesis(prev => new Set([...prev, row.ticker]));
+    } finally {
+      setLoadThesis(prev => ({ ...prev, [row.ticker]: false }));
     }
   };
 
@@ -1736,60 +1999,99 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       {displayed.length > 0 && (
         <div className="space-y-2">
           {displayed.map(row => (
-            <button
+            <div
               key={row.ticker}
-              onClick={() => onSelectTicker(row.ticker)}
-              className={`w-full text-left rounded-xl border p-4 transition-all hover:border-emerald-700/50 hover:bg-emerald-950/10 ${rankBg(row.rank)}`}
+              className={`rounded-xl border transition-all hover:border-emerald-700/50 hover:bg-emerald-950/10 ${rankBg(row.rank)}`}
             >
-              <div className="flex items-center justify-between gap-3">
-                {/* Rank + Ticker */}
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-xl w-8 text-center shrink-0">{rankLabel(row.rank)}</span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-white font-black text-lg">{row.ticker}</span>
-                      <span className="text-slate-500 text-sm">${row.price.toLocaleString()}</span>
-                      {(() => {
-                        const r = row.call_put_ratio;
-                        if (r >= 5)  return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">🔥 Extremely Bullish</span>;
-                        if (r >= 2)  return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 border border-emerald-700/30">📈 Very Bullish</span>;
-                        if (r >= 1)  return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-700/30">↔️ Mixed</span>;
-                        if (r >= 0.5) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-900/30 text-orange-400 border border-orange-700/30">⚠️ More Puts</span>;
-                        return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-900/30 text-red-400 border border-red-700/30">🔴 Mostly Puts</span>;
-                      })()}
-                    </div>
-                    <div className="text-slate-400 text-xs mt-0.5">
-                      {row.strike ? `$${row.strike}C` : "—"}
-                      {row.expiry ? ` · ${fmtExp(row.expiry)}` : ""}
-                      {" · "}
-                      <span className="text-slate-500">{row.total_call_vol.toLocaleString()} contracts</span>
+              <div
+                className="p-4 cursor-pointer"
+                onClick={() => onSelectTicker(row.ticker)}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  {/* Rank + Ticker */}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xl w-8 text-center shrink-0">{rankLabel(row.rank)}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white font-black text-lg">{row.ticker}</span>
+                        <span className="text-slate-500 text-sm">${row.price.toLocaleString()}</span>
+                        {(() => {
+                          const r = row.call_put_ratio;
+                          if (r >= 5)   return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">🔥 Extremely Bullish</span>;
+                          if (r >= 2)   return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 border border-emerald-700/30">📈 Very Bullish</span>;
+                          if (r >= 1)   return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-700/30">↔️ Mixed</span>;
+                          if (r >= 0.5) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-900/30 text-orange-400 border border-orange-700/30">⚠️ More Puts</span>;
+                          return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-900/30 text-red-400 border border-red-700/30">🔴 Mostly Puts</span>;
+                        })()}
+                        {row.days_to_earnings != null && row.days_to_earnings <= 30 && (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                            row.days_to_earnings <= 5
+                              ? "bg-orange-900/40 text-orange-300 border-orange-600/40"
+                              : "bg-blue-900/30 text-blue-300 border-blue-700/30"
+                          }`}>
+                            📅 {row.days_to_earnings}d to earnings
+                          </span>
+                        )}
+                        {row.short_float_pct != null && row.short_float_pct >= 10 && (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-900/30 text-red-300 border border-red-700/30">
+                            💥 {row.short_float_pct}% short
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-slate-400 text-xs mt-0.5">
+                        {row.strike ? `$${row.strike}C` : "—"}
+                        {row.expiry ? ` · ${fmtExp(row.expiry)}` : ""}
+                        {" · "}
+                        <span className="text-slate-500">{row.total_call_vol.toLocaleString()} contracts</span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Stats */}
-                <div className="flex items-center gap-4 shrink-0 text-right">
-                  <div>
-                    <div className={`font-black text-lg ${row.rank <= 3 ? "text-emerald-400" : "text-emerald-500"}`}>
-                      {fmtPrem(row.premium_m)}
+                  {/* Stats */}
+                  <div className="flex items-center gap-3 shrink-0 text-right">
+                    <div>
+                      <div className={`font-black text-lg ${row.rank <= 3 ? "text-emerald-400" : "text-emerald-500"}`}>
+                        {fmtPrem(row.premium_m)}
+                      </div>
+                      <div className="text-slate-600 text-xs">premium</div>
                     </div>
-                    <div className="text-slate-600 text-xs">premium</div>
-                  </div>
-                  <div className="hidden sm:block">
-                    <div className={`font-bold text-sm ${row.call_put_ratio >= 2 ? "text-emerald-400" : row.call_put_ratio >= 1 ? "text-slate-300" : "text-slate-500"}`}>
-                      {row.call_put_ratio.toFixed(1)}x
+                    <div className="hidden sm:block">
+                      <div className={`font-bold text-sm ${row.call_put_ratio >= 2 ? "text-emerald-400" : row.call_put_ratio >= 1 ? "text-slate-300" : "text-slate-500"}`}>
+                        {row.call_put_ratio.toFixed(1)}x
+                      </div>
+                      <div className="text-slate-600 text-xs">C/P</div>
                     </div>
-                    <div className="text-slate-600 text-xs">C/P ratio</div>
-                  </div>
-                  <div className="hidden md:block">
-                    <div className={`font-bold text-sm ${row.call_vol_oi >= 1 ? "text-yellow-400" : "text-slate-400"}`}>
-                      {row.call_vol_oi.toFixed(2)}
+                    <div className="hidden md:block">
+                      <div className={`font-bold text-sm ${row.call_vol_oi >= 1 ? "text-yellow-400" : "text-slate-400"}`}>
+                        {row.call_vol_oi.toFixed(2)}
+                      </div>
+                      <div className="text-slate-600 text-xs">Vol/OI</div>
                     </div>
-                    <div className="text-slate-600 text-xs">Vol/OI</div>
                   </div>
                 </div>
               </div>
-            </button>
+
+              {/* AI Thesis button + expanded thesis */}
+              <div className="px-4 pb-3">
+                <button
+                  onClick={e => { e.stopPropagation(); handleThesis(row); }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-purple-400 hover:text-purple-300 transition-colors"
+                >
+                  {loadThesis[row.ticker] ? (
+                    <><Spinner /> Generating thesis…</>
+                  ) : expandThesis.has(row.ticker) ? (
+                    <>🤖 Hide AI Thesis</>
+                  ) : (
+                    <>🤖 AI Trade Thesis</>
+                  )}
+                </button>
+                {expandThesis.has(row.ticker) && theses[row.ticker] && (
+                  <div className="mt-2 text-sm text-slate-300 bg-purple-950/20 border border-purple-800/30 rounded-lg p-3 leading-relaxed">
+                    {theses[row.ticker]}
+                  </div>
+                )}
+              </div>
+            </div>
           ))}
 
           <p className="text-center text-slate-600 text-xs pt-2">
@@ -1807,7 +2109,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market">("lookup");
+  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders">("lookup");
   const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
   const qc = useQueryClient();
@@ -1863,6 +2165,8 @@ export default function Dashboard() {
     { id: "smartmoney", label: "🏆 Smart Money" },
     { id: "congress",   label: "🏛️ Congress" },
     { id: "bullflow",   label: "🔥 Bull Flow" },
+    { id: "squeeze",    label: "💥 Squeeze" },
+    { id: "insiders",   label: "🏢 Insiders" },
     { id: "market",     label: "📊 Market" },
   ] as const;
 
@@ -2011,6 +2315,8 @@ export default function Dashboard() {
         {tab === "smartmoney" && <SmartMoneyTab />}
         {tab === "congress"   && <CongressTab />}
         {tab === "market"     && <MarketTab />}
+        {tab === "squeeze"    && <SqueezeTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "insiders"   && <InsidersTab />}
 
         {/* --- Portfolio --- */}
         {tab === "portfolio" && (

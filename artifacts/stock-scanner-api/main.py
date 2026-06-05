@@ -12,6 +12,7 @@ from analytics import run_historical_analytics
 from prop_signal import prop_signal
 from smart_money import scan_smart_money, compute_smart_money, DEFAULT_LEADERBOARD
 from congress_trades import get_congress_trades
+from insider_trades import fetch_insider_trades
 from email_alerts import (
     init_db, subscribe, unsubscribe, get_active_subscribers,
     send_daily_digest, smtp_configured, subscriber_count,
@@ -435,14 +436,14 @@ def bull_flow_top10():
 
     def _get_row(ticker):
         try:
-            from datetime import date
-            today_str = date.today().isoformat()
+            from datetime import date, datetime
+            today      = date.today()
+            today_str  = today.isoformat()
 
             opts = fetch_options_data(ticker)
             if not opts or opts.get("top_prem_value", 0) <= 0:
                 return None
 
-            # Skip 0DTE — expiry must be after today
             expiry = opts.get("top_prem_expiry")
             if not expiry or expiry <= today_str:
                 return None
@@ -450,19 +451,54 @@ def bull_flow_top10():
             tkr   = yf.Ticker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0:
-                hist = tkr.history(period="1d")
+                hist  = tkr.history(period="1d")
                 price = float(hist["Close"].iloc[-1]) if not hist.empty else 0
-            prem_k = float(opts.get("top_prem_value", 0))   # in $K
+            prem_k = float(opts.get("top_prem_value", 0))
+
+            # Days to earnings
+            days_to_earnings = None
+            try:
+                cal = tkr.calendar
+                earn = None
+                if isinstance(cal, dict):
+                    earn = cal.get("Earnings Date")
+                    if isinstance(earn, list) and earn:
+                        earn = earn[0]
+                elif cal is not None and hasattr(cal, "columns") and "Earnings Date" in cal.columns:
+                    earn = cal.loc["Earnings Date", cal.columns[0]]
+                if earn is not None:
+                    if hasattr(earn, "date"):
+                        earn = earn.date()
+                    elif isinstance(earn, str):
+                        earn = datetime.strptime(earn[:10], "%Y-%m-%d").date()
+                    diff = (earn - today).days
+                    if 0 <= diff <= 365:
+                        days_to_earnings = diff
+            except Exception:
+                pass
+
+            # Short float %
+            short_float_pct = None
+            try:
+                info = tkr.info
+                sfp  = float(info.get("shortPercentOfFloat") or 0) * 100
+                if 0 < sfp < 100:
+                    short_float_pct = round(sfp, 1)
+            except Exception:
+                pass
+
             return {
-                "ticker":         ticker,
-                "price":          round(price, 2),
-                "strike":         opts.get("top_prem_strike"),
-                "expiry":         expiry,
-                "premium_m":      round(prem_k / 1000, 2),   # convert to $M
-                "premium_k":      round(prem_k, 1),
-                "call_put_ratio": round(float(opts.get("call_put_ratio", 0)), 2),
-                "call_vol_oi":    round(float(opts.get("call_vol_oi", 0)), 2),
-                "total_call_vol": int(opts.get("total_call_vol", 0)),
+                "ticker":           ticker,
+                "price":            round(price, 2),
+                "strike":           opts.get("top_prem_strike"),
+                "expiry":           expiry,
+                "premium_m":        round(prem_k / 1000, 2),
+                "premium_k":        round(prem_k, 1),
+                "call_put_ratio":   round(float(opts.get("call_put_ratio", 0)), 2),
+                "call_vol_oi":      round(float(opts.get("call_vol_oi", 0)), 2),
+                "total_call_vol":   int(opts.get("total_call_vol", 0)),
+                "days_to_earnings": days_to_earnings,
+                "short_float_pct":  short_float_pct,
             }
         except Exception:
             return None
@@ -558,6 +594,119 @@ def market_overview():
         "advance_decline": {"up": ad_up, "down": ad_down, "unchanged": ad_unch},
         "as_of": date.today().isoformat(),
     })
+
+
+@app.route("/stock-api/squeeze/detector", methods=["POST"])
+def squeeze_detector():
+    import yfinance as yf
+    from smart_money import fetch_options_data, _f
+
+    body    = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", DEFAULT_LEADERBOARD)
+    if not isinstance(tickers, list) or not tickers:
+        tickers = DEFAULT_LEADERBOARD
+    tickers = [t.strip().upper() for t in tickers[:50]]
+
+    def _get_squeeze_row(ticker):
+        try:
+            tkr  = yf.Ticker(ticker)
+            info = tkr.info
+            sfp  = _f(info.get("shortPercentOfFloat", 0)) * 100
+            if sfp < 5:
+                return None
+            sr   = _f(info.get("shortRatio", 0))
+            opts = fetch_options_data(ticker)
+            cpr  = _f(opts.get("call_put_ratio", 0)) if opts else 0
+            pk   = _f(opts.get("top_prem_value", 0)) if opts else 0
+            price = _f(getattr(tkr.fast_info, "last_price", 0) or 0)
+            short_score   = min(sfp * 2, 50)
+            flow_score    = min(cpr * 10, 50)
+            squeeze_score = round(short_score + flow_score, 1)
+            return {
+                "ticker":          ticker,
+                "price":           round(price, 2),
+                "short_float_pct": round(sfp, 1),
+                "short_ratio":     round(sr, 1),
+                "call_put_ratio":  round(cpr, 2),
+                "premium_m":       round(pk / 1000, 2),
+                "squeeze_score":   squeeze_score,
+            }
+        except Exception:
+            return None
+
+    rows = []
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(_get_squeeze_row, t): t for t in tickers}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                rows.append(r)
+    rows.sort(key=lambda x: x["squeeze_score"], reverse=True)
+    top = rows[:20]
+    for i, r in enumerate(top):
+        r["rank"] = i + 1
+    return jsonify({"results": top, "scanned": len(tickers)})
+
+
+@app.route("/stock-api/insider/trades", methods=["GET"])
+def insider_trades_route():
+    days    = int(request.args.get("days", 30))
+    tickers = DEFAULT_LEADERBOARD
+    trades  = fetch_insider_trades(tickers, days=days)
+    return jsonify({"trades": trades, "count": len(trades)})
+
+
+@app.route("/stock-api/ai/thesis", methods=["POST"])
+def ai_thesis():
+    body             = request.get_json(silent=True) or {}
+    ticker           = body.get("ticker", "")
+    cpr              = float(body.get("call_put_ratio", 0))
+    premium_m        = float(body.get("premium_m", 0))
+    days_to_earnings = body.get("days_to_earnings")
+    short_float_pct  = body.get("short_float_pct")
+    strike           = body.get("strike")
+    expiry           = body.get("expiry")
+
+    if not ticker:
+        return jsonify({"error": "ticker required"}), 400
+
+    parts = []
+    if cpr >= 8:
+        parts.append(f"An extraordinary {cpr:.1f}x call/put ratio places {ticker} among the highest-conviction institutional signals — fewer than 2% of scanned tickers ever reach this threshold.")
+    elif cpr >= 5:
+        parts.append(f"A {cpr:.1f}x call/put ratio on {ticker} is a rare institutional signal. At this level, the options tape is overwhelmingly positioned for upside — this is not retail speculation.")
+    elif cpr >= 3:
+        parts.append(f"A {cpr:.1f}x call/put ratio signals strong institutional bias toward {ticker}. Smart money is leaning aggressively bullish on this name.")
+    elif cpr >= 2:
+        parts.append(f"With a {cpr:.1f}x call/put ratio, {ticker}'s options flow is skewing clearly bullish — more than double call volume vs puts signals real directional conviction.")
+    else:
+        parts.append(f"Options flow in {ticker} shows a {cpr:.1f}x call/put ratio — calls are outpacing puts, suggesting a modestly bullish institutional lean.")
+
+    if premium_m >= 10:
+        parts.append(f"The ${premium_m:.1f}M in call premium is the size of a hedge fund position. Bets of this magnitude are placed deliberately — someone is taking a significant directional view backed by strong conviction.")
+    elif premium_m >= 5:
+        parts.append(f"${premium_m:.1f}M in call premium signals an institutional-sized position. This is a deliberate, meaningful directional bet — not noise.")
+    elif premium_m >= 1:
+        parts.append(f"${premium_m:.1f}M in call premium represents real money behind this thesis. Worth tracking how price responds over the next 1-3 sessions.")
+
+    if days_to_earnings is not None:
+        dte = int(days_to_earnings)
+        if dte <= 5:
+            parts.append(f"⚠️ Earnings in {dte} day{'s' if dte != 1 else ''} — this may be a high-risk earnings directional bet. IV crush post-announcement is a real risk regardless of direction.")
+        elif dte <= 21:
+            parts.append(f"With earnings {dte} days out, this call position is likely being built ahead of a catalyst. Traders often front-run earnings 2-3 weeks in advance when they have conviction.")
+        elif dte <= 45:
+            parts.append(f"Earnings are {dte} days away — a medium-term swing position potentially anticipating a pre-earnings run or a positive catalyst at the event.")
+
+    if short_float_pct and float(short_float_pct) >= 20:
+        parts.append(f"🔥 Critical: {float(short_float_pct):.1f}% of the float is short. Bullish options accumulation on a heavily-shorted stock is a classic squeeze setup — short covering could dramatically amplify any upside move.")
+    elif short_float_pct and float(short_float_pct) >= 10:
+        parts.append(f"With {float(short_float_pct):.1f}% short float, any positive catalyst could trigger short covering that amplifies gains beyond the initial move.")
+
+    if strike and expiry:
+        parts.append(f"Target strike: ${strike} expiring {expiry}. Monitor for follow-through price action and volume over the next 1-3 sessions as confirmation of the thesis.")
+
+    return jsonify({"ticker": ticker, "thesis": " ".join(parts[:4])})
 
 
 @app.route("/stock-api/healthz", methods=["GET"])

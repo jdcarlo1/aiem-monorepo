@@ -320,6 +320,64 @@ export interface BullFlowRow {
   call_put_ratio: number;
   call_vol_oi: number;
   total_call_vol: number;
+  days_to_earnings: number | null;
+  short_float_pct: number | null;
+}
+
+export interface SqueezeSignal {
+  rank: number;
+  ticker: string;
+  price: number;
+  short_float_pct: number;
+  short_ratio: number;
+  call_put_ratio: number;
+  premium_m: number;
+  squeeze_score: number;
+}
+
+export interface InsiderTrade {
+  ticker: string;
+  insider_name: string;
+  title: string;
+  trade_type: "Buy" | "Sell";
+  shares: number;
+  price: number;
+  value: number;
+  date: string;
+}
+
+export function fetchSqueezeSignals(tickers?: string[]) {
+  return fetchJson<{ results: SqueezeSignal[]; scanned: number }>(
+    "/squeeze/detector",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers: tickers ?? [] }),
+    }
+  );
+}
+
+export function fetchInsiderTrades(days = 30) {
+  return fetchJson<{ trades: InsiderTrade[]; count: number }>(`/insider/trades?days=${days}`);
+}
+
+export function fetchAIThesis(row: Pick<BullFlowRow, "ticker"|"call_put_ratio"|"premium_m"|"days_to_earnings"|"short_float_pct"|"strike"|"expiry">) {
+  return fetchJson<{ ticker: string; thesis: string }>(
+    "/ai/thesis",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ticker:           row.ticker,
+        call_put_ratio:   row.call_put_ratio,
+        premium_m:        row.premium_m,
+        days_to_earnings: row.days_to_earnings,
+        short_float_pct:  row.short_float_pct,
+        strike:           row.strike,
+        expiry:           row.expiry,
+      }),
+    }
+  );
 }
 
 export function fetchBullFlow(tickers?: string[]) {
