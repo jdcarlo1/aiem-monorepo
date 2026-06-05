@@ -368,6 +368,72 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
         except Exception:
             perf = {"count": 0}
         rows += _signal_html(s, i + 1, perf)
+
+    # ── High Premium Alerts: $5M+ options flow regardless of leaderboard rank ──
+    HIGH_PREM_THRESHOLD_K = 5_000  # $5M in $K units
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    def _fmt_exp_short(d):
+        try: return datetime.strptime(d, "%Y-%m-%d").strftime("%b %d")
+        except: return d or "—"
+
+    prem_alerts = []
+    for s in signals:
+        opts = s.get("options_summary") or {}
+        tpk  = opts.get("top_prem_value_k") or 0
+        tps  = opts.get("top_prem_strike")
+        tpe  = opts.get("top_prem_expiry") or ""
+        if tpk >= HIGH_PREM_THRESHOLD_K and tps is not None and tpe != today_str:
+            rank = next((i+1 for i, r in enumerate(ranked) if r.get("ticker") == s.get("ticker")), "—")
+            prem_alerts.append({
+                "ticker": s.get("ticker", ""),
+                "price":  s.get("price", 0),
+                "strike": tps,
+                "expiry": tpe,
+                "prem_k": tpk,
+                "rank":   rank,
+            })
+    prem_alerts.sort(key=lambda x: x["prem_k"], reverse=True)
+
+    if prem_alerts:
+        alert_rows = ""
+        for a in prem_alerts:
+            prem_m = a["prem_k"] / 1000
+            prem_disp = f"${prem_m:.1f}M" if prem_m >= 1 else f"${a['prem_k']:,.0f}K"
+            alert_rows += (
+                f'<tr style="border-bottom:1px solid #1e3a2f;">'
+                f'<td style="padding:8px 12px;font-weight:800;color:#fff;font-size:14px;">{a["ticker"]}</td>'
+                f'<td style="padding:8px 4px;color:#4ade80;font-weight:700;font-size:13px;">${a["strike"]:g}&nbsp;C</td>'
+                f'<td style="padding:8px 4px;color:#86efac;font-size:12px;">{_fmt_exp_short(a["expiry"])}</td>'
+                f'<td style="padding:8px 12px;color:#22c55e;font-weight:900;font-size:14px;text-align:right;">{prem_disp}</td>'
+                f'<td style="padding:8px 12px;color:#64748b;font-size:11px;text-align:right;">Rank #{a["rank"]}</td>'
+                f'</tr>'
+            )
+        high_prem_section = f"""
+    <!-- High Premium Alerts -->
+    <div style="background:#071a10;border:1px solid #166534;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
+      <div style="font-size:12px;font-weight:800;color:#22c55e;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px;">
+        🚨 High Premium Flow Alert — $5M+ Options Activity
+      </div>
+      <div style="font-size:11px;color:#4ade80;margin-bottom:10px;">
+        These stocks had massive dollar premium placed regardless of leaderboard rank. Big money doesn't always score highest — but it always leaves a trail.
+      </div>
+      <table style="width:100%;border-collapse:collapse;background:#0a1f12;border-radius:8px;overflow:hidden;">
+        <thead>
+          <tr style="background:#0d2b18;">
+            <th style="padding:6px 12px;text-align:left;font-size:9px;color:#4ade80;text-transform:uppercase;letter-spacing:.06em;">Ticker</th>
+            <th style="padding:6px 4px;text-align:left;font-size:9px;color:#4ade80;text-transform:uppercase;letter-spacing:.06em;">Strike</th>
+            <th style="padding:6px 4px;text-align:left;font-size:9px;color:#4ade80;text-transform:uppercase;letter-spacing:.06em;">Expiry</th>
+            <th style="padding:6px 12px;text-align:right;font-size:9px;color:#4ade80;text-transform:uppercase;letter-spacing:.06em;">Premium</th>
+            <th style="padding:6px 12px;text-align:right;font-size:9px;color:#4ade80;text-transform:uppercase;letter-spacing:.06em;">Board</th>
+          </tr>
+        </thead>
+        <tbody>{alert_rows}</tbody>
+      </table>
+    </div>
+"""
+    else:
+        high_prem_section = ""
     unsub_url = f"{base_url}/stock-api/alerts/unsubscribe/{unsub_token}"
     count     = len(ranked)
 
@@ -442,6 +508,8 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
         </div>
       </div>
     </div>
+
+    {high_prem_section}
 
     <!-- Ranked signals — most bullish to least bullish -->
     <div style="margin-bottom:24px;">
