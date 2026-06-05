@@ -1073,34 +1073,75 @@ function SmartMoneyTab() {
                                 </div>
 
                                 {/* Real Options Chain Panel */}
-                                {s.options_summary && (
-                                  <div className="bg-slate-900/80 border border-cyan-800/30 rounded-xl p-3.5">
-                                    <div className="flex items-center justify-between mb-2.5">
-                                      <span className="text-cyan-400 text-xs font-semibold">📡 Real Options Chain</span>
-                                      <span className="text-slate-500 text-xs">{s.options_summary.expiry} expiry · 15-min delayed</span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2 text-xs">
-                                      {[
-                                        { label: "Call Vol / OI",    value: s.options_summary.call_vol_oi.toFixed(3),   highlight: s.options_summary.call_vol_oi >= 0.5 ? "text-purple-400" : s.options_summary.call_vol_oi >= 0.2 ? "text-yellow-400" : "text-slate-300" },
-                                        { label: "Put Vol / OI",     value: s.options_summary.put_vol_oi.toFixed(3),    highlight: "text-slate-300" },
-                                        { label: "Call / Put Vol",   value: `${s.options_summary.call_put_ratio.toFixed(2)}x`, highlight: s.options_summary.call_put_ratio >= 2 ? "text-emerald-400" : s.options_summary.call_put_ratio >= 1.3 ? "text-yellow-400" : "text-slate-300" },
-                                        { label: "Call / Put OI",   value: `${s.options_summary.cp_oi_ratio.toFixed(2)}x`,    highlight: s.options_summary.cp_oi_ratio >= 1.5 ? "text-emerald-400" : "text-slate-300" },
-                                        { label: "Total Call Vol",   value: s.options_summary.total_call_vol.toLocaleString(), highlight: "text-slate-300" },
-                                        { label: "Total Call OI",    value: s.options_summary.total_call_oi.toLocaleString(),  highlight: "text-slate-300" },
-                                        { label: "OTM Call Vol",     value: s.options_summary.otm_call_vol.toLocaleString(),   highlight: s.options_summary.otm_call_vol > 0 ? "text-cyan-400" : "text-slate-300" },
-                                        { label: "ATM IV",           value: s.options_summary.atm_iv != null ? `${s.options_summary.atm_iv}%` : "N/A", highlight: s.options_summary.atm_iv != null && s.options_summary.atm_iv > 60 ? "text-red-400" : s.options_summary.atm_iv != null && s.options_summary.atm_iv > 35 ? "text-yellow-400" : "text-slate-300" },
-                                      ].map(item => (
-                                        <div key={item.label} className="bg-slate-800/60 rounded-lg p-2">
-                                          <div className="text-slate-500 text-xs">{item.label}</div>
-                                          <div className={`font-mono font-semibold mt-0.5 ${item.highlight}`}>{item.value}</div>
+                                {s.options_summary && (() => {
+                                  const opts = s.options_summary as any;
+                                  const todayStr = new Date().toISOString().slice(0, 10);
+                                  const fmtExp = (d: string) => { try { return new Date(d + "T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}); } catch { return d; } };
+                                  const daysOut = (d: string) => { try { return Math.round((new Date(d + "T12:00:00").getTime() - Date.now()) / 86400000); } catch { return 999; } };
+                                  const tvs = opts.top_vol_strike, tve = opts.top_vol_expiry || opts.expiry || "";
+                                  const tps = opts.top_prem_strike, tpe = opts.top_prem_expiry || opts.expiry || "";
+                                  const tvc = opts.top_vol_contracts, tpk = opts.top_prem_value_k, tpc = opts.top_prem_contracts;
+                                  const showVol  = tvs != null && tve !== todayStr;
+                                  const showPrem = tps != null && tpe !== todayStr;
+                                  return (
+                                    <div className="bg-slate-900/80 border border-cyan-800/30 rounded-xl p-3.5">
+                                      <div className="flex items-center justify-between mb-2.5">
+                                        <span className="text-cyan-400 text-xs font-semibold">📡 Real Options Chain</span>
+                                        <span className="text-slate-500 text-xs">15-min delayed</span>
+                                      </div>
+
+                                      {/* Actionable strikes — only non-0DTE */}
+                                      {(showVol || showPrem) && (
+                                        <div className="space-y-2 mb-3">
+                                          {showVol && (
+                                            <div className="border-l-4 border-emerald-500 bg-emerald-950/40 rounded-r-lg px-3 py-2">
+                                              <div className="text-emerald-400 text-[9px] font-bold uppercase tracking-widest mb-1">⚡ Actionable · 🔥 Most Active Strike</div>
+                                              <span className="text-emerald-300 text-lg font-black">${tvs}</span>
+                                              <span className="text-emerald-600 text-xs font-semibold ml-2">
+                                                Exp <strong className="text-emerald-400">{fmtExp(tve)}</strong>
+                                                {daysOut(tve) < 999 && <> · {daysOut(tve)}d out</>}
+                                                {tvc && <> · {tvc.toLocaleString()} contracts</>}
+                                              </span>
+                                            </div>
+                                          )}
+                                          {showPrem && (
+                                            <div className="border-l-4 border-orange-500 bg-orange-950/40 rounded-r-lg px-3 py-2">
+                                              <div className="text-orange-400 text-[9px] font-bold uppercase tracking-widest mb-1">⚡ Actionable · 💰 Most Premium Traded</div>
+                                              <span className="text-orange-300 text-lg font-black">${tps}</span>
+                                              <span className="text-orange-600 text-xs font-semibold ml-2">
+                                                Exp <strong className="text-orange-400">{fmtExp(tpe)}</strong>
+                                                {daysOut(tpe) < 999 && <> · {daysOut(tpe)}d out</>}
+                                                {tpk != null && <> · {tpk >= 1000 ? `$${(tpk/1000).toFixed(1)}M` : `$${tpk.toFixed(0)}K`}</>}
+                                                {tpc && <> · {tpc.toLocaleString()} contracts</>}
+                                              </span>
+                                            </div>
+                                          )}
                                         </div>
-                                      ))}
+                                      )}
+
+                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                        {[
+                                          { label: "Call Vol / OI",    value: opts.call_vol_oi.toFixed(3),   highlight: opts.call_vol_oi >= 0.5 ? "text-purple-400" : opts.call_vol_oi >= 0.2 ? "text-yellow-400" : "text-slate-300" },
+                                          { label: "Put Vol / OI",     value: opts.put_vol_oi.toFixed(3),    highlight: "text-slate-300" },
+                                          { label: "Call / Put Vol",   value: `${opts.call_put_ratio.toFixed(2)}x`, highlight: opts.call_put_ratio >= 2 ? "text-emerald-400" : opts.call_put_ratio >= 1.3 ? "text-yellow-400" : "text-slate-300" },
+                                          { label: "Call / Put OI",    value: `${opts.cp_oi_ratio.toFixed(2)}x`,   highlight: opts.cp_oi_ratio >= 1.5 ? "text-emerald-400" : "text-slate-300" },
+                                          { label: "Total Call Vol",   value: opts.total_call_vol.toLocaleString(), highlight: "text-slate-300" },
+                                          { label: "Total Call OI",    value: opts.total_call_oi.toLocaleString(),  highlight: "text-slate-300" },
+                                          { label: "OTM Call Vol",     value: opts.otm_call_vol.toLocaleString(),   highlight: opts.otm_call_vol > 0 ? "text-cyan-400" : "text-slate-300" },
+                                          { label: "ATM IV",           value: opts.atm_iv != null ? `${opts.atm_iv}%` : "N/A", highlight: opts.atm_iv != null && opts.atm_iv > 60 ? "text-red-400" : opts.atm_iv != null && opts.atm_iv > 35 ? "text-yellow-400" : "text-slate-300" },
+                                        ].map(item => (
+                                          <div key={item.label} className="bg-slate-800/60 rounded-lg p-2">
+                                            <div className="text-slate-500 text-xs">{item.label}</div>
+                                            <div className={`font-mono font-semibold mt-0.5 ${item.highlight}`}>{item.value}</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div className="mt-2 text-slate-600 text-xs">
+                                        Vol/OI &gt; 0.5 = unusual activity · &gt; 1.0 = sweep territory · Call/Put &gt; 2x = directional conviction
+                                      </div>
                                     </div>
-                                    <div className="mt-2 text-slate-600 text-xs">
-                                      Vol/OI &gt; 0.5 = unusual activity · &gt; 1.0 = sweep territory · Call/Put &gt; 2x = directional conviction
-                                    </div>
-                                  </div>
-                                )}
+                                  );
+                                })()}
                               </div>
 
                               {/* Stats + Thesis */}

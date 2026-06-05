@@ -235,39 +235,59 @@ def _signal_html(s: dict, rank: int, perf: dict) -> str:
         opts_line = (
             f"Vol/OI {opts.get('call_vol_oi','—')}&nbsp;&nbsp;·&nbsp;&nbsp;"
             f"C/P {opts.get('call_put_ratio','—')}x&nbsp;&nbsp;·&nbsp;&nbsp;"
-            f"ATM IV {opts.get('atm_iv','—')}%&nbsp;&nbsp;·&nbsp;&nbsp;"
-            f"Exp {opts.get('expiry','—')}"
+            f"ATM IV {opts.get('atm_iv','—')}%"
         )
 
-        # Top-volume contract
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        def _fmt_expiry(d):
+            try: return datetime.strptime(d, "%Y-%m-%d").strftime("%b %d")
+            except: return d or "—"
+
+        def _days_out(d):
+            try:
+                from datetime import date
+                delta = (datetime.strptime(d, "%Y-%m-%d").date() - date.today()).days
+                return delta
+            except: return 999
+
+        # Top-volume contract — skip if 0DTE
         tvs = opts.get("top_vol_strike")
         tve = opts.get("top_vol_expiry") or opts.get("expiry", "")
         tvc = opts.get("top_vol_contracts")
-        if tvs is not None:
+        if tvs is not None and tve != today_str:
+            days = _days_out(tve)
             contracts_str = f"&nbsp;·&nbsp;{tvc:,} contracts" if tvc else ""
+            days_str = f"&nbsp;·&nbsp;{days}d out" if days < 999 else ""
             top_vol_block = (
-                f'<div style="margin-top:6px;padding:8px 10px;background:#0a1628;'
-                f'border-left:3px solid #22c55e;border-radius:0 6px 6px 0;">'
-                f'<div style="font-size:9px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">🔥 Most Active Strike</div>'
-                f'<span style="font-size:15px;font-weight:900;color:#22c55e;">${tvs:g}&nbsp;C</span>'
-                f'<span style="font-size:11px;color:#64748b;">&nbsp;&nbsp;Exp&nbsp;{tve}{contracts_str}</span>'
+                f'<div style="margin-top:6px;padding:10px 12px;background:#071a10;'
+                f'border-left:4px solid #22c55e;border-radius:0 8px 8px 0;">'
+                f'<div style="font-size:9px;color:#22c55e;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.08em;margin-bottom:4px;">⚡ ACTIONABLE · 🔥 Most Active Strike</div>'
+                f'<span style="font-size:18px;font-weight:900;color:#4ade80;">${tvs:g}&nbsp;C</span>'
+                f'<span style="font-size:12px;color:#86efac;font-weight:600;">'
+                f'&nbsp;&nbsp;Exp&nbsp;<strong>{_fmt_expiry(tve)}</strong>{days_str}{contracts_str}</span>'
                 f'</div>'
             )
 
-        # Top-premium contract
+        # Top-premium contract — skip if 0DTE
         tps = opts.get("top_prem_strike")
         tpe = opts.get("top_prem_expiry") or opts.get("expiry", "")
         tpk = opts.get("top_prem_value_k")
         tpc = opts.get("top_prem_contracts")
-        if tps is not None:
-            prem_str = f"&nbsp;·&nbsp;${tpk:,.0f}K premium" if tpk else ""
+        if tps is not None and tpe != today_str:
+            prem_str = f"&nbsp;·&nbsp;${tpk/1000:.1f}M premium" if tpk and tpk >= 1000 else (f"&nbsp;·&nbsp;${tpk:,.0f}K premium" if tpk else "")
             contracts_str2 = f"&nbsp;·&nbsp;{tpc:,} contracts" if tpc else ""
+            days2 = _days_out(tpe)
+            days_str2 = f"&nbsp;·&nbsp;{days2}d out" if days2 < 999 else ""
             top_prem_block = (
-                f'<div style="margin-top:6px;padding:8px 10px;background:#0a1628;'
-                f'border-left:3px solid #f97316;border-radius:0 6px 6px 0;">'
-                f'<div style="font-size:9px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">💰 Most Premium Traded</div>'
-                f'<span style="font-size:15px;font-weight:900;color:#f97316;">${tps:g}&nbsp;C</span>'
-                f'<span style="font-size:11px;color:#64748b;">&nbsp;&nbsp;Exp&nbsp;{tpe}{prem_str}{contracts_str2}</span>'
+                f'<div style="margin-top:6px;padding:10px 12px;background:#1a0d04;'
+                f'border-left:4px solid #f97316;border-radius:0 8px 8px 0;">'
+                f'<div style="font-size:9px;color:#f97316;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.08em;margin-bottom:4px;">⚡ ACTIONABLE · 💰 Most Premium Traded</div>'
+                f'<span style="font-size:18px;font-weight:900;color:#fb923c;">${tps:g}&nbsp;C</span>'
+                f'<span style="font-size:12px;color:#fdba74;font-weight:600;">'
+                f'&nbsp;&nbsp;Exp&nbsp;<strong>{_fmt_expiry(tpe)}</strong>{days_str2}{prem_str}{contracts_str2}</span>'
                 f'</div>'
             )
 
