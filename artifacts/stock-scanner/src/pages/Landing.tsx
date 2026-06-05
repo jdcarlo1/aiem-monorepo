@@ -41,9 +41,12 @@ export default function Landing() {
     fetchBullFlow().then(d => setLiveFlow(d.results ?? [])).catch(() => {});
   }, []);
 
-  // Build ticker tape from live data; show loading state until data arrives
-  const tickerSignals: string[] = liveFlow.length >= 3
-    ? liveFlow.slice(0, 8).map(r => {
+  // Only bullish signals (calls significantly outpacing puts) — C/P ≥ 2
+  const bullishFlow = liveFlow.filter(r => r.call_put_ratio >= 2);
+
+  // Build ticker tape from bullish-only live data
+  const tickerSignals: string[] = bullishFlow.length >= 2
+    ? bullishFlow.slice(0, 8).map(r => {
         const b = getBadge(r.call_put_ratio);
         return `${b.text.split(" ")[0]} ${r.ticker} ${fmtStrike(r.strike, r.price)} ${fmtExpiry(r.expiry)} · ${fmtPrem(r.premium_m)} · ${r.call_put_ratio.toFixed(1)}x C/P`;
       })
@@ -227,7 +230,7 @@ export default function Landing() {
               <span className="text-xs font-black px-3 py-1.5 rounded-full" style={{ background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.35)", color: "#fbbf24" }}>🚨 HIGH CONVICTION — SOMEBODY KNOWS SOMETHING (5x+ C/P)</span>
             </div>
             <div className="space-y-2.5 mb-5">
-              {(liveFlow.length >= 4 ? liveFlow.slice(0, 4) : [
+              {(bullishFlow.length >= 4 ? bullishFlow.slice(0, 4) : [
                 { rank: 1, ticker: "AAPL", price: 307, strike: null, expiry: null, premium_m: 11.2, call_put_ratio: 8.9, premium_k: 11200, call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
                 { rank: 2, ticker: "NVDA", price: 135, strike: null, expiry: null, premium_m: 9.4,  call_put_ratio: 1.7, premium_k: 9400,  call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
                 { rank: 3, ticker: "META", price: 650, strike: null, expiry: null, premium_m: 5.1,  call_put_ratio: 4.1, premium_k: 5100,  call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
