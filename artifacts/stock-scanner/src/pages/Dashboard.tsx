@@ -6,10 +6,10 @@ import {
   propScan, propTrade, propReset, smartMoneyScan,
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
-  fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis,
+  fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
-  CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade,
+  CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -1585,6 +1585,158 @@ function MarketTab() {
 
 // ─── Bull Flow Top 20 ────────────────────────────────────────────────────────
 
+function BreakoutTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<BreakoutSignal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+
+  const run = async () => {
+    setLoading(true); setError(null);
+    try {
+      const data = await fetchBreakoutRadar();
+      setResults(data.results);
+      setScanned(data.scanned);
+      setLastRun(new Date());
+    } catch (e: any) {
+      setError(e.message ?? "Scan failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { run(); }, []);
+
+  const scoreColor = (s: number) =>
+    s >= 80 ? "text-emerald-300" : s >= 60 ? "text-green-400" : s >= 40 ? "text-yellow-400" : "text-slate-400";
+  const scoreBg = (s: number) =>
+    s >= 80 ? "bg-emerald-400" : s >= 60 ? "bg-green-500" : s >= 40 ? "bg-yellow-500" : "bg-slate-500";
+  const rankBg = (rank: number) =>
+    rank === 1 ? "bg-yellow-900/20 border-yellow-700/30"
+    : rank === 2 ? "bg-slate-700/20 border-slate-600/30"
+    : rank === 3 ? "bg-orange-900/20 border-orange-700/30"
+    : "bg-slate-900/40 border-slate-800/40";
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <div>
+            <h2 className="text-white font-bold text-lg">🚀 Breakout Radar</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Stocks showing technical breakout signals across MACD, RSI, volume surge, and 52-week high proximity. Breakout Score is 0–100 composite.
+            </p>
+          </div>
+          <button
+            onClick={run} disabled={loading}
+            className="shrink-0 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+          >
+            {loading ? <><Spinner /> Scanning…</> : "🚀 Run Scan"}
+          </button>
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          {[
+            { label: "MACD ✓", desc: "MACD above signal line", color: "bg-blue-900/40 text-blue-300 border-blue-700/40" },
+            { label: "MACD ⚡", desc: "Fresh crossover today", color: "bg-purple-900/40 text-purple-300 border-purple-700/40" },
+            { label: "RSI ✓",  desc: "RSI in momentum zone 55–70", color: "bg-cyan-900/40 text-cyan-300 border-cyan-700/40" },
+            { label: "Vol ⬆",  desc: "Volume surge vs 20d avg", color: "bg-orange-900/40 text-orange-300 border-orange-700/40" },
+            { label: "Near High", desc: "Within 7% of 52W high", color: "bg-emerald-900/40 text-emerald-300 border-emerald-700/40" },
+            { label: "Golden ✕", desc: "SMA50 > SMA200", color: "bg-yellow-900/40 text-yellow-300 border-yellow-700/40" },
+          ].map(b => (
+            <span key={b.label} title={b.desc} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${b.color}`}>{b.label}</span>
+          ))}
+        </div>
+
+        {lastRun && <p className="text-slate-600 text-xs mt-2">Scanned {scanned} tickers · {lastRun.toLocaleTimeString()}</p>}
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+      </div>
+
+      {!loading && results.length === 0 && !error && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">🚀</div>
+          <div className="font-semibold text-slate-400 mb-1">Run the scan to find breakout candidates</div>
+          <div className="text-sm">Scores every ticker across MACD, RSI, volume, and 52W high proximity</div>
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div className="space-y-2">
+          {results.map(row => (
+            <button
+              key={row.ticker}
+              onClick={() => onSelectTicker(row.ticker)}
+              className={`w-full text-left rounded-xl border p-4 transition-all hover:border-emerald-700/50 hover:bg-emerald-950/10 ${rankBg(row.rank)}`}
+            >
+              <div className="flex items-center gap-4">
+                {/* Rank */}
+                <span className="text-xl w-8 text-center shrink-0">
+                  {row.rank === 1 ? "🥇" : row.rank === 2 ? "🥈" : row.rank === 3 ? "🥉" : `#${row.rank}`}
+                </span>
+
+                {/* Ticker + signals */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <span className="text-white font-black text-lg">{row.ticker}</span>
+                    <span className="text-slate-400 text-sm">${row.price.toLocaleString()}</span>
+                    {row.macd_cross && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-900/40 text-purple-300 border border-purple-700/40">⚡ MACD Cross</span>
+                    )}
+                    {!row.macd_cross && row.macd_bullish && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-700/40">MACD ✓</span>
+                    )}
+                    {row.rsi >= 55 && row.rsi <= 70 && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-cyan-900/40 text-cyan-300 border border-cyan-700/40">RSI {row.rsi.toFixed(0)}</span>
+                    )}
+                    {row.volume_ratio >= 1.5 && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-900/40 text-orange-300 border border-orange-700/40">Vol {row.volume_ratio.toFixed(1)}x ⬆</span>
+                    )}
+                    {row.pct_from_52w_high >= -7 && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 border border-emerald-700/40">
+                        {row.pct_from_52w_high === 0 ? "🏆 52W High" : `Near High ${row.pct_from_52w_high.toFixed(1)}%`}
+                      </span>
+                    )}
+                    {row.golden_cross && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-300 border border-yellow-700/40">Golden ✕</span>
+                    )}
+                  </div>
+
+                  {/* Score bar */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-slate-800 rounded-full h-1.5 max-w-48">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${scoreBg(row.breakout_score)}`}
+                        style={{ width: `${Math.min(row.breakout_score, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs font-semibold ${scoreColor(row.breakout_score)}`}>
+                      {row.breakout_score}/100
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right: score + SMAs */}
+                <div className="text-right shrink-0">
+                  <div className={`font-black text-2xl ${scoreColor(row.breakout_score)}`}>{row.breakout_score}</div>
+                  <div className="flex gap-1 mt-0.5 justify-end">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${row.above_sma50 ? "bg-emerald-900/30 text-emerald-400" : "bg-slate-800 text-slate-600"}`}>50</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${row.above_sma200 ? "bg-emerald-900/30 text-emerald-400" : "bg-slate-800 text-slate-600"}`}>200</span>
+                  </div>
+                </div>
+              </div>
+            </button>
+          ))}
+          <p className="text-center text-slate-600 text-xs pt-2">
+            Tap any stock to deep-dive in Stock Lookup · Technical data from yfinance
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SqueezeTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [results, setResults] = useState<SqueezeSignal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -2109,7 +2261,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders">("lookup");
+  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout">("lookup");
   const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
   const qc = useQueryClient();
@@ -2167,6 +2319,7 @@ export default function Dashboard() {
     { id: "bullflow",   label: "🔥 Bull Flow" },
     { id: "squeeze",    label: "💥 Squeeze" },
     { id: "insiders",   label: "🏢 Insiders" },
+    { id: "breakout",   label: "🚀 Breakout" },
     { id: "market",     label: "📊 Market" },
   ] as const;
 
@@ -2317,6 +2470,7 @@ export default function Dashboard() {
         {tab === "market"     && <MarketTab />}
         {tab === "squeeze"    && <SqueezeTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "insiders"   && <InsidersTab />}
+        {tab === "breakout"   && <BreakoutTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
 
         {/* --- Portfolio --- */}
         {tab === "portfolio" && (

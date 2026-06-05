@@ -709,6 +709,132 @@ def ai_thesis():
     return jsonify({"ticker": ticker, "thesis": " ".join(parts[:4])})
 
 
+@app.route("/stock-api/breakout/radar", methods=["POST"])
+def breakout_radar():
+    import yfinance as yf
+    import numpy as np
+    import pandas as pd
+
+    body    = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", DEFAULT_LEADERBOARD)
+    if not isinstance(tickers, list) or not tickers:
+        tickers = DEFAULT_LEADERBOARD
+    tickers = [t.strip().upper() for t in tickers[:60]]
+
+    def _score(ticker):
+        try:
+            tkr  = yf.Ticker(ticker)
+            hist = tkr.history(period="1y")
+            if hist is None or len(hist) < 50:
+                return None
+
+            close  = hist["Close"]
+            volume = hist["Volume"]
+
+            price     = float(close.iloc[-1])
+            high_52w  = float(close.rolling(252).max().iloc[-1])
+            pct_52w   = round((price - high_52w) / high_52w * 100, 1)   # 0 = at 52w high
+
+            sma50  = float(close.rolling(50).mean().iloc[-1])
+            sma200 = float(close.rolling(200).mean().iloc[-1])
+
+            # EMA for MACD
+            ema12  = close.ewm(span=12, adjust=False).mean()
+            ema26  = close.ewm(span=26, adjust=False).mean()
+            macd   = ema12 - ema26
+            signal = macd.ewm(span=9, adjust=False).mean()
+            macd_val   = float(macd.iloc[-1])
+            signal_val = float(signal.iloc[-1])
+            macd_prev  = float(macd.iloc[-2])
+            sig_prev   = float(signal.iloc[-2])
+            macd_cross = macd_prev < sig_prev and macd_val > signal_val  # fresh crossover
+
+            # RSI
+            delta = close.diff()
+            gain  = delta.clip(lower=0).rolling(14).mean()
+            loss  = (-delta.clip(upper=0)).rolling(14).mean()
+            rs    = gain / loss.replace(0, np.nan)
+            rsi   = float(100 - 100 / (1 + rs.iloc[-1]))
+
+            # Volume surge
+            avg_vol    = float(volume.iloc[-21:-1].mean())
+            today_vol  = float(volume.iloc[-1])
+            vol_ratio  = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
+
+            # ── Scoring ──────────────────────────────────────────────
+            score = 0
+
+            # MACD (0-25)
+            if macd_cross:
+                score += 25
+            elif macd_val > signal_val:
+                score += 15
+            elif macd_val > 0:
+                score += 5
+
+            # RSI (0-25)
+            if 55 <= rsi <= 70:
+                score += 25
+            elif 50 <= rsi < 55:
+                score += 15
+            elif 70 < rsi <= 80:
+                score += 10
+            elif 45 <= rsi < 50:
+                score += 5
+
+            # Volume surge (0-25)
+            if vol_ratio >= 2.0:
+                score += 25
+            elif vol_ratio >= 1.5:
+                score += 18
+            elif vol_ratio >= 1.2:
+                score += 10
+
+            # 52W high proximity (0-25): pct_52w is 0 at high, negative below
+            if pct_52w >= -3:
+                score += 25
+            elif pct_52w >= -7:
+                score += 18
+            elif pct_52w >= -12:
+                score += 12
+            elif pct_52w >= -20:
+                score += 6
+
+            if score < 20:
+                return None
+
+            return {
+                "ticker":           ticker,
+                "price":            round(price, 2),
+                "breakout_score":   score,
+                "rsi":              round(rsi, 1),
+                "macd_bullish":     macd_val > signal_val,
+                "macd_cross":       macd_cross,
+                "volume_ratio":     vol_ratio,
+                "pct_from_52w_high": pct_52w,
+                "above_sma50":      price > sma50,
+                "above_sma200":     price > sma200,
+                "golden_cross":     sma50 > sma200,
+            }
+        except Exception:
+            return None
+
+    rows = []
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        futures = {ex.submit(_score, t): t for t in tickers}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                rows.append(r)
+
+    rows.sort(key=lambda x: x["breakout_score"], reverse=True)
+    top = rows[:20]
+    for i, r in enumerate(top):
+        r["rank"] = i + 1
+
+    return jsonify({"results": top, "scanned": len(tickers)})
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

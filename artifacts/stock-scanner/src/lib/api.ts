@@ -346,6 +346,32 @@ export interface InsiderTrade {
   date: string;
 }
 
+export interface BreakoutSignal {
+  rank: number;
+  ticker: string;
+  price: number;
+  breakout_score: number;
+  rsi: number;
+  macd_bullish: boolean;
+  macd_cross: boolean;
+  volume_ratio: number;
+  pct_from_52w_high: number;
+  above_sma50: boolean;
+  above_sma200: boolean;
+  golden_cross: boolean;
+}
+
+export function fetchBreakoutRadar(tickers?: string[]) {
+  return fetchJson<{ results: BreakoutSignal[]; scanned: number }>(
+    "/breakout/radar",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers: tickers ?? [] }),
+    }
+  );
+}
+
 export function fetchSqueezeSignals(tickers?: string[]) {
   return fetchJson<{ results: SqueezeSignal[]; scanned: number }>(
     "/squeeze/detector",
