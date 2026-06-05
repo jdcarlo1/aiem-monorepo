@@ -88,18 +88,75 @@ def fetch_options_data(ticker: str) -> dict:
             otm_mask     = (calls["strike"] > cur_price * 1.03) & (calls["strike"] < cur_price * 1.20)
             otm_call_vol = _f(calls.loc[otm_mask, "volume"].sum())
 
+        # ── Top-volume expiry: scan up to 4 nearest expiries, pick highest call vol ──
+        top_vol_expiry    = exp
+        top_vol_strike    = None
+        top_vol_contracts = 0
+        top_prem_expiry   = exp
+        top_prem_strike   = None
+        top_prem_contracts = 0
+        top_prem_value    = 0.0   # ask × volume (dollar premium traded)
+
+        scan_exps = [e for e in exps if datetime.strptime(e, "%Y-%m-%d").date() >= today][:4]
+        best_exp_vol = total_call_vol  # start with what we already have
+
+        for se in scan_exps:
+            try:
+                sc = tkr.option_chain(se).calls.copy()
+                for col in ["volume", "openInterest", "ask"]:
+                    if col in sc.columns:
+                        sc[col] = pd.to_numeric(sc[col], errors="coerce").fillna(0)
+
+                se_total_vol = _f(sc["volume"].sum())
+
+                # Highest-volume expiry
+                if se_total_vol > best_exp_vol:
+                    best_exp_vol   = se_total_vol
+                    top_vol_expiry = se
+
+                # Highest-volume strike in this expiry
+                if not sc.empty and "volume" in sc.columns and "strike" in sc.columns:
+                    best_row = sc.loc[sc["volume"].idxmax()]
+                    sv = _f(best_row["volume"])
+                    if sv > top_vol_contracts:
+                        top_vol_contracts = int(sv)
+                        top_vol_strike    = float(best_row["strike"])
+                        top_vol_expiry    = se
+
+                # Highest-premium strike: ask × volume (dollar value of contracts traded)
+                if "ask" in sc.columns and "volume" in sc.columns and "strike" in sc.columns:
+                    sc["_prem"] = sc["ask"] * sc["volume"] * 100
+                    best_prem_row = sc.loc[sc["_prem"].idxmax()]
+                    pv = _f(best_prem_row["_prem"])
+                    if pv > top_prem_value:
+                        top_prem_value     = pv
+                        top_prem_strike    = float(best_prem_row["strike"])
+                        top_prem_contracts = int(_f(best_prem_row["volume"]))
+                        top_prem_expiry    = se
+            except Exception:
+                continue
+
         return {
-            "call_vol_oi":    _f(call_vol_oi),
-            "put_vol_oi":     _f(put_vol_oi),
-            "call_put_ratio": _f(call_put_ratio),
-            "cp_oi_ratio":    _f(cp_oi_ratio),
-            "total_call_vol": total_call_vol,
-            "total_put_vol":  total_put_vol,
-            "total_call_oi":  total_call_oi,
-            "total_put_oi":   total_put_oi,
-            "atm_iv":         atm_iv,
-            "otm_call_vol":   otm_call_vol,
-            "expiry":         exp,
+            "call_vol_oi":         _f(call_vol_oi),
+            "put_vol_oi":          _f(put_vol_oi),
+            "call_put_ratio":      _f(call_put_ratio),
+            "cp_oi_ratio":         _f(cp_oi_ratio),
+            "total_call_vol":      total_call_vol,
+            "total_put_vol":       total_put_vol,
+            "total_call_oi":       total_call_oi,
+            "total_put_oi":        total_put_oi,
+            "atm_iv":              atm_iv,
+            "otm_call_vol":        otm_call_vol,
+            "expiry":              exp,
+            # Top-volume contract
+            "top_vol_strike":      top_vol_strike,
+            "top_vol_expiry":      top_vol_expiry,
+            "top_vol_contracts":   top_vol_contracts,
+            # Top-premium contract (most dollar value traded)
+            "top_prem_strike":     top_prem_strike,
+            "top_prem_expiry":     top_prem_expiry,
+            "top_prem_contracts":  top_prem_contracts,
+            "top_prem_value":      round(top_prem_value / 1_000, 1),  # in $K
         }
     except Exception:
         return {}
@@ -397,18 +454,27 @@ def compute_smart_money(ticker: str, df, spy_ret_1m: float = 0.0,
         options_summary = None
         if has_opts:
             options_summary = {
-                "expiry":          expiry,
-                "call_vol_oi":     round(call_vol_oi, 3),
-                "put_vol_oi":      round(put_vol_oi, 3),
-                "call_put_ratio":  round(call_put_ratio, 2),
-                "cp_oi_ratio":     round(cp_oi_ratio, 2),
-                "total_call_vol":  int(total_call_vol),
-                "total_put_vol":   int(total_put_vol),
-                "total_call_oi":   int(total_call_oi),
-                "total_put_oi":    int(total_put_oi),
-                "otm_call_vol":    int(otm_call_vol),
-                "atm_iv":          round(atm_iv * 100, 1) if atm_iv is not None else None,
-                "data_source":     "yfinance (15-min delayed)",
+                "expiry":              expiry,
+                "call_vol_oi":         round(call_vol_oi, 3),
+                "put_vol_oi":          round(put_vol_oi, 3),
+                "call_put_ratio":      round(call_put_ratio, 2),
+                "cp_oi_ratio":         round(cp_oi_ratio, 2),
+                "total_call_vol":      int(total_call_vol),
+                "total_put_vol":       int(total_put_vol),
+                "total_call_oi":       int(total_call_oi),
+                "total_put_oi":        int(total_put_oi),
+                "otm_call_vol":        int(otm_call_vol),
+                "atm_iv":              round(atm_iv * 100, 1) if atm_iv is not None else None,
+                "data_source":         "yfinance (15-min delayed)",
+                # Top-volume contract (most active strike)
+                "top_vol_strike":      opts.get("top_vol_strike"),
+                "top_vol_expiry":      opts.get("top_vol_expiry"),
+                "top_vol_contracts":   opts.get("top_vol_contracts"),
+                # Top-premium contract (most dollar value traded)
+                "top_prem_strike":     opts.get("top_prem_strike"),
+                "top_prem_expiry":     opts.get("top_prem_expiry"),
+                "top_prem_contracts":  opts.get("top_prem_contracts"),
+                "top_prem_value_k":    opts.get("top_prem_value"),  # $K
             }
 
         return {

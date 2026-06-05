@@ -228,6 +228,9 @@ def _signal_html(s: dict, rank: int, perf: dict) -> str:
     medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
 
     opts_line = ""
+    top_vol_block  = ""
+    top_prem_block = ""
+
     if opts:
         opts_line = (
             f"Vol/OI {opts.get('call_vol_oi','—')}&nbsp;&nbsp;·&nbsp;&nbsp;"
@@ -235,6 +238,38 @@ def _signal_html(s: dict, rank: int, perf: dict) -> str:
             f"ATM IV {opts.get('atm_iv','—')}%&nbsp;&nbsp;·&nbsp;&nbsp;"
             f"Exp {opts.get('expiry','—')}"
         )
+
+        # Top-volume contract
+        tvs = opts.get("top_vol_strike")
+        tve = opts.get("top_vol_expiry") or opts.get("expiry", "")
+        tvc = opts.get("top_vol_contracts")
+        if tvs is not None:
+            contracts_str = f"&nbsp;·&nbsp;{tvc:,} contracts" if tvc else ""
+            top_vol_block = (
+                f'<div style="margin-top:6px;padding:8px 10px;background:#0a1628;'
+                f'border-left:3px solid #22c55e;border-radius:0 6px 6px 0;">'
+                f'<div style="font-size:9px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">🔥 Most Active Strike</div>'
+                f'<span style="font-size:15px;font-weight:900;color:#22c55e;">${tvs:g}&nbsp;C</span>'
+                f'<span style="font-size:11px;color:#64748b;">&nbsp;&nbsp;Exp&nbsp;{tve}{contracts_str}</span>'
+                f'</div>'
+            )
+
+        # Top-premium contract
+        tps = opts.get("top_prem_strike")
+        tpe = opts.get("top_prem_expiry") or opts.get("expiry", "")
+        tpk = opts.get("top_prem_value_k")
+        tpc = opts.get("top_prem_contracts")
+        if tps is not None:
+            prem_str = f"&nbsp;·&nbsp;${tpk:,.0f}K premium" if tpk else ""
+            contracts_str2 = f"&nbsp;·&nbsp;{tpc:,} contracts" if tpc else ""
+            top_prem_block = (
+                f'<div style="margin-top:6px;padding:8px 10px;background:#0a1628;'
+                f'border-left:3px solid #f97316;border-radius:0 6px 6px 0;">'
+                f'<div style="font-size:9px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">💰 Most Premium Traded</div>'
+                f'<span style="font-size:15px;font-weight:900;color:#f97316;">${tps:g}&nbsp;C</span>'
+                f'<span style="font-size:11px;color:#64748b;">&nbsp;&nbsp;Exp&nbsp;{tpe}{prem_str}{contracts_str2}</span>'
+                f'</div>'
+            )
 
     perf_row  = _perf_html(perf)
 
@@ -272,10 +307,16 @@ def _signal_html(s: dict, rank: int, perf: dict) -> str:
           <!-- Options data row -->
           {"" if not opts_line else f'''
           <tr>
-            <td colspan="2" style="padding:0 16px 10px;font-size:11px;color:#64748b;border-top:1px solid #1e293b;">
-              <div style="padding-top:8px;">
-                📡 {opts_line}
-              </div>
+            <td colspan="2" style="padding:8px 16px 4px;font-size:11px;color:#64748b;border-top:1px solid #1e293b;">
+              📡 {opts_line}
+            </td>
+          </tr>'''}
+          <!-- Top-volume + top-premium contract blocks -->
+          {"" if not (top_vol_block or top_prem_block) else f'''
+          <tr>
+            <td colspan="2" style="padding:4px 16px 12px;">
+              {top_vol_block}
+              {top_prem_block}
             </td>
           </tr>'''}
           <!-- Signal + thesis row -->
