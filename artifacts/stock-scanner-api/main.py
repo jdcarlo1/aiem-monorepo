@@ -15,6 +15,7 @@ from email_alerts import (
     init_db, subscribe, unsubscribe, get_active_subscribers,
     send_daily_digest, smtp_configured, subscriber_count,
 )
+from historical_performance import init_score_history_table, save_scan_scores
 import execution
 import pnl
 
@@ -23,6 +24,7 @@ CORS(app)
 
 # ── init DB & scheduler ──────────────────────────────────────────────────────
 init_db()
+init_score_history_table()
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -31,49 +33,41 @@ try:
 
     _ET = pytz.timezone("US/Eastern")
 
+    def _do_scan_and_save(session: str) -> None:
+        """Run a Smart Money scan, save scores to history, then email subscribers."""
+        result  = scan_smart_money(DEFAULT_LEADERBOARD)
+        signals = result.get("leaderboard", [])
+        # Persist every scan so historical performance can build up over time
+        save_scan_scores(signals)
+        base_url = os.getenv("PUBLIC_URL", "")
+        out = send_daily_digest(signals, base_url, session=session)
+        print(f"[scheduler] {session} scan → {out}")
+
     def _run_premarket_scan():
-        """9:00 AM ET — pre-market OI watch. Options haven't opened yet so we use
-        overnight Open Interest from yfinance (prior day's settled OI). Shows who
-        loaded up positions yesterday heading into today."""
+        """9:00 AM ET — overnight OI; options haven't opened yet."""
         try:
-            result   = scan_smart_money(DEFAULT_LEADERBOARD)
-            signals  = result.get("leaderboard", [])
-            base_url = os.getenv("PUBLIC_URL", "")
-            out = send_daily_digest(signals, base_url, session="premarket")
-            print(f"[scheduler] Pre-market OI scan sent: {out}")
+            _do_scan_and_save("premarket")
         except Exception as e:
             print(f"[scheduler] pre-market scan error: {e}")
 
     def _run_morning_scan():
-        """9:45 AM ET — first real options data 15 min after open. Catch opening sweeps."""
+        """9:45 AM ET — first real options data 15 min after open."""
         try:
-            result   = scan_smart_money(DEFAULT_LEADERBOARD)
-            signals  = result.get("leaderboard", [])
-            base_url = os.getenv("PUBLIC_URL", "")
-            out = send_daily_digest(signals, base_url, session="morning")
-            print(f"[scheduler] Morning scan sent: {out}")
+            _do_scan_and_save("morning")
         except Exception as e:
             print(f"[scheduler] morning scan error: {e}")
 
     def _run_preclose_scan():
-        """3:30 PM ET — 30 min before close. Last chance for subscribers to act."""
+        """3:30 PM ET — 30 min before close. Last chance to act."""
         try:
-            result   = scan_smart_money(DEFAULT_LEADERBOARD)
-            signals  = result.get("leaderboard", [])
-            base_url = os.getenv("PUBLIC_URL", "")
-            out = send_daily_digest(signals, base_url, session="preclose")
-            print(f"[scheduler] Pre-close scan sent: {out}")
+            _do_scan_and_save("preclose")
         except Exception as e:
             print(f"[scheduler] pre-close scan error: {e}")
 
     def _run_eod_scan():
-        """4:15 PM ET — 15 min after close. Full-day final options flow summary."""
+        """4:15 PM ET — full-day final options flow summary."""
         try:
-            result   = scan_smart_money(DEFAULT_LEADERBOARD)
-            signals  = result.get("leaderboard", [])
-            base_url = os.getenv("PUBLIC_URL", "")
-            out = send_daily_digest(signals, base_url, session="eod")
-            print(f"[scheduler] EOD scan sent: {out}")
+            _do_scan_and_save("eod")
         except Exception as e:
             print(f"[scheduler] EOD scan error: {e}")
 

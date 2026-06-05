@@ -13,6 +13,7 @@ Env vars needed:
 import os
 import smtplib
 import secrets
+from historical_performance import get_historical_performance
 import psycopg2
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -157,7 +158,64 @@ def _bullish_label(score: int) -> tuple[str, str]:
     return ("⬇️ Weak / Neutral", "#64748b")
 
 
-def _signal_html(s: dict, rank: int) -> str:
+def _perf_cell(val) -> str:
+    """Render a single performance cell — green positive, red negative, gray none."""
+    if val is None:
+        return '<td style="padding:3px 6px;text-align:center;color:#334155;font-size:10px;">—</td>'
+    color = "#22c55e" if val >= 0 else "#ef4444"
+    sign  = "+" if val >= 0 else ""
+    return (f'<td style="padding:3px 6px;text-align:center;font-size:10px;'
+            f'font-weight:700;color:{color};">{sign}{val:.1f}%</td>')
+
+
+def _perf_html(perf: dict) -> str:
+    """Build the historical performance table rows for the email card."""
+    count = perf.get("count", 0)
+    if count == 0:
+        return ""
+
+    day_keys  = [("1d","1D"), ("2d","2D"), ("3d","3D"), ("4d","4D"), ("5d","5D")]
+    week_keys = [("1w","1W"), ("2w","2W"), ("3w","3W"), ("4w","4W")]
+
+    def header_cells(pairs):
+        return "".join(
+            f'<th style="padding:3px 6px;text-align:center;color:#475569;'
+            f'font-size:9px;font-weight:600;text-transform:uppercase;">{lbl}</th>'
+            for _, lbl in pairs
+        )
+
+    def value_cells(pairs):
+        return "".join(_perf_cell(perf.get(key)) for key, _ in pairs)
+
+    return f"""
+    <tr>
+      <td colspan="2" style="padding:10px 16px 14px;border-top:1px solid #1e293b;">
+        <div style="font-size:10px;color:#475569;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;">
+          📊 Last {count} similar signal{'s' if count != 1 else ''} — avg % return after entry
+        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0f1a;border-radius:6px;">
+          <tr style="border-bottom:1px solid #1e293b;">
+            <th style="padding:4px 6px;text-align:left;color:#334155;font-size:9px;font-weight:600;white-space:nowrap;">Days →</th>
+            {header_cells(day_keys)}
+          </tr>
+          <tr>
+            <td style="padding:3px 6px;color:#475569;font-size:9px;white-space:nowrap;">Return</td>
+            {value_cells(day_keys)}
+          </tr>
+          <tr style="border-top:1px solid #0f172a;">
+            <th style="padding:4px 6px;text-align:left;color:#334155;font-size:9px;font-weight:600;white-space:nowrap;">Weeks →</th>
+            {header_cells(week_keys)}
+          </tr>
+          <tr>
+            <td style="padding:3px 6px;color:#475569;font-size:9px;white-space:nowrap;">Return</td>
+            {value_cells(week_keys)}
+          </tr>
+        </table>
+      </td>
+    </tr>"""
+
+
+def _signal_html(s: dict, rank: int, perf: dict) -> str:
     score       = s.get("smart_money_score", 0)
     score_color = _score_color(score)
     label, label_color = _bullish_label(score)
@@ -177,6 +235,8 @@ def _signal_html(s: dict, rank: int) -> str:
             f"ATM IV {opts.get('atm_iv','—')}%&nbsp;&nbsp;·&nbsp;&nbsp;"
             f"Exp {opts.get('expiry','—')}"
         )
+
+    perf_row  = _perf_html(perf)
 
     return f"""
     <tr>
@@ -229,6 +289,8 @@ def _signal_html(s: dict, rank: int) -> str:
               </div>
             </td>
           </tr>
+          <!-- Historical performance row -->
+          {perf_row}
         </table>
       </td>
     </tr>"""
@@ -238,7 +300,13 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
                        base_url: str = "", session: str = "eod") -> str:
     # Always rank highest score first
     ranked = sorted(signals, key=lambda s: s.get("smart_money_score", 0), reverse=True)
-    rows      = "".join(_signal_html(s, i + 1) for i, s in enumerate(ranked))
+    rows = ""
+    for i, s in enumerate(ranked):
+        try:
+            perf = get_historical_performance(s.get("ticker", ""), s.get("smart_money_score", 0))
+        except Exception:
+            perf = {"count": 0}
+        rows += _signal_html(s, i + 1, perf)
     unsub_url = f"{base_url}/stock-api/alerts/unsubscribe/{unsub_token}"
     count     = len(ranked)
 
