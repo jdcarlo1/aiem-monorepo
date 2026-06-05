@@ -148,51 +148,99 @@ def _score_color(score: int) -> str:
     return "#94a3b8"
 
 
-def _signal_html(s: dict) -> str:
-    score = s.get("smart_money_score", 0)
-    color = _score_color(score)
-    opts  = s.get("options_summary") or {}
-    opts_row = ""
+def _bullish_label(score: int) -> tuple[str, str]:
+    """Returns (label, color) based on score."""
+    if score >= 85: return ("🔥 Extremely Bullish", "#f97316")
+    if score >= 70: return ("📈 Very Bullish",      "#22c55e")
+    if score >= 60: return ("↗️ Bullish",            "#06b6d4")
+    if score >= 45: return ("➡️ Mildly Bullish",     "#f59e0b")
+    return ("⬇️ Weak / Neutral", "#64748b")
+
+
+def _signal_html(s: dict, rank: int) -> str:
+    score       = s.get("smart_money_score", 0)
+    score_color = _score_color(score)
+    label, label_color = _bullish_label(score)
+    opts        = s.get("options_summary") or {}
+    ticker      = s.get("ticker", "")
+    price       = s.get("price", 0)
+    thesis      = s.get("thesis", "")
+
+    # Rank medal for top 3
+    medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
+
+    opts_line = ""
     if opts:
-        opts_row = f"""
-        <tr>
-          <td colspan="4" style="padding:4px 0 8px;font-size:12px;color:#94a3b8;">
-            📡 <b>Real options:</b>
-            Vol/OI&nbsp;{opts.get('call_vol_oi','—')} &nbsp;|&nbsp;
-            C/P&nbsp;{opts.get('call_put_ratio','—')}x &nbsp;|&nbsp;
-            ATM&nbsp;IV&nbsp;{opts.get('atm_iv','—')}% &nbsp;|&nbsp;
-            Expiry&nbsp;{opts.get('expiry','—')}
-          </td>
-        </tr>"""
+        opts_line = (
+            f"Vol/OI {opts.get('call_vol_oi','—')}&nbsp;&nbsp;·&nbsp;&nbsp;"
+            f"C/P {opts.get('call_put_ratio','—')}x&nbsp;&nbsp;·&nbsp;&nbsp;"
+            f"ATM IV {opts.get('atm_iv','—')}%&nbsp;&nbsp;·&nbsp;&nbsp;"
+            f"Exp {opts.get('expiry','—')}"
+        )
+
     return f"""
-    <tr style="border-bottom:1px solid #1e293b;">
-      <td style="padding:12px 8px;font-weight:700;font-size:16px;color:#fff;">
-        {s['ticker']}
-        <div style="font-size:11px;color:#64748b;font-weight:400;">${s.get('price',0):.2f}</div>
-      </td>
-      <td style="padding:12px 8px;text-align:center;">
-        <span style="background:{color};color:#000;padding:4px 10px;border-radius:20px;font-weight:700;font-size:14px;">
-          {score}
-        </span>
-      </td>
-      <td style="padding:12px 8px;font-size:13px;color:#e2e8f0;">{s.get('signal','')}</td>
-      <td style="padding:12px 8px;font-size:12px;color:#94a3b8;">
-        WR {s.get('win_rate',0):.0f}% · {s.get('expected_move_low',0)}–{s.get('expected_move_high',0)}% move
-      </td>
-    </tr>
-    {opts_row}
     <tr>
-      <td colspan="4" style="padding:4px 0 12px;font-size:12px;color:#94a3b8;font-style:italic;">
-        {s.get('thesis','')[:200]}{'…' if len(s.get('thesis',''))>200 else ''}
+      <td style="padding:0 0 16px 0;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;border-radius:10px;border:1px solid #1e293b;overflow:hidden;">
+          <tr>
+            <!-- Rank + ticker block -->
+            <td style="padding:14px 16px;vertical-align:top;width:50%;">
+              <div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:4px;letter-spacing:.05em;">
+                {medal} RANK #{rank}
+              </div>
+              <div style="font-size:26px;font-weight:900;color:#fff;letter-spacing:-1px;line-height:1;">
+                {ticker}
+              </div>
+              <div style="font-size:13px;color:#94a3b8;margin-top:4px;">${price:.2f}</div>
+              <div style="margin-top:8px;">
+                <span style="background:{label_color}22;color:{label_color};font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;border:1px solid {label_color}44;">
+                  {label}
+                </span>
+              </div>
+            </td>
+            <!-- Score block -->
+            <td style="padding:14px 16px;vertical-align:top;text-align:right;">
+              <div style="font-size:10px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">
+                Bullish Score
+              </div>
+              <div style="font-size:42px;font-weight:900;color:{score_color};line-height:1;">
+                {score}
+              </div>
+              <div style="font-size:10px;color:#64748b;margin-top:2px;">out of 100</div>
+            </td>
+          </tr>
+          <!-- Options data row -->
+          {"" if not opts_line else f'''
+          <tr>
+            <td colspan="2" style="padding:0 16px 10px;font-size:11px;color:#64748b;border-top:1px solid #1e293b;">
+              <div style="padding-top:8px;">
+                📡 {opts_line}
+              </div>
+            </td>
+          </tr>'''}
+          <!-- Signal + thesis row -->
+          <tr>
+            <td colspan="2" style="padding:10px 16px 14px;border-top:1px solid #1e293b;">
+              <div style="font-size:12px;font-weight:700;color:#e2e8f0;margin-bottom:4px;">
+                {s.get('signal','')}
+              </div>
+              <div style="font-size:11px;color:#64748b;line-height:1.6;">
+                {thesis[:180]}{'…' if len(thesis) > 180 else ''}
+              </div>
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>"""
 
 
 def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
                        base_url: str = "", session: str = "eod") -> str:
-    rows      = "".join(_signal_html(s) for s in signals)
+    # Always rank highest score first
+    ranked = sorted(signals, key=lambda s: s.get("smart_money_score", 0), reverse=True)
+    rows      = "".join(_signal_html(s, i + 1) for i, s in enumerate(ranked))
     unsub_url = f"{base_url}/stock-api/alerts/unsubscribe/{unsub_token}"
-    count     = len(signals)
+    count     = len(ranked)
 
     is_morning  = session == "morning"
     is_preclose = session == "preclose"
@@ -266,19 +314,14 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
       </div>
     </div>
 
-    <!-- Signals table -->
-    <div style="background:#1e293b;border-radius:12px;padding:20px;margin-bottom:24px;">
+    <!-- Ranked signals — most bullish to least bullish -->
+    <div style="margin-bottom:24px;">
+      <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;">
+        Ranked Most → Least Bullish · Bullish Score out of 100
+      </div>
       <table style="width:100%;border-collapse:collapse;">
-        <thead>
-          <tr style="border-bottom:1px solid #334155;">
-            <th style="text-align:left;padding:0 8px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.05em;">Ticker</th>
-            <th style="text-align:center;padding:0 8px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.05em;">Score</th>
-            <th style="text-align:left;padding:0 8px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.05em;">Signal</th>
-            <th style="text-align:left;padding:0 8px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.05em;">Stats</th>
-          </tr>
-        </thead>
         <tbody>
-          {rows if rows else '<tr><td colspan="4" style="color:#64748b;padding:20px;text-align:center;">No high-conviction signals detected</td></tr>'}
+          {rows if rows else '<tr><td style="color:#64748b;padding:20px;text-align:center;background:#1e293b;border-radius:10px;">No high-conviction signals detected</td></tr>'}
         </tbody>
       </table>
     </div>
