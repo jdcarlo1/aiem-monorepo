@@ -897,6 +897,7 @@ function CongressTab() {
                     <td className="py-3 px-4 text-slate-500 text-xs font-mono whitespace-nowrap">{t.date}</td>
                     <td className="py-3 px-3">
                       <div className="font-medium text-white text-xs leading-tight">{t.member}</div>
+                      {t.amount && <div className="text-emerald-400 text-xs font-semibold mt-0.5">{t.amount}</div>}
                     </td>
                     <td className="py-3 px-3 hidden sm:table-cell">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${partyBg(t.party)}`}>
