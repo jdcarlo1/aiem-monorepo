@@ -1486,7 +1486,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [error, setError]       = useState<string | null>(null);
   const [scanned, setScanned]   = useState(0);
   const [lastRun, setLastRun]   = useState<Date | null>(null);
-  const [flowView, setFlowView] = useState<"bullish"|"bearish">("bullish");
+  const [flowView, setFlowView] = useState<"bullish"|"strong"|"bearish">("bullish");
 
   const run = async () => {
     setLoading(true); setError(null);
@@ -1523,11 +1523,12 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
     m >= 1 ? `$${m.toFixed(1)}M` : `$${(m * 1000).toFixed(0)}K`;
 
   const bullish = results.filter(r => r.call_put_ratio >= 1).slice(0, 20);
+  const strong  = results.filter(r => r.call_put_ratio >= 3).sort((a, b) => b.call_put_ratio - a.call_put_ratio).slice(0, 20);
   const bearish = results.filter(r => r.call_put_ratio < 1).slice(0, 20);
-  const displayed = flowView === "bullish" ? bullish : bearish;
-  const highConviction = flowView === "bullish"
-    ? bullish.filter(r => r.call_put_ratio >= 5).sort((a, b) => b.call_put_ratio - a.call_put_ratio)
-    : bearish.filter(r => r.call_put_ratio < 0.2).sort((a, b) => a.call_put_ratio - b.call_put_ratio);
+  const displayed = flowView === "bullish" ? bullish : flowView === "strong" ? strong : bearish;
+  const highConviction = flowView === "bearish"
+    ? bearish.filter(r => r.call_put_ratio < 0.2).sort((a, b) => a.call_put_ratio - b.call_put_ratio)
+    : displayed.filter(r => r.call_put_ratio >= 5).sort((a, b) => b.call_put_ratio - a.call_put_ratio);
 
   return (
     <div className="space-y-4">
@@ -1536,11 +1537,13 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         <div className="flex items-start justify-between gap-4 mb-3">
           <div>
             <h2 className="text-white font-bold text-lg flex items-center gap-2">
-              {flowView === "bullish" ? "🟢 Bullish Flow" : "🔴 Bearish Flow"}
+              {flowView === "bullish" ? "🟢 Bullish Flow" : flowView === "strong" ? "⚡ Strong Conviction (3x+)" : "🔴 Bearish Flow"}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
               {flowView === "bullish"
                 ? "Calls dominating — smart money betting stocks go up."
+                : flowView === "strong"
+                ? "Call/put ratio 3x or higher — high-conviction bullish bets, sorted strongest first."
                 : "Puts dominating — smart money hedging or betting stocks drop."}
             </p>
           </div>
@@ -1553,13 +1556,19 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
           </button>
         </div>
 
-        {/* Bullish / Bearish toggle */}
+        {/* Bullish / Strong / Bearish toggle */}
         <div className="flex gap-2">
           <button
             onClick={() => setFlowView("bullish")}
             className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${flowView === "bullish" ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
           >
             🟢 Bullish {results.length > 0 && `(${bullish.length})`}
+          </button>
+          <button
+            onClick={() => setFlowView("strong")}
+            className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${flowView === "strong" ? "bg-yellow-600 border-yellow-500 text-white" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
+          >
+            ⚡ Strong {results.length > 0 && `(${strong.length})`}
           </button>
           <button
             onClick={() => setFlowView("bearish")}
