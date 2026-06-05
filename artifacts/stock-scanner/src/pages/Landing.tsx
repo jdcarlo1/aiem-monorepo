@@ -1,6 +1,29 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { createStockScannerCheckout, manageStockScannerSubscription } from "@/lib/api";
+import { createStockScannerCheckout, manageStockScannerSubscription, fetchBullFlow, BullFlowRow } from "@/lib/api";
+
+// ── helpers ────────────────────────────────────────────────────────────────
+function fmtPrem(m: number) {
+  if (m >= 1) return `$${m.toFixed(1)}M`;
+  return `$${(m * 1000).toFixed(0)}K`;
+}
+function fmtExpiry(s: string | null) {
+  if (!s) return "—";
+  const d = new Date(s + "T00:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+function fmtStrike(strike: number | null, price: number) {
+  if (!strike) return "—";
+  const label = strike > price ? "C" : "C";
+  return `$${strike.toFixed(0)}${label}`;
+}
+function getBadge(ratio: number): { text: string; color: string; bg: string } {
+  if (ratio >= 8)  return { text: "🚨 EXTREME CONVICTION", color: "#f87171", bg: "rgba(239,68,68,0.12)" };
+  if (ratio >= 5)  return { text: "🔥 HIGH CONVICTION",   color: "#fbbf24", bg: "rgba(234,179,8,0.12)" };
+  if (ratio >= 3)  return { text: "⚡ Strong Bullish",     color: "#4ade80", bg: "rgba(74,222,128,0.1)" };
+  return             { text: "📈 Bullish",                color: "#4ade80", bg: "rgba(74,222,128,0.08)" };
+}
+const RANKS = ["🥇","🥈","🥉","4","5","6","7","8","9","10"];
 
 export default function Landing() {
   const [, setLocation] = useLocation();
@@ -10,17 +33,27 @@ export default function Landing() {
   const [errMsg, setErrMsg] = useState("");
   const [showManage, setShowManage] = useState(false);
   const [tickerPos, setTickerPos] = useState(0);
+  const [liveFlow, setLiveFlow] = useState<BullFlowRow[]>([]);
 
-  const tickerSignals = [
-    "🔥 NVDA $215C Jul18 · $9.4M · 1.7x C/P · Very Bullish",
-    "🚨 INTC $120C Jul2 · $8.5M · 10.3x C/P · HIGH CONVICTION",
-    "📈 AMZN $240C Jun20 · $6.4M · 2.9x C/P · Bullish",
-    "⚡ META $620C Jul5 · $5.1M · 4.1x C/P · Strong Bullish",
-    "🏛️ Nancy Pelosi · GOOGL · $500K–$1M · Jun 3",
-    "🔥 TSLA $280C Jun27 · $7.2M · 3.8x C/P · Strong Bullish",
-    "🚨 AAPL $240C Jul11 · $11.2M · 8.9x C/P · HIGH CONVICTION",
-    "📊 XLK Tech Sector · +1.24% · Leading all sectors today",
-  ];
+  // Fetch live bull flow for landing page widgets
+  useEffect(() => {
+    fetchBullFlow().then(d => setLiveFlow(d.results ?? [])).catch(() => {});
+  }, []);
+
+  // Build ticker tape from live data; fall back to static if not loaded
+  const tickerSignals: string[] = liveFlow.length >= 3
+    ? liveFlow.slice(0, 8).map(r => {
+        const b = getBadge(r.call_put_ratio);
+        return `${b.text.split(" ")[0]} ${r.ticker} ${fmtStrike(r.strike, r.price)} ${fmtExpiry(r.expiry)} · ${fmtPrem(r.premium_m)} · ${r.call_put_ratio.toFixed(1)}x C/P`;
+      })
+    : [
+        "🔥 NVDA $215C Jul18 · $9.4M · 1.7x C/P · Very Bullish",
+        "🚨 INTC $120C Jul2 · $8.5M · 10.3x C/P · HIGH CONVICTION",
+        "📈 AMZN $240C Jun20 · $6.4M · 2.9x C/P · Bullish",
+        "⚡ META $620C Jul5 · $5.1M · 4.1x C/P · Strong Bullish",
+        "🔥 TSLA $280C Jun27 · $7.2M · 3.8x C/P · Strong Bullish",
+        "🚨 AAPL — Loading live signals…",
+      ];
 
   useEffect(() => {
     const id = setInterval(() => setTickerPos(p => p + 1), 40);
@@ -117,29 +150,39 @@ export default function Landing() {
 
       {/* TODAY'S TOP SIGNAL — FOMO Card */}
       <div className="px-6 pb-20 max-w-3xl mx-auto">
-        <div className="rounded-3xl p-6 sm:p-8" style={{ background: "linear-gradient(135deg, rgba(234,179,8,0.08), rgba(239,68,68,0.05))", border: "2px solid rgba(234,179,8,0.3)", boxShadow: "0 0 60px rgba(234,179,8,0.08)" }}>
-          <div className="flex items-center gap-3 mb-5">
-            <span className="font-black text-sm px-3 py-1.5 rounded-full animate-pulse" style={{ background: "rgba(234,179,8,0.2)", color: "#fbbf24", border: "1px solid rgba(234,179,8,0.4)" }}>🚨 TODAY'S TOP CONVICTION SIGNAL</span>
-          </div>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <span className="font-black text-white" style={{ fontSize: "2.2rem", letterSpacing: "-0.04em" }}>AAPL</span>
-                <span className="font-bold text-slate-400 text-lg">$194.83</span>
-                <span className="font-black text-sm px-3 py-1 rounded-full" style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>🔥 HIGH CONVICTION</span>
+        {(() => {
+          const top = liveFlow[0];
+          const badge = top ? getBadge(top.call_put_ratio) : { text: "🔥 HIGH CONVICTION", color: "#fbbf24", bg: "rgba(234,179,8,0.12)" };
+          return (
+            <div className="rounded-3xl p-6 sm:p-8" style={{ background: "linear-gradient(135deg, rgba(234,179,8,0.08), rgba(239,68,68,0.05))", border: "2px solid rgba(234,179,8,0.3)", boxShadow: "0 0 60px rgba(234,179,8,0.08)" }}>
+              <div className="flex items-center gap-3 mb-5">
+                <span className="font-black text-sm px-3 py-1.5 rounded-full animate-pulse" style={{ background: "rgba(234,179,8,0.2)", color: "#fbbf24", border: "1px solid rgba(234,179,8,0.4)" }}>🚨 TODAY'S TOP CONVICTION SIGNAL</span>
+                {top && <span className="text-slate-600 text-xs">Live · {new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
               </div>
-              <div className="text-slate-400 text-base mb-1">$240 Call · Expires Jul 11 · <span className="text-white font-bold">$11.2M premium</span></div>
-              <div className="text-slate-500 text-sm">Call/Put Ratio: <span className="text-yellow-400 font-black text-lg">8.9x</span> — someone is betting BIG</div>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <span className="font-black text-white" style={{ fontSize: "2.2rem", letterSpacing: "-0.04em" }}>{top?.ticker ?? "—"}</span>
+                    <span className="font-bold text-slate-400 text-lg">{top ? `$${top.price.toFixed(2)}` : "—"}</span>
+                    <span className="font-black text-sm px-3 py-1 rounded-full" style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.color}50` }}>{badge.text}</span>
+                  </div>
+                  <div className="text-slate-400 text-base mb-1">
+                    {top ? `${fmtStrike(top.strike, top.price)} Call · Expires ${fmtExpiry(top.expiry)} · ` : ""}
+                    <span className="text-white font-bold">{top ? fmtPrem(top.premium_m) : "—"} premium</span>
+                  </div>
+                  <div className="text-slate-500 text-sm">Call/Put Ratio: <span className="font-black text-lg" style={{ color: badge.color }}>{top?.call_put_ratio?.toFixed(1) ?? "—"}x</span> — someone is betting BIG</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-black text-emerald-400" style={{ fontSize: "1.8rem", letterSpacing: "-0.03em" }}>{top ? fmtPrem(top.premium_m) : "—"}</div>
+                  <div className="text-slate-500 text-sm">in calls</div>
+                </div>
+              </div>
+              <div className="mt-5 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+                <p className="text-slate-400 text-sm italic">🔒 <strong className="text-white">Subscribers see signals like this in real time.</strong> Are you still scrolling Twitter to find trades?</p>
+              </div>
             </div>
-            <div className="text-right shrink-0">
-              <div className="font-black text-emerald-400" style={{ fontSize: "1.8rem", letterSpacing: "-0.03em" }}>$11.2M</div>
-              <div className="text-slate-500 text-sm">in calls</div>
-            </div>
-          </div>
-          <div className="mt-5 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-            <p className="text-slate-400 text-sm italic">🔒 <strong className="text-white">Subscribers saw this signal at 9:47 AM.</strong> Are you still scrolling Twitter to find trades?</p>
-          </div>
-        </div>
+          );
+        })()}
       </div>
 
       {/* Pain Section */}
@@ -185,30 +228,36 @@ export default function Landing() {
               <span className="text-xs font-black px-3 py-1.5 rounded-full" style={{ background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.35)", color: "#fbbf24" }}>🚨 HIGH CONVICTION — SOMEBODY KNOWS SOMETHING (5x+ C/P)</span>
             </div>
             <div className="space-y-2.5 mb-5">
-              {[
-                { ticker: "AAPL", price: "194.83", strike: "$240C", exp: "Jul 11", prem: "$11.2M", ratio: "8.9x", badge: "🔥 HIGH CONVICTION", bc: "#fbbf24", bb: "rgba(234,179,8,0.1)", rank: "🥇", glow: "rgba(234,179,8,0.08)" },
-                { ticker: "INTC", price: "102.19", strike: "$120C", exp: "Jul 2",  prem: "$8.5M",  ratio: "10.3x", badge: "🚨 EXTREME", bc: "#f87171", bb: "rgba(239,68,68,0.1)", rank: "🥈", glow: "rgba(239,68,68,0.05)" },
-                { ticker: "NVDA", price: "207.63", strike: "$215C", exp: "Jun 20", prem: "$9.4M",  ratio: "1.7x",  badge: "📈 Very Bullish", bc: "#4ade80", bb: "rgba(74,222,128,0.08)", rank: "🥉", glow: "transparent" },
-                { ticker: "META", price: "591.42", strike: "$620C", exp: "Jul 5",  prem: "$5.1M",  ratio: "4.1x",  badge: "⚡ Strong Bullish", bc: "#4ade80", bb: "rgba(74,222,128,0.08)", rank: "4", glow: "transparent" },
-              ].map(row => (
-                <div key={row.ticker} className="flex items-center justify-between rounded-xl p-4" style={{ background: `rgba(255,255,255,0.03)`, border: "1px solid rgba(255,255,255,0.07)", boxShadow: `0 0 30px ${row.glow}` }}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl w-8 shrink-0">{row.rank}</span>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-black text-white text-lg">{row.ticker}</span>
-                        <span className="text-slate-500">${row.price}</span>
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: row.bb, color: row.bc, border: `1px solid ${row.bc}40` }}>{row.badge}</span>
+              {(liveFlow.length >= 4 ? liveFlow.slice(0, 4) : [
+                { rank: 1, ticker: "AAPL", price: 307, strike: null, expiry: null, premium_m: 11.2, call_put_ratio: 8.9, premium_k: 11200, call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
+                { rank: 2, ticker: "NVDA", price: 135, strike: null, expiry: null, premium_m: 9.4,  call_put_ratio: 1.7, premium_k: 9400,  call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
+                { rank: 3, ticker: "META", price: 650, strike: null, expiry: null, premium_m: 5.1,  call_put_ratio: 4.1, premium_k: 5100,  call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
+                { rank: 4, ticker: "TSLA", price: 330, strike: null, expiry: null, premium_m: 7.2,  call_put_ratio: 3.8, premium_k: 7200,  call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
+              ]).map((row, i) => {
+                const b    = getBadge(row.call_put_ratio);
+                const glow = i === 0 ? "rgba(234,179,8,0.08)" : i === 1 ? "rgba(239,68,68,0.05)" : "transparent";
+                return (
+                  <div key={row.ticker} className="flex items-center justify-between rounded-xl p-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", boxShadow: `0 0 30px ${glow}` }}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl w-8 shrink-0">{RANKS[i]}</span>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-black text-white text-lg">{row.ticker}</span>
+                          <span className="text-slate-500">${row.price.toFixed(2)}</span>
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: b.bg, color: b.color, border: `1px solid ${b.color}40` }}>{b.text}</span>
+                        </div>
+                        <div className="text-slate-500 text-sm mt-0.5">
+                          {row.strike ? `${fmtStrike(row.strike, row.price)} Call` : "Options Flow"}{row.expiry ? ` · expires ${fmtExpiry(row.expiry)}` : ""}
+                        </div>
                       </div>
-                      <div className="text-slate-500 text-sm mt-0.5">{row.strike} · expires {row.exp}</div>
+                    </div>
+                    <div className="text-right shrink-0 ml-4">
+                      <div className="text-emerald-400 font-black text-lg">{fmtPrem(row.premium_m)}</div>
+                      <div className="text-slate-500 text-xs">{row.call_put_ratio.toFixed(1)}x C/P</div>
                     </div>
                   </div>
-                  <div className="text-right shrink-0 ml-4">
-                    <div className="text-emerald-400 font-black text-lg">{row.prem}</div>
-                    <div className="text-slate-500 text-xs">{row.ratio} C/P</div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
               {[["Tech","+1.24%","#166534"],["Finance","+0.81%","#14532d"],["Energy","-0.43%","#7f1d1d"],["Health","+0.55%","#14532d"],["Indus.","-0.22%","#450a0a"],["Cons.","+0.97%","#166534"]].map(([name, chg, bg]) => (
