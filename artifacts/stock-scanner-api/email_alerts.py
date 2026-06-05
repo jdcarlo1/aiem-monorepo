@@ -198,7 +198,18 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
     is_preclose = session == "preclose"
 
     # Session-specific copy
-    if is_morning:
+    is_premarket = session == "premarket"
+
+    if is_premarket:
+        emoji     = "🌅"
+        title     = "Pre-Market OI Watch — Before the Bell"
+        sub_title = "9:00 AM scan — overnight Open Interest from prior day's close"
+        bar_note  = "Options haven't opened yet. This is who loaded up positions yesterday."
+        bar_color = "#1d4ed8"
+        tip_text  = ("💡 <b>Pre-market tip:</b> Open Interest reflects settled positions from yesterday's close — "
+                     "it doesn't change until tonight. High call OI means someone bet on upside before today even started. "
+                     "Watch these at the open for confirmation.")
+    elif is_morning:
         emoji     = "🔔"
         title     = "Opening Bell Unusual Options Activity"
         sub_title = "9:45 AM scan — first real options flow of the day"

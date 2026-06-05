@@ -78,6 +78,13 @@ try:
             print(f"[scheduler] EOD scan error: {e}")
 
     _scheduler = BackgroundScheduler(timezone=_ET)
+    # Pre-market: Mon-Fri 9:00 AM ET  (overnight OI — who loaded up positions yesterday)
+    _scheduler.add_job(
+        _run_premarket_scan,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone=_ET),
+        id="premarket_scan",
+        replace_existing=True,
+    )
     # Morning: Mon-Fri 9:45 AM ET  (market opens 9:30, data ready by 9:45)
     _scheduler.add_job(
         _run_morning_scan,
@@ -100,7 +107,7 @@ try:
         replace_existing=True,
     )
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:45 AM, 3:30 PM, & 4:15 PM ET, Mon–Fri")
+    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, & 4:15 PM ET, Mon–Fri")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
