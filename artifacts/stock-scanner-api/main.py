@@ -42,6 +42,17 @@ try:
         except Exception as e:
             print(f"[scheduler] morning scan error: {e}")
 
+    def _run_preclose_scan():
+        """3:30 PM ET — 30 min before close. Last chance for subscribers to act."""
+        try:
+            result   = scan_smart_money(DEFAULT_LEADERBOARD)
+            signals  = result.get("leaderboard", [])
+            base_url = os.getenv("PUBLIC_URL", "")
+            out = send_daily_digest(signals, base_url, session="preclose")
+            print(f"[scheduler] Pre-close scan sent: {out}")
+        except Exception as e:
+            print(f"[scheduler] pre-close scan error: {e}")
+
     def _run_eod_scan():
         """4:15 PM ET — 15 min after close. Full-day final options flow summary."""
         try:
@@ -61,6 +72,13 @@ try:
         id="morning_scan",
         replace_existing=True,
     )
+    # Pre-close: Mon-Fri 3:30 PM ET  (30 min before 4 PM close — still time to act)
+    _scheduler.add_job(
+        _run_preclose_scan,
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone=_ET),
+        id="preclose_scan",
+        replace_existing=True,
+    )
     # EOD: Mon-Fri 4:15 PM ET  (market closes 4:00, options data settled by 4:15)
     _scheduler.add_job(
         _run_eod_scan,
@@ -69,7 +87,7 @@ try:
         replace_existing=True,
     )
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:45 AM ET (open) & 4:15 PM ET (close), Mon–Fri")
+    print("[scheduler] APScheduler started — scans at 9:45 AM, 3:30 PM, & 4:15 PM ET, Mon–Fri")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 

@@ -194,21 +194,35 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
     unsub_url = f"{base_url}/stock-api/alerts/unsubscribe/{unsub_token}"
     count     = len(signals)
 
-    is_morning = session == "morning"
+    is_morning  = session == "morning"
+    is_preclose = session == "preclose"
 
     # Session-specific copy
-    emoji      = "🔔" if is_morning else "🏆"
-    title      = "Opening Bell Unusual Options Activity" if is_morning else "End of Day Smart Money Digest"
-    sub_title  = ("9:45 AM scan — first real options flow of the day" if is_morning
-                  else "4:15 PM scan — full-day final options flow")
-    bar_note   = ("Opening sweep detected. Options data 15 min after open — act early." if is_morning
-                  else "Full trading day captured. Options data settled after close.")
-    bar_color  = "#7c3aed" if is_morning else "#0e7490"   # purple morning, teal EOD
-    tip_text   = ("💡 <b>Morning tip:</b> High Vol/OI at open often means smart money entered overnight "
-                  "and is confirming the position at the bell. These signals are freshest."
-                  if is_morning else
-                  "💡 <b>EOD tip:</b> High scores after close reflect the full day's options flow. "
-                  "Stocks holding strong signal into close often gap up overnight.")
+    if is_morning:
+        emoji     = "🔔"
+        title     = "Opening Bell Unusual Options Activity"
+        sub_title = "9:45 AM scan — first real options flow of the day"
+        bar_note  = "Opening sweep detected. Options data 15 min after open — act early."
+        bar_color = "#7c3aed"
+        tip_text  = ("💡 <b>Morning tip:</b> High Vol/OI at open often means smart money entered overnight "
+                     "and is confirming the position at the bell. These signals are freshest.")
+    elif is_preclose:
+        emoji     = "⏰"
+        title     = "Pre-Close Alert — 30 Minutes to Act"
+        sub_title = "3:30 PM scan — 30 minutes before market close"
+        bar_note  = "Market closes at 4:00 PM ET. You still have time to get in."
+        bar_color = "#b45309"
+        tip_text  = ("💡 <b>Pre-close tip:</b> Signals still showing strength at 3:30 PM have "
+                     "held up through the trading day. Entering near close can reduce overnight gap risk "
+                     "while still capturing end-of-day momentum.")
+    else:
+        emoji     = "🏆"
+        title     = "End of Day Smart Money Digest"
+        sub_title = "4:15 PM scan — full-day final options flow"
+        bar_note  = "Full trading day captured. Options data settled after close."
+        bar_color = "#0e7490"
+        tip_text  = ("💡 <b>EOD tip:</b> High scores after close reflect the full day's options flow. "
+                     "Stocks holding strong signal into close often gap up overnight.")
 
     return f"""<!DOCTYPE html>
 <html>
