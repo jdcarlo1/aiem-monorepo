@@ -3,20 +3,28 @@ from factors import momentum_factor, volatility_factor, volume_factor, trend_fac
 from regime import detect_regime
 
 
-def prop_signal(df) -> dict | None:
+def prop_signal(df, include_ml: bool = False) -> dict | None:
+    """
+    Compute prop-desk signal for a stock.
+    include_ml=False (default) skips Random Forest training — fast enough for scans.
+    include_ml=True runs the full ML model — use only for single-stock deep analysis.
+    """
     if df is None or len(df) < 60:
         return None
 
     try:
         regime = detect_regime(df)
 
-        mom  = momentum_factor(df)
-        vol  = volatility_factor(df)
-        volu = volume_factor(df)
+        mom   = momentum_factor(df)
+        vol   = volatility_factor(df)
+        volu  = volume_factor(df)
         trend = trend_factor(df)
 
-        ml_data  = predict_direction(df)
-        ml_prob  = ml_data.get("probability_up", 50.0) / 100.0
+        if include_ml:
+            ml_data = predict_direction(df)
+            ml_prob = ml_data.get("probability_up", 50.0) / 100.0
+        else:
+            ml_prob = 0.5
 
         score = 0.0
         if regime == "TRENDING":
@@ -36,11 +44,11 @@ def prop_signal(df) -> dict | None:
         return {
             "score": score_10,
             "regime": regime,
-            "ml_probability": round(ml_prob * 100, 1),
-            "momentum": round(mom,  3),
-            "volatility": round(vol, 4),
-            "volume": round(volu, 2),
-            "trend": round(trend, 3),
+            "ml_probability": round(ml_prob * 100, 1) if include_ml else None,
+            "momentum": round(mom,   3),
+            "volatility": round(vol,  4),
+            "volume": round(volu,  2),
+            "trend": round(trend,  3),
         }
     except Exception:
         return None

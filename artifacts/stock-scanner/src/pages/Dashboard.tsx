@@ -772,8 +772,8 @@ function PropDeskTab() {
                             {sig.score}
                           </span>
                         </td>
-                        <td className={`text-right py-2.5 px-3 font-medium ${sig.ml_probability >= 60 ? "text-emerald-400" : sig.ml_probability <= 40 ? "text-red-400" : "text-slate-300"}`}>
-                          {sig.ml_probability.toFixed(1)}%
+                        <td className={`text-right py-2.5 px-3 font-medium ${(sig.ml_probability ?? 50) >= 60 ? "text-emerald-400" : (sig.ml_probability ?? 50) <= 40 ? "text-red-400" : "text-slate-300"}`}>
+                          {sig.ml_probability != null ? `${sig.ml_probability.toFixed(1)}%` : "—"}
                         </td>
                         <td className="py-2.5 px-3 hidden md:table-cell">
                           <div className="space-y-1 min-w-[180px]">
