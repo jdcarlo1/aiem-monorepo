@@ -38,5 +38,8 @@ localPort = 5050
 [services.development]
 run = "python /home/runner/workspace/artifacts/stock-scanner-api/main.py"
 
+[services.production]
+run = "python /home/runner/workspace/artifacts/stock-scanner-api/main.py"
+
 [services.env]
 STOCK_API_PORT = "5050"
