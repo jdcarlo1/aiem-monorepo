@@ -109,7 +109,7 @@ def fetch_options_data(ticker: str) -> dict:
         top_prem_contracts = 0
         top_prem_value    = 0.0   # ask × volume (dollar premium traded)
 
-        scan_exps = [e for e in exps if datetime.strptime(e, "%Y-%m-%d").date() >= today][:4]
+        scan_exps = [e for e in exps if datetime.strptime(e, "%Y-%m-%d").date() > today][:4]
         best_exp_vol = total_call_vol  # start with what we already have
 
         for se in scan_exps:
