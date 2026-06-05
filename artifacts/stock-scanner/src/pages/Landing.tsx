@@ -277,7 +277,7 @@ export default function Landing() {
         <div className="overflow-x-auto">
           <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "660px" }}>
             {/* Header */}
-            <div className="grid px-5 py-3.5 text-xs font-bold text-slate-600 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}>
+            <div className="grid px-5 py-3.5 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.05)" }}>
               <span>Service</span>
               <span className="text-center">Price</span>
               <span className="text-center">Bull Flow</span>
