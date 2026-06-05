@@ -66,7 +66,7 @@ export default function Landing() {
 
         {/* Trust badges */}
         <div className="flex flex-wrap justify-center gap-2 mb-8">
-          {["📡 Real yfinance options data","⚡ 4 scans per trading day","🤖 AI win rates included"].map(b => (
+          {["📡 Real yfinance options data","🔥 Bull Flow top 20 daily","📊 Sector heatmap + A/D breadth","🏛️ Congress trades live","🤖 AI win rates included"].map(b => (
             <span key={b} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8"}}>{b}</span>
           ))}
         </div>
@@ -161,16 +161,22 @@ export default function Landing() {
       </div>
 
       {/* Features */}
-      <div className="px-5 pb-12 max-w-2xl mx-auto">
-        <p className="text-center text-slate-600 text-xs uppercase tracking-widest font-semibold mb-6">What you get that no one else offers</p>
+      <div className="px-5 pb-12 max-w-3xl mx-auto">
+        <p className="text-center text-slate-600 text-xs uppercase tracking-widest font-semibold mb-6">Everything inside the scanner</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {[
-            { icon: "📱", title: "Daily Text Alerts", sub: "No other service texts you" },
-            { icon: "🚨", title: "$5M+ Flow Alerts", sub: "Biggest options bets flagged" },
-            { icon: "🤖", title: "AI Win Rates", sub: "Know the odds before you trade" },
-            { icon: "⚡", title: "0DTE Filtered", sub: "Only actionable strikes shown" },
-            { icon: "🏦", title: "Hedge Fund Scan", sub: "See where they're loading up" },
-            { icon: "🏛️", title: "Congress Trades", sub: "Follow the ultimate insiders" },
+            { icon: "🔥", title: "Bull Flow Top 20", sub: "Top bullish & bearish options flow ranked by premium" },
+            { icon: "🚨", title: "High Conviction Alerts", sub: "5x+ call/put ratio — somebody knows something" },
+            { icon: "⚡", title: "Strong Conviction (3x+)", sub: "Separate tab for 3x+ C/P — more signals daily" },
+            { icon: "🏆", title: "Smart Money Leaderboard", sub: "Ranks stocks by institutional options activity" },
+            { icon: "🏛️", title: "Congress Trades", sub: "Live House STOCK Act filings — follow the insiders" },
+            { icon: "📊", title: "Market Overview", sub: "Sector heatmap, major indices, advance/decline breadth" },
+            { icon: "🤖", title: "AI Win Rates", sub: "ML composite score + probability on every stock" },
+            { icon: "⚡", title: "0DTE Filtered", sub: "Same-day expirations stripped — only real signals" },
+            { icon: "📱", title: "Daily Alerts", sub: "Pre-market digest sent directly to you" },
+            { icon: "🎯", title: "Prop Desk Simulator", sub: "Trade like a funded trader with daily loss limits" },
+            { icon: "📈", title: "Backtesting", sub: "Test any strategy on historical data instantly" },
+            { icon: "💼", title: "Portfolio Tracker", sub: "Track all your positions and P&L in one place" },
           ].map(f => (
             <div key={f.title} className="rounded-xl p-4 text-center" style={{background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)"}}>
               <div className="text-2xl mb-2">{f.icon}</div>
