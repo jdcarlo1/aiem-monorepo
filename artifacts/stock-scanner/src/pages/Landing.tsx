@@ -37,7 +37,7 @@ export default function Landing() {
   };
 
   return (
-    <div style={{ background: "#080e18", minHeight: "100vh", fontFamily: "Inter,system-ui,sans-serif", color: "#fff" }}>
+    <div style={{ background: "#060c14", minHeight: "100vh", fontFamily: "Inter,system-ui,sans-serif", color: "#fff" }}>
 
       {/* Nav */}
       <nav style={{ borderBottom: "1px solid rgba(255,255,255,0.07)", position: "sticky", top: 0, zIndex: 50, backdropFilter: "blur(16px)", background: "rgba(8,14,24,0.85)" }}>
@@ -59,30 +59,30 @@ export default function Landing() {
 
       {/* Hero */}
       <div className="px-6 pt-24 pb-16 text-center max-w-4xl mx-auto">
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold mb-8" style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+        <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold mb-10" style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
           Live options flow updated every 15 minutes
         </div>
 
-        <h1 className="font-black leading-none mb-6" style={{ fontSize: "clamp(2.8rem,7vw,5rem)", letterSpacing: "-0.04em", lineHeight: 1.0 }}>
+        <h1 className="font-black leading-none mb-8" style={{ fontSize: "clamp(3.6rem,9vw,7rem)", letterSpacing: "-0.05em", lineHeight: 0.95 }}>
           Uncover where<br />
-          <span style={{ color: "#4ade80", textShadow: "0 0 80px rgba(74,222,128,0.3)" }}>smart money flows</span><br />
+          <span style={{ color: "#4ade80", textShadow: "0 0 120px rgba(74,222,128,0.45)" }}>smart money flows</span><br />
           before you do.
         </h1>
 
-        <p className="mx-auto mb-10 text-slate-400" style={{ fontSize: "clamp(1rem,2.5vw,1.25rem)", maxWidth: "520px", lineHeight: 1.65 }}>
+        <p className="mx-auto mb-12 text-slate-300" style={{ fontSize: "clamp(1.15rem,2.5vw,1.4rem)", maxWidth: "560px", lineHeight: 1.7 }}>
           Real options flow, congressional trades, sector heatmaps, and AI-ranked signals — all in one scanner built for serious traders.
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
-          <button onClick={() => setLocation("/app")} className="font-black px-8 py-4 rounded-2xl transition-all text-lg" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)", color: "#fff", boxShadow: "0 8px 40px rgba(34,197,94,0.35)", letterSpacing: "-0.02em" }}>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center mb-5">
+          <button onClick={() => setLocation("/app")} className="font-black px-10 py-5 rounded-2xl transition-all text-xl" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)", color: "#fff", boxShadow: "0 12px 48px rgba(34,197,94,0.45)", letterSpacing: "-0.02em" }}>
             Explore the Flow →
           </button>
-          <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })} className="font-bold px-8 py-4 rounded-2xl transition-all text-lg" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff" }}>
+          <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })} className="font-bold px-10 py-5 rounded-2xl transition-all text-xl" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}>
             See Pricing
           </button>
         </div>
-        <p className="text-slate-600 text-sm">No credit card to start · $29/month · Cancel anytime</p>
+        <p className="text-slate-500 text-base">No credit card to start · $29/month · Cancel anytime</p>
       </div>
 
       {/* Live Data Preview */}
@@ -155,9 +155,9 @@ export default function Landing() {
             { stat: "4x", label: "Scans per trading day" },
             { stat: "100%", label: "Real options data" },
           ].map(s => (
-            <div key={s.stat} className="text-center rounded-2xl py-6 px-4" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
-              <div className="font-black text-3xl mb-1" style={{ color: "#4ade80" }}>{s.stat}</div>
-              <div className="text-slate-500 text-sm">{s.label}</div>
+            <div key={s.stat} className="text-center rounded-2xl py-8 px-4" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
+              <div className="font-black text-5xl mb-2" style={{ color: "#4ade80", letterSpacing: "-0.04em" }}>{s.stat}</div>
+              <div className="text-slate-400 text-base">{s.label}</div>
             </div>
           ))}
         </div>
@@ -165,9 +165,9 @@ export default function Landing() {
 
       {/* Features — 3 column */}
       <div className="px-6 pb-20 max-w-5xl mx-auto">
-        <p className="text-center text-slate-600 text-xs uppercase tracking-widest font-semibold mb-3">Everything inside</p>
-        <h2 className="text-center font-black text-3xl mb-12" style={{ letterSpacing: "-0.03em" }}>One scanner. Every edge.</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-semibold mb-4">Everything inside</p>
+        <h2 className="text-center font-black mb-14" style={{ fontSize: "clamp(2.2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>One scanner. Every edge.</h2>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[
             { icon: "🔥", title: "Bull Flow Top 20", desc: "Top 20 bullish and bearish options plays daily, ranked by dollar premium with sentiment badges." },
             { icon: "🚨", title: "High Conviction Alerts", desc: "5x+ call/put ratio signals spotlighted automatically — the 'somebody knows something' detector." },
@@ -182,10 +182,10 @@ export default function Landing() {
             { icon: "💼", title: "Portfolio Tracker", desc: "Track all positions and P&L in one place alongside your scanner data." },
             { icon: "🚫", title: "0DTE Filtered", desc: "Same-day expirations stripped automatically. Only forward-dated, actionable strikes shown." },
           ].map(f => (
-            <div key={f.title} className="rounded-2xl p-5" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
-              <div className="text-3xl mb-3">{f.icon}</div>
-              <div className="font-bold text-white text-sm mb-2">{f.title}</div>
-              <div className="text-slate-500 text-sm leading-relaxed">{f.desc}</div>
+            <div key={f.title} className="rounded-2xl p-6" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
+              <div className="text-4xl mb-4">{f.icon}</div>
+              <div className="font-black text-white text-lg mb-2">{f.title}</div>
+              <div className="text-slate-400 text-base leading-relaxed">{f.desc}</div>
             </div>
           ))}
         </div>
@@ -193,8 +193,8 @@ export default function Landing() {
 
       {/* Comparison */}
       <div className="px-6 pb-20 max-w-3xl mx-auto">
-        <p className="text-center text-slate-600 text-xs uppercase tracking-widest font-semibold mb-3">How we compare</p>
-        <h2 className="text-center font-black text-3xl mb-10" style={{ letterSpacing: "-0.03em" }}>More features. Half the price.</h2>
+        <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-semibold mb-4">How we compare</p>
+        <h2 className="text-center font-black mb-12" style={{ fontSize: "clamp(2.2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>More features. Half the price.</h2>
         <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
           <div className="grid grid-cols-5 px-5 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}>
             <span className="col-span-2">Service</span>
@@ -231,12 +231,12 @@ export default function Landing() {
             { quote: "I used to stare at Unusual Whales for an hour every morning. Now I just check the Bull Flow tab and know exactly what to watch.", name: "Mike R.", title: "Day trader · Providence, RI" },
             { quote: "The INTC 10x call/put ratio flag literally made me money. No other scanner showed me that signal — it was buried in the noise everywhere else.", name: "Sarah K.", title: "Options trader · Chicago, IL" },
           ].map(t => (
-            <div key={t.name} className="rounded-2xl p-6" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-              <div className="text-yellow-400 text-sm mb-4">★★★★★</div>
-              <p className="text-slate-300 leading-relaxed italic mb-4" style={{ fontSize: "1rem" }}>"{t.quote}"</p>
+            <div key={t.name} className="rounded-2xl p-8" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+              <div className="text-yellow-400 text-xl mb-5">★★★★★</div>
+              <p className="text-slate-200 leading-relaxed italic mb-6" style={{ fontSize: "1.15rem" }}>"{t.quote}"</p>
               <div>
-                <div className="text-white font-bold text-sm">{t.name}</div>
-                <div className="text-slate-500 text-xs">{t.title}</div>
+                <div className="text-white font-bold text-base">{t.name}</div>
+                <div className="text-slate-500 text-sm">{t.title}</div>
               </div>
             </div>
           ))}
@@ -249,12 +249,12 @@ export default function Landing() {
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold mb-5" style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
             Most popular plan
           </div>
-          <div className="font-black text-5xl mb-1" style={{ letterSpacing: "-0.04em" }}>$29<span className="text-slate-500 text-2xl font-bold">/mo</span></div>
-          <p className="text-slate-500 text-sm mb-6">Cancel anytime · No contracts · Instant access</p>
-          <ul className="text-left space-y-2.5 mb-8">
+          <div className="font-black mb-2" style={{ fontSize: "4.5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$29<span className="text-slate-500 font-bold" style={{ fontSize: "2rem" }}>/mo</span></div>
+          <p className="text-slate-400 text-base mb-8">Cancel anytime · No contracts · Instant access</p>
+          <ul className="text-left space-y-3 mb-8">
             {["Full Bull Flow tab (Top 20 bullish + bearish)","High Conviction 5x+ spotlight","Smart Money Leaderboard","Congressional trades feed","Sector heatmap + A/D breadth","AI win rates on every stock","Prop Desk simulator","Backtesting engine","Portfolio tracker"].map(f => (
-              <li key={f} className="flex items-center gap-2.5 text-sm text-slate-300">
-                <span className="text-emerald-400 font-bold shrink-0">✓</span>{f}
+              <li key={f} className="flex items-center gap-3 text-base text-slate-200">
+                <span className="text-emerald-400 font-bold text-lg shrink-0">✓</span>{f}
               </li>
             ))}
           </ul>
