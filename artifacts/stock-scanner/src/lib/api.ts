@@ -265,6 +265,18 @@ export function smartMoneyScan(tickers: string[]) {
   });
 }
 
+export interface MarketSector { ticker: string; name: string; price: number; change_pct: number; }
+export interface MarketIndex  { ticker: string; label: string; price: number; change_pct: number; }
+export interface MarketOverview {
+  sectors: MarketSector[];
+  indices: MarketIndex[];
+  advance_decline: { up: number; down: number; unchanged: number };
+  as_of: string;
+}
+export function fetchMarketOverview() {
+  return fetchJson<MarketOverview>("/market/overview");
+}
+
 export interface CongressTrade {
   member: string;
   party: string;

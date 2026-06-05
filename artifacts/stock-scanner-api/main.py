@@ -483,8 +483,83 @@ def bull_flow_top10():
     return jsonify({"results": top40, "scanned": len(tickers), "returned": len(top40)})
 
 
-@app.route("/stock-api/", methods=["GET"])
-@app.route("/stock-api", methods=["GET"])
+@app.route("/stock-api/market/overview", methods=["GET"])
+def market_overview():
+    import yfinance as yf
+    from datetime import date
+
+    SECTORS = [
+        ("XLK",  "Technology"),
+        ("XLF",  "Financials"),
+        ("XLE",  "Energy"),
+        ("XLV",  "Healthcare"),
+        ("XLY",  "Cons. Disc."),
+        ("XLP",  "Cons. Staples"),
+        ("XLI",  "Industrials"),
+        ("XLB",  "Materials"),
+        ("XLRE", "Real Estate"),
+        ("XLU",  "Utilities"),
+        ("XLC",  "Comm. Services"),
+    ]
+    INDICES = [
+        ("SPY", "S&P 500"),
+        ("QQQ", "Nasdaq 100"),
+        ("DIA", "Dow Jones"),
+        ("IWM", "Russell 2000"),
+        ("VIX", "VIX"),
+    ]
+
+    def get_chg(ticker):
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(period="2d")
+            if len(hist) < 2:
+                return None
+            prev  = float(hist["Close"].iloc[-2])
+            close = float(hist["Close"].iloc[-1])
+            chg   = round((close - prev) / prev * 100, 2)
+            return {"price": round(close, 2), "change_pct": chg}
+        except Exception:
+            return None
+
+    sectors = []
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        futs = {ex.submit(get_chg, sym): (sym, name) for sym, name in SECTORS}
+        for fut, (sym, name) in futs.items():
+            r = fut.result()
+            if r:
+                sectors.append({"ticker": sym, "name": name, **r})
+    sectors.sort(key=lambda x: x["change_pct"], reverse=True)
+
+    indices = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(get_chg, sym): (sym, label) for sym, label in INDICES}
+        for fut, (sym, label) in futs.items():
+            r = fut.result()
+            if r:
+                indices.append({"ticker": sym, "label": label, **r})
+    idx_order = {sym: i for i, (sym, _) in enumerate(INDICES)}
+    indices.sort(key=lambda x: idx_order.get(x["ticker"], 99))
+
+    # Advance / Decline using DEFAULT_LEADERBOARD
+    ad_up, ad_down, ad_unch = 0, 0, 0
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        futs = {ex.submit(get_chg, t): t for t in DEFAULT_LEADERBOARD}
+        for fut in as_completed(futs):
+            r = fut.result()
+            if r:
+                if r["change_pct"] > 0.1:   ad_up   += 1
+                elif r["change_pct"] < -0.1: ad_down += 1
+                else:                        ad_unch += 1
+
+    return jsonify({
+        "sectors": sectors,
+        "indices": indices,
+        "advance_decline": {"up": ad_up, "down": ad_down, "unchanged": ad_unch},
+        "as_of": date.today().isoformat(),
+    })
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

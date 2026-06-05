@@ -6,10 +6,10 @@ import {
   propScan, propTrade, propReset, smartMoneyScan,
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
-  fetchBullFlow,
+  fetchBullFlow, fetchMarketOverview,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
-  CongressTrade, CongressResult, BullFlowRow,
+  CongressTrade, CongressResult, BullFlowRow, MarketOverview,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -1478,6 +1478,111 @@ function PropDeskTab() {
   );
 }
 
+// ─── Market Overview ─────────────────────────────────────────────────────────
+
+function MarketTab() {
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["market-overview"],
+    queryFn: fetchMarketOverview,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const chgColor  = (v: number) => v > 0 ? "text-emerald-400" : v < 0 ? "text-red-400" : "text-slate-400";
+  const chgBg     = (v: number) => {
+    if (v >=  1.5) return "bg-emerald-700";
+    if (v >=  0.5) return "bg-emerald-900";
+    if (v >=  0)   return "bg-emerald-950";
+    if (v >= -0.5) return "bg-red-950";
+    if (v >= -1.5) return "bg-red-900";
+    return "bg-red-700";
+  };
+  const fmtChg = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+
+  const ad   = data?.advance_decline;
+  const total = (ad?.up ?? 0) + (ad?.down ?? 0) + (ad?.unchanged ?? 0);
+  const upPct = total > 0 ? Math.round((ad!.up   / total) * 100) : 0;
+  const dnPct = total > 0 ? Math.round((ad!.down / total) * 100) : 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-white font-semibold">📊 Market Overview</h3>
+          <p className="text-slate-500 text-xs mt-0.5">Sector heatmap · Major indices · Advance/Decline breadth</p>
+        </div>
+        <button onClick={() => refetch()} disabled={isFetching}
+          className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50">
+          {isFetching ? "Loading…" : "↻ Refresh"}
+        </button>
+      </div>
+
+      {isLoading && (
+        <div className="text-center py-16 text-slate-500">
+          <div className="text-3xl mb-3 animate-spin inline-block">⟳</div>
+          <p>Fetching market data…</p>
+        </div>
+      )}
+
+      {data && (
+        <>
+          {/* Indices Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+            {data.indices.map(idx => (
+              <div key={idx.ticker} className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+                <div className="text-slate-400 text-xs mb-1">{idx.label}</div>
+                <div className="text-white font-bold text-base">${idx.price.toLocaleString()}</div>
+                <div className={`text-sm font-bold mt-0.5 ${chgColor(idx.change_pct)}`}>{fmtChg(idx.change_pct)}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Advance / Decline */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-white font-semibold text-sm">📈 Advance / Decline Breadth</h4>
+              <span className="text-slate-500 text-xs">{total} stocks tracked</span>
+            </div>
+            <div className="flex rounded-lg overflow-hidden h-8 mb-3">
+              <div className="bg-emerald-600 flex items-center justify-center text-white text-xs font-bold transition-all"
+                style={{ width: `${upPct}%` }}>{ad!.up > 0 ? ad!.up : ""}</div>
+              <div className="bg-slate-700 flex items-center justify-center text-slate-300 text-xs transition-all"
+                style={{ width: `${100 - upPct - dnPct}%` }}>{ad!.unchanged > 0 && ad!.unchanged}</div>
+              <div className="bg-red-600 flex items-center justify-center text-white text-xs font-bold transition-all"
+                style={{ width: `${dnPct}%` }}>{ad!.down > 0 ? ad!.down : ""}</div>
+            </div>
+            <div className="flex gap-4 text-xs">
+              <span className="text-emerald-400 font-semibold">▲ Advancing: {ad!.up} ({upPct}%)</span>
+              <span className="text-slate-400">→ Unchanged: {ad!.unchanged}</span>
+              <span className="text-red-400 font-semibold">▼ Declining: {ad!.down} ({dnPct}%)</span>
+            </div>
+            <p className="text-slate-600 text-xs mt-2">
+              {upPct >= 60 ? "🟢 Broad market strength — majority of stocks advancing"
+               : dnPct >= 60 ? "🔴 Broad market weakness — majority of stocks declining"
+               : "🟡 Mixed breadth — market indecisive"}
+            </p>
+          </div>
+
+          {/* Sector Heatmap */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <h4 className="text-white font-semibold text-sm mb-3">🗺️ Sector Heatmap</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {data.sectors.map(s => (
+                <div key={s.ticker} className={`rounded-lg p-3 ${chgBg(s.change_pct)}`}>
+                  <div className="text-white text-xs font-semibold">{s.name}</div>
+                  <div className={`text-lg font-black mt-1 ${chgColor(s.change_pct)}`}>{fmtChg(s.change_pct)}</div>
+                  <div className="text-slate-400 text-xs">{s.ticker} · ${s.price.toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-slate-600 text-xs mt-3">Sorted best → worst · Data via yfinance (15-min delayed)</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Bull Flow Top 20 ────────────────────────────────────────────────────────
 
 function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
@@ -1702,7 +1807,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress">("lookup");
+  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market">("lookup");
   const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
   const qc = useQueryClient();
@@ -1758,6 +1863,7 @@ export default function Dashboard() {
     { id: "smartmoney", label: "🏆 Smart Money" },
     { id: "congress",   label: "🏛️ Congress" },
     { id: "bullflow",   label: "🔥 Bull Flow" },
+    { id: "market",     label: "📊 Market" },
   ] as const;
 
   return (
@@ -1904,6 +2010,7 @@ export default function Dashboard() {
         {tab === "propdesk"   && <PropDeskTab />}
         {tab === "smartmoney" && <SmartMoneyTab />}
         {tab === "congress"   && <CongressTab />}
+        {tab === "market"     && <MarketTab />}
 
         {/* --- Portfolio --- */}
         {tab === "portfolio" && (
