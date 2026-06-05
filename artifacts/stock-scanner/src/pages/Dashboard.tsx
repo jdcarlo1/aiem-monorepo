@@ -2,15 +2,21 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   analyzeStock, scanStocks, fetchPortfolio, buyStock, sellStock,
-  runBacktest, fetchAlerts, createAlert, deleteAlert,
-  StockAnalysis, ScanResult, BacktestResult, Alert,
+  runBacktest, runHistoricalAnalytics, fetchAlerts, createAlert, deleteAlert,
+  StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ReferenceLine, Legend, Cell,
 } from "recharts";
 
 const DEFAULT_SCAN = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "AMZN", "META", "JPM", "V", "SPY"];
+const DEFAULT_ANALYTICS = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "AMZN", "META", "JPM"];
+const BUCKET_COLORS: Record<string, string> = {
+  "1–3": "#ef4444", "3–5": "#f97316", "5–6": "#eab308",
+  "6–7": "#84cc16", "7–8": "#10b981", "8–10": "#06b6d4",
+};
 
 function fmt(n?: number | null, d = 2): string {
   if (n == null) return "—";
@@ -19,9 +25,17 @@ function fmt(n?: number | null, d = 2): string {
 function fmtMktCap(n?: number | null): string {
   if (!n) return "—";
   if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6)  return `$${(n / 1e6).toFixed(2)}M`;
   return `$${n.toLocaleString()}`;
+}
+function retColor(v: number | null) {
+  if (v == null) return "text-slate-500";
+  return v > 0 ? "text-emerald-400" : v < 0 ? "text-red-400" : "text-slate-400";
+}
+function wrColor(v: number | null) {
+  if (v == null) return "text-slate-500";
+  return v >= 55 ? "text-emerald-400" : v >= 50 ? "text-yellow-400" : "text-red-400";
 }
 
 function Spinner() {
@@ -29,7 +43,11 @@ function Spinner() {
 }
 
 function ScoreBadge({ score, rating }: { score: number; rating: string }) {
-  const color = score >= 8 ? "text-emerald-400 border-emerald-500" : score >= 6.5 ? "text-green-400 border-green-500" : score >= 5 ? "text-yellow-400 border-yellow-500" : score >= 3 ? "text-orange-400 border-orange-500" : "text-red-400 border-red-500";
+  const color = score >= 8 ? "text-emerald-400 border-emerald-500"
+    : score >= 6.5 ? "text-green-400 border-green-500"
+    : score >= 5   ? "text-yellow-400 border-yellow-500"
+    : score >= 3   ? "text-orange-400 border-orange-500"
+    : "text-red-400 border-red-500";
   return (
     <div className={`inline-flex flex-col items-center border rounded-lg px-3 py-1 ${color}`}>
       <span className="text-2xl font-bold">{score.toFixed(1)}</span>
@@ -39,7 +57,9 @@ function ScoreBadge({ score, rating }: { score: number; rating: string }) {
 }
 
 function DirectionBadge({ direction, confidence, probUp }: { direction: string; confidence: string; probUp: number }) {
-  const color = direction === "Up" ? "bg-emerald-900/50 text-emerald-300 border-emerald-700" : direction === "Down" ? "bg-red-900/50 text-red-300 border-red-700" : "bg-slate-700 text-slate-300 border-slate-600";
+  const color = direction === "Up"   ? "bg-emerald-900/50 text-emerald-300 border-emerald-700"
+    : direction === "Down" ? "bg-red-900/50 text-red-300 border-red-700"
+    : "bg-slate-700 text-slate-300 border-slate-600";
   const arrow = direction === "Up" ? "↑" : direction === "Down" ? "↓" : "→";
   return (
     <div className={`inline-flex items-center gap-2 border rounded-lg px-3 py-1 text-sm ${color}`}>
@@ -81,16 +101,15 @@ function PriceChart({ history }: { history: StockAnalysis["history"] }) {
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
           <XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} interval={14} />
-          <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} width={55} tickFormatter={v => `$${v.toFixed(0)}`} domain={["auto", "auto"]} />
+          <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} width={55} tickFormatter={v => `$${v.toFixed(0)}`} domain={["auto","auto"]} />
           <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }} labelStyle={{ color: "#94a3b8" }} itemStyle={{ color: "#60a5fa" }} formatter={(v: number) => [`$${v.toFixed(2)}`, "Price"]} />
           <Area type="monotone" dataKey="close" stroke="#3b82f6" fill="url(#priceGrad)" strokeWidth={2} dot={false} />
         </AreaChart>
       </ResponsiveContainer>
       <ResponsiveContainer width="100%" height={60}>
         <BarChart data={data}>
-          <Bar dataKey="volume" fill="#334155" radius={[2, 2, 0, 0]} />
-          <XAxis dataKey="date" hide />
-          <YAxis hide />
+          <Bar dataKey="volume" fill="#334155" radius={[2,2,0,0]} />
+          <XAxis dataKey="date" hide /><YAxis hide />
           <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }} formatter={(v: number) => [v.toLocaleString(), "Volume"]} />
         </BarChart>
       </ResponsiveContainer>
@@ -125,7 +144,7 @@ function ScanTable({ results, onSelect }: { results: ScanResult[]; onSelect: (t:
             <th className="text-right py-2 px-3">Price</th>
             <th className="text-right py-2 px-3">Chg%</th>
             <th className="text-right py-2 px-3">RSI</th>
-            <th className="text-right py-2 px-3">Vol Ratio</th>
+            <th className="text-right py-2 px-3">Vol</th>
             <th className="text-right py-2 px-3">Score</th>
             <th className="text-right py-2 px-3">ML</th>
           </tr>
@@ -148,6 +167,242 @@ function ScanTable({ results, onSelect }: { results: ScanResult[]; onSelect: (t:
   );
 }
 
+// ---- Analytics Tab -------------------------------------------------------
+
+function AnalyticsTab() {
+  const [tickerInput, setTickerInput] = useState(DEFAULT_ANALYTICS.join(", "));
+  const [result, setResult] = useState<AnalyticsResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [horizon, setHorizon] = useState<"1d" | "3d" | "5d">("1d");
+
+  const run = async () => {
+    setLoading(true); setError(""); setResult(null);
+    const tickers = tickerInput.split(/[\s,]+/).filter(Boolean).map(t => t.toUpperCase()).slice(0, 15);
+    try {
+      const r = await runHistoricalAnalytics(tickers);
+      if (r.error) { setError(r.error); } else { setResult(r); }
+    } catch (e: any) { setError(e.message || "Analytics failed"); }
+    finally { setLoading(false); }
+  };
+
+  const winKey  = `win_rate_${horizon}` as keyof typeof result.bucket_stats[0];
+  const retKey  = `avg_ret_${horizon}`  as keyof typeof result.bucket_stats[0];
+
+  const winData  = result?.bucket_stats.map(b => ({ bucket: b.bucket, "Win Rate %": b[winKey] ?? 0 }));
+  const retData  = result?.bucket_stats.map(b => ({ bucket: b.bucket, "Avg Return %": b[retKey] ?? 0 }));
+  const distData = result?.score_distribution ?? [];
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="text-slate-300 font-medium mb-1">Historical Score Analytics</div>
+        <div className="text-slate-500 text-xs mb-4">
+          Scores every trading day over 2 years for each ticker, then shows win-rates and average returns
+          grouped by score bucket — so you can see which score ranges actually predicted gains.
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-slate-400 block mb-1">Tickers (up to 15, comma-separated)</label>
+          <input value={tickerInput} onChange={e => setTickerInput(e.target.value.toUpperCase())}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+        </div>
+        <button onClick={run} disabled={loading}
+          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2">
+          {loading && <Spinner />}
+          {loading ? "Analyzing history… (30–90 s)" : "Run Analytics"}
+        </button>
+        {error && <div className="mt-3 text-red-400 text-sm">{error}</div>}
+      </div>
+
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-20 gap-4 text-slate-400">
+          <Spinner />
+          <div className="text-sm">Scoring every trading day for {tickerInput.split(/[\s,]+/).filter(Boolean).length} tickers…</div>
+          <div className="text-xs text-slate-600">This takes 30–90 seconds</div>
+        </div>
+      )}
+
+      {result && !loading && (
+        <>
+          {/* Summary row */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: "Tickers analyzed", value: result.tickers_analyzed.length.toString() },
+              { label: "Total observations", value: result.total_observations.toLocaleString() },
+              { label: "Overall 1-day win rate", value: `${result.overall_win_rate_1d}%`, color: wrColor(result.overall_win_rate_1d) },
+              { label: "Failed tickers", value: result.failed.length > 0 ? result.failed.join(", ") : "None", color: result.failed.length ? "text-yellow-400" : "text-slate-400" },
+            ].map(c => (
+              <div key={c.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <div className="text-slate-500 text-xs mb-1">{c.label}</div>
+                <div className={`font-bold text-lg ${c.color ?? "text-white"}`}>{c.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Horizon selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 text-sm">Return horizon:</span>
+            {(["1d","3d","5d"] as const).map(h => (
+              <button key={h} onClick={() => setHorizon(h)}
+                className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${horizon === h ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200 bg-slate-800"}`}>
+                {h === "1d" ? "Next Day" : h === "3d" ? "3 Days" : "5 Days"}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Score Distribution */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <div className="text-slate-400 text-sm mb-1">Score Distribution</div>
+              <div className="text-slate-600 text-xs mb-4">How often each score range appeared across all trading days</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={distData} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="bucket" tick={{ fill: "#64748b", fontSize: 11 }} tickLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} width={40} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
+                    labelStyle={{ color: "#94a3b8" }} formatter={(v: number) => [v.toLocaleString(), "Days"]} />
+                  <Bar dataKey="count" radius={[4,4,0,0]}>
+                    {distData.map(d => (
+                      <Cell key={d.bucket} fill={BUCKET_COLORS[d.bucket] ?? "#6366f1"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Win Rate by Bucket */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <div className="text-slate-400 text-sm mb-1">Win Rate by Score Bucket</div>
+              <div className="text-slate-600 text-xs mb-4">% of days with positive return in the selected horizon</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={winData} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="bucket" tick={{ fill: "#64748b", fontSize: 11 }} tickLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} width={40} domain={[0, 100]} tickFormatter={v => `${v}%`} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
+                    labelStyle={{ color: "#94a3b8" }} formatter={(v: number) => [`${v.toFixed(1)}%`, "Win Rate"]} />
+                  <ReferenceLine y={50} stroke="#475569" strokeDasharray="4 4" />
+                  <Bar dataKey="Win Rate %" radius={[4,4,0,0]}>
+                    {winData?.map(d => (
+                      <Cell key={d.bucket} fill={(d["Win Rate %"] as number) >= 55 ? "#10b981" : (d["Win Rate %"] as number) >= 50 ? "#eab308" : "#ef4444"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Avg Return by Bucket */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <div className="text-slate-400 text-sm mb-1">Average Return by Score Bucket</div>
+              <div className="text-slate-600 text-xs mb-4">Mean % return in the selected horizon per score range</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={retData} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="bucket" tick={{ fill: "#64748b", fontSize: 11 }} tickLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} width={50} tickFormatter={v => `${v.toFixed(2)}%`} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
+                    labelStyle={{ color: "#94a3b8" }} formatter={(v: number) => [`${v.toFixed(3)}%`, "Avg Return"]} />
+                  <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 4" />
+                  <Bar dataKey="Avg Return %" radius={[4,4,0,0]}>
+                    {retData?.map(d => (
+                      <Cell key={d.bucket} fill={(d["Avg Return %"] as number) > 0 ? "#10b981" : "#ef4444"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Best Thresholds */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <div className="text-slate-400 text-sm mb-1">Best Score Thresholds</div>
+              <div className="text-slate-600 text-xs mb-4">Results for "score ≥ X" across all observations</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                      <th className="text-left py-2">Score ≥</th>
+                      <th className="text-right py-2">Count</th>
+                      <th className="text-right py-2">WR 1d</th>
+                      <th className="text-right py-2">WR 3d</th>
+                      <th className="text-right py-2">WR 5d</th>
+                      <th className="text-right py-2">Avg 1d</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.best_thresholds.map(t => (
+                      <tr key={t.threshold} className="border-b border-slate-800/50">
+                        <td className="py-2 font-semibold text-blue-400">{t.threshold}</td>
+                        <td className="text-right py-2 text-slate-400">{t.count.toLocaleString()}</td>
+                        <td className={`text-right py-2 font-medium ${wrColor(t.win_rate_1d)}`}>{t.win_rate_1d}%</td>
+                        <td className={`text-right py-2 font-medium ${wrColor(t.win_rate_3d)}`}>{t.win_rate_3d}%</td>
+                        <td className={`text-right py-2 font-medium ${wrColor(t.win_rate_5d)}`}>{t.win_rate_5d}%</td>
+                        <td className={`text-right py-2 font-medium ${retColor(t.avg_ret_1d)}`}>{t.avg_ret_1d > 0 ? "+" : ""}{t.avg_ret_1d.toFixed(3)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Full stats table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <div className="text-slate-400 text-sm mb-4">Full Bucket Statistics</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                    <th className="text-left py-2 px-3">Score Range</th>
+                    <th className="text-right py-2 px-3">Days</th>
+                    <th className="text-right py-2 px-3">WR 1d</th>
+                    <th className="text-right py-2 px-3">WR 3d</th>
+                    <th className="text-right py-2 px-3">WR 5d</th>
+                    <th className="text-right py-2 px-3">Avg 1d</th>
+                    <th className="text-right py-2 px-3">Avg 3d</th>
+                    <th className="text-right py-2 px-3">Avg 5d</th>
+                    <th className="text-right py-2 px-3">Median 1d</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.bucket_stats.map(b => (
+                    <tr key={b.bucket} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                      <td className="py-2.5 px-3">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: BUCKET_COLORS[b.bucket] + "33", color: BUCKET_COLORS[b.bucket] }}>
+                          {b.bucket}
+                        </span>
+                      </td>
+                      <td className="text-right py-2.5 px-3 text-slate-400">{b.count > 0 ? b.count.toLocaleString() : "—"}</td>
+                      <td className={`text-right py-2.5 px-3 font-medium ${wrColor(b.win_rate_1d)}`}>{b.win_rate_1d != null ? `${b.win_rate_1d}%` : "—"}</td>
+                      <td className={`text-right py-2.5 px-3 font-medium ${wrColor(b.win_rate_3d)}`}>{b.win_rate_3d != null ? `${b.win_rate_3d}%` : "—"}</td>
+                      <td className={`text-right py-2.5 px-3 font-medium ${wrColor(b.win_rate_5d)}`}>{b.win_rate_5d != null ? `${b.win_rate_5d}%` : "—"}</td>
+                      <td className={`text-right py-2.5 px-3 font-medium ${retColor(b.avg_ret_1d)}`}>{b.avg_ret_1d != null ? `${b.avg_ret_1d > 0 ? "+" : ""}${b.avg_ret_1d.toFixed(3)}%` : "—"}</td>
+                      <td className={`text-right py-2.5 px-3 font-medium ${retColor(b.avg_ret_3d)}`}>{b.avg_ret_3d != null ? `${b.avg_ret_3d > 0 ? "+" : ""}${b.avg_ret_3d.toFixed(3)}%` : "—"}</td>
+                      <td className={`text-right py-2.5 px-3 font-medium ${retColor(b.avg_ret_5d)}`}>{b.avg_ret_5d != null ? `${b.avg_ret_5d > 0 ? "+" : ""}${b.avg_ret_5d.toFixed(3)}%` : "—"}</td>
+                      <td className={`text-right py-2.5 px-3 ${retColor(b.median_ret_1d)}`}>{b.median_ret_1d != null ? `${b.median_ret_1d > 0 ? "+" : ""}${b.median_ret_1d.toFixed(3)}%` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {!result && !loading && !error && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-4xl mb-4">📊</div>
+          <div className="text-sm">Click "Run Analytics" to score 2 years of history for each ticker</div>
+          <div className="text-xs mt-2 text-slate-600">and see which score ranges predicted the best next-day returns</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Backtest Tab --------------------------------------------------------
+
 function BacktestTab() {
   const [ticker, setTicker] = useState("AAPL");
   const [buyThresh, setBuyThresh] = useState(6.5);
@@ -158,17 +413,10 @@ function BacktestTab() {
   const [error, setError] = useState("");
 
   const run = async () => {
-    setLoading(true);
-    setError("");
-    setResult(null);
-    try {
-      const r = await runBacktest(ticker.trim().toUpperCase(), buyThresh, sellThresh, cash);
-      setResult(r);
-    } catch (e: any) {
-      setError(e.message || "Backtest failed");
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setError(""); setResult(null);
+    try { setResult(await runBacktest(ticker.trim().toUpperCase(), buyThresh, sellThresh, cash)); }
+    catch (e: any) { setError(e.message || "Backtest failed"); }
+    finally { setLoading(false); }
   };
 
   const statCard = (label: string, value: string, color = "text-white") => (
@@ -184,26 +432,13 @@ function BacktestTab() {
         <div className="text-slate-300 font-medium mb-1">Strategy Backtester</div>
         <div className="text-slate-500 text-xs mb-4">Buy when composite score ≥ threshold, sell when ≤ exit threshold. Uses 2 years of data.</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Ticker</label>
-            <input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Buy when score ≥</label>
-            <input type="number" min={1} max={10} step={0.5} value={buyThresh} onChange={e => setBuyThresh(parseFloat(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Sell when score ≤</label>
-            <input type="number" min={1} max={10} step={0.5} value={sellThresh} onChange={e => setSellThresh(parseFloat(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Starting Cash ($)</label>
-            <input type="number" value={cash} onChange={e => setCash(parseFloat(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
-          </div>
+          <div><label className="text-xs text-slate-400 block mb-1">Ticker</label><input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase" /></div>
+          <div><label className="text-xs text-slate-400 block mb-1">Buy when score ≥</label><input type="number" min={1} max={10} step={0.5} value={buyThresh} onChange={e => setBuyThresh(parseFloat(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
+          <div><label className="text-xs text-slate-400 block mb-1">Sell when score ≤</label><input type="number" min={1} max={10} step={0.5} value={sellThresh} onChange={e => setSellThresh(parseFloat(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
+          <div><label className="text-xs text-slate-400 block mb-1">Starting Cash ($)</label><input type="number" value={cash} onChange={e => setCash(parseFloat(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
         </div>
         <button onClick={run} disabled={loading} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2">
-          {loading && <Spinner />}
-          {loading ? "Running backtest…" : "Run Backtest"}
+          {loading && <Spinner />}{loading ? "Running backtest…" : "Run Backtest"}
         </button>
         {error && <div className="mt-3 text-red-400 text-sm">{error}</div>}
       </div>
@@ -226,15 +461,10 @@ function BacktestTab() {
               <div className="text-slate-400 text-sm mb-4">Equity Curve — {result.ticker}</div>
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={result.equity_curve}>
-                  <defs>
-                    <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                  <defs><linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} /><stop offset="95%" stopColor="#6366f1" stopOpacity={0} /></linearGradient></defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} interval={20} />
-                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} width={70} tickFormatter={v => `$${v.toFixed(0)}`} domain={["auto", "auto"]} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} width={70} tickFormatter={v => `$${v.toFixed(0)}`} domain={["auto","auto"]} />
                   <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }} labelStyle={{ color: "#94a3b8" }} formatter={(v: number) => [`$${v.toFixed(2)}`, "Portfolio"]} />
                   <ReferenceLine y={result.initial_cash} stroke="#475569" strokeDasharray="4 4" />
                   <Area type="monotone" dataKey="value" stroke="#6366f1" fill="url(#eqGrad)" strokeWidth={2} dot={false} />
@@ -248,16 +478,7 @@ function BacktestTab() {
               <div className="text-slate-400 text-sm mb-4">Trade Log ({result.trades.length} trades)</div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
-                      <th className="text-left py-2 px-3">Type</th>
-                      <th className="text-left py-2 px-3">Date</th>
-                      <th className="text-right py-2 px-3">Price</th>
-                      <th className="text-right py-2 px-3">Shares</th>
-                      <th className="text-right py-2 px-3">Score</th>
-                      <th className="text-right py-2 px-3">P&L</th>
-                    </tr>
-                  </thead>
+                  <thead><tr className="border-b border-slate-800 text-slate-400 text-xs uppercase"><th className="text-left py-2 px-3">Type</th><th className="text-left py-2 px-3">Date</th><th className="text-right py-2 px-3">Price</th><th className="text-right py-2 px-3">Shares</th><th className="text-right py-2 px-3">Score</th><th className="text-right py-2 px-3">P&L</th></tr></thead>
                   <tbody>
                     {result.trades.map((t, i) => (
                       <tr key={i} className="border-b border-slate-800/50">
@@ -280,11 +501,13 @@ function BacktestTab() {
   );
 }
 
+// ---- Alerts Tab ----------------------------------------------------------
+
 function AlertsTab() {
   const qc = useQueryClient();
   const [ticker, setTicker] = useState("");
-  const [type, setType] = useState("price");
-  const [value, setValue] = useState("");
+  const [type, setType]     = useState("price");
+  const [value, setValue]   = useState("");
   const [direction, setDirection] = useState("above");
 
   const { data, isLoading } = useQuery({ queryKey: ["alerts"], queryFn: fetchAlerts });
@@ -299,9 +522,9 @@ function AlertsTab() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["alerts"] }),
   });
 
-  const alerts = data?.alerts ?? [];
-  const active = alerts.filter(a => !a.triggered);
-  const fired = alerts.filter(a => a.triggered);
+  const alerts  = data?.alerts ?? [];
+  const active  = alerts.filter(a => !a.triggered);
+  const fired   = alerts.filter(a => a.triggered);
 
   return (
     <div className="space-y-4">
@@ -309,29 +532,10 @@ function AlertsTab() {
         <div className="text-slate-300 font-medium mb-1">Create Alert</div>
         <div className="text-slate-500 text-xs mb-4">Get notified when a stock hits your target price, RSI level, or composite score.</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Ticker</label>
-            <input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} placeholder="AAPL" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Alert Type</label>
-            <select value={type} onChange={e => setType(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-              <option value="price">Price ($)</option>
-              <option value="rsi">RSI</option>
-              <option value="score">Score (1–10)</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Direction</label>
-            <select value={direction} onChange={e => setDirection(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-              <option value="above">Crosses Above</option>
-              <option value="below">Falls Below</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Target Value</label>
-            <input type="number" value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. 200" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
-          </div>
+          <div><label className="text-xs text-slate-400 block mb-1">Ticker</label><input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} placeholder="AAPL" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase" /></div>
+          <div><label className="text-xs text-slate-400 block mb-1">Alert Type</label><select value={type} onChange={e => setType(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"><option value="price">Price ($)</option><option value="rsi">RSI</option><option value="score">Score (1–10)</option></select></div>
+          <div><label className="text-xs text-slate-400 block mb-1">Direction</label><select value={direction} onChange={e => setDirection(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"><option value="above">Crosses Above</option><option value="below">Falls Below</option></select></div>
+          <div><label className="text-xs text-slate-400 block mb-1">Target Value</label><input type="number" value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. 200" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
         </div>
         <button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !ticker || !value} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors">
           {createMutation.isPending ? "Creating…" : "Add Alert"}
@@ -349,13 +553,9 @@ function AlertsTab() {
               <div key={a.id} className="flex items-center justify-between py-2.5 px-3 bg-slate-800/60 rounded-lg border border-slate-700">
                 <div className="flex items-center gap-4">
                   <span className="text-white font-semibold">{a.ticker}</span>
-                  <span className="text-xs px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-800">
-                    {a.type === "price" ? "Price" : a.type === "rsi" ? "RSI" : "Score"} {a.direction === "above" ? "≥" : "≤"} {a.type === "price" ? `$${a.value}` : a.value}
-                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-800">{a.type === "price" ? "Price" : a.type === "rsi" ? "RSI" : "Score"} {a.direction === "above" ? "≥" : "≤"} {a.type === "price" ? `$${a.value}` : a.value}</span>
                 </div>
-                <button onClick={() => deleteMutation.mutate(a.id)} className="text-slate-500 hover:text-red-400 transition-colors text-xs px-2 py-1 rounded hover:bg-red-900/20">
-                  Delete
-                </button>
+                <button onClick={() => deleteMutation.mutate(a.id)} className="text-slate-500 hover:text-red-400 transition-colors text-xs px-2 py-1 rounded hover:bg-red-900/20">Delete</button>
               </div>
             ))}
           </div>
@@ -370,13 +570,9 @@ function AlertsTab() {
               <div key={a.id} className="flex items-center justify-between py-2.5 px-3 bg-emerald-900/20 rounded-lg border border-emerald-800/40">
                 <div className="flex items-center gap-4">
                   <span className="text-white font-semibold">{a.ticker}</span>
-                  <span className="text-xs px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-800">
-                    ✓ {a.type} {a.direction} {a.value} — hit {a.triggered_value?.toFixed(2)} on {a.triggered_at?.slice(0, 10)}
-                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-800">✓ {a.type} {a.direction} {a.value} — hit {a.triggered_value?.toFixed(2)} on {a.triggered_at?.slice(0,10)}</span>
                 </div>
-                <button onClick={() => deleteMutation.mutate(a.id)} className="text-slate-500 hover:text-red-400 transition-colors text-xs px-2 py-1 rounded hover:bg-red-900/20">
-                  Clear
-                </button>
+                <button onClick={() => deleteMutation.mutate(a.id)} className="text-slate-500 hover:text-red-400 transition-colors text-xs px-2 py-1 rounded hover:bg-red-900/20">Clear</button>
               </div>
             ))}
           </div>
@@ -390,12 +586,14 @@ function AlertsTab() {
   );
 }
 
+// ---- Main Dashboard ------------------------------------------------------
+
 export default function Dashboard() {
-  const [ticker, setTicker] = useState("AAPL");
+  const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab] = useState<"lookup" | "scanner" | "backtest" | "alerts" | "portfolio">("lookup");
-  const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
+  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio">("lookup");
+  const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
   const qc = useQueryClient();
 
@@ -419,7 +617,7 @@ export default function Dashboard() {
   });
 
   const tradeMutation = useMutation({
-    mutationFn: ({ mode, t, shares, price }: { mode: "buy" | "sell"; t: string; shares: number; price: number }) =>
+    mutationFn: ({ mode, t, shares, price }: { mode:"buy"|"sell"; t:string; shares:number; price:number }) =>
       mode === "buy" ? buyStock(t, shares, price) : sellStock(t, shares, price),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["portfolio"] }); setTradeShares(""); },
   });
@@ -435,28 +633,31 @@ export default function Dashboard() {
     tradeMutation.mutate({ mode: tradeMode, t: analysis.ticker, shares, price: analysis.indicators.price });
   }, [tradeShares, tradeMode, analysis, tradeMutation]);
 
-  const ind = analysis?.indicators;
+  const ind   = analysis?.indicators;
   const score = analysis?.score;
-  const ml = analysis?.ml;
+  const ml    = analysis?.ml;
+
   const TABS = [
-    { id: "lookup", label: "Stock Lookup" },
-    { id: "scanner", label: "Scanner" },
-    { id: "backtest", label: "Backtest" },
-    { id: "alerts", label: "Alerts" },
+    { id: "lookup",    label: "Stock Lookup" },
+    { id: "scanner",   label: "Scanner" },
+    { id: "analytics", label: "Analytics" },
+    { id: "backtest",  label: "Backtest" },
+    { id: "alerts",    label: "Alerts" },
     { id: "portfolio", label: "Portfolio" },
   ] as const;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">S</div>
-            <h1 className="text-lg font-bold text-white">StockScanner AI</h1>
+            <h1 className="text-lg font-bold text-white hidden sm:block">StockScanner AI</h1>
           </div>
           <nav className="flex gap-1 flex-wrap">
             {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}>
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}>
                 {t.label}
               </button>
             ))}
@@ -466,19 +667,24 @@ export default function Dashboard() {
 
       <main className="max-w-7xl mx-auto px-4 py-6">
 
+        {/* --- Stock Lookup --- */}
         {tab === "lookup" && (
           <div className="space-y-6">
             <div className="flex gap-2">
-              <input value={inputTicker} onChange={e => setInputTicker(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && handleLookup()} placeholder="Enter ticker (e.g. AAPL)" className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 uppercase" />
+              <input value={inputTicker} onChange={e => setInputTicker(e.target.value.toUpperCase())}
+                onKeyDown={e => e.key === "Enter" && handleLookup()}
+                placeholder="Enter ticker (e.g. AAPL)"
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 uppercase" />
               <button onClick={handleLookup} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg font-medium transition-colors">Analyze</button>
             </div>
 
             {loadingAnalysis && <div className="flex items-center justify-center py-16 gap-3 text-slate-400"><Spinner /> Fetching data & running analysis…</div>}
-            {analysisError && <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 text-red-300">{analysisError instanceof Error ? analysisError.message : "Failed to analyze"}</div>}
+            {analysisError  && <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 text-red-300">{analysisError instanceof Error ? analysisError.message : "Failed to analyze"}</div>}
 
             {analysis && !loadingAnalysis && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* Price card */}
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <div className="text-slate-400 text-sm mb-1">{analysis.info.name || analysis.ticker}</div>
                     <div className="flex items-end gap-3 mb-3">
@@ -494,29 +700,31 @@ export default function Dashboard() {
                       <div><span className="text-slate-500">52w Low</span><div className="text-slate-300">${fmt(ind?.low_52w)}</div></div>
                     </div>
                   </div>
+
+                  {/* Score + ML card */}
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                    <div className="text-slate-400 text-sm mb-3">Composite Score</div>
+                    <div className="text-slate-400 text-sm mb-3">Composite Score &amp; ML Probability</div>
                     <div className="flex items-center gap-4 mb-4">
                       {score && <ScoreBadge score={score.score} rating={score.rating} />}
-                      {ml && <DirectionBadge direction={ml.direction} confidence={ml.confidence} probUp={ml.probability_up} />}
+                      {ml    && <DirectionBadge direction={ml.direction} confidence={ml.confidence} probUp={ml.probability_up} />}
                     </div>
                     {ml?.model_accuracy && <div className="text-xs text-slate-500 mb-3">Model accuracy: {ml.model_accuracy.toFixed(1)}%</div>}
                     {score && <ScoreBreakdown breakdown={score.breakdown} />}
                   </div>
+
+                  {/* Indicators card */}
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <div className="text-slate-400 text-sm mb-4">Technical Indicators</div>
-                    <div className="space-y-3 text-sm">
-                      {ind?.rsi != null && <RsiGauge rsi={ind.rsi} />}
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm pt-2 border-t border-slate-800">
-                        <div><span className="text-slate-500">MACD</span><div className={`font-medium ${(ind?.macd ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(ind?.macd, 3)}</div></div>
-                        <div><span className="text-slate-500">Signal</span><div className="text-slate-300">{fmt(ind?.macd_signal, 3)}</div></div>
-                        <div><span className="text-slate-500">SMA 50</span><div className="text-slate-300">${fmt(ind?.sma50)}</div></div>
-                        <div><span className="text-slate-500">SMA 200</span><div className="text-slate-300">${fmt(ind?.sma200)}</div></div>
-                        <div><span className="text-slate-500">BB Upper</span><div className="text-slate-300">${fmt(ind?.bb_upper)}</div></div>
-                        <div><span className="text-slate-500">BB Lower</span><div className="text-slate-300">${fmt(ind?.bb_lower)}</div></div>
-                        <div><span className="text-slate-500">Vol Ratio</span><div className={`font-medium ${(ind?.volume_ratio ?? 1) >= 1.5 ? "text-yellow-400" : "text-slate-300"}`}>{fmt(ind?.volume_ratio, 1)}x</div></div>
-                        <div><span className="text-slate-500">ATR</span><div className="text-slate-300">{fmt(ind?.atr)}</div></div>
-                      </div>
+                    {ind?.rsi != null && <RsiGauge rsi={ind.rsi} />}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm pt-3 mt-3 border-t border-slate-800">
+                      <div><span className="text-slate-500">MACD</span><div className={`font-medium ${(ind?.macd ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(ind?.macd, 3)}</div></div>
+                      <div><span className="text-slate-500">Signal</span><div className="text-slate-300">{fmt(ind?.macd_signal, 3)}</div></div>
+                      <div><span className="text-slate-500">SMA 50</span><div className="text-slate-300">${fmt(ind?.sma50)}</div></div>
+                      <div><span className="text-slate-500">SMA 200</span><div className="text-slate-300">${fmt(ind?.sma200)}</div></div>
+                      <div><span className="text-slate-500">BB Upper</span><div className="text-slate-300">${fmt(ind?.bb_upper)}</div></div>
+                      <div><span className="text-slate-500">BB Lower</span><div className="text-slate-300">${fmt(ind?.bb_lower)}</div></div>
+                      <div><span className="text-slate-500">Vol Ratio</span><div className={`font-medium ${(ind?.volume_ratio ?? 1) >= 1.5 ? "text-yellow-400" : "text-slate-300"}`}>{fmt(ind?.volume_ratio, 1)}x</div></div>
+                      <div><span className="text-slate-500">ATR</span><div className="text-slate-300">{fmt(ind?.atr)}</div></div>
                     </div>
                   </div>
                 </div>
@@ -530,7 +738,7 @@ export default function Dashboard() {
                   <div className="text-slate-400 text-sm mb-3">Paper Trade</div>
                   <div className="flex items-center gap-3 flex-wrap">
                     <div className="flex bg-slate-800 rounded-lg p-1">
-                      {(["buy", "sell"] as const).map(m => (
+                      {(["buy","sell"] as const).map(m => (
                         <button key={m} onClick={() => setTradeMode(m)} className={`px-4 py-1.5 rounded text-sm font-medium capitalize transition-colors ${tradeMode === m ? m === "buy" ? "bg-emerald-600 text-white" : "bg-red-600 text-white" : "text-slate-400 hover:text-slate-200"}`}>{m}</button>
                       ))}
                     </div>
@@ -540,25 +748,23 @@ export default function Dashboard() {
                       {tradeMutation.isPending ? "…" : `${tradeMode === "buy" ? "Buy" : "Sell"} ${analysis.ticker}`}
                     </button>
                     {tradeMutation.data?.message && <span className="text-emerald-400 text-sm">{tradeMutation.data.message}</span>}
-                    {tradeMutation.data?.error && <span className="text-red-400 text-sm">{tradeMutation.data.error}</span>}
+                    {tradeMutation.data?.error   && <span className="text-red-400 text-sm">{tradeMutation.data.error}</span>}
                   </div>
                 </div>
               </div>
             )}
-
             {!analysis && !loadingAnalysis && !analysisError && <div className="text-center py-16 text-slate-500">Enter a ticker symbol above to get started</div>}
           </div>
         )}
 
+        {/* --- Scanner --- */}
         {tab === "scanner" && (
           <div className="space-y-4">
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
               <div className="text-slate-400 text-sm mb-3">Tickers to scan (comma-separated, max 20)</div>
               <div className="flex gap-2">
                 <input value={scanTickers} onChange={e => setScanTickers(e.target.value.toUpperCase())} className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
-                <button onClick={() => runScan()} disabled={loadingScan} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2">
-                  {loadingScan && <Spinner />} Scan
-                </button>
+                <button onClick={() => runScan()} disabled={loadingScan} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2">{loadingScan && <Spinner />} Scan</button>
               </div>
               <div className="text-xs text-slate-500 mt-2">⚠️ Scanning many tickers may take 1–2 minutes</div>
             </div>
@@ -576,9 +782,11 @@ export default function Dashboard() {
           </div>
         )}
 
-        {tab === "backtest" && <BacktestTab />}
-        {tab === "alerts" && <AlertsTab />}
+        {tab === "analytics" && <AnalyticsTab />}
+        {tab === "backtest"  && <BacktestTab />}
+        {tab === "alerts"    && <AlertsTab />}
 
+        {/* --- Portfolio --- */}
         {tab === "portfolio" && (
           <div className="space-y-4">
             {loadingPortfolio && <div className="flex items-center justify-center py-16 gap-3 text-slate-400"><Spinner /> Loading portfolio…</div>}
@@ -586,10 +794,10 @@ export default function Dashboard() {
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
-                    { label: "Total Value", value: `$${portfolio.total_value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: "text-white" },
-                    { label: "Cash", value: `$${portfolio.cash.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: "text-slate-300" },
-                    { label: "Positions Value", value: `$${portfolio.positions_value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: "text-slate-300" },
-                    { label: "Total P&L", value: `${portfolio.total_pnl >= 0 ? "+" : ""}$${Math.abs(portfolio.total_pnl).toFixed(2)} (${portfolio.total_pnl_pct >= 0 ? "+" : ""}${portfolio.total_pnl_pct.toFixed(2)}%)`, color: portfolio.total_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
+                    { label: "Total Value", value: `$${portfolio.total_value.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, color: "text-white" },
+                    { label: "Cash",        value: `$${portfolio.cash.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, color: "text-slate-300" },
+                    { label: "Positions Value", value: `$${portfolio.positions_value.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, color: "text-slate-300" },
+                    { label: "Total P&L",   value: `${portfolio.total_pnl >= 0 ? "+" : ""}$${Math.abs(portfolio.total_pnl).toFixed(2)} (${portfolio.total_pnl_pct >= 0 ? "+" : ""}${portfolio.total_pnl_pct.toFixed(2)}%)`, color: portfolio.total_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
                   ].map(item => (
                     <div key={item.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                       <div className="text-slate-500 text-xs mb-1">{item.label}</div>
@@ -597,6 +805,7 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
+
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                   <div className="text-slate-400 text-sm mb-4">Positions</div>
                   {portfolio.positions.length === 0 ? (
@@ -621,6 +830,7 @@ export default function Dashboard() {
                     </div>
                   )}
                 </div>
+
                 {portfolio.trades.length > 0 && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <div className="text-slate-400 text-sm mb-4">Recent Trades</div>
@@ -640,7 +850,7 @@ export default function Dashboard() {
                 )}
               </>
             )}
-            {!portfolio && !loadingPortfolio && <div className="text-center py-16 text-slate-500">Portfolio data unavailable — make sure the Python backend is running</div>}
+            {!portfolio && !loadingPortfolio && <div className="text-center py-16 text-slate-500">Portfolio data unavailable</div>}
           </div>
         )}
       </main>

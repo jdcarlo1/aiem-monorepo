@@ -2,11 +2,11 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 
-from scanner import analyze_ticker, scan_tickers, WATCHLIST_DEFAULT
+from scanner import analyze_ticker, scan_tickers, WATCHLIST_DEFAULT, fetch_stock_data
 from portfolio import get_portfolio, add_position, remove_position, get_portfolio_value
 from backtest import backtest_strategy
-from alerts import get_alerts, add_alert, delete_alert, check_alerts
-from scanner import fetch_stock_data
+from alerts import get_alerts, add_alert, delete_alert
+from analytics import run_historical_analytics
 
 app = Flask(__name__)
 CORS(app)
@@ -99,16 +99,24 @@ def backtest():
     buy_threshold = float(body.get("buy_threshold", 6.5))
     sell_threshold = float(body.get("sell_threshold", 4.5))
     initial_cash = float(body.get("initial_cash", 10000.0))
-
     if not ticker:
         return jsonify({"error": "ticker is required"}), 400
-
     df = fetch_stock_data(ticker, period="2y")
     if df is None or df.empty:
         return jsonify({"error": f"Could not fetch data for {ticker}"}), 404
-
     result = backtest_strategy(df, buy_threshold=buy_threshold, sell_threshold=sell_threshold, initial_cash=initial_cash)
     result["ticker"] = ticker
+    return jsonify(result)
+
+
+@app.route("/stock-api/analytics/historical", methods=["POST"])
+def historical_analytics():
+    body = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", WATCHLIST_DEFAULT[:8])
+    if not isinstance(tickers, list) or len(tickers) == 0:
+        tickers = WATCHLIST_DEFAULT[:8]
+    tickers = [t.strip().upper() for t in tickers[:15]]
+    result = run_historical_analytics(tickers)
     return jsonify(result)
 
 
@@ -124,14 +132,12 @@ def create_alert():
     alert_type = body.get("type", "price")
     value = body.get("value")
     direction = body.get("direction", "above")
-
     if not ticker or value is None:
         return jsonify({"error": "ticker and value are required"}), 400
     if alert_type not in ("price", "rsi", "score"):
         return jsonify({"error": "type must be price, rsi, or score"}), 400
     if direction not in ("above", "below"):
         return jsonify({"error": "direction must be above or below"}), 400
-
     result = add_alert(ticker, alert_type, float(value), direction)
     return jsonify(result)
 

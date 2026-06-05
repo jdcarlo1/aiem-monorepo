@@ -58,6 +58,14 @@ export function runBacktest(ticker: string, buyThreshold: number, sellThreshold:
   });
 }
 
+export function runHistoricalAnalytics(tickers: string[]) {
+  return fetchJson<AnalyticsResult>("/analytics/historical", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tickers }),
+  });
+}
+
 export function fetchAlerts() {
   return fetchJson<{ alerts: Alert[] }>("/alerts");
 }
@@ -74,156 +82,96 @@ export function deleteAlert(id: number) {
   return fetchJson<{ success: boolean }>(`/alerts/${id}`, { method: "DELETE" });
 }
 
+// ---- Types ---------------------------------------------------------------
+
 export interface StockAnalysis {
   ticker: string;
   info: {
-    name: string;
-    sector: string;
-    industry: string;
-    market_cap?: number;
-    pe_ratio?: number;
-    forward_pe?: number;
-    dividend_yield?: number;
-    beta?: number;
-    description?: string;
+    name: string; sector: string; industry: string;
+    market_cap?: number; pe_ratio?: number; forward_pe?: number;
+    dividend_yield?: number; beta?: number; description?: string;
   };
   indicators: {
-    price?: number;
-    price_change?: number;
-    price_change_pct?: number;
-    rsi?: number;
-    macd?: number;
-    macd_signal?: number;
-    macd_hist?: number;
-    bb_upper?: number;
-    bb_mid?: number;
-    bb_lower?: number;
-    sma50?: number;
-    sma200?: number;
-    volume?: number;
-    avg_volume_20?: number;
-    volume_ratio?: number;
-    atr?: number;
-    momentum?: number;
-    high_52w?: number;
-    low_52w?: number;
-    pct_from_52w_high?: number;
+    price?: number; price_change?: number; price_change_pct?: number;
+    rsi?: number; macd?: number; macd_signal?: number; macd_hist?: number;
+    bb_upper?: number; bb_mid?: number; bb_lower?: number;
+    sma50?: number; sma200?: number; volume?: number; avg_volume_20?: number;
+    volume_ratio?: number; atr?: number; momentum?: number;
+    high_52w?: number; low_52w?: number; pct_from_52w_high?: number;
   };
-  score: {
-    score: number;
-    rating: string;
-    breakdown: { factor: string; points: number; max: number; label: string; value: number }[];
-  };
-  ml: {
-    probability_up: number;
-    probability_down: number;
-    direction: string;
-    confidence: string;
-    model_accuracy?: number;
-  };
-  history: {
-    date: string;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    volume: number;
-  }[];
+  score: { score: number; rating: string; breakdown: { factor: string; points: number; max: number; label: string; value: number }[] };
+  ml: { probability_up: number; probability_down: number; direction: string; confidence: string; model_accuracy?: number };
+  history: { date: string; open: number; high: number; low: number; close: number; volume: number }[];
 }
 
 export interface ScanResult {
-  ticker: string;
-  name: string;
-  sector: string;
-  price?: number;
-  price_change_pct?: number;
-  rsi?: number;
-  volume_ratio?: number;
-  score?: number;
-  rating?: string;
-  direction?: string;
-  prob_up?: number;
-  error?: string;
+  ticker: string; name: string; sector: string;
+  price?: number; price_change_pct?: number; rsi?: number;
+  volume_ratio?: number; score?: number; rating?: string;
+  direction?: string; prob_up?: number; error?: string;
 }
 
 export interface Portfolio {
-  cash: number;
-  positions_value: number;
-  total_value: number;
-  total_pnl: number;
-  total_pnl_pct: number;
-  positions: Position[];
-  trades: Trade[];
+  cash: number; positions_value: number; total_value: number;
+  total_pnl: number; total_pnl_pct: number;
+  positions: Position[]; trades: Trade[];
 }
 
 export interface Position {
-  ticker: string;
-  shares: number;
-  avg_cost: number;
-  current_price: number;
-  value: number;
-  cost_basis: number;
-  pnl: number;
-  pnl_pct: number;
+  ticker: string; shares: number; avg_cost: number; current_price: number;
+  value: number; cost_basis: number; pnl: number; pnl_pct: number;
 }
 
 export interface Trade {
-  type: string;
-  ticker: string;
-  shares: number;
-  price: number;
-  total: number;
-  date: string;
+  type: string; ticker: string; shares: number; price: number; total: number; date: string;
 }
 
 export interface TradeResult {
-  success?: boolean;
-  error?: string;
-  message?: string;
-  cash_remaining?: number;
+  success?: boolean; error?: string; message?: string; cash_remaining?: number;
 }
 
 export interface BacktestResult {
-  ticker: string;
-  initial_cash: number;
-  final_value: number;
-  total_return_pct: number;
-  buy_hold_return_pct: number;
-  alpha: number;
-  n_trades: number;
-  win_rate: number;
-  max_drawdown_pct: number;
-  buy_threshold: number;
-  sell_threshold: number;
-  trades: BacktestTrade[];
-  equity_curve: EquityPoint[];
+  ticker: string; initial_cash: number; final_value: number;
+  total_return_pct: number; buy_hold_return_pct: number; alpha: number;
+  n_trades: number; win_rate: number; max_drawdown_pct: number;
+  buy_threshold: number; sell_threshold: number;
+  trades: BacktestTrade[]; equity_curve: EquityPoint[];
 }
 
 export interface BacktestTrade {
-  type: string;
-  date: string;
-  price: number;
-  shares: number;
-  score: number;
-  pnl?: number;
-  pnl_pct?: number;
+  type: string; date: string; price: number; shares: number; score: number;
+  pnl?: number; pnl_pct?: number;
 }
 
-export interface EquityPoint {
-  date: string;
-  value: number;
-  close?: number;
-  in_position?: boolean;
-}
+export interface EquityPoint { date: string; value: number; close?: number; in_position?: boolean }
 
 export interface Alert {
-  id: number;
-  ticker: string;
-  type: string;
-  value: number;
-  direction: string;
-  triggered: boolean;
-  created: string;
-  triggered_at?: string;
-  triggered_value?: number;
+  id: number; ticker: string; type: string; value: number; direction: string;
+  triggered: boolean; created: string; triggered_at?: string; triggered_value?: number;
+}
+
+export interface BucketStat {
+  bucket: string; count: number;
+  win_rate_1d: number | null; win_rate_3d: number | null; win_rate_5d: number | null;
+  avg_ret_1d: number | null; avg_ret_3d: number | null; avg_ret_5d: number | null;
+  median_ret_1d: number | null;
+}
+
+export interface ThresholdStat {
+  threshold: number; count: number;
+  win_rate_1d: number; win_rate_3d: number; win_rate_5d: number;
+  avg_ret_1d: number; avg_ret_3d: number; avg_ret_5d: number;
+}
+
+export interface ScoreDist { bucket: string; count: number }
+
+export interface AnalyticsResult {
+  tickers_analyzed: string[];
+  failed: string[];
+  total_observations: number;
+  overall_win_rate_1d: number;
+  score_distribution: ScoreDist[];
+  bucket_stats: BucketStat[];
+  best_thresholds: ThresholdStat[];
+  error?: string;
 }
