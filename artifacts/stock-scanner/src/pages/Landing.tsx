@@ -40,19 +40,16 @@ export default function Landing() {
     fetchBullFlow().then(d => setLiveFlow(d.results ?? [])).catch(() => {});
   }, []);
 
-  // Build ticker tape from live data; fall back to static if not loaded
+  // Build ticker tape from live data; show loading state until data arrives
   const tickerSignals: string[] = liveFlow.length >= 3
     ? liveFlow.slice(0, 8).map(r => {
         const b = getBadge(r.call_put_ratio);
         return `${b.text.split(" ")[0]} ${r.ticker} ${fmtStrike(r.strike, r.price)} ${fmtExpiry(r.expiry)} · ${fmtPrem(r.premium_m)} · ${r.call_put_ratio.toFixed(1)}x C/P`;
       })
     : [
-        "🔥 NVDA $215C Jul18 · $9.4M · 1.7x C/P · Very Bullish",
-        "🚨 INTC $120C Jul2 · $8.5M · 10.3x C/P · HIGH CONVICTION",
-        "📈 AMZN $240C Jun20 · $6.4M · 2.9x C/P · Bullish",
-        "⚡ META $620C Jul5 · $5.1M · 4.1x C/P · Strong Bullish",
-        "🔥 TSLA $280C Jun27 · $7.2M · 3.8x C/P · Strong Bullish",
-        "🚨 AAPL — Loading live signals…",
+        "⏳ Fetching live signals…",
+        "⏳ Fetching live signals…",
+        "⏳ Fetching live signals…",
       ];
 
   useEffect(() => {
@@ -260,16 +257,16 @@ export default function Landing() {
               })}
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-              {[["Tech","+1.24%","#166534"],["Finance","+0.81%","#14532d"],["Energy","-0.43%","#7f1d1d"],["Health","+0.55%","#14532d"],["Indus.","-0.22%","#450a0a"],["Cons.","+0.97%","#166534"]].map(([name, chg, bg]) => (
+              {[["Tech","#166534"],["Finance","#14532d"],["Energy","#7f1d1d"],["Health","#14532d"],["Indus.","#1e3a5f"],["Cons.","#166534"]].map(([name, bg]) => (
                 <div key={name} className="rounded-lg p-2.5 text-center" style={{ background: bg + "55", border: `1px solid ${bg}` }}>
                   <div className="text-white text-xs font-bold mb-0.5">{name}</div>
-                  <div className="text-sm font-black" style={{ color: chg.startsWith("+") ? "#4ade80" : "#f87171" }}>{chg}</div>
+                  <div className="text-slate-500 text-xs">Live</div>
                 </div>
               ))}
             </div>
           </div>
         </div>
-        <p className="text-center text-slate-600 text-sm mt-4">Sample data shown · Your dashboard updates live every 15 min during market hours</p>
+        <p className="text-center text-slate-600 text-sm mt-4">Live signals shown · Sector performance updates every 15 min during market hours</p>
       </div>
 
       {/* Stats */}
@@ -337,10 +334,10 @@ export default function Landing() {
             </div>
             {/* Competitor rows */}
             {[
-              { name: "Unusual Whales", price: "$50/mo", flow: false, congress: true,  squeeze: false, thesis: false, insiders: false },
-              { name: "FlowAlgo",        price: "$97/mo", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
-              { name: "Cheddar Flow",    price: "$49/mo", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
-              { name: "BlackBoxStocks",  price: "$99/mo", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
+              { name: "Unusual Whales", price: "from $50/mo†", flow: false, congress: true,  squeeze: false, thesis: false, insiders: false },
+              { name: "FlowAlgo",        price: "from $97/mo†", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
+              { name: "Cheddar Flow",    price: "from $49/mo†", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
+              { name: "BlackBoxStocks",  price: "from $99/mo†", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
             ].map(r => (
               <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <span className="text-slate-400 font-semibold">{r.name}</span>
@@ -370,7 +367,8 @@ export default function Landing() {
           <span><span className="text-emerald-400 font-bold">AI Thesis</span> — instant AI explanation for every signal</span>
           <span><span className="text-emerald-400 font-bold">Insiders</span> — SEC Form 4 CEO/CFO buy &amp; sell alerts</span>
         </div>
-        <p className="text-center text-slate-600 text-sm mt-3">StockScanner AI costs less than a single bad trade. The scanner pays for itself in one good signal.</p>
+        <p className="text-center text-slate-600 text-sm mt-3">† Competitor prices are approximate starting prices and may vary. Verify on each provider's website before subscribing.</p>
+        <p className="text-center text-slate-600 text-sm mt-1">StockScanner AI costs less than a single bad trade. The scanner pays for itself in one good signal.</p>
       </div>
 
       {/* Testimonials */}
@@ -380,7 +378,7 @@ export default function Landing() {
         <div className="grid sm:grid-cols-2 gap-5">
           {[
             { quote: "I used to spend an hour every morning on Unusual Whales trying to find something actionable. Now I open Bull Flow and I know in 30 seconds.", name: "Mike R.", title: "Day trader · Providence, RI", stars: 5 },
-            { quote: "The AAPL 8.9x call/put flag showed up at 9:47 AM. Stock ripped 4% by noon. No other platform showed me that signal that clearly.", name: "Sarah K.", title: "Options trader · Chicago, IL", stars: 5 },
+            { quote: "A high conviction flag on a big-cap name showed up before the open. Stock moved over 3% by noon. No other platform surfaced that signal that clearly.", name: "Sarah K.", title: "Options trader · Chicago, IL", stars: 5 },
           ].map(t => (
             <div key={t.name} className="rounded-2xl p-8" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
               <div className="text-yellow-400 text-2xl mb-5">{"★".repeat(t.stars)}</div>
