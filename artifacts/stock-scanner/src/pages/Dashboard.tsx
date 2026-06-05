@@ -1573,9 +1573,17 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-xl w-8 text-center shrink-0">{rankLabel(row.rank)}</span>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-white font-black text-lg">{row.ticker}</span>
                       <span className="text-slate-500 text-sm">${row.price.toLocaleString()}</span>
+                      {(() => {
+                        const r = row.call_put_ratio;
+                        if (r >= 5)  return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">🔥 Extremely Bullish</span>;
+                        if (r >= 2)  return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 border border-emerald-700/30">📈 Very Bullish</span>;
+                        if (r >= 1)  return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-700/30">↔️ Mixed</span>;
+                        if (r >= 0.5) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-900/30 text-orange-400 border border-orange-700/30">⚠️ More Puts</span>;
+                        return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-900/30 text-red-400 border border-red-700/30">🔴 Mostly Puts</span>;
+                      })()}
                     </div>
                     <div className="text-slate-400 text-xs mt-0.5">
                       {row.strike ? `$${row.strike}C` : "—"}
