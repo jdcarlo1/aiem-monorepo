@@ -210,6 +210,44 @@ export interface PropTradeResult {
   price?: number; pnl?: number; cash?: number; error?: string;
 }
 
+export interface SmartMoneySignal {
+  ticker: string;
+  price: number;
+  smart_money_score: number;
+  confidence: string;
+  signal: string;
+  direction: "Bullish" | "Bearish" | "Neutral";
+  risk_rating: string;
+  win_rate: number;
+  avg_5d_return: number;
+  occurrences: number;
+  expected_move_low: number;
+  expected_move_high: number;
+  rvol: number;
+  thesis: string;
+  score_breakdown: {
+    call_sweep: number;
+    volume_oi: number;
+    ask_aggression: number;
+    dark_pool: number;
+    sector_strength: number;
+    historical: number;
+  };
+}
+
+export interface SmartMoneyResult {
+  leaderboard: SmartMoneySignal[];
+  timestamp: string;
+}
+
+export function smartMoneyScan(tickers: string[]) {
+  return fetchJson<SmartMoneyResult>("/smart-money/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tickers }),
+  });
+}
+
 export interface AnalyticsResult {
   tickers_analyzed: string[];
   failed: string[];

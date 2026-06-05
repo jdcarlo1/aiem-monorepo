@@ -9,6 +9,7 @@ from backtest import backtest_strategy
 from alerts import get_alerts, add_alert, delete_alert
 from analytics import run_historical_analytics
 from prop_signal import prop_signal
+from smart_money import scan_smart_money, compute_smart_money, DEFAULT_LEADERBOARD
 import execution
 import pnl
 
@@ -243,6 +244,37 @@ def prop_reset():
     execution.reset()
     pnl.clear_trades()
     return jsonify({"status": "ok", "cash": execution.get_cash()})
+
+
+@app.route("/stock-api/smart-money/scan", methods=["POST"])
+def smart_money_scan_route():
+    body = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", DEFAULT_LEADERBOARD)
+    if not isinstance(tickers, list) or not tickers:
+        tickers = DEFAULT_LEADERBOARD
+    tickers = [t.strip().upper() for t in tickers[:50]]
+    result = scan_smart_money(tickers)
+    return jsonify(_safe(result))
+
+
+@app.route("/stock-api/smart-money/detail/<ticker>", methods=["GET"])
+def smart_money_detail(ticker):
+    ticker = ticker.strip().upper()
+    df = fetch_stock_data(ticker, period="1y")
+    if df is None or df.empty:
+        return jsonify({"error": f"Could not fetch data for {ticker}"}), 404
+    spy_ret = 0.0
+    try:
+        spy_df = fetch_stock_data("SPY", period="35d")
+        if spy_df is not None and len(spy_df) > 21:
+            sc = spy_df["Close"].squeeze().astype(float).dropna()
+            spy_ret = float((sc.iloc[-1] - sc.iloc[-21]) / sc.iloc[-21])
+    except Exception:
+        pass
+    result = compute_smart_money(ticker, df, spy_ret)
+    if result is None:
+        return jsonify({"error": f"Insufficient data for {ticker}"}), 404
+    return jsonify(_safe(result))
 
 
 @app.route("/stock-api/", methods=["GET"])

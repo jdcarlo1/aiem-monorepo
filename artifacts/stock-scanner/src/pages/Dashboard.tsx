@@ -1,11 +1,11 @@
-import { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   analyzeStock, scanStocks, fetchPortfolio, buyStock, sellStock,
   runBacktest, runHistoricalAnalytics, fetchAlerts, createAlert, deleteAlert,
-  propScan, propTrade, propReset,
+  propScan, propTrade, propReset, smartMoneyScan,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
-  PropSignal, PropPosition, PropTrade, PropDeskResult,
+  PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -611,6 +611,253 @@ function PropScoreBar({ value, label, color = "#3b82f6" }: { value: number; labe
   );
 }
 
+// ─── Smart Money Leaderboard ─────────────────────────────────────────────────
+
+const SM_DEFAULT = [
+  "AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD",
+  "NFLX","PLTR","COIN","SOFI","MARA","RBLX","UBER","SMCI",
+  "ARM","INTC","MU","AI","SPY","QQQ","JPM","V","PYPL",
+].join(", ");
+
+function SmScoreBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+  const pct = Math.min(100, (value / max) * 100);
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs">
+        <span className="text-slate-400">{label}</span>
+        <span className="text-white font-medium">{value}<span className="text-slate-500">/{max}</span></span>
+      </div>
+      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
+function SmScoreBadge({ score }: { score: number }) {
+  const cls = score >= 80 ? "text-emerald-400 border-emerald-500/60 bg-emerald-950/50"
+    : score >= 65 ? "text-cyan-400 border-cyan-500/60 bg-cyan-950/50"
+    : score >= 50 ? "text-yellow-400 border-yellow-500/60 bg-yellow-950/50"
+    : score >= 35 ? "text-orange-400 border-orange-500/60 bg-orange-950/50"
+    : "text-red-400 border-red-500/60 bg-red-950/50";
+  return (
+    <div className={`inline-flex items-center justify-center border rounded-full w-11 h-11 text-sm font-bold ${cls}`}>
+      {score}
+    </div>
+  );
+}
+
+function SmartMoneyTab() {
+  const [tickerInput, setTickerInput] = useState(SM_DEFAULT);
+  const [result, setResult] = useState<SmartMoneyResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [countdown, setCountdown] = useState(60);
+  const inputRef = useRef(tickerInput);
+  inputRef.current = tickerInput;
+
+  const runScan = useCallback(async () => {
+    const tickers = inputRef.current.split(/[\s,]+/).filter(Boolean).map(t => t.toUpperCase()).slice(0, 50);
+    setLoading(true);
+    setMsg("");
+    try {
+      const data = await smartMoneyScan(tickers);
+      setResult(data);
+      setCountdown(60);
+    } catch (e: any) {
+      setMsg("Scan failed: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => {
+      setCountdown(c => {
+        if (c <= 1) { runScan(); return 60; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [autoRefresh, runScan]);
+
+  const board = result?.leaderboard ?? [];
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
+            <label className="text-slate-400 text-xs mb-1 block">Tickers (comma-separated, up to 50)</label>
+            <textarea
+              value={tickerInput}
+              onChange={e => setTickerInput(e.target.value)}
+              rows={2}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 resize-none"
+              placeholder="AAPL, MSFT, NVDA…"
+            />
+          </div>
+          <div className="flex flex-col gap-2 justify-end shrink-0">
+            <button
+              onClick={runScan}
+              disabled={loading}
+              className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? <><Spinner /> Scanning…</> : "🏆 Run Leaderboard"}
+            </button>
+            <button
+              onClick={() => setAutoRefresh(a => !a)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${autoRefresh ? "border-green-600 text-green-400 bg-green-950/30" : "border-slate-700 text-slate-400 hover:text-slate-300"}`}
+            >
+              {autoRefresh ? `↻ Auto (${countdown}s)` : "↻ Auto-refresh off"}
+            </button>
+          </div>
+        </div>
+        {msg && <p className="mt-2 text-sm text-red-400">{msg}</p>}
+      </div>
+
+      {/* Leaderboard Table */}
+      {board.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-white font-semibold">Smart Money Leaderboard</span>
+              <span className="bg-purple-900/50 text-purple-300 text-xs px-2 py-0.5 rounded-full">{board.length} stocks</span>
+            </div>
+            {result?.timestamp && (
+              <span className="text-slate-500 text-xs hidden sm:block">
+                Updated {new Date(result.timestamp).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                  <th className="text-left py-2.5 px-4 w-8">#</th>
+                  <th className="text-left py-2.5 px-3">Ticker</th>
+                  <th className="text-center py-2.5 px-3">Score</th>
+                  <th className="text-left py-2.5 px-3 hidden md:table-cell">Signal</th>
+                  <th className="text-right py-2.5 px-3">Win Rate</th>
+                  <th className="text-right py-2.5 px-4 hidden sm:table-cell">Exp. Move</th>
+                </tr>
+              </thead>
+              <tbody>
+                {board.map((s, i) => {
+                  const open = selected === s.ticker;
+                  const dirColor = s.direction === "Bullish" ? "text-emerald-400" : s.direction === "Bearish" ? "text-red-400" : "text-yellow-400";
+                  const dirArrow = s.direction === "Bullish" ? "▲" : s.direction === "Bearish" ? "▼" : "→";
+                  return (
+                    <React.Fragment key={s.ticker}>
+                      <tr
+                        onClick={() => setSelected(open ? null : s.ticker)}
+                        className={`border-b border-slate-800/50 cursor-pointer transition-colors ${open ? "bg-purple-950/25" : "hover:bg-slate-800/40"}`}
+                      >
+                        <td className="py-3 px-4 text-slate-500 text-xs font-mono">{i + 1}</td>
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-white">{s.ticker}</div>
+                          <div className="text-slate-500 text-xs">${s.price.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <SmScoreBadge score={s.smart_money_score} />
+                        </td>
+                        <td className="py-3 px-3 hidden md:table-cell">
+                          <div className={`text-xs font-medium ${dirColor}`}>{dirArrow} {s.signal}</div>
+                          <div className="text-slate-500 text-xs mt-0.5">{s.confidence} confidence · RVOL {s.rvol}x</div>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <span className={`font-semibold ${s.win_rate >= 60 ? "text-emerald-400" : s.win_rate >= 50 ? "text-yellow-400" : "text-red-400"}`}>
+                            {s.win_rate.toFixed(0)}%
+                          </span>
+                          <div className={`text-xs ${s.avg_5d_return >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                            {s.avg_5d_return >= 0 ? "+" : ""}{s.avg_5d_return.toFixed(1)}% avg
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-right hidden sm:table-cell">
+                          <span className="text-slate-300 text-xs">{s.expected_move_low}%–{s.expected_move_high}%</span>
+                          <div className="text-slate-500 text-xs">5-day</div>
+                        </td>
+                      </tr>
+
+                      {/* Expanded detail */}
+                      {open && (
+                        <tr className="bg-purple-950/10 border-b border-purple-800/20">
+                          <td colSpan={6} className="p-4">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                              {/* Score Breakdown */}
+                              <div>
+                                <h4 className="text-white text-sm font-semibold mb-3">📊 Score Breakdown <span className="text-slate-500 font-normal">(out of 100)</span></h4>
+                                <div className="space-y-2.5">
+                                  <SmScoreBar label="Call Sweep Proxy"     value={s.score_breakdown.call_sweep}       max={25} color="#a855f7" />
+                                  <SmScoreBar label="Volume / OI"          value={s.score_breakdown.volume_oi}        max={20} color="#06b6d4" />
+                                  <SmScoreBar label="Ask-Side Aggression"  value={s.score_breakdown.ask_aggression}   max={15} color="#10b981" />
+                                  <SmScoreBar label="Dark Pool Proxy"      value={s.score_breakdown.dark_pool}        max={15} color="#6366f1" />
+                                  <SmScoreBar label="Sector Strength"      value={s.score_breakdown.sector_strength}  max={10} color="#f59e0b" />
+                                  <SmScoreBar label="Historical Similarity" value={s.score_breakdown.historical}      max={15} color="#f97316" />
+                                </div>
+                              </div>
+
+                              {/* Stats + Thesis */}
+                              <div className="space-y-3">
+                                <h4 className="text-white text-sm font-semibold">📋 Final Analysis</h4>
+                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                  {[
+                                    { label: "Signal",           value: s.signal,    color: dirColor },
+                                    { label: "Suggested Trade",  value: s.direction, color: dirColor },
+                                    { label: "Confidence",       value: s.confidence, color: "text-slate-200" },
+                                    { label: "Risk Rating",      value: s.risk_rating, color: s.risk_rating === "Low" ? "text-emerald-400" : s.risk_rating === "Moderate" ? "text-yellow-400" : "text-red-400" },
+                                    { label: "Avg 5-Day Return", value: `${s.avg_5d_return >= 0 ? "+" : ""}${s.avg_5d_return.toFixed(1)}%`, color: s.avg_5d_return >= 0 ? "text-emerald-400" : "text-red-400" },
+                                    { label: "Historical Occurrences", value: `${s.occurrences}`, color: "text-slate-200" },
+                                    { label: "Win Rate",         value: `${s.win_rate.toFixed(0)}%`, color: s.win_rate >= 60 ? "text-emerald-400" : s.win_rate >= 50 ? "text-yellow-400" : "text-red-400" },
+                                    { label: "Expected Move",    value: `${s.expected_move_low}%–${s.expected_move_high}%`, color: "text-slate-200" },
+                                  ].map(item => (
+                                    <div key={item.label} className="bg-slate-900/70 rounded-lg p-2.5">
+                                      <div className="text-slate-500 text-xs">{item.label}</div>
+                                      <div className={`font-semibold text-sm mt-0.5 leading-tight ${item.color}`}>{item.value}</div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* AI Thesis */}
+                                <div className="bg-slate-900/60 border border-purple-800/30 rounded-xl p-3.5">
+                                  <div className="flex items-center gap-1.5 mb-2">
+                                    <span className="text-purple-400 text-xs font-semibold">🤖 AI Trade Thesis</span>
+                                  </div>
+                                  <p className="text-slate-300 text-sm leading-relaxed">{s.thesis}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!loading && board.length === 0 && !msg && (
+        <div className="text-center py-16 text-slate-500">
+          <div className="text-5xl mb-4">🏆</div>
+          <p className="text-lg font-medium text-slate-400 mb-1">Click "Run Leaderboard" to scan your watchlist</p>
+          <p className="text-sm max-w-md mx-auto">
+            Ranks each stock 0–100 by Smart Money Score — combining call sweep flow, dark pool accumulation,
+            volume anomalies, sector strength, and historical win rate from similar setups.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PropDeskTab() {
   const [tickerInput, setTickerInput] = useState(DEFAULT_SCAN.join(", "));
   const [result, setResult] = useState<PropDeskResult | null>(null);
@@ -891,7 +1138,8 @@ export default function Dashboard() {
     { id: "backtest",  label: "Backtest" },
     { id: "alerts",    label: "Alerts" },
     { id: "portfolio", label: "Portfolio" },
-    { id: "propdesk",  label: "⚡ Prop Desk" },
+    { id: "propdesk",   label: "⚡ Prop Desk" },
+    { id: "smartmoney", label: "🏆 Smart Money" },
   ] as const;
 
   return (
@@ -1033,7 +1281,8 @@ export default function Dashboard() {
         {tab === "analytics" && <AnalyticsTab />}
         {tab === "backtest"  && <BacktestTab />}
         {tab === "alerts"    && <AlertsTab />}
-        {tab === "propdesk"  && <PropDeskTab />}
+        {tab === "propdesk"   && <PropDeskTab />}
+        {tab === "smartmoney" && <SmartMoneyTab />}
 
         {/* --- Portfolio --- */}
         {tab === "portfolio" && (
