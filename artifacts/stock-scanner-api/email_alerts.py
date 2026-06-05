@@ -189,10 +189,27 @@ def _signal_html(s: dict) -> str:
 
 
 def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
-                       base_url: str = "") -> str:
-    rows = "".join(_signal_html(s) for s in signals)
+                       base_url: str = "", session: str = "eod") -> str:
+    rows      = "".join(_signal_html(s) for s in signals)
     unsub_url = f"{base_url}/stock-api/alerts/unsubscribe/{unsub_token}"
-    count = len(signals)
+    count     = len(signals)
+
+    is_morning = session == "morning"
+
+    # Session-specific copy
+    emoji      = "🔔" if is_morning else "🏆"
+    title      = "Opening Bell Unusual Options Activity" if is_morning else "End of Day Smart Money Digest"
+    sub_title  = ("9:45 AM scan — first real options flow of the day" if is_morning
+                  else "4:15 PM scan — full-day final options flow")
+    bar_note   = ("Opening sweep detected. Options data 15 min after open — act early." if is_morning
+                  else "Full trading day captured. Options data settled after close.")
+    bar_color  = "#7c3aed" if is_morning else "#0e7490"   # purple morning, teal EOD
+    tip_text   = ("💡 <b>Morning tip:</b> High Vol/OI at open often means smart money entered overnight "
+                  "and is confirming the position at the bell. These signals are freshest."
+                  if is_morning else
+                  "💡 <b>EOD tip:</b> High scores after close reflect the full day's options flow. "
+                  "Stocks holding strong signal into close often gap up overnight.")
+
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -205,19 +222,21 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
         📡 StockScanner AI
       </div>
       <div style="color:#64748b;font-size:13px;margin-top:4px;">
-        Daily Smart Money Digest · {date_str}
+        {title} · {date_str}
       </div>
     </div>
 
-    <!-- Summary bar -->
-    <div style="background:#1e293b;border-radius:12px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px;">
-      <div style="font-size:32px;">🏆</div>
-      <div>
-        <div style="color:#fff;font-weight:700;font-size:16px;">
-          {count} High-Conviction Signal{'s' if count != 1 else ''} Today
-        </div>
-        <div style="color:#64748b;font-size:13px;margin-top:2px;">
-          Score ≥ 60 · Real options chain data · 15-min delayed
+    <!-- Session banner -->
+    <div style="background:{bar_color};border-radius:12px;padding:16px 20px;margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="font-size:32px;">{emoji}</div>
+        <div>
+          <div style="color:#fff;font-weight:700;font-size:16px;">
+            {count} High-Conviction Signal{'s' if count != 1 else ''}
+          </div>
+          <div style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:2px;">
+            {bar_note}
+          </div>
         </div>
       </div>
     </div>
@@ -234,16 +253,20 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
           </tr>
         </thead>
         <tbody>
-          {rows if rows else '<tr><td colspan="4" style="color:#64748b;padding:20px;text-align:center;">No high-conviction signals today</td></tr>'}
+          {rows if rows else '<tr><td colspan="4" style="color:#64748b;padding:20px;text-align:center;">No high-conviction signals detected</td></tr>'}
         </tbody>
       </table>
     </div>
 
+    <!-- Session tip -->
+    <div style="background:#1e293b;border-left:3px solid {bar_color};border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:24px;">
+      <p style="color:#94a3b8;font-size:12px;line-height:1.7;margin:0;">{tip_text}</p>
+    </div>
+
     <!-- Disclaimer -->
-    <div style="background:#1e293b;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
+    <div style="background:#1e293b;border-radius:12px;padding:14px 18px;margin-bottom:24px;">
       <p style="color:#64748b;font-size:11px;line-height:1.6;margin:0;">
         ⚠️ <b style="color:#94a3b8;">Not financial advice.</b>
-        StockScanner AI signals are for informational purposes only.
         Options data is sourced from yfinance (15-minute delayed).
         Always do your own research before trading.
       </p>
@@ -252,7 +275,7 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
     <!-- Footer -->
     <div style="text-align:center;padding:16px 0;">
       <p style="color:#334155;font-size:11px;margin:0;">
-        You're receiving this because you subscribed at StockScanner AI. &nbsp;
+        StockScanner AI · {sub_title} &nbsp;·&nbsp;
         <a href="{unsub_url}" style="color:#64748b;">Unsubscribe</a>
       </p>
     </div>
@@ -263,7 +286,8 @@ def build_digest_email(signals: list[dict], date_str: str, unsub_token: str,
 
 # ── Send digest to all subscribers ──────────────────────────────────────────
 
-def send_daily_digest(signals: list[dict], base_url: str = "") -> dict:
+def send_daily_digest(signals: list[dict], base_url: str = "",
+                      session: str = "eod") -> dict:
     subscribers = get_active_subscribers()
     if not subscribers:
         return {"sent": 0, "skipped": 0, "reason": "no subscribers"}
@@ -271,19 +295,23 @@ def send_daily_digest(signals: list[dict], base_url: str = "") -> dict:
         return {"sent": 0, "skipped": len(subscribers), "reason": "SMTP not configured"}
 
     date_str = datetime.now().strftime("%B %d, %Y")
-    top = [s for s in signals if s.get("smart_money_score", 0) >= 60][:8]
+    top      = [s for s in signals if s.get("smart_money_score", 0) >= 60][:8]
+
+    is_morning = session == "morning"
+    if is_morning:
+        subject = (f"🔔 Opening Bell Alert: {len(top)} Unusual Options Signal"
+                   f"{'s' if len(top) != 1 else ''} · {date_str}")
+    else:
+        subject = (f"🏆 EOD Smart Money: {len(top)} High-Conviction Signal"
+                   f"{'s' if len(top) != 1 else ''} · {date_str}")
 
     sent = skipped = 0
     for sub in subscribers:
-        html = build_digest_email(top, date_str, sub["token"], base_url)
-        ok = send_email_raw(
-            to=sub["email"],
-            subject=f"📡 {len(top)} Smart Money Signal{'s' if len(top)!=1 else ''} Today · {date_str}",
-            html=html,
-        )
+        html = build_digest_email(top, date_str, sub["token"], base_url, session)
+        ok   = send_email_raw(to=sub["email"], subject=subject, html=html)
         if ok:
             sent += 1
         else:
             skipped += 1
 
-    return {"sent": sent, "skipped": skipped, "signals": len(top)}
+    return {"sent": sent, "skipped": skipped, "signals": len(top), "session": session}

@@ -29,25 +29,47 @@ try:
     from apscheduler.triggers.cron import CronTrigger
     import pytz
 
-    def _run_daily_digest():
-        try:
-            result = scan_smart_money(DEFAULT_LEADERBOARD)
-            signals = result.get("leaderboard", [])
-            base_url = os.getenv("PUBLIC_URL", "")
-            out = send_daily_digest(signals, base_url)
-            print(f"[scheduler] Daily digest sent: {out}")
-        except Exception as e:
-            print(f"[scheduler] digest error: {e}")
+    _ET = pytz.timezone("US/Eastern")
 
-    _scheduler = BackgroundScheduler(timezone=pytz.timezone("US/Eastern"))
+    def _run_morning_scan():
+        """9:45 AM ET — first real options data 15 min after open. Catch opening sweeps."""
+        try:
+            result   = scan_smart_money(DEFAULT_LEADERBOARD)
+            signals  = result.get("leaderboard", [])
+            base_url = os.getenv("PUBLIC_URL", "")
+            out = send_daily_digest(signals, base_url, session="morning")
+            print(f"[scheduler] Morning scan sent: {out}")
+        except Exception as e:
+            print(f"[scheduler] morning scan error: {e}")
+
+    def _run_eod_scan():
+        """4:15 PM ET — 15 min after close. Full-day final options flow summary."""
+        try:
+            result   = scan_smart_money(DEFAULT_LEADERBOARD)
+            signals  = result.get("leaderboard", [])
+            base_url = os.getenv("PUBLIC_URL", "")
+            out = send_daily_digest(signals, base_url, session="eod")
+            print(f"[scheduler] EOD scan sent: {out}")
+        except Exception as e:
+            print(f"[scheduler] EOD scan error: {e}")
+
+    _scheduler = BackgroundScheduler(timezone=_ET)
+    # Morning: Mon-Fri 9:45 AM ET  (market opens 9:30, data ready by 9:45)
     _scheduler.add_job(
-        _run_daily_digest,
-        CronTrigger(hour=16, minute=30),
-        id="daily_digest",
+        _run_morning_scan,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        id="morning_scan",
+        replace_existing=True,
+    )
+    # EOD: Mon-Fri 4:15 PM ET  (market closes 4:00, options data settled by 4:15)
+    _scheduler.add_job(
+        _run_eod_scan,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
+        id="eod_scan",
         replace_existing=True,
     )
     _scheduler.start()
-    print("[scheduler] APScheduler started — daily digest at 4:30 PM ET")
+    print("[scheduler] APScheduler started — scans at 9:45 AM ET (open) & 4:15 PM ET (close), Mon–Fri")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
@@ -353,11 +375,12 @@ def email_count():
 
 @app.route("/stock-api/alerts/test-digest", methods=["POST"])
 def test_digest():
-    """Send a test digest right now (for testing SMTP config)."""
-    result = scan_smart_money(DEFAULT_LEADERBOARD[:10])
-    signals = result.get("leaderboard", [])
+    """Send a test digest right now. Pass ?session=morning or ?session=eod (default)."""
+    session  = request.args.get("session", "eod")
+    result   = scan_smart_money(DEFAULT_LEADERBOARD[:10])
+    signals  = result.get("leaderboard", [])
     base_url = os.getenv("PUBLIC_URL", "")
-    out = send_daily_digest(signals, base_url)
+    out      = send_daily_digest(signals, base_url, session=session)
     return jsonify(out)
 
 
