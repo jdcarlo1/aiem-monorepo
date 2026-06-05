@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   analyzeStock, scanStocks, fetchPortfolio, buyStock, sellStock,
   runBacktest, runHistoricalAnalytics, fetchAlerts, createAlert, deleteAlert,
+  propScan, propTrade, propReset,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
+  PropSignal, PropPosition, PropTrade, PropDeskResult,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -586,13 +588,258 @@ function AlertsTab() {
   );
 }
 
+// ---- Prop Desk Tab -------------------------------------------------------
+
+const REGIME_COLORS: Record<string, string> = {
+  TRENDING: "bg-emerald-900/50 text-emerald-300 border-emerald-700",
+  HIGH_VOL:  "bg-yellow-900/50 text-yellow-300 border-yellow-700",
+  CHOPPY:    "bg-slate-700 text-slate-300 border-slate-600",
+};
+const REGIME_ICONS: Record<string, string> = {
+  TRENDING: "📈", HIGH_VOL: "⚡", CHOPPY: "〰️",
+};
+
+function PropScoreBar({ value, label, color = "#3b82f6" }: { value: number; label: string; color?: string }) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <div className="w-16 text-slate-400 shrink-0">{label}</div>
+      <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+        <div className="h-full rounded-full transition-all" style={{ width: `${Math.round(value * 100)}%`, background: color }} />
+      </div>
+      <div className="w-8 text-right text-slate-400">{(value * 100).toFixed(0)}%</div>
+    </div>
+  );
+}
+
+function PropDeskTab() {
+  const [tickerInput, setTickerInput] = useState(DEFAULT_SCAN.join(", "));
+  const [result, setResult] = useState<PropDeskResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [tradeMsg, setTradeMsg] = useState<string>("");
+
+  const parsedTickers = tickerInput.split(/[\s,]+/).filter(Boolean).map(t => t.toUpperCase()).slice(0, 20);
+
+  const runScan = async () => {
+    setLoading(true);
+    setTradeMsg("");
+    try {
+      const data = await propScan(parsedTickers);
+      setResult(data);
+    } catch (e: any) {
+      setTradeMsg("Scan failed: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const executeTrade = async (ticker: string, action: "buy" | "sell") => {
+    setTradeMsg("");
+    try {
+      const res = await propTrade(ticker, action);
+      if (res.error) {
+        setTradeMsg(`❌ ${res.error}`);
+      } else if (action === "buy") {
+        setTradeMsg(`✅ Bought 10 shares of ${ticker} @ $${res.price?.toFixed(2)} | Cash: $${res.cash?.toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
+      } else {
+        const pnlStr = res.pnl != null ? ` | P&L: ${res.pnl >= 0 ? "+" : ""}$${res.pnl.toFixed(2)}` : "";
+        setTradeMsg(`✅ Sold ${ticker} @ $${res.price?.toFixed(2)}${pnlStr} | Cash: $${res.cash?.toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
+      }
+      const refreshed = result ? await propScan(parsedTickers) : null;
+      if (refreshed) setResult(refreshed);
+    } catch (e: any) {
+      setTradeMsg("❌ " + e.message);
+    }
+  };
+
+  const handleReset = async () => {
+    await propReset();
+    setTradeMsg("🔄 Paper account reset to $100,000");
+    if (result) {
+      const refreshed = await propScan(parsedTickers);
+      setResult(refreshed);
+    }
+  };
+
+  const totalUnrealized = result
+    ? Object.values(result.positions).reduce((s, p) => s + p.unrealized_pnl, 0)
+    : 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Header controls */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-white font-semibold">Prop Desk Simulator</div>
+          <button onClick={handleReset} className="text-xs text-slate-400 hover:text-red-400 border border-slate-700 hover:border-red-700 px-3 py-1 rounded-lg transition-colors">Reset Account</button>
+        </div>
+        <div className="text-slate-400 text-sm mb-3">Tickers (comma-separated)</div>
+        <div className="flex gap-2">
+          <input value={tickerInput} onChange={e => setTickerInput(e.target.value.toUpperCase())}
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+          <button onClick={runScan} disabled={loading}
+            className="bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2">
+            {loading && <Spinner />} Run Signals
+          </button>
+        </div>
+        {tradeMsg && <div className="mt-3 text-sm text-slate-300 bg-slate-800 rounded-lg px-4 py-2.5">{tradeMsg}</div>}
+      </div>
+
+      {loading && <div className="flex items-center justify-center py-16 gap-3 text-slate-400"><Spinner /> Running prop signals…</div>}
+
+      {result && !loading && (
+        <>
+          {/* Account summary */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: "Cash", value: `$${result.cash.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, color: "text-slate-200" },
+              { label: "Realized P&L", value: `${result.realized_pnl >= 0 ? "+" : ""}$${result.realized_pnl.toFixed(2)}`, color: result.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
+              { label: "Unrealized P&L", value: `${totalUnrealized >= 0 ? "+" : ""}$${totalUnrealized.toFixed(2)}`, color: totalUnrealized >= 0 ? "text-emerald-400" : "text-red-400" },
+              { label: "Open Positions", value: String(Object.keys(result.positions).length), color: "text-slate-200" },
+            ].map(item => (
+              <div key={item.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <div className="text-slate-500 text-xs mb-1">{item.label}</div>
+                <div className={`text-lg font-bold ${item.color}`}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Open positions */}
+          {Object.keys(result.positions).length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <div className="text-slate-400 text-sm mb-4">Open Positions</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                    <th className="text-left py-2 px-3">Ticker</th>
+                    <th className="text-right py-2 px-3">Size</th>
+                    <th className="text-right py-2 px-3">Entry</th>
+                    <th className="text-right py-2 px-3">Current</th>
+                    <th className="text-right py-2 px-3">Unrealized P&L</th>
+                    <th className="text-right py-2 px-3">Action</th>
+                  </tr></thead>
+                  <tbody>
+                    {Object.entries(result.positions).map(([ticker, pos]) => (
+                      <tr key={ticker} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                        <td className="py-2.5 px-3 font-semibold text-white">{ticker}</td>
+                        <td className="text-right py-2.5 px-3 text-slate-300">{pos.size}</td>
+                        <td className="text-right py-2.5 px-3 text-slate-300">${pos.entry.toFixed(2)}</td>
+                        <td className="text-right py-2.5 px-3 text-slate-300">${pos.current_price.toFixed(2)}</td>
+                        <td className={`text-right py-2.5 px-3 font-medium ${pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
+                        </td>
+                        <td className="text-right py-2.5 px-3">
+                          <button onClick={() => executeTrade(ticker, "sell")}
+                            className="bg-red-600 hover:bg-red-500 text-white text-xs px-3 py-1 rounded-lg font-medium transition-colors">
+                            Sell
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Signals table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <div className="text-slate-400 text-sm mb-4">{result.signals.length} signals — sorted by prop score</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider">
+                  <th className="text-left py-2 px-3">Ticker</th>
+                  <th className="text-right py-2 px-3">Price</th>
+                  <th className="text-center py-2 px-3">Regime</th>
+                  <th className="text-right py-2 px-3">Score</th>
+                  <th className="text-right py-2 px-3">ML%</th>
+                  <th className="text-left py-2 px-3 hidden md:table-cell">Factors</th>
+                  <th className="text-right py-2 px-3">Trade</th>
+                </tr></thead>
+                <tbody>
+                  {result.signals.map(sig => {
+                    const inPosition = sig.ticker in result.positions;
+                    return (
+                      <tr key={sig.ticker} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                        <td className="py-2.5 px-3 font-semibold text-white">{sig.ticker}</td>
+                        <td className="text-right py-2.5 px-3 text-slate-300">${sig.price.toFixed(2)}</td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`text-xs px-2 py-0.5 rounded border font-medium ${REGIME_COLORS[sig.regime]}`}>
+                            {REGIME_ICONS[sig.regime]} {sig.regime}
+                          </span>
+                        </td>
+                        <td className="text-right py-2.5 px-3">
+                          <span className={`font-bold text-base ${sig.score >= 8 ? "text-emerald-400" : sig.score >= 6 ? "text-green-400" : sig.score >= 4 ? "text-yellow-400" : "text-red-400"}`}>
+                            {sig.score}
+                          </span>
+                        </td>
+                        <td className={`text-right py-2.5 px-3 font-medium ${sig.ml_probability >= 60 ? "text-emerald-400" : sig.ml_probability <= 40 ? "text-red-400" : "text-slate-300"}`}>
+                          {sig.ml_probability.toFixed(1)}%
+                        </td>
+                        <td className="py-2.5 px-3 hidden md:table-cell">
+                          <div className="space-y-1 min-w-[180px]">
+                            <PropScoreBar value={sig.trend}    label="Trend"    color="#10b981" />
+                            <PropScoreBar value={sig.momentum} label="Momentum" color="#3b82f6" />
+                            <PropScoreBar value={sig.volume}   label="Volume"   color="#f59e0b" />
+                          </div>
+                        </td>
+                        <td className="text-right py-2.5 px-3">
+                          {inPosition ? (
+                            <button onClick={() => executeTrade(sig.ticker, "sell")}
+                              className="bg-red-600 hover:bg-red-500 text-white text-xs px-3 py-1 rounded-lg font-medium transition-colors">
+                              Sell
+                            </button>
+                          ) : (
+                            <button onClick={() => executeTrade(sig.ticker, "buy")}
+                              disabled={sig.score < 4}
+                              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs px-3 py-1 rounded-lg font-medium transition-colors">
+                              Buy 10
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Trade log */}
+          {result.trades.length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <div className="text-slate-400 text-sm mb-4">Trade Log (last 20)</div>
+              <div className="space-y-2">
+                {[...result.trades].reverse().map((t, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm py-1.5 border-b border-slate-800/50">
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold text-white">{t.ticker}</span>
+                      <span className="text-slate-400 text-xs">{t.date}</span>
+                    </div>
+                    <span className={`font-medium ${t.pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!result && !loading && (
+        <div className="text-center py-16 text-slate-500">Click "Run Signals" to generate prop desk signals for your watchlist</div>
+      )}
+    </div>
+  );
+}
+
 // ---- Main Dashboard ------------------------------------------------------
 
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio">("lookup");
+  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk">("lookup");
   const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
   const qc = useQueryClient();
@@ -644,6 +891,7 @@ export default function Dashboard() {
     { id: "backtest",  label: "Backtest" },
     { id: "alerts",    label: "Alerts" },
     { id: "portfolio", label: "Portfolio" },
+    { id: "propdesk",  label: "⚡ Prop Desk" },
   ] as const;
 
   return (
@@ -785,6 +1033,7 @@ export default function Dashboard() {
         {tab === "analytics" && <AnalyticsTab />}
         {tab === "backtest"  && <BacktestTab />}
         {tab === "alerts"    && <AlertsTab />}
+        {tab === "propdesk"  && <PropDeskTab />}
 
         {/* --- Portfolio --- */}
         {tab === "portfolio" && (

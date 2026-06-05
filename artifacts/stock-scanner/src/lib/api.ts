@@ -82,6 +82,22 @@ export function deleteAlert(id: number) {
   return fetchJson<{ success: boolean }>(`/alerts/${id}`, { method: "DELETE" });
 }
 
+export function propScan(tickers: string[]) {
+  return fetchJson<PropDeskResult>("/prop/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tickers }),
+  });
+}
+
+export function propTrade(ticker: string, action: "buy" | "sell") {
+  return fetchJson<PropTradeResult>(`/prop/trade/${ticker}/${action}`, { method: "POST" });
+}
+
+export function propReset() {
+  return fetchJson<{ status: string; cash: number }>("/prop/reset", { method: "POST" });
+}
+
 // ---- Types ---------------------------------------------------------------
 
 export interface StockAnalysis {
@@ -164,6 +180,35 @@ export interface ThresholdStat {
 }
 
 export interface ScoreDist { bucket: string; count: number }
+
+export interface PropSignal {
+  ticker: string; price: number; score: number;
+  regime: "TRENDING" | "HIGH_VOL" | "CHOPPY";
+  ml_probability: number; momentum: number;
+  volatility: number; volume: number; trend: number;
+}
+
+export interface PropPosition {
+  entry: number; size: number;
+  current_price: number; unrealized_pnl: number;
+}
+
+export interface PropTrade {
+  ticker: string; pnl: number; reason: string; date: string;
+}
+
+export interface PropDeskResult {
+  signals: PropSignal[];
+  positions: Record<string, PropPosition>;
+  cash: number;
+  realized_pnl: number;
+  trades: PropTrade[];
+}
+
+export interface PropTradeResult {
+  status?: string; action?: string; ticker?: string;
+  price?: number; pnl?: number; cash?: number; error?: string;
+}
 
 export interface AnalyticsResult {
   tickers_analyzed: string[];

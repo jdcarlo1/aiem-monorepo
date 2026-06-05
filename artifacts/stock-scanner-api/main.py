@@ -7,6 +7,9 @@ from portfolio import get_portfolio, add_position, remove_position, get_portfoli
 from backtest import backtest_strategy
 from alerts import get_alerts, add_alert, delete_alert
 from analytics import run_historical_analytics
+from prop_signal import prop_signal
+import execution
+import pnl
 
 app = Flask(__name__)
 CORS(app)
@@ -146,6 +149,85 @@ def create_alert():
 def remove_alert(alert_id):
     result = delete_alert(alert_id)
     return jsonify(result)
+
+
+@app.route("/stock-api/prop/scan", methods=["POST"])
+def prop_scan():
+    body = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", WATCHLIST_DEFAULT[:10])
+    if not isinstance(tickers, list) or len(tickers) == 0:
+        tickers = WATCHLIST_DEFAULT[:10]
+    tickers = [t.strip().upper() for t in tickers[:20]]
+
+    signals = []
+    for ticker in tickers:
+        try:
+            df = fetch_stock_data(ticker, period="2y")
+            if df is None or df.empty:
+                continue
+            sig = prop_signal(df)
+            if sig is None:
+                continue
+            price = float(df["Close"].iloc[-1])
+            sig["ticker"] = ticker
+            sig["price"] = round(price, 2)
+            signals.append(sig)
+        except Exception:
+            continue
+
+    signals.sort(key=lambda x: x["score"], reverse=True)
+
+    positions = execution.get_positions()
+    enriched_positions = {}
+    for ticker, pos in positions.items():
+        try:
+            df = fetch_stock_data(ticker, period="5d")
+            current_price = float(df["Close"].iloc[-1]) if df is not None and not df.empty else pos["entry"]
+        except Exception:
+            current_price = pos["entry"]
+        pnl_unrealized = round((current_price - pos["entry"]) * pos["size"], 2)
+        enriched_positions[ticker] = {**pos, "current_price": round(current_price, 2), "unrealized_pnl": pnl_unrealized}
+
+    return jsonify({
+        "signals": signals,
+        "positions": enriched_positions,
+        "cash": round(execution.get_cash(), 2),
+        "realized_pnl": pnl.total_pnl(),
+        "trades": pnl.get_trades()[-20:],
+    })
+
+
+@app.route("/stock-api/prop/trade/<ticker>/<action>", methods=["POST"])
+def prop_trade(ticker, action):
+    ticker = ticker.strip().upper()
+    action = action.lower()
+    if action not in ("buy", "sell"):
+        return jsonify({"error": "action must be buy or sell"}), 400
+
+    df = fetch_stock_data(ticker, period="5d")
+    if df is None or df.empty:
+        return jsonify({"error": f"Could not fetch price for {ticker}"}), 404
+
+    price = float(df["Close"].iloc[-1])
+
+    if action == "buy":
+        success = execution.enter_trade(ticker, price, size=10)
+        if not success:
+            return jsonify({"error": "Insufficient cash", "cash": execution.get_cash()}), 400
+        return jsonify({"status": "ok", "action": "buy", "ticker": ticker, "price": price, "cash": execution.get_cash()})
+    else:
+        trade_pnl = execution.exit_trade(ticker, price)
+        if trade_pnl is None:
+            return jsonify({"error": f"No open position for {ticker}"}), 400
+        pnl.log_trade(ticker, trade_pnl, "manual sell")
+        return jsonify({"status": "ok", "action": "sell", "ticker": ticker, "price": price, "pnl": trade_pnl, "cash": execution.get_cash()})
+
+
+@app.route("/stock-api/prop/reset", methods=["POST"])
+def prop_reset():
+    execution.reset()
+    pnl.clear_trades()
+    return jsonify({"status": "ok", "cash": execution.get_cash()})
 
 
 @app.route("/stock-api/", methods=["GET"])
