@@ -17,11 +17,12 @@ function fmtStrike(strike: number | null, price: number) {
   const label = strike > price ? "C" : "C";
   return `$${strike.toFixed(0)}${label}`;
 }
-function getBadge(ratio: number): { text: string; color: string; bg: string } {
-  if (ratio >= 8)  return { text: "🚨 EXTREME CONVICTION", color: "#f87171", bg: "rgba(239,68,68,0.12)" };
-  if (ratio >= 5)  return { text: "🔥 HIGH CONVICTION",   color: "#fbbf24", bg: "rgba(234,179,8,0.12)" };
-  if (ratio >= 3)  return { text: "⚡ Strong Bullish",     color: "#4ade80", bg: "rgba(74,222,128,0.1)" };
-  return             { text: "📈 Bullish",                color: "#4ade80", bg: "rgba(74,222,128,0.08)" };
+function getBadge(ratio: number): { text: string; color: string; bg: string; border: string } {
+  if (ratio >= 5)   return { text: "🔥 Extremely Bullish", color: "#6ee7b7", bg: "rgba(74,222,128,0.15)",  border: "rgba(74,222,128,0.3)" };
+  if (ratio >= 2)   return { text: "📈 Very Bullish",      color: "#4ade80", bg: "rgba(74,222,128,0.1)",   border: "rgba(74,222,128,0.25)" };
+  if (ratio >= 1)   return { text: "↔️ Mixed",             color: "#60a5fa", bg: "rgba(96,165,250,0.1)",   border: "rgba(96,165,250,0.25)" };
+  if (ratio >= 0.5) return { text: "⚠️ More Puts",         color: "#fb923c", bg: "rgba(251,146,60,0.1)",   border: "rgba(251,146,60,0.3)" };
+  return                    { text: "🔴 Mostly Puts",       color: "#f87171", bg: "rgba(239,68,68,0.1)",    border: "rgba(239,68,68,0.3)" };
 }
 const RANKS = ["🥇","🥈","🥉","4","5","6","7","8","9","10"];
 
@@ -148,8 +149,9 @@ export default function Landing() {
       {/* TODAY'S TOP SIGNAL — FOMO Card */}
       <div className="px-6 pb-20 max-w-3xl mx-auto">
         {(() => {
-          const top = liveFlow[0];
-          const badge = top ? getBadge(top.call_put_ratio) : { text: "🔥 HIGH CONVICTION", color: "#fbbf24", bg: "rgba(234,179,8,0.12)" };
+          // Only show a genuinely bullish top signal (C/P ≥ 2) on the conviction card
+          const top = liveFlow.find(r => r.call_put_ratio >= 2) ?? null;
+          const badge = top ? getBadge(top.call_put_ratio) : { text: "🔥 HIGH CONVICTION", color: "#fbbf24", bg: "rgba(234,179,8,0.12)", border: "rgba(234,179,8,0.4)" };
           return (
             <div className="rounded-3xl p-6 sm:p-8" style={{ background: "linear-gradient(135deg, rgba(234,179,8,0.08), rgba(239,68,68,0.05))", border: "2px solid rgba(234,179,8,0.3)", boxShadow: "0 0 60px rgba(234,179,8,0.08)" }}>
               <div className="flex items-center gap-3 mb-5">
@@ -161,7 +163,7 @@ export default function Landing() {
                   <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <span className="font-black text-white" style={{ fontSize: "2.2rem", letterSpacing: "-0.04em" }}>{top?.ticker ?? "—"}</span>
                     <span className="font-bold text-slate-400 text-lg">{top ? `$${top.price.toFixed(2)}` : "—"}</span>
-                    <span className="font-black text-sm px-3 py-1 rounded-full" style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.color}50` }}>{badge.text}</span>
+                    <span className="font-black text-sm px-3 py-1 rounded-full" style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>{badge.text}</span>
                   </div>
                   <div className="text-slate-400 text-base mb-1">
                     {top ? `${fmtStrike(top.strike, top.price)} Call · Expires ${fmtExpiry(top.expiry)} · ` : ""}
@@ -241,7 +243,7 @@ export default function Landing() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-black text-white text-lg">{row.ticker}</span>
                           <span className="text-slate-500">${row.price.toFixed(2)}</span>
-                          <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: b.bg, color: b.color, border: `1px solid ${b.color}40` }}>{b.text}</span>
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: b.bg, color: b.color, border: `1px solid ${b.border}` }}>{b.text}</span>
                         </div>
                         <div className="text-slate-500 text-sm mt-0.5">
                           {row.strike ? `${fmtStrike(row.strike, row.price)} Call` : "Options Flow"}{row.expiry ? ` · expires ${fmtExpiry(row.expiry)}` : ""}
