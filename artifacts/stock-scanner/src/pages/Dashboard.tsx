@@ -4,8 +4,10 @@ import {
   analyzeStock, scanStocks, fetchPortfolio, buyStock, sellStock,
   runBacktest, runHistoricalAnalytics, fetchAlerts, createAlert, deleteAlert,
   propScan, propTrade, propReset, smartMoneyScan,
+  fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
+  CongressTrade, CongressResult,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -611,6 +613,220 @@ function PropScoreBar({ value, label, color = "#3b82f6" }: { value: number; labe
   );
 }
 
+// ─── Email Signup Banner ──────────────────────────────────────────────────────
+
+function EmailSignupBanner() {
+  const [email, setEmail]     = useState("");
+  const [status, setStatus]   = useState<"idle"|"loading"|"ok"|"err">("idle");
+  const [errMsg, setErrMsg]   = useState("");
+  const { data: info }        = useQuery({
+    queryKey: ["sub-count"],
+    queryFn: fetchSubscriberCount,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const handleSubscribe = async () => {
+    if (!email.trim() || !email.includes("@")) { setErrMsg("Enter a valid email"); setStatus("err"); return; }
+    setStatus("loading");
+    try {
+      const r = await subscribeEmail(email.trim());
+      if (r.ok) { setStatus("ok"); setEmail(""); }
+      else { setErrMsg(r.error ?? "Failed"); setStatus("err"); }
+    } catch { setErrMsg("Network error"); setStatus("err"); }
+  };
+
+  if (status === "ok") {
+    return (
+      <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-xl p-4 flex items-center gap-3">
+        <span className="text-emerald-400 text-2xl">✅</span>
+        <div>
+          <div className="text-emerald-300 font-semibold text-sm">You're subscribed!</div>
+          <div className="text-emerald-700 text-xs mt-0.5">Daily buy signals land in your inbox at 4:30 PM ET every trading day.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gradient-to-r from-purple-950/60 to-slate-900 border border-purple-800/40 rounded-xl p-4">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">📧</span>
+            <span className="text-white font-semibold text-sm">Get Daily Buy Signals in Your Email</span>
+            {info && <span className="text-purple-400 text-xs">{info.subscribers.toLocaleString()} subscriber{info.subscribers !== 1 ? "s" : ""}</span>}
+          </div>
+          <p className="text-slate-500 text-xs mt-1">
+            Every day at 4:30 PM ET — top Smart Money signals with real options data, automatically delivered.
+            {!info?.smtp_configured && <span className="text-amber-500"> (SMTP setup required — see admin)</span>}
+          </p>
+        </div>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <input
+            type="email"
+            value={email}
+            onChange={e => { setEmail(e.target.value); setStatus("idle"); }}
+            onKeyDown={e => e.key === "Enter" && handleSubscribe()}
+            placeholder="your@email.com"
+            className="flex-1 sm:w-52 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+          />
+          <button
+            onClick={handleSubscribe}
+            disabled={status === "loading"}
+            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+          >
+            {status === "loading" ? "…" : "Subscribe"}
+          </button>
+        </div>
+      </div>
+      {status === "err" && <p className="text-red-400 text-xs mt-2">{errMsg}</p>}
+    </div>
+  );
+}
+
+// ─── Congress Trades ─────────────────────────────────────────────────────────
+
+function CongressTab() {
+  const [filterTicker, setFilterTicker] = useState("");
+  const [filterParty, setFilterParty] = useState<"all"|"D"|"R">("all");
+  const [filterType, setFilterType] = useState<"all"|"buy"|"sell">("all");
+
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["congress-trades"],
+    queryFn: () => fetchCongressTrades(),
+    staleTime: 1000 * 60 * 60 * 6,
+  });
+
+  const trades = (data?.trades ?? []).filter(t => {
+    if (filterTicker && !t.ticker.includes(filterTicker.toUpperCase())) return false;
+    if (filterParty !== "all" && !t.party.startsWith(filterParty)) return false;
+    if (filterType === "buy"  && !t.type.toLowerCase().includes("purchase")) return false;
+    if (filterType === "sell" && !t.type.toLowerCase().includes("sale")) return false;
+    return true;
+  });
+
+  const isBuy  = (t: CongressTrade) => t.type.toLowerCase().includes("purchase");
+  const isSell = (t: CongressTrade) => t.type.toLowerCase().includes("sale");
+  const partyColor = (p: string) => p.startsWith("D") ? "text-blue-400" : p.startsWith("R") ? "text-red-400" : "text-slate-400";
+  const partyBg    = (p: string) => p.startsWith("D") ? "bg-blue-900/40 text-blue-300" : p.startsWith("R") ? "bg-red-900/40 text-red-300" : "bg-slate-800 text-slate-400";
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+          <div>
+            <h3 className="text-white font-semibold text-base">🏛️ Congressional Stock Trades</h3>
+            <p className="text-slate-500 text-xs mt-0.5">
+              Real public disclosures · House STOCK Act filings · Last 90 days · {data?.count ?? "—"} trades
+            </p>
+          </div>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+          >
+            {isFetching ? "Loading…" : "↻ Refresh"}
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          <input
+            value={filterTicker}
+            onChange={e => setFilterTicker(e.target.value)}
+            placeholder="Filter ticker…"
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-36"
+          />
+          {(["all","D","R"] as const).map(p => (
+            <button key={p} onClick={() => setFilterParty(p)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${filterParty===p ? "border-blue-500 text-blue-400 bg-blue-950/30" : "border-slate-700 text-slate-400 hover:text-slate-300"}`}>
+              {p === "all" ? "All Parties" : p === "D" ? "🔵 Democrat" : "🔴 Republican"}
+            </button>
+          ))}
+          {(["all","buy","sell"] as const).map(t => (
+            <button key={t} onClick={() => setFilterType(t)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${filterType===t ? "border-slate-500 text-white bg-slate-700" : "border-slate-700 text-slate-400 hover:text-slate-300"}`}>
+              {t === "all" ? "All Types" : t === "buy" ? "🟢 Purchases" : "🔴 Sales"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="text-center py-16 text-slate-500">
+          <div className="text-3xl mb-3 animate-spin inline-block">⟳</div>
+          <p>Loading congressional disclosures…</p>
+        </div>
+      ) : trades.length === 0 ? (
+        <div className="text-center py-16 text-slate-500">
+          <div className="text-5xl mb-4">🏛️</div>
+          <p className="text-lg font-medium text-slate-400">No trades found</p>
+          <p className="text-sm text-slate-500 mt-1">Try adjusting your filters or click Refresh</p>
+        </div>
+      ) : (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+            <span className="text-white font-semibold text-sm">
+              {trades.length} trade{trades.length !== 1 ? "s" : ""}
+            </span>
+            <span className="text-slate-500 text-xs">Source: disclosures.house.gov</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase tracking-wide">
+                  <th className="text-left py-3 px-4">Date</th>
+                  <th className="text-left py-3 px-3">Member</th>
+                  <th className="text-left py-3 px-3 hidden sm:table-cell">Party</th>
+                  <th className="text-left py-3 px-3">Ticker</th>
+                  <th className="text-left py-3 px-3">Trade</th>
+                  <th className="text-left py-3 px-3 hidden md:table-cell">Amount</th>
+                  <th className="text-left py-3 px-4 hidden lg:table-cell">Asset</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.slice(0, 100).map((t, i) => (
+                  <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                    <td className="py-3 px-4 text-slate-500 text-xs font-mono whitespace-nowrap">{t.date}</td>
+                    <td className="py-3 px-3">
+                      <div className="font-medium text-white text-xs leading-tight">{t.member}</div>
+                    </td>
+                    <td className="py-3 px-3 hidden sm:table-cell">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${partyBg(t.party)}`}>
+                        {t.party || "?"}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className="font-bold text-white">{t.ticker}</span>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isBuy(t) ? "bg-emerald-900/50 text-emerald-400" : isSell(t) ? "bg-red-900/50 text-red-400" : "bg-slate-800 text-slate-400"}`}>
+                        {isBuy(t) ? "▲ Purchase" : isSell(t) ? "▼ Sale" : t.type}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-slate-400 text-xs hidden md:table-cell">{t.amount}</td>
+                    <td className="py-3 px-4 text-slate-500 text-xs hidden lg:table-cell max-w-xs truncate">{t.asset}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+        <p className="text-slate-500 text-xs leading-relaxed">
+          ⚠️ Data sourced from public House STOCK Act disclosures via house-stock-watcher.com.
+          Members have up to 45 days to report trades — filings may lag actual trade dates.
+          This is not financial advice.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Smart Money Leaderboard ─────────────────────────────────────────────────
 
 const SM_DEFAULT = [
@@ -719,6 +935,9 @@ function SmartMoneyTab() {
         </div>
         {msg && <p className="mt-2 text-sm text-red-400">{msg}</p>}
       </div>
+
+      {/* Email Signup Banner */}
+      <EmailSignupBanner />
 
       {/* Leaderboard Table */}
       {board.length > 0 && (
@@ -1172,6 +1391,7 @@ export default function Dashboard() {
     { id: "portfolio", label: "Portfolio" },
     { id: "propdesk",   label: "⚡ Prop Desk" },
     { id: "smartmoney", label: "🏆 Smart Money" },
+    { id: "congress",   label: "🏛️ Congress" },
   ] as const;
 
   return (
@@ -1315,6 +1535,7 @@ export default function Dashboard() {
         {tab === "alerts"    && <AlertsTab />}
         {tab === "propdesk"   && <PropDeskTab />}
         {tab === "smartmoney" && <SmartMoneyTab />}
+        {tab === "congress"   && <CongressTab />}
 
         {/* --- Portfolio --- */}
         {tab === "portfolio" && (

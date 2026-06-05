@@ -10,11 +10,46 @@ from alerts import get_alerts, add_alert, delete_alert
 from analytics import run_historical_analytics
 from prop_signal import prop_signal
 from smart_money import scan_smart_money, compute_smart_money, DEFAULT_LEADERBOARD
+from congress_trades import get_congress_trades
+from email_alerts import (
+    init_db, subscribe, unsubscribe, get_active_subscribers,
+    send_daily_digest, smtp_configured, subscriber_count,
+)
 import execution
 import pnl
 
 app = Flask(__name__)
 CORS(app)
+
+# ── init DB & scheduler ──────────────────────────────────────────────────────
+init_db()
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    import pytz
+
+    def _run_daily_digest():
+        try:
+            result = scan_smart_money(DEFAULT_LEADERBOARD)
+            signals = result.get("leaderboard", [])
+            base_url = os.getenv("PUBLIC_URL", "")
+            out = send_daily_digest(signals, base_url)
+            print(f"[scheduler] Daily digest sent: {out}")
+        except Exception as e:
+            print(f"[scheduler] digest error: {e}")
+
+    _scheduler = BackgroundScheduler(timezone=pytz.timezone("US/Eastern"))
+    _scheduler.add_job(
+        _run_daily_digest,
+        CronTrigger(hour=16, minute=30),
+        id="daily_digest",
+        replace_existing=True,
+    )
+    _scheduler.start()
+    print("[scheduler] APScheduler started — daily digest at 4:30 PM ET")
+except Exception as _e:
+    print(f"[scheduler] Could not start scheduler: {_e}")
 
 
 def _safe(v):
@@ -277,6 +312,53 @@ def smart_money_detail(ticker):
     if result is None:
         return jsonify({"error": f"Insufficient data for {ticker}"}), 404
     return jsonify(_safe(result))
+
+
+@app.route("/stock-api/congress/trades", methods=["GET"])
+def congress_trades_route():
+    force = request.args.get("refresh", "").lower() == "true"
+    trades = get_congress_trades(force=force)
+    return jsonify({"trades": trades, "count": len(trades)})
+
+
+@app.route("/stock-api/alerts/subscribe", methods=["POST"])
+def email_subscribe():
+    body  = request.get_json(silent=True) or {}
+    email = body.get("email", "").strip()
+    result = subscribe(email)
+    return jsonify(result), (200 if result["ok"] else 400)
+
+
+@app.route("/stock-api/alerts/unsubscribe/<token>", methods=["GET"])
+def email_unsubscribe(token):
+    result = unsubscribe(token)
+    if result["ok"]:
+        return (
+            "<html><body style='font-family:sans-serif;text-align:center;padding:60px;"
+            "background:#0f172a;color:#fff'>"
+            "<h2>✅ Unsubscribed</h2>"
+            "<p style='color:#94a3b8'>You've been removed from StockScanner AI daily signals.</p>"
+            "</body></html>"
+        ), 200
+    return jsonify(result), 404
+
+
+@app.route("/stock-api/alerts/count", methods=["GET"])
+def email_count():
+    return jsonify({
+        "subscribers": subscriber_count(),
+        "smtp_configured": smtp_configured(),
+    })
+
+
+@app.route("/stock-api/alerts/test-digest", methods=["POST"])
+def test_digest():
+    """Send a test digest right now (for testing SMTP config)."""
+    result = scan_smart_money(DEFAULT_LEADERBOARD[:10])
+    signals = result.get("leaderboard", [])
+    base_url = os.getenv("PUBLIC_URL", "")
+    out = send_daily_digest(signals, base_url)
+    return jsonify(out)
 
 
 @app.route("/stock-api/", methods=["GET"])

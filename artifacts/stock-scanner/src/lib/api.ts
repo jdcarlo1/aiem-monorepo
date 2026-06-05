@@ -210,6 +210,21 @@ export interface PropTradeResult {
   price?: number; pnl?: number; cash?: number; error?: string;
 }
 
+export interface OptionsSummary {
+  expiry: string;
+  call_vol_oi: number;
+  put_vol_oi: number;
+  call_put_ratio: number;
+  cp_oi_ratio: number;
+  total_call_vol: number;
+  total_put_vol: number;
+  total_call_oi: number;
+  total_put_oi: number;
+  otm_call_vol: number;
+  atm_iv: number | null;
+  data_source: string;
+}
+
 export interface SmartMoneySignal {
   ticker: string;
   price: number;
@@ -225,6 +240,7 @@ export interface SmartMoneySignal {
   expected_move_high: number;
   rvol: number;
   thesis: string;
+  options_summary: OptionsSummary | null;
   score_breakdown: {
     call_sweep: number;
     volume_oi: number;
@@ -238,6 +254,7 @@ export interface SmartMoneySignal {
 export interface SmartMoneyResult {
   leaderboard: SmartMoneySignal[];
   timestamp: string;
+  data_source?: string;
 }
 
 export function smartMoneyScan(tickers: string[]) {
@@ -246,6 +263,38 @@ export function smartMoneyScan(tickers: string[]) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tickers }),
   });
+}
+
+export interface CongressTrade {
+  member: string;
+  party: string;
+  chamber: string;
+  ticker: string;
+  type: string;
+  amount: string;
+  date: string;
+  asset: string;
+}
+
+export interface CongressResult {
+  trades: CongressTrade[];
+  count: number;
+}
+
+export function fetchCongressTrades(refresh = false) {
+  return fetchJson<CongressResult>(`/congress/trades${refresh ? "?refresh=true" : ""}`);
+}
+
+export function subscribeEmail(email: string) {
+  return fetchJson<{ ok: boolean; error?: string }>("/alerts/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function fetchSubscriberCount() {
+  return fetchJson<{ subscribers: number; smtp_configured: boolean }>("/alerts/count");
 }
 
 export interface AnalyticsResult {
