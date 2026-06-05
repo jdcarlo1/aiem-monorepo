@@ -753,8 +753,17 @@ def breakout_radar():
             delta = close.diff()
             gain  = delta.clip(lower=0).rolling(14).mean()
             loss  = (-delta.clip(upper=0)).rolling(14).mean()
-            rs    = gain / loss.replace(0, np.nan)
-            rsi   = float(100 - 100 / (1 + rs.iloc[-1]))
+            last_loss = float(loss.iloc[-1])
+            last_gain = float(gain.iloc[-1])
+            if last_loss == 0:
+                rsi = 100.0
+            elif last_gain == 0:
+                rsi = 0.0
+            else:
+                rs  = last_gain / last_loss
+                rsi = float(100 - 100 / (1 + rs))
+            if np.isnan(rsi):
+                rsi = 50.0
 
             # Volume surge
             avg_vol    = float(volume.iloc[-21:-1].mean())
@@ -803,18 +812,25 @@ def breakout_radar():
             if score < 20:
                 return None
 
+            def _safe(v, default=0.0):
+                try:
+                    f = float(v)
+                    return default if (np.isnan(f) or np.isinf(f)) else f
+                except Exception:
+                    return default
+
             return {
-                "ticker":           ticker,
-                "price":            round(price, 2),
-                "breakout_score":   score,
-                "rsi":              round(rsi, 1),
-                "macd_bullish":     macd_val > signal_val,
-                "macd_cross":       macd_cross,
-                "volume_ratio":     vol_ratio,
-                "pct_from_52w_high": pct_52w,
-                "above_sma50":      price > sma50,
-                "above_sma200":     price > sma200,
-                "golden_cross":     sma50 > sma200,
+                "ticker":            ticker,
+                "price":             round(_safe(price), 2),
+                "breakout_score":    score,
+                "rsi":               round(_safe(rsi, 50.0), 1),
+                "macd_bullish":      bool(macd_val > signal_val),
+                "macd_cross":        bool(macd_cross),
+                "volume_ratio":      round(_safe(vol_ratio), 2),
+                "pct_from_52w_high": round(_safe(pct_52w), 1),
+                "above_sma50":       bool(price > sma50),
+                "above_sma200":      bool(price > sma200),
+                "golden_cross":      bool(sma50 > sma200),
             }
         except Exception:
             return None
