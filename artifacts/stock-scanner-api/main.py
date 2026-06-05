@@ -148,6 +148,8 @@ def remove_alert(alert_id):
     return jsonify(result)
 
 
+@app.route("/stock-api/", methods=["GET"])
+@app.route("/stock-api", methods=["GET"])
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
