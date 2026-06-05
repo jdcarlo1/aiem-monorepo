@@ -435,9 +435,18 @@ def bull_flow_top10():
 
     def _get_row(ticker):
         try:
+            from datetime import date
+            today_str = date.today().isoformat()
+
             opts = fetch_options_data(ticker)
             if not opts or opts.get("top_prem_value", 0) <= 0:
                 return None
+
+            # Skip 0DTE — expiry must be after today
+            expiry = opts.get("top_prem_expiry")
+            if not expiry or expiry <= today_str:
+                return None
+
             tkr   = yf.Ticker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0:
@@ -448,7 +457,7 @@ def bull_flow_top10():
                 "ticker":         ticker,
                 "price":          round(price, 2),
                 "strike":         opts.get("top_prem_strike"),
-                "expiry":         opts.get("top_prem_expiry"),
+                "expiry":         expiry,
                 "premium_m":      round(prem_k / 1000, 2),   # convert to $M
                 "premium_k":      round(prem_k, 1),
                 "call_put_ratio": round(float(opts.get("call_put_ratio", 0)), 2),
