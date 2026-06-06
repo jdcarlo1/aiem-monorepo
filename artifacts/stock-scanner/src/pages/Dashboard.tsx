@@ -2816,51 +2816,64 @@ export default function Dashboard() {
   const tickerStr = "  SPY  ·  QQQ  ·  DIA  ·  IWM  ·  VIX  ·  NVDA  ·  META  ·  TSLA  ·  AMD  ·  AMZN  ·  AAPL  ·  MSFT  ·  GOOGL  ·  MU  ·  JPM  ";
 
   return (
-    <div style={{ height: "100vh", background: BB_BG, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: BB_FONT }}>
+    <div style={{ height: "100dvh", background: BB_BG, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: BB_FONT }}>
+      <style>{`
+        .bb-quotes { display: flex; gap: 20px; align-items: center; }
+        .bb-divider { display: block; }
+        .bb-clock-date { display: block; }
+        .bb-tabs::-webkit-scrollbar { display: none; }
+        .bb-tabs { -ms-overflow-style: none; scrollbar-width: none; }
+        @media (max-width: 640px) {
+          .bb-quotes { display: none !important; }
+          .bb-divider { display: none !important; }
+          .bb-clock-date { display: none !important; }
+        }
+      `}</style>
 
       {/* ── TOP BAR ── */}
-      <div style={{ background: "#050505", borderBottom: `2px solid ${BB_ORANGE}`, padding: "0 16px", height: 40, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-          <button onClick={() => window.location.href = import.meta.env.BASE_URL} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
+      <div style={{ background: "#050505", borderBottom: `2px solid ${BB_ORANGE}`, padding: "0 12px", height: 40, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+          <button onClick={() => window.location.href = import.meta.env.BASE_URL} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0, flexShrink: 0 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: BB_ORANGE, boxShadow: `0 0 8px ${BB_ORANGE}` }} />
             <span style={{ color: BB_ORANGE, fontWeight: 900, fontSize: 13, letterSpacing: "0.15em", fontFamily: BB_FONT }}>STOCKSCANNER</span>
             <span style={{ color: BB_WHITE, fontWeight: 400, fontSize: 13, letterSpacing: "0.1em", fontFamily: BB_FONT }}>AI</span>
           </button>
-          <div style={{ width: 1, height: 20, background: "#1a1a1a" }} />
-          {headerIndices.map(m => (
-            <div key={m.label ?? m.ticker} style={{ display: "flex", gap: 5, alignItems: "baseline" }}>
-              <span style={{ color: BB_LABEL, fontSize: 10, fontWeight: 700, fontFamily: BB_FONT }}>{m.label ?? m.ticker}</span>
-              <span style={{ color: BB_WHITE, fontSize: 11, fontFamily: BB_FONT }}>${m.price?.toFixed(2) ?? "—"}</span>
-              <span style={{ color: m.change_pct >= 0 ? BB_GREEN : BB_RED, fontSize: 10, fontFamily: BB_FONT }}>{m.change_pct >= 0 ? "+" : ""}{m.change_pct?.toFixed(2) ?? "0.00"}%</span>
-            </div>
-          ))}
+          <div className="bb-divider" style={{ width: 1, height: 20, background: "#1a1a1a", flexShrink: 0 }} />
+          <div className="bb-quotes">
+            {headerIndices.map(m => (
+              <div key={m.label ?? m.ticker} style={{ display: "flex", gap: 5, alignItems: "baseline" }}>
+                <span style={{ color: BB_LABEL, fontSize: 10, fontWeight: 700, fontFamily: BB_FONT }}>{m.label ?? m.ticker}</span>
+                <span style={{ color: BB_WHITE, fontSize: 11, fontFamily: BB_FONT }}>${m.price?.toFixed(2) ?? "—"}</span>
+                <span style={{ color: m.change_pct >= 0 ? BB_GREEN : BB_RED, fontSize: 10, fontFamily: BB_FONT }}>{m.change_pct >= 0 ? "+" : ""}{m.change_pct?.toFixed(2) ?? "0.00"}%</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", background: BB_GREEN, boxShadow: `0 0 6px ${BB_GREEN}`, opacity: blink ? 1 : 0.3, transition: "opacity 0.2s" }} />
             <span style={{ color: BB_GREEN, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", fontFamily: BB_FONT }}>LIVE</span>
           </div>
-          <div style={{ width: 1, height: 20, background: "#1a1a1a" }} />
+          <div className="bb-divider" style={{ width: 1, height: 20, background: "#1a1a1a" }} />
           <div style={{ textAlign: "right" }}>
             <div style={{ color: BB_WHITE, fontSize: 13, fontWeight: 700, fontFamily: BB_FONT }}>{timeStr}</div>
-            <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.08em", fontFamily: BB_FONT }}>NEW YORK · {dateStr}</div>
+            <div className="bb-clock-date" style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.08em", fontFamily: BB_FONT }}>NY · {dateStr}</div>
           </div>
         </div>
       </div>
 
       {/* ── NAV TABS ── */}
-      <div style={{ background: "#060606", borderBottom: `1px solid ${BB_BORDER}`, display: "flex", alignItems: "center", flexShrink: 0, height: 30, overflowX: "auto" }}>
+      <div className="bb-tabs" style={{ background: "#060606", borderBottom: `1px solid ${BB_BORDER}`, display: "flex", alignItems: "center", flexShrink: 0, height: 32, overflowX: "auto" }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id as typeof tab)} style={{
-            padding: "0 14px", height: "100%", background: tab === t.id ? "#0F0F0F" : "transparent",
+            padding: "0 12px", height: "100%", background: tab === t.id ? "#0F0F0F" : "transparent",
             borderRight: `1px solid ${BB_BORDER}`, borderBottom: tab === t.id ? `2px solid ${BB_ORANGE}` : "2px solid transparent",
-            borderTop: "none", borderLeft: "none", cursor: "pointer", whiteSpace: "nowrap",
+            borderTop: "none", borderLeft: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
           }}>
-            <span style={{ fontSize: 10, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? BB_ORANGE : BB_LABEL, letterSpacing: "0.1em", fontFamily: BB_FONT }}>{t.label}</span>
+            <span style={{ fontSize: 10, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? BB_ORANGE : BB_LABEL, letterSpacing: "0.08em", fontFamily: BB_FONT }}>{t.label}</span>
           </button>
         ))}
-        <div style={{ flex: 1 }} />
-        <div style={{ padding: "0 14px", display: "flex", alignItems: "center", gap: 8, height: "100%", borderLeft: `1px solid ${BB_BORDER}`, flexShrink: 0 }}>
+        <div style={{ padding: "0 12px", display: "flex", alignItems: "center", gap: 8, height: "100%", borderLeft: `1px solid ${BB_BORDER}`, flexShrink: 0, marginLeft: "auto" }}>
           <span style={{ fontSize: 9, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
           <span style={{ fontSize: 9, color: BB_GREEN, fontFamily: BB_FONT }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
           <span style={{ fontSize: 9, color: BB_RED, fontFamily: BB_FONT }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
