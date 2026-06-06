@@ -4432,9 +4432,9 @@ const BB_BLUE   = "#60a5fa";
 const BB_CYAN   = "#34d399";
 const BB_BG     = "#060c14";
 const BB_PANEL  = "#0b1320";
-const BB_BORDER = "rgba(255,255,255,0.07)";
-const BB_BDR2   = "rgba(255,255,255,0.1)";
-const BB_LABEL  = "#475569";
+const BB_BORDER = "rgba(255,255,255,0.12)";
+const BB_BDR2   = "rgba(255,255,255,0.18)";
+const BB_LABEL  = "#94a3b8";
 const BB_WHITE  = "#f1f5f9";
 const BB_FONT   = "Inter, system-ui, -apple-system, sans-serif";
 
@@ -4820,48 +4820,29 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── NAV TABS ── */}
-      <div style={{ background: "rgba(6,12,20,0.95)", borderBottom: `1px solid rgba(255,255,255,0.07)`, flexShrink: 0 }}>
-        {/* Mobile: dropdown */}
-        <div className="bb-tabs-mobile" style={{ alignItems: "center", padding: "8px 12px", gap: 8 }}>
+      {/* ── NAV TABS — always dropdown ── */}
+      <div style={{ background: "rgba(6,12,20,0.97)", borderBottom: `1px solid rgba(255,255,255,0.12)`, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 10 }}>
           <select
             value={tab}
             onChange={e => setTab(e.target.value as typeof tab)}
             style={{
-              flex: 1, background: "#0b1320", color: "#f1f5f9", border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 600, fontFamily: BB_FONT,
+              flex: 1, background: "#0f1e30", color: "#f1f5f9", border: "1px solid rgba(255,255,255,0.25)",
+              borderRadius: 10, padding: "10px 16px", fontSize: 14, fontWeight: 700, fontFamily: BB_FONT,
               outline: "none", cursor: "pointer", appearance: "none",
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234ade80' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-              backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center",
-              paddingRight: 36,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%234ade80' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+              backgroundRepeat: "no-repeat", backgroundPosition: "right 14px center",
+              paddingRight: 40,
             }}
           >
             {TABS.map(t => (
               <option key={t.id} value={t.id}>{t.label}</option>
             ))}
           </select>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-            <span style={{ fontSize: 10, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
-            <span style={{ fontSize: 10, color: BB_GREEN, fontFamily: BB_FONT, fontWeight: 700 }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
-            <span style={{ fontSize: 10, color: BB_RED, fontFamily: BB_FONT, fontWeight: 700 }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
-          </div>
-        </div>
-        {/* Desktop: scrollable tab bar */}
-        <div className="bb-tabs-desktop bb-tabs" style={{ alignItems: "center", height: 40, overflowX: "auto" }}>
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id as typeof tab)} style={{
-              padding: "0 13px", height: "100%", background: "transparent",
-              borderBottom: tab === t.id ? `2px solid #22c55e` : "2px solid transparent",
-              borderTop: "none", borderLeft: "none", borderRight: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
-              transition: "all 0.15s",
-            }}>
-              <span style={{ fontSize: 11, fontWeight: tab === t.id ? 700 : 500, color: tab === t.id ? "#4ade80" : BB_LABEL, fontFamily: BB_FONT }}>{t.label}</span>
-            </button>
-          ))}
-          <div style={{ padding: "0 12px", display: "flex", alignItems: "center", gap: 6, height: "100%", flexShrink: 0, marginLeft: "auto" }}>
-            <span style={{ fontSize: 10, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
-            <span style={{ fontSize: 10, color: BB_GREEN, fontFamily: BB_FONT, fontWeight: 700 }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
-            <span style={{ fontSize: 10, color: BB_RED, fontFamily: BB_FONT, fontWeight: 700 }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <span style={{ fontSize: 11, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
+            <span style={{ fontSize: 12, color: BB_GREEN, fontFamily: BB_FONT, fontWeight: 700 }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
+            <span style={{ fontSize: 12, color: BB_RED, fontFamily: BB_FONT, fontWeight: 700 }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
           </div>
         </div>
       </div>
