@@ -68,7 +68,8 @@ All computed in vol-crush `_analyze()` — 100% populated in production:
 12. analyst upgrades + premarket + news
 
 ## Stripe
-- Product: "StockScanner AI Pro" — Price: `price_1Tf9Q7Chn3bmMDTvtCrhUJud` ($39/mo, ACTIVE)
+- Product: "StockScanner AI Pro" — Price: `price_1TfQfiChn3bmMDTvww8LpUIn` ($59/mo, ACTIVE)
+- OLD price `price_1Tf9Q7Chn3bmMDTvtCrhUJud` ($39/mo) — DEACTIVATED, do not use
 - OLD price `price_1TeyjGChn3bmMDTv9yXybfDR` ($29/mo) — DEACTIVATED, do not use
 - Checkout route dynamically looks up active price for "StockScanner AI Pro" product
 - `STRIPE_SECRET_KEY` env secret is set
@@ -77,7 +78,7 @@ All computed in vol-crush `_analyze()` — 100% populated in production:
 
 ## Landing Page
 - `artifacts/stock-scanner/src/pages/Landing.tsx` — "16 scanners. One AI thesis."
-- $39/mo price, crossed-out $59, "🔥 Limited Time Offer" badge, "save $20/mo"
+- $59/mo price, crossed-out $79, "🔥 Limited Time — Price goes up soon" badge, "save $20/mo"
 - 5 gold highlighted checklist items: AI Synthesis, Put Intent, Dark Pool, Market Regime, Self-Learning AI
 - 2 additional plain checklist items: Multi-Day Persistence, Options Liquidity Filter
 - Features grid: 20 cards total including 4 new quant cards

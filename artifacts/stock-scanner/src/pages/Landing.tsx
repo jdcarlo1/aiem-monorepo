@@ -139,7 +139,7 @@ export default function Landing() {
             <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
               className="font-black px-12 py-5 rounded-2xl transition-all text-xl"
               style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", boxShadow: "0 16px 56px rgba(34,197,94,0.5)", letterSpacing: "-0.02em" }}>
-              Get Instant Access — $39/mo
+              Get Instant Access — $59/mo
             </button>
             <button onClick={() => setLocation("/app")}
               className="font-bold px-10 py-5 rounded-2xl transition-all text-xl"
@@ -622,7 +622,7 @@ export default function Landing() {
             { stat: "16", label: "Signal sources synthesized" },
             { stat: "3", label: "Written trade setups daily" },
             { stat: "47+", label: "Tickers scanned" },
-            { stat: "$39", label: "Cancel anytime" },
+            { stat: "$59", label: "Cancel anytime" },
           ].map(s => (
             <div key={s.stat} className="text-center rounded-2xl py-8 px-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
               <div className="font-black mb-1" style={{ fontSize: "3.2rem", color: "#4ade80", letterSpacing: "-0.04em", lineHeight: 1 }}>{s.stat}</div>
@@ -705,8 +705,8 @@ export default function Landing() {
               🔥 Limited Time — Price goes up soon
             </div>
             <div className="flex items-end justify-center gap-3 mb-1">
-              <div className="font-black" style={{ fontSize: "5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$39</div>
-              <div className="mb-4 text-slate-500 line-through text-3xl font-bold">$59</div>
+              <div className="font-black" style={{ fontSize: "5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$59</div>
+              <div className="mb-4 text-slate-500 line-through text-3xl font-bold">$79</div>
             </div>
             <div className="text-slate-400 text-lg mb-1">per month · save $20/mo while it lasts</div>
             <p className="text-slate-600 text-base">Cancel anytime · Instant access · No contracts</p>
@@ -750,7 +750,7 @@ export default function Landing() {
             {status === "err" && <div className="text-red-400 text-base text-center">{errMsg}</div>}
           </div>
           <p className="text-center text-slate-600 text-sm mt-4">
-            Lock in $39/mo before the price goes up.{" "}
+            Lock in $59/mo before the price goes up.{" "}
             <button onClick={() => setShowManage(!showManage)} className="text-slate-500 hover:text-slate-300 transition-colors underline">Already subscribed?</button>
           </p>
           {showManage && (
