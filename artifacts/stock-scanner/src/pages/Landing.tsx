@@ -1,9 +1,8 @@
-import  from '';
- { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { createStockScannerCheckout, manageStockScannerSubscription, fetchBullFlow, BullFlowRow } from "@/lib/api";
 
-// ── helpersartifacts/stock-scanner/src/pages/Landing.tsx ────────────────────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────────
 function fmtPrem(m: number) {
   if (m >= 1) return `$${m.toFixed(1)}M`;
   return `$${(m * 1000).toFixed(0)}K`;
