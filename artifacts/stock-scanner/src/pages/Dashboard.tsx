@@ -2911,6 +2911,15 @@ export default function Dashboard() {
         .bb-clock-date { display: block; }
         .bb-tabs::-webkit-scrollbar { display: none; }
         .bb-tabs { -ms-overflow-style: none; scrollbar-width: none; }
+        .bb-tabs-wrap { position: relative; flex-shrink: 0; }
+        .bb-tabs-wrap::after {
+          content: "";
+          position: absolute;
+          right: 0; top: 0; bottom: 0;
+          width: 48px;
+          background: linear-gradient(to right, transparent, #060c14);
+          pointer-events: none;
+        }
         @media (max-width: 640px) {
           .bb-quotes { display: none !important; }
           .bb-divider { display: none !important; }
@@ -2950,21 +2959,23 @@ export default function Dashboard() {
       </div>
 
       {/* ── NAV TABS ── */}
-      <div className="bb-tabs" style={{ background: "rgba(6,12,20,0.95)", borderBottom: `1px solid rgba(255,255,255,0.07)`, display: "flex", alignItems: "center", flexShrink: 0, height: 40, overflowX: "auto" }}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id as typeof tab)} style={{
-            padding: "0 16px", height: "100%", background: "transparent",
-            borderBottom: tab === t.id ? `2px solid #22c55e` : "2px solid transparent",
-            borderTop: "none", borderLeft: "none", borderRight: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
-            transition: "all 0.15s",
-          }}>
-            <span style={{ fontSize: 12, fontWeight: tab === t.id ? 700 : 500, color: tab === t.id ? "#4ade80" : BB_LABEL, fontFamily: BB_FONT }}>{t.label}</span>
-          </button>
-        ))}
-        <div style={{ padding: "0 14px", display: "flex", alignItems: "center", gap: 8, height: "100%", flexShrink: 0, marginLeft: "auto" }}>
-          <span style={{ fontSize: 10, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
-          <span style={{ fontSize: 10, color: BB_GREEN, fontFamily: BB_FONT, fontWeight: 700 }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
-          <span style={{ fontSize: 10, color: BB_RED, fontFamily: BB_FONT, fontWeight: 700 }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
+      <div className="bb-tabs-wrap" style={{ background: "rgba(6,12,20,0.95)", borderBottom: `1px solid rgba(255,255,255,0.07)`, flexShrink: 0 }}>
+        <div className="bb-tabs" style={{ display: "flex", alignItems: "center", height: 40, overflowX: "auto" }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id as typeof tab)} style={{
+              padding: "0 11px", height: "100%", background: "transparent",
+              borderBottom: tab === t.id ? `2px solid #22c55e` : "2px solid transparent",
+              borderTop: "none", borderLeft: "none", borderRight: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+              transition: "all 0.15s",
+            }}>
+              <span style={{ fontSize: 11, fontWeight: tab === t.id ? 700 : 500, color: tab === t.id ? "#4ade80" : BB_LABEL, fontFamily: BB_FONT }}>{t.label}</span>
+            </button>
+          ))}
+          <div style={{ padding: "0 12px", display: "flex", alignItems: "center", gap: 6, height: "100%", flexShrink: 0, marginLeft: "auto" }}>
+            <span style={{ fontSize: 10, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
+            <span style={{ fontSize: 10, color: BB_GREEN, fontFamily: BB_FONT, fontWeight: 700 }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
+            <span style={{ fontSize: 10, color: BB_RED, fontFamily: BB_FONT, fontWeight: 700 }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
+          </div>
         </div>
       </div>
 
