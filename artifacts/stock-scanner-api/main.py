@@ -1904,109 +1904,111 @@ def ai_trades():
     # Sort by composite score descending, fall back to alphabetical
     sorted_tickers = sorted(rich.values(), key=lambda x: x.get("composite_score", 50), reverse=True)
 
-    # Build readable signal block for GPT — top 30 tickers by score
+    # Build compact signal block — top 15 tickers, one line each, key fields only
     sig_lines = []
-    for v in sorted_tickers[:30]:
-        parts = [f"\n▸ {v['ticker']}  price=${v.get('price','?')}"]
+    for v in sorted_tickers[:15]:
+        parts = [f"{v['ticker']} ${v.get('price','?')}"]
         if v.get("composite_score") is not None:
-            parts.append(f"  Composite Score: {v['composite_score']}/100 ({v.get('bias','?')})")
+            parts.append(f"score={v['composite_score']}/100({v.get('bias','?')})")
         if v.get("iv_rank") is not None:
-            parts.append(f"  IV Rank: {v['iv_rank']}%  |  IV: {v.get('current_iv','?')}%  HV30: {v.get('hv_30','?')}%  →  {v.get('iv_verdict','')}")
-        if v.get("earnings_date"):
-            parts.append(f"  Earnings: {v['earnings_date']}")
-        if v.get("call_verdict"):
-            parts.append(f"  Call Intent: {v['call_verdict']}  (accum {v.get('accum_pct','?')}%  /  fomo {v.get('fomo_pct','?')}%  /  accum premium ${v.get('accum_prem_m','?')}M)")
-        if v.get("top_accum_strike"):
-            parts.append(f"  Top Accum Strike: ${v['top_accum_strike']}  (+{v.get('top_accum_otm_pct','?')}% OTM)  exp {v.get('top_accum_expiry','?')}")
-        if v.get("put_verdict"):
-            parts.append(f"  Put Intent: {v['put_verdict']}  (hedge {v.get('hedge_pct','?')}%  /  bearish {v.get('bear_pct','?')}%)")
-        if v.get("top_bear_strike"):
-            parts.append(f"  Top Bear Strike: ${v['top_bear_strike']}")
+            parts.append(f"iv_rank={v['iv_rank']}%({v.get('iv_verdict','')})")
         if v.get("divergence"):
-            parts.append(f"  Smart vs Retail: {v['divergence']}  (strength: {v.get('signal_strength','?')})  |  Smart C/P={v.get('smart_cp','?')}  vs  Retail C/P={v.get('retail_cp','?')}")
-        if v.get("smart_prem_m"):
-            parts.append(f"  Flow: Smart ${v['smart_prem_m']}M  vs  Retail ${v.get('retail_prem_m','?')}M")
+            parts.append(f"SmartVsRetail={v['divergence']}({v.get('signal_strength','?')}) scp={v.get('smart_cp','?')} rcp={v.get('retail_cp','?')}")
+        if v.get("call_verdict"):
+            parts.append(f"calls={v['call_verdict']} accum={v.get('accum_pct','?')}%")
+        if v.get("put_verdict"):
+            parts.append(f"puts={v['put_verdict']} bear={v.get('bear_pct','?')}%")
         if v.get("max_pain"):
-            parts.append(f"  Max Pain: ${v['max_pain']}  ({v.get('mp_dist_pct',0):+.1f}% from price)  →  {v.get('mp_direction','?')}  |  exp {v.get('nearest_exp','?')} ({v.get('days_to_exp','?')}d)")
+            parts.append(f"mp=${v['max_pain']}({v.get('mp_dist_pct',0):+.1f}% {v.get('mp_direction','?')} {v.get('days_to_exp','?')}d)")
         if v.get("gamma_wall_strike"):
-            parts.append(f"  Gamma Wall: ${v['gamma_wall_strike']}  ({v.get('gamma_wall_dist_pct',0):+.1f}%)  |  Gamma Flip: ${v.get('gamma_flip_strike','N/A')}")
+            parts.append(f"gwall=${v['gamma_wall_strike']}({v.get('gamma_wall_dist_pct',0):+.1f}%)")
         if v.get("dark_pool_prem_m"):
-            parts.append(f"  Dark Pool: ${v['dark_pool_prem_m']}M  |  C/P ratio: {v.get('dark_pool_cp_ratio','?')}")
+            parts.append(f"dp=${v['dark_pool_prem_m']}M cp={v.get('dark_pool_cp_ratio','?')}")
+        if v.get("top_accum_strike"):
+            parts.append(f"topstrike=${v['top_accum_strike']} exp={v.get('top_accum_expiry','?')}")
+        if v.get("earnings_date"):
+            parts.append(f"earnings={v['earnings_date']}")
         if v.get("live_alerts"):
-            parts.append(f"  LIVE ALERTS: {' | '.join(v['live_alerts'][:3])}")
-        sig_lines.append("\n".join(parts))
+            parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
+        sig_lines.append(" | ".join(parts))
 
     sig_text = "\n".join(sig_lines)
 
-    prompt = f"""You are an elite institutional options trader and quant analyst. You have live signal data from {len(active_sources)} independent sources covering {len(rich)} tickers.
+    system_msg = (
+        "You are an elite institutional options trader. "
+        "Return a JSON array of exactly 3 high-conviction trade setups. "
+        "Be very concise — short thesis, short signal strings. "
+        "Output ONLY the JSON array, no markdown, no text outside the array."
+    )
 
-ACTIVE SIGNAL SOURCES: {', '.join(active_sources)}
+    user_msg = f"""SOURCES ({len(active_sources)}): {', '.join(active_sources)}
+TICKERS: {len(rich)}
 
-COMPLETE SIGNAL DATABASE:
 {sig_text}
 
-YOUR OBJECTIVE: Find exactly 5 tickers where MULTIPLE signals from DIFFERENT sources all point in the same direction. Single-signal trades are NOT acceptable — you need confluence.
+Pick the 3 highest-conviction tickers where 3+ signals align. Prioritize: Smart vs Retail divergence, composite score≥75, dark pool flow, IV rank extremes, max pain gap.
 
-SIGNAL WEIGHTING (highest conviction first):
-1. Smart vs Retail divergence at HIGH/EXTREME strength = most reliable edge
-2. Composite score ≥ 75 with institutional accumulation = systematic confirmation
-3. Smart C/P ratio diverging 3×+ from retail = rare institutional positioning
-4. IV rank > 80% = sell premium; IV rank < 20% = buy cheap premium
-5. Max pain gap > 8% with ≤ 7 days to expiry = gravitational pull
-6. Dark pool heavy call flow ($5M+) = pre-move smart positioning
-7. Live alerts firing = real-time event confirmation
-8. Gamma wall proximity + vol crush = pinning or explosive breakout setup
-9. Earnings within 14 days + low IV rank = cheap straddle opportunity
+Return a JSON array of exactly 3 objects. Each object must have ALL these fields:
+ticker (string), price (number), setup_type (one of: LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 2-3 short strings), thesis (1-2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
 
-ALLOWED SETUP TYPES:
-- LONG CALL: Bullish, low IV, accumulation
-- LONG PUT: Bearish, smart money selling
-- BULL CALL SPREAD: Bullish, moderate IV — reduce cost
-- BEAR PUT SPREAD: Bearish, moderate IV — reduce cost
-- CASH-SECURED PUT: Bullish, stock near max pain support
-- IRON CONDOR: High IV, pinning expected, range trade
-- STRADDLE: Low IV + earnings catalyst approaching
-- COVERED CALL: Neutral/slightly bearish, rich premium
+Be concise. JSON array only. No markdown. Start immediately with ["""
 
-Return ONLY a JSON array of exactly 5 trade objects with these fields:
-- ticker: string
-- price: number
-- setup_type: string (from allowed list above)
-- direction: "BULLISH" | "BEARISH" | "NEUTRAL"
-- conviction: "HIGH" | "MEDIUM"
-- entry_strike: number
-- expiry: string YYYY-MM-DD (use real expiry dates from the signal data)
-- target_price: number
-- stop_loss: number
-- signals_aligned: list of 3-6 strings — be SPECIFIC (e.g. "Smart C/P 3.4× vs Retail 0.6×", "IV rank 91% — premium rich", "Max pain -9.3% gap with 4d to exp")
-- thesis: string (4-5 sentences: what multiple signals say, why the confluence is compelling, what you're positioning for, timing, and key risk)
-- risk_level: "LOW" | "MEDIUM" | "HIGH"
-
-JSON array only. No markdown. No text outside the array."""
-
-    try:
-        resp = oai.chat.completions.create(
+    def _call_openai_streaming():
+        """Stream the response so we capture content even if the proxy truncates."""
+        import sys
+        chunks = []
+        finish = "unknown"
+        stream = oai.chat.completions.create(
             model="gpt-5-mini",
-            max_completion_tokens=3000,
-            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=4000,
+            stream=True,
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user",   "content": user_msg},
+            ],
         )
-        raw = (resp.choices[0].message.content or "").strip()
-        # Strip markdown code fences if present
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                chunks.append(delta)
+            if chunk.choices and chunk.choices[0].finish_reason:
+                finish = chunk.choices[0].finish_reason
+        raw = "".join(chunks).strip()
+        print(f"[ai_trades] finish={finish} raw_len={len(raw)}", file=sys.stderr, flush=True)
+        return raw, finish
+
+    def _extract_json(raw):
         if "```" in raw:
-            parts = raw.split("```")
-            for part in parts:
+            for part in raw.split("```"):
                 stripped = part.lstrip("json").strip()
-                if stripped.startswith("[") or stripped.startswith("{"):
-                    raw = stripped
-                    break
-        # Extract the JSON array even if surrounded by explanation text
+                if stripped.startswith("["):
+                    return stripped
         if not raw.startswith("["):
             start = raw.find("[")
             end   = raw.rfind("]") + 1
             if start >= 0 and end > start:
-                raw = raw[start:end]
+                return raw[start:end]
+        return raw
+
+    try:
+        raw, finish = _call_openai_streaming()
+        raw = _extract_json(raw)
+
+        # Retry once with a pause if empty (rate-limit or transient hiccup)
         if not raw:
-            return jsonify({"error": "OpenAI returned empty content. Try again.", "trades": [], "signal_sources": active_sources}), 500
+            import time as _time, sys
+            print("[ai_trades] empty on first attempt — retrying in 8s", file=sys.stderr, flush=True)
+            _time.sleep(8)
+            raw, finish = _call_openai_streaming()
+            raw = _extract_json(raw)
+
+        if not raw:
+            return jsonify({
+                "error": f"OpenAI returned no content (finish={finish}). Please hit Regenerate.",
+                "trades": [],
+                "signal_sources": active_sources,
+            }), 500
+
         trades = _json.loads(raw)
         out = {
             "trades": trades,
@@ -2019,6 +2021,8 @@ JSON array only. No markdown. No text outside the array."""
         app._ait_cache_ts = _dt.now()
         return jsonify(out)
     except Exception as e:
+        import sys
+        print(f"[ai_trades] exception: {e}", file=sys.stderr, flush=True)
         return jsonify({"error": str(e), "raw": locals().get("raw", ""), "trades": []}), 500
 
 

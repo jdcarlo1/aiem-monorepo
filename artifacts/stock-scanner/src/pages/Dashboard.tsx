@@ -2500,7 +2500,7 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
               Powered by OpenAI
             </span>
           </h2>
-          <p className="text-slate-500 text-sm mt-0.5">5 high-conviction trades synthesized by OpenAI across <strong className="text-slate-400">every signal source</strong> — dark pool, smart money, vol crush, call intent, max pain, gamma wall &amp; more.</p>
+          <p className="text-slate-500 text-sm mt-0.5">3 high-conviction trades synthesized by OpenAI across <strong className="text-slate-400">every signal source</strong> — dark pool, smart money, vol crush, call intent, max pain, gamma wall &amp; more.</p>
         </div>
         <div className="flex items-center gap-3">
           {generatedAt && <span className="text-slate-600 text-xs hidden sm:block">{scanned} tickers · {sources.length} signal sources · {new Date(generatedAt).toLocaleTimeString()}</span>}
