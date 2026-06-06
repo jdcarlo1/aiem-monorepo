@@ -2136,6 +2136,35 @@ def call_intent():
             fomo_pct  = round(fomo_prem  / total * 100, 1)
             accum_pct = round(accum_prem / total * 100, 1)
             verdict   = ("ACCUMULATION" if accum_pct >= 60 else "FOMO" if fomo_pct >= 60 else "MIXED")
+
+            # ── LEAPS WHALE SCANNER ──────────────────────────────────────────
+            # Separate pass: scan ALL expirations 180–365 days out for a single
+            # strike with ≥$10M in day's volume premium — institutional LEAPS block
+            leaps_whale = {"strike": None, "expiry": None, "prem_m": 0.0,
+                           "days_out": 0, "direction": "CALL"}
+            for exp in exps:
+                try:
+                    days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
+                    if not (180 <= days_out <= 365): continue
+                    for direction, chain in [("CALL", tkr.option_chain(exp).calls),
+                                             ("PUT",  tkr.option_chain(exp).puts)]:
+                        for _, row in chain.iterrows():
+                            strike = float(row.get("strike", 0) or 0)
+                            vol    = int(row.get("volume", 0) or 0)
+                            last   = float(row.get("lastPrice", 0) or 0)
+                            if strike <= 0 or last <= 0 or vol <= 0: continue
+                            single_prem_m = vol * last * 100 / 1e6
+                            if single_prem_m >= 10.0 and single_prem_m > leaps_whale["prem_m"]:
+                                leaps_whale = {
+                                    "strike":    round(strike, 2),
+                                    "expiry":    exp,
+                                    "prem_m":    round(single_prem_m, 1),
+                                    "days_out":  days_out,
+                                    "direction": direction,
+                                }
+                except Exception: continue
+            # ─────────────────────────────────────────────────────────────────
+
             return {"ticker": ticker, "price": round(price, 2),
                     "fomo_prem_m":      round(fomo_prem      / 1e6, 2),
                     "accum_prem_m":     round(accum_prem     / 1e6, 2),
@@ -2145,7 +2174,8 @@ def call_intent():
                     "fomo_oi_m":        round(fomo_oi_prem   / 1e6, 2),
                     "fomo_pct": fomo_pct, "accum_pct": accum_pct, "verdict": verdict,
                     "top_accum_strike": top_accum["strike"], "top_accum_expiry": top_accum["expiry"],
-                    "top_accum_otm_pct": top_accum["otm_pct"]}
+                    "top_accum_otm_pct": top_accum["otm_pct"],
+                    "leaps_whale": leaps_whale if leaps_whale["strike"] else None}
         except Exception: return None
 
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -2874,7 +2904,7 @@ def ai_trades():
         "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities.\n"
         "12. sector_corr=IDIOSYNCRATIC (<0.5) → ticker moves on its own; prefer over highly correlated names.\n"
         "13. news=BEARISH_NEWS with BULL_TREND → fade the news; news=BULLISH_NEWS with momentum = confirmation.\n"
-        "14. EXPIRY RULE (non-negotiable): Always pick an expiry 30–90 days from today. Never recommend weekly or 0DTE expirations. If the signal data shows a near-term expiry, use the next available monthly expiry within the 30–90 day window instead.\n"
+        "14. EXPIRY RULE: Default to expiry 30–90 days from today. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry — this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
         "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
     )
 
@@ -3311,6 +3341,75 @@ def ai_trade_log():
         return jsonify({"error": str(e), "trades": [], "count": 0,
                         "win_rates": {"t1": None, "t3": None, "t5": None, "t10": None},
                         "by_direction": {}}), 500
+
+
+@app.route("/stock-api/whale-activity", methods=["GET"])
+def whale_activity():
+    """Scan for large institutional options blocks ($5M+ single-strike) across 30-365 day expirations."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_whale_cache", None)
+    _ts    = getattr(app, "_whale_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    now = _dt.now()
+    MIN_PREM_M = 5.0
+
+    def _scan_whale(ticker):
+        blocks = []
+        try:
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0: return blocks
+            exps = tkr.options
+            if not exps: return blocks
+            for exp in exps:
+                try:
+                    days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
+                    if not (30 <= days_out <= 365): continue
+                    for direction, chain in [("CALL", tkr.option_chain(exp).calls),
+                                             ("PUT",  tkr.option_chain(exp).puts)]:
+                        for _, row in chain.iterrows():
+                            strike = float(row.get("strike", 0) or 0)
+                            vol    = int(row.get("volume", 0) or 0)
+                            last   = float(row.get("lastPrice", 0) or 0)
+                            if strike <= 0 or last <= 0 or vol <= 0: continue
+                            prem_m = vol * last * 100 / 1e6
+                            if prem_m >= MIN_PREM_M:
+                                otm_pct  = round((strike - price) / price * 100, 1)
+                                category = "LEAPS" if days_out >= 180 else "AGGRESSIVE" if days_out <= 90 else "MEDIUM"
+                                tier     = "MEGA_WHALE" if prem_m >= 20 else "WHALE" if prem_m >= 10 else "BIG_BLOCK"
+                                blocks.append({
+                                    "ticker":    ticker,
+                                    "price":     round(price, 2),
+                                    "direction": direction,
+                                    "strike":    round(strike, 2),
+                                    "expiry":    exp,
+                                    "days_out":  days_out,
+                                    "prem_m":    round(prem_m, 1),
+                                    "volume":    vol,
+                                    "otm_pct":   otm_pct,
+                                    "category":  category,
+                                    "tier":      tier,
+                                })
+                except Exception: continue
+        except Exception: pass
+        return blocks
+
+    all_blocks = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_scan_whale, t): t for t in DEFAULT_LEADERBOARD}
+        for fut in as_completed(futures):
+            all_blocks.extend(fut.result() or [])
+
+    all_blocks.sort(key=lambda x: x["prem_m"], reverse=True)
+    out = {"blocks": all_blocks[:60], "total": len(all_blocks), "scanned": len(DEFAULT_LEADERBOARD)}
+    app._whale_cache    = out
+    app._whale_cache_ts = _dt.now()
+    return jsonify(out)
 
 
 @app.route("/stock-api/healthz", methods=["GET"])

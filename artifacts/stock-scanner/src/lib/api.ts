@@ -727,3 +727,27 @@ export interface AITradeLogResult {
 export function fetchAITradeLog() {
   return fetchJson<AITradeLogResult>("/ai-trade-log");
 }
+
+export interface WhaleBlock {
+  ticker: string;
+  price: number;
+  direction: "CALL" | "PUT";
+  strike: number;
+  expiry: string;
+  days_out: number;
+  prem_m: number;
+  volume: number;
+  otm_pct: number;
+  category: "LEAPS" | "AGGRESSIVE" | "MEDIUM";
+  tier: "MEGA_WHALE" | "WHALE" | "BIG_BLOCK";
+}
+
+export interface WhaleActivityResult {
+  blocks: WhaleBlock[];
+  total: number;
+  scanned: number;
+}
+
+export function fetchWhaleActivity() {
+  return fetchJson<WhaleActivityResult>("/whale-activity");
+}
