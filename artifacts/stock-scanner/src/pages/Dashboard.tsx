@@ -2523,13 +2523,231 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   );
 }
 
+// ---- Bloomberg Terminal Chrome -------------------------------------------
+
+const BB_ORANGE = "#FF6600";
+const BB_AMBER  = "#FFB300";
+const BB_GREEN  = "#00E676";
+const BB_RED    = "#FF1744";
+const BB_BLUE   = "#29B6F6";
+const BB_CYAN   = "#00BCD4";
+const BB_BG     = "#000000";
+const BB_PANEL  = "#0A0A0A";
+const BB_BORDER = "#1A1A1A";
+const BB_BDR2   = "#222222";
+const BB_LABEL  = "#666666";
+const BB_WHITE  = "#E0E0E0";
+const BB_FONT   = "'IBM Plex Mono', 'Courier New', monospace";
+
+function useNow() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  return now;
+}
+
+function BBBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <div style={{ height: 4, background: BB_BDR2, borderRadius: 2, overflow: "hidden", width: "100%" }}>
+      <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: "100%", background: color }} />
+    </div>
+  );
+}
+
+function BBPanel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, display: "flex", flexDirection: "column", ...style }}>{children}</div>;
+}
+
+function BBPanelHeader({ label, sub, accent = BB_ORANGE }: { label: string; sub?: string; accent?: string }) {
+  return (
+    <div style={{ borderBottom: `1px solid ${BB_BORDER}`, padding: "6px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ width: 3, height: 14, background: accent, borderRadius: 1 }} />
+        <span style={{ fontFamily: BB_FONT, fontSize: 11, fontWeight: 700, color: accent, letterSpacing: "0.12em" }}>{label.toUpperCase()}</span>
+      </div>
+      {sub && <span style={{ fontFamily: BB_FONT, fontSize: 10, color: BB_LABEL }}>{sub}</span>}
+    </div>
+  );
+}
+
+function bbScoreColor(s: number) {
+  if (s >= 9) return BB_GREEN;
+  if (s >= 8) return BB_AMBER;
+  if (s >= 7) return BB_ORANGE;
+  return BB_RED;
+}
+
+function OverviewTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const { data: top10Data } = useQuery({ queryKey: ["daily-top10"], queryFn: fetchDailyTop10, refetchInterval: 60000 });
+  const { data: bullData }  = useQuery({ queryKey: ["bull-flow-overview"], queryFn: () => fetchBullFlow(), refetchInterval: 60000 });
+  const { data: mktData }   = useQuery({ queryKey: ["market-overview"], queryFn: fetchMarketOverview, refetchInterval: 30000 });
+
+  const top10    = top10Data?.top10 ?? [];
+  const bullFlow = (bullData?.results ?? []).slice(0, 8);
+  const indices  = mktData?.indices ?? [];
+  const sectors  = mktData?.sectors ?? [];
+  const adv      = mktData?.advance_decline;
+  const cc       = (v: number) => v >= 0 ? BB_GREEN : BB_RED;
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 240px", gridTemplateRows: "1fr 160px", flex: 1, overflow: "hidden", background: BB_BG }}>
+
+      {/* LEFT: Top 10 */}
+      <BBPanel style={{ gridRow: "1 / 3", borderRight: `1px solid ${BB_BORDER}`, overflow: "hidden" }}>
+        <BBPanelHeader label="Today's Top 10" sub={`${top10Data?.total_scanned ?? 0} SCANNED`} />
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {top10.length === 0 && <div style={{ padding: 20, color: BB_LABEL, fontFamily: BB_FONT, fontSize: 11, textAlign: "center" }}>Run a scan to populate Top 10</div>}
+          {top10.map((r, i) => (
+            <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} style={{
+              display: "grid", gridTemplateColumns: "18px 52px 1fr 44px 36px", padding: "0 8px",
+              borderBottom: `1px solid ${BB_BDR2}`, background: i % 2 === 0 ? "rgba(255,255,255,0.01)" : "transparent", cursor: "pointer",
+            }}>
+              <span style={{ fontSize: 10, color: BB_LABEL, padding: "7px 4px", fontFamily: BB_FONT }}>{i + 1}</span>
+              <div style={{ padding: "5px 4px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: BB_WHITE, fontFamily: BB_FONT }}>{r.ticker}</div>
+                <div style={{ fontSize: 8, color: BB_LABEL, fontFamily: BB_FONT }}>${r.price?.toFixed(2) ?? "—"}</div>
+              </div>
+              <div style={{ padding: "5px 4px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: bbScoreColor(r.score ?? 0), fontFamily: BB_FONT }}>{(r.score ?? 0).toFixed(1)}</span>
+                  <div style={{ flex: 1, maxWidth: 50 }}><BBBar pct={(r.score ?? 0) * 10} color={bbScoreColor(r.score ?? 0)} /></div>
+                </div>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: cc(r.price_change_pct ?? 0), padding: "7px 4px", textAlign: "right", fontFamily: BB_FONT }}>
+                {(r.price_change_pct ?? 0) >= 0 ? "+" : ""}{(r.price_change_pct ?? 0).toFixed(1)}%
+              </span>
+              <span style={{ fontSize: 10, color: (r.volume_ratio ?? 0) >= 2 ? BB_AMBER : BB_LABEL, padding: "7px 4px", textAlign: "right", fontFamily: BB_FONT }}>
+                {r.volume_ratio != null ? `${r.volume_ratio.toFixed(1)}x` : "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: "6px 10px", borderTop: `1px solid ${BB_BORDER}`, display: "flex", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 9, color: BB_LABEL, fontFamily: BB_FONT }}>REFRESHES DAILY AT OPEN</span>
+          <span style={{ fontSize: 9, color: BB_ORANGE, fontFamily: BB_FONT }}>CLICK TO ANALYZE</span>
+        </div>
+      </BBPanel>
+
+      {/* CENTER TOP: Bull Flow */}
+      <BBPanel style={{ borderRight: `1px solid ${BB_BORDER}`, borderBottom: `1px solid ${BB_BORDER}`, overflow: "hidden" }}>
+        <BBPanelHeader label="Bull Flow Signals" sub="C/P ≥ 2× · INSTITUTIONAL OPTIONS" />
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "60px 48px 72px 60px 70px 1fr", padding: "4px 12px 2px", borderBottom: `1px solid ${BB_BDR2}` }}>
+            {["TICKER","C/P","PREMIUM","STRIKE","EXPIRY","BIAS"].map(h => (
+              <span key={h} style={{ fontSize: 9, color: BB_LABEL, letterSpacing: "0.08em", fontFamily: BB_FONT }}>{h}</span>
+            ))}
+          </div>
+          {bullFlow.length === 0 && <div style={{ padding: 16, color: BB_LABEL, fontFamily: BB_FONT, fontSize: 11, textAlign: "center" }}>Loading flow data…</div>}
+          {bullFlow.map((r, i) => {
+            const isBull = r.call_put_ratio >= 2;
+            return (
+              <div key={r.ticker + i} onClick={() => onSelectTicker(r.ticker)} style={{
+                display: "grid", gridTemplateColumns: "60px 48px 72px 60px 70px 1fr",
+                padding: "8px 12px", borderBottom: `1px solid ${BB_BDR2}`,
+                background: i % 2 === 0 ? "rgba(255,255,255,0.01)" : "transparent", cursor: "pointer",
+                alignItems: "center",
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 900, color: BB_WHITE, fontFamily: BB_FONT }}>{r.ticker}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: isBull ? BB_GREEN : BB_RED, fontFamily: BB_FONT }}>{r.call_put_ratio.toFixed(1)}×</span>
+                <span style={{ fontSize: 11, color: BB_AMBER, fontWeight: 700, fontFamily: BB_FONT }}>${r.premium_m.toFixed(1)}M</span>
+                <span style={{ fontSize: 11, color: BB_WHITE, fontFamily: BB_FONT }}>{r.strike ? `$${r.strike}` : "—"}</span>
+                <span style={{ fontSize: 11, color: BB_LABEL, fontFamily: BB_FONT }}>{r.expiry ?? "—"}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, color: isBull ? BB_GREEN : BB_RED, background: isBull ? "rgba(0,230,118,0.08)" : "rgba(255,23,68,0.08)", border: `1px solid ${isBull ? "rgba(0,230,118,0.2)" : "rgba(255,23,68,0.2)"}`, padding: "2px 6px", borderRadius: 2, fontFamily: BB_FONT }}>
+                  {isBull ? "▲ BULLISH" : "▼ BEARISH"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </BBPanel>
+
+      {/* CENTER BOTTOM: Sector Heatmap */}
+      <BBPanel style={{ borderRight: `1px solid ${BB_BORDER}`, overflow: "hidden" }}>
+        <BBPanelHeader label="Sector Strength" sub="BREADTH" accent={BB_CYAN} />
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, padding: 6, background: BB_BORDER }}>
+          {(sectors.length > 0 ? sectors : Array(8).fill({ ticker: "—", name: "—", change_pct: 0 })).slice(0, 8).map((s: any, idx: number) => {
+            const chg = s.change_pct ?? 0;
+            const name = (s.name ?? s.ticker ?? "—").slice(0, 8);
+            return (
+              <div key={idx} style={{ background: chg >= 0 ? "rgba(0,230,118,0.04)" : "rgba(255,23,68,0.04)", border: `1px solid ${chg >= 0 ? "rgba(0,230,118,0.12)" : "rgba(255,23,68,0.12)"}`, padding: "6px 8px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: BB_WHITE, fontFamily: BB_FONT }}>{name}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: cc(chg), fontFamily: BB_FONT }}>{chg >= 0 ? "+" : ""}{chg.toFixed(2)}%</span>
+                </div>
+                <BBBar pct={50 + chg * 5} color={chg >= 0 ? BB_GREEN : BB_RED} />
+              </div>
+            );
+          })}
+        </div>
+      </BBPanel>
+
+      {/* RIGHT TOP: Top Flow */}
+      <BBPanel style={{ gridRow: "1 / 2", overflow: "hidden" }}>
+        <BBPanelHeader label="Top Flow Today" sub="BY PREMIUM" accent={BB_RED} />
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {bullFlow.length === 0 && <div style={{ padding: 16, color: BB_LABEL, fontFamily: BB_FONT, fontSize: 11, textAlign: "center" }}>Loading…</div>}
+          {bullFlow.slice(0, 5).map((r, i) => {
+            const isBull = r.call_put_ratio >= 2;
+            return (
+              <div key={i} onClick={() => onSelectTicker(r.ticker)} style={{ padding: "8px 10px", borderBottom: `1px solid ${BB_BDR2}`, borderLeft: `3px solid ${isBull ? BB_GREEN : BB_RED}`, cursor: "pointer" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
+                  <span style={{ fontSize: 13, fontWeight: 900, color: BB_WHITE, fontFamily: BB_FONT }}>{r.ticker}</span>
+                  <span style={{ fontSize: 11, color: BB_AMBER, fontWeight: 700, fontFamily: BB_FONT }}>${r.premium_m.toFixed(1)}M</span>
+                </div>
+                <div style={{ fontSize: 9, color: isBull ? BB_GREEN : BB_RED, fontWeight: 700, fontFamily: BB_FONT }}>
+                  {isBull ? "▲ BULL FLOW" : "▼ BEAR FLOW"} · C/P {r.call_put_ratio.toFixed(1)}×
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </BBPanel>
+
+      {/* RIGHT BOTTOM: Market Indices */}
+      <BBPanel style={{ gridRow: "2 / 3", overflow: "hidden" }}>
+        <BBPanelHeader label="Market" sub="INDICES" accent={BB_BLUE} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          {(indices.length > 0 ? indices : Array(4).fill({ label: "—", price: 0, change_pct: 0 })).slice(0, 5).map((m: any, i: number) => {
+            const chg = m.change_pct ?? 0;
+            return (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "44px 1fr auto", padding: "5px 10px", borderBottom: `1px solid ${BB_BDR2}`, alignItems: "center", background: i % 2 === 0 ? "rgba(255,255,255,0.01)" : "transparent" }}>
+                <span style={{ fontSize: 10, color: BB_LABEL, fontWeight: 700, fontFamily: BB_FONT }}>{m.label ?? m.ticker}</span>
+                <div style={{ paddingLeft: 4 }}>
+                  <div style={{ width: "100%", height: 3, background: BB_BDR2, borderRadius: 1 }}>
+                    <div style={{ width: chg >= 0 ? "65%" : "35%", height: "100%", background: cc(chg), borderRadius: 1 }} />
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 11, color: BB_WHITE, fontWeight: 700, fontFamily: BB_FONT }}>${m.price?.toFixed(2) ?? "—"}</div>
+                  <div style={{ fontSize: 9, color: cc(chg), fontFamily: BB_FONT }}>{chg >= 0 ? "+" : ""}{chg.toFixed(2)}%</div>
+                </div>
+              </div>
+            );
+          })}
+          {adv && (
+            <div style={{ padding: "5px 10px", display: "flex", justifyContent: "space-between", borderTop: `1px solid ${BB_BORDER}`, marginTop: "auto" }}>
+              <span style={{ fontSize: 9, color: BB_LABEL, fontFamily: BB_FONT }}>A/D RATIO</span>
+              <span style={{ fontSize: 9, color: BB_GREEN, fontFamily: BB_FONT }}>▲{adv.up}</span>
+              <span style={{ fontSize: 9, color: BB_RED, fontFamily: BB_FONT }}>▼{adv.down}</span>
+            </div>
+          )}
+        </div>
+      </BBPanel>
+    </div>
+  );
+}
+
 // ---- Main Dashboard ------------------------------------------------------
 
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout">("overview");
+  const now = useNow();
+  const [blink, setBlink] = useState(true);
+  const [tickPos, setTickPos] = useState(0);
+  useEffect(() => { const t = setInterval(() => setBlink(b => !b), 800); return () => clearInterval(t); }, []);
+  useEffect(() => { const t = setInterval(() => setTickPos(p => p - 1), 22); return () => clearInterval(t); }, []);
   const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
   const qc = useQueryClient();
@@ -2575,45 +2793,86 @@ export default function Dashboard() {
   const ml    = analysis?.ml;
 
   const TABS = [
-    { id: "lookup",    label: "Stock Lookup" },
-    { id: "scanner",   label: "Scanner" },
-    { id: "analytics", label: "Analytics" },
-    { id: "backtest",  label: "Backtest" },
-    { id: "alerts",    label: "Alerts" },
-    { id: "portfolio", label: "Portfolio" },
-    { id: "propdesk",   label: "⚡ Prop Desk" },
-    { id: "smartmoney", label: "🏆 Smart Money" },
-    { id: "congress",   label: "🏛️ Congress" },
-    { id: "bullflow",   label: "🔥 Bull Flow" },
-    { id: "squeeze",    label: "💥 Squeeze" },
-    { id: "insiders",   label: "🏢 Insiders" },
-    { id: "breakout",   label: "🚀 Breakout" },
-    { id: "market",     label: "📊 Market" },
-    { id: "outcomes",   label: "📈 Outcomes" },
+    { id: "overview",   label: "OVERVIEW" },
+    { id: "bullflow",   label: "BULL FLOW" },
+    { id: "smartmoney", label: "SMART MONEY" },
+    { id: "congress",   label: "CONGRESS" },
+    { id: "lookup",     label: "STOCK LOOKUP" },
+    { id: "scanner",    label: "SCANNER" },
+    { id: "outcomes",   label: "OUTCOMES" },
+    { id: "analytics",  label: "ANALYTICS" },
+    { id: "propdesk",   label: "PROP DESK" },
+    { id: "squeeze",    label: "SQUEEZE" },
+    { id: "breakout",   label: "BREAKOUT" },
+    { id: "insiders",   label: "INSIDERS" },
+    { id: "market",     label: "MARKET" },
+    { id: "portfolio",  label: "PORTFOLIO" },
   ] as const;
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 shrink-0">
-            <button onClick={() => window.location.href = import.meta.env.BASE_URL} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">S</div>
-              <h1 className="text-lg font-bold text-white hidden sm:block">StockScanner AI</h1>
-            </button>
-          </div>
-          <nav className="flex gap-1 flex-wrap">
-            {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}>
-                {t.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </header>
+  const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
+  const dateStr = now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const { data: headerMkt } = useQuery({ queryKey: ["market-overview"], queryFn: fetchMarketOverview, refetchInterval: 30000 });
+  const headerIndices = (headerMkt?.indices ?? []).slice(0, 4);
+  const tickerStr = "  SPY  ·  QQQ  ·  DIA  ·  IWM  ·  VIX  ·  NVDA  ·  META  ·  TSLA  ·  AMD  ·  AMZN  ·  AAPL  ·  MSFT  ·  GOOGL  ·  MU  ·  JPM  ";
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
+  return (
+    <div style={{ height: "100vh", background: BB_BG, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: BB_FONT }}>
+
+      {/* ── TOP BAR ── */}
+      <div style={{ background: "#050505", borderBottom: `2px solid ${BB_ORANGE}`, padding: "0 16px", height: 40, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          <button onClick={() => window.location.href = import.meta.env.BASE_URL} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: BB_ORANGE, boxShadow: `0 0 8px ${BB_ORANGE}` }} />
+            <span style={{ color: BB_ORANGE, fontWeight: 900, fontSize: 13, letterSpacing: "0.15em", fontFamily: BB_FONT }}>STOCKSCANNER</span>
+            <span style={{ color: BB_WHITE, fontWeight: 400, fontSize: 13, letterSpacing: "0.1em", fontFamily: BB_FONT }}>AI</span>
+          </button>
+          <div style={{ width: 1, height: 20, background: "#1a1a1a" }} />
+          {headerIndices.map(m => (
+            <div key={m.label ?? m.ticker} style={{ display: "flex", gap: 5, alignItems: "baseline" }}>
+              <span style={{ color: BB_LABEL, fontSize: 10, fontWeight: 700, fontFamily: BB_FONT }}>{m.label ?? m.ticker}</span>
+              <span style={{ color: BB_WHITE, fontSize: 11, fontFamily: BB_FONT }}>${m.price?.toFixed(2) ?? "—"}</span>
+              <span style={{ color: m.change_pct >= 0 ? BB_GREEN : BB_RED, fontSize: 10, fontFamily: BB_FONT }}>{m.change_pct >= 0 ? "+" : ""}{m.change_pct?.toFixed(2) ?? "0.00"}%</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: BB_GREEN, boxShadow: `0 0 6px ${BB_GREEN}`, opacity: blink ? 1 : 0.3, transition: "opacity 0.2s" }} />
+            <span style={{ color: BB_GREEN, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", fontFamily: BB_FONT }}>LIVE</span>
+          </div>
+          <div style={{ width: 1, height: 20, background: "#1a1a1a" }} />
+          <div style={{ textAlign: "right" }}>
+            <div style={{ color: BB_WHITE, fontSize: 13, fontWeight: 700, fontFamily: BB_FONT }}>{timeStr}</div>
+            <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.08em", fontFamily: BB_FONT }}>NEW YORK · {dateStr}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── NAV TABS ── */}
+      <div style={{ background: "#060606", borderBottom: `1px solid ${BB_BORDER}`, display: "flex", alignItems: "center", flexShrink: 0, height: 30, overflowX: "auto" }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id as typeof tab)} style={{
+            padding: "0 14px", height: "100%", background: tab === t.id ? "#0F0F0F" : "transparent",
+            borderRight: `1px solid ${BB_BORDER}`, borderBottom: tab === t.id ? `2px solid ${BB_ORANGE}` : "2px solid transparent",
+            borderTop: "none", borderLeft: "none", cursor: "pointer", whiteSpace: "nowrap",
+          }}>
+            <span style={{ fontSize: 10, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? BB_ORANGE : BB_LABEL, letterSpacing: "0.1em", fontFamily: BB_FONT }}>{t.label}</span>
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <div style={{ padding: "0 14px", display: "flex", alignItems: "center", gap: 8, height: "100%", borderLeft: `1px solid ${BB_BORDER}`, flexShrink: 0 }}>
+          <span style={{ fontSize: 9, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
+          <span style={{ fontSize: 9, color: BB_GREEN, fontFamily: BB_FONT }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
+          <span style={{ fontSize: 9, color: BB_RED, fontFamily: BB_FONT }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
+        </div>
+      </div>
+
+      {/* ── MAIN CONTENT ── */}
+      {tab === "overview" ? (
+        <OverviewTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
+      ) : (
+      <main style={{ flex: 1, overflowY: "auto", background: "#0a0c10" }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
 
         {/* --- Stock Lookup --- */}
         {tab === "lookup" && (
@@ -2821,7 +3080,35 @@ export default function Dashboard() {
 
         {tab === "outcomes" && <OutcomesTab />}
 
+      </div>
       </main>
+      )}
+
+      {/* ── BOTTOM TICKER ── */}
+      <div style={{ height: 22, background: "#050505", borderTop: `1px solid ${BB_BORDER}`, overflow: "hidden", display: "flex", alignItems: "center", flexShrink: 0 }}>
+        <div style={{ width: 72, background: "#050505", zIndex: 2, height: "100%", display: "flex", alignItems: "center", paddingLeft: 10, borderRight: `1px solid ${BB_BDR2}`, flexShrink: 0 }}>
+          <span style={{ fontSize: 9, color: BB_ORANGE, fontWeight: 700, letterSpacing: "0.1em", fontFamily: BB_FONT }}>LIVE</span>
+        </div>
+        <div style={{ flex: 1, overflow: "hidden" }}>
+          <div style={{ display: "flex", whiteSpace: "nowrap", transform: `translateX(${tickPos % 1400}px)`, color: BB_WHITE, fontSize: 10, fontFamily: BB_FONT }}>
+            {[tickerStr, tickerStr, tickerStr].map((seg, i) => (
+              <span key={i} style={{ paddingRight: 0 }}>
+                {seg.split("·").map((part, j) => (
+                  <span key={j}>
+                    {j > 0 && <span style={{ color: BB_BDR2, margin: "0 6px" }}>·</span>}
+                    <span style={{ color: BB_LABEL }}>{part.trim()}</span>
+                  </span>
+                ))}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div style={{ width: 100, flexShrink: 0, paddingRight: 10, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, borderLeft: `1px solid ${BB_BDR2}` }}>
+          <span style={{ fontSize: 9, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
+          <span style={{ fontSize: 9, color: BB_GREEN, fontFamily: BB_FONT }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
+          <span style={{ fontSize: 9, color: BB_RED, fontFamily: BB_FONT }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
+        </div>
+      </div>
     </div>
   );
 }
