@@ -706,7 +706,7 @@ function EmailSignupBanner() {
         </h2>
 
         <p className="mx-auto mb-7 text-slate-400" style={{fontSize:"clamp(0.95rem,3vw,1.1rem)",maxWidth:"340px",lineHeight:1.55}}>
-          Every morning we scan the options flow and text you exactly what smart money is betting on — before the bell rings.
+          4× every trading day we scan the options flow and alert you exactly what smart money is betting on — at the open, mid-morning, pre-close, and end of day.
         </p>
 
         {/* iPhone SMS preview */}
@@ -716,12 +716,12 @@ function EmailSignupBanner() {
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{background:"#1d4ed8"}}>S</div>
               <div className="text-left">
                 <div className="text-white text-xs font-semibold">StockScanner AI</div>
-                <div className="text-slate-500" style={{fontSize:"10px"}}>Today 9:01 AM</div>
+                <div className="text-slate-500" style={{fontSize:"10px"}}>Today 9:45 AM</div>
               </div>
             </div>
             <div className="px-3 py-3 text-left space-y-1">
               <div className="rounded-2xl rounded-tl-sm px-3 py-2.5 inline-block w-full" style={{background:"#2c2c2e"}}>
-                <p className="text-white font-semibold mb-1.5" style={{fontSize:"11px"}}>🚨 Pre-Market Alert</p>
+                <p className="text-white font-semibold mb-1.5" style={{fontSize:"11px"}}>🔔 Opening Bell Alert</p>
                 <p className="text-emerald-400 font-mono mb-1" style={{fontSize:"11px"}}>GS $860C Jun18 · $10.9M 🔥</p>
                 <p className="text-emerald-400 font-mono mb-2" style={{fontSize:"11px"}}>ORCL $180C Jun18 · $6.6M</p>
                 <p className="text-slate-400 mb-1" style={{fontSize:"11px"}}>🏆 Top signal: <span className="text-white font-semibold">LLY</span> — 67% win rate</p>
