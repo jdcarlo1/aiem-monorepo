@@ -6,3 +6,9 @@ id = "kDnVKVF2Pd6R3Yb6BkMzz"
 uri = "file://screenshots/landing-page.jpg"
 type = "image"
 title = "Landing Page — nclexai.org/start"
+
+[[outputs]]
+id = "la0rsFQjbH-EMx_nOkJLn"
+uri = "file://artifacts/stock-scanner/Landing.txt"
+type = "text"
+title = "Landing.tsx — StockScanner AI"
