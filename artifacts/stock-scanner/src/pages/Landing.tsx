@@ -223,9 +223,9 @@ export default function Landing() {
                     <span className="px-2 py-0.5 rounded text-xs font-black" style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.25)" }}>BULLISH</span>
                     <span className="px-2 py-0.5 rounded text-xs font-black" style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.25)" }}>HIGH CONVICTION</span>
                   </div>
-                  <p className="text-slate-400 text-sm mb-2">Setup: <span className="text-white font-bold">LONG CALL</span> · Entry $140C · Exp 2025-07-18 · Target $158 · Stop $129</p>
+                  <p className="text-slate-400 text-sm mb-2">Setup: <span className="text-white font-bold">LONG CALL</span> · Entry $210C · Exp 2025-07-18 · Target $230 · Stop $192</p>
                   <p className="text-slate-400 text-sm" style={{ maxWidth: "480px" }}>
-                    <span className="text-slate-300 font-semibold">Thesis:</span> Dark pool shows STRONG BUY conviction. Smart money holding 3.2x retail. Call accumulation at $140 strike with IV rank at 28% — cheap options with institutional backing. Max pain at $137 creates upside pull.
+                    <span className="text-slate-300 font-semibold">Thesis:</span> Dark pool shows STRONG BUY conviction. Smart money holding 3.2x retail. Call accumulation at $210 strike with IV rank at 28% — cheap options with institutional backing. Max pain at $205 creates upside pull.
                   </p>
                 </div>
                 <div className="text-right shrink-0">
@@ -437,7 +437,7 @@ export default function Landing() {
             </div>
             <div className="space-y-2.5 mb-5">
               {(bullishFlow.length >= 4 ? bullishFlow.slice(0, 4) : [
-                { rank: 1, ticker: "NVDA", price: 137, strike: 140, expiry: "2025-07-18", premium_m: 11.2, call_put_ratio: 8.9, premium_k: 11200, call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
+                { rank: 1, ticker: "NVDA", price: 205, strike: 210, expiry: "2025-07-18", premium_m: 11.2, call_put_ratio: 8.9, premium_k: 11200, call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
                 { rank: 2, ticker: "AAPL", price: 213, strike: 215, expiry: "2025-07-11", premium_m: 9.4,  call_put_ratio: 5.2, premium_k: 9400,  call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
                 { rank: 3, ticker: "META", price: 649, strike: 650, expiry: "2025-07-18", premium_m: 5.1,  call_put_ratio: 4.1, premium_k: 5100,  call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
                 { rank: 4, ticker: "TSLA", price: 330, strike: 340, expiry: "2025-07-11", premium_m: 7.2,  call_put_ratio: 1.1, premium_k: 7200,  call_vol_oi: 0, total_call_vol: 0, days_to_earnings: null, short_float_pct: null } as BullFlowRow,
