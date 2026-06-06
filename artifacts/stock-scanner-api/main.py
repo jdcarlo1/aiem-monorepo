@@ -2874,6 +2874,7 @@ def ai_trades():
         "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities.\n"
         "12. sector_corr=IDIOSYNCRATIC (<0.5) → ticker moves on its own; prefer over highly correlated names.\n"
         "13. news=BEARISH_NEWS with BULL_TREND → fade the news; news=BULLISH_NEWS with momentum = confirmation.\n"
+        "14. EXPIRY RULE (non-negotiable): Always pick an expiry 30–90 days from today. Never recommend weekly or 0DTE expirations. If the signal data shows a near-term expiry, use the next available monthly expiry within the 30–90 day window instead.\n"
         "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
     )
 
