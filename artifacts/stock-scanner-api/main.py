@@ -3432,7 +3432,7 @@ def ai_trades():
         "30. TAIL RISK PUT CONCENTRATION: tail_risk_puts is the % of total put volume in deep OTM strikes (>15% below spot). CRASH_HEDGING_ACTIVE(>40%) = institutions are paying for disaster protection, not making directional bets — this is a macro risk-off signal. When tail_risk_puts>30%, do NOT sell premium structures (IRON CONDOR, BULL PUT SPREAD) — institutions may know about an upcoming systemic risk event. The signal does NOT mean the stock will definitely fall; it means smart money is buying insurance at scale.\n"
         "31. IV SKEW PERCENTILE (when available after 30+ days of data): iv_skew_pctl ranks today's IV skew vs the past year for this specific stock. EXTREME_HISTORICAL_FEAR(>=90th percentile) = put premium is at historically extreme levels for this stock — highest edge to SELL PUT SPREADS when bullish, or BUY CALL SPREADS as mean-reversion plays. Below_avg_fear(<=25th percentile) = options are historically cheap — favor LONG options (calls or straddles) over premium selling.\n"
         "32. SHORT INTEREST TREND (when available after 5+ sessions of data): short_trend shows change in short float vs 5 sessions ago. SHORTS_BUILDING(>+1pp) = new bearish institutional conviction entering the stock — validates bearish setups and contradicts bullish flow. SHORTS_COVERING(<-1pp) = short sellers are exiting — potential squeeze trigger forming; combine with squeeze_risk=HIGH or EXTREME for maximum conviction LONG CALL setup (short covering can accelerate a move by 2-3x).\n"
-        "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
+        "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."
     )
 
     user_msg = f"""SOURCES ({len(active_sources)}): {', '.join(active_sources)}
@@ -3501,7 +3501,7 @@ PRIORITY WEIGHTING (use in order):
 11. sector_corr=IDIOSYNCRATIC (name-specific, not sector noise)
 12. analyst upgrades + premarket gap + news sentiment confirmation
 
-Return a JSON array of exactly 3 objects sorted BULLISH → NEUTRAL → BEARISH. Each must have ALL fields:
+Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first), then direction mix: aim for 2-3 BULLISH, 1 NEUTRAL, 1-2 BEARISH based on what the data actually supports — do not force a direction if the signals aren't there. Each must have ALL fields:
 ticker (string), price (number), setup_type (LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 4-5 short strings naming exact signals used), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
 
 JSON array only. No markdown. Start immediately with ["""
@@ -3513,7 +3513,7 @@ JSON array only. No markdown. Start immediately with ["""
         finish = "unknown"
         stream = oai.chat.completions.create(
             model="gpt-5-mini",
-            max_completion_tokens=6000,
+            max_completion_tokens=9000,
             stream=True,
             messages=[
                 {"role": "system", "content": system_msg},
