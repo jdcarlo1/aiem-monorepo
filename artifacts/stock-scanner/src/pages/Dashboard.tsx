@@ -2557,7 +2557,15 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
       {trades.length > 0 && (
         <div className="space-y-3">
-          {trades.map((t, i) => {
+          {[...trades].sort((a, b) => {
+            const order: Record<string, number> = { BULLISH: 0, NEUTRAL: 1, BEARISH: 2 };
+            const da = order[a.direction] ?? 1;
+            const db = order[b.direction] ?? 1;
+            if (da !== db) return da - db;
+            const ca = a.conviction === "HIGH" ? 0 : 1;
+            const cb = b.conviction === "HIGH" ? 0 : 1;
+            return ca - cb;
+          }).map((t, i) => {
             const isOpen = expanded === i;
             const blurred = !isSubscribed && i >= 2;
             return (

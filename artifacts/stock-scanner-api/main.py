@@ -1948,7 +1948,7 @@ TICKERS: {len(rich)}
 
 Pick the 3 highest-conviction tickers where 3+ signals align. Prioritize: Smart vs Retail divergence, composite score≥75, dark pool flow, IV rank extremes, max pain gap.
 
-Return a JSON array of exactly 3 objects. Each object must have ALL these fields:
+Return a JSON array of exactly 3 objects sorted from most BULLISH to most BEARISH (BULLISH first, NEUTRAL second, BEARISH last). Each object must have ALL these fields:
 ticker (string), price (number), setup_type (one of: LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 2-3 short strings), thesis (1-2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
 
 Be concise. JSON array only. No markdown. Start immediately with ["""
