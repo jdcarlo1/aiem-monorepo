@@ -255,7 +255,7 @@ _init_daily_top10_table()
 # ── AI Trade Log — DB-backed track record ────────────────────────────────────
 
 def _init_ai_trade_log_table():
-    sql = """
+    create_sql = """
     CREATE TABLE IF NOT EXISTS ai_trade_log (
         id              SERIAL PRIMARY KEY,
         trade_date      DATE NOT NULL,
@@ -283,14 +283,27 @@ def _init_ai_trade_log_table():
         t3_win          BOOL,
         t5_win          BOOL,
         t10_win         BOOL,
+        expiry_price    FLOAT,
+        expiry_pct      FLOAT,
+        expiry_win      BOOL,
         outcome         TEXT NOT NULL DEFAULT 'OPEN',
         created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE(trade_date, ticker, direction)
     );
     """
+    migrate_sql = [
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_price FLOAT",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_pct   FLOAT",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_win   BOOL",
+    ]
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(create_sql)
+            for m in migrate_sql:
+                try:
+                    cur.execute(m)
+                except Exception:
+                    pass
             conn.commit()
     except Exception as e:
         print(f"[ai_trade_log] init table error: {e}")
@@ -331,14 +344,58 @@ def _save_ai_trades_to_log(trades: list, trade_date: str):
         print(f"[ai_trade_log] save error: {e}")
 
 
+def _parse_expiry_date(expiry_str, trade_date):
+    """Parse an options expiry string into a date. Returns None if unparseable."""
+    if not expiry_str:
+        return None
+    from datetime import date as _d, timedelta as _td
+    import re as _re
+    s = expiry_str.strip()
+    # Try common explicit formats
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%b %d, %Y", "%B %d, %Y", "%b %d %Y", "%B %d %Y"):
+        try:
+            return _dt.strptime(s, fmt).date()
+        except ValueError:
+            pass
+    # "Jan 17" or "January 17" without year — assume nearest future occurrence
+    for fmt in ("%b %d", "%B %d"):
+        try:
+            parsed = _dt.strptime(s, fmt)
+            year = trade_date.year
+            d = parsed.replace(year=year).date()
+            if d < trade_date:
+                d = d.replace(year=year + 1)
+            return d
+        except ValueError:
+            pass
+    # Relative keywords
+    s_lower = s.lower()
+    if "weekly" in s_lower or "0dte" in s_lower:
+        # next Friday from trade_date
+        days_ahead = (4 - trade_date.weekday()) % 7 or 7
+        return trade_date + _td(days=days_ahead)
+    if "monthly" in s_lower:
+        return trade_date + _td(days=30)
+    # Try to extract a date-like substring
+    m = _re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", s)
+    if m:
+        for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%m/%d/%y", "%m-%d-%y"):
+            try:
+                return _dt.strptime(m.group(1), fmt).date()
+            except ValueError:
+                pass
+    return None
+
+
 def _update_ai_trade_outcomes():
-    """Fetch closing prices for open AI trade log entries and mark win/loss."""
+    """Fetch closing prices for open AI trade log entries and mark win/loss at expiry."""
     import yfinance as _yf
     from datetime import date as _date2, timedelta as _td2
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT id, ticker, trade_date, price_at_signal, direction, target_price, stop_loss,
+                       expiry, expiry_price,
                        t1_price, t3_price, t5_price, t10_price
                 FROM ai_trade_log
                 WHERE outcome = 'OPEN'
@@ -349,9 +406,45 @@ def _update_ai_trade_outcomes():
             if not rows:
                 return
             today = _date2.today()
+
+            def _fetch_close(ticker, target_dt):
+                """Fetch the first available closing price on or after target_dt."""
+                try:
+                    hist = _yf.Ticker(ticker).history(
+                        start=str(target_dt),
+                        end=str(target_dt + _td2(days=7))
+                    )["Close"]
+                    if hist.empty:
+                        return None
+                    return float(hist.iloc[0])
+                except Exception:
+                    return None
+
+            def _win(pct, direction):
+                if pct is None:
+                    return None
+                if direction == "BULLISH":
+                    return pct >= 1.0
+                elif direction == "BEARISH":
+                    return pct <= -1.0
+                else:
+                    return abs(pct) < 3.0
+
             for row in rows:
-                id_, ticker, trade_date, p0, direction, target, stoploss, t1p, t3p, t5p, t10p = row
+                id_, ticker, trade_date, p0, direction, target, stoploss, expiry_str, exp_p, t1p, t3p, t5p, t10p = row
                 updates = {}
+
+                # ── Expiry date outcome (primary) ────────────────────────────
+                expiry_date = _parse_expiry_date(expiry_str, trade_date)
+                if expiry_date and expiry_date <= today and exp_p is None:
+                    close = _fetch_close(ticker, expiry_date)
+                    if close is not None and p0:
+                        pct = round((close - p0) / p0 * 100, 2)
+                        updates["expiry_price"] = close
+                        updates["expiry_pct"]   = pct
+                        updates["expiry_win"]   = _win(pct, direction)
+
+                # ── Fixed T+n checkpoints (supplemental context) ─────────────
                 for n, col_p, col_pct, col_win, existing in [
                     (1,  "t1_price",  "t1_pct",  "t1_win",  t1p),
                     (3,  "t3_price",  "t3_pct",  "t3_win",  t3p),
@@ -363,38 +456,22 @@ def _update_ai_trade_outcomes():
                     target_dt = trade_date + _td2(days=n)
                     if target_dt > today:
                         continue
-                    try:
-                        hist = _yf.Ticker(ticker).history(
-                            start=str(target_dt),
-                            end=str(target_dt + _td2(days=5))
-                        )["Close"]
-                        if hist.empty:
-                            continue
-                        close = float(hist.iloc[0])
-                        pct = round((close - p0) / p0 * 100, 2) if p0 else None
-                        if direction == "BULLISH":
-                            win = pct is not None and pct >= 1.0
-                        elif direction == "BEARISH":
-                            win = pct is not None and pct <= -1.0
-                        else:
-                            win = pct is not None and abs(pct) < 3.0
-                        updates[col_p] = close
-                        if pct is not None:
-                            updates[col_pct] = pct
-                        updates[col_win] = win
-                    except Exception as fe:
-                        print(f"[ai_trade_log] price fetch {ticker} T+{n}: {fe}")
+                    close = _fetch_close(ticker, target_dt)
+                    if close is not None and p0:
+                        pct = round((close - p0) / p0 * 100, 2)
+                        updates[col_p]   = close
+                        updates[col_pct] = pct
+                        updates[col_win] = _win(pct, direction)
+
                 if updates:
-                    new_t5p = updates.get("t5_price") or t5p
-                    new_t5pct = updates.get("t5_pct")
+                    # Primary outcome = expiry result if available, else T+5
+                    exp_win_val = updates.get("expiry_win") if "expiry_win" in updates else None
+                    t5_pct_val  = updates.get("t5_pct")
                     outcome = "OPEN"
-                    if new_t5p is not None and new_t5pct is not None:
-                        if direction == "BULLISH":
-                            outcome = "WIN" if new_t5pct >= 1.0 else "LOSS"
-                        elif direction == "BEARISH":
-                            outcome = "WIN" if new_t5pct <= -1.0 else "LOSS"
-                        else:
-                            outcome = "WIN" if abs(new_t5pct) < 3.0 else "LOSS"
+                    if exp_win_val is not None:
+                        outcome = "WIN" if exp_win_val else "LOSS"
+                    elif t5_pct_val is not None:
+                        outcome = "WIN" if _win(t5_pct_val, direction) else "LOSS"
                     updates["outcome"] = outcome
                     set_sql = ", ".join(f"{k} = %s" for k in updates)
                     cur.execute(f"UPDATE ai_trade_log SET {set_sql} WHERE id = %s",
@@ -2445,6 +2522,7 @@ def ai_trade_log():
                        t1_price, t3_price, t5_price, t10_price,
                        t1_pct, t3_pct, t5_pct, t10_pct,
                        t1_win, t3_win, t5_win, t10_win,
+                       expiry_price, expiry_pct, expiry_win,
                        outcome, created_at
                 FROM ai_trade_log
                 ORDER BY trade_date DESC, id DESC
@@ -2456,6 +2534,7 @@ def ai_trade_log():
                     "t1_price","t3_price","t5_price","t10_price",
                     "t1_pct","t3_pct","t5_pct","t10_pct",
                     "t1_win","t3_win","t5_win","t10_win",
+                    "expiry_price","expiry_pct","expiry_win",
                     "outcome","created_at"]
             trades = []
             for row in rows:
@@ -2471,15 +2550,21 @@ def ai_trade_log():
                 if not vals: return None
                 return round(sum(1 for v in vals if v) / len(vals) * 100, 1)
 
-            win_rates = {"t1": _wr("t1_win"), "t3": _wr("t3_win"), "t5": _wr("t5_win"), "t10": _wr("t10_win")}
+            win_rates = {
+                "expiry": _wr("expiry_win"),
+                "t1": _wr("t1_win"), "t3": _wr("t3_win"),
+                "t5": _wr("t5_win"), "t10": _wr("t10_win"),
+            }
 
             # By direction breakdown
             by_dir = {}
             for d in ["BULLISH", "BEARISH", "NEUTRAL"]:
                 sub = [t for t in trades if t["direction"] == d]
+                exp_wins = [t["expiry_win"] for t in sub if t["expiry_win"] is not None]
                 t5s = [t["t5_win"] for t in sub if t["t5_win"] is not None]
                 by_dir[d] = {
                     "count": len(sub),
+                    "win_rate_expiry": round(sum(1 for v in exp_wins if v) / len(exp_wins) * 100, 1) if exp_wins else None,
                     "win_rate_t5": round(sum(1 for v in t5s if v) / len(t5s) * 100, 1) if t5s else None,
                 }
 

@@ -3443,7 +3443,7 @@ function TrackRecordTab() {
         <div>
           <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.15em", color: BB_WHITE }}>AI TRADE RECORD</div>
           <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2, letterSpacing: "0.08em" }}>
-            Every daily AI pick logged · Price outcomes tracked at T+1 / T+3 / T+5 / T+10
+            Every daily AI pick logged · Win/loss measured at options expiry date
           </div>
         </div>
         <button onClick={load} disabled={loading} style={{
@@ -3459,10 +3459,17 @@ function TrackRecordTab() {
       {data && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
           {statBox("TOTAL CALLS", String(data.count))}
+          {/* Primary: expiry win rate */}
+          <div style={{ background: BB_PANEL, border: `2px solid ${data.win_rates.expiry != null && data.win_rates.expiry >= 50 ? "#22c55e" : data.win_rates.expiry != null ? "#ef4444" : BB_BORDER}`, padding: "12px 16px", minWidth: 140, flex: 1 }}>
+            <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 4 }}>WIN RATE @ EXPIRY</div>
+            <div style={{ color: data.win_rates.expiry != null && data.win_rates.expiry >= 50 ? BB_GREEN : data.win_rates.expiry != null ? BB_RED : BB_LABEL, fontSize: 26, fontWeight: 900, fontFamily: BB_FONT }}>
+              {data.win_rates.expiry != null ? `${data.win_rates.expiry}%` : "—"}
+            </div>
+            <div style={{ color: BB_LABEL, fontSize: 8, marginTop: 2 }}>PRIMARY METRIC</div>
+          </div>
           {statBox("WIN RATE T+1", data.win_rates.t1 != null ? `${data.win_rates.t1}%` : null, data.win_rates.t1 != null && data.win_rates.t1 >= 50 ? BB_GREEN : BB_RED)}
           {statBox("WIN RATE T+3", data.win_rates.t3 != null ? `${data.win_rates.t3}%` : null, data.win_rates.t3 != null && data.win_rates.t3 >= 50 ? BB_GREEN : BB_RED)}
           {statBox("WIN RATE T+5", data.win_rates.t5 != null ? `${data.win_rates.t5}%` : null, data.win_rates.t5 != null && data.win_rates.t5 >= 50 ? BB_GREEN : BB_RED)}
-          {statBox("WIN RATE T+10", data.win_rates.t10 != null ? `${data.win_rates.t10}%` : null, data.win_rates.t10 != null && data.win_rates.t10 >= 50 ? BB_GREEN : BB_RED)}
         </div>
       )}
 
@@ -3476,8 +3483,8 @@ function TrackRecordTab() {
               <div key={d} style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "10px 14px", display: "flex", gap: 20, alignItems: "center" }}>
                 <span style={{ color: dirColor(d), fontSize: 10, fontWeight: 700, letterSpacing: "0.1em" }}>{d}</span>
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>{s.count} calls</span>
-                <span style={{ color: s.win_rate_t5 != null && s.win_rate_t5 >= 50 ? BB_GREEN : BB_RED, fontSize: 11, fontWeight: 700 }}>
-                  {s.win_rate_t5 != null ? `${s.win_rate_t5}% @ T+5` : "—"}
+                <span style={{ color: s.win_rate_expiry != null && s.win_rate_expiry >= 50 ? BB_GREEN : s.win_rate_expiry != null ? BB_RED : BB_LABEL, fontSize: 11, fontWeight: 700 }}>
+                  {s.win_rate_expiry != null ? `${s.win_rate_expiry}% @ EXPIRY` : s.win_rate_t5 != null ? `${s.win_rate_t5}% @ T+5` : "—"}
                 </span>
               </div>
             );
@@ -3515,12 +3522,12 @@ function TrackRecordTab() {
           {/* Table header */}
           <div style={{
             display: "grid",
-            gridTemplateColumns: "80px 70px 90px 70px 70px 70px 60px 60px 60px 70px",
+            gridTemplateColumns: "80px 65px 85px 65px 65px 65px 60px 60px 80px 70px",
             gap: 0, borderBottom: `1px solid ${BB_BORDER}`,
             padding: "5px 8px", marginBottom: 2,
           }}>
-            {["DATE","TICKER","DIRECTION","ENTRY","TARGET","STOP","T+1","T+3","T+5","OUTCOME"].map(h => (
-              <span key={h} style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", fontWeight: 700 }}>{h}</span>
+            {["DATE","TICKER","DIRECTION","ENTRY","TARGET","STOP","T+1","T+3","@ EXPIRY","OUTCOME"].map(h => (
+              <span key={h} style={{ color: h === "@ EXPIRY" ? "#fbbf24" : BB_LABEL, fontSize: 8, letterSpacing: "0.1em", fontWeight: 700 }}>{h}</span>
             ))}
           </div>
 
@@ -3530,7 +3537,7 @@ function TrackRecordTab() {
                 onClick={() => setExpanded(expanded === t.id ? null : t.id)}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "80px 70px 90px 70px 70px 70px 60px 60px 60px 70px",
+                  gridTemplateColumns: "80px 65px 85px 65px 65px 65px 60px 60px 80px 70px",
                   gap: 0, padding: "8px 8px", cursor: "pointer",
                   borderBottom: `1px solid ${BB_BORDER}`,
                   background: expanded === t.id ? "#0d1a0d" : "transparent",
@@ -3545,7 +3552,10 @@ function TrackRecordTab() {
                 <span style={{ color: BB_RED,   fontSize: 9 }}>{t.stop_loss    ? `$${t.stop_loss.toFixed(2)}`    : "—"}</span>
                 <span style={{ color: pctColor(t.t1_pct), fontSize: 9, fontWeight: 700 }}>{pctFmt(t.t1_pct)}</span>
                 <span style={{ color: pctColor(t.t3_pct), fontSize: 9, fontWeight: 700 }}>{pctFmt(t.t3_pct)}</span>
-                <span style={{ color: pctColor(t.t5_pct), fontSize: 9, fontWeight: 700 }}>{pctFmt(t.t5_pct)}</span>
+                {/* Expiry column — primary outcome */}
+                <span style={{ color: pctColor(t.expiry_pct), fontSize: 10, fontWeight: 900 }}>
+                  {t.expiry_pct != null ? pctFmt(t.expiry_pct) : t.expiry ? <span style={{ color: BB_LABEL, fontSize: 8 }}>{t.expiry}</span> : "—"}
+                </span>
                 <span>{outcomeBadge(t.outcome)}</span>
               </div>
 
@@ -3558,12 +3568,29 @@ function TrackRecordTab() {
                 }}>
                   {/* Left: price timeline */}
                   <div>
-                    <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 8 }}>PRICE TIMELINE</div>
+                    {/* Expiry result — primary */}
+                    {(t.expiry_price != null || t.expiry) && (
+                      <div style={{ background: "#060e06", border: `2px solid ${t.expiry_win === true ? "#22c55e" : t.expiry_win === false ? "#ef4444" : "#fbbf2444"}`, padding: "10px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 16 }}>
+                        <div>
+                          <div style={{ color: "#fbbf24", fontSize: 8, letterSpacing: "0.1em", fontWeight: 700 }}>@ EXPIRY · {t.expiry}</div>
+                          <div style={{ color: BB_WHITE, fontSize: 16, fontWeight: 900, marginTop: 2 }}>
+                            {t.expiry_price != null ? `$${t.expiry_price.toFixed(2)}` : "PENDING"}
+                          </div>
+                        </div>
+                        {t.expiry_pct != null && (
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ color: pctColor(t.expiry_pct), fontSize: 18, fontWeight: 900 }}>{pctFmt(t.expiry_pct)}</div>
+                            <div style={{ marginTop: 2 }}>{winBadge(t.expiry_win)}</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 8 }}>SUPPLEMENTAL CHECKPOINTS</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
                       {([
-                        { label: "T+1",  price: t.t1_price, pct: t.t1_pct, win: t.t1_win },
-                        { label: "T+3",  price: t.t3_price, pct: t.t3_pct, win: t.t3_win },
-                        { label: "T+5",  price: t.t5_price, pct: t.t5_pct, win: t.t5_win },
+                        { label: "T+1",  price: t.t1_price,  pct: t.t1_pct,  win: t.t1_win },
+                        { label: "T+3",  price: t.t3_price,  pct: t.t3_pct,  win: t.t3_win },
+                        { label: "T+5",  price: t.t5_price,  pct: t.t5_pct,  win: t.t5_win },
                         { label: "T+10", price: t.t10_price, pct: t.t10_pct, win: t.t10_win },
                       ]).map(({ label, price, pct, win }) => (
                         <div key={label} style={{ background: "#060c06", border: `1px solid ${BB_BORDER}`, padding: "8px 10px", textAlign: "center" }}>
@@ -3586,10 +3613,9 @@ function TrackRecordTab() {
                       {t.conviction  && <span style={{ color: BB_LABEL, fontSize: 9 }}>CONVICTION: <span style={{ color: BB_WHITE }}>{t.conviction}</span></span>}
                       {t.risk_level  && <span style={{ color: BB_LABEL, fontSize: 9 }}>RISK: <span style={{ color: BB_WHITE }}>{t.risk_level}</span></span>}
                     </div>
-                    {t.expiry && (
+                    {t.entry_strike && (
                       <div style={{ color: BB_LABEL, fontSize: 9, marginBottom: 6 }}>
-                        OPTIONS EXPIRY: <span style={{ color: BB_WHITE }}>{t.expiry}</span>
-                        {t.entry_strike && <> · STRIKE: <span style={{ color: BB_WHITE }}>${t.entry_strike}</span></>}
+                        STRIKE: <span style={{ color: BB_WHITE }}>${t.entry_strike}</span>
                       </div>
                     )}
                     {t.thesis && (

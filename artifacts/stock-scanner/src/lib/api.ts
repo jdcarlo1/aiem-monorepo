@@ -710,6 +710,9 @@ export interface AITradeLogEntry {
   t1_price: number | null; t3_price: number | null; t5_price: number | null; t10_price: number | null;
   t1_pct: number | null;   t3_pct: number | null;   t5_pct: number | null;   t10_pct: number | null;
   t1_win: boolean | null;  t3_win: boolean | null;  t5_win: boolean | null;  t10_win: boolean | null;
+  expiry_price: number | null;
+  expiry_pct: number | null;
+  expiry_win: boolean | null;
   outcome: "OPEN" | "WIN" | "LOSS";
   created_at: string;
 }
@@ -717,8 +720,8 @@ export interface AITradeLogEntry {
 export interface AITradeLogResult {
   trades: AITradeLogEntry[];
   count: number;
-  win_rates: { t1: number | null; t3: number | null; t5: number | null; t10: number | null };
-  by_direction: Record<string, { count: number; win_rate_t5: number | null }>;
+  win_rates: { expiry: number | null; t1: number | null; t3: number | null; t5: number | null; t10: number | null };
+  by_direction: Record<string, { count: number; win_rate_expiry: number | null; win_rate_t5: number | null }>;
 }
 
 export function fetchAITradeLog() {
