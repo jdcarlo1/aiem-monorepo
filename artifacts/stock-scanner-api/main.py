@@ -140,6 +140,18 @@ try:
         id="daily_vol_snapshot",
         replace_existing=True,
     )
+    # SPY cache refresh: Mon-Fri 9:05 AM ET — pre-warm SPY 1y cache before market opens
+    def _run_spy_cache_refresh():
+        try:
+            _refresh_spy_1y_cache()
+        except Exception as e:
+            print(f"[scheduler] SPY cache refresh error: {e}")
+    _scheduler.add_job(
+        _run_spy_cache_refresh,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=5, timezone=_ET),
+        id="spy_cache_refresh",
+        replace_existing=True,
+    )
     _scheduler.start()
     print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri")
 except Exception as _e:
@@ -619,6 +631,28 @@ def _init_daily_vol_snapshots_table():
         print(f"[daily_vol_snapshots] init error: {e}")
 
 _init_daily_vol_snapshots_table()
+
+
+# Module-level SPY 1y cache — avoids rate-limit collisions during concurrent ticker fetches
+_spy_1y_cache: dict = {"return_pct": None, "rets_arr": None, "date": None}
+
+def _refresh_spy_1y_cache():
+    """Fetch SPY 1-year history once; cache return % and daily returns array."""
+    from datetime import date as _spy_d
+    try:
+        import yfinance as _yf_spy
+        _raw = _yf_spy.download("SPY", period="1y", interval="1d", progress=False, auto_adjust=True)["Close"]
+        _h = _raw.iloc[:, 0] if hasattr(_raw, "columns") else _raw
+        _c = _h.dropna()
+        if len(_c) >= 50:
+            _spy_1y_cache["return_pct"] = round((float(_c.iloc[-1]) / float(_c.iloc[0]) - 1) * 100, 1)
+            _spy_1y_cache["rets_arr"] = _c.pct_change().dropna().values
+            _spy_1y_cache["date"] = _spy_d.today()
+            print(f"[spy_cache] 1y return={_spy_1y_cache['return_pct']}%, {len(_c)} rows")
+    except Exception as _e:
+        print(f"[spy_cache] refresh error: {_e}")
+
+_refresh_spy_1y_cache()
 
 
 def _save_daily_vol_snapshot():
@@ -2278,34 +2312,32 @@ def vol_crush():
             except Exception: pass
 
             # Q16. Insider transaction net (open-market purchases vs sales last 30 days)
+            # yfinance columns: Text (has "Sale at price X" / "Purchase at price X"), Shares, Start Date
             insider_net = None
             try:
                 from datetime import timedelta as _td_ins
                 ins = tkr.insider_transactions
                 if ins is not None and not ins.empty:
                     _cutoff_ins = _dt.now() - _td_ins(days=30)
-                    # Normalize index timezone
-                    if hasattr(ins.index, 'tz') and ins.index.tz is not None:
-                        _idx_ins = ins.index.tz_localize(None)
-                    else:
-                        _idx_ins = ins.index
-                    _recent_ins = ins[_idx_ins >= _cutoff_ins]
-                    if not _recent_ins.empty:
-                        # yfinance insider_transactions columns: Insider, Title, Date, Transaction, Value, Text, Shares, Url
-                        # Try 'Transaction' column first (most common), then fallback scan
-                        _cols_lower = {c.lower(): c for c in _recent_ins.columns}
-                        _txt_c = (_cols_lower.get('transaction') or
-                                  next((c for c in _recent_ins.columns if any(k in c.lower() for k in ['transaction', 'text', 'type', 'desc'])), None))
-                        _shr_c = (_cols_lower.get('shares') or
-                                  next((c for c in _recent_ins.columns if 'share' in c.lower()), None))
-                        if _txt_c and _shr_c:
-                            _buys = _recent_ins[_recent_ins[_txt_c].astype(str).str.contains('Purchase|Buy|Acqui', case=False, na=False)]
+                    _cols_lower = {c.lower(): c for c in ins.columns}
+                    # Date: 'Start Date' column (not the index)
+                    _date_c = (_cols_lower.get('start date') or _cols_lower.get('date') or
+                               next((c for c in ins.columns if 'date' in c.lower()), None))
+                    # Text: 'Text' column has "Sale at price X" / "Purchase at price X"
+                    _txt_c = (_cols_lower.get('text') or _cols_lower.get('transaction') or
+                              next((c for c in ins.columns if any(k in c.lower() for k in ['text', 'desc'])), None))
+                    _shr_c = (_cols_lower.get('shares') or
+                              next((c for c in ins.columns if 'share' in c.lower()), None))
+                    if _date_c and _txt_c and _shr_c:
+                        _recent_ins = ins[ins[_date_c] >= _cutoff_ins]
+                        if not _recent_ins.empty:
+                            _buys  = _recent_ins[_recent_ins[_txt_c].astype(str).str.contains('Purchase|Buy|Acqui', case=False, na=False)]
                             _sells = _recent_ins[_recent_ins[_txt_c].astype(str).str.contains('Sale|Sell|Dispo', case=False, na=False)]
-                            _buy_sh = int(_buys[_shr_c].fillna(0).abs().sum())
+                            _buy_sh  = int(_buys[_shr_c].fillna(0).abs().sum())
                             _sell_sh = int(_sells[_shr_c].fillna(0).abs().sum())
                             if _buy_sh + _sell_sh > 0:
                                 _net_ins = _buy_sh - _sell_sh
-                                insider_net = ("BUYING" if _net_ins > 1000 else
+                                insider_net = ("BUYING"  if _net_ins >  1000 else
                                                "SELLING" if _net_ins < -1000 else "NEUTRAL")
             except Exception: pass
 
@@ -2382,17 +2414,9 @@ def vol_crush():
         except Exception: return None
 
     # Pre-fetch SPY returns once (shared across all tickers for beta calculation)
-    _spy_rets_arr = None
-    _spy_1y_return = None
-    try:
-        _spy_raw = yf.download("SPY", period="1y", interval="1d", progress=False, auto_adjust=True)["Close"]
-        # Handle both Series (single ticker) and DataFrame (multi-ticker) shapes
-        _spy_hist = _spy_raw.iloc[:, 0] if hasattr(_spy_raw, "columns") else _spy_raw
-        _spy_hist_clean = _spy_hist.dropna()
-        _spy_rets_arr = _spy_hist_clean.pct_change().dropna().values
-        _spy_1y_return = round((float(_spy_hist_clean.iloc[-1]) / float(_spy_hist_clean.iloc[0]) - 1) * 100, 1) if len(_spy_hist_clean) >= 50 else None
-    except Exception:
-        pass
+    # Use module-level cached SPY data (avoids rate-limit collisions with 20 concurrent ticker fetches)
+    _spy_rets_arr = _spy_1y_cache.get("rets_arr")
+    _spy_1y_return = _spy_1y_cache.get("return_pct")
 
     # Pre-fetch sector ETF returns for cross-asset correlation (Q5 in _analyze)
     _TICKER_TO_SECTOR_ETF = {
