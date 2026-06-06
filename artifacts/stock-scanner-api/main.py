@@ -1814,6 +1814,9 @@ def vol_crush():
             short_float_pct = None
             short_ratio = None
             days_since_earnings = None
+            days_to_earnings = None
+            analyst_target_pct = None
+            analyst_recommendation = None
             net_upgrades_7d = None
             try:
                 info = tkr.info
@@ -1824,12 +1827,20 @@ def vol_crush():
                     diff_days = (_dt.now() - ed_dt).days
                     if 0 <= diff_days <= 10:
                         days_since_earnings = diff_days
+                    elif diff_days < 0:
+                        days_to_earnings = abs(diff_days)
                 sfp = info.get("shortPercentOfFloat")
                 if sfp and sfp > 0:
                     short_float_pct = round(float(sfp) * 100, 1)
                 sr = info.get("shortRatio")
                 if sr and sr > 0:
                     short_ratio = round(float(sr), 1)
+                tgt = info.get("targetMeanPrice")
+                if tgt and price > 0:
+                    analyst_target_pct = round((float(tgt) - price) / price * 100, 1)
+                rec = info.get("recommendationKey") or ""
+                if rec:
+                    analyst_recommendation = rec.lower().replace("_", " ")
             except Exception: pass
 
             # Analyst revision velocity (last 7 days)
@@ -2011,6 +2022,27 @@ def vol_crush():
                     news_headline = (_news_items[0].get("title") or "")[:90] if _news_items else None
             except Exception: pass
 
+            # Q7. Put/Call OI ratio (cumulative directional positioning bias)
+            put_call_oi_ratio = None
+            try:
+                _tot_put_oi = 0; _tot_call_oi = 0
+                for _exp_oi in exps[:4]:
+                    try:
+                        _ch_oi = tkr.option_chain(_exp_oi)
+                        _tot_put_oi  += int(_ch_oi.puts["openInterest"].fillna(0).sum())
+                        _tot_call_oi += int(_ch_oi.calls["openInterest"].fillna(0).sum())
+                    except Exception: continue
+                if _tot_call_oi > 0:
+                    put_call_oi_ratio = round(_tot_put_oi / _tot_call_oi, 2)
+            except Exception: pass
+
+            # Q8. Earnings implied move (IV-based expected ±% move into earnings)
+            earnings_impl_move_pct = None
+            try:
+                if days_to_earnings and days_to_earnings > 0 and current_iv > 0:
+                    earnings_impl_move_pct = round(current_iv * (max(days_to_earnings, 1) / 252) ** 0.5 * 100, 1)
+            except Exception: pass
+
             verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
             return {
                 "ticker": ticker, "price": round(price, 2),
@@ -2018,6 +2050,7 @@ def vol_crush():
                 "hv_30": round(hv30 * 100, 1), "iv_hv_ratio": iv_hv, "iv_rank": iv_rank,
                 "verdict": verdict,
                 "earnings_date": earnings_date, "days_since_earnings": days_since_earnings,
+                "days_to_earnings": days_to_earnings,
                 "short_float_pct": short_float_pct, "short_ratio": short_ratio,
                 "rsi": rsi, "sma50_pct": sma50_pct, "vol_trend_5d": vol_trend_5d,
                 "net_upgrades_7d": net_upgrades_7d,
@@ -2032,6 +2065,10 @@ def vol_crush():
                 "factor_roe": factor_roe, "factor_fpe": factor_fpe,
                 "sector_corr": sector_corr,
                 "news_sentiment": news_sentiment, "news_headline": news_headline,
+                "analyst_target_pct": analyst_target_pct,
+                "analyst_recommendation": analyst_recommendation,
+                "put_call_oi_ratio": put_call_oi_ratio,
+                "earnings_impl_move_pct": earnings_impl_move_pct,
             }
         except Exception: return None
 
@@ -2439,6 +2476,11 @@ def ai_trades():
             _add(t, "sector_corr", r.get("sector_corr"))
             _add(t, "news_sentiment", r.get("news_sentiment"))
             _add(t, "news_headline", r.get("news_headline"))
+            _add(t, "days_to_earnings", r.get("days_to_earnings"))
+            _add(t, "analyst_target_pct", r.get("analyst_target_pct"))
+            _add(t, "analyst_recommendation", r.get("analyst_recommendation"))
+            _add(t, "put_call_oi_ratio", r.get("put_call_oi_ratio"))
+            _add(t, "earnings_impl_move_pct", r.get("earnings_impl_move_pct"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -2686,7 +2728,7 @@ def ai_trades():
     try:
         import yfinance as _yf_macro
         _mcr = _yf_macro.download(
-            ["^TNX", "^IRX", "UUP", "HYG", "LQD", "USO", "GLD"],
+            ["^TNX", "^IRX", "UUP", "HYG", "LQD", "USO", "GLD", "^VIX", "^VIX3M"],
             period="5d", interval="1d", progress=False, auto_adjust=True
         )["Close"]
         def _mlast(sym):
@@ -2719,6 +2761,14 @@ def ai_trades():
         if _gld5 is not None:
             _gld_tag = "FLIGHT_TO_SAFETY" if _gld5 > 1.5 else "risk_on_rotation" if _gld5 < -1.5 else ""
             _parts17.append(f"Gold5d={_gld5:+.1f}%" + (f"({_gld_tag})" if _gld_tag else ""))
+        _vix_lvl  = _mlast("^VIX")
+        _vix3m_lvl = _mlast("^VIX3M")
+        if _vix_lvl is not None and _vix3m_lvl is not None and _vix3m_lvl > 0:
+            _vts = round(_vix_lvl - _vix3m_lvl, 2)
+            _vts_tag = ("BACKWARDATION(crisis/event_risk)" if _vts > 2
+                        else "contango(calm/risk_on)" if _vts < -1
+                        else "flat")
+            _parts17.append(f"VIX_TermStructure={_vts:+.2f}({_vts_tag})")
         if _parts17:
             macro_cross_asset = " | ".join(_parts17)
             active_sources.append("Macro Cross-Asset")
@@ -2873,6 +2923,22 @@ def ai_trades():
             ns_tag = "BULLISH_NEWS" if ns > 0.5 else "BEARISH_NEWS" if ns < -0.5 else "neutral_news"
             hdl = f" [{v['news_headline'][:50]}]" if v.get("news_headline") else ""
             parts.append(f"news={ns}({ns_tag}){hdl}")
+        if v.get("days_to_earnings") is not None:
+            dte_val = v["days_to_earnings"]
+            dte_tag = "IMMINENT(<7d)" if dte_val <= 7 else "SOON(<30d)" if dte_val <= 30 else f"{dte_val}d_away"
+            earn_part = f"earn_in={dte_val}d({dte_tag})"
+            if v.get("earnings_impl_move_pct") is not None:
+                earn_part += f" impl_earn_move=±{v['earnings_impl_move_pct']}%"
+            parts.append(earn_part)
+        if v.get("analyst_target_pct") is not None:
+            tgt = v["analyst_target_pct"]
+            tgt_tag = "STRONG_BUY_CONSENSUS" if tgt > 25 else "BUY_CONSENSUS" if tgt > 10 else "FULLY_VALUED" if tgt < 0 else "modest_upside"
+            rec_str = f"/{v['analyst_recommendation']}" if v.get("analyst_recommendation") else ""
+            parts.append(f"analyst_tgt={tgt:+.1f}%{rec_str}({tgt_tag})")
+        if v.get("put_call_oi_ratio") is not None:
+            pcoi = v["put_call_oi_ratio"]
+            pcoi_tag = "HEAVY_PUT_OI(bearish_positioning)" if pcoi > 1.5 else "HEAVY_CALL_OI(bullish_positioning)" if pcoi < 0.6 else "balanced_OI"
+            parts.append(f"pc_oi_ratio={pcoi}({pcoi_tag})")
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
         sig_lines.append(" | ".join(parts))
@@ -2889,7 +2955,7 @@ def ai_trades():
 
     system_msg = (
         "You are an elite institutional options trader operating at hedge-fund quant level. "
-        "You receive 35+ data points per ticker across 17 sources including vol surface, dealer gamma, factor scores, and macro cross-asset signals. "
+        "You receive 40+ data points per ticker across 17 sources including vol surface, dealer gamma, factor scores, macro cross-asset signals, and analyst consensus. "
         "CRITICAL RULES:\n"
         "1. NEVER recommend a setup where opt_spread>12% (ILLIQUID_AVOID) — wide spreads destroy edge.\n"
         "2. In HIGH_FEAR or CORRECTION regimes: avoid LONG CALL; prefer PUT spreads or IRON CONDORs on tickers with iv_rv=RICH_SELL_PREM.\n"
@@ -2901,10 +2967,13 @@ def ai_trades():
         "8. GEX=LONG_GAMMA(suppressive) → mean-reversion setups; SHORT_GAMMA(amplifying) → directional/momentum setups.\n"
         "9. iv_skew=FEAR_PREMIUM (>8pp) → institutional crash hedging; use PUT spreads or add protection.\n"
         "10. iv_rv=RICH_SELL_PREM (>20%) → premium selling edge; CHEAP_BUY_VOL (<-10%) → long vol edge.\n"
-        "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities.\n"
+        "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities; VIX_TermStructure=BACKWARDATION → event risk priced, vol may spike further.\n"
         "12. sector_corr=IDIOSYNCRATIC (<0.5) → ticker moves on its own; prefer over highly correlated names.\n"
         "13. news=BEARISH_NEWS with BULL_TREND → fade the news; news=BULLISH_NEWS with momentum = confirmation.\n"
         "14. EXPIRY RULE: Default to expiry 30–90 days from today. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry — this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
+        "15. EARNINGS PROXIMITY: If earn_in≤7d (IMMINENT), prefer STRADDLE or avoid entirely unless conviction is extreme. If earn_in=8-30d (SOON), IV is likely elevated — check iv_rv; if RICH, sell spreads; if CHEAP, buy vol. impl_earn_move shows the options market's expected ±% move into earnings — compare to earn_beat history.\n"
+        "16. ANALYST CONSENSUS: analyst_tgt=STRONG_BUY_CONSENSUS (>25% upside) combined with institutional accumulation (accum_pct≥60%) = highest fundamental + flow alignment. analyst_tgt=FULLY_VALUED (<0% upside) is a headwind for LONG CALL setups.\n"
+        "17. PUT/CALL OI RATIO: pc_oi_ratio>1.5 (HEAVY_PUT_OI) = institutions are hedged/bearish positioned; <0.6 (HEAVY_CALL_OI) = bullish positioning. Use as directional confirmation or contrarian signal in conjunction with other factors.\n"
         "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
     )
 
@@ -2940,7 +3009,10 @@ SIGNAL KEY:
 - ROE: return on equity % (quality factor) | fwd_PE: forward P/E (value factor — CHEAP<15x, EXPENSIVE>35x)
 - sector_corr: 30d correlation to sector ETF → IDIOSYNCRATIC<0.5=name-specific catalyst; >0.85=sector-driven
 - news: keyword sentiment score from recent headlines (-=bearish, +=bullish)
-- MACRO_CROSS_ASSET: YieldCurve(10y-3m)=curve shape; DXY=dollar; CreditSpread5d=HYG vs LQD; Crude5d; Gold5d
+- MACRO_CROSS_ASSET: YieldCurve(10y-3m)=curve shape; DXY=dollar; CreditSpread5d=HYG vs LQD; Crude5d; Gold5d; VIX_TermStructure=VIX minus VIX3M (>+2=BACKWARDATION=crisis risk; <-1=contango=calm)
+- earn_in: days until next earnings event | impl_earn_move: IV-based expected ±% move into earnings | earn_beat: past quarters beat rate
+- analyst_tgt: analyst mean price target vs current price % upside/downside | analyst_recommendation: consensus rating
+- pc_oi_ratio: total put OI ÷ total call OI across near-term expirations (>1.5=bearish positioned; <0.6=bullish positioned)
 
 PRIORITY WEIGHTING (use in order):
 1. opt_spread>12% → SKIP (non-negotiable liquidity gate)
