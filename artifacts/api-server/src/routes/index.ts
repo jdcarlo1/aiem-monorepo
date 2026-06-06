@@ -5,6 +5,8 @@ import sessionRouter from "./session";
 import stripeRouter from "./stripe";
 import adaptiveRouter from "./adaptive";
 import analyzeRouter from "./analyze";
+import catalystRouter from "./catalyst";
+import morningBriefRouter from "./morning-brief";
 
 const router: IRouter = Router();
 
@@ -14,5 +16,7 @@ router.use(sessionRouter);
 router.use(stripeRouter);
 router.use(adaptiveRouter);
 router.use(analyzeRouter);
+router.use(catalystRouter);
+router.use(morningBriefRouter);
 
 export default router;

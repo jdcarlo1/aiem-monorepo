@@ -503,3 +503,68 @@ export interface AnalyticsResult {
   best_thresholds: ThresholdStat[];
   error?: string;
 }
+
+export interface ConvergenceRow {
+  ticker: string;
+  price: number;
+  vol_ratio: number;
+  call_put_ratio: number;
+  premium_m: number;
+  convergence_score: number;
+  expiry: string | null;
+  strike: number | null;
+  rank: number;
+}
+
+export function fetchConvergence() {
+  return fetchJson<{ results: ConvergenceRow[]; scanned: number }>("/convergence");
+}
+
+export interface PremarketRow {
+  ticker: string;
+  price: number;
+  prev_close: number;
+  change_pct: number;
+  vol_ratio: number;
+  mkt_cap_b: number | null;
+}
+
+export function fetchPremarket() {
+  return fetchJson<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number }>("/premarket");
+}
+
+export async function fetchCatalyst(data: {
+  ticker: string;
+  price: number;
+  call_put_ratio?: number;
+  premium_m?: number;
+  vol_ratio?: number;
+  score?: number;
+  expiry?: string;
+}): Promise<{ explanation: string; ticker: string }> {
+  const res = await fetch("/api/catalyst", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Catalyst fetch failed");
+  return res.json();
+}
+
+export interface MorningBrief {
+  brief: string;
+  date: string;
+  tickers: string[];
+  generated_at: string;
+  cached: boolean;
+}
+
+export async function fetchMorningBrief(): Promise<MorningBrief> {
+  const res = await fetch("/api/morning-brief");
+  if (!res.ok) throw new Error("Morning brief fetch failed");
+  return res.json();
+}
+
+export async function refreshMorningBrief(): Promise<void> {
+  await fetch("/api/morning-brief/refresh", { method: "POST" });
+}

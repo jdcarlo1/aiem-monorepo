@@ -8,10 +8,11 @@ import {
   createStockScannerCheckout, manageStockScannerSubscription,
   fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
+  fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
-  SignalOutcome, DailyTop10Result,
+  SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -2136,6 +2137,230 @@ function InsidersTab() {
   );
 }
 
+// ---- Morning Brief Tab ---------------------------------------------------
+function MorningBriefTab() {
+  const [brief, setBrief] = useState<MorningBrief | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async (force = false) => {
+    setLoading(true); setError(null);
+    try {
+      if (force) await refreshMorningBrief();
+      const data = await fetchMorningBrief();
+      setBrief(data);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const dateLabel = brief?.date ? new Date(brief.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
+  const genTime  = brief?.generated_at ? new Date(brief.generated_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" }) : "";
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">AI Morning Brief</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Claude analyzes today's top flow and writes your daily edge</p>
+        </div>
+        <button onClick={() => load(true)} disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all"
+          style={{ background: loading ? "rgba(34,197,94,0.05)" : "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
+          {loading ? "Generating…" : "↻ Refresh"}
+        </button>
+      </div>
+
+      {error && <div className="rounded-xl p-4 mb-4 text-red-400 text-sm" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>{error}</div>}
+
+      {loading && !brief && (
+        <div className="rounded-2xl p-8 text-center" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
+          <div className="flex items-center justify-center gap-3 text-slate-400 text-sm">
+            <span className="flex gap-1">{[0,1,2].map(i=><span key={i} className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}</span>
+            Claude is analyzing today's unusual flow…
+          </div>
+        </div>
+      )}
+
+      {brief?.brief && (
+        <div className="rounded-2xl p-6 space-y-4" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm" style={{ background: "linear-gradient(135deg,#ea580c,#f97316)" }}>🤖</div>
+              <div>
+                <div className="text-white font-bold text-sm">Claude — Morning Brief</div>
+                <div className="text-slate-500 text-xs">{dateLabel}{genTime ? ` · Generated ${genTime} ET` : ""}</div>
+              </div>
+            </div>
+            {brief.tickers.length > 0 && (
+              <div className="flex gap-1.5 flex-wrap">
+                {brief.tickers.map(t => (
+                  <span key={t} className="px-2 py-0.5 rounded-full text-xs font-bold" style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>{t}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="border-t pt-4" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
+            {brief.brief.split("\n\n").map((para, i) => (
+              <p key={i} className="text-slate-300 leading-relaxed text-sm mb-3 last:mb-0">{para}</p>
+            ))}
+          </div>
+          {brief.cached && <div className="text-slate-600 text-xs">Cached for today · Refreshes automatically tomorrow</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Convergence Tab (Volume + Options Convergence) ----------------------
+function ConvergenceTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<ConvergenceRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchConvergence();
+      setResults(data.results); setScanned(data.scanned); setLastRun(new Date());
+    } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { run(); }, []);
+
+  const scoreColor = (s: number) => s >= 10 ? "#4ade80" : s >= 6 ? "#86efac" : s >= 4 ? "#fbbf24" : "#f87171";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Smart Money Convergence</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Stocks with BOTH unusual volume AND heavy call flow — the highest-conviction setup</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRun && <span className="text-slate-600 text-xs">{results.length} signals · {scanned} scanned</span>}
+          <button onClick={run} disabled={loading}
+            className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+            style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
+            {loading ? "Scanning…" : "↻ Scan Now"}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl p-4 mb-6 text-sm" style={{ background: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.15)" }}>
+        <span className="text-emerald-400 font-bold">How it works: </span>
+        <span className="text-slate-400">Convergence Score = Volume Ratio × Call/Put Ratio. A score of 10+ means volume is running 5× average AND calls are 2× puts — that's institutional accumulation.</span>
+      </div>
+
+      {loading && results.length === 0 && (
+        <div className="text-center py-16 text-slate-500 text-sm">Scanning {scanned || "50+"} tickers for convergence signals…</div>
+      )}
+
+      {!loading && results.length === 0 && lastRun && (
+        <div className="text-center py-16 text-slate-500 text-sm">No convergence signals right now. Markets may be quiet — check back after 10am ET.</div>
+      )}
+
+      {results.length > 0 && (
+        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.07)" }}>
+          <div className="grid text-xs font-bold text-slate-500 uppercase px-4 py-2.5" style={{ gridTemplateColumns: "32px 72px 80px 90px 90px 90px 1fr", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}>
+            <span>#</span><span>Ticker</span><span className="text-right">Price</span><span className="text-right">Vol Ratio</span><span className="text-right">C/P Ratio</span><span className="text-right">Premium</span><span className="text-right">Conv. Score</span>
+          </div>
+          {results.map((r, i) => (
+            <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} className="grid items-center px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors"
+              style={{ gridTemplateColumns: "32px 72px 80px 90px 90px 90px 1fr", borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+              <span className="text-slate-600 text-xs">{i + 1}</span>
+              <span className="font-black text-white text-sm">{r.ticker}</span>
+              <span className="text-right text-slate-300 text-sm font-medium">${r.price.toFixed(2)}</span>
+              <span className="text-right text-amber-400 text-sm font-bold">{r.vol_ratio.toFixed(1)}×</span>
+              <span className="text-right text-emerald-400 text-sm font-bold">{r.call_put_ratio.toFixed(1)}×</span>
+              <span className="text-right text-slate-300 text-sm">${r.premium_m.toFixed(1)}M</span>
+              <div className="flex justify-end">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-black" style={{ background: `${scoreColor(r.convergence_score)}18`, color: scoreColor(r.convergence_score), border: `1px solid ${scoreColor(r.convergence_score)}40` }}>
+                  {r.convergence_score.toFixed(1)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Pre-Market Flow Tab -------------------------------------------------
+function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [data, setData] = useState<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetchPremarket()); } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, []);
+
+  const Row = ({ r }: { r: PremarketRow }) => {
+    const bull = r.change_pct > 0;
+    return (
+      <div onClick={() => onSelectTicker(r.ticker)} className="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-white/5 transition-colors" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-black text-white text-sm">{r.ticker}</span>
+            {r.vol_ratio >= 2 && <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>VOL {r.vol_ratio.toFixed(1)}×</span>}
+          </div>
+          <div className="text-slate-500 text-xs mt-0.5">${r.price.toFixed(2)} <span className="text-slate-600">prev ${r.prev_close.toFixed(2)}</span></div>
+        </div>
+        <span className={`font-black text-base ${bull ? "text-emerald-400" : "text-red-400"}`}>
+          {bull ? "+" : ""}{r.change_pct.toFixed(2)}%
+        </span>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Pre-Market Flow</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Biggest movers before the open · refreshes every 60s</p>
+        </div>
+        <button onClick={load} disabled={loading}
+          className="px-4 py-2 rounded-lg text-sm font-bold"
+          style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
+          {loading ? "Loading…" : "↻ Refresh"}
+        </button>
+      </div>
+
+      {loading && !data && <div className="text-center py-16 text-slate-500 text-sm">Fetching pre-market prices…</div>}
+
+      {data && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(34,197,94,0.2)" }}>
+            <div className="px-4 py-2.5 font-bold text-sm text-emerald-400" style={{ background: "rgba(34,197,94,0.08)", borderBottom: "1px solid rgba(34,197,94,0.15)" }}>
+              🟢 Pre-Market Gainers ({data.gainers.length})
+            </div>
+            {data.gainers.length === 0 && <div className="text-center py-8 text-slate-600 text-sm">No gainers right now</div>}
+            {data.gainers.map(r => <Row key={r.ticker} r={r} />)}
+          </div>
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(239,68,68,0.2)" }}>
+            <div className="px-4 py-2.5 font-bold text-sm text-red-400" style={{ background: "rgba(239,68,68,0.08)", borderBottom: "1px solid rgba(239,68,68,0.15)" }}>
+              🔴 Pre-Market Losers ({data.losers.length})
+            </div>
+            {data.losers.length === 0 && <div className="text-center py-8 text-slate-600 text-sm">No losers right now</div>}
+            {data.losers.map(r => <Row key={r.ticker} r={r} />)}
+          </div>
+        </div>
+      )}
+
+      {data && <div className="text-center mt-4 text-slate-700 text-xs">{data.scanned} tickers scanned · auto-refreshes every 60s</div>}
+    </div>
+  );
+}
+
 // ---- Signal Outcome Tracker Tab ------------------------------------------
 function OutcomesTab() {
   const [data, setData]       = useState<{ outcomes: SignalOutcome[]; count: number; win_rates: { t3: number | null; t5: number | null; t10: number | null } } | null>(null);
@@ -2805,7 +3030,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"outcomes">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -2818,6 +3043,9 @@ export default function Dashboard() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiTicker, setAiTicker] = useState<string | null>(null);
+  const [catalystResult, setCatalystResult] = useState<{explanation: string; ticker: string} | null>(null);
+  const [catalystLoading, setCatalystLoading] = useState(false);
+  const [catalystTicker, setCatalystTicker] = useState<string | null>(null);
   const qc = useQueryClient();
 
   const { data: analysis, isLoading: loadingAnalysis, error: analysisError } = useQuery({
@@ -2881,20 +3109,23 @@ export default function Dashboard() {
   const ml    = analysis?.ml;
 
   const TABS = [
-    { id: "overview",   label: "OVERVIEW" },
-    { id: "bullflow",   label: "BULL FLOW" },
-    { id: "smartmoney", label: "SMART MONEY" },
-    { id: "congress",   label: "CONGRESS" },
-    { id: "lookup",     label: "STOCK LOOKUP" },
-    { id: "scanner",    label: "SCANNER" },
-    { id: "outcomes",   label: "OUTCOMES" },
-    { id: "analytics",  label: "ANALYTICS" },
-    { id: "propdesk",   label: "PROP DESK" },
-    { id: "squeeze",    label: "SQUEEZE" },
-    { id: "breakout",   label: "BREAKOUT" },
-    { id: "insiders",   label: "INSIDERS" },
-    { id: "market",     label: "MARKET" },
-    { id: "portfolio",  label: "PORTFOLIO" },
+    { id: "overview",     label: "OVERVIEW" },
+    { id: "morningbrief", label: "🌅 MORNING BRIEF" },
+    { id: "convergence",  label: "⚡ CONVERGENCE" },
+    { id: "premarket",    label: "PRE-MARKET" },
+    { id: "bullflow",     label: "BULL FLOW" },
+    { id: "smartmoney",   label: "SMART MONEY" },
+    { id: "congress",     label: "CONGRESS" },
+    { id: "lookup",       label: "STOCK LOOKUP" },
+    { id: "scanner",      label: "SCANNER" },
+    { id: "outcomes",     label: "OUTCOMES" },
+    { id: "analytics",    label: "ANALYTICS" },
+    { id: "propdesk",     label: "PROP DESK" },
+    { id: "squeeze",      label: "SQUEEZE" },
+    { id: "breakout",     label: "BREAKOUT" },
+    { id: "insiders",     label: "INSIDERS" },
+    { id: "market",       label: "MARKET" },
+    { id: "portfolio",    label: "PORTFOLIO" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -3218,6 +3449,59 @@ export default function Dashboard() {
                           )}
                         </div>
 
+                        {/* ── AI CATALYST CARD ── */}
+                        {analysis && (
+                          <div style={{ marginTop: 14, background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #1a1a1a" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div style={{ width: 28, height: 28, borderRadius: 6, background: "linear-gradient(135deg,#22c55e,#16a34a)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>⚡</div>
+                                <div>
+                                  <div style={{ color: "#e5e5e5", fontSize: 12, fontWeight: 600, fontFamily: BB_FONT }}>AI Catalyst</div>
+                                  <div style={{ color: "#555", fontSize: 10, fontFamily: BB_FONT }}>Why is {analysis.ticker} moving?</div>
+                                </div>
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  setCatalystLoading(true); setCatalystTicker(analysis.ticker); setCatalystResult(null);
+                                  try {
+                                    const res = await fetchCatalyst({
+                                      ticker: analysis.ticker,
+                                      price: analysis.indicators.price ?? 0,
+                                      vol_ratio: analysis.indicators.volume_ratio,
+                                      score: analysis.score?.score,
+                                    });
+                                    setCatalystResult(res);
+                                  } catch {}
+                                  finally { setCatalystLoading(false); }
+                                }}
+                                disabled={catalystLoading}
+                                style={{ background: catalystLoading ? "transparent" : "#1a1a1a", border: "1px solid #2a2a2a", color: catalystLoading ? "#444" : "#4ade80", padding: "5px 12px", borderRadius: 6, fontFamily: BB_FONT, fontSize: 11, fontWeight: 600, cursor: catalystLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                                {catalystLoading ? <><Spinner /><span>Analyzing…</span></> : <span>Ask Claude</span>}
+                              </button>
+                            </div>
+                            <div style={{ padding: "16px 18px", minHeight: 60 }}>
+                              {catalystLoading && (
+                                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                  {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", opacity: 0.7, animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />)}
+                                </div>
+                              )}
+                              {!catalystLoading && catalystResult && catalystTicker === analysis.ticker && (
+                                <ClaudeMarkdown text={catalystResult.explanation} />
+                              )}
+                              {!catalystLoading && !catalystResult && (
+                                <div style={{ color: "#444", fontSize: 13, fontFamily: BB_FONT, lineHeight: 1.6 }}>
+                                  Click <span style={{ color: "#4ade80", fontWeight: 600 }}>Ask Claude</span> to get an AI analysis of why <strong style={{ color: "#777" }}>{analysis.ticker}</strong> is moving and what catalysts to watch.
+                                </div>
+                              )}
+                            </div>
+                            {catalystResult && catalystTicker === analysis.ticker && (
+                              <div style={{ padding: "8px 18px 12px", borderTop: "1px solid #161616" }}>
+                                <span style={{ color: "#333", fontSize: 10, fontFamily: BB_FONT }}>Powered by Claude · For informational purposes only</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {/* Score + ML below */}
                         {score && (
                           <>
@@ -3420,6 +3704,10 @@ export default function Dashboard() {
         )}
 
         {tab === "outcomes" && <OutcomesTab />}
+
+        {tab === "morningbrief" && <MorningBriefTab />}
+        {tab === "convergence" && <ConvergenceTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "premarket" && <PremarketTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
 
       </div>
       </main>

@@ -1057,6 +1057,116 @@ def breakout_radar():
     return jsonify({"results": top, "scanned": len(tickers)})
 
 
+@app.route("/stock-api/convergence", methods=["GET"])
+def convergence():
+    """Stocks with BOTH unusual volume AND unusual call flow — smart money convergence signal."""
+    import yfinance as yf
+    from smart_money import fetch_options_data
+
+    try:
+        yf.utils.get_crumb(reuse_session=False)
+    except Exception:
+        pass
+
+    tickers = DEFAULT_LEADERBOARD
+    results = []
+
+    def _check(ticker):
+        try:
+            tkr = yf.Ticker(ticker)
+            info = tkr.fast_info
+            price = float(getattr(info, "last_price", 0) or 0)
+            avg_vol = float(getattr(info, "three_month_average_volume", 1) or 1)
+            today_vol = float(getattr(info, "last_volume", 0) or 0)
+            vol_ratio = today_vol / avg_vol if avg_vol > 0 else 0
+
+            if vol_ratio < 1.5 or price <= 0:
+                return None
+
+            opts = fetch_options_data(ticker)
+            if not opts:
+                return None
+
+            call_put_ratio = float(opts.get("call_put_ratio", 0))
+            prem = float(opts.get("top_prem_value", 0))
+
+            if call_put_ratio < 2.0 or prem <= 0:
+                return None
+
+            convergence_score = round(vol_ratio * call_put_ratio, 1)
+            return {
+                "ticker": ticker,
+                "price": round(price, 2),
+                "vol_ratio": round(vol_ratio, 2),
+                "call_put_ratio": round(call_put_ratio, 2),
+                "premium_m": round(prem / 1000, 2),
+                "convergence_score": convergence_score,
+                "expiry": opts.get("top_prem_expiry"),
+                "strike": opts.get("top_prem_strike"),
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_check, t): t for t in tickers}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                results.append(r)
+
+    results.sort(key=lambda x: x["convergence_score"], reverse=True)
+    for i, r in enumerate(results[:15]):
+        r["rank"] = i + 1
+    return jsonify({"results": results[:15], "scanned": len(tickers)})
+
+
+@app.route("/stock-api/premarket", methods=["GET"])
+def premarket():
+    """Pre-market movers — price change and volume vs average."""
+    import yfinance as yf
+
+    tickers = DEFAULT_LEADERBOARD[:35]
+    results = []
+
+    def _get(ticker):
+        try:
+            tkr = yf.Ticker(ticker)
+            info = tkr.fast_info
+            price = float(getattr(info, "last_price", 0) or 0)
+            prev_close = float(getattr(info, "previous_close", 0) or 0)
+            if price <= 0 or prev_close <= 0:
+                return None
+            change_pct = (price - prev_close) / prev_close * 100
+            if abs(change_pct) < 0.2:
+                return None
+            avg_vol = float(getattr(info, "three_month_average_volume", 1) or 1)
+            today_vol = float(getattr(info, "last_volume", 0) or 0)
+            vol_ratio = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
+            mkt_cap = float(getattr(info, "market_cap", 0) or 0)
+            return {
+                "ticker": ticker,
+                "price": round(price, 2),
+                "prev_close": round(prev_close, 2),
+                "change_pct": round(change_pct, 2),
+                "vol_ratio": vol_ratio,
+                "mkt_cap_b": round(mkt_cap / 1e9, 1) if mkt_cap else None,
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(_get, t): t for t in tickers}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                results.append(r)
+
+    results.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
+    gainers = [r for r in results if r["change_pct"] > 0][:10]
+    losers  = [r for r in results if r["change_pct"] < 0][:10]
+    return jsonify({"gainers": gainers, "losers": losers, "scanned": len(tickers)})
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
