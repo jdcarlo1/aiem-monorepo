@@ -18,6 +18,7 @@ from email_alerts import (
     send_daily_digest, smtp_configured, subscriber_count,
 )
 from historical_performance import init_score_history_table, save_scan_scores
+from signal_outcomes import init_signal_outcomes_table, store_bull_flow_signals, get_signal_outcomes
 import execution
 import pnl
 
@@ -27,6 +28,7 @@ CORS(app)
 # ── init DB & scheduler ──────────────────────────────────────────────────────
 init_db()
 init_score_history_table()
+init_signal_outcomes_table()
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -516,6 +518,12 @@ def bull_flow_top10():
     for i, r in enumerate(top40):
         r["rank"] = i + 1
 
+    # Persist signals for the outcome tracker
+    try:
+        store_bull_flow_signals(top40, session="manual")
+    except Exception as _se:
+        print(f"[bull_flow] signal store error: {_se}")
+
     return jsonify({"results": top40, "scanned": len(tickers), "returned": len(top40)})
 
 
@@ -707,6 +715,30 @@ def ai_thesis():
         parts.append(f"Target strike: ${strike} expiring {expiry}. Monitor for follow-through price action and volume over the next 1-3 sessions as confirmation of the thesis.")
 
     return jsonify({"ticker": ticker, "thesis": " ".join(parts[:4])})
+
+
+@app.route("/stock-api/outcomes", methods=["GET"])
+def signal_outcomes_route():
+    """Return stored bull-flow signals with T+3, T+5, T+10 price outcomes."""
+    outcomes = get_signal_outcomes(limit=60)
+
+    # Compute win rates
+    t3_results  = [o["t3_win"]  for o in outcomes if o["t3_win"]  is not None]
+    t5_results  = [o["t5_win"]  for o in outcomes if o["t5_win"]  is not None]
+    t10_results = [o["t10_win"] for o in outcomes if o["t10_win"] is not None]
+
+    def win_rate(lst):
+        return round(sum(lst) / len(lst) * 100, 1) if lst else None
+
+    return jsonify({
+        "outcomes":  outcomes,
+        "count":     len(outcomes),
+        "win_rates": {
+            "t3":  win_rate(t3_results),
+            "t5":  win_rate(t5_results),
+            "t10": win_rate(t10_results),
+        },
+    })
 
 
 @app.route("/stock-api/breakout/radar", methods=["POST"])

@@ -7,9 +7,11 @@ import {
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
   fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
+  fetchSignalOutcomes,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
+  SignalOutcome,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -1975,6 +1977,176 @@ function InsidersTab() {
   );
 }
 
+// ---- Signal Outcome Tracker Tab ------------------------------------------
+function OutcomesTab() {
+  const [data, setData]       = useState<{ outcomes: SignalOutcome[]; count: number; win_rates: { t3: number | null; t5: number | null; t10: number | null } } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try {
+      const d = await fetchSignalOutcomes();
+      setData(d);
+    } catch (e: any) {
+      setError(e.message ?? "Failed to load outcomes");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const fmtDate = (s: string) => {
+    const d = new Date(s + "T00:00:00");
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const pctColor = (v: number | null) => {
+    if (v === null) return "text-slate-600";
+    if (v > 2)  return "text-emerald-400";
+    if (v > 0)  return "text-emerald-600";
+    if (v < -2) return "text-red-400";
+    return "text-red-600";
+  };
+
+  const winBadge = (w: boolean | null) => {
+    if (w === null) return <span className="text-slate-600 text-xs">–</span>;
+    return w
+      ? <span className="text-xs font-bold text-emerald-400">✓ Win</span>
+      : <span className="text-xs font-bold text-red-400">✗ Loss</span>;
+  };
+
+  const WinRatePill = ({ rate, label }: { rate: number | null; label: string }) => (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center">
+      <div className="text-slate-500 text-xs uppercase tracking-widest mb-1">{label}</div>
+      {rate === null
+        ? <div className="text-slate-600 text-2xl font-black">–</div>
+        : <div className={`text-2xl font-black ${rate >= 60 ? "text-emerald-400" : rate >= 50 ? "text-yellow-400" : "text-red-400"}`}>
+            {rate}%
+          </div>}
+      <div className="text-slate-600 text-xs mt-0.5">win rate</div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-1">
+          <div>
+            <h2 className="text-white font-bold text-lg flex items-center gap-2">📈 Signal Outcome Tracker</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              What happened to bullish flow signals (C/P ≥ 2×) at T+3, T+5, and T+10 trading days.
+              Smart money positions for moves 3-10 days out — this is how you measure edge.
+            </p>
+          </div>
+          <button onClick={load} disabled={loading}
+            className="shrink-0 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
+            {loading ? <><Spinner /> Loading…</> : "↻ Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="bg-red-900/30 border border-red-800 rounded-xl p-4 text-red-300 text-sm">{error}</div>}
+
+      {loading && (
+        <div className="flex items-center justify-center py-20 gap-3 text-slate-400">
+          <Spinner /> Fetching outcomes — looking up historical prices…
+        </div>
+      )}
+
+      {!loading && data && (
+        <>
+          {/* Win Rate Summary */}
+          <div className="grid grid-cols-3 gap-3">
+            <WinRatePill rate={data.win_rates.t3}  label="T+3 days" />
+            <WinRatePill rate={data.win_rates.t5}  label="T+5 days" />
+            <WinRatePill rate={data.win_rates.t10} label="T+10 days" />
+          </div>
+
+          {/* Outcomes Table */}
+          {data.outcomes.length === 0 ? (
+            <div className="text-center py-16 text-slate-500">
+              <div className="text-4xl mb-3">📊</div>
+              <div className="font-semibold text-slate-400 mb-1">No outcomes yet</div>
+              <div className="text-sm">Run the Bull Flow scan first. Outcomes appear after 3 trading days.</div>
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-800">
+                <span className="text-white font-semibold text-sm">{data.count} signals tracked</span>
+                <span className="text-slate-600 text-xs ml-2">· Bullish flow C/P ≥ 2× · last 45 days</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ minWidth: "680px" }}>
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase tracking-wider">
+                      <th className="text-left px-4 py-3">Ticker</th>
+                      <th className="text-left px-3 py-3">Date</th>
+                      <th className="text-right px-3 py-3">Price</th>
+                      <th className="text-right px-3 py-3">C/P</th>
+                      <th className="text-right px-3 py-3">T+3</th>
+                      <th className="text-right px-3 py-3">T+5</th>
+                      <th className="text-right px-3 py-3">T+10</th>
+                      <th className="text-center px-4 py-3">Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.outcomes.map((o, i) => (
+                      <tr key={`${o.ticker}-${o.signal_date}-${i}`}
+                        className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="font-black text-white">{o.ticker}</div>
+                          {o.premium_m != null && (
+                            <div className="text-slate-600 text-xs">${o.premium_m.toFixed(1)}M flow</div>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-slate-400 text-xs">{fmtDate(o.signal_date)}</td>
+                        <td className="px-3 py-3 text-right text-slate-300">${o.price_at_signal.toFixed(2)}</td>
+                        <td className="px-3 py-3 text-right">
+                          <span className="text-emerald-400 font-bold">{o.call_put_ratio.toFixed(1)}x</span>
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {o.t3_pct !== null
+                            ? <span className={`font-semibold ${pctColor(o.t3_pct)}`}>{o.t3_pct > 0 ? "+" : ""}{o.t3_pct.toFixed(1)}%</span>
+                            : <span className="text-slate-600">–</span>}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {o.t5_pct !== null
+                            ? <span className={`font-semibold ${pctColor(o.t5_pct)}`}>{o.t5_pct > 0 ? "+" : ""}{o.t5_pct.toFixed(1)}%</span>
+                            : <span className="text-slate-600">–</span>}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {o.t10_pct !== null
+                            ? <span className={`font-semibold ${pctColor(o.t10_pct)}`}>{o.t10_pct > 0 ? "+" : ""}{o.t10_pct.toFixed(1)}%</span>
+                            : <span className="text-slate-600">–</span>}
+                        </td>
+                        <td className="px-4 py-3 text-center">{winBadge(o.t3_win ?? o.t5_win ?? o.t10_win)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <p className="text-center text-slate-600 text-xs">
+            Signals auto-stored each time Bull Flow is scanned · T+3/5/10 = trading days after signal · Win = stock closed higher
+          </p>
+        </>
+      )}
+
+      {!loading && !data && !error && (
+        <div className="text-center py-16 text-slate-500">
+          <div className="text-4xl mb-3">📈</div>
+          <div className="text-sm">Click Refresh to load outcome data</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [results, setResults]   = useState<BullFlowRow[]>([]);
   const [loading, setLoading]   = useState(false);
@@ -2321,6 +2493,7 @@ export default function Dashboard() {
     { id: "insiders",   label: "🏢 Insiders" },
     { id: "breakout",   label: "🚀 Breakout" },
     { id: "market",     label: "📊 Market" },
+    { id: "outcomes",   label: "📈 Outcomes" },
   ] as const;
 
   return (
@@ -2543,6 +2716,8 @@ export default function Dashboard() {
         {tab === "bullflow" && (
           <BullFlowTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
         )}
+
+        {tab === "outcomes" && <OutcomesTab />}
 
       </main>
     </div>

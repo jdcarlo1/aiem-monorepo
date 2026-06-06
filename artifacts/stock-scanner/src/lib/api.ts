@@ -443,6 +443,29 @@ export async function manageStockScannerSubscription(email: string): Promise<{ u
   return res.json();
 }
 
+export interface SignalOutcome {
+  ticker:          string;
+  signal_date:     string;
+  price_at_signal: number;
+  call_put_ratio:  number;
+  premium_m:       number | null;
+  strike:          number | null;
+  expiry:          string | null;
+  t3_price:        number | null;
+  t5_price:        number | null;
+  t10_price:       number | null;
+  t3_pct:          number | null;
+  t5_pct:          number | null;
+  t10_pct:         number | null;
+  t3_win:          boolean | null;
+  t5_win:          boolean | null;
+  t10_win:         boolean | null;
+}
+
+export function fetchSignalOutcomes() {
+  return fetchJson<{ outcomes: SignalOutcome[]; count: number; win_rates: { t3: number | null; t5: number | null; t10: number | null } }>("/outcomes");
+}
+
 export interface AnalyticsResult {
   tickers_analyzed: string[];
   failed: string[];
