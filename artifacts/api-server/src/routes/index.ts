@@ -4,6 +4,7 @@ import questionsRouter from "./questions";
 import sessionRouter from "./session";
 import stripeRouter from "./stripe";
 import adaptiveRouter from "./adaptive";
+import analyzeRouter from "./analyze";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(questionsRouter);
 router.use(sessionRouter);
 router.use(stripeRouter);
 router.use(adaptiveRouter);
+router.use(analyzeRouter);
 
 export default router;

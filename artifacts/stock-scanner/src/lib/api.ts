@@ -397,15 +397,21 @@ export function fetchInsiderTrades(days = 30) {
   return fetchJson<{ trades: InsiderTrade[]; count: number }>(`/insider/trades?days=${days}`);
 }
 
-export function fetchAIAnalysis(data: {
+export async function fetchAIAnalysis(data: {
   ticker: string; rsi?: number; macd?: number; volume_ratio?: number;
   price?: number; change_pct?: number; score?: number; rating?: string;
   sector?: string; sma50?: number; sma200?: number;
-}) {
-  return fetchJson<{ analysis: string; ticker: string }>(
-    "/ai-analyze",
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }
-  );
+}): Promise<{ analysis: string; ticker: string }> {
+  const res = await fetch("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
 }
 
 export function fetchAIThesis(row: Pick<BullFlowRow, "ticker"|"call_put_ratio"|"premium_m"|"days_to_earnings"|"short_float_pct"|"strike"|"expiry">) {
