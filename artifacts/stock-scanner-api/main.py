@@ -1406,6 +1406,291 @@ def options_intent():
     return jsonify(out)
 
 
+@app.route("/stock-api/vol-crush", methods=["GET"])
+def vol_crush():
+    """IV rank vs 1-year realized vol range — flags when implied vol is historically inflated."""
+    import yfinance as yf, numpy as np
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_vc_cache", None)
+    _ts    = getattr(app, "_vc_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    def _analyze(ticker):
+        try:
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0: return None
+            exps = tkr.options
+            if not exps: return None
+            chain = tkr.option_chain(exps[0])
+            puts  = chain.puts; calls = chain.calls
+            atm   = min(sorted(puts["strike"].tolist()), key=lambda s: abs(s - price))
+            ivp   = puts[puts["strike"]  == atm]["impliedVolatility"].values
+            ivc   = calls[calls["strike"] == atm]["impliedVolatility"].values
+            iv_vals = [v for v in list(ivp) + list(ivc) if v and v > 0]
+            if not iv_vals: return None
+            current_iv = float(np.mean(iv_vals))
+            hist = tkr.history(period="1y")["Close"]
+            if len(hist) < 40: return None
+            rets = hist.pct_change().dropna()
+            hv_s = rets.rolling(21).std() * np.sqrt(252)
+            hv_s = hv_s.dropna()
+            hv30 = float(hv_s.iloc[-1])
+            hv_min = float(hv_s.min()); hv_max = float(hv_s.max())
+            iv_rank = round((current_iv - hv_min) / (hv_max - hv_min) * 100, 1) if (hv_max - hv_min) > 0 else 50.0
+            iv_rank = max(0.0, min(100.0, iv_rank))
+            iv_hv   = round(current_iv / hv30, 2) if hv30 > 0 else None
+            earnings_date = None
+            try:
+                info = tkr.info
+                ed = info.get("earningsTimestamp") or info.get("earningsTimestampStart")
+                if ed: earnings_date = _dt.fromtimestamp(int(ed)).strftime("%Y-%m-%d")
+            except Exception: pass
+            verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
+            return {"ticker": ticker, "price": round(price, 2), "current_iv": round(current_iv * 100, 1),
+                    "hv_30": round(hv30 * 100, 1), "iv_hv_ratio": iv_hv, "iv_rank": iv_rank,
+                    "verdict": verdict, "earnings_date": earnings_date}
+        except Exception: return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    rows.sort(key=lambda x: x["iv_rank"], reverse=True)
+    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+    app._vc_cache = out; app._vc_cache_ts = _dt.now()
+    return jsonify(out)
+
+
+@app.route("/stock-api/call-intent", methods=["GET"])
+def call_intent():
+    """Classify calls: FOMO (near-money+short-dated) vs ACCUMULATION (OTM+long-dated)."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_ci_cache", None)
+    _ts    = getattr(app, "_ci_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    now = _dt.now()
+
+    def _analyze(ticker):
+        try:
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0: return None
+            exps = tkr.options
+            if not exps: return None
+            fomo_prem = 0.0; accum_prem = 0.0
+            top_accum = {"strike": None, "expiry": None, "prem": 0.0}
+            for exp in exps[:8]:
+                try:
+                    days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
+                    calls = tkr.option_chain(exp).calls
+                    for _, row in calls.iterrows():
+                        strike = float(row.get("strike", 0) or 0)
+                        vol    = int(row.get("volume", 0) or 0)
+                        oi     = int(row.get("openInterest", 0) or 0)
+                        last   = float(row.get("lastPrice", 0) or 0)
+                        if strike <= 0 or last <= 0: continue
+                        otm_pct = (strike - price) / price * 100
+                        prem    = (vol + oi) * last * 100
+                        if otm_pct > 5 and days_out > 60:
+                            accum_prem += prem
+                            if prem > top_accum["prem"]:
+                                top_accum = {"strike": round(strike, 2), "expiry": exp, "prem": prem}
+                        elif -3 < otm_pct < 3 and days_out < 45:
+                            fomo_prem += prem
+                except Exception: continue
+            total = fomo_prem + accum_prem
+            if total < 1000: return None
+            fomo_pct  = round(fomo_prem  / total * 100, 1)
+            accum_pct = round(accum_prem / total * 100, 1)
+            verdict   = ("ACCUMULATION" if accum_pct >= 60 else "FOMO" if fomo_pct >= 60 else "MIXED")
+            return {"ticker": ticker, "price": round(price, 2),
+                    "fomo_prem_m": round(fomo_prem / 1e6, 2), "accum_prem_m": round(accum_prem / 1e6, 2),
+                    "fomo_pct": fomo_pct, "accum_pct": accum_pct, "verdict": verdict,
+                    "top_accum_strike": top_accum["strike"], "top_accum_expiry": top_accum["expiry"]}
+        except Exception: return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    rows.sort(key=lambda x: x["accum_prem_m"], reverse=True)
+    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+    app._ci_cache = out; app._ci_cache_ts = _dt.now()
+    return jsonify(out)
+
+
+@app.route("/stock-api/smart-vs-retail", methods=["GET"])
+def smart_vs_retail():
+    """Compare large-block (institutional) vs small-contract (retail) options flow."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_svr_cache", None)
+    _ts    = getattr(app, "_svr_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    def _analyze(ticker):
+        try:
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0: return None
+            exps = tkr.options
+            if not exps: return None
+            sc = 0.0; sp = 0.0; rc = 0.0; rp = 0.0
+            for exp in exps[:4]:
+                try:
+                    chain = tkr.option_chain(exp)
+                    for side, df in [("c", chain.calls), ("p", chain.puts)]:
+                        for _, row in df.iterrows():
+                            vol  = int(row.get("volume", 0) or 0)
+                            last = float(row.get("lastPrice", 0) or 0)
+                            if vol <= 0 or last <= 0: continue
+                            prem = vol * last * 100
+                            if last >= 3.0 and vol >= 30:
+                                if side == "c": sc += prem
+                                else:           sp += prem
+                            elif last < 2.0 or vol < 15:
+                                if side == "c": rc += prem
+                                else:           rp += prem
+                except Exception: continue
+            if (sc + sp) < 1000 and (rc + rp) < 1000: return None
+            s_cp = round(sc / sp, 2) if sp > 0 else 9.9
+            r_cp = round(rc / rp, 2) if rp > 0 else 9.9
+            sb = s_cp >= 1.5; sbear = s_cp <= 0.7
+            rb = r_cp >= 1.5; rbear = r_cp <= 0.7
+            if   sb    and rbear: div, strength = "SMART BULLISH",  "STRONG"
+            elif sbear and rb:    div, strength = "SMART BEARISH",  "STRONG"
+            elif sb    and not rb: div, strength = "SMART BULLISH", "MODERATE"
+            elif sbear and not rbear: div, strength = "SMART BEARISH", "MODERATE"
+            elif rb    and not sb: div, strength = "RETAIL BULLISH","MODERATE"
+            elif rbear and not sbear: div, strength = "RETAIL BEARISH","MODERATE"
+            elif sb or rb:         div, strength = "ALIGNED",       "WEAK"
+            else:                  div, strength = "NEUTRAL",       "WEAK"
+            return {"ticker": ticker, "price": round(price, 2),
+                    "smart_prem_m": round((sc + sp) / 1e6, 2), "retail_prem_m": round((rc + rp) / 1e6, 2),
+                    "smart_cp": s_cp, "retail_cp": r_cp, "divergence": div, "signal_strength": strength}
+        except Exception: return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    rows.sort(key=lambda x: (x["signal_strength"] == "STRONG", x["smart_prem_m"]), reverse=True)
+    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+    app._svr_cache = out; app._svr_cache_ts = _dt.now()
+    return jsonify(out)
+
+
+@app.route("/stock-api/max-pain", methods=["GET"])
+def max_pain():
+    """Max pain strike for nearest expiry — where price tends to drift before expiration."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_mp_cache", None)
+    _ts    = getattr(app, "_mp_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    now = _dt.now()
+
+    def _max_pain(puts_df, calls_df):
+        strikes = sorted(set(list(puts_df["strike"]) + list(calls_df["strike"])))
+        if not strikes: return None
+        best = strikes[0]; lo = float("inf")
+        for s in strikes:
+            cp = sum(max(0.0, float(s) - float(k)) * float(oi or 0)
+                     for k, oi in zip(calls_df["strike"], calls_df["openInterest"].fillna(0)))
+            pp = sum(max(0.0, float(k) - float(s)) * float(oi or 0)
+                     for k, oi in zip(puts_df["strike"],  puts_df["openInterest"].fillna(0)))
+            if (cp + pp) < lo: lo = cp + pp; best = s
+        return float(best)
+
+    def _analyze(ticker):
+        try:
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0: return None
+            exps = tkr.options
+            if not exps: return None
+            exp  = exps[0]
+            days = (_dt.strptime(exp, "%Y-%m-%d") - now).days
+            chain = tkr.option_chain(exp)
+            mp = _max_pain(chain.puts, chain.calls)
+            if mp is None: return None
+            dist = round((price - mp) / mp * 100, 2)
+            return {"ticker": ticker, "price": round(price, 2), "max_pain": round(mp, 2),
+                    "distance_pct": dist, "direction": "ABOVE PAIN" if dist > 0 else "BELOW PAIN",
+                    "nearest_expiry": exp, "days_to_exp": days}
+        except Exception: return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    rows.sort(key=lambda x: abs(x["distance_pct"]), reverse=True)
+    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+    app._mp_cache = out; app._mp_cache_ts = _dt.now()
+    return jsonify(out)
+
+
+@app.route("/stock-api/gamma-wall", methods=["GET"])
+def gamma_wall():
+    """OI by strike for major tickers — shows dealer gamma concentration and flip points."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_gw_cache", None)
+    _ts    = getattr(app, "_gw_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "NVDA", "TSLA", "META", "AMZN", "MSFT", "GOOGL"]
+
+    def _analyze(ticker):
+        try:
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0: return None
+            exps  = tkr.options
+            if not exps: return None
+            exp   = exps[0]
+            chain = tkr.option_chain(exp)
+            puts  = chain.puts; calls = chain.calls
+            lo = price * 0.90; hi = price * 1.10
+            all_s = sorted(set(list(puts["strike"]) + list(calls["strike"])))
+            strike_data = []; max_oi = 0; wall = price
+            for s in all_s:
+                if not (lo <= s <= hi): continue
+                c_oi = int(calls[calls["strike"] == s]["openInterest"].sum() or 0)
+                p_oi = int(puts[puts["strike"]   == s]["openInterest"].sum() or 0)
+                tot  = c_oi + p_oi
+                if tot > max_oi: max_oi = tot; wall = s
+                strike_data.append({"strike": round(float(s), 2), "call_oi": c_oi,
+                                     "put_oi": p_oi, "total_oi": tot, "net_gamma": c_oi - p_oi})
+            if not strike_data: return None
+            flip = None
+            for i in range(1, len(strike_data)):
+                if strike_data[i-1]["net_gamma"] >= 0 and strike_data[i]["net_gamma"] < 0:
+                    flip = strike_data[i]["strike"]; break
+            return {"ticker": ticker, "price": round(price, 2), "wall_strike": round(float(wall), 2),
+                    "wall_distance_pct": round((float(wall) - price) / price * 100, 2),
+                    "expiry": exp, "strikes": strike_data, "flip_strike": flip}
+        except Exception: return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_analyze, t): t for t in TICKERS}
+        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    rows.sort(key=lambda x: x["ticker"])
+    out = {"results": rows}
+    app._gw_cache = out; app._gw_cache_ts = _dt.now()
+    return jsonify(out)
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

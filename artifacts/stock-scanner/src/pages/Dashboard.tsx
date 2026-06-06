@@ -9,10 +9,12 @@ import {
   fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchPutIntent,
+  fetchVolCrush, fetchCallIntent, fetchSmartVsRetail, fetchMaxPain, fetchGammaWall,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
   SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief, DarkPoolRow, PutIntentRow,
+  VolCrushRow, CallIntentRow, SmartVsRetailRow, MaxPainRow, GammaWallRow, GammaStrike,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -2424,6 +2426,385 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   );
 }
 
+// ---- Vol Crush Detector Tab ----------------------------------------------
+function VolCrushTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<VolCrushRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const run = async () => {
+    setLoading(true);
+    try { const d = await fetchVolCrush(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
+    catch {} finally { setLoading(false); }
+  };
+  useEffect(() => { run(); }, []);
+  const vColor = (v: string) => v === "HIGH FEAR" ? "#f87171" : v === "ELEVATED" ? "#fb923c" : v === "NORMAL" ? "#60a5fa" : "#4ade80";
+  const vBg    = (v: string) => v === "HIGH FEAR" ? "rgba(248,113,113,0.12)" : v === "ELEVATED" ? "rgba(251,146,60,0.1)" : v === "NORMAL" ? "rgba(96,165,250,0.08)" : "rgba(74,222,128,0.1)";
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Volatility Crush Detector</h2>
+          <p className="text-slate-500 text-sm mt-0.5">When IV is at its 1-year high — sell premium, or wait for the crush after earnings.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
+          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.25)", color: "#f87171" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        {(["HIGH FEAR","ELEVATED","NORMAL","LOW IV"] as const).map(v => (
+          <div key={v} className="rounded-xl p-3 text-center" style={{ background: vBg(v), border: `1px solid ${vColor(v)}25` }}>
+            <div className="font-black text-sm" style={{ color: vColor(v) }}>{v}</div>
+            <div className="text-slate-600 text-xs mt-1">{v==="HIGH FEAR"?"IV rank 80%+":v==="ELEVATED"?"IV rank 60–80%":v==="NORMAL"?"IV rank 30–60%":"IV rank 0–30%"}</div>
+          </div>
+        ))}
+      </div>
+      {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Fetching IV & price history for {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~30s · cached 30 min</div></div>}
+      {!loading && results.length === 0 && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No data available.</div>}
+      {results.length > 0 && (
+        <div className="space-y-2">
+          {results.map((r, i) => (
+            <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} className="rounded-xl p-4 cursor-pointer hover:bg-white/5 transition-colors" style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.01)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-slate-600 text-xs w-5">{i+1}</span>
+                  <span className="font-black text-white text-base">{r.ticker}</span>
+                  <span className="text-slate-500 text-xs">${r.price.toFixed(2)}</span>
+                  {r.earnings_date && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>Earnings {r.earnings_date}</span>}
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-black" style={{ background: vBg(r.verdict), color: vColor(r.verdict), border: `1px solid ${vColor(r.verdict)}30` }}>{r.verdict}</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden mb-2.5" style={{ background: "rgba(255,255,255,0.05)" }}>
+                <div style={{ width: `${r.iv_rank}%`, background: r.iv_rank >= 80 ? "rgba(248,113,113,0.6)" : r.iv_rank >= 60 ? "rgba(251,146,60,0.6)" : "rgba(96,165,250,0.5)", transition: "width 0.4s" }} className="h-full rounded-full" />
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex gap-4">
+                  <span style={{ color: vColor(r.verdict) }}>IV Rank <span className="font-bold">{r.iv_rank.toFixed(0)}%</span></span>
+                  <span className="text-slate-400">IV <span className="font-bold text-white">{r.current_iv.toFixed(1)}%</span></span>
+                  <span className="text-slate-400">HV30 <span className="font-bold text-white">{r.hv_30.toFixed(1)}%</span></span>
+                  {r.iv_hv_ratio && <span className="text-slate-400">IV/HV <span className="font-bold text-white">{r.iv_hv_ratio.toFixed(2)}×</span></span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Call Intent Decoder Tab ---------------------------------------------
+function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<CallIntentRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const run = async () => {
+    setLoading(true);
+    try { const d = await fetchCallIntent(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
+    catch {} finally { setLoading(false); }
+  };
+  useEffect(() => { run(); }, []);
+  const vColor = (v: string) => v === "ACCUMULATION" ? "#4ade80" : v === "FOMO" ? "#f87171" : "#fbbf24";
+  const vBg    = (v: string) => v === "ACCUMULATION" ? "rgba(74,222,128,0.12)" : v === "FOMO" ? "rgba(248,113,113,0.12)" : "rgba(251,191,36,0.10)";
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Call Intent Decoder</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Is the call buying a retail FOMO chase or quiet institutional accumulation?</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
+          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", color: "#4ade80" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="rounded-xl p-3.5" style={{ background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.15)" }}>
+          <div className="text-emerald-400 font-bold text-sm mb-1">📦 ACCUMULATION</div>
+          <div className="text-slate-400 text-xs">Strike 5%+ above price AND expiry 60+ days out. Institutions quietly building a long position.</div>
+        </div>
+        <div className="rounded-xl p-3.5" style={{ background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.15)" }}>
+          <div className="text-red-400 font-bold text-sm mb-1">🏃 FOMO</div>
+          <div className="text-slate-400 text-xs">Strike within 3% AND expiry under 45 days. Retail chasing a move that's already happened.</div>
+        </div>
+      </div>
+      {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Analyzing call chains across {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~30s · cached 30 min</div></div>}
+      {!loading && results.length === 0 && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No significant call activity found.</div>}
+      {results.length > 0 && (
+        <div className="space-y-2">
+          {results.map((r, i) => (
+            <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} className="rounded-xl p-4 cursor-pointer hover:bg-white/5 transition-colors" style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.01)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-slate-600 text-xs w-5">{i+1}</span>
+                  <span className="font-black text-white text-base">{r.ticker}</span>
+                  <span className="text-slate-500 text-xs">${r.price.toFixed(2)}</span>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-black" style={{ background: vBg(r.verdict), color: vColor(r.verdict), border: `1px solid ${vColor(r.verdict)}30` }}>{r.verdict}</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden flex mb-2.5" style={{ background: "rgba(255,255,255,0.05)" }}>
+                <div style={{ width: `${r.accum_pct}%`, background: "rgba(74,222,128,0.55)", transition: "width 0.4s" }} />
+                <div style={{ width: `${r.fomo_pct}%`, background: "rgba(248,113,113,0.55)", transition: "width 0.4s" }} />
+              </div>
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div className="flex gap-4 text-xs">
+                  <span className="text-emerald-400">📦 Accum <span className="font-bold">${r.accum_prem_m.toFixed(1)}M</span> <span className="text-slate-600">({r.accum_pct}%)</span></span>
+                  <span className="text-red-400">🏃 FOMO <span className="font-bold">${r.fomo_prem_m.toFixed(1)}M</span> <span className="text-slate-600">({r.fomo_pct}%)</span></span>
+                </div>
+                {r.top_accum_strike && r.top_accum_expiry && <span className="text-slate-600 text-xs">Top accum: <span className="text-slate-400">${r.top_accum_strike}</span> exp <span className="text-slate-400">{r.top_accum_expiry}</span></span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Smart Money vs Retail Tab -------------------------------------------
+function SmartVsRetailTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<SmartVsRetailRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const run = async () => {
+    setLoading(true);
+    try { const d = await fetchSmartVsRetail(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
+    catch {} finally { setLoading(false); }
+  };
+  useEffect(() => { run(); }, []);
+  const dColor = (d: string) => d.startsWith("SMART BULL") ? "#4ade80" : d.startsWith("SMART BEAR") ? "#f87171" : d.startsWith("RETAIL BULL") ? "#a78bfa" : d.startsWith("RETAIL BEAR") ? "#fb923c" : "#64748b";
+  const dBg    = (d: string) => d.startsWith("SMART BULL") ? "rgba(74,222,128,0.1)" : d.startsWith("SMART BEAR") ? "rgba(248,113,113,0.1)" : d.startsWith("RETAIL") ? "rgba(167,139,250,0.1)" : "rgba(255,255,255,0.04)";
+  const strBadge = (s: string) => s === "STRONG" ? "🔥" : s === "MODERATE" ? "⚡" : "·";
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Smart Money vs Retail</h2>
+          <p className="text-slate-500 text-sm mt-0.5">When big blocks and small traders point in opposite directions — follow the institutions.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
+          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.25)", color: "#a78bfa" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="rounded-xl p-3.5" style={{ background: "rgba(74,222,128,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+          <div className="text-white font-bold text-sm mb-1">🏦 Smart Money</div>
+          <div className="text-slate-400 text-xs">Large blocks: premium ≥ $3/contract AND volume ≥ 30 contracts ($9K+ per trade). Institutional footprint.</div>
+        </div>
+        <div className="rounded-xl p-3.5" style={{ background: "rgba(167,139,250,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+          <div className="text-violet-400 font-bold text-sm mb-1">👤 Retail</div>
+          <div className="text-slate-400 text-xs">Small contracts: premium &lt; $2/contract OR volume &lt; 15 contracts. Scattered retail flow.</div>
+        </div>
+      </div>
+      {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Classifying options flow for {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~30s · cached 30 min</div></div>}
+      {!loading && results.length === 0 && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No divergence signals found.</div>}
+      {results.length > 0 && (
+        <div className="space-y-2">
+          {results.map((r, i) => (
+            <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} className="rounded-xl p-4 cursor-pointer hover:bg-white/5 transition-colors" style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.01)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-slate-600 text-xs w-5">{i+1}</span>
+                  <span className="font-black text-white text-base">{r.ticker}</span>
+                  <span className="text-slate-500 text-xs">${r.price.toFixed(2)}</span>
+                  <span className="text-xs">{strBadge(r.signal_strength)}</span>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-black" style={{ background: dBg(r.divergence), color: dColor(r.divergence), border: `1px solid ${dColor(r.divergence)}30` }}>{r.divergence}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div className="text-slate-500 mb-1">🏦 Smart Money</div>
+                  <div className="font-bold text-white">${r.smart_prem_m.toFixed(1)}M flow</div>
+                  <div className="mt-1" style={{ color: r.smart_cp >= 1.5 ? "#4ade80" : r.smart_cp <= 0.7 ? "#f87171" : "#94a3b8" }}>C/P: {r.smart_cp.toFixed(2)}×</div>
+                </div>
+                <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div className="text-slate-500 mb-1">👤 Retail</div>
+                  <div className="font-bold text-white">${r.retail_prem_m.toFixed(1)}M flow</div>
+                  <div className="mt-1" style={{ color: r.retail_cp >= 1.5 ? "#4ade80" : r.retail_cp <= 0.7 ? "#f87171" : "#94a3b8" }}>C/P: {r.retail_cp.toFixed(2)}×</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Max Pain Tab --------------------------------------------------------
+function MaxPainTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<MaxPainRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const run = async () => {
+    setLoading(true);
+    try { const d = await fetchMaxPain(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
+    catch {} finally { setLoading(false); }
+  };
+  useEffect(() => { run(); }, []);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Options Pinning Radar</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Max pain is the price where options expire most worthless. Price drifts toward it before expiry — biggest gaps = biggest opportunity.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
+          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.25)", color: "#60a5fa" }}>{loading ? "Calculating…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="rounded-xl p-3.5" style={{ background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.15)" }}>
+          <div className="text-red-400 font-bold text-sm mb-1">📍 ABOVE PAIN</div>
+          <div className="text-slate-400 text-xs">Price is above max pain. Market makers push it lower toward expiry to minimize payout.</div>
+        </div>
+        <div className="rounded-xl p-3.5" style={{ background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.15)" }}>
+          <div className="text-emerald-400 font-bold text-sm mb-1">📍 BELOW PAIN</div>
+          <div className="text-slate-400 text-xs">Price is below max pain. Gravitational pull upward toward the pain strike before expiry.</div>
+        </div>
+      </div>
+      {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Computing max pain across {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~30s · cached 30 min</div></div>}
+      {!loading && results.length === 0 && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No max pain data available.</div>}
+      {results.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px]">
+            <thead>
+              <tr className="text-left text-xs text-slate-600 uppercase tracking-wide border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                <th className="pb-3 pr-4">#</th>
+                <th className="pb-3 pr-4">Ticker</th>
+                <th className="pb-3 pr-4">Price</th>
+                <th className="pb-3 pr-4">Max Pain</th>
+                <th className="pb-3 pr-4">Distance</th>
+                <th className="pb-3 pr-4">Direction</th>
+                <th className="pb-3 pr-4">Expiry</th>
+                <th className="pb-3">Days</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+              {results.map((r, i) => {
+                const isAbove = r.direction === "ABOVE PAIN";
+                const distColor = Math.abs(r.distance_pct) >= 5 ? (isAbove ? "#f87171" : "#4ade80") : "#94a3b8";
+                return (
+                  <tr key={r.ticker} onClick={() => onSelectTicker(r.ticker)} className="cursor-pointer hover:bg-white/5 transition-colors">
+                    <td className="py-3 pr-4 text-slate-600">{i+1}</td>
+                    <td className="py-3 pr-4 font-black text-white">{r.ticker}</td>
+                    <td className="py-3 pr-4 text-slate-400">${r.price.toFixed(2)}</td>
+                    <td className="py-3 pr-4 font-bold text-blue-400">${r.max_pain.toFixed(2)}</td>
+                    <td className="py-3 pr-4 font-bold" style={{ color: distColor }}>{r.distance_pct > 0 ? "+" : ""}{r.distance_pct.toFixed(1)}%</td>
+                    <td className="py-3 pr-4">
+                      <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: isAbove ? "rgba(248,113,113,0.12)" : "rgba(74,222,128,0.12)", color: isAbove ? "#f87171" : "#4ade80" }}>{r.direction}</span>
+                    </td>
+                    <td className="py-3 pr-4 text-slate-500">{r.nearest_expiry}</td>
+                    <td className="py-3 text-slate-500">{r.days_to_exp}d</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Gamma Wall Tab ------------------------------------------------------
+function GammaWallTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<GammaWallRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<GammaWallRow | null>(null);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const run = async () => {
+    setLoading(true);
+    try { const d = await fetchGammaWall(); setResults(d.results); if (d.results.length) setSelected(d.results[0]); setLastRun(new Date()); }
+    catch {} finally { setLoading(false); }
+  };
+  useEffect(() => { run(); }, []);
+  const maxOI = selected ? Math.max(...selected.strikes.map(s => s.total_oi), 1) : 1;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Gamma Wall</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Where dealers have the most hedging concentration — the levels that act as price magnets or barriers.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers analyzed</span>}
+          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+      {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Fetching OI by strike for major tickers…<div className="text-xs text-slate-600 mt-2">First load ~20s · cached 30 min</div></div>}
+      {!loading && results.length === 0 && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No gamma data available.</div>}
+      {results.length > 0 && (
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Ticker selector */}
+          <div className="lg:w-48 shrink-0 space-y-1">
+            {results.map(r => (
+              <button key={r.ticker} onClick={() => setSelected(r)} className="w-full text-left rounded-xl px-4 py-3 transition-all"
+                style={{ background: selected?.ticker === r.ticker ? "rgba(251,191,36,0.1)" : "rgba(255,255,255,0.02)", border: selected?.ticker === r.ticker ? "1px solid rgba(251,191,36,0.3)" : "1px solid rgba(255,255,255,0.06)" }}>
+                <div className="font-black text-white text-sm">{r.ticker}</div>
+                <div className="text-xs text-slate-500">${r.price.toFixed(2)}</div>
+                <div className="text-xs mt-0.5" style={{ color: r.wall_distance_pct >= 0 ? "#f87171" : "#4ade80" }}>Wall {r.wall_distance_pct >= 0 ? "+" : ""}{r.wall_distance_pct.toFixed(1)}%</div>
+              </button>
+            ))}
+          </div>
+          {/* OI chart */}
+          {selected && (
+            <div className="flex-1 rounded-xl p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div>
+                  <span className="font-black text-white text-lg">{selected.ticker}</span>
+                  <span className="text-slate-500 text-sm ml-2">${selected.price.toFixed(2)} · exp {selected.expiry}</span>
+                </div>
+                <div className="flex gap-3 text-xs">
+                  <span className="text-yellow-400 font-bold">Wall: ${selected.wall_strike}</span>
+                  {selected.flip_strike && <span className="text-purple-400 font-bold">Flip: ${selected.flip_strike}</span>}
+                </div>
+              </div>
+              <div className="flex gap-2 text-xs text-slate-600 mb-3">
+                <span className="flex items-center gap-1"><span className="w-3 h-2 inline-block rounded-sm" style={{ background: "rgba(74,222,128,0.5)" }} />Calls OI</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-2 inline-block rounded-sm" style={{ background: "rgba(248,113,113,0.5)" }} />Puts OI</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 inline-block rounded-full bg-yellow-400" />Wall</span>
+                {selected.flip_strike && <span className="flex items-center gap-1"><span className="w-2 h-2 inline-block rounded-full" style={{ background: "#c084fc" }} />Gamma Flip</span>}
+              </div>
+              <div className="space-y-1 max-h-96 overflow-y-auto pr-1">
+                {[...selected.strikes].sort((a, b) => b.strike - a.strike).map(s => {
+                  const isWall  = s.strike === selected.wall_strike;
+                  const isFlip  = s.strike === selected.flip_strike;
+                  const isPrice = Math.abs(s.strike - selected.price) / selected.price < 0.005;
+                  const cW = (s.call_oi / maxOI) * 45;
+                  const pW = (s.put_oi  / maxOI) * 45;
+                  return (
+                    <div key={s.strike} className="flex items-center gap-1 text-xs rounded" style={{ background: isWall ? "rgba(251,191,36,0.08)" : isFlip ? "rgba(192,132,252,0.06)" : "transparent", padding: "2px 4px" }}>
+                      <div className="flex items-center justify-end gap-1" style={{ width: "50%" }}>
+                        <span className="text-slate-600" style={{ minWidth: 48, textAlign: "right" }}>{s.call_oi.toLocaleString()}</span>
+                        <div className="h-4 rounded-sm" style={{ width: `${cW}%`, background: "rgba(74,222,128,0.5)", minWidth: cW > 0 ? 1 : 0 }} />
+                      </div>
+                      <div className="text-center font-mono shrink-0 px-1" style={{ minWidth: 64, color: isWall ? "#fbbf24" : isFlip ? "#c084fc" : isPrice ? "#fff" : "#475569", fontWeight: (isWall || isPrice) ? 700 : 400, fontSize: 11 }}>
+                        {isPrice && "→ "}${s.strike}{isWall ? " 🧲" : isFlip ? " ⚡" : ""}
+                      </div>
+                      <div className="flex items-center gap-1" style={{ width: "50%" }}>
+                        <div className="h-4 rounded-sm" style={{ width: `${pW}%`, background: "rgba(248,113,113,0.5)", minWidth: pW > 0 ? 1 : 0 }} />
+                        <span className="text-slate-600">{s.put_oi.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={() => onSelectTicker(selected.ticker)} className="mt-4 w-full py-2 rounded-lg text-sm font-bold text-slate-400 hover:text-white transition-colors" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>View {selected.ticker} in Stock Lookup →</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Put Intent Decoder Tab ----------------------------------------------
 function PutIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [results, setResults] = useState<PutIntentRow[]>([]);
@@ -3265,7 +3646,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"outcomes">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"outcomes">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -3349,6 +3730,11 @@ export default function Dashboard() {
     { id: "convergence",  label: "⚡ CONVERGENCE" },
     { id: "darkpool",     label: "🌑 DARK POOL" },
     { id: "putintent",    label: "🎯 PUT INTENT" },
+    { id: "callintent",   label: "🔵 CALL INTENT" },
+    { id: "volcrush",     label: "🌡️ VOL CRUSH" },
+    { id: "smartvretail", label: "⚔️ SMART vs RETAIL" },
+    { id: "maxpain",      label: "📍 MAX PAIN" },
+    { id: "gammawall",    label: "🧲 GAMMA WALL" },
     { id: "premarket",    label: "PRE-MARKET" },
     { id: "bullflow",     label: "BULL FLOW" },
     { id: "smartmoney",   label: "SMART MONEY" },
@@ -3945,8 +4331,13 @@ export default function Dashboard() {
         {tab === "morningbrief" && <MorningBriefTab />}
         {tab === "convergence" && <ConvergenceTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "darkpool" && <DarkPoolTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "putintent" && <PutIntentTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "premarket" && <PremarketTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "putintent"    && <PutIntentTab    onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "callintent"   && <CallIntentTab   onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "volcrush"     && <VolCrushTab     onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "smartvretail" && <SmartVsRetailTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "maxpain"      && <MaxPainTab      onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "gammawall"    && <GammaWallTab    onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "premarket"    && <PremarketTab    onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
 
       </div>
       </main>
