@@ -1167,6 +1167,98 @@ def premarket():
     return jsonify({"gainers": gainers, "losers": losers, "scanned": len(tickers)})
 
 
+@app.route("/stock-api/darkpool", methods=["GET"])
+def darkpool():
+    """Dark Pool Radar — uses FINRA Reg SHO daily short volume as off-exchange proxy."""
+    import requests as _req
+    from datetime import datetime, timedelta
+
+    _cache = getattr(app, "_dp_cache", None)
+    _ts    = getattr(app, "_dp_cache_ts", None)
+    if _cache and _ts and (datetime.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    def _fetch_date(date_str):
+        combined = {}
+        for code in ["FNSQ", "FNYX"]:
+            url = f"http://regsho.finra.org/{code}shvol{date_str}.txt"
+            try:
+                r = _req.get(url, timeout=12)
+                if r.status_code != 200:
+                    continue
+                for line in r.text.strip().split("\n")[1:]:
+                    parts = line.strip().split("|")
+                    if len(parts) < 5:
+                        continue
+                    sym = parts[1].strip()
+                    try:
+                        sv = int(parts[2]); tv = int(parts[4])
+                    except Exception:
+                        continue
+                    if sym in combined:
+                        combined[sym]["sv"] += sv
+                        combined[sym]["tv"] += tv
+                    else:
+                        combined[sym] = {"sv": sv, "tv": tv}
+            except Exception:
+                continue
+        return combined
+
+    raw = {}
+    date_used = None
+    now = datetime.now()
+    for days_back in range(6):
+        d = now - timedelta(days=days_back)
+        if d.weekday() >= 5:
+            continue
+        date_str = d.strftime("%Y%m%d")
+        raw = _fetch_date(date_str)
+        if raw:
+            date_used = d.strftime("%b %d, %Y")
+            break
+
+    if not raw:
+        return jsonify({"results": [], "date": None, "total_in_db": 0})
+
+    results = []
+    for ticker in DEFAULT_LEADERBOARD:
+        if ticker not in raw:
+            continue
+        d = raw[ticker]
+        tv = d["tv"]; sv = d["sv"]
+        if tv < 50000:
+            continue
+        pct = sv / tv * 100
+        # Typical short/dark-pool pct is 45-55%; score 0-10 above that baseline
+        score = min(round(max(pct - 40, 0) / 40 * 10, 1), 10.0)
+        if pct >= 70:
+            signal = "EXTREME"
+        elif pct >= 62:
+            signal = "HIGH"
+        elif pct >= 54:
+            signal = "ELEVATED"
+        else:
+            signal = "NORMAL"
+        results.append({
+            "ticker": ticker,
+            "short_vol": sv,
+            "total_vol": tv,
+            "short_pct": round(pct, 1),
+            "score": score,
+            "signal": signal,
+        })
+
+    results.sort(key=lambda x: x["short_pct"], reverse=True)
+    notable = [r for r in results if r["short_pct"] >= 50]
+    for i, r in enumerate(notable[:15]):
+        r["rank"] = i + 1
+
+    out = {"results": notable[:15], "date": date_used, "total_in_db": len(raw)}
+    app._dp_cache = out
+    app._dp_cache_ts = datetime.now()
+    return jsonify(out)
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

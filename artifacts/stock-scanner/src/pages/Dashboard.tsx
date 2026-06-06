@@ -8,11 +8,11 @@ import {
   createStockScannerCheckout, manageStockScannerSubscription,
   fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
-  fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief,
+  fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
-  SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief,
+  SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief, DarkPoolRow,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -2292,6 +2292,115 @@ function ConvergenceTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
   );
 }
 
+// ---- Dark Pool Radar Tab -------------------------------------------------
+function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<DarkPoolRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [date, setDate] = useState<string | null>(null);
+  const [totalInDb, setTotalInDb] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchDarkPool();
+      setResults(data.results);
+      setDate(data.date);
+      setTotalInDb(data.total_in_db);
+      setLastRun(new Date());
+    } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { run(); }, []);
+
+  const signalColor = (s: DarkPoolRow["signal"]) =>
+    s === "EXTREME" ? "#f87171" : s === "HIGH" ? "#fb923c" : s === "ELEVATED" ? "#fbbf24" : "#64748b";
+
+  const signalBg = (s: DarkPoolRow["signal"]) =>
+    s === "EXTREME" ? "rgba(248,113,113,0.12)" : s === "HIGH" ? "rgba(251,146,60,0.12)" : s === "ELEVATED" ? "rgba(251,191,36,0.10)" : "rgba(100,116,139,0.10)";
+
+  const scoreColor = (sc: number) => sc >= 7 ? "#f87171" : sc >= 5 ? "#fb923c" : sc >= 3 ? "#fbbf24" : "#94a3b8";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Dark Pool Radar</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Off-exchange short volume from FINRA — elevated % signals institutional accumulation in the dark</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {date && <span className="text-slate-600 text-xs">Data: {date} · {results.length} signals</span>}
+          <button onClick={run} disabled={loading}
+            className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+            style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.25)", color: "#a78bfa" }}>
+            {loading ? "Loading…" : "↻ Refresh"}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl p-4 mb-6 text-sm" style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.15)" }}>
+        <span className="font-bold" style={{ color: "#a78bfa" }}>How it works: </span>
+        <span className="text-slate-400">
+          FINRA publishes daily off-exchange (dark pool) short volume for every stock. We flag tickers where short vol % is running above 54% — that's the threshold where institutional dark pool prints start becoming statistically unusual. Data is 1 day delayed (FINRA's publishing schedule).
+        </span>
+      </div>
+
+      {loading && results.length === 0 && (
+        <div className="text-center py-16 text-slate-500 text-sm">Fetching FINRA dark pool data…</div>
+      )}
+
+      {!loading && results.length === 0 && lastRun && (
+        <div className="text-center py-16 text-slate-500 text-sm">No elevated dark pool signals in the watchlist right now.</div>
+      )}
+
+      {results.length > 0 && (
+        <div className="overflow-x-auto -mx-2 px-2">
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.07)", minWidth: 480 }}>
+            <div className="grid text-xs font-bold text-slate-500 uppercase px-4 py-2.5"
+              style={{ gridTemplateColumns: "28px 60px 90px 90px 70px 80px", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}>
+              <span>#</span>
+              <span>Ticker</span>
+              <span className="text-right">DP Vol %</span>
+              <span className="text-right">Total Vol</span>
+              <span className="text-center">Signal</span>
+              <span className="text-right">Score</span>
+            </div>
+            {results.map((r, i) => (
+              <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)}
+                className="grid items-center px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors"
+                style={{ gridTemplateColumns: "28px 60px 90px 90px 70px 80px", borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                <span className="text-slate-600 text-xs">{i + 1}</span>
+                <span className="font-black text-white text-sm">{r.ticker}</span>
+                <span className="text-right font-bold text-sm" style={{ color: signalColor(r.signal) }}>{r.short_pct.toFixed(1)}%</span>
+                <span className="text-right text-slate-400 text-xs">{(r.total_vol / 1e6).toFixed(1)}M</span>
+                <div className="flex justify-center">
+                  <span className="px-2 py-0.5 rounded text-xs font-bold"
+                    style={{ background: signalBg(r.signal), color: signalColor(r.signal) }}>
+                    {r.signal}
+                  </span>
+                </div>
+                <div className="flex justify-end">
+                  <span className="px-2 py-0.5 rounded-full text-xs font-black"
+                    style={{ background: `${scoreColor(r.score)}18`, color: scoreColor(r.score), border: `1px solid ${scoreColor(r.score)}40` }}>
+                    {r.score.toFixed(1)}<span style={{ opacity: 0.5, fontWeight: 400 }}>/10</span>
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {results.length > 0 && totalInDb > 0 && (
+        <p className="text-slate-700 text-xs mt-4 text-center">
+          FINRA database contains {totalInDb.toLocaleString()} symbols · Showing watchlist tickers with elevated dark pool activity
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ---- Pre-Market Flow Tab -------------------------------------------------
 function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData] = useState<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number } | null>(null);
@@ -3032,7 +3141,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"outcomes">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"outcomes">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -3114,6 +3223,7 @@ export default function Dashboard() {
     { id: "overview",     label: "OVERVIEW" },
     { id: "morningbrief", label: "🌅 MORNING BRIEF" },
     { id: "convergence",  label: "⚡ CONVERGENCE" },
+    { id: "darkpool",     label: "🌑 DARK POOL" },
     { id: "premarket",    label: "PRE-MARKET" },
     { id: "bullflow",     label: "BULL FLOW" },
     { id: "smartmoney",   label: "SMART MONEY" },
@@ -3709,6 +3819,7 @@ export default function Dashboard() {
 
         {tab === "morningbrief" && <MorningBriefTab />}
         {tab === "convergence" && <ConvergenceTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "darkpool" && <DarkPoolTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "premarket" && <PremarketTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
 
       </div>

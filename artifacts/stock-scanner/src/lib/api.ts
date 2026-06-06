@@ -568,3 +568,17 @@ export async function fetchMorningBrief(): Promise<MorningBrief> {
 export async function refreshMorningBrief(): Promise<void> {
   await fetch("/api/morning-brief/refresh", { method: "POST" });
 }
+
+export interface DarkPoolRow {
+  rank: number;
+  ticker: string;
+  short_vol: number;
+  total_vol: number;
+  short_pct: number;
+  score: number;
+  signal: "EXTREME" | "HIGH" | "ELEVATED" | "NORMAL";
+}
+
+export function fetchDarkPool() {
+  return fetchJson<{ results: DarkPoolRow[]; date: string | null; total_in_db: number }>("/darkpool");
+}
