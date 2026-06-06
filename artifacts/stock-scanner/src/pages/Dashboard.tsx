@@ -7,7 +7,7 @@ import {
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
   fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
-  fetchSignalOutcomes, fetchDailyTop10,
+  fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
@@ -2742,7 +2742,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout">("overview");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -2751,6 +2751,10 @@ export default function Dashboard() {
   const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
   const [lookupSubTab, setLookupSubTab] = useState<"analysis"|"technicals"|"chart">("analysis");
+  const [aiText, setAiText] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiTicker, setAiTicker] = useState<string | null>(null);
   const qc = useQueryClient();
 
   const { data: analysis, isLoading: loadingAnalysis, error: analysisError } = useQuery({
@@ -2780,8 +2784,28 @@ export default function Dashboard() {
 
   const handleLookup = useCallback(() => {
     const t = inputTicker.trim().toUpperCase();
-    if (t) setTicker(t);
+    if (t) { setTicker(t); setAiText(null); setAiError(null); setAiTicker(null); }
   }, [inputTicker]);
+
+  const runAIAnalysis = useCallback(async (a: typeof analysis) => {
+    if (!a) return;
+    setAiLoading(true); setAiError(null); setAiTicker(a.ticker);
+    try {
+      const result = await fetchAIAnalysis({
+        ticker: a.ticker,
+        rsi: a.indicators.rsi, macd: a.indicators.macd,
+        volume_ratio: a.indicators.volume_ratio,
+        price: a.indicators.price, change_pct: a.indicators.price_change_pct,
+        score: a.score?.score, rating: a.score?.rating,
+        sector: a.info.sector, sma50: a.indicators.sma50, sma200: a.indicators.sma200,
+      });
+      setAiText(result.analysis);
+    } catch (e: any) {
+      setAiError(e?.message ?? "AI analysis failed");
+    } finally {
+      setAiLoading(false);
+    }
+  }, []);
 
   const handleTrade = useCallback(() => {
     const shares = parseFloat(tradeShares);
@@ -3037,16 +3061,48 @@ export default function Dashboard() {
 
                     {lookupSubTab === "analysis" && (
                       <div style={{ padding: 16 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                          <span style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em" }}>SWING ANALYSIS</span>
-                          <span style={{ background: "#1a0a00", color: BB_ORANGE, fontSize: 9, padding: "2px 8px", border: `1px solid ${BB_ORANGE}33`, letterSpacing: "0.1em" }}>STOCKSCANNER AI</span>
+                        {/* Header row with label + REFRESH button */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em" }}>SWING ANALYSIS</span>
+                            <span style={{ background: "#1a0a00", color: BB_ORANGE, fontSize: 9, padding: "2px 8px", border: `1px solid ${BB_ORANGE}33`, letterSpacing: "0.1em" }}>CLAUDE AI</span>
+                          </div>
+                          <button
+                            onClick={() => runAIAnalysis(analysis)}
+                            disabled={aiLoading}
+                            style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: aiLoading ? BB_LABEL : BB_GREEN, padding: "4px 12px", fontFamily: BB_FONT, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", cursor: aiLoading ? "default" : "pointer", opacity: aiLoading ? 0.6 : 1 }}
+                          >
+                            {aiLoading ? "ANALYZING…" : "↻ REFRESH"}
+                          </button>
                         </div>
+
+                        {/* AI text output */}
+                        <div style={{ background: "#050505", border: `1px solid #111`, padding: 14, minHeight: 80, marginBottom: 14 }}>
+                          {aiLoading && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, color: BB_LABEL, fontSize: 11 }}>
+                              <Spinner /> Generating analysis…
+                            </div>
+                          )}
+                          {!aiLoading && aiError && (
+                            <div style={{ color: BB_RED, fontSize: 11 }}>{aiError}</div>
+                          )}
+                          {!aiLoading && aiText && aiTicker === analysis.ticker && (
+                            <p style={{ color: BB_WHITE, fontSize: 11, lineHeight: 1.7, margin: 0, fontFamily: BB_FONT }}>{aiText}</p>
+                          )}
+                          {!aiLoading && !aiText && !aiError && (
+                            <div style={{ color: BB_LABEL, fontSize: 10, letterSpacing: "0.05em" }}>
+                              Click <span style={{ color: BB_GREEN }}>↻ REFRESH</span> to generate AI analysis for {analysis.ticker}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Score + ML below */}
                         {score && (
                           <>
                             <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-                              <span style={{ color: scoreColor, fontSize: 32, fontWeight: 900 }}>{score.score.toFixed(1)}</span>
-                              <span style={{ color: "#333", fontSize: 18 }}>/10</span>
-                              <span style={{ color: scoreColor, fontSize: 14, fontWeight: 700, letterSpacing: "0.05em", marginLeft: 4 }}>{score.rating.toUpperCase()}</span>
+                              <span style={{ color: scoreColor, fontSize: 28, fontWeight: 900 }}>{score.score.toFixed(1)}</span>
+                              <span style={{ color: "#333", fontSize: 16 }}>/10</span>
+                              <span style={{ color: scoreColor, fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", marginLeft: 4 }}>{score.rating.toUpperCase()}</span>
                             </div>
                             <ScoreBreakdown breakdown={score.breakdown} />
                           </>

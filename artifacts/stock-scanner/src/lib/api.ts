@@ -397,6 +397,17 @@ export function fetchInsiderTrades(days = 30) {
   return fetchJson<{ trades: InsiderTrade[]; count: number }>(`/insider/trades?days=${days}`);
 }
 
+export function fetchAIAnalysis(data: {
+  ticker: string; rsi?: number; macd?: number; volume_ratio?: number;
+  price?: number; change_pct?: number; score?: number; rating?: string;
+  sector?: string; sma50?: number; sma200?: number;
+}) {
+  return fetchJson<{ analysis: string; ticker: string }>(
+    "/ai-analyze",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }
+  );
+}
+
 export function fetchAIThesis(row: Pick<BullFlowRow, "ticker"|"call_put_ratio"|"premium_m"|"days_to_earnings"|"short_float_pct"|"strike"|"expiry">) {
   return fetchJson<{ ticker: string; thesis: string }>(
     "/ai/thesis",

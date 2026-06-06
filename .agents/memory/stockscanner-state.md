@@ -43,6 +43,14 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - `/stock-api/daily-top10` endpoint — daily cache, returns top 10 from Bull Flow
 - `DailyTop10Banner` component — auto-loads at top of Scanner and Analytics tabs with click-to-analyze
 
+## Claude AI Swing Analysis (BUILT)
+- `/stock-api/ai-analyze` POST endpoint in `main.py` — calls Anthropic API server-side via Replit AI Integration
+- Replit integration env vars: `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` + `AI_INTEGRATIONS_ANTHROPIC_API_KEY` (provisioned)
+- `anthropic` Python package installed via `pip install anthropic --user` (nix store is read-only; --user flag required)
+- `fetchAIAnalysis()` function in `artifacts/stock-scanner/src/lib/api.ts`
+- AI Analysis sub-tab in Stock Lookup shows: orange "CLAUDE AI" badge, "↻ REFRESH" button, text panel, score/ML below
+- State: `aiText`, `aiLoading`, `aiError`, `aiTicker` — only shows analysis when `aiTicker === analysis.ticker`
+
 ## SMS / Twilio (PENDING)
 - User has not yet signed up for Twilio
 - User phone: +14013185787 (for testing)

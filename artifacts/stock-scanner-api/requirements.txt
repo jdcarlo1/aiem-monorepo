@@ -5,3 +5,7 @@ pandas
 ta
 scikit-learn
 numpy
+anthropic
+psycopg2-binary
+apscheduler
+pytz

@@ -134,30 +134,115 @@ def analyze():
     return jsonify(result)
 
 
-# ── Daily Top-10 cache ───────────────────────────────────────────────────────
-_daily_top10_cache: dict = {"date": None, "data": None}
+# ── Daily Top-10 — DB-backed cache ───────────────────────────────────────────
+import json as _json
+import psycopg2 as _psycopg2
+
+_DB_URL = os.getenv("DATABASE_URL", "")
+_daily_top10_mem: dict = {"date": None, "data": None}
+
+
+def _init_daily_top10_table():
+    """Create the daily_top10 table if it doesn't exist."""
+    sql = """
+    CREATE TABLE IF NOT EXISTS daily_top10 (
+        scan_date DATE PRIMARY KEY,
+        payload   JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[daily_top10] init table error: {e}")
+
+
+def _load_top10_from_db(today: str):
+    """Load today's (or latest available) top10 from DB."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT payload FROM daily_top10 WHERE scan_date = %s", (today,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            # Fallback: most recent row from any date
+            cur.execute("SELECT payload FROM daily_top10 ORDER BY scan_date DESC LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                payload = row[0]
+                payload["stale"] = True
+                return payload
+    except Exception as e:
+        print(f"[daily_top10] db load error: {e}")
+    return None
+
+
+def _save_top10_to_db(today: str, payload: dict):
+    """Persist today's top10 to DB."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO daily_top10 (scan_date, payload) VALUES (%s, %s) ON CONFLICT (scan_date) DO UPDATE SET payload = EXCLUDED.payload, created_at = NOW()",
+                (today, _json.dumps(payload))
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"[daily_top10] db save error: {e}")
+
 
 def _compute_daily_top10():
-    """Scan DEFAULT_LEADERBOARD and return top 10 by score. Cached per calendar day."""
+    """Return today's top 10. Checks memory → DB → fresh scan."""
     from datetime import date as _date
     today = str(_date.today())
-    if _daily_top10_cache["date"] == today and _daily_top10_cache["data"]:
-        return _daily_top10_cache["data"]
+
+    # 1. In-memory cache (fastest)
+    if _daily_top10_mem["date"] == today and _daily_top10_mem["data"]:
+        return _daily_top10_mem["data"]
+
+    # 2. DB cache (survives server restarts)
+    db_payload = _load_top10_from_db(today)
+    if db_payload and not db_payload.get("stale") and db_payload.get("top10"):
+        _daily_top10_mem["date"] = today
+        _daily_top10_mem["data"] = db_payload
+        return db_payload
+
+    # 3. Fresh scan — clear yfinance cache first to fix crumb issues
+    try:
+        import yfinance as yf
+        try:
+            yf.utils.get_crumb(reuse_session=False)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
     results = scan_tickers(DEFAULT_LEADERBOARD)
     scored  = [r for r in results if not r.get("error") and r.get("score") is not None]
     scored.sort(key=lambda r: r["score"], reverse=True)
     top10 = scored[:10]
     for i, r in enumerate(top10):
         r["rank"] = i + 1
+
+    if not top10 and db_payload and db_payload.get("top10"):
+        # Scan failed entirely — serve stale DB data rather than empty list
+        print("[daily_top10] scan returned empty, serving stale DB data")
+        return db_payload
+
     payload = {"top10": top10, "date": today, "total_scanned": len(DEFAULT_LEADERBOARD)}
-    _daily_top10_cache["date"] = today
-    _daily_top10_cache["data"] = payload
+    _daily_top10_mem["date"] = today
+    _daily_top10_mem["data"] = payload
+    _save_top10_to_db(today, payload)
     return payload
+
+
+_init_daily_top10_table()
+
 
 @app.route("/stock-api/daily-top10", methods=["GET"])
 def daily_top10_route():
-    """Return today's top 10 highest-scoring stocks. Cached for the full trading day."""
-    import threading
+    """Return today's top 10 highest-scoring stocks. DB-backed, survives restarts."""
     try:
         data = _compute_daily_top10()
         return jsonify(data)
@@ -633,6 +718,58 @@ def market_overview():
         "advance_decline": {"up": ad_up, "down": ad_down, "unchanged": ad_unch},
         "as_of": date.today().isoformat(),
     })
+
+
+@app.route("/stock-api/ai-analyze", methods=["POST"])
+def ai_analyze_route():
+    """Generate Claude AI swing analysis for a stock."""
+    body    = request.get_json(silent=True) or {}
+    ticker  = body.get("ticker", "").upper()
+    if not ticker:
+        return jsonify({"error": "ticker required"}), 400
+
+    rsi          = body.get("rsi")
+    macd         = body.get("macd")
+    vol_ratio    = body.get("volume_ratio")
+    price        = body.get("price")
+    change_pct   = body.get("change_pct")
+    score_val    = body.get("score")
+    rating       = body.get("rating", "Neutral")
+    sector       = body.get("sector", "")
+    sma50        = body.get("sma50")
+    sma200       = body.get("sma200")
+
+    def _f(v, d=2):
+        try: return round(float(v), d)
+        except: return None
+
+    prompt = f"""You are a professional swing trader. Provide a concise, actionable swing trade analysis for {ticker}.
+
+Data:
+- Sector: {sector or "N/A"}
+- Price: ${_f(price) or "N/A"} ({_f(change_pct, 2) or 0:+.2f}% today)
+- RSI (14): {_f(rsi, 1) or "N/A"} {"[OVERBOUGHT]" if rsi and float(rsi) > 70 else "[OVERSOLD]" if rsi and float(rsi) < 30 else ""}
+- MACD: {_f(macd, 3) or "N/A"} {"[BULLISH]" if macd and float(macd) > 0 else "[BEARISH]"}
+- Volume Ratio: {_f(vol_ratio, 1) or "N/A"}x {"[ELEVATED]" if vol_ratio and float(vol_ratio) >= 1.5 else ""}
+- SMA 50: ${_f(sma50) or "N/A"} | SMA 200: ${_f(sma200) or "N/A"}
+- Composite Score: {_f(score_val, 1) or "N/A"}/10 — {rating}
+
+Write 3–4 sentences covering: (1) technical setup & momentum, (2) risk/reward, (3) swing trade thesis. Be direct and data-driven. Under 90 words."""
+
+    try:
+        import anthropic as _anthropic
+        base_url = os.getenv("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+        api_key  = os.getenv("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "placeholder")
+        client   = _anthropic.Anthropic(base_url=base_url, api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text if msg.content else "Analysis unavailable."
+        return jsonify({"analysis": text, "ticker": ticker})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/stock-api/squeeze/detector", methods=["POST"])
