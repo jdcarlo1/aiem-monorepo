@@ -1181,7 +1181,7 @@ def darkpool():
     def _fetch_date(date_str):
         combined = {}
         for code in ["FNSQ", "FNYX"]:
-            url = f"http://regsho.finra.org/{code}shvol{date_str}.txt"
+            url = f"https://cdn.finra.org/equity/regsho/daily/{code}shvol{date_str}.txt"
             try:
                 r = _req.get(url, timeout=12)
                 if r.status_code != 200:
@@ -1192,7 +1192,7 @@ def darkpool():
                         continue
                     sym = parts[1].strip()
                     try:
-                        sv = int(parts[2]); tv = int(parts[4])
+                        sv = int(float(parts[2])); tv = int(float(parts[4]))
                     except Exception:
                         continue
                     if sym in combined:
