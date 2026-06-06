@@ -2340,9 +2340,9 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       </div>
 
       <div className="rounded-xl p-4 mb-6 text-sm" style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.15)" }}>
-        <span className="font-bold" style={{ color: "#a78bfa" }}>How it works: </span>
+        <span className="font-bold" style={{ color: "#a78bfa" }}>How to read this: </span>
         <span className="text-slate-400">
-          FINRA publishes daily off-exchange (dark pool) short volume for every stock. We flag tickers where short vol % is running above 54% — that's the threshold where institutional dark pool prints start becoming statistically unusual. Data is 1 day delayed (FINRA's publishing schedule).
+          High DP Vol % means institutions are active in the dark — but that alone doesn't tell you direction. We cross-reference each ticker's live call/put ratio to determine <span className="text-emerald-400 font-semibold">BULLISH</span> (C/P ≥ 1.5×, dark pool + calls = accumulation) vs <span className="text-red-400 font-semibold">BEARISH</span> (C/P ≤ 0.7×, dark pool + puts = distribution). Data is 1 day delayed (FINRA schedule).
         </span>
       </div>
 
@@ -2356,38 +2356,61 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
       {results.length > 0 && (
         <div className="overflow-x-auto -mx-2 px-2">
-          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.07)", minWidth: 480 }}>
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.07)", minWidth: 500 }}>
             <div className="grid text-xs font-bold text-slate-500 uppercase px-4 py-2.5"
-              style={{ gridTemplateColumns: "28px 60px 90px 90px 70px 80px", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}>
+              style={{ gridTemplateColumns: "24px 52px 58px 62px 72px 90px", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}>
               <span>#</span>
               <span>Ticker</span>
-              <span className="text-right">DP Vol %</span>
-              <span className="text-right">Total Vol</span>
-              <span className="text-center">Signal</span>
-              <span className="text-right">Score</span>
+              <span className="text-right">DP%</span>
+              <span className="text-center">Bias</span>
+              <span className="text-center">Flow</span>
+              <span className="text-center">Conviction</span>
             </div>
-            {results.map((r, i) => (
-              <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)}
-                className="grid items-center px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors"
-                style={{ gridTemplateColumns: "28px 60px 90px 90px 70px 80px", borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
-                <span className="text-slate-600 text-xs">{i + 1}</span>
-                <span className="font-black text-white text-sm">{r.ticker}</span>
-                <span className="text-right font-bold text-sm" style={{ color: signalColor(r.signal) }}>{r.short_pct.toFixed(1)}%</span>
-                <span className="text-right text-slate-400 text-xs">{(r.total_vol / 1e6).toFixed(1)}M</span>
-                <div className="flex justify-center">
-                  <span className="px-2 py-0.5 rounded text-xs font-bold"
-                    style={{ background: signalBg(r.signal), color: signalColor(r.signal) }}>
-                    {r.signal}
-                  </span>
+            {results.map((r, i) => {
+              const biasColor = r.bias === "BULLISH" ? "#4ade80" : r.bias === "BEARISH" ? "#f87171" : "#64748b";
+              const biasBg   = r.bias === "BULLISH" ? "rgba(74,222,128,0.10)" : r.bias === "BEARISH" ? "rgba(248,113,113,0.10)" : "rgba(100,116,139,0.10)";
+              const flowColor = r.flow === "INFLOW" ? "#34d399" : r.flow === "OUTFLOW" ? "#f87171" : "#64748b";
+              const flowBg   = r.flow === "INFLOW" ? "rgba(52,211,153,0.10)" : r.flow === "OUTFLOW" ? "rgba(248,113,113,0.10)" : "rgba(100,116,139,0.08)";
+              const flowLabel = r.flow === "INFLOW" ? "▲" : r.flow === "OUTFLOW" ? "▼" : "—";
+              const cvColor = r.conviction === "STRONG BUY" ? "#4ade80"
+                : r.conviction === "BUY" || r.conviction === "INFLOW" ? "#86efac"
+                : r.conviction === "STRONG SELL" ? "#f87171"
+                : r.conviction === "SELL" || r.conviction === "OUTFLOW" ? "#fca5a5"
+                : "#64748b";
+              const cvBg = r.conviction === "STRONG BUY" ? "rgba(74,222,128,0.15)"
+                : r.conviction === "BUY" || r.conviction === "INFLOW" ? "rgba(134,239,172,0.10)"
+                : r.conviction === "STRONG SELL" ? "rgba(248,113,113,0.15)"
+                : r.conviction === "SELL" || r.conviction === "OUTFLOW" ? "rgba(252,165,165,0.10)"
+                : "rgba(100,116,139,0.08)";
+              return (
+                <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)}
+                  className="grid items-center px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors"
+                  style={{ gridTemplateColumns: "24px 52px 58px 62px 72px 90px", borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                  <span className="text-slate-600 text-xs">{i + 1}</span>
+                  <span className="font-black text-white text-sm">{r.ticker}</span>
+                  <span className="text-right font-bold text-sm" style={{ color: signalColor(r.signal) }}>{r.short_pct.toFixed(1)}%</span>
+                  <div className="flex justify-center">
+                    <span className="px-1.5 py-0.5 rounded text-xs font-bold"
+                      style={{ background: biasBg, color: biasColor }}
+                      title={r.bias === "UNKNOWN" ? "Options data available during market hours" : `C/P ratio: ${r.call_put_ratio}×`}>
+                      {r.bias === "UNKNOWN" ? "—" : r.bias}
+                    </span>
+                  </div>
+                  <div className="flex justify-center">
+                    <span className="px-2 py-0.5 rounded text-xs font-bold"
+                      style={{ background: flowBg, color: flowColor }}>
+                      {flowLabel} {r.flow === "UNKNOWN" ? "—" : r.flow}
+                    </span>
+                  </div>
+                  <div className="flex justify-center">
+                    <span className="px-1.5 py-0.5 rounded text-xs font-black whitespace-nowrap"
+                      style={{ background: cvBg, color: cvColor, border: `1px solid ${cvColor}30` }}>
+                      {r.conviction}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-end">
-                  <span className="px-2 py-0.5 rounded-full text-xs font-black"
-                    style={{ background: `${scoreColor(r.score)}18`, color: scoreColor(r.score), border: `1px solid ${scoreColor(r.score)}40` }}>
-                    {r.score.toFixed(1)}<span style={{ opacity: 0.5, fontWeight: 400 }}>/10</span>
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

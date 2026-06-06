@@ -576,7 +576,11 @@ export interface DarkPoolRow {
   total_vol: number;
   short_pct: number;
   score: number;
-  signal: "EXTREME" | "HIGH" | "ELEVATED" | "NORMAL";
+  signal: "EXTREME" | "HIGH" | "ELEVATED" | "NOTABLE";
+  call_put_ratio: number | null;
+  bias: "BULLISH" | "BEARISH" | "NEUTRAL" | "UNKNOWN";
+  flow: "INFLOW" | "OUTFLOW" | "NEUTRAL" | "UNKNOWN";
+  conviction: "STRONG BUY" | "BUY" | "INFLOW" | "WATCH" | "OUTFLOW" | "SELL" | "STRONG SELL";
 }
 
 export function fetchDarkPool() {

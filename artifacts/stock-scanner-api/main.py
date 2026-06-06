@@ -1220,7 +1220,7 @@ def darkpool():
     if not raw:
         return jsonify({"results": [], "date": None, "total_in_db": 0})
 
-    results = []
+    candidates = []
     for ticker in DEFAULT_LEADERBOARD:
         if ticker not in raw:
             continue
@@ -1229,7 +1229,8 @@ def darkpool():
         if tv < 50000:
             continue
         pct = sv / tv * 100
-        # Typical short/dark-pool pct is 45-55%; score 0-10 above that baseline
+        if pct < 50:
+            continue
         score = min(round(max(pct - 40, 0) / 40 * 10, 1), 10.0)
         if pct >= 70:
             signal = "EXTREME"
@@ -1238,22 +1239,85 @@ def darkpool():
         elif pct >= 54:
             signal = "ELEVATED"
         else:
-            signal = "NORMAL"
-        results.append({
+            signal = "NOTABLE"
+        candidates.append({
             "ticker": ticker,
             "short_vol": sv,
             "total_vol": tv,
             "short_pct": round(pct, 1),
             "score": score,
             "signal": signal,
+            "call_put_ratio": None,
+            "bias": "UNKNOWN",
         })
 
-    results.sort(key=lambda x: x["short_pct"], reverse=True)
-    notable = [r for r in results if r["short_pct"] >= 50]
-    for i, r in enumerate(notable[:15]):
+    # Cross-reference options C/P ratio AND OBV trend for full accumulation/distribution picture
+    def _get_signals(ticker):
+        import yfinance as yf
+        cp = None; bias = "UNKNOWN"; flow = "UNKNOWN"
+        try:
+            opts = fetch_options_data(ticker)
+            if opts:
+                cp_raw = float(opts.get("call_put_ratio", 0))
+                cp = round(cp_raw, 2)
+                bias = "BULLISH" if cp_raw >= 1.5 else "BEARISH" if cp_raw <= 0.7 else "NEUTRAL"
+        except Exception:
+            pass
+        try:
+            hist = yf.Ticker(ticker).history(period="20d")
+            closes = hist["Close"].tolist()
+            vols   = hist["Volume"].tolist()
+            if len(closes) >= 10:
+                obv = 0; obv_series = [0]
+                for i in range(1, len(closes)):
+                    if closes[i] > closes[i - 1]:
+                        obv += vols[i]
+                    elif closes[i] < closes[i - 1]:
+                        obv -= vols[i]
+                    obv_series.append(obv)
+                recent = obv_series[-10:]
+                denom = max(abs(recent[0]), 1)
+                slope = (recent[-1] - recent[0]) / denom
+                flow = "INFLOW" if slope > 0.03 else "OUTFLOW" if slope < -0.03 else "NEUTRAL"
+        except Exception:
+            pass
+        return cp, bias, flow
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_get_signals, r["ticker"]): r for r in candidates}
+        for fut in as_completed(futures):
+            row = futures[fut]
+            cp, bias, flow = fut.result()
+            row["call_put_ratio"] = cp
+            row["bias"] = bias
+            row["flow"] = flow
+
+    def _bullish_score(r):
+        s = 0
+        if r["flow"]  == "INFLOW":   s += 30
+        elif r["flow"] == "OUTFLOW": s -= 30
+        if r["bias"]  == "BULLISH":  s += 20
+        elif r["bias"] == "BEARISH": s -= 20
+        s += r["short_pct"]
+        return s
+
+    def _conviction(r):
+        b = r["bias"]; f = r["flow"]
+        if b == "BULLISH"  and f == "INFLOW":  return "STRONG BUY"
+        if b == "BULLISH"  and f != "OUTFLOW": return "BUY"
+        if b != "BEARISH"  and f == "INFLOW":  return "INFLOW"
+        if b == "BEARISH"  and f == "OUTFLOW": return "STRONG SELL"
+        if b == "BEARISH"  and f != "INFLOW":  return "SELL"
+        if b != "BULLISH"  and f == "OUTFLOW": return "OUTFLOW"
+        return "WATCH"
+
+    for r in candidates:
+        r["conviction"] = _conviction(r)
+    results = sorted(candidates, key=_bullish_score, reverse=True)
+    for i, r in enumerate(results[:15]):
         r["rank"] = i + 1
 
-    out = {"results": notable[:15], "date": date_used, "total_in_db": len(raw)}
+    out = {"results": results[:15], "date": date_used, "total_in_db": len(raw)}
     app._dp_cache = out
     app._dp_cache_ts = datetime.now()
     return jsonify(out)
