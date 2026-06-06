@@ -294,20 +294,44 @@ export default function Landing() {
       {/* Features */}
       <div className="px-6 pb-20 max-w-5xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">Everything included</p>
-        <h2 className="text-center font-black mb-14" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>One scanner. Every edge.</h2>
+        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>One scanner. Every edge.</h2>
+        <p className="text-center text-slate-500 mb-10 mx-auto" style={{ maxWidth: "540px", fontSize: "1rem", lineHeight: 1.6 }}>Including 4 new AI features just added — none of which competitors offer at any price.</p>
+
+        {/* NEW — AI features callout strip */}
+        <div className="rounded-2xl p-5 mb-8" style={{ background: "linear-gradient(135deg, rgba(34,197,94,0.06), rgba(16,163,74,0.03))", border: "1px solid rgba(34,197,94,0.25)" }}>
+          <div className="text-center text-xs font-black uppercase tracking-widest mb-4" style={{ color: "#4ade80" }}>✨ New — AI-Powered Features</div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { icon: "🌅", title: "AI Morning Brief", desc: "Claude reads today's unusual flow and writes your daily trading brief every morning — automatically.", tag: "NEW" },
+              { icon: "⚡", title: "Convergence Scanner", desc: "Stocks with BOTH unusual volume AND heavy call flow at the same time — the highest-conviction setup.", tag: "NEW" },
+              { icon: "🔍", title: "Pre-Market Flow", desc: "Biggest movers before the open with volume spike flags. Never get blindsided by a gap again.", tag: "NEW" },
+              { icon: "💡", title: "AI Catalyst", desc: "Ask Claude \"why is this moving?\" on any ticker — get a Bloomberg-style thesis in seconds.", tag: "NEW" },
+            ].map(f => (
+              <div key={f.title} className="rounded-xl p-4" style={{ background: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.15)" }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">{f.icon}</span>
+                  <span className="text-xs font-black px-2 py-0.5 rounded-full" style={{ background: "rgba(34,197,94,0.2)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.35)" }}>{f.tag}</span>
+                </div>
+                <div className="font-black text-white text-sm mb-1">{f.title}</div>
+                <div className="text-slate-400 text-xs leading-relaxed">{f.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[
             { icon: "🔥", title: "Bull Flow Top 20", desc: "Top bullish and bearish options plays ranked by premium. Know what's moving before the chart shows it." },
             { icon: "🚨", title: "High Conviction (5x+ C/P)", desc: "When call volume crushes puts by 5× or more, someone knows something. We spotlight it automatically." },
-            { icon: "⚡", title: "Strong Conviction (3x+)", desc: "More signals, same edge. A separate tab for 3x+ C/P plays — never miss a strong setup again." },
             { icon: "🏆", title: "Smart Money Leaderboard", desc: "AI-ranked stocks by institutional flow, win rate, and expected move. The hedge fund radar for retail traders." },
             { icon: "🏛️", title: "Congressional Trades", desc: "Real-time House STOCK Act filings. Trade amounts shown. Follow the insiders who make the laws." },
             { icon: "📊", title: "Sector Heatmap", desc: "All 11 S&P sectors color-coded live. See instantly where money is flowing in — and out." },
-            { icon: "📈", title: "Advance/Decline Breadth", desc: "Is the market really rallying or just 5 stocks? The A/D breadth bar tells you the truth." },
             { icon: "🎯", title: "Prop Desk Simulator", desc: "Paper trade with real discipline — daily loss limits, profit targets, and drawdown tracking like a funded firm." },
             { icon: "🤖", title: "AI Win Rates", desc: "Every stock gets an ML-powered composite score, win probability, and confidence rating." },
             { icon: "📉", title: "Backtesting Engine", desc: "Test your edge on historical data before you put real money on it. Stop trading hunches." },
             { icon: "💼", title: "Portfolio Tracker", desc: "All your positions, P&L, and exposure in one dark-mode dashboard. No spreadsheet required." },
+            { icon: "👁️", title: "Insider Filings", desc: "SEC Form 4 insider purchases tracked in real time — when executives buy their own stock, we flag it." },
+            { icon: "📈", title: "Breakout Radar", desc: "Stocks within 2% of a 52-week high with rising volume — momentum breakouts before the crowd." },
             { icon: "🚫", title: "0DTE Filtered Out", desc: "Same-day expirations stripped automatically. Only real, forward-dated signals make the cut." },
           ].map(f => (
             <div key={f.title} className="rounded-2xl p-6 transition-all" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}
@@ -325,17 +349,19 @@ export default function Landing() {
       <div className="px-6 pb-20 max-w-5xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">vs. the competition</p>
         <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Why pay more for less?</h2>
-        <p className="text-center text-slate-400 mb-10 mx-auto" style={{ maxWidth: "560px", fontSize: "1.05rem", lineHeight: 1.6 }}>Every platform below has options flow. We built the features they don't — at a fraction of the price.</p>
+        <p className="text-center text-slate-400 mb-10 mx-auto" style={{ maxWidth: "580px", fontSize: "1.05rem", lineHeight: 1.6 }}>Every platform below has options flow — that's table stakes. We built the AI features they don't have, for less than half the price.</p>
         <div className="overflow-x-auto">
-          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "680px" }}>
+          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "820px" }}>
             {/* Header */}
-            <div className="grid px-5 py-3.5 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.05)" }}>
+            <div className="grid px-5 py-3.5 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.05)" }}>
               <span>Service</span>
               <span className="text-center">Price/mo</span>
+              <span className="text-center">AI Brief</span>
+              <span className="text-center">Convergence</span>
+              <span className="text-center">Catalyst AI</span>
               <span className="text-center">Prop Desk</span>
               <span className="text-center">Backtest</span>
               <span className="text-center">AI Score</span>
-              <span className="text-center">0DTE Out</span>
               <span className="text-center">Portfolio</span>
             </div>
             {/* Competitor rows */}
@@ -345,36 +371,42 @@ export default function Landing() {
               { name: "Cheddar Flow",    price: "$85–99†"  },
               { name: "BlackBoxStocks",  price: "$99–149†" },
             ].map(r => (
-              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <span className="text-slate-400 font-semibold">{r.name}</span>
                 <span className="text-center text-red-400 font-black">{r.price}</span>
-                {[false, false, false, false, false].map((_, i) => (
-                  <span key={i} className="text-center text-lg font-black" style={{ color: "#3d1a1a" }}>✕</span>
+                {[0,1,2,3,4,5,6].map(i => (
+                  <span key={i} className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
                 ))}
               </div>
             ))}
             {/* StockScanner AI row */}
-            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr 1fr 1fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
-              <span className="font-black text-emerald-300 text-base leading-tight">StockScanner AI ⭐</span>
+            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
+              <div>
+                <div className="font-black text-emerald-300 text-base leading-tight">StockScanner AI ⭐</div>
+                <div className="text-xs text-emerald-600 mt-0.5">All features included</div>
+              </div>
               <span className="text-center text-emerald-400 font-black text-base">$39</span>
-              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
+              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
             </div>
           </div>
         </div>
         {/* Legend */}
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-1.5 mt-5 text-slate-500 text-xs">
-          <span><span className="text-emerald-400 font-bold">Prop Desk Sim</span> — daily loss limits, profit targets &amp; drawdown tracking</span>
-          <span><span className="text-emerald-400 font-bold">Backtesting</span> — test strategy on historical data before risking real money</span>
-          <span><span className="text-emerald-400 font-bold">AI Conviction Score</span> — ML-powered C/P ranking &amp; win probability per ticker</span>
-          <span><span className="text-emerald-400 font-bold">0DTE Filtered</span> — same-day expirations stripped; only real signals make the cut</span>
-          <span><span className="text-emerald-400 font-bold">Portfolio Tracker</span> — all positions, P&amp;L &amp; exposure in one dashboard</span>
+          <span><span className="text-emerald-400 font-bold">AI Brief</span> — Claude writes your daily market brief every morning</span>
+          <span><span className="text-emerald-400 font-bold">Convergence</span> — stocks with unusual volume AND call flow simultaneously</span>
+          <span><span className="text-emerald-400 font-bold">Catalyst AI</span> — ask Claude why any ticker is moving, get a thesis instantly</span>
+          <span><span className="text-emerald-400 font-bold">Prop Desk</span> — daily loss limits, profit targets &amp; drawdown tracking</span>
+          <span><span className="text-emerald-400 font-bold">Backtest</span> — test strategy on historical data before risking real money</span>
+          <span><span className="text-emerald-400 font-bold">AI Score</span> — ML-powered win probability &amp; conviction rating per ticker</span>
         </div>
-        <p className="text-center text-slate-600 text-sm mt-4">† All competitors offer options flow scanning — that's table stakes. We built the tools they don't.</p>
-        <p className="text-center text-slate-600 text-sm mt-1">StockScanner AI costs less than a single bad trade. The scanner pays for itself in one good signal.</p>
+        <p className="text-center text-slate-600 text-sm mt-4">† Competitors checked June 2025 · All offer options flow scanning — that's table stakes. We built the AI layer they don't have.</p>
+        <p className="text-center text-slate-600 text-sm mt-1">StockScanner AI costs less than a single bad trade. It pays for itself in one good signal.</p>
       </div>
 
       {/* Testimonials */}
