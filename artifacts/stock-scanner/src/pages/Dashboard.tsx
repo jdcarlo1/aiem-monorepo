@@ -2312,7 +2312,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [error, setError]       = useState<string | null>(null);
   const [scanned, setScanned]   = useState(0);
   const [lastRun, setLastRun]   = useState<Date | null>(null);
-  const [flowView, setFlowView] = useState<"bullish"|"strong"|"bearish">("bullish");
+  const [flowView, setFlowView] = useState<"bullish"|"strong"|"bearish">("strong");
   const [theses,       setTheses]       = useState<Record<string, string>>({});
   const [loadThesis,   setLoadThesis]   = useState<Record<string, boolean>>({});
   const [expandThesis, setExpandThesis] = useState<Set<string>>(new Set());
@@ -2645,7 +2645,7 @@ function OverviewTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const { data: mktData }   = useQuery({ queryKey: ["market-overview"], queryFn: fetchMarketOverview, refetchInterval: 30000 });
 
   const top10    = top10Data?.top10 ?? [];
-  const bullFlow = (bullData?.results ?? []).slice(0, 8);
+  const bullFlow = (bullData?.results ?? []).filter(r => r.call_put_ratio >= 2).slice(0, 8);
   const indices  = mktData?.indices ?? [];
   const sectors  = mktData?.sectors ?? [];
   const adv      = mktData?.advance_decline;
