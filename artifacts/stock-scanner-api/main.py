@@ -899,6 +899,11 @@ def market_overview():
     import yfinance as yf
     from datetime import date
 
+    _cache = getattr(app, "_mo_cache", None)
+    _ts    = getattr(app, "_mo_cache_ts", None)
+    if _cache and _ts and _ts == date.today().isoformat():
+        return jsonify(_cache)
+
     SECTORS = [
         ("XLK",  "Technology"),
         ("XLF",  "Financials"),
@@ -963,12 +968,14 @@ def market_overview():
                 elif r["change_pct"] < -0.1: ad_down += 1
                 else:                        ad_unch += 1
 
-    return jsonify({
+    out = {
         "sectors": sectors,
         "indices": indices,
         "advance_decline": {"up": ad_up, "down": ad_down, "unchanged": ad_unch},
         "as_of": date.today().isoformat(),
-    })
+    }
+    app._mo_cache = out; app._mo_cache_ts = date.today().isoformat()
+    return jsonify(out)
 
 
 @app.route("/stock-api/ai-analyze", methods=["POST"])
@@ -1370,6 +1377,11 @@ def premarket():
     """Pre-market movers — price change and volume vs average."""
     import yfinance as yf
 
+    _cache = getattr(app, "_pm_cache", None)
+    _ts    = getattr(app, "_pm_cache_ts", None)
+    if _cache and _ts and (datetime.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
     tickers = DEFAULT_LEADERBOARD[:35]
     results = []
 
@@ -1409,7 +1421,9 @@ def premarket():
     results.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
     gainers = [r for r in results if r["change_pct"] > 0][:10]
     losers  = [r for r in results if r["change_pct"] < 0][:10]
-    return jsonify({"gainers": gainers, "losers": losers, "scanned": len(tickers)})
+    out = {"gainers": gainers, "losers": losers, "scanned": len(tickers)}
+    app._pm_cache = out; app._pm_cache_ts = datetime.now()
+    return jsonify(out)
 
 
 @app.route("/stock-api/darkpool", methods=["GET"])
@@ -1688,15 +1702,24 @@ def vol_crush():
             iv_rank = max(0.0, min(100.0, iv_rank))
             iv_hv   = round(current_iv / hv30, 2) if hv30 > 0 else None
             earnings_date = None
+            short_float_pct = None
+            short_ratio = None
             try:
                 info = tkr.info
                 ed = info.get("earningsTimestamp") or info.get("earningsTimestampStart")
                 if ed: earnings_date = _dt.fromtimestamp(int(ed)).strftime("%Y-%m-%d")
+                sfp = info.get("shortPercentOfFloat")
+                if sfp and sfp > 0:
+                    short_float_pct = round(float(sfp) * 100, 1)
+                sr = info.get("shortRatio")
+                if sr and sr > 0:
+                    short_ratio = round(float(sr), 1)
             except Exception: pass
             verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
             return {"ticker": ticker, "price": round(price, 2), "current_iv": round(current_iv * 100, 1),
                     "hv_30": round(hv30 * 100, 1), "iv_hv_ratio": iv_hv, "iv_rank": iv_rank,
-                    "verdict": verdict, "earnings_date": earnings_date}
+                    "verdict": verdict, "earnings_date": earnings_date,
+                    "short_float_pct": short_float_pct, "short_ratio": short_ratio}
         except Exception: return None
 
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -2014,6 +2037,8 @@ def ai_trades():
             _add(t, "hv_30", r.get("hv_30"))
             _add(t, "iv_verdict", r.get("verdict"))
             _add(t, "earnings_date", r.get("earnings_date"))
+            _add(t, "short_float_pct", r.get("short_float_pct"))
+            _add(t, "short_ratio", r.get("short_ratio"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -2100,6 +2125,81 @@ def ai_trades():
             existing.append(f"[{ev['type']}] {ev['msg']}")
             tickers_data[t]["live_alerts"] = existing
 
+    # 10. Pre-market movers — inject gap direction per ticker
+    pm = getattr(app, "_pm_cache", None)
+    if pm:
+        active_sources.append("Pre-market Movers")
+        for r in pm.get("gainers", []) + pm.get("losers", []):
+            t = r["ticker"]
+            _add(t, "premarket_chg_pct", r.get("change_pct"))
+            _add(t, "premarket_vol_ratio", r.get("vol_ratio"))
+
+    # 11. Market overview — sector momentum + index context
+    mo = getattr(app, "_mo_cache", None)
+    sector_context = ""
+    index_context = ""
+    if mo:
+        active_sources.append("Sector / Index Momentum")
+        sectors_sorted = sorted(mo.get("sectors", []), key=lambda x: x.get("change_pct", 0), reverse=True)
+        top2 = [f"{s['name']} {s['change_pct']:+.1f}%" for s in sectors_sorted[:2]]
+        bot2 = [f"{s['name']} {s['change_pct']:+.1f}%" for s in sectors_sorted[-2:]]
+        sector_context = f"Leading: {', '.join(top2)} | Lagging: {', '.join(bot2)}"
+        spy = next((x for x in mo.get("indices", []) if x["ticker"] == "SPY"), None)
+        qqq = next((x for x in mo.get("indices", []) if x["ticker"] == "QQQ"), None)
+        vix = next((x for x in mo.get("indices", []) if x["ticker"] == "VIX"), None)
+        idx_parts = []
+        if spy: idx_parts.append(f"SPY {spy['change_pct']:+.2f}%")
+        if qqq: idx_parts.append(f"QQQ {qqq['change_pct']:+.2f}%")
+        if vix: idx_parts.append(f"VIX ${vix['price']:.1f}")
+        index_context = " | ".join(idx_parts)
+        ad = mo.get("advance_decline", {})
+        if ad:
+            index_context += f" | A/D {ad.get('up',0)}/{ad.get('down',0)}"
+
+    # 12. Compute implied move per ticker from current_iv + days_to_exp
+    for t, v in tickers_data.items():
+        iv = v.get("current_iv")
+        dte = v.get("days_to_exp")
+        if iv and dte and dte > 0:
+            impl_move = round(float(iv) / 100 * (float(dte) / 252) ** 0.5 * 100, 1)
+            _add(t, "implied_move_pct", impl_move)
+
+    # 13. Macro calendar — days to next key market events
+    def _macro_context():
+        from datetime import date as _date
+        today = _date.today()
+        FED_DATES_2026 = [
+            _date(2026, 1, 29), _date(2026, 3, 19), _date(2026, 5, 7),
+            _date(2026, 6, 18), _date(2026, 7, 29), _date(2026, 9, 17),
+            _date(2026, 11, 5), _date(2026, 12, 10),
+        ]
+        CPI_APPROX_2026 = [
+            _date(2026, 1, 14), _date(2026, 2, 11), _date(2026, 3, 11),
+            _date(2026, 4, 10), _date(2026, 5, 13), _date(2026, 6, 10),
+            _date(2026, 7, 14), _date(2026, 8, 12), _date(2026, 9, 9),
+            _date(2026, 10, 14), _date(2026, 11, 12), _date(2026, 12, 9),
+        ]
+        import calendar as _cal
+        def _next_monthly_opex():
+            y, m = today.year, today.month
+            for _ in range(3):
+                weeks = _cal.monthcalendar(y, m)
+                fridays = [w[4] for w in weeks if w[4] != 0]
+                opex = _date(y, m, fridays[2])
+                if opex >= today: return opex
+                m += 1
+                if m > 12: m = 1; y += 1
+            return None
+        parts = []
+        fed_next = next((d for d in sorted(FED_DATES_2026) if d >= today), None)
+        if fed_next: parts.append(f"Fed={( fed_next - today).days}d")
+        cpi_next = next((d for d in sorted(CPI_APPROX_2026) if d >= today), None)
+        if cpi_next: parts.append(f"CPI={( cpi_next - today).days}d")
+        opex = _next_monthly_opex()
+        if opex: parts.append(f"OPEX={( opex - today).days}d")
+        return " | ".join(parts) if parts else ""
+    macro_context = _macro_context()
+
     # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
     rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
 
@@ -2119,6 +2219,10 @@ def ai_trades():
                     f"/stock-api/max-pain",
                     f"/stock-api/gamma-wall",
                     f"/stock-api/darkpool",
+                    f"/stock-api/premarket",
+                    f"/stock-api/market/overview",
+                    f"/stock-api/signal-feed",
+                    f"/stock-api/composite-score",
                 ]
                 def _fetch(path):
                     try: _ur.urlopen(f"http://127.0.0.1:{PORT}{path}", timeout=90)
@@ -2157,6 +2261,8 @@ def ai_trades():
             parts.append(f"score={v['composite_score']}/100({v.get('bias','?')})")
         if v.get("iv_rank") is not None:
             parts.append(f"iv_rank={v['iv_rank']}%({v.get('iv_verdict','')})")
+        if v.get("implied_move_pct") is not None:
+            parts.append(f"impl_move=±{v['implied_move_pct']}%")
         if v.get("divergence"):
             parts.append(f"SmartVsRetail={v['divergence']}({v.get('signal_strength','?')}) scp={v.get('smart_cp','?')} rcp={v.get('retail_cp','?')}")
         if v.get("call_verdict"):
@@ -2173,30 +2279,57 @@ def ai_trades():
             parts.append(f"topstrike=${v['top_accum_strike']} exp={v.get('top_accum_expiry','?')}")
         if v.get("earnings_date"):
             parts.append(f"earnings={v['earnings_date']}")
+        if v.get("short_float_pct") is not None:
+            si_str = f"short={v['short_float_pct']}%"
+            if v.get("short_ratio") is not None:
+                si_str += f"/{v['short_ratio']}d-to-cover"
+            parts.append(si_str)
+        if v.get("premarket_chg_pct") is not None:
+            vol_tag = f" vol×{v['premarket_vol_ratio']}" if v.get("premarket_vol_ratio") else ""
+            parts.append(f"premarket={v['premarket_chg_pct']:+.2f}%{vol_tag}")
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
         sig_lines.append(" | ".join(parts))
 
     sig_text = "\n".join(sig_lines)
 
+    macro_line = f"MACRO: {macro_context}" if macro_context else ""
+    sector_line = f"SECTORS: {sector_context}" if sector_context else ""
+    index_line = f"INDICES: {index_context}" if index_context else ""
+    context_block = "\n".join(x for x in [macro_line, sector_line, index_line] if x)
+
     system_msg = (
-        "You are an elite institutional options trader. "
+        "You are an elite institutional options trader with full access to real-time market data. "
+        "Use ALL provided signals: options flow, dark pool, IV rank, implied move, short interest, "
+        "earnings catalysts, pre-market gaps, sector rotation, and macro calendar. "
         "Return a JSON array of exactly 3 high-conviction trade setups. "
         "Be very concise — short thesis, short signal strings. "
         "Output ONLY the JSON array, no markdown, no text outside the array."
     )
 
     user_msg = f"""SOURCES ({len(active_sources)}): {', '.join(active_sources)}
-TICKERS: {len(rich)}
+TICKERS SCANNED: {len(rich)}
+{context_block}
 
+TICKER SIGNALS (score-ranked):
 {sig_text}
 
-Pick the 3 highest-conviction tickers where 3+ signals align. Prioritize: Smart vs Retail divergence, composite score≥75, dark pool flow, IV rank extremes, max pain gap.
+SIGNAL KEY:
+- score: composite conviction 0-100 | iv_rank: IV percentile vs 1yr HV | impl_move: market-priced ±% move by expiry
+- SmartVsRetail: institutional vs retail C/P divergence | calls/puts: intent verdict
+- mp: max pain strike & distance | gwall: gamma wall level | dp: dark pool premium flow
+- earnings: next earnings date (avoid selling premium BEFORE this date; elevated IV expected)
+- short: short float % / days-to-cover (high = squeeze potential on BULLISH plays)
+- premarket: pre-market price change & relative volume (gap direction bias)
+- MACRO: days to Fed/CPI/OPEX (avoid naked short premium near these events)
+- SECTORS: which sectors are in/out of rotation today (align directional bias)
 
-Return a JSON array of exactly 3 objects sorted from most BULLISH to most BEARISH (BULLISH first, NEUTRAL second, BEARISH last). Each object must have ALL these fields:
-ticker (string), price (number), setup_type (one of: LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 2-3 short strings), thesis (1-2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
+Pick the 3 highest-conviction setups where 3+ signals align. Weight: Smart vs Retail divergence > composite score≥75 > dark pool flow > earnings catalyst > short squeeze potential > IV rank extremes > premarket gap. Account for macro risk (Fed/CPI proximity) when recommending expiry dates.
 
-Be concise. JSON array only. No markdown. Start immediately with ["""
+Return a JSON array of exactly 3 objects sorted from most BULLISH to most BEARISH. Each object must have ALL these fields:
+ticker (string), price (number), setup_type (one of: LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 3-4 short strings), thesis (1-2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
+
+JSON array only. No markdown. Start immediately with ["""
 
     def _call_openai_streaming():
         """Stream the response so we capture content even if the proxy truncates."""
