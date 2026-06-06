@@ -2280,7 +2280,7 @@ function ConvergenceTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
                 <span className="text-right text-slate-400 text-xs">${r.premium_m.toFixed(1)}M</span>
                 <div className="flex justify-end">
                   <span className="px-2 py-0.5 rounded-full text-xs font-black" style={{ background: `${scoreColor(r.convergence_score)}18`, color: scoreColor(r.convergence_score), border: `1px solid ${scoreColor(r.convergence_score)}40` }}>
-                    {r.convergence_score.toFixed(1)}
+                    {r.convergence_score.toFixed(1)}<span style={{ opacity: 0.5, fontWeight: 400 }}>/10</span>
                   </span>
                 </div>
               </div>

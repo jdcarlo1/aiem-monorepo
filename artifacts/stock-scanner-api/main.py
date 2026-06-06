@@ -1093,7 +1093,7 @@ def convergence():
             if call_put_ratio < 1.3 or prem <= 0:
                 return None
 
-            convergence_score = round(vol_ratio * call_put_ratio, 1)
+            convergence_score = min(round(vol_ratio * call_put_ratio, 1), 10.0)
             return {
                 "ticker": ticker,
                 "price": round(price, 2),
