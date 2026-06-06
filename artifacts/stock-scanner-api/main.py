@@ -1848,6 +1848,57 @@ def vol_crush():
                             net_upgrades_7d = ups - dns
             except Exception: pass
 
+            # Options bid/ask liquidity (ATM call spread % of mid — >10% = illiquid/avoid)
+            options_liquidity_pct = None
+            try:
+                atm_call = calls[calls["strike"] == atm]
+                if not atm_call.empty:
+                    bid_c = float(atm_call["bid"].values[0] or 0)
+                    ask_c = float(atm_call["ask"].values[0] or 0)
+                    mid_c = (bid_c + ask_c) / 2
+                    if mid_c > 0.5:
+                        options_liquidity_pct = round((ask_c - bid_c) / mid_c * 100, 1)
+            except Exception: pass
+
+            # Earnings beat streak (how many of last 4 quarters beat consensus estimate)
+            earnings_beat_streak = None
+            try:
+                # Try multiple yfinance APIs (changed across versions)
+                eq = None
+                for _attr in ("quarterly_earnings", "earnings", "earnings_history"):
+                    try:
+                        eq = getattr(tkr, _attr, None)
+                        if eq is not None and hasattr(eq, "empty") and not eq.empty:
+                            break
+                        eq = None
+                    except Exception:
+                        eq = None
+                if eq is not None and not eq.empty:
+                    # Normalize column names (yfinance returns different caps/spacing)
+                    eq.columns = [c.strip().title() for c in eq.columns]
+                    est_col = next((c for c in eq.columns if "Estim" in c), None)
+                    act_col = next((c for c in eq.columns if "Actual" in c or "Earn" in c), None)
+                    if est_col and act_col:
+                        recent_q = eq.tail(4)
+                        beats = int((recent_q[act_col] > recent_q[est_col]).sum())
+                        total_q = int(len(recent_q))
+                        if total_q >= 2:
+                            earnings_beat_streak = f"{beats}/{total_q}"
+            except Exception: pass
+
+            # Beta to SPY (30-day rolling — uses pre-fetched _spy_rets_arr from outer scope)
+            spy_beta = None
+            if _spy_rets_arr is not None and len(_spy_rets_arr) >= 20:
+                try:
+                    common = min(len(_spy_rets_arr), len(rets))
+                    t_r = rets.values[-common:]
+                    s_r = _spy_rets_arr[-common:]
+                    cov_val = float(np.cov(t_r, s_r)[0][1])
+                    var_spy = float(np.var(s_r))
+                    if var_spy > 0:
+                        spy_beta = round(cov_val / var_spy, 2)
+                except Exception: pass
+
             verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
             return {
                 "ticker": ticker, "price": round(price, 2),
@@ -1858,8 +1909,21 @@ def vol_crush():
                 "short_float_pct": short_float_pct, "short_ratio": short_ratio,
                 "rsi": rsi, "sma50_pct": sma50_pct, "vol_trend_5d": vol_trend_5d,
                 "net_upgrades_7d": net_upgrades_7d,
+                "options_liquidity_pct": options_liquidity_pct,
+                "earnings_beat_streak": earnings_beat_streak,
+                "spy_beta": spy_beta,
             }
         except Exception: return None
+
+    # Pre-fetch SPY returns once (shared across all tickers for beta calculation)
+    _spy_rets_arr = None
+    try:
+        _spy_raw = yf.download("SPY", period="60d", interval="1d", progress=False, auto_adjust=True)["Close"]
+        # Handle both Series (single ticker) and DataFrame (multi-ticker) shapes
+        _spy_hist = _spy_raw.iloc[:, 0] if hasattr(_spy_raw, "columns") else _spy_raw
+        _spy_rets_arr = _spy_hist.dropna().pct_change().dropna().values
+    except Exception:
+        pass
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
@@ -2164,7 +2228,8 @@ def ai_trades():
             _add(t, "top_accum_expiry", ta.get("expiry"))
             _add(t, "nearest_exp", r.get("nearest_exp"))
 
-    # 2. Vol Crush Detector (+ RSI, SMA50%, volume trend, analyst revisions, days-since-earnings)
+    # 2. Vol Crush Detector (+ RSI, SMA50%, volume trend, analyst revisions, days-since-earnings,
+    #    options liquidity, earnings beat streak, SPY beta)
     vc = getattr(app, "_vc_cache", None)
     if vc:
         active_sources.append("Vol Crush + Price Structure")
@@ -2183,6 +2248,9 @@ def ai_trades():
             _add(t, "sma50_pct", r.get("sma50_pct"))
             _add(t, "vol_trend_5d", r.get("vol_trend_5d"))
             _add(t, "net_upgrades_7d", r.get("net_upgrades_7d"))
+            _add(t, "options_liquidity_pct", r.get("options_liquidity_pct"))
+            _add(t, "earnings_beat_streak", r.get("earnings_beat_streak"))
+            _add(t, "spy_beta", r.get("spy_beta"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -2368,6 +2436,63 @@ def ai_trades():
     except Exception:
         pass
 
+    # 15. Market regime detection — VIX level + SPY 5d/20d trend
+    market_regime = "UNKNOWN"
+    try:
+        import yfinance as _yf_mr
+        _mr_data = _yf_mr.download(["^VIX", "SPY"], period="30d", interval="1d", progress=False, auto_adjust=True)["Close"]
+        _vix_ser = _mr_data["^VIX"].dropna()
+        _spy_ser = _mr_data["SPY"].dropna()
+        vix_now = float(_vix_ser.iloc[-1]) if len(_vix_ser) >= 1 else 20.0
+        if len(_spy_ser) >= 10:
+            spy_5d_chg = float(_spy_ser.iloc[-1]) / float(_spy_ser.iloc[-6]) - 1
+            spy_20d_chg = float(_spy_ser.iloc[-1]) / float(_spy_ser.iloc[0]) - 1
+            if vix_now > 30:
+                market_regime = f"HIGH_FEAR(VIX={vix_now:.1f},SPY5d={spy_5d_chg*100:+.1f}%)"
+            elif vix_now > 20:
+                if spy_5d_chg > 0.01:
+                    market_regime = f"RECOVERY(VIX={vix_now:.1f},SPY5d={spy_5d_chg*100:+.1f}%)"
+                elif spy_5d_chg < -0.01:
+                    market_regime = f"CORRECTION(VIX={vix_now:.1f},SPY5d={spy_5d_chg*100:+.1f}%)"
+                else:
+                    market_regime = f"CHOP(VIX={vix_now:.1f},SPY5d={spy_5d_chg*100:+.1f}%)"
+            else:
+                if spy_5d_chg > 0.01:
+                    market_regime = f"BULL_TREND(VIX={vix_now:.1f},SPY5d={spy_5d_chg*100:+.1f}%,20d={spy_20d_chg*100:+.1f}%)"
+                elif spy_5d_chg < -0.02:
+                    market_regime = f"PULLBACK(VIX={vix_now:.1f},SPY5d={spy_5d_chg*100:+.1f}%)"
+                else:
+                    market_regime = f"RANGING(VIX={vix_now:.1f},SPY5d={spy_5d_chg*100:+.1f}%)"
+        active_sources.append(f"Market Regime")
+    except Exception:
+        market_regime = "UNKNOWN"
+
+    # 16. Self-learning win rates from ai_trade_log (which setup_types + directions actually work)
+    win_rate_context = ""
+    try:
+        with _psycopg2.connect(_DB_URL) as _wl_conn, _wl_conn.cursor() as _wl_cur:
+            _wl_cur.execute("""
+                SELECT setup_type, direction,
+                       COUNT(*) FILTER (WHERE outcome = 'WIN')  AS wins,
+                       COUNT(*) FILTER (WHERE outcome = 'LOSS') AS losses,
+                       COUNT(*) AS total
+                FROM ai_trade_log
+                WHERE outcome IN ('WIN','LOSS')
+                GROUP BY setup_type, direction
+                HAVING COUNT(*) >= 3
+                ORDER BY (COUNT(*) FILTER (WHERE outcome = 'WIN'))::float / NULLIF(COUNT(*),0) DESC
+            """)
+            _wl_rows = _wl_cur.fetchall()
+        if _wl_rows:
+            active_sources.append("Historical Win Rates")
+            _wl_parts = []
+            for _s_type, _s_dir, _s_wins, _s_losses, _s_total in _wl_rows:
+                _wr = round(_s_wins / _s_total * 100)
+                _wl_parts.append(f"{_s_type}({_s_dir})={_wr}%_wr({_s_wins}/{_s_total})")
+            win_rate_context = " | ".join(_wl_parts)
+    except Exception:
+        win_rate_context = ""
+
     # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
     rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
 
@@ -2472,6 +2597,16 @@ def ai_trades():
         if v.get("premarket_chg_pct") is not None:
             vol_tag = f" vol×{v['premarket_vol_ratio']}" if v.get("premarket_vol_ratio") else ""
             parts.append(f"premarket={v['premarket_chg_pct']:+.2f}%{vol_tag}")
+        if v.get("options_liquidity_pct") is not None:
+            liq = v["options_liquidity_pct"]
+            liq_tag = "liquid" if liq < 5 else "ILLIQUID_AVOID" if liq > 12 else "ok"
+            parts.append(f"opt_spread={liq}%({liq_tag})")
+        if v.get("earnings_beat_streak"):
+            parts.append(f"earn_beat={v['earnings_beat_streak']}_qtrs")
+        if v.get("spy_beta") is not None:
+            b = v["spy_beta"]
+            b_tag = "high_beta" if b >= 1.5 else "low_beta" if b <= 0.6 else ""
+            parts.append(f"beta={b}x" + (f"({b_tag})" if b_tag else ""))
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
         sig_lines.append(" | ".join(parts))
@@ -2481,17 +2616,22 @@ def ai_trades():
     macro_line = f"MACRO: {macro_context}" if macro_context else ""
     sector_line = f"SECTORS: {sector_context}" if sector_context else ""
     index_line = f"INDICES: {index_context}" if index_context else ""
-    context_block = "\n".join(x for x in [macro_line, sector_line, index_line] if x)
+    regime_line = f"MARKET_REGIME: {market_regime}" if market_regime and market_regime != "UNKNOWN" else ""
+    winrate_line = f"YOUR_HISTORICAL_WIN_RATES: {win_rate_context}" if win_rate_context else ""
+    context_block = "\n".join(x for x in [macro_line, sector_line, index_line, regime_line, winrate_line] if x)
 
     system_msg = (
-        "You are an elite institutional options trader with full access to real-time multi-source market data. "
-        "You receive 18+ signal types per ticker: options flow, dark pool, IV rank, implied move, RSI, "
-        "SMA50 position, volume trend, call vol/OI ratio (unusual activity), short interest, analyst revisions, "
-        "earnings proximity, post-earnings IV crush windows, pre-market gaps, sector rotation, macro calendar, "
-        "and multi-day signal persistence (how many consecutive days a setup has been building). "
-        "Persistence is your highest-conviction filter — a signal firing 3+ consecutive days is far stronger than a one-day spike. "
-        "Return a JSON array of exactly 3 high-conviction trade setups. Be concise. "
-        "Output ONLY the JSON array, no markdown, no text outside the array."
+        "You are an elite institutional options trader. You receive 24+ data points per ticker across 16 sources. "
+        "CRITICAL RULES:\n"
+        "1. NEVER recommend a setup where opt_spread>12% (ILLIQUID_AVOID) — wide spreads destroy edge.\n"
+        "2. In HIGH_FEAR or CORRECTION regimes: avoid LONG CALL setups; prefer PUT spreads or IRON CONDORs on elevated-IV tickers.\n"
+        "3. In BULL_TREND regime: prefer LONG CALL or BULL CALL SPREAD on high-beta (beta≥1.5) names with vol_trend surging.\n"
+        "4. In RANGING/CHOP regime: prefer IRON CONDOR on IV_rank≥60 tickers; avoid pure directional plays.\n"
+        "5. If YOUR_HISTORICAL_WIN_RATES is provided: strongly prefer setup_types with high win rates from your own history. "
+        "Avoid setup_types with <50% win rate unless signals are extremely strong.\n"
+        "6. persist=3d+ is your highest-conviction filter — a setup building for 3+ consecutive days is rare and reliable.\n"
+        "7. earn_beat=3/4 or 4/4 gives fundamental tailwind; earn_beat=0/4 is a headwind — adjust conviction accordingly.\n"
+        "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
     )
 
     user_msg = f"""SOURCES ({len(active_sources)}): {', '.join(active_sources)}
@@ -2502,33 +2642,37 @@ TICKER SIGNALS (score-ranked, highest composite first):
 {sig_text}
 
 SIGNAL KEY:
-- score: composite conviction 0-100 | persist: days in a row the signal has been building (3d = very high conviction)
+- score: composite conviction 0-100 | persist: consecutive days signal has been building (3d+ = very high conviction)
 - iv_rank: IV percentile vs 1yr HV | impl_move: options market's priced-in ±% move to expiry
-- rsi: momentum (>70 overbought, <30 oversold) | sma50: % above/below 50-day moving avg
-- vol_trend: 5d vs 20d average volume ratio (>1.5x = institutional accumulation surge)
+- rsi: momentum (>70 overbought, <30 oversold) | sma50: % above/below 50-day SMA
+- vol_trend: 5d vs 20d avg volume ratio (≥1.5x = institutional accumulation surge)
+- beta: 30-day beta to SPY (≥1.5 = amplified SPY moves, ≤0.6 = defensive)
 - SmartVsRetail: institutional vs retail C/P divergence | calls/puts: intent verdict
-- vol/oi: call volume-to-open-interest ratio (>2x = concentrated new position, not retail churn)
+- vol/oi: call volume-to-open-interest ratio (>2x = concentrated new institutional position)
+- opt_spread: ATM call bid/ask spread % of mid (<5%=liquid, >12%=ILLIQUID_AVOID — do NOT recommend)
+- earn_beat: quarters beat vs missed EPS estimate (3/4 or 4/4 = serial earnings beater)
 - mp: max pain & distance | gwall: gamma wall | dp: dark pool premium
-- earnings: next earnings date | post_earnings: days since earnings = IV crush window (sell premium / buy spreads)
-- analysts: net upgrades minus downgrades in last 7 days (positive = tailwind, negative = headwind)
-- short: short float % / days-to-cover (high = squeeze fuel on bullish plays)
-- premarket: pre-market gap % & relative volume | MACRO: days to Fed/CPI/OPEX
-- SECTORS: today's sector rotation (match directional bias to leading sectors)
+- earnings: next earnings | post_earnings: days since = IV crush window (sell premium while IV deflates)
+- analysts: net upgrades minus downgrades in last 7 days
+- short: short float % / days-to-cover | premarket: gap % & relative volume
+- MACRO: days to Fed/CPI/OPEX | SECTORS: sector rotation leaders/laggards
+- MARKET_REGIME: current market environment → drives which setup_types to use (see rules above)
+- YOUR_HISTORICAL_WIN_RATES: actual win rates from your past trades logged in this system
 
-PRIORITY WEIGHTING (highest to lowest):
-1. persist=3d+ (multi-day signal confirmation — rarest and most reliable)
-2. Smart vs Retail divergence (institutional vs retail misalignment)
-3. composite score ≥75 + vol_trend surging (institutional accumulation surge)
-4. call vol/oi >2x (concentrated new unusual options activity)
-5. post_earnings IV crush window (sell elevated premium while IV deflates)
-6. analyst upgrades + positive premarket gap (momentum confirmation)
-7. dark pool + earnings catalyst alignment
-8. IV rank extremes + macro timing
+PRIORITY WEIGHTING (use in order):
+1. opt_spread>12% → SKIP (non-negotiable liquidity gate)
+2. MARKET_REGIME → determines valid setup_types for current environment
+3. YOUR_HISTORICAL_WIN_RATES → bias toward setup_types that have worked in your own history
+4. persist=3d+ (multi-day confirmation — strongest signal)
+5. Smart vs Retail divergence (institutional vs retail misalignment)
+6. score≥75 + vol_trend≥1.5x + beta context (accumulation surge + directional amplifier)
+7. call vol/oi >2x (concentrated unusual new activity)
+8. post_earnings IV crush window + earn_beat streak
+9. analyst upgrades + premarket gap confirmation
+10. dark pool flow + macro timing
 
-Pick the 3 highest-conviction setups. Account for: macro risk (avoid naked short premium <5 days to Fed/CPI), earnings risk (avoid shorting volatility before earnings), and sector tailwinds.
-
-Return a JSON array of exactly 3 objects sorted BULLISH first, NEUTRAL second, BEARISH last. Each object must have ALL fields:
-ticker (string), price (number), setup_type (LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 4-5 short strings naming the exact signals), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
+Return a JSON array of exactly 3 objects sorted BULLISH → NEUTRAL → BEARISH. Each must have ALL fields:
+ticker (string), price (number), setup_type (LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 4-5 short strings naming exact signals used), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
 
 JSON array only. No markdown. Start immediately with ["""
 
