@@ -348,17 +348,30 @@ export default function Landing() {
       {/* Comparison */}
       <div className="px-6 pb-20 max-w-5xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">vs. the competition</p>
-        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Why pay more for less?</h2>
-        <p className="text-center text-slate-400 mb-10 mx-auto" style={{ maxWidth: "580px", fontSize: "1.05rem", lineHeight: 1.6 }}>Every platform below has options flow — that's table stakes. We built the AI features they don't have, for less than half the price.</p>
+        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Same data. Half the price. More AI.</h2>
+        <p className="text-center text-slate-400 mb-3 mx-auto" style={{ maxWidth: "620px", fontSize: "1.05rem", lineHeight: 1.6 }}>
+          Yes — Unusual Whales, FlowAlgo, and the others all scan options flow too. We're not pretending otherwise.
+        </p>
+        <p className="text-center mb-10 mx-auto font-bold" style={{ maxWidth: "620px", fontSize: "1.05rem", lineHeight: 1.6, color: "#4ade80" }}>
+          The difference: they charge $85–149/month for scanning alone. We charge $39 — and ship AI features they haven't built at any price.
+        </p>
         <div className="overflow-x-auto">
-          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "820px" }}>
+          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "860px" }}>
+            {/* Column group labels */}
+            <div className="grid px-5 pt-3 pb-1 text-xs font-black uppercase tracking-widest" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr" }}>
+              <span />
+              <span />
+              <span className="text-center col-span-3" style={{ color: "#4ade80" }}>— AI features (exclusive) —</span>
+              <span className="text-center col-span-4 text-slate-600">— tools —</span>
+            </div>
             {/* Header */}
-            <div className="grid px-5 py-3.5 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.05)" }}>
+            <div className="grid px-5 py-3 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)" }}>
               <span>Service</span>
               <span className="text-center">Price/mo</span>
-              <span className="text-center">AI Brief</span>
-              <span className="text-center">Convergence</span>
-              <span className="text-center">Catalyst AI</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>AI Brief</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>Convergence</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>Catalyst AI</span>
+              <span className="text-center">Options Flow</span>
               <span className="text-center">Prop Desk</span>
               <span className="text-center">Backtest</span>
               <span className="text-center">AI Score</span>
@@ -371,41 +384,43 @@ export default function Landing() {
               { name: "Cheddar Flow",    price: "$85–99†"  },
               { name: "BlackBoxStocks",  price: "$99–149†" },
             ].map(r => (
-              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <span className="text-slate-400 font-semibold">{r.name}</span>
                 <span className="text-center text-red-400 font-black">{r.price}</span>
-                {[0,1,2,3,4,5,6].map(i => (
+                {/* AI features — all ✕ */}
+                {[0,1,2].map(i => (
+                  <span key={i} className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
+                ))}
+                {/* Options flow — all ✓ (they have it, just expensive) */}
+                <span className="text-center text-slate-500 font-black text-base">✓</span>
+                {/* Other tools — all ✕ */}
+                {[0,1,2,3].map(i => (
                   <span key={i} className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
                 ))}
               </div>
             ))}
             {/* StockScanner AI row */}
-            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
+            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
               <div>
                 <div className="font-black text-emerald-300 text-base leading-tight">StockScanner AI ⭐</div>
-                <div className="text-xs text-emerald-600 mt-0.5">All features included</div>
+                <div className="text-xs text-emerald-600 mt-0.5">Everything included</div>
               </div>
               <span className="text-center text-emerald-400 font-black text-base">$39</span>
-              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
-              <span className="text-center text-emerald-400 font-black text-xl">✓</span>
+              {/* All ✓ */}
+              {[0,1,2,3,4,5,6,7].map(i => (
+                <span key={i} className="text-center text-emerald-400 font-black text-xl">✓</span>
+              ))}
             </div>
           </div>
         </div>
         {/* Legend */}
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-1.5 mt-5 text-slate-500 text-xs">
-          <span><span className="text-emerald-400 font-bold">AI Brief</span> — Claude writes your daily market brief every morning</span>
-          <span><span className="text-emerald-400 font-bold">Convergence</span> — stocks with unusual volume AND call flow simultaneously</span>
+          <span><span className="text-emerald-400 font-bold">AI Brief</span> — Claude writes your daily market brief from live flow data</span>
+          <span><span className="text-emerald-400 font-bold">Convergence</span> — stocks with unusual volume AND call flow at the same time</span>
           <span><span className="text-emerald-400 font-bold">Catalyst AI</span> — ask Claude why any ticker is moving, get a thesis instantly</span>
-          <span><span className="text-emerald-400 font-bold">Prop Desk</span> — daily loss limits, profit targets &amp; drawdown tracking</span>
-          <span><span className="text-emerald-400 font-bold">Backtest</span> — test strategy on historical data before risking real money</span>
-          <span><span className="text-emerald-400 font-bold">AI Score</span> — ML-powered win probability &amp; conviction rating per ticker</span>
+          <span><span className="text-slate-500 font-bold">Options Flow</span> — all competitors have this; we just charge 60% less for it</span>
         </div>
-        <p className="text-center text-slate-600 text-sm mt-4">† Competitors checked June 2025 · All offer options flow scanning — that's table stakes. We built the AI layer they don't have.</p>
+        <p className="text-center text-slate-600 text-sm mt-4">† Prices checked June 2025 · Options flow ✓ for all — that's the baseline. The AI layer is what they haven't built.</p>
         <p className="text-center text-slate-600 text-sm mt-1">StockScanner AI costs less than a single bad trade. It pays for itself in one good signal.</p>
       </div>
 
