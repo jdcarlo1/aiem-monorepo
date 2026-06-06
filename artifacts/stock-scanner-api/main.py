@@ -134,6 +134,37 @@ def analyze():
     return jsonify(result)
 
 
+# ── Daily Top-10 cache ───────────────────────────────────────────────────────
+_daily_top10_cache: dict = {"date": None, "data": None}
+
+def _compute_daily_top10():
+    """Scan DEFAULT_LEADERBOARD and return top 10 by score. Cached per calendar day."""
+    from datetime import date as _date
+    today = str(_date.today())
+    if _daily_top10_cache["date"] == today and _daily_top10_cache["data"]:
+        return _daily_top10_cache["data"]
+    results = scan_tickers(DEFAULT_LEADERBOARD)
+    scored  = [r for r in results if not r.get("error") and r.get("score") is not None]
+    scored.sort(key=lambda r: r["score"], reverse=True)
+    top10 = scored[:10]
+    for i, r in enumerate(top10):
+        r["rank"] = i + 1
+    payload = {"top10": top10, "date": today, "total_scanned": len(DEFAULT_LEADERBOARD)}
+    _daily_top10_cache["date"] = today
+    _daily_top10_cache["data"] = payload
+    return payload
+
+@app.route("/stock-api/daily-top10", methods=["GET"])
+def daily_top10_route():
+    """Return today's top 10 highest-scoring stocks. Cached for the full trading day."""
+    import threading
+    try:
+        data = _compute_daily_top10()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/stock-api/stock/scan", methods=["POST"])
 def scan():
     body = request.get_json(silent=True) or {}

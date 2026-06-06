@@ -7,11 +7,11 @@ import {
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
   fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
-  fetchSignalOutcomes,
+  fetchSignalOutcomes, fetchDailyTop10,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
-  SignalOutcome,
+  SignalOutcome, DailyTop10Result,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -171,6 +171,102 @@ function ScanTable({ results, onSelect }: { results: ScanResult[]; onSelect: (t:
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ---- Daily Top 10 Banner -------------------------------------------------
+function DailyTop10Banner({ onSelect }: { onSelect: (t: string) => void }) {
+  const [data, setData]       = useState<DailyTop10Result | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    fetchDailyTop10()
+      .then(d => { setData(d); setLoading(false); })
+      .catch(e => { setError(e.message ?? "Failed"); setLoading(false); });
+  }, []);
+
+  const scoreColor = (s?: number) => {
+    if (!s) return "text-slate-400";
+    if (s >= 8) return "text-emerald-400";
+    if (s >= 6) return "text-green-400";
+    if (s >= 5) return "text-yellow-400";
+    return "text-red-400";
+  };
+
+  const scoreBg = (s?: number) => {
+    if (!s) return "bg-slate-800";
+    if (s >= 8) return "bg-emerald-900/40 border border-emerald-800/50";
+    if (s >= 6) return "bg-green-900/30 border border-green-800/40";
+    if (s >= 5) return "bg-yellow-900/20 border border-yellow-800/30";
+    return "bg-red-900/20 border border-red-800/30";
+  };
+
+  const chgColor = (v?: number) =>
+    v == null ? "text-slate-500" : v >= 0 ? "text-emerald-400" : "text-red-400";
+
+  return (
+    <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
+        <div className="flex items-center gap-3">
+          <span className="text-base font-black text-white">🏆 Today's Top 10</span>
+          {data && (
+            <span className="text-xs text-slate-500 font-normal">
+              Highest-scoring stocks from {data.total_scanned}-ticker universe · {data.date}
+            </span>
+          )}
+          {loading && <span className="text-xs text-slate-500">Scanning {"\u2014"} this may take ~60 sec the first time…</span>}
+        </div>
+        <button onClick={() => setCollapsed(c => !c)}
+          className="text-slate-500 hover:text-slate-300 text-xs px-2 py-1 rounded transition-colors">
+          {collapsed ? "▼ Show" : "▲ Hide"}
+        </button>
+      </div>
+
+      {!collapsed && (
+        <>
+          {loading && (
+            <div className="flex items-center justify-center gap-3 py-10 text-slate-400 text-sm">
+              <Spinner /> Scanning {"\u2014"} computing scores across the full watchlist…
+            </div>
+          )}
+          {error && (
+            <div className="px-5 py-4 text-red-400 text-sm">{error}</div>
+          )}
+          {!loading && data && data.top10.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-y divide-slate-800">
+              {data.top10.map(r => (
+                <button key={r.ticker} onClick={() => onSelect(r.ticker)}
+                  className={`text-left px-4 py-3 hover:bg-slate-800/60 transition-colors group ${scoreBg(r.score)}`}>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="font-black text-white text-sm group-hover:text-blue-300 transition-colors">{r.ticker}</span>
+                    <span className={`text-xs font-bold ${scoreColor(r.score)}`}>{r.score?.toFixed(1)}</span>
+                  </div>
+                  <div className="text-slate-500 text-xs truncate">{r.name ?? r.sector}</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    {r.price != null && <span className="text-slate-300 text-xs">${r.price.toFixed(2)}</span>}
+                    {r.price_change_pct != null && (
+                      <span className={`text-xs font-medium ${chgColor(r.price_change_pct)}`}>
+                        {r.price_change_pct >= 0 ? "+" : ""}{r.price_change_pct.toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {!loading && data && data.top10.length === 0 && (
+            <div className="px-5 py-6 text-slate-500 text-sm text-center">No results available yet — try again after market open.</div>
+          )}
+          <div className="px-5 py-2 border-t border-slate-800 flex items-center justify-between">
+            <p className="text-slate-600 text-xs">Click any ticker to open full analysis · Score 0–10 · Updates daily at market open</p>
+            <span className="text-slate-700 text-xs">Not financial advice</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2612,6 +2708,7 @@ export default function Dashboard() {
         {/* --- Scanner --- */}
         {tab === "scanner" && (
           <div className="space-y-4">
+            <DailyTop10Banner onSelect={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
               <div className="text-slate-400 text-sm mb-3">Tickers to scan (comma-separated, max 20)</div>
               <div className="flex gap-2">
@@ -2634,7 +2731,12 @@ export default function Dashboard() {
           </div>
         )}
 
-        {tab === "analytics" && <AnalyticsTab />}
+        {tab === "analytics" && (
+          <div className="space-y-4">
+            <DailyTop10Banner onSelect={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
+            <AnalyticsTab />
+          </div>
+        )}
         {tab === "backtest"  && <BacktestTab />}
         {tab === "alerts"    && <AlertsTab />}
         {tab === "propdesk"   && <PropDeskTab />}

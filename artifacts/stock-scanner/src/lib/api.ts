@@ -13,6 +13,16 @@ export function analyzeStock(ticker: string) {
   return fetchJson<StockAnalysis>(`/stock/analyze?ticker=${encodeURIComponent(ticker)}`);
 }
 
+export interface DailyTop10Result {
+  top10: ScanResult[];
+  date: string;
+  total_scanned: number;
+}
+
+export function fetchDailyTop10() {
+  return fetchJson<DailyTop10Result>("/daily-top10");
+}
+
 export function scanStocks(tickers: string[]) {
   return fetchJson<{ results: ScanResult[] }>("/stock/scan", {
     method: "POST",
