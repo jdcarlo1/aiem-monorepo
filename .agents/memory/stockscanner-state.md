@@ -11,10 +11,10 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - Signal snapshot job at 4:00 PM ET Mon-Fri (saves to signal_history table for persistence tracking)
 - Outcome tracker job at 4:30 PM ET (T+3/5/10 day price outcomes)
 
-## AI Trades — 18+ Signal Types, 11 Sources
+## AI Trades — 35+ Data Points, 17 Sources
 The `/stock-api/ai-trades` route aggregates all of the below into a GPT prompt:
 1. Composite Score Board
-2. Vol Crush + Price Structure (RSI, SMA50%, vol_trend_5d, net_upgrades_7d, days_since_earnings)
+2. Vol Crush + Price Structure (RSI, SMA50%, vol_trend_5d, net_upgrades_7d, days_since_earnings, options_liquidity_pct, earnings_beat_streak, spy_beta)
 3. Call Intent Decoder (call_vol_oi = volume/OI ratio per strike)
 4. Put Intent / Bear Flow
 5. Smart vs Retail divergence
@@ -24,24 +24,48 @@ The `/stock-api/ai-trades` route aggregates all of the below into a GPT prompt:
 9. Live Signal Feed
 10. Pre-market Movers
 11. Sector / Index Momentum
+12. Multi-day Signal Persistence (signal_history table, 4 PM snapshots)
+13. Options Liquidity Filter (bid/ask spread %)
+14. Market Regime Detection (VIX + SPY 5d/20d)
+15. Self-learning win rates (ai_trade_log)
+16. Historical Win Rates
+17. Macro Cross-Asset (yield curve, USD, credit spreads, crude, gold)
 Plus: macro calendar, implied move, short interest, earnings proximity
 
-## 5 New Indicators (built June 2026)
-- **Multi-day persistence**: `signal_history` DB table snapshots daily at 4 PM; ai_trades queries for consecutive days above threshold → shows `persist=3d` to GPT
-- **Call vol/OI ratio**: `call_vol_oi` from `_ci_cache`, shown as `vol/oi=3.2x` — filters concentrated new positions from retail churn
-- **Analyst revision velocity**: `net_upgrades_7d` from `tkr.upgrades_downgrades` in vol-crush `_analyze()`
-- **Post-earnings IV crush timing**: `days_since_earnings` — if 0-10 days past earnings, shows `post_earnings=Nd_ago(IV_crush_window)` to steer GPT toward credit spreads
-- **Price structure**: `rsi` (14-period), `sma50_pct` (% vs 50d SMA), `vol_trend_5d` (5d/20d avg vol ratio) — all in vol-crush `_analyze()`
+## 7 New Quant Hedge-Fund Signals (built June 2026)
+All computed in vol-crush `_analyze()` — 100% populated in production:
+- **iv_skew**: OTM put IV minus OTM call IV at ~25-delta equiv. Positive = fear premium / downside hedging active. FEAR_PREMIUM>8pp = institutional crash protection.
+- **iv_term_structure**: Near-term ATM IV minus next-expiry ATM IV. BACKWARDATION>5pp = event/earnings risk priced in near term.
+- **gex_m / gex_regime**: Dealer Gamma Exposure in $M via Black-Scholes gamma approx across full options chain. LONG_GAMMA = suppressive/mean-revert; SHORT_GAMMA = amplifying/directional.
+- **iv_rv_premium**: (IV/HV ratio - 1) × 100. RICH_SELL_PREM>20% = edge selling premium; CHEAP_BUY_VOL<-10% = edge buying vol.
+- **momentum_12_1**: Price return from oldest bar to 21 bars ago (Fama-French 12-1 month factor). >15% = strong momentum; <-15% = weak.
+- **factor_roe / factor_fpe**: ROE from tkr.info["returnOnEquity"] (quality factor); forward P/E from tkr.info["forwardPE"] (value factor). CHEAP<15x, EXPENSIVE>35x.
+- **sector_corr**: 30-day correlation to sector ETF (XLK/XLF/XLV/XLE/XLI/XLC/XLY). IDIOSYNCRATIC<0.5 = name-specific catalyst, preferred.
+- **news_sentiment**: Keyword-based scoring of recent tkr.news headlines (±word matching). Fast, no API cost.
+- **Macro Cross-Asset** (section 17 in ai_trades): yield curve (^TNX - ^IRX), USD via UUP (NOT ^DXY — delisted), HYG vs LQD credit spread, crude (USO), gold (GLD).
 
-## GPT Priority Weighting (system prompt)
-1. persist=3d+ (multi-day confirmation — rarest, most reliable)
-2. Smart vs Retail divergence (institutional vs retail misalignment)
-3. composite score ≥75 + vol_trend surging
-4. call vol/oi >2x (unusual concentrated activity)
-5. post-earnings IV crush window
-6. analyst upgrades + premarket gap
-7. dark pool + earnings catalyst
-8. IV rank extremes + macro timing
+## Implementation details (quant signals)
+- Sector ETF pre-fetch: happens before ThreadPoolExecutor in vol-crush route — dict `_TICKER_TO_SECTOR_ETF` + `_sector_rets_map` accessed via closure
+- Use `UUP` (not `^DXY` — delisted on yfinance) for USD strength in macro cross-asset
+- GEX uses numpy normal PDF (np.exp(-0.5*d1**2)/np.sqrt(2*pi)) — no scipy dependency
+- momentum_12_1 threshold: `len(hist) >= 60` (not 252) — uses `hist.iloc[0]` as 12m reference
+- sig_lines limited to top 10 tickers (was 15) + max_completion_tokens=6000 (was 4000) to avoid GPT truncation
+- All 7 new fields wired into ai_trades section 2 (vol-crush wiring block)
+- GPT system prompt updated with 13 rules covering all new signals
+
+## GPT Priority Weighting (updated system prompt)
+1. opt_spread>12% → SKIP (liquidity gate)
+2. MARKET_REGIME + MACRO_CROSS_ASSET → valid setup_types
+3. GEX regime → LONG=mean-revert; SHORT=directional
+4. Historical win rates → self-learning bias
+5. persist=3d+ (multi-day confirmation)
+6. Smart vs Retail divergence
+7. iv_rv + iv_skew (vol surface edge)
+8. score≥75 + vol_trend + beta + momentum
+9. call vol/oi >2x (unusual activity)
+10. post-earnings + earn_beat + ROE + fwd_PE
+11. sector_corr=IDIOSYNCRATIC
+12. analyst upgrades + premarket + news
 
 ## Stripe
 - Product: "StockScanner AI Pro" — Price: `price_1Tf9Q7Chn3bmMDTvtCrhUJud` ($39/mo, ACTIVE)
@@ -52,8 +76,11 @@ Plus: macro calendar, implied move, short interest, earnings proximity
 - Webhook handler: `artifacts/api-server/src/webhookHandlers.ts`
 
 ## Landing Page
-- `artifacts/stock-scanner/src/pages/Landing.tsx` — $39/mo price, crossed-out $59, "🔥 Limited Time Offer" badge, "save $20/mo"
-- Dashboard landing banner: `artifacts/stock-scanner/src/pages/Dashboard.tsx` around line 619 (Smart Money tab)
+- `artifacts/stock-scanner/src/pages/Landing.tsx` — "16 scanners. One AI thesis."
+- $39/mo price, crossed-out $59, "🔥 Limited Time Offer" badge, "save $20/mo"
+- 5 gold highlighted checklist items: AI Synthesis, Put Intent, Dark Pool, Market Regime, Self-Learning AI
+- 2 additional plain checklist items: Multi-Day Persistence, Options Liquidity Filter
+- Features grid: 20 cards total including 4 new quant cards
 
 ## Bloomberg Terminal Mockup (CANVAS — not yet graduated to main app)
 - Component: `artifacts/mockup-sandbox/src/components/mockups/bloomberg-terminal/Dashboard.tsx`

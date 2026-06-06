@@ -1899,6 +1899,118 @@ def vol_crush():
                         spy_beta = round(cov_val / var_spy, 2)
                 except Exception: pass
 
+            # ── QUANT HEDGE-FUND SIGNALS ───────────────────────────────────────────────
+
+            # Q1. Volatility skew (OTM put IV vs OTM call IV) + IV term structure
+            iv_skew = None
+            iv_term_structure = None
+            try:
+                put_otm = puts[puts["strike"] < price * 0.92]["strike"]
+                call_otm = calls[calls["strike"] > price * 1.08]["strike"]
+                if not put_otm.empty and not call_otm.empty:
+                    p25_k = float(put_otm.max())
+                    c25_k = float(call_otm.min())
+                    p25_iv = float(puts[puts["strike"] == p25_k]["impliedVolatility"].values[0])
+                    c25_iv = float(calls[calls["strike"] == c25_k]["impliedVolatility"].values[0])
+                    if p25_iv > 0 and c25_iv > 0:
+                        iv_skew = round((p25_iv - c25_iv) * 100, 1)
+                if len(exps) >= 2:
+                    _ch2 = tkr.option_chain(exps[1])
+                    _atm2 = min(sorted(_ch2.calls["strike"].tolist()), key=lambda s: abs(s - price))
+                    _iv2 = [v for _c in [_ch2.puts, _ch2.calls]
+                            for v in _c[_c["strike"] == _atm2]["impliedVolatility"].values if v and v > 0]
+                    if _iv2:
+                        iv_term_structure = round((current_iv - float(np.mean(_iv2))) * 100, 1)
+            except Exception: pass
+
+            # Q2. Dealer Gamma Exposure (GEX) via Black-Scholes gamma approximation
+            gex_m = None
+            gex_regime = None
+            try:
+                from datetime import datetime as _dt_gex
+                _exp_dt = _dt_gex.strptime(exps[0], "%Y-%m-%d")
+                _T = max((_exp_dt - _dt.now()).days, 1) / 365.0
+                _rf = 0.05
+                def _bs_gamma(S, K, T, r, sigma):
+                    if sigma <= 0 or T <= 0 or K <= 0: return 0.0
+                    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+                    return float(np.exp(-0.5 * d1 ** 2) / np.sqrt(2 * np.pi) / (S * sigma * np.sqrt(T)))
+                _gex = 0.0
+                for _, _row in calls.iterrows():
+                    _K, _iv_v, _oi = _row["strike"], _row["impliedVolatility"], _row.get("openInterest") or 0
+                    if _iv_v > 0 and _K > 0 and _oi > 0:
+                        _gex += _bs_gamma(price, _K, _T, _rf, _iv_v) * _oi * 100 * price
+                for _, _row in puts.iterrows():
+                    _K, _iv_v, _oi = _row["strike"], _row["impliedVolatility"], _row.get("openInterest") or 0
+                    if _iv_v > 0 and _K > 0 and _oi > 0:
+                        _gex -= _bs_gamma(price, _K, _T, _rf, _iv_v) * _oi * 100 * price
+                gex_m = round(_gex / 1e6, 1)
+                gex_regime = "LONG_GAMMA" if _gex > 0 else "SHORT_GAMMA"
+            except Exception: pass
+
+            # Q3. IV premium vs Realized Vol (>20% = rich → sell premium; <-10% = cheap → buy vol)
+            iv_rv_premium = None
+            try:
+                if iv_hv and iv_hv > 0:
+                    iv_rv_premium = round((iv_hv - 1.0) * 100, 1)
+            except Exception: pass
+
+            # Q4. Factor scoring: momentum (12-1 month), quality (ROE), value (forward P/E)
+            momentum_12_1 = None
+            factor_roe = None
+            factor_fpe = None
+            try:
+                if len(hist) >= 60:  # need at least ~3 months; use oldest available as 12m proxy
+                    _p1m  = float(hist.iloc[-21]) if len(hist) >= 21 else float(hist.iloc[-1])
+                    _p12m = float(hist.iloc[0])   # oldest bar in the 1-year window
+                    if _p12m > 0:
+                        momentum_12_1 = round((_p1m / _p12m - 1) * 100, 1)
+            except Exception: pass
+            try:
+                _finfo = info  # reuse already-fetched tkr.info from earnings block
+            except NameError:
+                try: _finfo = tkr.info
+                except Exception: _finfo = {}
+            try:
+                _roe = _finfo.get("returnOnEquity")
+                if _roe is not None and abs(float(_roe)) < 5:
+                    factor_roe = round(float(_roe) * 100, 1)
+                _fpe = _finfo.get("forwardPE")
+                if _fpe is not None and 0 < float(_fpe) < 500:
+                    factor_fpe = round(float(_fpe), 1)
+            except Exception: pass
+
+            # Q5. Cross-asset correlation (30d: ticker vs its sector ETF)
+            sector_corr = None
+            try:
+                _sec_etf = _TICKER_TO_SECTOR_ETF.get(ticker)
+                _sec_rets = _sector_rets_map.get(_sec_etf)
+                if _sec_rets is not None and len(_sec_rets) >= 20 and len(rets) >= 20:
+                    _common = min(len(_sec_rets), len(rets))
+                    _cm = np.corrcoef(rets.values[-_common:], _sec_rets[-_common:])
+                    sector_corr = round(float(_cm[0, 1]), 2)
+            except Exception: pass
+
+            # Q6. News sentiment (keyword-scoring of recent headlines — fast, no extra API)
+            news_sentiment = None
+            news_headline = None
+            try:
+                _news_items = tkr.news
+                if _news_items:
+                    _pos_w = {"beat","surge","rally","upgrade","buy","strong","record","growth","profit",
+                              "bullish","raises","gains","breakout","soars","lifts","boost"}
+                    _neg_w = {"miss","fall","decline","downgrade","sell","weak","loss","warning",
+                              "cut","bearish","lowers","drops","slumps","disappoints","concern","probe"}
+                    _ns = 0; _nc = 0
+                    for _ni in _news_items[:6]:
+                        _t = (_ni.get("title") or "").lower()
+                        _ns += sum(1 for w in _pos_w if w in _t) - sum(1 for w in _neg_w if w in _t)
+                        _nc += 1
+                    if _nc > 0:
+                        news_sentiment = round(_ns / _nc, 1)
+                    news_headline = (_news_items[0].get("title") or "")[:90] if _news_items else None
+            except Exception: pass
+
             verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
             return {
                 "ticker": ticker, "price": round(price, 2),
@@ -1912,6 +2024,14 @@ def vol_crush():
                 "options_liquidity_pct": options_liquidity_pct,
                 "earnings_beat_streak": earnings_beat_streak,
                 "spy_beta": spy_beta,
+                "iv_skew": iv_skew,
+                "iv_term_structure": iv_term_structure,
+                "gex_m": gex_m, "gex_regime": gex_regime,
+                "iv_rv_premium": iv_rv_premium,
+                "momentum_12_1": momentum_12_1,
+                "factor_roe": factor_roe, "factor_fpe": factor_fpe,
+                "sector_corr": sector_corr,
+                "news_sentiment": news_sentiment, "news_headline": news_headline,
             }
         except Exception: return None
 
@@ -1922,6 +2042,33 @@ def vol_crush():
         # Handle both Series (single ticker) and DataFrame (multi-ticker) shapes
         _spy_hist = _spy_raw.iloc[:, 0] if hasattr(_spy_raw, "columns") else _spy_raw
         _spy_rets_arr = _spy_hist.dropna().pct_change().dropna().values
+    except Exception:
+        pass
+
+    # Pre-fetch sector ETF returns for cross-asset correlation (Q5 in _analyze)
+    _TICKER_TO_SECTOR_ETF = {
+        "AAPL":"XLK","MSFT":"XLK","NVDA":"XLK","GOOGL":"XLK","META":"XLK",
+        "AMD":"XLK","INTC":"XLK","MU":"XLK","ORCL":"XLK","QQQ":"XLK",
+        "JPM":"XLF","BAC":"XLF","GS":"XLF","WFC":"XLF",
+        "JNJ":"XLV","UNH":"XLV","MRNA":"XLV","PFE":"XLV","ABBV":"XLV",
+        "XOM":"XLE","CVX":"XLE","USO":"XLE",
+        "LMT":"XLI","CAT":"XLI","BA":"XLI",
+        "AMZN":"XLY","TSLA":"XLY","COST":"XLY",
+        "NFLX":"XLC","DIS":"XLC","CMCSA":"XLC",
+        "IWM":"IWM",
+    }
+    _sector_rets_map = {}
+    try:
+        _sec_etfs = list(set(_TICKER_TO_SECTOR_ETF.values()))
+        _sec_raw2 = yf.download(_sec_etfs, period="60d", interval="1d", progress=False, auto_adjust=True)["Close"]
+        for _etf in _sec_etfs:
+            try:
+                _ser2 = (_sec_raw2[_etf].dropna() if hasattr(_sec_raw2, "columns") and _etf in _sec_raw2.columns
+                         else _sec_raw2.dropna())
+                if len(_ser2) >= 20:
+                    _sector_rets_map[_etf] = _ser2.pct_change().dropna().values
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -2251,6 +2398,17 @@ def ai_trades():
             _add(t, "options_liquidity_pct", r.get("options_liquidity_pct"))
             _add(t, "earnings_beat_streak", r.get("earnings_beat_streak"))
             _add(t, "spy_beta", r.get("spy_beta"))
+            _add(t, "iv_skew", r.get("iv_skew"))
+            _add(t, "iv_term_structure", r.get("iv_term_structure"))
+            _add(t, "gex_m", r.get("gex_m"))
+            _add(t, "gex_regime", r.get("gex_regime"))
+            _add(t, "iv_rv_premium", r.get("iv_rv_premium"))
+            _add(t, "momentum_12_1", r.get("momentum_12_1"))
+            _add(t, "factor_roe", r.get("factor_roe"))
+            _add(t, "factor_fpe", r.get("factor_fpe"))
+            _add(t, "sector_corr", r.get("sector_corr"))
+            _add(t, "news_sentiment", r.get("news_sentiment"))
+            _add(t, "news_headline", r.get("news_headline"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -2493,6 +2651,50 @@ def ai_trades():
     except Exception:
         win_rate_context = ""
 
+    # 17. Macro cross-asset signals (yield curve, DXY, credit spreads, crude, gold)
+    macro_cross_asset = ""
+    try:
+        import yfinance as _yf_macro
+        _mcr = _yf_macro.download(
+            ["^TNX", "^IRX", "UUP", "HYG", "LQD", "USO", "GLD"],
+            period="5d", interval="1d", progress=False, auto_adjust=True
+        )["Close"]
+        def _mlast(sym):
+            try:
+                col = _mcr[sym].dropna() if hasattr(_mcr, "columns") and sym in _mcr.columns else None
+                return float(col.iloc[-1]) if col is not None and len(col) > 0 else None
+            except Exception: return None
+        def _m5d(sym):
+            try:
+                col = _mcr[sym].dropna() if hasattr(_mcr, "columns") and sym in _mcr.columns else None
+                return round((float(col.iloc[-1]) / float(col.iloc[0]) - 1) * 100, 1) if col is not None and len(col) >= 2 else None
+            except Exception: return None
+        _tnx = _mlast("^TNX"); _irx = _mlast("^IRX"); _uup5 = _m5d("UUP")
+        _hyg5 = _m5d("HYG"); _lqd5 = _m5d("LQD")
+        _uso5 = _m5d("USO"); _gld5 = _m5d("GLD")
+        _parts17 = []
+        if _tnx is not None and _irx is not None:
+            _curve = round(_tnx - _irx, 2)
+            _ctag = "INVERTED(recession_risk)" if _curve < 0 else "STEEP(risk_on)" if _curve > 1.5 else "FLAT"
+            _parts17.append(f"YieldCurve(10y-3m)={_curve:+.2f}%({_ctag})")
+        if _uup5 is not None:
+            _dxy_tag = "STRONG_USD(headwind_equities)" if _uup5 > 0.5 else "WEAK_USD(tailwind_equities)" if _uup5 < -0.5 else "STABLE"
+            _parts17.append(f"USD5d={_uup5:+.2f}%({_dxy_tag})")
+        if _hyg5 is not None and _lqd5 is not None:
+            _cs = round(_hyg5 - _lqd5, 2)
+            _cstag = "WIDENING(risk_off)" if _cs < -0.3 else "TIGHTENING(risk_on)" if _cs > 0.3 else "STABLE"
+            _parts17.append(f"CreditSpread5d={_cs:+.2f}%({_cstag})")
+        if _uso5 is not None:
+            _parts17.append(f"Crude5d={_uso5:+.1f}%")
+        if _gld5 is not None:
+            _gld_tag = "FLIGHT_TO_SAFETY" if _gld5 > 1.5 else "risk_on_rotation" if _gld5 < -1.5 else ""
+            _parts17.append(f"Gold5d={_gld5:+.1f}%" + (f"({_gld_tag})" if _gld_tag else ""))
+        if _parts17:
+            macro_cross_asset = " | ".join(_parts17)
+            active_sources.append("Macro Cross-Asset")
+    except Exception:
+        macro_cross_asset = ""
+
     # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
     rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
 
@@ -2548,7 +2750,7 @@ def ai_trades():
 
     # Build compact signal block — top 15 tickers, one line each, key fields only
     sig_lines = []
-    for v in sorted_tickers[:15]:
+    for v in sorted_tickers[:10]:
         parts = [f"{v['ticker']} ${v.get('price','?')}"]
         if v.get("composite_score") is not None:
             parts.append(f"score={v['composite_score']}/100({v.get('bias','?')})")
@@ -2607,6 +2809,40 @@ def ai_trades():
             b = v["spy_beta"]
             b_tag = "high_beta" if b >= 1.5 else "low_beta" if b <= 0.6 else ""
             parts.append(f"beta={b}x" + (f"({b_tag})" if b_tag else ""))
+        if v.get("iv_skew") is not None:
+            sk = v["iv_skew"]
+            sk_tag = "FEAR_PREMIUM" if sk > 8 else "CALL_SKEW(demand)" if sk < -3 else "balanced"
+            parts.append(f"iv_skew={sk:+.1f}pp({sk_tag})")
+        if v.get("iv_term_structure") is not None:
+            ts = v["iv_term_structure"]
+            ts_tag = "BACKWARDATION(event_risk)" if ts > 5 else "contango(calm)" if ts < -3 else "flat"
+            parts.append(f"iv_ts={ts:+.1f}pp({ts_tag})")
+        if v.get("gex_m") is not None:
+            gr = v.get("gex_regime", "")
+            parts.append(f"GEX=${v['gex_m']}M({gr})")
+        if v.get("iv_rv_premium") is not None:
+            ivp = v["iv_rv_premium"]
+            ivp_tag = "RICH_SELL_PREM" if ivp > 20 else "CHEAP_BUY_VOL" if ivp < -10 else "fair"
+            parts.append(f"iv_rv={ivp:+.1f}%({ivp_tag})")
+        if v.get("momentum_12_1") is not None:
+            mo = v["momentum_12_1"]
+            mo_tag = "strong_momentum" if mo > 15 else "weak_momentum" if mo < -15 else "neutral"
+            parts.append(f"mom12_1={mo:+.1f}%({mo_tag})")
+        if v.get("factor_roe") is not None:
+            parts.append(f"ROE={v['factor_roe']}%")
+        if v.get("factor_fpe") is not None:
+            fpe = v["factor_fpe"]
+            fpe_tag = "CHEAP" if fpe < 15 else "EXPENSIVE" if fpe > 35 else "fair"
+            parts.append(f"fwd_PE={fpe}x({fpe_tag})")
+        if v.get("sector_corr") is not None:
+            sc = v["sector_corr"]
+            sc_tag = "IDIOSYNCRATIC" if sc < 0.5 else "sector_driven" if sc > 0.85 else ""
+            parts.append(f"sector_corr={sc}" + (f"({sc_tag})" if sc_tag else ""))
+        if v.get("news_sentiment") is not None:
+            ns = v["news_sentiment"]
+            ns_tag = "BULLISH_NEWS" if ns > 0.5 else "BEARISH_NEWS" if ns < -0.5 else "neutral_news"
+            hdl = f" [{v['news_headline'][:50]}]" if v.get("news_headline") else ""
+            parts.append(f"news={ns}({ns_tag}){hdl}")
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
         sig_lines.append(" | ".join(parts))
@@ -2618,19 +2854,26 @@ def ai_trades():
     index_line = f"INDICES: {index_context}" if index_context else ""
     regime_line = f"MARKET_REGIME: {market_regime}" if market_regime and market_regime != "UNKNOWN" else ""
     winrate_line = f"YOUR_HISTORICAL_WIN_RATES: {win_rate_context}" if win_rate_context else ""
-    context_block = "\n".join(x for x in [macro_line, sector_line, index_line, regime_line, winrate_line] if x)
+    macro_cross_line = f"MACRO_CROSS_ASSET: {macro_cross_asset}" if macro_cross_asset else ""
+    context_block = "\n".join(x for x in [macro_line, sector_line, index_line, regime_line, winrate_line, macro_cross_line] if x)
 
     system_msg = (
-        "You are an elite institutional options trader. You receive 24+ data points per ticker across 16 sources. "
+        "You are an elite institutional options trader operating at hedge-fund quant level. "
+        "You receive 35+ data points per ticker across 17 sources including vol surface, dealer gamma, factor scores, and macro cross-asset signals. "
         "CRITICAL RULES:\n"
         "1. NEVER recommend a setup where opt_spread>12% (ILLIQUID_AVOID) — wide spreads destroy edge.\n"
-        "2. In HIGH_FEAR or CORRECTION regimes: avoid LONG CALL setups; prefer PUT spreads or IRON CONDORs on elevated-IV tickers.\n"
-        "3. In BULL_TREND regime: prefer LONG CALL or BULL CALL SPREAD on high-beta (beta≥1.5) names with vol_trend surging.\n"
-        "4. In RANGING/CHOP regime: prefer IRON CONDOR on IV_rank≥60 tickers; avoid pure directional plays.\n"
-        "5. If YOUR_HISTORICAL_WIN_RATES is provided: strongly prefer setup_types with high win rates from your own history. "
-        "Avoid setup_types with <50% win rate unless signals are extremely strong.\n"
-        "6. persist=3d+ is your highest-conviction filter — a setup building for 3+ consecutive days is rare and reliable.\n"
-        "7. earn_beat=3/4 or 4/4 gives fundamental tailwind; earn_beat=0/4 is a headwind — adjust conviction accordingly.\n"
+        "2. In HIGH_FEAR or CORRECTION regimes: avoid LONG CALL; prefer PUT spreads or IRON CONDORs on tickers with iv_rv=RICH_SELL_PREM.\n"
+        "3. In BULL_TREND regime: prefer LONG CALL or BULL CALL SPREAD on high-beta (beta≥1.5) names with vol_trend surging and mom12_1>0.\n"
+        "4. In RANGING/CHOP regime: prefer IRON CONDOR on IV_rank≥60 + iv_rv=RICH_SELL_PREM tickers; avoid directional plays.\n"
+        "5. If YOUR_HISTORICAL_WIN_RATES provided: strongly prefer setup_types with high win rates from your own history.\n"
+        "6. persist=3d+ is your highest-conviction filter — multi-day institutional building is rare and reliable.\n"
+        "7. earn_beat=3/4 or 4/4 gives fundamental tailwind; earn_beat=0/4 is a headwind.\n"
+        "8. GEX=LONG_GAMMA(suppressive) → mean-reversion setups; SHORT_GAMMA(amplifying) → directional/momentum setups.\n"
+        "9. iv_skew=FEAR_PREMIUM (>8pp) → institutional crash hedging; use PUT spreads or add protection.\n"
+        "10. iv_rv=RICH_SELL_PREM (>20%) → premium selling edge; CHEAP_BUY_VOL (<-10%) → long vol edge.\n"
+        "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities.\n"
+        "12. sector_corr=IDIOSYNCRATIC (<0.5) → ticker moves on its own; prefer over highly correlated names.\n"
+        "13. news=BEARISH_NEWS with BULL_TREND → fade the news; news=BULLISH_NEWS with momentum = confirmation.\n"
         "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
     )
 
@@ -2658,18 +2901,29 @@ SIGNAL KEY:
 - MACRO: days to Fed/CPI/OPEX | SECTORS: sector rotation leaders/laggards
 - MARKET_REGIME: current market environment → drives which setup_types to use (see rules above)
 - YOUR_HISTORICAL_WIN_RATES: actual win rates from your past trades logged in this system
+- iv_skew: put IV minus call IV at ~25-delta (pp) → positive=fear/downside hedging; FEAR_PREMIUM>8pp=institutional crash protection active
+- iv_ts: near-term IV minus far-term IV (pp) → BACKWARDATION>5pp=event/earnings risk priced near-term
+- GEX: dealer gamma exposure in $M → LONG_GAMMA=suppresses moves/mean-revert; SHORT_GAMMA=amplifies moves/momentum
+- iv_rv: IV premium over realized vol % → RICH_SELL_PREM>20%=edge selling premium; CHEAP_BUY_VOL<-10%=edge buying vol
+- mom12_1: 12-month minus 1-month price momentum % (Fama-French factor) → >15%=strong; <-15%=weak
+- ROE: return on equity % (quality factor) | fwd_PE: forward P/E (value factor — CHEAP<15x, EXPENSIVE>35x)
+- sector_corr: 30d correlation to sector ETF → IDIOSYNCRATIC<0.5=name-specific catalyst; >0.85=sector-driven
+- news: keyword sentiment score from recent headlines (-=bearish, +=bullish)
+- MACRO_CROSS_ASSET: YieldCurve(10y-3m)=curve shape; DXY=dollar; CreditSpread5d=HYG vs LQD; Crude5d; Gold5d
 
 PRIORITY WEIGHTING (use in order):
 1. opt_spread>12% → SKIP (non-negotiable liquidity gate)
-2. MARKET_REGIME → determines valid setup_types for current environment
-3. YOUR_HISTORICAL_WIN_RATES → bias toward setup_types that have worked in your own history
-4. persist=3d+ (multi-day confirmation — strongest signal)
-5. Smart vs Retail divergence (institutional vs retail misalignment)
-6. score≥75 + vol_trend≥1.5x + beta context (accumulation surge + directional amplifier)
-7. call vol/oi >2x (concentrated unusual new activity)
-8. post_earnings IV crush window + earn_beat streak
-9. analyst upgrades + premarket gap confirmation
-10. dark pool flow + macro timing
+2. MARKET_REGIME + MACRO_CROSS_ASSET → determines valid setup_types for current environment
+3. GEX regime → LONG_GAMMA=mean-revert setups; SHORT_GAMMA=directional/momentum setups
+4. YOUR_HISTORICAL_WIN_RATES → bias toward setup_types that have worked in your own history
+5. persist=3d+ (multi-day confirmation — strongest signal)
+6. Smart vs Retail divergence (institutional vs retail misalignment)
+7. iv_rv + iv_skew (vol surface edge — where premium is rich/cheap + where fear is concentrated)
+8. score≥75 + vol_trend≥1.5x + beta + mom12_1 (accumulation surge + factor confirmation)
+9. call vol/oi >2x (concentrated unusual new activity)
+10. post_earnings IV crush + earn_beat + ROE + fwd_PE (fundamental quality + vol edge)
+11. sector_corr=IDIOSYNCRATIC (name-specific, not sector noise)
+12. analyst upgrades + premarket gap + news sentiment confirmation
 
 Return a JSON array of exactly 3 objects sorted BULLISH → NEUTRAL → BEARISH. Each must have ALL fields:
 ticker (string), price (number), setup_type (LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 4-5 short strings naming exact signals used), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
@@ -2683,7 +2937,7 @@ JSON array only. No markdown. Start immediately with ["""
         finish = "unknown"
         stream = oai.chat.completions.create(
             model="gpt-5-mini",
-            max_completion_tokens=4000,
+            max_completion_tokens=6000,
             stream=True,
             messages=[
                 {"role": "system", "content": system_msg},
