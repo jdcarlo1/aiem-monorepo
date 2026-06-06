@@ -219,9 +219,9 @@ def _compute_daily_top10():
         pass
 
     results = scan_tickers(DEFAULT_LEADERBOARD)
-    scored  = [r for r in results if not r.get("error") and r.get("score") is not None]
+    scored  = [r for r in results if not r.get("error") and r.get("score") is not None and (r.get("score") or 0) >= 8]
     scored.sort(key=lambda r: r["score"], reverse=True)
-    top10 = scored[:10]
+    top10 = scored[:15]
     for i, r in enumerate(top10):
         r["rank"] = i + 1
 

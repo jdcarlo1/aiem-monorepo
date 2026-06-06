@@ -2656,9 +2656,9 @@ function OverviewTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
       {/* LEFT: Top 10 */}
       <BBPanel style={{ gridRow: "1 / 3", borderRight: `1px solid ${BB_BORDER}`, overflow: "hidden" }}>
-        <BBPanelHeader label="Today's Top 10" sub={`${top10Data?.total_scanned ?? 0} SCANNED`} />
+        <BBPanelHeader label="Top 15 · Score 8+" sub={`${top10Data?.total_scanned ?? 0} SCANNED`} />
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {top10.length === 0 && <div style={{ padding: 20, color: BB_LABEL, fontFamily: BB_FONT, fontSize: 11, textAlign: "center" }}>Run a scan to populate Top 10</div>}
+          {top10.length === 0 && <div style={{ padding: 20, color: BB_LABEL, fontFamily: BB_FONT, fontSize: 11, textAlign: "center" }}>Run a scan to populate Top 15</div>}
           {top10.map((r, i) => (
             <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} style={{
               display: "grid", gridTemplateColumns: "18px 52px 1fr 44px 36px", padding: "0 8px",
