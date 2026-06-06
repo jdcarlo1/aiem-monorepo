@@ -665,7 +665,7 @@ export interface AITradeSetup {
   thesis: string; risk_level: "LOW" | "MEDIUM" | "HIGH";
 }
 export function fetchAITrades() {
-  return fetchJson<{ trades: AITradeSetup[]; generated_at: string; tickers_scanned: number }>("/ai-trades");
+  return fetchJson<{ trades: AITradeSetup[]; generated_at: string; tickers_scanned: number; signal_sources?: string[]; warming?: boolean; error?: string }>("/ai-trades");
 }
 
 export interface SignalEvent {

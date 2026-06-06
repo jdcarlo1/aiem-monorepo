@@ -1858,10 +1858,44 @@ def ai_trades():
     # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
     rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
 
+    # Helper: warm all tab caches in background threads via internal HTTP
+    def _start_cache_warming():
+        if getattr(app, "_cache_warming", False):
+            return
+        app._cache_warming = True
+        def _do_warm():
+            try:
+                import urllib.request as _ur
+                warm_paths = [
+                    f"/stock-api/vol-crush",
+                    f"/stock-api/call-intent",
+                    f"/stock-api/options-intent",
+                    f"/stock-api/smart-vs-retail",
+                    f"/stock-api/max-pain",
+                    f"/stock-api/gamma-wall",
+                    f"/stock-api/darkpool",
+                ]
+                def _fetch(path):
+                    try: _ur.urlopen(f"http://127.0.0.1:{PORT}{path}", timeout=90)
+                    except Exception: pass
+                with ThreadPoolExecutor(max_workers=4) as ex:
+                    futs = [ex.submit(_fetch, p) for p in warm_paths]
+                    for f in as_completed(futs):
+                        try: f.result()
+                        except: pass
+            finally:
+                app._cache_warming = False
+        import threading
+        threading.Thread(target=_do_warm, daemon=True).start()
+
     # Need at least 2 signal sources AND some rich tickers to proceed
     if len(active_sources) < 2 or len(rich) < 3:
+        already_warming = getattr(app, "_cache_warming", False)
+        if not already_warming:
+            _start_cache_warming()
         return jsonify({
-            "error": "Signal data is still loading. Please visit the Vol Crush, Smart vs Retail, and Max Pain tabs first to populate the signal cache, then come back here.",
+            "warming": True,
+            "error": "Collecting live signals from all tabs — first load takes ~35 seconds. Click ↻ Regenerate shortly.",
             "trades": [],
             "tickers_scanned": len(rich),
             "signal_sources": active_sources
@@ -2227,4 +2261,4 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

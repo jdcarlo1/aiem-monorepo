@@ -2439,18 +2439,50 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [sources, setSources]         = useState<string[]>([]);
   const [error, setError]             = useState<string | null>(null);
 
-  const run = async () => {
-    setLoading(true); setError(null);
+  const [warming, setWarming]         = useState(false);
+  const [warmCountdown, setWarmCountdown] = useState(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const run = async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError(null);
     try {
       const d = await fetchAITrades();
+      if (d.warming) {
+        setWarming(true);
+        setTrades([]);
+        // Start a 40s countdown then auto-retry
+        let secs = 40;
+        setWarmCountdown(secs);
+        if (countTimerRef.current) clearInterval(countTimerRef.current);
+        countTimerRef.current = setInterval(() => {
+          secs -= 1;
+          setWarmCountdown(secs);
+          if (secs <= 0) { clearInterval(countTimerRef.current!); }
+        }, 1000);
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = setTimeout(() => { setWarming(false); run(); }, 41000);
+        return;
+      }
+      setWarming(false);
+      if (countTimerRef.current) clearInterval(countTimerRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       if (d.error) { setError(d.error); setTrades([]); return; }
       setTrades(d.trades || []);
       setGeneratedAt(d.generated_at);
       setScanned(d.tickers_scanned);
       setSources(d.signal_sources || []);
-    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+    } catch (e: any) { setError(String(e)); } finally { if (!silent) setLoading(false); }
   };
-  useEffect(() => { run(); }, []);
+
+  useEffect(() => {
+    run();
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (countTimerRef.current) clearInterval(countTimerRef.current);
+    };
+  }, []);
 
   const dColor = (d: string) => d === "BULLISH" ? "#4ade80" : d === "BEARISH" ? "#f87171" : "#fbbf24";
   const dBg    = (d: string) => d === "BULLISH" ? "rgba(74,222,128,0.08)" : d === "BEARISH" ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.08)";
@@ -2487,14 +2519,34 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
       <p className="text-xs text-slate-600 mb-5 italic">Not financial advice. Always do your own research. AI analysis is based on public options data and synthesized by OpenAI.</p>
 
-      {error && (
-        <div className="rounded-xl p-4 mb-4 text-sm" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)", color: "#fbbf24" }}>
-          ⚠ {error}
-          <p className="text-slate-500 text-xs mt-1">Tip: visit Vol Crush, Smart vs Retail, and Max Pain tabs first to load signal data, then come back here.</p>
+      {/* Warming / first-load state */}
+      {warming && (
+        <div className="rounded-xl p-5 mb-4" style={{ background: "rgba(74,222,128,0.04)", border: "1px solid rgba(74,222,128,0.18)" }}>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="text-2xl animate-spin" style={{ animationDuration: "3s" }}>⚙️</div>
+            <div>
+              <div className="text-white font-bold text-sm">Collecting live signals across all tabs…</div>
+              <div className="text-slate-400 text-xs mt-0.5">Vol Crush · Call Intent · Smart vs Retail · Max Pain · Gamma Wall · Dark Pool</div>
+            </div>
+          </div>
+          {/* Progress bar */}
+          <div className="rounded-full overflow-hidden mb-2" style={{ height: 4, background: "rgba(255,255,255,0.06)" }}>
+            <div className="h-full rounded-full transition-all" style={{ background: "linear-gradient(90deg,#16a34a,#22c55e)", width: `${Math.max(5, Math.round((40 - warmCountdown) / 40 * 100))}%` }} />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 text-xs">Auto-generating in {warmCountdown}s…</span>
+            <button onClick={() => { setWarming(false); run(); }} className="text-xs font-bold transition-colors px-3 py-1 rounded-lg" style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)" }}>Try now →</button>
+          </div>
         </div>
       )}
 
-      {loading && trades.length === 0 && (
+      {error && !warming && (
+        <div className="rounded-xl p-4 mb-4 text-sm" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)", color: "#fbbf24" }}>
+          ⚠ {error}
+        </div>
+      )}
+
+      {loading && !warming && trades.length === 0 && (
         <div className="text-center py-16">
           <div className="text-3xl mb-4 animate-pulse">🤖</div>
           <div className="text-slate-400 text-sm font-bold">OpenAI is reading all your signal sources…</div>
