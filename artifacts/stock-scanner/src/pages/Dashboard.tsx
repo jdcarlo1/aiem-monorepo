@@ -2911,19 +2911,14 @@ export default function Dashboard() {
         .bb-clock-date { display: block; }
         .bb-tabs::-webkit-scrollbar { display: none; }
         .bb-tabs { -ms-overflow-style: none; scrollbar-width: none; }
-        .bb-tabs-wrap { position: relative; flex-shrink: 0; }
-        .bb-tabs-wrap::after {
-          content: "";
-          position: absolute;
-          right: 0; top: 0; bottom: 0;
-          width: 48px;
-          background: linear-gradient(to right, transparent, #060c14);
-          pointer-events: none;
-        }
+        .bb-tabs-desktop { display: flex; }
+        .bb-tabs-mobile { display: none; }
         @media (max-width: 640px) {
           .bb-quotes { display: none !important; }
           .bb-divider { display: none !important; }
           .bb-clock-date { display: none !important; }
+          .bb-tabs-desktop { display: none !important; }
+          .bb-tabs-mobile { display: flex !important; }
         }
       `}</style>
 
@@ -2959,11 +2954,36 @@ export default function Dashboard() {
       </div>
 
       {/* ── NAV TABS ── */}
-      <div className="bb-tabs-wrap" style={{ background: "rgba(6,12,20,0.95)", borderBottom: `1px solid rgba(255,255,255,0.07)`, flexShrink: 0 }}>
-        <div className="bb-tabs" style={{ display: "flex", alignItems: "center", height: 40, overflowX: "auto" }}>
+      <div style={{ background: "rgba(6,12,20,0.95)", borderBottom: `1px solid rgba(255,255,255,0.07)`, flexShrink: 0 }}>
+        {/* Mobile: dropdown */}
+        <div className="bb-tabs-mobile" style={{ alignItems: "center", padding: "8px 12px", gap: 8 }}>
+          <select
+            value={tab}
+            onChange={e => setTab(e.target.value as typeof tab)}
+            style={{
+              flex: 1, background: "#0b1320", color: "#f1f5f9", border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 600, fontFamily: BB_FONT,
+              outline: "none", cursor: "pointer", appearance: "none",
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234ade80' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+              backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center",
+              paddingRight: 36,
+            }}
+          >
+            {TABS.map(t => (
+              <option key={t.id} value={t.id}>{t.label}</option>
+            ))}
+          </select>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+            <span style={{ fontSize: 10, color: BB_LABEL, fontFamily: BB_FONT }}>A/D</span>
+            <span style={{ fontSize: 10, color: BB_GREEN, fontFamily: BB_FONT, fontWeight: 700 }}>▲{headerMkt?.advance_decline?.up ?? "—"}</span>
+            <span style={{ fontSize: 10, color: BB_RED, fontFamily: BB_FONT, fontWeight: 700 }}>▼{headerMkt?.advance_decline?.down ?? "—"}</span>
+          </div>
+        </div>
+        {/* Desktop: scrollable tab bar */}
+        <div className="bb-tabs-desktop bb-tabs" style={{ alignItems: "center", height: 40, overflowX: "auto" }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id as typeof tab)} style={{
-              padding: "0 11px", height: "100%", background: "transparent",
+              padding: "0 13px", height: "100%", background: "transparent",
               borderBottom: tab === t.id ? `2px solid #22c55e` : "2px solid transparent",
               borderTop: "none", borderLeft: "none", borderRight: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
               transition: "all 0.15s",
