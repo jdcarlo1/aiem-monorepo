@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { createStockScannerCheckout, manageStockScannerSubscription, fetchBullFlow, BullFlowRow } from "@/lib/api";
+import { createStockScannerCheckout, manageStockScannerSubscription, fetchBullFlow, fetchAITrades, BullFlowRow, AITradeSetup } from "@/lib/api";
 
 function fmtPrem(m: number) {
   if (m >= 1) return `$${m.toFixed(1)}M`;
@@ -33,9 +33,18 @@ export default function Landing() {
   const [showManage, setShowManage] = useState(false);
   const [tickerPos, setTickerPos] = useState(0);
   const [liveFlow, setLiveFlow] = useState<BullFlowRow[]>([]);
+  const [topPick, setTopPick] = useState<AITradeSetup | null>(null);
+  const [topPickLoading, setTopPickLoading] = useState(true);
 
   useEffect(() => {
     fetchBullFlow().then(d => setLiveFlow(d.results ?? [])).catch(() => {});
+    fetchAITrades()
+      .then(d => {
+        const bullish = (d.trades ?? []).find(t => t.direction === "BULLISH") ?? d.trades?.[0] ?? null;
+        setTopPick(bullish);
+      })
+      .catch(() => {})
+      .finally(() => setTopPickLoading(false));
   }, []);
 
   const bullishFlow = liveFlow.filter(r => r.call_put_ratio >= 2);
@@ -215,26 +224,48 @@ export default function Landing() {
               </div>
             </div>
             <div className="rounded-2xl p-5" style={{ background: "rgba(6,12,20,0.8)", border: "1px solid rgba(34,197,94,0.2)" }}>
-              <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-3">Example AI output — today's top pick</p>
-              <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                  <div className="flex items-center gap-3 mb-1 flex-wrap">
-                    <span className="font-black text-white text-2xl">NVDA</span>
-                    <span className="px-2 py-0.5 rounded text-xs font-black" style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.25)" }}>BULLISH</span>
-                    <span className="px-2 py-0.5 rounded text-xs font-black" style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.25)" }}>HIGH CONVICTION</span>
-                  </div>
-                  <p className="text-slate-400 text-sm mb-2">Setup: <span className="text-white font-bold">LONG CALL</span> · Entry $210C · Exp 2025-07-18 · Target $230 · Stop $192</p>
-                  <p className="text-slate-400 text-sm" style={{ maxWidth: "480px" }}>
-                    <span className="text-slate-300 font-semibold">Thesis:</span> Dark pool shows STRONG BUY conviction. Smart money holding 3.2x retail. Call accumulation at $210 strike with IV rank at 28% — cheap options with institutional backing. Max pain at $205 creates upside pull.
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-xs text-slate-600 mb-1">Signals aligned</div>
-                  {["Dark Pool: STRONG BUY", "Smart vs Retail: +3.2x", "IV Rank: 28% (cheap)"].map(s => (
-                    <div key={s} className="text-xs font-bold mb-1" style={{ color: "#4ade80" }}>● {s}</div>
-                  ))}
-                </div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Today's top AI pick — live</p>
+                <span className="flex items-center gap-1.5 text-xs font-bold" style={{ color: "#4ade80" }}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                  {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </span>
               </div>
+              {topPickLoading && (
+                <div className="flex items-center gap-2 text-slate-500 text-sm py-2">
+                  <span className="flex gap-1">{[0,1,2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</span>
+                  AI is synthesizing today's signals…
+                </div>
+              )}
+              {!topPickLoading && topPick && (
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div>
+                    <div className="flex items-center gap-3 mb-1 flex-wrap">
+                      <span className="font-black text-white text-2xl">{topPick.ticker}</span>
+                      <span className="text-slate-400 text-sm font-bold">${topPick.price.toFixed(2)}</span>
+                      <span className="px-2 py-0.5 rounded text-xs font-black" style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.25)" }}>{topPick.direction}</span>
+                      <span className="px-2 py-0.5 rounded text-xs font-black" style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.25)" }}>{topPick.conviction} CONVICTION</span>
+                    </div>
+                    <p className="text-slate-400 text-sm mb-2">
+                      Setup: <span className="text-white font-bold">{topPick.setup_type}</span> · Entry ${topPick.entry_strike}C · Exp {topPick.expiry} · Target ${topPick.target_price} · Stop ${topPick.stop_loss}
+                    </p>
+                    <p className="text-slate-400 text-sm" style={{ maxWidth: "480px" }}>
+                      <span className="text-slate-300 font-semibold">Thesis:</span> {topPick.thesis}
+                    </p>
+                  </div>
+                  {topPick.signals_aligned.length > 0 && (
+                    <div className="text-right shrink-0">
+                      <div className="text-xs text-slate-600 mb-1">Signals aligned</div>
+                      {topPick.signals_aligned.slice(0, 4).map(s => (
+                        <div key={s} className="text-xs font-bold mb-1" style={{ color: "#4ade80" }}>● {s}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {!topPickLoading && !topPick && (
+                <p className="text-slate-500 text-sm">Today's AI picks generate after market open. Check back soon.</p>
+              )}
             </div>
           </div>
         </div>

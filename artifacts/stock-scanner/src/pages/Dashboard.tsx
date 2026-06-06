@@ -358,8 +358,8 @@ function AnalyticsTab() {
     finally { setLoading(false); }
   };
 
-  const winKey  = `win_rate_${horizon}` as keyof typeof result.bucket_stats[0];
-  const retKey  = `avg_ret_${horizon}`  as keyof typeof result.bucket_stats[0];
+  const winKey  = `win_rate_${horizon}` as keyof NonNullable<typeof result>["bucket_stats"][0];
+  const retKey  = `avg_ret_${horizon}`  as keyof NonNullable<typeof result>["bucket_stats"][0];
 
   const winData  = result?.bucket_stats.map(b => ({ bucket: b.bucket, "Win Rate %": b[winKey] ?? 0 }));
   const retData  = result?.bucket_stats.map(b => ({ bucket: b.bucket, "Avg Return %": b[retKey] ?? 0 }));
@@ -2504,7 +2504,7 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         </div>
         <div className="flex items-center gap-3">
           {generatedAt && <span className="text-slate-600 text-xs hidden sm:block">{scanned} tickers · {sources.length} signal sources · {new Date(generatedAt).toLocaleTimeString()}</span>}
-          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>{loading ? "Analyzing…" : "↻ Regenerate"}</button>
+          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>{loading ? "Analyzing…" : "↻ Regenerate"}</button>
         </div>
       </div>
 
