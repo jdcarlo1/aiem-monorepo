@@ -10,18 +10,38 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - APScheduler scans at 9:00, 9:45, 3:30, 4:15 ET every trading day
 
 ## Stripe
-- Product: `prod_UeHHtrYgG9d7Lp` / Price: `price_1TeyjGChn3bmMDTv9yXybfDR` ($29/mo)
+- Product: "StockScanner AI Pro" — Price: `price_1Tf9Q7Chn3bmMDTvtCrhUJud` ($39/mo, ACTIVE)
+- OLD price `price_1TeyjGChn3bmMDTv9yXybfDR` ($29/mo) — DEACTIVATED, do not use
+- Checkout route dynamically looks up active price for "StockScanner AI Pro" product
 - `STRIPE_SECRET_KEY` env secret is set
-- Checkout route: `artifacts/api-server/src/routes/stripe.ts`
+- Checkout route: `artifacts/api-server/src/routes/stripe.ts` at `/stock-scanner/checkout`
 - Webhook handler: `artifacts/api-server/src/webhookHandlers.ts`
 
-## Landing Page (EmailSignupBanner)
-- Lives in `artifacts/stock-scanner/src/pages/Dashboard.tsx` around line 619
-- Shown on the 🏆 Smart Money tab (tab id: "smartmoney")
-- Design follows NCLEX landing formula: top bar → trust badges → big headline → SMS mockup → full-width CTA → price → testimonial
-- Headline: "Beat the market / before it opens." (green glow on second line)
-- SMS mockup styled like an iPhone Messages app (dark iOS aesthetic)
-- CTA: "Start Getting Alerts →" — full-width green button
+## Landing Page
+- `artifacts/stock-scanner/src/pages/Landing.tsx` — $39/mo price, crossed-out $59, "🔥 Limited Time Offer" badge, "save $20/mo"
+- Dashboard landing banner: `artifacts/stock-scanner/src/pages/Dashboard.tsx` around line 619 (Smart Money tab)
+
+## Bloomberg Terminal Mockup (CANVAS — not yet graduated to main app)
+- Component: `artifacts/mockup-sandbox/src/components/mockups/bloomberg-terminal/Dashboard.tsx`
+- Canvas shape ID: `bloomberg-dashboard` — state: "live"
+- Preview URL: `https://6536a28a-761f-478a-b95d-a95c18a9d21e-00-14lah2h4q073y.janeway.replit.dev/__mockup/preview/bloomberg-terminal/Dashboard`
+- Design: black BG, orange #FF6600 accents, IBM Plex Mono font, 3-column layout
+  - Left: Today's Top 10 leaderboard with score bars
+  - Center top: Bull Flow signals table (C/P ratio, premium $M, strike, expiry, bull/bear)
+  - Center bottom: 8-sector heatmap with strength bars
+  - Right: Live alerts feed + market indices
+  - Bottom: Scrolling live ticker tape (green/red color-coded)
+  - Top: Nav tabs + live clock + market quotes bar
+- NEXT STEP: User says "graduate it" → use mockup-graduate skill to apply to main Dashboard.tsx
+
+## Signal Outcome Tracker (BUILT)
+- `artifacts/stock-scanner-api/signal_outcomes.py` — PostgreSQL table, auto-stores signals on every Bull Flow scan
+- `/stock-api/outcomes` endpoint — T+3/5/10 day price outcomes tracked
+- `OutcomesTab` component in `artifacts/stock-scanner/src/pages/Dashboard.tsx`
+
+## Daily Top 10 Banner (BUILT)
+- `/stock-api/daily-top10` endpoint — daily cache, returns top 10 from Bull Flow
+- `DailyTop10Banner` component — auto-loads at top of Scanner and Analytics tabs with click-to-analyze
 
 ## SMS / Twilio (PENDING)
 - User has not yet signed up for Twilio
