@@ -128,7 +128,7 @@ export default function Landing() {
           </h1>
 
           <p className="mx-auto mb-6 text-slate-300" style={{ fontSize: "clamp(1.1rem,2.5vw,1.4rem)", maxWidth: "660px", lineHeight: 1.75 }}>
-            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 16 sources into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, multi-day persistence, and more — and outputs 3 complete, written trade setups every day.
+            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 16 sources into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, dealer gamma exposure, volatility surface, macro cross-asset context, and more — and outputs 3 complete, written trade setups every day.
           </p>
 
           <p className="mx-auto mb-12 font-bold" style={{ fontSize: "1.05rem", maxWidth: "580px", color: "#fbbf24" }}>
@@ -386,6 +386,110 @@ export default function Landing() {
         </div>
       </div>
 
+      {/* ── HEDGE-FUND INTELLIGENCE LAYER ── */}
+      <div className="px-6 pb-20 max-w-5xl mx-auto">
+        <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">Institutional-grade intelligence</p>
+        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>
+          The signals hedge funds use.<br /><span style={{ color: "#4ade80" }}>Now inside your AI.</span>
+        </h2>
+        <p className="text-center text-slate-400 mb-4 mx-auto" style={{ maxWidth: "620px", fontSize: "1.05rem", lineHeight: 1.7 }}>
+          Most platforms stop at options flow. We go seven layers deeper — the same quant signals that prop desks and hedge funds build dedicated infrastructure to compute, now feeding your AI every single day.
+        </p>
+        <p className="text-center font-black mb-12" style={{ color: "#fbbf24", fontSize: "0.95rem" }}>
+          These signals don't exist on Unusual Whales, FlowAlgo, Cheddar Flow, or BlackBoxStocks. Period.
+        </p>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+          {[
+            {
+              icon: "📐",
+              tag: "VOLATILITY SURFACE",
+              title: "Options Fear Gauge (IV Skew)",
+              plain: "How scared is the market about this specific stock?",
+              detail: "Measures the gap between put and call implied volatility. When institutions are loading up on downside protection, put IV spikes above call IV — a signal retail platforms don't even track. Our AI reads this before every trade.",
+              color: "#a78bfa",
+              bg: "rgba(167,139,250,0.08)",
+              border: "rgba(167,139,250,0.2)",
+            },
+            {
+              icon: "⚙️",
+              tag: "MARKET MECHANICS",
+              title: "Dealer Gamma Exposure (GEX)",
+              plain: "Will a move get amplified — or suppressed?",
+              detail: "Computes the net gamma position of all options market makers across every open strike. Short-gamma regimes amplify price moves; long-gamma regimes suppress them. The AI uses this to know whether to buy a breakout or fade it.",
+              color: "#60a5fa",
+              bg: "rgba(96,165,250,0.08)",
+              border: "rgba(96,165,250,0.2)",
+            },
+            {
+              icon: "📊",
+              tag: "VOLATILITY SURFACE",
+              title: "IV Premium vs. Realized Vol",
+              plain: "Is implied volatility cheap or expensive right now?",
+              detail: "Compares current implied volatility to the actual historical realized volatility. When IV is rich (>20% above HV), the AI leans toward premium-selling setups. When IV is cheap, it leans toward buying vol. The edge most traders never know exists.",
+              color: "#34d399",
+              bg: "rgba(52,211,153,0.08)",
+              border: "rgba(52,211,153,0.2)",
+            },
+            {
+              icon: "🌐",
+              tag: "MACRO CONTEXT",
+              title: "Cross-Asset Macro Radar",
+              plain: "What are rates, the dollar, and credit markets saying?",
+              detail: "Every day the AI reads yield curve shape, USD strength, high-yield vs investment-grade credit spreads, crude oil, and gold before picking any setup. A trade that looks great on flow alone might look terrible when the yield curve is inverting and credit is widening.",
+              color: "#fb923c",
+              bg: "rgba(251,146,60,0.08)",
+              border: "rgba(251,146,60,0.2)",
+            },
+            {
+              icon: "📈",
+              tag: "FACTOR SIGNALS",
+              title: "12-Month Price Momentum",
+              plain: "Is this stock in a real trend — or just noise?",
+              detail: "Uses the Fama-French momentum factor (12-1 month return). Stocks in genuine multi-month uptrends get an AI tailwind. Stocks with deteriorating momentum get bearish weighting. One of the most replicated factors in all of quantitative finance.",
+              color: "#4ade80",
+              bg: "rgba(74,222,128,0.08)",
+              border: "rgba(74,222,128,0.2)",
+            },
+            {
+              icon: "🏅",
+              tag: "QUALITY FACTOR",
+              title: "ROE + Forward P/E Scoring",
+              plain: "Is this a high-quality stock at a reasonable price?",
+              detail: "Scores each ticker on return on equity (quality factor) and forward price-to-earnings (value factor). The AI avoids recommending trades on low-quality, overvalued names when better opportunities exist — just like a fundamental quant fund would.",
+              color: "#fbbf24",
+              bg: "rgba(251,191,36,0.08)",
+              border: "rgba(251,191,36,0.2)",
+            },
+            {
+              icon: "🔗",
+              tag: "CORRELATION ANALYSIS",
+              title: "Stock vs. Sector Correlation",
+              plain: "Is this move stock-specific — or just the whole sector drifting?",
+              detail: "Measures 30-day correlation between each ticker and its sector ETF. When a stock is moving independently from its sector, that signals a name-specific catalyst — earnings, news, or institutional positioning — which is the highest-quality setup type. Sector-drift moves get down-weighted.",
+              color: "#e879f9",
+              bg: "rgba(232,121,249,0.08)",
+              border: "rgba(232,121,249,0.2)",
+            },
+          ].map(f => (
+            <div key={f.title} className="rounded-2xl p-6" style={{ background: f.bg, border: `1px solid ${f.border}` }}>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-2xl">{f.icon}</span>
+                <span className="text-xs font-black px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)", color: f.color, border: `1px solid ${f.border}` }}>{f.tag}</span>
+              </div>
+              <div className="font-black text-white text-base mb-1">{f.title}</div>
+              <div className="text-sm font-bold mb-3" style={{ color: f.color }}>{f.plain}</div>
+              <div className="text-slate-400 text-sm leading-relaxed">{f.detail}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-2xl p-6 text-center" style={{ background: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.2)" }}>
+          <p className="font-black text-white text-lg mb-1">All 7 quant signals compute on every ticker, every day — automatically.</p>
+          <p className="text-slate-400 text-sm">No setup. No extra cost. Built into the AI that writes your trade setups.</p>
+        </div>
+      </div>
+
       {/* ── COMPARISON TABLE ── */}
       <div className="px-6 pb-20 max-w-5xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">vs. the competition</p>
@@ -553,6 +657,9 @@ export default function Landing() {
             { icon: "📅", title: "Multi-Day Signal Persistence ★ New", desc: "Tracks whether signals are building for 2, 3, or 4+ consecutive days. A signal firing 3 days in a row is far more reliable than a one-day spike — and GPT knows the difference." },
             { icon: "💧", title: "Options Liquidity Filter ★ New", desc: "Automatically measures the bid/ask spread on every options contract. Setups where the spread would eat your profit are eliminated before GPT even sees them." },
             { icon: "🧠", title: "Self-Learning Win Rates ★ New", desc: "Every trade recommendation is logged and tracked to expiry. As outcomes accumulate, the AI learns which setups actually win — and biases future picks toward what's worked." },
+            { icon: "📐", title: "IV Skew & Volatility Surface ★ Quant", desc: "Measures put vs call implied vol gap (fear premium) plus near-term vs far-term IV structure. When institutions buy crash protection, IV skew spikes — the AI reads this before every setup." },
+            { icon: "⚙️", title: "Dealer Gamma Exposure ★ Quant", desc: "Computes net market-maker gamma across every open strike. SHORT_GAMMA regimes amplify moves; LONG_GAMMA suppresses them. The AI knows whether a breakout will run or reverse before suggesting a trade." },
+            { icon: "🌐", title: "Macro Cross-Asset Context ★ Quant", desc: "Yield curve, USD strength, HY vs IG credit spreads, crude oil, and gold — all read by the AI before every trade. Setups that look good on flow alone but break macro context get filtered out." },
           ].map(f => (
             <div key={f.title} className="rounded-2xl p-6 transition-all" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}
               onMouseEnter={e => (e.currentTarget.style.border = "1px solid rgba(74,222,128,0.25)")}
@@ -611,6 +718,7 @@ export default function Landing() {
               { text: "🌑 Dark Pool Radar — conviction signals, not raw numbers", highlight: true },
               { text: "🌡️ Market Regime Detection — strategy auto-adapts to bull/correction/chop", highlight: true },
               { text: "🧠 Self-Learning AI — gets smarter from its own trade history every week", highlight: true },
+              { text: "📐 Hedge-Fund Quant Signals — IV skew, dealer gamma, volatility surface, macro cross-asset, momentum factor, quality scoring", highlight: true },
               { text: "Bull Flow Top 20 — bullish + bearish options ranked by premium", highlight: false },
               { text: "High Conviction 5x+ spotlight (daily)", highlight: false },
               { text: "🏆 Smart vs Retail Divergence", highlight: false },
