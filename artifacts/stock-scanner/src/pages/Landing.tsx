@@ -123,12 +123,12 @@ export default function Landing() {
           </div>
 
           <h1 className="font-black leading-none mb-8" style={{ fontSize: "clamp(3.2rem,9vw,7.5rem)", letterSpacing: "-0.055em", lineHeight: 0.92 }}>
-            16 scanners.<br />
+            17 scanners.<br />
             <span style={{ color: "#4ade80", textShadow: "0 0 160px rgba(74,222,128,0.5)" }}>One AI thesis.</span>
           </h1>
 
           <p className="mx-auto mb-6 text-slate-300" style={{ fontSize: "clamp(1.1rem,2.5vw,1.4rem)", maxWidth: "660px", lineHeight: 1.75 }}>
-            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 16 sources into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, dealer gamma exposure, volatility surface, macro cross-asset context, and more — and outputs 3 complete, written trade setups every day.
+            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 17 sources into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, dealer gamma exposure, volatility surface, macro cross-asset context, institutional whale blocks, and more — and outputs 3 complete, written trade setups every day.
           </p>
 
           <p className="mx-auto mb-12 font-bold" style={{ fontSize: "1.05rem", maxWidth: "580px", color: "#fbbf24" }}>
@@ -162,7 +162,7 @@ export default function Landing() {
         </p>
         <div className="grid sm:grid-cols-3 gap-4 text-left">
           {[
-            { before: "You open 6 different tabs trying to figure out if signals agree.", after: "One AI reads all 16 sources together and tells you exactly what they say — combined.", icon: "🗂️" },
+            { before: "You open 6 different tabs trying to figure out if signals agree.", after: "One AI reads all 17 sources together and tells you exactly what they say — combined.", icon: "🗂️" },
             { before: "You see heavy put volume and don't know if it's a hedge or a real bearish bet.", after: "Put Intent Decoder classifies every put: hedge vs directional bet. Nobody else does this.", icon: "🎯" },
             { before: "You get a signal score. No entry, no strike, no expiry, no thesis.", after: "You get: ticker, direction, entry strike, expiry, target, stop loss, and a written thesis. Ready to execute.", icon: "📋" },
           ].map(p => (
@@ -187,7 +187,7 @@ export default function Landing() {
               AI Trade Synthesis
             </h2>
             <p className="text-slate-300 mb-8" style={{ maxWidth: "620px", fontSize: "1.1rem", lineHeight: 1.75 }}>
-              Every day, our AI reads all 16 signal sources simultaneously — dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime (VIX + SPY trend), multi-day signal persistence, options liquidity, analyst revision velocity, SPY beta, pre-market gaps, sector rotation, and more. Then it outputs 3 complete trade setups, written in plain English, ranked from most bullish to most bearish.
+              Every day, our AI reads all 17 signal sources simultaneously — dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime (VIX + SPY trend), multi-day signal persistence, options liquidity, analyst consensus targets, put/call OI positioning, VIX term structure, earnings proximity + implied move, SPY beta, pre-market gaps, sector rotation, and more. Then it outputs 3 complete trade setups, written in plain English, ranked from most bullish to most bearish.
             </p>
             <div className="grid sm:grid-cols-2 gap-6 mb-8">
               <div>
@@ -210,7 +210,7 @@ export default function Landing() {
                 <p className="text-xs uppercase tracking-widest font-bold mb-3" style={{ color: "#4ade80" }}>What you get from StockScanner AI</p>
                 <div className="space-y-2">
                   {[
-                    "All 16 sources → fed to AI together",
+                    "All 17 sources → fed to AI together",
                     "3 picks → sorted most bullish to bearish",
                     "Entry strike + expiry + target + stop",
                     "Written thesis: why these signals align",
@@ -471,6 +471,36 @@ export default function Landing() {
               bg: "rgba(232,121,249,0.08)",
               border: "rgba(232,121,249,0.2)",
             },
+            {
+              icon: "🎯",
+              tag: "ANALYST CONSENSUS",
+              title: "Wall St Price Target vs. Current Price",
+              plain: "What does Wall St think this stock is worth right now?",
+              detail: "Pulls the analyst mean price target and consensus rating (buy/hold/sell) for every ticker, every day. When institutional accumulation aligns with a 25%+ upside analyst consensus, the AI treats that as its highest fundamental + flow confirmation. When analysts say 'fully valued,' long call setups get filtered out.",
+              color: "#34d399",
+              bg: "rgba(52,211,153,0.08)",
+              border: "rgba(52,211,153,0.2)",
+            },
+            {
+              icon: "📅",
+              tag: "EARNINGS INTELLIGENCE",
+              title: "Earnings Proximity + Implied Move",
+              plain: "When are earnings — and what is the options market pricing in?",
+              detail: "Tracks exactly how many days until each ticker's next earnings report, and calculates the options market's expected ±% move into that event using current IV. When earnings are imminent (<7 days), the AI switches to STRADDLE mode. When IV is rich heading into earnings, it recommends selling premium instead of buying direction.",
+              color: "#fb923c",
+              bg: "rgba(251,146,60,0.08)",
+              border: "rgba(251,146,60,0.2)",
+            },
+            {
+              icon: "⚖️",
+              tag: "POSITIONING",
+              title: "Put/Call Open Interest Ratio",
+              plain: "How are institutions positioned — not just today, but over weeks?",
+              detail: "Sums total put open interest vs. call open interest across the nearest four expirations. Unlike daily volume, OI reflects weeks of accumulated institutional positioning. A heavy call OI skew (ratio <0.6) signals structural bullish bias. Heavy put OI (>1.5) signals institutions are hedged or outright bearish — the AI reads this before every directional trade.",
+              color: "#a78bfa",
+              bg: "rgba(167,139,250,0.08)",
+              border: "rgba(167,139,250,0.2)",
+            },
           ].map(f => (
             <div key={f.title} className="rounded-2xl p-6" style={{ background: f.bg, border: `1px solid ${f.border}` }}>
               <div className="flex items-center gap-2 mb-3">
@@ -485,7 +515,7 @@ export default function Landing() {
         </div>
 
         <div className="rounded-2xl p-6 text-center" style={{ background: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.2)" }}>
-          <p className="font-black text-white text-lg mb-1">All 7 quant signals compute on every ticker, every day — automatically.</p>
+          <p className="font-black text-white text-lg mb-1">All 10 quant signals compute on every ticker, every day — automatically.</p>
           <p className="text-slate-400 text-sm">No setup. No extra cost. Built into the AI that writes your trade setups.</p>
         </div>
       </div>
@@ -713,12 +743,12 @@ export default function Landing() {
           </div>
           <ul className="space-y-3.5 mb-8">
             {[
-              { text: "🤖 AI Trade Synthesis — 16 sources → 3 written setups daily, no competitor has this", highlight: true },
+              { text: "🤖 AI Trade Synthesis — 17 sources → 3 written setups daily, no competitor has this", highlight: true },
               { text: "🎯 Put Intent Decoder — hedge vs bearish bet, exclusively here", highlight: true },
               { text: "🌑 Dark Pool Radar — conviction signals, not raw numbers", highlight: true },
               { text: "🌡️ Market Regime Detection — strategy auto-adapts to bull/correction/chop", highlight: true },
               { text: "🧠 Self-Learning AI — gets smarter from its own trade history every week", highlight: true },
-              { text: "📐 Hedge-Fund Quant Signals — IV skew, dealer gamma, volatility surface, macro cross-asset, momentum factor, quality scoring", highlight: true },
+              { text: "📐 Hedge-Fund Quant Signals — IV skew, dealer gamma, volatility surface, macro cross-asset, momentum factor, quality scoring, analyst consensus, earnings proximity, put/call OI ratio, VIX term structure", highlight: true },
               { text: "Bull Flow Top 20 — bullish + bearish options ranked by premium", highlight: false },
               { text: "High Conviction 5x+ spotlight (daily)", highlight: false },
               { text: "🏆 Smart vs Retail Divergence", highlight: false },
