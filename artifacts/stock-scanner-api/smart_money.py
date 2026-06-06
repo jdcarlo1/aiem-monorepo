@@ -36,7 +36,7 @@ def _f(v, default=0.0):
 # REAL OPTIONS CHAIN FETCH (yfinance)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_options_data(ticker: str) -> dict:
+def fetch_options_data(ticker: str, _retry: bool = True) -> dict:
     """
     Pull real options chain from yfinance for the expiry nearest to 30 days out.
     Returns a dict of computed metrics, or empty dict if data is unavailable.
@@ -182,7 +182,15 @@ def fetch_options_data(ticker: str) -> dict:
             "top_prem_contracts":  top_prem_contracts,
             "top_prem_value":      round(top_prem_value / 1_000, 1),  # in $K
         }
-    except Exception:
+    except Exception as e:
+        # If Yahoo Finance rejected the crumb, refresh and retry once
+        if _retry and ("401" in str(e) or "crumb" in str(e).lower() or "Unauthorized" in str(e)):
+            try:
+                import yfinance as yf
+                yf.utils.get_crumb(reuse_session=False)
+            except Exception:
+                pass
+            return fetch_options_data(ticker, _retry=False)
         return {}
 
 

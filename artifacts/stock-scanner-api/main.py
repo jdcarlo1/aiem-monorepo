@@ -546,6 +546,12 @@ def bull_flow_top10():
     import yfinance as yf
     from smart_money import fetch_options_data
 
+    # Force a fresh Yahoo Finance crumb/session before bulk fetching
+    try:
+        yf.utils.get_crumb(reuse_session=False)
+    except Exception:
+        pass
+
     body    = request.get_json(silent=True) or {}
     tickers = body.get("tickers", DEFAULT_LEADERBOARD)
     if not isinstance(tickers, list) or not tickers:
