@@ -2750,6 +2750,7 @@ export default function Dashboard() {
   useEffect(() => { const t = setInterval(() => setTickPos(p => p - 1), 22); return () => clearInterval(t); }, []);
   const [tradeMode, setTradeMode]   = useState<"buy"|"sell">("buy");
   const [tradeShares, setTradeShares] = useState("");
+  const [lookupSubTab, setLookupSubTab] = useState<"analysis"|"technicals"|"chart">("analysis");
   const qc = useQueryClient();
 
   const { data: analysis, isLoading: loadingAnalysis, error: analysisError } = useQuery({
@@ -2888,94 +2889,243 @@ export default function Dashboard() {
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
 
         {/* --- Stock Lookup --- */}
-        {tab === "lookup" && (
-          <div className="space-y-6">
-            <div className="flex gap-2">
-              <input value={inputTicker} onChange={e => setInputTicker(e.target.value.toUpperCase())}
-                onKeyDown={e => e.key === "Enter" && handleLookup()}
-                placeholder="Enter ticker (e.g. AAPL)"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 uppercase" />
-              <button onClick={handleLookup} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg font-medium transition-colors">Analyze</button>
-            </div>
-
-            {loadingAnalysis && <div className="flex items-center justify-center py-16 gap-3 text-slate-400"><Spinner /> Fetching data & running analysis…</div>}
-            {analysisError  && <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 text-red-300">{analysisError instanceof Error ? analysisError.message : "Failed to analyze"}</div>}
-
-            {analysis && !loadingAnalysis && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {/* Price card */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                    <div className="text-slate-400 text-sm mb-1">{analysis.info.name || analysis.ticker}</div>
-                    <div className="flex items-end gap-3 mb-3">
-                      <span className="text-4xl font-bold text-white">${fmt(ind?.price)}</span>
-                      <span className={`text-lg font-medium mb-0.5 ${(ind?.price_change_pct ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{(ind?.price_change_pct ?? 0) >= 0 ? "+" : ""}{fmt(ind?.price_change_pct)}%</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div><span className="text-slate-500">Sector</span><div className="text-slate-300 truncate">{analysis.info.sector || "—"}</div></div>
-                      <div><span className="text-slate-500">Mkt Cap</span><div className="text-slate-300">{fmtMktCap(analysis.info.market_cap)}</div></div>
-                      <div><span className="text-slate-500">P/E</span><div className="text-slate-300">{fmt(analysis.info.pe_ratio)}</div></div>
-                      <div><span className="text-slate-500">Beta</span><div className="text-slate-300">{fmt(analysis.info.beta)}</div></div>
-                      <div><span className="text-slate-500">52w High</span><div className="text-slate-300">${fmt(ind?.high_52w)}</div></div>
-                      <div><span className="text-slate-500">52w Low</span><div className="text-slate-300">${fmt(ind?.low_52w)}</div></div>
-                    </div>
-                  </div>
-
-                  {/* Score + ML card */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                    <div className="text-slate-400 text-sm mb-3">Composite Score &amp; ML Probability</div>
-                    <div className="flex items-center gap-4 mb-4">
-                      {score && <ScoreBadge score={score.score} rating={score.rating} />}
-                      {ml    && <DirectionBadge direction={ml.direction} confidence={ml.confidence} probUp={ml.probability_up} />}
-                    </div>
-                    {ml?.model_accuracy && <div className="text-xs text-slate-500 mb-3">Model accuracy: {ml.model_accuracy.toFixed(1)}%</div>}
-                    {score && <ScoreBreakdown breakdown={score.breakdown} />}
-                  </div>
-
-                  {/* Indicators card */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                    <div className="text-slate-400 text-sm mb-4">Technical Indicators</div>
-                    {ind?.rsi != null && <RsiGauge rsi={ind.rsi} />}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm pt-3 mt-3 border-t border-slate-800">
-                      <div><span className="text-slate-500">MACD</span><div className={`font-medium ${(ind?.macd ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(ind?.macd, 3)}</div></div>
-                      <div><span className="text-slate-500">Signal</span><div className="text-slate-300">{fmt(ind?.macd_signal, 3)}</div></div>
-                      <div><span className="text-slate-500">SMA 50</span><div className="text-slate-300">${fmt(ind?.sma50)}</div></div>
-                      <div><span className="text-slate-500">SMA 200</span><div className="text-slate-300">${fmt(ind?.sma200)}</div></div>
-                      <div><span className="text-slate-500">BB Upper</span><div className="text-slate-300">${fmt(ind?.bb_upper)}</div></div>
-                      <div><span className="text-slate-500">BB Lower</span><div className="text-slate-300">${fmt(ind?.bb_lower)}</div></div>
-                      <div><span className="text-slate-500">Vol Ratio</span><div className={`font-medium ${(ind?.volume_ratio ?? 1) >= 1.5 ? "text-yellow-400" : "text-slate-300"}`}>{fmt(ind?.volume_ratio, 1)}x</div></div>
-                      <div><span className="text-slate-500">ATR</span><div className="text-slate-300">{fmt(ind?.atr)}</div></div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                  <div className="text-slate-400 text-sm mb-4">Price History (90 days)</div>
-                  <PriceChart history={analysis.history} />
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                  <div className="text-slate-400 text-sm mb-3">Paper Trade</div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <div className="flex bg-slate-800 rounded-lg p-1">
-                      {(["buy","sell"] as const).map(m => (
-                        <button key={m} onClick={() => setTradeMode(m)} className={`px-4 py-1.5 rounded text-sm font-medium capitalize transition-colors ${tradeMode === m ? m === "buy" ? "bg-emerald-600 text-white" : "bg-red-600 text-white" : "text-slate-400 hover:text-slate-200"}`}>{m}</button>
-                      ))}
-                    </div>
-                    <input type="number" value={tradeShares} onChange={e => setTradeShares(e.target.value)} placeholder="Shares" className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
-                    <div className="text-slate-400 text-sm">@ ${fmt(ind?.price)} = <span className="text-white font-medium">${tradeShares && ind?.price ? fmt(parseFloat(tradeShares) * ind.price, 2) : "—"}</span></div>
-                    <button onClick={handleTrade} disabled={tradeMutation.isPending} className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${tradeMode === "buy" ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-red-600 hover:bg-red-500 text-white"} disabled:opacity-50`}>
-                      {tradeMutation.isPending ? "…" : `${tradeMode === "buy" ? "Buy" : "Sell"} ${analysis.ticker}`}
-                    </button>
-                    {tradeMutation.data?.message && <span className="text-emerald-400 text-sm">{tradeMutation.data.message}</span>}
-                    {tradeMutation.data?.error   && <span className="text-red-400 text-sm">{tradeMutation.data.error}</span>}
-                  </div>
-                </div>
+        {tab === "lookup" && (() => {
+          const fmtVol = (v?: number | null) => {
+            if (v == null) return "—";
+            if (v >= 1e9) return `${(v/1e9).toFixed(1)}B`;
+            if (v >= 1e6) return `${(v/1e6).toFixed(1)}M`;
+            if (v >= 1e3) return `${(v/1e3).toFixed(1)}K`;
+            return v.toFixed(0);
+          };
+          const rsiVal = ind?.rsi ?? 0;
+          const rsiColor = rsiVal > 70 ? BB_RED : rsiVal < 30 ? BB_GREEN : BB_WHITE;
+          const macdVal = ind?.macd ?? 0;
+          const scoreColor = !score ? BB_WHITE
+            : score.score >= 8 ? BB_GREEN
+            : score.score >= 6 ? "#84cc16"
+            : score.score >= 5 ? "#eab308"
+            : score.score >= 3 ? BB_ORANGE
+            : BB_RED;
+          const catalystText = !score ? "Enter a ticker to see analysis"
+            : score.rating === "Strong Buy" ? "Strong bullish confluence — momentum, technicals, and volume all aligned"
+            : score.rating === "Buy" ? "Positive setup — technicals and momentum favor upside continuation"
+            : score.rating === "Strong Sell" ? "Heavy bearish pressure — multiple indicators signal downside risk"
+            : score.rating === "Sell" ? "Bearish signals detected — caution advised, risk/reward unfavorable"
+            : "Neutral — no clear directional edge, monitor for catalyst or breakout";
+          const subTabStyle = (id: string) => ({
+            padding: "8px 16px", background: "none", border: "none",
+            borderBottom: lookupSubTab === id ? `2px solid ${BB_GREEN}` : "2px solid transparent",
+            color: lookupSubTab === id ? BB_GREEN : BB_LABEL,
+            fontSize: 10, fontWeight: 700 as const, fontFamily: BB_FONT, cursor: "pointer", letterSpacing: "0.1em",
+          });
+          return (
+            <div style={{ fontFamily: BB_FONT }}>
+              {/* Search bar */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                <input value={inputTicker} onChange={e => setInputTicker(e.target.value.toUpperCase())}
+                  onKeyDown={e => e.key === "Enter" && handleLookup()}
+                  placeholder="ENTER TICKER (e.g. AAPL)"
+                  style={{ flex: 1, background: "#0a0a0a", border: `1px solid ${BB_BORDER}`, padding: "10px 14px", color: BB_WHITE, fontFamily: BB_FONT, fontSize: 12, outline: "none", textTransform: "uppercase", letterSpacing: "0.08em" }} />
+                <button onClick={handleLookup} style={{ background: BB_ORANGE, border: "none", padding: "10px 24px", color: "#000", fontFamily: BB_FONT, fontSize: 11, fontWeight: 900, letterSpacing: "0.12em", cursor: "pointer" }}>ANALYZE</button>
               </div>
-            )}
-            {!analysis && !loadingAnalysis && !analysisError && <div className="text-center py-16 text-slate-500">Enter a ticker symbol above to get started</div>}
-          </div>
-        )}
+
+              {loadingAnalysis && <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "60px 0", color: BB_LABEL, fontSize: 12 }}><Spinner /> FETCHING DATA &amp; RUNNING ANALYSIS…</div>}
+              {analysisError  && <div style={{ background: "#1a0000", border: `1px solid ${BB_RED}`, padding: 14, color: BB_RED, fontSize: 12 }}>{analysisError instanceof Error ? analysisError.message : "FAILED TO ANALYZE"}</div>}
+
+              {!analysis && !loadingAnalysis && !analysisError && (
+                <div style={{ textAlign: "center", padding: "60px 0", color: BB_LABEL, fontSize: 12, letterSpacing: "0.1em" }}>ENTER A TICKER SYMBOL ABOVE TO GET STARTED</div>
+              )}
+
+              {analysis && !loadingAnalysis && (
+                <>
+                  {/* ── STOCK HEADER ── */}
+                  <div style={{ borderBottom: `2px solid ${BB_ORANGE}`, paddingBottom: 14, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                        <span style={{ color: BB_ORANGE, fontSize: 26, fontWeight: 900, letterSpacing: "0.05em" }}>{analysis.ticker}</span>
+                        <span style={{ color: BB_LABEL, fontSize: 12, letterSpacing: "0.05em" }}>{analysis.info.name || ""}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 16, marginTop: 5, flexWrap: "wrap" }}>
+                        {analysis.info.sector && <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>{analysis.info.sector.toUpperCase()}</span>}
+                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>CAP: {fmtMktCap(analysis.info.market_cap)}</span>
+                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>P/E: {fmt(analysis.info.pe_ratio)}</span>
+                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>BETA: {fmt(analysis.info.beta)}</span>
+                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>52W: ${fmt(ind?.low_52w)} – ${fmt(ind?.high_52w)}</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ color: BB_WHITE, fontSize: 32, fontWeight: 700, lineHeight: 1, letterSpacing: "-0.02em" }}>${fmt(ind?.price)}</div>
+                      <div style={{ color: (ind?.price_change_pct ?? 0) >= 0 ? BB_GREEN : BB_RED, fontSize: 15, fontWeight: 700, marginTop: 5, letterSpacing: "0.05em" }}>
+                        {(ind?.price_change_pct ?? 0) >= 0 ? "▲" : "▼"} {Math.abs(ind?.price_change_pct ?? 0).toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── 6 METRIC CARDS ── */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
+                    {/* RSI */}
+                    <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+                      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 6 }}>RSI (14)</div>
+                      <div style={{ color: rsiColor, fontSize: 22, fontWeight: 700 }}>{ind?.rsi != null ? ind.rsi.toFixed(1) : "—"}</div>
+                      {ind?.rsi != null && (
+                        <div style={{ height: 2, background: "#1c1c1c", marginTop: 8, borderRadius: 1 }}>
+                          <div style={{ width: `${Math.min(ind.rsi, 100)}%`, height: "100%", background: rsiColor, borderRadius: 1 }} />
+                        </div>
+                      )}
+                    </div>
+                    {/* MACD */}
+                    <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+                      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 6 }}>MACD</div>
+                      <div style={{ color: macdVal >= 0 ? BB_GREEN : BB_RED, fontSize: 22, fontWeight: 700 }}>
+                        {ind?.macd != null ? (macdVal >= 0 ? "+" : "") + fmt(ind.macd, 2) : "—"}
+                      </div>
+                      {ind?.macd_signal != null && <div style={{ color: BB_LABEL, fontSize: 9, marginTop: 6 }}>SIG {fmt(ind.macd_signal, 2)}</div>}
+                    </div>
+                    {/* VOL RATIO */}
+                    <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+                      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 6 }}>VOL RATIO</div>
+                      <div style={{ color: (ind?.volume_ratio ?? 1) >= 1.5 ? "#FFD700" : BB_WHITE, fontSize: 22, fontWeight: 700 }}>
+                        {ind?.volume_ratio != null ? fmt(ind.volume_ratio, 1) + "x" : "—"}
+                      </div>
+                      {(ind?.volume_ratio ?? 0) >= 1.5 && <div style={{ color: "#FFD700", fontSize: 9, marginTop: 6 }}>ELEVATED</div>}
+                    </div>
+                    {/* VOLUME */}
+                    <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+                      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 6 }}>VOLUME</div>
+                      <div style={{ color: BB_WHITE, fontSize: 22, fontWeight: 700 }}>{fmtVol(ind?.volume)}</div>
+                    </div>
+                    {/* AVG VOL */}
+                    <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+                      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 6 }}>AVG VOL</div>
+                      <div style={{ color: BB_LABEL, fontSize: 22, fontWeight: 700 }}>{fmtVol(ind?.avg_volume_20)}</div>
+                    </div>
+                    {/* SIGNAL */}
+                    <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+                      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 6 }}>SIGNAL</div>
+                      <div style={{ color: scoreColor, fontSize: score && score.rating.length > 8 ? 14 : 18, fontWeight: 700, lineHeight: 1.2 }}>{score?.rating ?? "—"}</div>
+                    </div>
+                  </div>
+
+                  {/* ── OPTIONS FLOW + CATALYST ── */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+                    <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+                      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 8 }}>OPTIONS FLOW</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: (ind?.volume_ratio ?? 1) >= 1.5 ? BB_GREEN : BB_LABEL, flexShrink: 0 }} />
+                        <span style={{ color: (ind?.volume_ratio ?? 1) >= 1.5 ? BB_GREEN : BB_LABEL, fontSize: 13, fontWeight: 700, letterSpacing: "0.05em" }}>
+                          {(ind?.volume_ratio ?? 1) >= 2 ? "HEAVY CALL FLOW" : (ind?.volume_ratio ?? 1) >= 1.5 ? "ELEVATED FLOW" : "NORMAL FLOW"}
+                        </span>
+                      </div>
+                      <div style={{ color: "#444", fontSize: 9, marginTop: 6 }}>VOL {fmtVol(ind?.volume)} vs AVG {fmtVol(ind?.avg_volume_20)}</div>
+                    </div>
+                    <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+                      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 8 }}>CATALYST</div>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 7 }}>
+                        <span style={{ color: BB_ORANGE, fontSize: 10, flexShrink: 0, marginTop: 1 }}>◆</span>
+                        <span style={{ color: BB_WHITE, fontSize: 10, lineHeight: 1.5 }}>{catalystText}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── AI ANALYSIS / TECHNICALS / CHART TABS ── */}
+                  <div style={{ background: "#080808", border: `1px solid ${BB_BORDER}`, marginBottom: 10 }}>
+                    <div style={{ display: "flex", borderBottom: `1px solid ${BB_BORDER}` }}>
+                      <button onClick={() => setLookupSubTab("analysis")} style={subTabStyle("analysis")}>AI ANALYSIS</button>
+                      <button onClick={() => setLookupSubTab("technicals")} style={subTabStyle("technicals")}>TECHNICALS</button>
+                      <button onClick={() => setLookupSubTab("chart")} style={subTabStyle("chart")}>CHART</button>
+                    </div>
+
+                    {lookupSubTab === "analysis" && (
+                      <div style={{ padding: 16 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                          <span style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em" }}>SWING ANALYSIS</span>
+                          <span style={{ background: "#1a0a00", color: BB_ORANGE, fontSize: 9, padding: "2px 8px", border: `1px solid ${BB_ORANGE}33`, letterSpacing: "0.1em" }}>STOCKSCANNER AI</span>
+                        </div>
+                        {score && (
+                          <>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+                              <span style={{ color: scoreColor, fontSize: 32, fontWeight: 900 }}>{score.score.toFixed(1)}</span>
+                              <span style={{ color: "#333", fontSize: 18 }}>/10</span>
+                              <span style={{ color: scoreColor, fontSize: 14, fontWeight: 700, letterSpacing: "0.05em", marginLeft: 4 }}>{score.rating.toUpperCase()}</span>
+                            </div>
+                            <ScoreBreakdown breakdown={score.breakdown} />
+                          </>
+                        )}
+                        {ml && (
+                          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BB_BORDER}` }}>
+                            <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 8 }}>ML PROBABILITY MODEL</div>
+                            <DirectionBadge direction={ml.direction} confidence={ml.confidence} probUp={ml.probability_up} />
+                            {ml.model_accuracy && <div style={{ color: "#333", fontSize: 9, marginTop: 6 }}>MODEL ACCURACY: {ml.model_accuracy.toFixed(1)}%</div>}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {lookupSubTab === "technicals" && (
+                      <div style={{ padding: 16 }}>
+                        {ind?.rsi != null && <div style={{ marginBottom: 14 }}><RsiGauge rsi={ind.rsi} /></div>}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 24px" }}>
+                          {[
+                            { label: "SMA 50",    value: `$${fmt(ind?.sma50)}` },
+                            { label: "SMA 200",   value: `$${fmt(ind?.sma200)}` },
+                            { label: "BB UPPER",  value: `$${fmt(ind?.bb_upper)}` },
+                            { label: "BB LOWER",  value: `$${fmt(ind?.bb_lower)}` },
+                            { label: "ATR",       value: fmt(ind?.atr) },
+                            { label: "MOMENTUM",  value: fmt((ind as any)?.momentum, 3) },
+                          ].map(row => (
+                            <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid #111` }}>
+                              <span style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.08em" }}>{row.label}</span>
+                              <span style={{ color: BB_WHITE, fontSize: 10, fontWeight: 700 }}>{row.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BB_BORDER}` }}>
+                          {score && <ScoreBadge score={score.score} rating={score.rating} />}
+                        </div>
+                      </div>
+                    )}
+
+                    {lookupSubTab === "chart" && (
+                      <div style={{ padding: 16 }}>
+                        <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 12 }}>PRICE HISTORY (90 DAYS)</div>
+                        <PriceChart history={analysis.history} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── PAPER TRADE ── */}
+                  <div style={{ background: "#0d0d0d", border: `1px solid ${BB_BORDER}`, padding: "14px 16px" }}>
+                    <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 12 }}>PAPER TRADE — {analysis.ticker}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", border: `1px solid ${BB_BORDER}` }}>
+                        {(["buy","sell"] as const).map(m => (
+                          <button key={m} onClick={() => setTradeMode(m)} style={{
+                            padding: "7px 18px", border: "none", cursor: "pointer", fontFamily: BB_FONT, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
+                            background: tradeMode === m ? (m === "buy" ? "#003300" : "#330000") : "transparent",
+                            color: tradeMode === m ? (m === "buy" ? BB_GREEN : BB_RED) : BB_LABEL,
+                          }}>{m.toUpperCase()}</button>
+                        ))}
+                      </div>
+                      <input type="number" value={tradeShares} onChange={e => setTradeShares(e.target.value)} placeholder="SHARES"
+                        style={{ width: 100, background: "#0a0a0a", border: `1px solid ${BB_BORDER}`, padding: "7px 10px", color: BB_WHITE, fontFamily: BB_FONT, fontSize: 11, outline: "none" }} />
+                      <span style={{ color: BB_LABEL, fontSize: 10 }}>@ ${fmt(ind?.price)} = <span style={{ color: BB_WHITE, fontWeight: 700 }}>${tradeShares && ind?.price ? fmt(parseFloat(tradeShares) * ind.price, 2) : "—"}</span></span>
+                      <button onClick={handleTrade} disabled={tradeMutation.isPending} style={{
+                        background: tradeMode === "buy" ? "#003300" : "#330000",
+                        border: `1px solid ${tradeMode === "buy" ? BB_GREEN : BB_RED}`,
+                        color: tradeMode === "buy" ? BB_GREEN : BB_RED,
+                        padding: "7px 20px", fontFamily: BB_FONT, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", cursor: "pointer", opacity: tradeMutation.isPending ? 0.5 : 1,
+                      }}>
+                        {tradeMutation.isPending ? "…" : `${tradeMode === "buy" ? "BUY" : "SELL"} ${analysis.ticker}`}
+                      </button>
+                      {tradeMutation.data?.message && <span style={{ color: BB_GREEN, fontSize: 10 }}>{tradeMutation.data.message}</span>}
+                      {tradeMutation.data?.error   && <span style={{ color: BB_RED, fontSize: 10 }}>{tradeMutation.data.error}</span>}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         {/* --- Scanner --- */}
         {tab === "scanner" && (
