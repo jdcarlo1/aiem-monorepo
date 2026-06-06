@@ -1484,7 +1484,9 @@ def call_intent():
             exps = tkr.options
             if not exps: return None
             fomo_prem = 0.0; accum_prem = 0.0
-            top_accum = {"strike": None, "expiry": None, "prem": 0.0}
+            fomo_vol_prem = 0.0; accum_vol_prem = 0.0
+            fomo_oi_prem  = 0.0; accum_oi_prem  = 0.0
+            top_accum = {"strike": None, "expiry": None, "prem": 0.0, "otm_pct": 0.0}
             for exp in exps[:8]:
                 try:
                     days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
@@ -1495,14 +1497,21 @@ def call_intent():
                         oi     = int(row.get("openInterest", 0) or 0)
                         last   = float(row.get("lastPrice", 0) or 0)
                         if strike <= 0 or last <= 0: continue
-                        otm_pct = (strike - price) / price * 100
-                        prem    = (vol + oi) * last * 100
+                        otm_pct   = (strike - price) / price * 100
+                        vol_prem  = vol * last * 100
+                        oi_prem   = oi  * last * 100
+                        prem      = vol_prem + oi_prem
                         if otm_pct > 5 and days_out > 60:
-                            accum_prem += prem
+                            accum_prem     += prem
+                            accum_vol_prem += vol_prem
+                            accum_oi_prem  += oi_prem
                             if prem > top_accum["prem"]:
-                                top_accum = {"strike": round(strike, 2), "expiry": exp, "prem": prem}
+                                top_accum = {"strike": round(strike, 2), "expiry": exp,
+                                             "prem": prem, "otm_pct": round(otm_pct, 1)}
                         elif -3 < otm_pct < 3 and days_out < 45:
-                            fomo_prem += prem
+                            fomo_prem     += prem
+                            fomo_vol_prem += vol_prem
+                            fomo_oi_prem  += oi_prem
                 except Exception: continue
             total = fomo_prem + accum_prem
             if total < 1000: return None
@@ -1510,9 +1519,15 @@ def call_intent():
             accum_pct = round(accum_prem / total * 100, 1)
             verdict   = ("ACCUMULATION" if accum_pct >= 60 else "FOMO" if fomo_pct >= 60 else "MIXED")
             return {"ticker": ticker, "price": round(price, 2),
-                    "fomo_prem_m": round(fomo_prem / 1e6, 2), "accum_prem_m": round(accum_prem / 1e6, 2),
+                    "fomo_prem_m":      round(fomo_prem      / 1e6, 2),
+                    "accum_prem_m":     round(accum_prem     / 1e6, 2),
+                    "accum_vol_m":      round(accum_vol_prem / 1e6, 2),
+                    "accum_oi_m":       round(accum_oi_prem  / 1e6, 2),
+                    "fomo_vol_m":       round(fomo_vol_prem  / 1e6, 2),
+                    "fomo_oi_m":        round(fomo_oi_prem   / 1e6, 2),
                     "fomo_pct": fomo_pct, "accum_pct": accum_pct, "verdict": verdict,
-                    "top_accum_strike": top_accum["strike"], "top_accum_expiry": top_accum["expiry"]}
+                    "top_accum_strike": top_accum["strike"], "top_accum_expiry": top_accum["expiry"],
+                    "top_accum_otm_pct": top_accum["otm_pct"]}
         except Exception: return None
 
     with ThreadPoolExecutor(max_workers=8) as ex:

@@ -2553,8 +2553,32 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
                   <span className="text-emerald-400">📦 Accum <span className="font-bold">${r.accum_prem_m.toFixed(1)}M</span> <span className="text-slate-600">({r.accum_pct}%)</span></span>
                   <span className="text-red-400">🏃 FOMO <span className="font-bold">${r.fomo_prem_m.toFixed(1)}M</span> <span className="text-slate-600">({r.fomo_pct}%)</span></span>
                 </div>
-                {r.top_accum_strike && r.top_accum_expiry && <span className="text-slate-600 text-xs">Top accum: <span className="text-slate-400">${r.top_accum_strike}</span> exp <span className="text-slate-400">{r.top_accum_expiry}</span></span>}
+                {r.top_accum_strike && r.top_accum_expiry && (
+                  <span className="text-slate-600 text-xs">
+                    Top accum: <span className="text-white font-bold">${r.top_accum_strike}</span>
+                    <span className="text-emerald-500 font-bold ml-1">(+{r.top_accum_otm_pct?.toFixed(1) ?? ((r.top_accum_strike - r.price) / r.price * 100).toFixed(1)}% OTM)</span>
+                    <span className="ml-1">exp <span className="text-slate-400">{r.top_accum_expiry}</span></span>
+                  </span>
+                )}
               </div>
+              {(r.accum_vol_m > 0 || r.accum_oi_m > 0) && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="rounded-lg px-3 py-2" style={{ background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.12)" }}>
+                    <div className="text-slate-500 text-xs mb-1">📦 Accum breakdown</div>
+                    <div className="flex gap-3 text-xs">
+                      <span><span className="text-slate-400">Today </span><span className="font-bold text-white">${r.accum_vol_m.toFixed(1)}M</span></span>
+                      <span><span className="text-slate-400">Built up </span><span className="font-bold text-slate-300">${r.accum_oi_m.toFixed(1)}M</span></span>
+                    </div>
+                  </div>
+                  <div className="rounded-lg px-3 py-2" style={{ background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.12)" }}>
+                    <div className="text-slate-500 text-xs mb-1">🏃 FOMO breakdown</div>
+                    <div className="flex gap-3 text-xs">
+                      <span><span className="text-slate-400">Today </span><span className="font-bold text-white">${r.fomo_vol_m.toFixed(1)}M</span></span>
+                      <span><span className="text-slate-400">Built up </span><span className="font-bold text-slate-300">${r.fomo_oi_m.toFixed(1)}M</span></span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

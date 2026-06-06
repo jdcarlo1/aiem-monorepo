@@ -615,9 +615,12 @@ export function fetchVolCrush() {
 
 export interface CallIntentRow {
   ticker: string; price: number; fomo_prem_m: number; accum_prem_m: number;
+  accum_vol_m: number; accum_oi_m: number;
+  fomo_vol_m: number; fomo_oi_m: number;
   fomo_pct: number; accum_pct: number;
   verdict: "FOMO" | "ACCUMULATION" | "MIXED";
   top_accum_strike: number | null; top_accum_expiry: string | null;
+  top_accum_otm_pct: number;
 }
 export function fetchCallIntent() {
   return fetchJson<{ results: CallIntentRow[]; scanned: number }>("/call-intent");
