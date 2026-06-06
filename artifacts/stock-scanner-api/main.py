@@ -2082,18 +2082,26 @@ def vol_crush():
                     news_headline = (_news_items[0].get("title") or "")[:90] if _news_items else None
             except Exception: pass
 
-            # Q7. Put/Call OI ratio (cumulative directional positioning bias)
+            # Q7. Put/Call OI ratio + flow persistence (cumulative across 4 exps)
             put_call_oi_ratio = None
+            call_vol_oi_ratio = None
+            put_vol_oi_ratio  = None
             try:
                 _tot_put_oi = 0; _tot_call_oi = 0
+                _tot_call_vol = 0; _tot_put_vol = 0
                 for _exp_oi in exps[:4]:
                     try:
                         _ch_oi = tkr.option_chain(_exp_oi)
-                        _tot_put_oi  += int(_ch_oi.puts["openInterest"].fillna(0).sum())
-                        _tot_call_oi += int(_ch_oi.calls["openInterest"].fillna(0).sum())
+                        _tot_put_oi   += int(_ch_oi.puts["openInterest"].fillna(0).sum())
+                        _tot_call_oi  += int(_ch_oi.calls["openInterest"].fillna(0).sum())
+                        _tot_call_vol += int(_ch_oi.calls["volume"].fillna(0).sum())
+                        _tot_put_vol  += int(_ch_oi.puts["volume"].fillna(0).sum())
                     except Exception: continue
                 if _tot_call_oi > 0:
                     put_call_oi_ratio = round(_tot_put_oi / _tot_call_oi, 2)
+                    call_vol_oi_ratio = round(_tot_call_vol / _tot_call_oi, 3)
+                if _tot_put_oi > 0:
+                    put_vol_oi_ratio = round(_tot_put_vol / _tot_put_oi, 3)
             except Exception: pass
 
             # Q8. Earnings implied move (IV-based expected ±% move into earnings)
@@ -2101,6 +2109,52 @@ def vol_crush():
             try:
                 if days_to_earnings and days_to_earnings > 0 and current_iv > 0:
                     earnings_impl_move_pct = round(current_iv * (max(days_to_earnings, 1) / 252) ** 0.5 * 100, 1)
+            except Exception: pass
+
+            # Q9. 52-week range percentile (0%=at 52w low, 100%=at 52w high)
+            week52_range_pct = None
+            try:
+                _52h = float(info.get("fiftyTwoWeekHigh") or 0)
+                _52l = float(info.get("fiftyTwoWeekLow")  or 0)
+                if _52h > _52l > 0 and price > 0:
+                    week52_range_pct = round((price - _52l) / (_52h - _52l) * 100, 1)
+            except Exception: pass
+
+            # Q10. Borrow cost proxy — inferred from short interest (no extra API)
+            borrow_cost_proxy = None
+            try:
+                if short_float_pct is not None:
+                    if short_float_pct >= 20:
+                        borrow_cost_proxy = "HIGH_BORROW"
+                    elif short_float_pct >= 10:
+                        borrow_cost_proxy = "ELEVATED_BORROW"
+                    else:
+                        borrow_cost_proxy = "EASY_BORROW"
+            except Exception: pass
+
+            # Q11. EPS revision trend (forward vs trailing EPS — direction of estimate revisions)
+            eps_revision_trend = None
+            try:
+                _feps = info.get("forwardEps")
+                _teps = info.get("trailingEps")
+                if _feps is not None and _teps is not None and abs(float(_teps)) > 0.01:
+                    _fwd_growth = round((float(_feps) / float(_teps) - 1) * 100, 1)
+                    if _fwd_growth > 15:
+                        eps_revision_trend = f"RISING(+{_fwd_growth}%_fwd_growth)"
+                    elif _fwd_growth < -15:
+                        eps_revision_trend = f"DECLINING({_fwd_growth}%_fwd_growth)"
+                    else:
+                        eps_revision_trend = f"STABLE({_fwd_growth:+.1f}%_fwd_growth)"
+            except Exception: pass
+
+            # Q12. Historical earnings price reaction proxy (avg of top-4 absolute 1-day moves in
+            #      the past year — for most stocks these are almost exclusively earnings days)
+            hist_earn_reaction_pct = None
+            try:
+                _abs_daily = (abs(rets) * 100).dropna().sort_values(ascending=False)
+                _top4 = _abs_daily.iloc[:4].tolist()
+                if len(_top4) >= 2:
+                    hist_earn_reaction_pct = round(sum(_top4) / len(_top4), 1)
             except Exception: pass
 
             verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
@@ -2129,6 +2183,12 @@ def vol_crush():
                 "analyst_recommendation": analyst_recommendation,
                 "put_call_oi_ratio": put_call_oi_ratio,
                 "earnings_impl_move_pct": earnings_impl_move_pct,
+                "call_vol_oi_ratio": call_vol_oi_ratio,
+                "put_vol_oi_ratio": put_vol_oi_ratio,
+                "week52_range_pct": week52_range_pct,
+                "borrow_cost_proxy": borrow_cost_proxy,
+                "eps_revision_trend": eps_revision_trend,
+                "hist_earn_reaction_pct": hist_earn_reaction_pct,
             }
         except Exception: return None
 
@@ -2541,6 +2601,12 @@ def ai_trades():
             _add(t, "analyst_recommendation", r.get("analyst_recommendation"))
             _add(t, "put_call_oi_ratio", r.get("put_call_oi_ratio"))
             _add(t, "earnings_impl_move_pct", r.get("earnings_impl_move_pct"))
+            _add(t, "call_vol_oi_ratio", r.get("call_vol_oi_ratio"))
+            _add(t, "put_vol_oi_ratio", r.get("put_vol_oi_ratio"))
+            _add(t, "week52_range_pct", r.get("week52_range_pct"))
+            _add(t, "borrow_cost_proxy", r.get("borrow_cost_proxy"))
+            _add(t, "eps_revision_trend", r.get("eps_revision_trend"))
+            _add(t, "hist_earn_reaction_pct", r.get("hist_earn_reaction_pct"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -2999,6 +3065,23 @@ def ai_trades():
             pcoi = v["put_call_oi_ratio"]
             pcoi_tag = "HEAVY_PUT_OI(bearish_positioning)" if pcoi > 1.5 else "HEAVY_CALL_OI(bullish_positioning)" if pcoi < 0.6 else "balanced_OI"
             parts.append(f"pc_oi_ratio={pcoi}({pcoi_tag})")
+        if v.get("week52_range_pct") is not None:
+            w52 = v["week52_range_pct"]
+            w52_tag = "NEAR_52W_HIGH(breakout_zone)" if w52 >= 90 else "NEAR_52W_LOW(support_bounce)" if w52 <= 10 else "mid_range"
+            parts.append(f"52w_range={w52:.0f}%({w52_tag})")
+        if v.get("borrow_cost_proxy") in ("HIGH_BORROW", "ELEVATED_BORROW"):
+            parts.append(f"borrow={v['borrow_cost_proxy']}(puts_may_be_synthetic_shorts)")
+        if v.get("call_vol_oi_ratio") is not None and v.get("put_vol_oi_ratio") is not None:
+            cvoi = v["call_vol_oi_ratio"]; pvoi = v["put_vol_oi_ratio"]
+            c_tag = "FRESH(one_day)" if cvoi > 0.25 else "STRUCTURAL(multi_week)" if cvoi < 0.05 else "mixed"
+            p_tag = "FRESH(one_day)" if pvoi > 0.25 else "STRUCTURAL(multi_week)" if pvoi < 0.05 else "mixed"
+            parts.append(f"flow_persist(calls={cvoi}/{c_tag} puts={pvoi}/{p_tag})")
+        if v.get("eps_revision_trend"):
+            parts.append(f"eps_trend={v['eps_revision_trend']}")
+        if v.get("hist_earn_reaction_pct") is not None:
+            her = v["hist_earn_reaction_pct"]
+            her_tag = "LARGE_MOVER" if her >= 8 else "moderate" if her >= 3 else "small_mover"
+            parts.append(f"hist_earn_move=±{her}%({her_tag})")
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
         sig_lines.append(" | ".join(parts))
@@ -3015,7 +3098,7 @@ def ai_trades():
 
     system_msg = (
         "You are an elite institutional options trader operating at hedge-fund quant level. "
-        "You receive 40+ data points per ticker across 17 sources including vol surface, dealer gamma, factor scores, macro cross-asset signals, and analyst consensus. "
+        "You receive 50+ data points per ticker across 17 sources including vol surface, dealer gamma, factor scores, macro cross-asset signals, analyst consensus, and earnings intelligence. "
         "CRITICAL RULES:\n"
         "1. NEVER recommend a setup where opt_spread>12% (ILLIQUID_AVOID) — wide spreads destroy edge.\n"
         "2. In HIGH_FEAR or CORRECTION regimes: avoid LONG CALL; prefer PUT spreads or IRON CONDORs on tickers with iv_rv=RICH_SELL_PREM.\n"
@@ -3034,6 +3117,11 @@ def ai_trades():
         "15. EARNINGS PROXIMITY: If earn_in≤7d (IMMINENT), prefer STRADDLE or avoid entirely unless conviction is extreme. If earn_in=8-30d (SOON), IV is likely elevated — check iv_rv; if RICH, sell spreads; if CHEAP, buy vol. impl_earn_move shows the options market's expected ±% move into earnings — compare to earn_beat history.\n"
         "16. ANALYST CONSENSUS: analyst_tgt=STRONG_BUY_CONSENSUS (>25% upside) combined with institutional accumulation (accum_pct≥60%) = highest fundamental + flow alignment. analyst_tgt=FULLY_VALUED (<0% upside) is a headwind for LONG CALL setups.\n"
         "17. PUT/CALL OI RATIO: pc_oi_ratio>1.5 (HEAVY_PUT_OI) = institutions are hedged/bearish positioned; <0.6 (HEAVY_CALL_OI) = bullish positioning. Use as directional confirmation or contrarian signal in conjunction with other factors.\n"
+        "18. 52-WEEK RANGE: 52w_range≥90% (NEAR_52W_HIGH) = breakout zone → momentum continuation setups; ≤10% (NEAR_52W_LOW) = support test → mean-reversion bounce or put-selling setups. NEVER recommend LONG CALL on a stock at 52w low without strong catalyst evidence.\n"
+        "19. BORROW COST: borrow=HIGH_BORROW means stock is expensive to short. This means heavy put OI on high-short-interest names may be synthetic short hedges by short sellers, NOT directional bearish bets. Do not read put OI as bearish conviction if borrow=HIGH_BORROW.\n"
+        "20. FLOW PERSISTENCE: flow_persist shows call/put vol-to-OI ratios. calls=STRUCTURAL(multi_week) means call OI has been building over multiple days — institutional conviction. calls=FRESH(one_day) means today's activity only — could be noise or a hedge. Weight STRUCTURAL flow 2x vs FRESH flow in your conviction score.\n"
+        "21. EPS REVISION TREND: eps_trend=RISING means analysts are raising forward earnings estimates — a strong fundamental tailwind. eps_trend=DECLINING means estimates are being cut — a headwind even if flow looks bullish. When eps_trend=DECLINING and call flow is present, reduce conviction; the flow may be a short-term trade against a deteriorating fundamental trend.\n"
+        "22. HISTORICAL EARNINGS REACTION: hist_earn_move=±X% is the average absolute price move this stock has made on past earnings days. Use this to calibrate STRADDLE pricing: if impl_earn_move < hist_earn_move, the straddle is cheap (buy vol); if impl_earn_move > hist_earn_move by >50%, the market is overpricing earnings risk (sell premium). This is one of the highest-edge signals for earnings-event trades.\n"
         "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
     )
 
@@ -3073,6 +3161,11 @@ SIGNAL KEY:
 - earn_in: days until next earnings event | impl_earn_move: IV-based expected ±% move into earnings | earn_beat: past quarters beat rate
 - analyst_tgt: analyst mean price target vs current price % upside/downside | analyst_recommendation: consensus rating
 - pc_oi_ratio: total put OI ÷ total call OI across near-term expirations (>1.5=bearish positioned; <0.6=bullish positioned)
+- 52w_range: where price sits in its 52-week high/low range (0%=at annual low, 100%=at annual high; ≥90%=breakout zone; ≤10%=support test)
+- borrow: short borrow cost proxy from short interest (HIGH_BORROW≥20% float short = puts may be synthetic hedges by short sellers, not directional bets)
+- flow_persist: call/put vol÷OI ratio across 4 expirations (STRUCTURAL<0.05=built over weeks=institutional conviction; FRESH>0.25=today only=may be noise)
+- eps_trend: forward vs trailing EPS direction (RISING=estimates going up=tailwind; DECLINING=estimates cut=headwind even if flow bullish)
+- hist_earn_move: average absolute % price reaction on past earnings days; compare to impl_earn_move to assess straddle value (hist>impl=buy vol; impl>hist×1.5=sell premium)
 
 PRIORITY WEIGHTING (use in order):
 1. opt_spread>12% → SKIP (non-negotiable liquidity gate)

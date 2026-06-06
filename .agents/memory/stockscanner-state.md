@@ -11,7 +11,7 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - Signal snapshot job at 4:00 PM ET Mon-Fri (saves to signal_history table for persistence tracking)
 - Outcome tracker job at 4:30 PM ET (T+3/5/10 day price outcomes)
 
-## AI Trades — 35+ Data Points, 17 Sources
+## AI Trades — 50+ Data Points, 17 Sources
 The `/stock-api/ai-trades` route aggregates all of the below into a GPT prompt:
 1. Composite Score Board
 2. Vol Crush + Price Structure (RSI, SMA50%, vol_trend_5d, net_upgrades_7d, days_since_earnings, options_liquidity_pct, earnings_beat_streak, spy_beta)
