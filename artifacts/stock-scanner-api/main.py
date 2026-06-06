@@ -104,8 +104,20 @@ try:
         id="eod_scan",
         replace_existing=True,
     )
+    # Outcomes: Mon-Fri 4:30 PM ET — after market close, fetch closing prices for open AI trade log entries
+    def _run_outcomes_update():
+        try:
+            _update_ai_trade_outcomes()
+        except Exception as e:
+            print(f"[scheduler] outcomes update error: {e}")
+    _scheduler.add_job(
+        _run_outcomes_update,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone=_ET),
+        id="outcomes_update",
+        replace_existing=True,
+    )
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, & 4:15 PM ET, Mon–Fri")
+    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
@@ -238,6 +250,162 @@ def _compute_daily_top10():
 
 
 _init_daily_top10_table()
+
+
+# ── AI Trade Log — DB-backed track record ────────────────────────────────────
+
+def _init_ai_trade_log_table():
+    sql = """
+    CREATE TABLE IF NOT EXISTS ai_trade_log (
+        id              SERIAL PRIMARY KEY,
+        trade_date      DATE NOT NULL,
+        ticker          TEXT NOT NULL,
+        direction       TEXT NOT NULL,
+        setup_type      TEXT,
+        conviction      TEXT,
+        price_at_signal FLOAT,
+        entry_strike    FLOAT,
+        expiry          TEXT,
+        target_price    FLOAT,
+        stop_loss       FLOAT,
+        signals_aligned JSONB,
+        thesis          TEXT,
+        risk_level      TEXT,
+        t1_price        FLOAT,
+        t3_price        FLOAT,
+        t5_price        FLOAT,
+        t10_price       FLOAT,
+        t1_pct          FLOAT,
+        t3_pct          FLOAT,
+        t5_pct          FLOAT,
+        t10_pct         FLOAT,
+        t1_win          BOOL,
+        t3_win          BOOL,
+        t5_win          BOOL,
+        t10_win         BOOL,
+        outcome         TEXT NOT NULL DEFAULT 'OPEN',
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(trade_date, ticker, direction)
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[ai_trade_log] init table error: {e}")
+
+
+def _save_ai_trades_to_log(trades: list, trade_date: str):
+    """Persist today's AI trade picks. Skips if already logged for this date."""
+    if not trades:
+        return
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            for t in trades:
+                cur.execute("""
+                    INSERT INTO ai_trade_log
+                        (trade_date, ticker, direction, setup_type, conviction,
+                         price_at_signal, entry_strike, expiry, target_price, stop_loss,
+                         signals_aligned, thesis, risk_level)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (trade_date, ticker, direction) DO NOTHING
+                """, (
+                    trade_date,
+                    t.get("ticker"),
+                    t.get("direction"),
+                    t.get("setup_type"),
+                    t.get("conviction"),
+                    t.get("price"),
+                    t.get("entry_strike"),
+                    t.get("expiry"),
+                    t.get("target_price"),
+                    t.get("stop_loss"),
+                    _json.dumps(t.get("signals_aligned", [])),
+                    t.get("thesis"),
+                    t.get("risk_level"),
+                ))
+            conn.commit()
+        print(f"[ai_trade_log] saved {len(trades)} trades for {trade_date}")
+    except Exception as e:
+        print(f"[ai_trade_log] save error: {e}")
+
+
+def _update_ai_trade_outcomes():
+    """Fetch closing prices for open AI trade log entries and mark win/loss."""
+    import yfinance as _yf
+    from datetime import date as _date2, timedelta as _td2
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ticker, trade_date, price_at_signal, direction, target_price, stop_loss,
+                       t1_price, t3_price, t5_price, t10_price
+                FROM ai_trade_log
+                WHERE outcome = 'OPEN'
+                ORDER BY trade_date DESC
+                LIMIT 100
+            """)
+            rows = cur.fetchall()
+            if not rows:
+                return
+            today = _date2.today()
+            for row in rows:
+                id_, ticker, trade_date, p0, direction, target, stoploss, t1p, t3p, t5p, t10p = row
+                updates = {}
+                for n, col_p, col_pct, col_win, existing in [
+                    (1,  "t1_price",  "t1_pct",  "t1_win",  t1p),
+                    (3,  "t3_price",  "t3_pct",  "t3_win",  t3p),
+                    (5,  "t5_price",  "t5_pct",  "t5_win",  t5p),
+                    (10, "t10_price", "t10_pct", "t10_win", t10p),
+                ]:
+                    if existing is not None:
+                        continue
+                    target_dt = trade_date + _td2(days=n)
+                    if target_dt > today:
+                        continue
+                    try:
+                        hist = _yf.Ticker(ticker).history(
+                            start=str(target_dt),
+                            end=str(target_dt + _td2(days=5))
+                        )["Close"]
+                        if hist.empty:
+                            continue
+                        close = float(hist.iloc[0])
+                        pct = round((close - p0) / p0 * 100, 2) if p0 else None
+                        if direction == "BULLISH":
+                            win = pct is not None and pct >= 1.0
+                        elif direction == "BEARISH":
+                            win = pct is not None and pct <= -1.0
+                        else:
+                            win = pct is not None and abs(pct) < 3.0
+                        updates[col_p] = close
+                        if pct is not None:
+                            updates[col_pct] = pct
+                        updates[col_win] = win
+                    except Exception as fe:
+                        print(f"[ai_trade_log] price fetch {ticker} T+{n}: {fe}")
+                if updates:
+                    new_t5p = updates.get("t5_price") or t5p
+                    new_t5pct = updates.get("t5_pct")
+                    outcome = "OPEN"
+                    if new_t5p is not None and new_t5pct is not None:
+                        if direction == "BULLISH":
+                            outcome = "WIN" if new_t5pct >= 1.0 else "LOSS"
+                        elif direction == "BEARISH":
+                            outcome = "WIN" if new_t5pct <= -1.0 else "LOSS"
+                        else:
+                            outcome = "WIN" if abs(new_t5pct) < 3.0 else "LOSS"
+                    updates["outcome"] = outcome
+                    set_sql = ", ".join(f"{k} = %s" for k in updates)
+                    cur.execute(f"UPDATE ai_trade_log SET {set_sql} WHERE id = %s",
+                                list(updates.values()) + [id_])
+            conn.commit()
+        print(f"[ai_trade_log] outcomes updated for {len(rows)} trades")
+    except Exception as e:
+        print(f"[ai_trade_log] update_outcomes error: {e}")
+
+
+_init_ai_trade_log_table()
 
 
 @app.route("/stock-api/daily-top10", methods=["GET"])
@@ -2019,6 +2187,12 @@ Be concise. JSON array only. No markdown. Start immediately with ["""
         }
         app._ait_cache = out
         app._ait_cache_ts = _dt.now()
+        # Persist to track record log (once per day; duplicates silently skipped)
+        try:
+            from datetime import date as _date_now
+            _save_ai_trades_to_log(trades, str(_date_now.today()))
+        except Exception as _se:
+            print(f"[ai_trade_log] background save error: {_se}")
         return jsonify(out)
     except Exception as e:
         import sys
@@ -2257,6 +2431,68 @@ def composite_score():
     out = {"results": rows, "scanned": len(DEFAULT_LEADERBOARD)}
     app._cs_cache = out; app._cs_cache_ts = now
     return jsonify(out)
+
+
+@app.route("/stock-api/ai-trade-log", methods=["GET"])
+def ai_trade_log():
+    """Return full AI trade history with win/loss outcomes and aggregate stats."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, trade_date, ticker, direction, setup_type, conviction,
+                       price_at_signal, entry_strike, expiry, target_price, stop_loss,
+                       signals_aligned, thesis, risk_level,
+                       t1_price, t3_price, t5_price, t10_price,
+                       t1_pct, t3_pct, t5_pct, t10_pct,
+                       t1_win, t3_win, t5_win, t10_win,
+                       outcome, created_at
+                FROM ai_trade_log
+                ORDER BY trade_date DESC, id DESC
+            """)
+            rows = cur.fetchall()
+            cols = ["id","trade_date","ticker","direction","setup_type","conviction",
+                    "price_at_signal","entry_strike","expiry","target_price","stop_loss",
+                    "signals_aligned","thesis","risk_level",
+                    "t1_price","t3_price","t5_price","t10_price",
+                    "t1_pct","t3_pct","t5_pct","t10_pct",
+                    "t1_win","t3_win","t5_win","t10_win",
+                    "outcome","created_at"]
+            trades = []
+            for row in rows:
+                d = dict(zip(cols, row))
+                d["trade_date"] = str(d["trade_date"]) if d["trade_date"] else None
+                d["created_at"] = d["created_at"].isoformat() if d["created_at"] else None
+                d["signals_aligned"] = d["signals_aligned"] if isinstance(d["signals_aligned"], list) else []
+                trades.append(d)
+
+            # Compute win rates
+            def _wr(key):
+                vals = [t[key] for t in trades if t[key] is not None]
+                if not vals: return None
+                return round(sum(1 for v in vals if v) / len(vals) * 100, 1)
+
+            win_rates = {"t1": _wr("t1_win"), "t3": _wr("t3_win"), "t5": _wr("t5_win"), "t10": _wr("t10_win")}
+
+            # By direction breakdown
+            by_dir = {}
+            for d in ["BULLISH", "BEARISH", "NEUTRAL"]:
+                sub = [t for t in trades if t["direction"] == d]
+                t5s = [t["t5_win"] for t in sub if t["t5_win"] is not None]
+                by_dir[d] = {
+                    "count": len(sub),
+                    "win_rate_t5": round(sum(1 for v in t5s if v) / len(t5s) * 100, 1) if t5s else None,
+                }
+
+            return jsonify({
+                "trades": trades,
+                "count": len(trades),
+                "win_rates": win_rates,
+                "by_direction": by_dir,
+            })
+    except Exception as e:
+        return jsonify({"error": str(e), "trades": [], "count": 0,
+                        "win_rates": {"t1": None, "t3": None, "t5": None, "t10": None},
+                        "by_direction": {}}), 500
 
 
 @app.route("/stock-api/healthz", methods=["GET"])

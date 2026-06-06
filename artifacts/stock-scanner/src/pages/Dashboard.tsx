@@ -17,6 +17,7 @@ import {
   SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief, DarkPoolRow, PutIntentRow,
   VolCrushRow, CallIntentRow, SmartVsRetailRow, MaxPainRow, GammaWallRow, GammaStrike,
   AITradeSetup, SignalEvent, CompositeScoreRow,
+  fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -3386,6 +3387,235 @@ function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
 }
 
 // ---- Signal Outcome Tracker Tab ------------------------------------------
+function TrackRecordTab() {
+  const [data, setData]         = useState<AITradeLogResult | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [dirFilter, setDirFilter] = useState<"ALL" | "BULLISH" | "BEARISH" | "NEUTRAL">("ALL");
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try {
+      setData(await fetchAITradeLog());
+    } catch (e: any) {
+      setError(e.message ?? "Failed to load track record");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const trades = (data?.trades ?? []).filter(t => dirFilter === "ALL" || t.direction === dirFilter);
+
+  const pctColor = (v: number | null) => {
+    if (v === null) return BB_LABEL;
+    return v > 0 ? BB_GREEN : v < 0 ? BB_RED : BB_LABEL;
+  };
+  const pctFmt = (v: number | null) => v === null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
+  const winBadge = (w: boolean | null) => {
+    if (w === null) return <span style={{ color: BB_LABEL, fontSize: 9 }}>—</span>;
+    return w
+      ? <span style={{ color: BB_GREEN, fontSize: 9, fontWeight: 700 }}>WIN</span>
+      : <span style={{ color: BB_RED, fontSize: 9, fontWeight: 700 }}>LOSS</span>;
+  };
+  const outcomeBadge = (o: string) => {
+    if (o === "WIN")  return <span style={{ background: "#002200", color: BB_GREEN, fontSize: 9, fontWeight: 700, padding: "2px 7px", border: "1px solid #22c55e44" }}>WIN</span>;
+    if (o === "LOSS") return <span style={{ background: "#220000", color: BB_RED,   fontSize: 9, fontWeight: 700, padding: "2px 7px", border: "1px solid #ef444444" }}>LOSS</span>;
+    return <span style={{ color: BB_LABEL, fontSize: 9, fontWeight: 700, padding: "2px 7px", border: `1px solid ${BB_BORDER}` }}>OPEN</span>;
+  };
+  const dirColor = (d: string) => d === "BULLISH" ? BB_GREEN : d === "BEARISH" ? BB_RED : "#fbbf24";
+
+  const statBox = (label: string, val: string | null, accent?: string) => (
+    <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "12px 16px", minWidth: 120, flex: 1 }}>
+      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 4 }}>{label}</div>
+      <div style={{ color: accent ?? BB_WHITE, fontSize: 22, fontWeight: 900, fontFamily: BB_FONT }}>
+        {val ?? "—"}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.15em", color: BB_WHITE }}>AI TRADE RECORD</div>
+          <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2, letterSpacing: "0.08em" }}>
+            Every daily AI pick logged · Price outcomes tracked at T+1 / T+3 / T+5 / T+10
+          </div>
+        </div>
+        <button onClick={load} disabled={loading} style={{
+          background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL,
+          padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em",
+          opacity: loading ? 0.5 : 1,
+        }}>{loading ? "LOADING…" : "REFRESH"}</button>
+      </div>
+
+      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
+
+      {/* Aggregate stats */}
+      {data && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          {statBox("TOTAL CALLS", String(data.count))}
+          {statBox("WIN RATE T+1", data.win_rates.t1 != null ? `${data.win_rates.t1}%` : null, data.win_rates.t1 != null && data.win_rates.t1 >= 50 ? BB_GREEN : BB_RED)}
+          {statBox("WIN RATE T+3", data.win_rates.t3 != null ? `${data.win_rates.t3}%` : null, data.win_rates.t3 != null && data.win_rates.t3 >= 50 ? BB_GREEN : BB_RED)}
+          {statBox("WIN RATE T+5", data.win_rates.t5 != null ? `${data.win_rates.t5}%` : null, data.win_rates.t5 != null && data.win_rates.t5 >= 50 ? BB_GREEN : BB_RED)}
+          {statBox("WIN RATE T+10", data.win_rates.t10 != null ? `${data.win_rates.t10}%` : null, data.win_rates.t10 != null && data.win_rates.t10 >= 50 ? BB_GREEN : BB_RED)}
+        </div>
+      )}
+
+      {/* Direction breakdown */}
+      {data && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          {(["BULLISH", "BEARISH", "NEUTRAL"] as const).map(d => {
+            const s = data.by_direction[d];
+            if (!s) return null;
+            return (
+              <div key={d} style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "10px 14px", display: "flex", gap: 20, alignItems: "center" }}>
+                <span style={{ color: dirColor(d), fontSize: 10, fontWeight: 700, letterSpacing: "0.1em" }}>{d}</span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>{s.count} calls</span>
+                <span style={{ color: s.win_rate_t5 != null && s.win_rate_t5 >= 50 ? BB_GREEN : BB_RED, fontSize: 11, fontWeight: 700 }}>
+                  {s.win_rate_t5 != null ? `${s.win_rate_t5}% @ T+5` : "—"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Direction filter */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 12, borderBottom: `1px solid ${BB_BORDER}` }}>
+        {(["ALL", "BULLISH", "BEARISH", "NEUTRAL"] as const).map(f => (
+          <button key={f} onClick={() => setDirFilter(f)} style={{
+            background: "transparent", border: "none", borderBottom: dirFilter === f ? `2px solid ${BB_GREEN}` : "2px solid transparent",
+            color: dirFilter === f ? BB_GREEN : BB_LABEL, padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9,
+            fontWeight: dirFilter === f ? 700 : 500, cursor: "pointer", letterSpacing: "0.08em", marginBottom: -1,
+          }}>{f}</button>
+        ))}
+        <span style={{ marginLeft: "auto", padding: "6px 12px", color: BB_LABEL, fontSize: 9 }}>
+          {trades.length} TRADES
+        </span>
+      </div>
+
+      {/* Empty state */}
+      {!loading && trades.length === 0 && (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: BB_LABEL }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>📈</div>
+          <div style={{ fontSize: 11, letterSpacing: "0.08em" }}>NO TRADES LOGGED YET</div>
+          <div style={{ fontSize: 9, marginTop: 6 }}>Trades are saved automatically when the AI generates daily picks.</div>
+          <div style={{ fontSize: 9, marginTop: 4 }}>Visit the <strong style={{ color: BB_WHITE }}>AI TRADE DESK</strong> tab to generate today's picks.</div>
+        </div>
+      )}
+
+      {/* Trade table */}
+      {trades.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
+          {/* Table header */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "80px 70px 90px 70px 70px 70px 60px 60px 60px 70px",
+            gap: 0, borderBottom: `1px solid ${BB_BORDER}`,
+            padding: "5px 8px", marginBottom: 2,
+          }}>
+            {["DATE","TICKER","DIRECTION","ENTRY","TARGET","STOP","T+1","T+3","T+5","OUTCOME"].map(h => (
+              <span key={h} style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", fontWeight: 700 }}>{h}</span>
+            ))}
+          </div>
+
+          {trades.map(t => (
+            <React.Fragment key={t.id}>
+              <div
+                onClick={() => setExpanded(expanded === t.id ? null : t.id)}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "80px 70px 90px 70px 70px 70px 60px 60px 60px 70px",
+                  gap: 0, padding: "8px 8px", cursor: "pointer",
+                  borderBottom: `1px solid ${BB_BORDER}`,
+                  background: expanded === t.id ? "#0d1a0d" : "transparent",
+                  transition: "background 0.15s",
+                }}
+              >
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>{t.trade_date}</span>
+                <span style={{ color: BB_WHITE, fontSize: 10, fontWeight: 700 }}>{t.ticker}</span>
+                <span style={{ color: dirColor(t.direction), fontSize: 9, fontWeight: 700 }}>{t.direction}</span>
+                <span style={{ color: BB_WHITE, fontSize: 9 }}>${t.price_at_signal?.toFixed(2) ?? "—"}</span>
+                <span style={{ color: BB_GREEN, fontSize: 9 }}>{t.target_price ? `$${t.target_price.toFixed(2)}` : "—"}</span>
+                <span style={{ color: BB_RED,   fontSize: 9 }}>{t.stop_loss    ? `$${t.stop_loss.toFixed(2)}`    : "—"}</span>
+                <span style={{ color: pctColor(t.t1_pct), fontSize: 9, fontWeight: 700 }}>{pctFmt(t.t1_pct)}</span>
+                <span style={{ color: pctColor(t.t3_pct), fontSize: 9, fontWeight: 700 }}>{pctFmt(t.t3_pct)}</span>
+                <span style={{ color: pctColor(t.t5_pct), fontSize: 9, fontWeight: 700 }}>{pctFmt(t.t5_pct)}</span>
+                <span>{outcomeBadge(t.outcome)}</span>
+              </div>
+
+              {/* Expanded row */}
+              {expanded === t.id && (
+                <div style={{
+                  borderBottom: `1px solid ${BB_BORDER}`,
+                  background: "#0a120a", padding: "12px 16px",
+                  display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 24px",
+                }}>
+                  {/* Left: price timeline */}
+                  <div>
+                    <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 8 }}>PRICE TIMELINE</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+                      {([
+                        { label: "T+1",  price: t.t1_price, pct: t.t1_pct, win: t.t1_win },
+                        { label: "T+3",  price: t.t3_price, pct: t.t3_pct, win: t.t3_win },
+                        { label: "T+5",  price: t.t5_price, pct: t.t5_pct, win: t.t5_win },
+                        { label: "T+10", price: t.t10_price, pct: t.t10_pct, win: t.t10_win },
+                      ]).map(({ label, price, pct, win }) => (
+                        <div key={label} style={{ background: "#060c06", border: `1px solid ${BB_BORDER}`, padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.08em" }}>{label}</div>
+                          <div style={{ color: BB_WHITE, fontSize: 11, fontWeight: 700, margin: "4px 0" }}>
+                            {price != null ? `$${price.toFixed(2)}` : "—"}
+                          </div>
+                          <div style={{ color: pctColor(pct), fontSize: 10, fontWeight: 700 }}>{pctFmt(pct)}</div>
+                          <div style={{ marginTop: 4 }}>{winBadge(win)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Right: thesis + signals */}
+                  <div>
+                    <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 6 }}>SETUP</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                      {t.setup_type  && <span style={{ color: "#fbbf24", fontSize: 9 }}>{t.setup_type}</span>}
+                      {t.conviction  && <span style={{ color: BB_LABEL, fontSize: 9 }}>CONVICTION: <span style={{ color: BB_WHITE }}>{t.conviction}</span></span>}
+                      {t.risk_level  && <span style={{ color: BB_LABEL, fontSize: 9 }}>RISK: <span style={{ color: BB_WHITE }}>{t.risk_level}</span></span>}
+                    </div>
+                    {t.expiry && (
+                      <div style={{ color: BB_LABEL, fontSize: 9, marginBottom: 6 }}>
+                        OPTIONS EXPIRY: <span style={{ color: BB_WHITE }}>{t.expiry}</span>
+                        {t.entry_strike && <> · STRIKE: <span style={{ color: BB_WHITE }}>${t.entry_strike}</span></>}
+                      </div>
+                    )}
+                    {t.thesis && (
+                      <div style={{ color: "#9ca3af", fontSize: 9, lineHeight: 1.5, marginBottom: 8 }}>{t.thesis}</div>
+                    )}
+                    {t.signals_aligned && t.signals_aligned.length > 0 && (
+                      <div>
+                        <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.08em", marginBottom: 4 }}>SIGNALS ALIGNED</div>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          {t.signals_aligned.map((s, i) => (
+                            <span key={i} style={{ background: "#001a00", border: "1px solid #22c55e33", color: BB_GREEN, fontSize: 8, padding: "2px 6px" }}>{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OutcomesTab() {
   const [data, setData]       = useState<{ outcomes: SignalOutcome[]; count: number; win_rates: { t3: number | null; t5: number | null; t10: number | null } } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -4172,6 +4402,7 @@ export default function Dashboard() {
     { id: "insiders",     label: "INSIDERS" },
     { id: "market",       label: "MARKET" },
     { id: "portfolio",    label: "PORTFOLIO" },
+    { id: "trackrecord",  label: "📈 AI TRACK RECORD" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -4764,6 +4995,7 @@ export default function Dashboard() {
         {tab === "maxpain"      && <MaxPainTab      onSelectTicker={selectTicker} />}
         {tab === "gammawall"    && <GammaWallTab    onSelectTicker={selectTicker} />}
         {tab === "premarket"    && <PremarketTab    onSelectTicker={selectTicker} />}
+        {tab === "trackrecord"  && <TrackRecordTab />}
 
       </div>
       </main>

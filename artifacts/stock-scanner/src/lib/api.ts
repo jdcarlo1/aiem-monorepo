@@ -691,3 +691,36 @@ export interface CompositeScoreRow {
 export function fetchCompositeScore() {
   return fetchJson<{ results: CompositeScoreRow[]; scanned: number }>("/composite-score");
 }
+
+export interface AITradeLogEntry {
+  id: number;
+  trade_date: string;
+  ticker: string;
+  direction: "BULLISH" | "BEARISH" | "NEUTRAL";
+  setup_type: string;
+  conviction: string;
+  price_at_signal: number;
+  entry_strike: number | null;
+  expiry: string | null;
+  target_price: number | null;
+  stop_loss: number | null;
+  signals_aligned: string[];
+  thesis: string;
+  risk_level: string;
+  t1_price: number | null; t3_price: number | null; t5_price: number | null; t10_price: number | null;
+  t1_pct: number | null;   t3_pct: number | null;   t5_pct: number | null;   t10_pct: number | null;
+  t1_win: boolean | null;  t3_win: boolean | null;  t5_win: boolean | null;  t10_win: boolean | null;
+  outcome: "OPEN" | "WIN" | "LOSS";
+  created_at: string;
+}
+
+export interface AITradeLogResult {
+  trades: AITradeLogEntry[];
+  count: number;
+  win_rates: { t1: number | null; t3: number | null; t5: number | null; t10: number | null };
+  by_direction: Record<string, { count: number; win_rate_t5: number | null }>;
+}
+
+export function fetchAITradeLog() {
+  return fetchJson<AITradeLogResult>("/ai-trade-log");
+}
