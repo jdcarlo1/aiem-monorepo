@@ -325,38 +325,39 @@ export default function Landing() {
       {/* Comparison */}
       <div className="px-6 pb-20 max-w-5xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">vs. the competition</p>
-        <h2 className="text-center font-black mb-12" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Why pay more for less?</h2>
+        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Why pay more for less?</h2>
+        <p className="text-center text-slate-400 mb-10 mx-auto" style={{ maxWidth: "560px", fontSize: "1.05rem", lineHeight: 1.6 }}>Every platform below has options flow. We built the features they don't — at a fraction of the price.</p>
         <div className="overflow-x-auto">
-          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "660px" }}>
+          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "680px" }}>
             {/* Header */}
-            <div className="grid px-5 py-3.5 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.05)" }}>
+            <div className="grid px-5 py-3.5 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.05)" }}>
               <span>Service</span>
-              <span className="text-center">Price</span>
-              <span className="text-center">Bull Flow</span>
-              <span className="text-center">Congress</span>
-              <span className="text-center">Squeeze</span>
-              <span className="text-center">AI Thesis</span>
-              <span className="text-center">Insiders</span>
+              <span className="text-center">Price/mo</span>
+              <span className="text-center">Prop Desk</span>
+              <span className="text-center">Backtest</span>
+              <span className="text-center">AI Score</span>
+              <span className="text-center">0DTE Out</span>
+              <span className="text-center">Portfolio</span>
             </div>
             {/* Competitor rows */}
             {[
-              { name: "Unusual Whales", price: "from $50/mo†", flow: false, congress: true,  squeeze: false, thesis: false, insiders: false },
-              { name: "FlowAlgo",        price: "from $97/mo†", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
-              { name: "Cheddar Flow",    price: "from $49/mo†", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
-              { name: "BlackBoxStocks",  price: "from $99/mo†", flow: false, congress: false, squeeze: false, thesis: false, insiders: false },
+              { name: "Unusual Whales", price: "$48–110†" },
+              { name: "FlowAlgo",        price: "$99–149†" },
+              { name: "Cheddar Flow",    price: "$85–99†"  },
+              { name: "BlackBoxStocks",  price: "$99–149†" },
             ].map(r => (
-              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <span className="text-slate-400 font-semibold">{r.name}</span>
                 <span className="text-center text-red-400 font-black">{r.price}</span>
-                {[r.flow, r.congress, r.squeeze, r.thesis, r.insiders].map((v, i) => (
-                  <span key={i} className="text-center text-lg font-black" style={{ color: v ? "#4ade80" : "#2d1a1a" }}>{v ? "✓" : "✕"}</span>
+                {[false, false, false, false, false].map((_, i) => (
+                  <span key={i} className="text-center text-lg font-black" style={{ color: "#3d1a1a" }}>✕</span>
                 ))}
               </div>
             ))}
             {/* StockScanner AI row */}
-            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.6fr 0.9fr 1fr 1fr 1fr 1fr 1fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
+            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr 1fr 1fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
               <span className="font-black text-emerald-300 text-base leading-tight">StockScanner AI ⭐</span>
-              <span className="text-center text-emerald-400 font-black text-base">$29/mo</span>
+              <span className="text-center text-emerald-400 font-black text-base">$29</span>
               <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
               <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
               <span className="text-center text-emerald-400 font-black text-2xl">✓</span>
@@ -366,14 +367,14 @@ export default function Landing() {
           </div>
         </div>
         {/* Legend */}
-        <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 mt-5 text-slate-500 text-xs">
-          <span><span className="text-emerald-400 font-bold">Bull Flow</span> — options premium scanner ranked by size</span>
-          <span><span className="text-emerald-400 font-bold">Congress</span> — live STOCK Act filings from senators &amp; reps</span>
-          <span><span className="text-emerald-400 font-bold">Squeeze</span> — short float + options flow combined score</span>
-          <span><span className="text-emerald-400 font-bold">AI Thesis</span> — instant AI explanation for every signal</span>
-          <span><span className="text-emerald-400 font-bold">Insiders</span> — SEC Form 4 CEO/CFO buy &amp; sell alerts</span>
+        <div className="flex flex-wrap justify-center gap-x-6 gap-y-1.5 mt-5 text-slate-500 text-xs">
+          <span><span className="text-emerald-400 font-bold">Prop Desk Sim</span> — daily loss limits, profit targets &amp; drawdown tracking</span>
+          <span><span className="text-emerald-400 font-bold">Backtesting</span> — test strategy on historical data before risking real money</span>
+          <span><span className="text-emerald-400 font-bold">AI Conviction Score</span> — ML-powered C/P ranking &amp; win probability per ticker</span>
+          <span><span className="text-emerald-400 font-bold">0DTE Filtered</span> — same-day expirations stripped; only real signals make the cut</span>
+          <span><span className="text-emerald-400 font-bold">Portfolio Tracker</span> — all positions, P&amp;L &amp; exposure in one dashboard</span>
         </div>
-        <p className="text-center text-slate-600 text-sm mt-3">† Competitor prices are approximate starting prices and may vary. Verify on each provider's website before subscribing.</p>
+        <p className="text-center text-slate-600 text-sm mt-4">† All competitors offer options flow scanning — that's table stakes. We built the tools they don't.</p>
         <p className="text-center text-slate-600 text-sm mt-1">StockScanner AI costs less than a single bad trade. The scanner pays for itself in one good signal.</p>
       </div>
 
