@@ -928,7 +928,7 @@ def market_overview():
     def get_chg(ticker):
         try:
             t = yf.Ticker(ticker)
-            hist = t.history(period="2d")
+            hist = t.history(period="5d")
             if len(hist) < 2:
                 return None
             prev  = float(hist["Close"].iloc[-2])
@@ -1376,10 +1376,11 @@ def convergence():
 def premarket():
     """Pre-market movers — price change and volume vs average."""
     import yfinance as yf
+    from datetime import datetime as _pdt
 
     _cache = getattr(app, "_pm_cache", None)
     _ts    = getattr(app, "_pm_cache_ts", None)
-    if _cache and _ts and (datetime.now() - _ts).total_seconds() < 1800:
+    if _cache and _ts and (_pdt.now() - _ts).total_seconds() < 1800:
         return jsonify(_cache)
 
     tickers = DEFAULT_LEADERBOARD[:35]
@@ -1422,7 +1423,7 @@ def premarket():
     gainers = [r for r in results if r["change_pct"] > 0][:10]
     losers  = [r for r in results if r["change_pct"] < 0][:10]
     out = {"gainers": gainers, "losers": losers, "scanned": len(tickers)}
-    app._pm_cache = out; app._pm_cache_ts = datetime.now()
+    app._pm_cache = out; app._pm_cache_ts = _pdt.now()
     return jsonify(out)
 
 
