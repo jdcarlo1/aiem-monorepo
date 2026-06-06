@@ -654,3 +654,40 @@ export interface GammaWallRow {
 export function fetchGammaWall() {
   return fetchJson<{ results: GammaWallRow[] }>("/gamma-wall");
 }
+
+export interface AITradeSetup {
+  ticker: string; price: number;
+  setup_type: string; direction: "BULLISH" | "BEARISH" | "NEUTRAL";
+  conviction: "HIGH" | "MEDIUM";
+  entry_strike: number; expiry: string;
+  target_price: number; stop_loss: number;
+  signals_aligned: string[];
+  thesis: string; risk_level: "LOW" | "MEDIUM" | "HIGH";
+}
+export function fetchAITrades() {
+  return fetchJson<{ trades: AITradeSetup[]; generated_at: string; tickers_scanned: number }>("/ai-trades");
+}
+
+export interface SignalEvent {
+  ticker: string; price: number; type: string;
+  icon: string; color: string; msg: string;
+}
+export function fetchSignalFeed() {
+  return fetchJson<{ events: SignalEvent[]; generated_at: string }>("/signal-feed");
+}
+
+export interface CompositeScoreRow {
+  ticker: string; price: number; score: number;
+  bias: "STRONG BULL" | "BULLISH" | "NEUTRAL" | "BEARISH" | "STRONG BEAR";
+  components: {
+    iv_rank: number; iv_score: number;
+    smart_cp: number; retail_cp: number; sm_score: number;
+    accum_pct: number; accum_score: number;
+    top_accum: { strike: number | null; expiry: string | null; otm_pct: number };
+    max_pain: number | null; mp_score: number;
+  };
+  nearest_exp: string;
+}
+export function fetchCompositeScore() {
+  return fetchJson<{ results: CompositeScoreRow[]; scanned: number }>("/composite-score");
+}

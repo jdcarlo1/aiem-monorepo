@@ -1706,6 +1706,521 @@ def gamma_wall():
     return jsonify(out)
 
 
+@app.route("/stock-api/ai-trades", methods=["GET"])
+def ai_trades():
+    """Generate 5 AI trade setups by reading ALL cached tab signals — no re-fetching."""
+    from datetime import datetime as _dt
+    from openai import OpenAI
+
+    _cache = getattr(app, "_ait_cache", None)
+    _ts    = getattr(app, "_ait_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
+        return jsonify(_cache)
+
+    try:
+        oai = OpenAI(
+            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
+            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
+            timeout=45.0,
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    tickers_data = {}
+
+    def _add(ticker, key, val):
+        if val is None: return
+        if ticker not in tickers_data:
+            tickers_data[ticker] = {"ticker": ticker}
+        if key not in tickers_data[ticker]:
+            tickers_data[ticker][key] = val
+
+    active_sources = []
+
+    # 1. Composite Score Board — already aggregates many signals
+    cs = getattr(app, "_cs_cache", None)
+    if cs:
+        active_sources.append("Composite Score Board")
+        for r in cs.get("results", []):
+            t = r["ticker"]
+            _add(t, "price", r.get("price"))
+            _add(t, "composite_score", r.get("score"))
+            _add(t, "bias", r.get("bias"))
+            comp = r.get("components", {})
+            _add(t, "iv_rank", comp.get("iv_rank"))
+            _add(t, "smart_cp", comp.get("smart_cp"))
+            _add(t, "retail_cp", comp.get("retail_cp"))
+            _add(t, "accum_pct", comp.get("accum_pct"))
+            ta = comp.get("top_accum") or {}
+            _add(t, "top_accum_strike", ta.get("strike"))
+            _add(t, "top_accum_otm_pct", ta.get("otm_pct"))
+            _add(t, "top_accum_expiry", ta.get("expiry"))
+            _add(t, "nearest_exp", r.get("nearest_exp"))
+
+    # 2. Vol Crush Detector
+    vc = getattr(app, "_vc_cache", None)
+    if vc:
+        active_sources.append("Vol Crush Detector")
+        for r in vc.get("results", []):
+            t = r["ticker"]
+            _add(t, "price", r.get("price"))
+            _add(t, "iv_rank", r.get("iv_rank"))
+            _add(t, "current_iv", r.get("current_iv"))
+            _add(t, "hv_30", r.get("hv_30"))
+            _add(t, "iv_verdict", r.get("verdict"))
+            _add(t, "earnings_date", r.get("earnings_date"))
+
+    # 3. Call Intent Decoder
+    ci = getattr(app, "_ci_cache", None)
+    if ci:
+        active_sources.append("Call Intent Decoder")
+        for r in ci.get("results", []):
+            t = r["ticker"]
+            _add(t, "price", r.get("price"))
+            _add(t, "call_verdict", r.get("verdict"))
+            _add(t, "accum_pct", r.get("accum_pct"))
+            _add(t, "fomo_pct", r.get("fomo_pct"))
+            _add(t, "accum_prem_m", r.get("accum_prem_m"))
+            _add(t, "top_accum_strike", r.get("top_accum_strike"))
+            _add(t, "top_accum_expiry", r.get("top_accum_expiry"))
+            _add(t, "top_accum_otm_pct", r.get("top_accum_otm_pct"))
+
+    # 4. Put Intent / Bear Flow
+    oi = getattr(app, "_oi_cache", None)
+    if oi:
+        active_sources.append("Put Intent / Bear Flow")
+        for r in oi.get("results", []):
+            t = r["ticker"]
+            _add(t, "price", r.get("price"))
+            _add(t, "put_verdict", r.get("verdict"))
+            _add(t, "hedge_pct", r.get("hedge_pct"))
+            _add(t, "bear_pct", r.get("bear_pct"))
+            _add(t, "top_bear_strike", r.get("top_bear_strike"))
+
+    # 5. Smart vs Retail
+    svr = getattr(app, "_svr_cache", None)
+    if svr:
+        active_sources.append("Smart vs Retail")
+        for r in svr.get("results", []):
+            t = r["ticker"]
+            _add(t, "price", r.get("price"))
+            _add(t, "smart_cp", r.get("smart_cp"))
+            _add(t, "retail_cp", r.get("retail_cp"))
+            _add(t, "divergence", r.get("divergence"))
+            _add(t, "signal_strength", r.get("signal_strength"))
+            _add(t, "smart_prem_m", r.get("smart_prem_m"))
+            _add(t, "retail_prem_m", r.get("retail_prem_m"))
+
+    # 6. Max Pain / Pinning
+    mp = getattr(app, "_mp_cache", None)
+    if mp:
+        active_sources.append("Max Pain / Pinning")
+        for r in mp.get("results", []):
+            t = r["ticker"]
+            _add(t, "price", r.get("price"))
+            _add(t, "max_pain", r.get("max_pain"))
+            _add(t, "mp_dist_pct", r.get("distance_pct"))
+            _add(t, "mp_direction", r.get("direction"))
+            _add(t, "nearest_exp", r.get("nearest_expiry"))
+            _add(t, "days_to_exp", r.get("days_to_exp"))
+
+    # 7. Gamma Wall
+    gw = getattr(app, "_gw_cache", None)
+    if gw:
+        active_sources.append("Gamma Wall")
+        for r in gw.get("results", []):
+            t = r["ticker"]
+            _add(t, "gamma_wall_strike", r.get("wall_strike"))
+            _add(t, "gamma_wall_dist_pct", r.get("wall_distance_pct"))
+            _add(t, "gamma_flip_strike", r.get("flip_strike"))
+
+    # 8. Dark Pool
+    dp = getattr(app, "_dp_cache", None)
+    if dp:
+        active_sources.append("Dark Pool Flow")
+        for r in dp.get("results", []):
+            t = r["ticker"]
+            _add(t, "dark_pool_prem_m", r.get("premium_m"))
+            _add(t, "dark_pool_cp_ratio", r.get("call_put_ratio"))
+
+    # 9. Live Signal Feed (notable real-time alerts per ticker)
+    sf = getattr(app, "_sf_cache", None)
+    if sf:
+        active_sources.append("Live Signal Feed")
+        for ev in sf.get("events", []):
+            t = ev["ticker"]
+            if t not in tickers_data:
+                tickers_data[t] = {"ticker": t}
+            existing = tickers_data[t].get("live_alerts", [])
+            existing.append(f"[{ev['type']}] {ev['msg']}")
+            tickers_data[t]["live_alerts"] = existing
+
+    # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
+    rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
+
+    # Need at least 2 signal sources AND some rich tickers to proceed
+    if len(active_sources) < 2 or len(rich) < 3:
+        return jsonify({
+            "error": "Signal data is still loading. Please visit the Vol Crush, Smart vs Retail, and Max Pain tabs first to populate the signal cache, then come back here.",
+            "trades": [],
+            "tickers_scanned": len(rich),
+            "signal_sources": active_sources
+        })
+
+    # Sort by composite score descending, fall back to alphabetical
+    sorted_tickers = sorted(rich.values(), key=lambda x: x.get("composite_score", 50), reverse=True)
+
+    # Build readable signal block for GPT — top 30 tickers by score
+    sig_lines = []
+    for v in sorted_tickers[:30]:
+        parts = [f"\n▸ {v['ticker']}  price=${v.get('price','?')}"]
+        if v.get("composite_score") is not None:
+            parts.append(f"  Composite Score: {v['composite_score']}/100 ({v.get('bias','?')})")
+        if v.get("iv_rank") is not None:
+            parts.append(f"  IV Rank: {v['iv_rank']}%  |  IV: {v.get('current_iv','?')}%  HV30: {v.get('hv_30','?')}%  →  {v.get('iv_verdict','')}")
+        if v.get("earnings_date"):
+            parts.append(f"  Earnings: {v['earnings_date']}")
+        if v.get("call_verdict"):
+            parts.append(f"  Call Intent: {v['call_verdict']}  (accum {v.get('accum_pct','?')}%  /  fomo {v.get('fomo_pct','?')}%  /  accum premium ${v.get('accum_prem_m','?')}M)")
+        if v.get("top_accum_strike"):
+            parts.append(f"  Top Accum Strike: ${v['top_accum_strike']}  (+{v.get('top_accum_otm_pct','?')}% OTM)  exp {v.get('top_accum_expiry','?')}")
+        if v.get("put_verdict"):
+            parts.append(f"  Put Intent: {v['put_verdict']}  (hedge {v.get('hedge_pct','?')}%  /  bearish {v.get('bear_pct','?')}%)")
+        if v.get("top_bear_strike"):
+            parts.append(f"  Top Bear Strike: ${v['top_bear_strike']}")
+        if v.get("divergence"):
+            parts.append(f"  Smart vs Retail: {v['divergence']}  (strength: {v.get('signal_strength','?')})  |  Smart C/P={v.get('smart_cp','?')}  vs  Retail C/P={v.get('retail_cp','?')}")
+        if v.get("smart_prem_m"):
+            parts.append(f"  Flow: Smart ${v['smart_prem_m']}M  vs  Retail ${v.get('retail_prem_m','?')}M")
+        if v.get("max_pain"):
+            parts.append(f"  Max Pain: ${v['max_pain']}  ({v.get('mp_dist_pct',0):+.1f}% from price)  →  {v.get('mp_direction','?')}  |  exp {v.get('nearest_exp','?')} ({v.get('days_to_exp','?')}d)")
+        if v.get("gamma_wall_strike"):
+            parts.append(f"  Gamma Wall: ${v['gamma_wall_strike']}  ({v.get('gamma_wall_dist_pct',0):+.1f}%)  |  Gamma Flip: ${v.get('gamma_flip_strike','N/A')}")
+        if v.get("dark_pool_prem_m"):
+            parts.append(f"  Dark Pool: ${v['dark_pool_prem_m']}M  |  C/P ratio: {v.get('dark_pool_cp_ratio','?')}")
+        if v.get("live_alerts"):
+            parts.append(f"  LIVE ALERTS: {' | '.join(v['live_alerts'][:3])}")
+        sig_lines.append("\n".join(parts))
+
+    sig_text = "\n".join(sig_lines)
+
+    prompt = f"""You are an elite institutional options trader and quant analyst. You have live signal data from {len(active_sources)} independent sources covering {len(rich)} tickers.
+
+ACTIVE SIGNAL SOURCES: {', '.join(active_sources)}
+
+COMPLETE SIGNAL DATABASE:
+{sig_text}
+
+YOUR OBJECTIVE: Find exactly 5 tickers where MULTIPLE signals from DIFFERENT sources all point in the same direction. Single-signal trades are NOT acceptable — you need confluence.
+
+SIGNAL WEIGHTING (highest conviction first):
+1. Smart vs Retail divergence at HIGH/EXTREME strength = most reliable edge
+2. Composite score ≥ 75 with institutional accumulation = systematic confirmation
+3. Smart C/P ratio diverging 3×+ from retail = rare institutional positioning
+4. IV rank > 80% = sell premium; IV rank < 20% = buy cheap premium
+5. Max pain gap > 8% with ≤ 7 days to expiry = gravitational pull
+6. Dark pool heavy call flow ($5M+) = pre-move smart positioning
+7. Live alerts firing = real-time event confirmation
+8. Gamma wall proximity + vol crush = pinning or explosive breakout setup
+9. Earnings within 14 days + low IV rank = cheap straddle opportunity
+
+ALLOWED SETUP TYPES:
+- LONG CALL: Bullish, low IV, accumulation
+- LONG PUT: Bearish, smart money selling
+- BULL CALL SPREAD: Bullish, moderate IV — reduce cost
+- BEAR PUT SPREAD: Bearish, moderate IV — reduce cost
+- CASH-SECURED PUT: Bullish, stock near max pain support
+- IRON CONDOR: High IV, pinning expected, range trade
+- STRADDLE: Low IV + earnings catalyst approaching
+- COVERED CALL: Neutral/slightly bearish, rich premium
+
+Return ONLY a JSON array of exactly 5 trade objects with these fields:
+- ticker: string
+- price: number
+- setup_type: string (from allowed list above)
+- direction: "BULLISH" | "BEARISH" | "NEUTRAL"
+- conviction: "HIGH" | "MEDIUM"
+- entry_strike: number
+- expiry: string YYYY-MM-DD (use real expiry dates from the signal data)
+- target_price: number
+- stop_loss: number
+- signals_aligned: list of 3-6 strings — be SPECIFIC (e.g. "Smart C/P 3.4× vs Retail 0.6×", "IV rank 91% — premium rich", "Max pain -9.3% gap with 4d to exp")
+- thesis: string (4-5 sentences: what multiple signals say, why the confluence is compelling, what you're positioning for, timing, and key risk)
+- risk_level: "LOW" | "MEDIUM" | "HIGH"
+
+JSON array only. No markdown. No text outside the array."""
+
+    try:
+        resp = oai.chat.completions.create(
+            model="gpt-5-mini",
+            max_completion_tokens=3000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        # Strip markdown code fences if present
+        if "```" in raw:
+            parts = raw.split("```")
+            for part in parts:
+                stripped = part.lstrip("json").strip()
+                if stripped.startswith("[") or stripped.startswith("{"):
+                    raw = stripped
+                    break
+        # Extract the JSON array even if surrounded by explanation text
+        if not raw.startswith("["):
+            start = raw.find("[")
+            end   = raw.rfind("]") + 1
+            if start >= 0 and end > start:
+                raw = raw[start:end]
+        if not raw:
+            return jsonify({"error": "OpenAI returned empty content. Try again.", "trades": [], "signal_sources": active_sources}), 500
+        trades = _json.loads(raw)
+        out = {
+            "trades": trades,
+            "generated_at": _dt.now().isoformat(),
+            "tickers_scanned": len(rich),
+            "signal_sources": active_sources,
+            "signal_source_count": len(active_sources),
+        }
+        app._ait_cache = out
+        app._ait_cache_ts = _dt.now()
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({"error": str(e), "raw": locals().get("raw", ""), "trades": []}), 500
+
+
+@app.route("/stock-api/signal-feed", methods=["GET"])
+def signal_feed():
+    """Real-time notable signal events — dark pool, smart money, vol crush, max pain."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_sf_cache", None)
+    _ts    = getattr(app, "_sf_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 600:
+        return jsonify(_cache)
+
+    FOCUS = ["SPY","QQQ","NVDA","AAPL","MSFT","META","GOOGL","AMZN","TSLA","AMD","ORCL","MU","NFLX","CRM","PLTR","AVGO","ARM","IWM","MSTR","SMCI"]
+    now   = _dt.now()
+    events = []
+
+    def _check(ticker):
+        evs = []
+        try:
+            import numpy as np
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0: return evs
+            exps  = tkr.options
+            if not exps: return evs
+            chain = tkr.option_chain(exps[0])
+
+            # Vol crush check
+            atm  = min(chain.puts["strike"].tolist(), key=lambda s: abs(s - price))
+            ivp  = chain.puts[chain.puts["strike"]  == atm]["impliedVolatility"].values
+            ivc  = chain.calls[chain.calls["strike"] == atm]["impliedVolatility"].values
+            ivv  = [v for v in list(ivp)+list(ivc) if v and v > 0]
+            if ivv:
+                cur_iv = float(np.mean(ivv))
+                hist   = tkr.history(period="1y")["Close"]
+                if len(hist) >= 40:
+                    hv_s = hist.pct_change().dropna().rolling(21).std() * np.sqrt(252)
+                    hv_s = hv_s.dropna()
+                    iv_rank = (cur_iv - float(hv_s.min())) / max(float(hv_s.max()) - float(hv_s.min()), 0.001) * 100
+                    if iv_rank >= 85:
+                        evs.append({"ticker": ticker, "price": round(price,2), "type": "VOL SPIKE",
+                                    "icon": "🌡️", "color": "#f87171",
+                                    "msg": f"IV rank {iv_rank:.0f}% — premium at 1-year extreme"})
+                    elif iv_rank <= 15:
+                        evs.append({"ticker": ticker, "price": round(price,2), "type": "IV FLOOR",
+                                    "icon": "📉", "color": "#60a5fa",
+                                    "msg": f"IV rank {iv_rank:.0f}% — cheapest options in a year"})
+
+            # Smart money divergence
+            sc = sp = rc = rp = 0.0
+            for exp in exps[:3]:
+                try:
+                    ch = tkr.option_chain(exp)
+                    for side, df in [("c", ch.calls), ("p", ch.puts)]:
+                        for _, row in df.iterrows():
+                            vol  = int(row.get("volume", 0) or 0)
+                            last = float(row.get("lastPrice", 0) or 0)
+                            if vol <= 0 or last <= 0: continue
+                            prem = vol * last * 100
+                            if last >= 3.0 and vol >= 30:
+                                if side == "c": sc += prem
+                                else: sp += prem
+                            elif last < 2.0 or vol < 15:
+                                if side == "c": rc += prem
+                                else: rp += prem
+                except Exception: continue
+            s_cp = sc/sp if sp > 0 else 9.9
+            r_cp = rc/rp if rc > 0 else 0.1
+            if s_cp >= 2.0 and r_cp <= 0.6:
+                evs.append({"ticker": ticker, "price": round(price,2), "type": "SMART BULL",
+                            "icon": "🏦", "color": "#4ade80",
+                            "msg": f"Institutions C/P={s_cp:.1f}× while retail is {r_cp:.1f}× — classic divergence"})
+            elif s_cp <= 0.5 and r_cp >= 1.8:
+                evs.append({"ticker": ticker, "price": round(price,2), "type": "SMART BEAR",
+                            "icon": "⚠️", "color": "#f87171",
+                            "msg": f"Smart money putting at C/P={s_cp:.1f}× while retail buys calls {r_cp:.1f}×"})
+
+            # Max pain distance
+            puts_df = chain.puts; calls_df = chain.calls
+            strikes = sorted(set(list(puts_df["strike"]) + list(calls_df["strike"])))
+            best = strikes[0]; lo = float("inf")
+            for s in strikes:
+                cp = sum(max(0.0, float(s)-float(k)) * float(o or 0) for k, o in zip(calls_df["strike"], calls_df["openInterest"].fillna(0)))
+                pp = sum(max(0.0, float(k)-float(s)) * float(o or 0) for k, o in zip(puts_df["strike"],  puts_df["openInterest"].fillna(0)))
+                if (cp+pp) < lo: lo = cp+pp; best = s
+            mp = float(best)
+            dist = (price - mp) / mp * 100
+            if abs(dist) >= 8:
+                evs.append({"ticker": ticker, "price": round(price,2), "type": "MAX PAIN GAP",
+                            "icon": "📍", "color": "#fbbf24",
+                            "msg": f"Price {dist:+.1f}% from max pain ${mp:.2f} — gravitational pull expected by {exps[0]}"})
+
+        except Exception: pass
+        return evs
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futs = {ex.submit(_check, t): t for t in FOCUS}
+        for f in as_completed(futs): events.extend(f.result())
+
+    events.sort(key=lambda x: (x["type"] == "SMART BULL" or x["type"] == "SMART BEAR"), reverse=True)
+    out = {"events": events[:30], "generated_at": now.isoformat()}
+    app._sf_cache = out; app._sf_cache_ts = now
+    return jsonify(out)
+
+
+@app.route("/stock-api/composite-score", methods=["GET"])
+def composite_score():
+    """0–100 composite score per ticker combining IV rank, smart money, call accumulation, max pain alignment."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_cs_cache", None)
+    _ts    = getattr(app, "_cs_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    now = _dt.now()
+
+    def _score(ticker):
+        try:
+            import numpy as np
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0: return None
+            exps  = tkr.options
+            if not exps: return None
+            chain = tkr.option_chain(exps[0])
+
+            score = 50.0; reasons = []; components = {}
+
+            # IV rank (0–25 pts)
+            atm  = min(chain.puts["strike"].tolist(), key=lambda s: abs(s - price))
+            ivp  = chain.puts[chain.puts["strike"]  == atm]["impliedVolatility"].values
+            ivc  = chain.calls[chain.calls["strike"] == atm]["impliedVolatility"].values
+            ivv  = [v for v in list(ivp)+list(ivc) if v and v > 0]
+            iv_rank = 50.0
+            if ivv:
+                cur_iv = float(np.mean(ivv))
+                hist   = tkr.history(period="1y")["Close"]
+                if len(hist) >= 40:
+                    hv_s = hist.pct_change().dropna().rolling(21).std() * np.sqrt(252)
+                    hv_s = hv_s.dropna()
+                    iv_rank = max(0.0, min(100.0, (cur_iv - float(hv_s.min())) / max(float(hv_s.max()) - float(hv_s.min()), 0.001) * 100))
+            iv_pts = round((100 - iv_rank) / 100 * 25, 1)  # low IV = cheaper options = bullish edge
+            score += iv_pts - 12.5
+            components["iv_rank"] = round(iv_rank, 1)
+            components["iv_score"] = iv_pts
+
+            # Smart money (0–30 pts)
+            sc = sp = rc = rp = 0.0
+            accum_prem = fomo_prem = 0.0
+            top_accum = {"strike": None, "expiry": None, "otm_pct": 0.0, "prem": 0.0}
+            for exp in exps[:5]:
+                try:
+                    days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
+                    ch = tkr.option_chain(exp)
+                    for side, df in [("c", ch.calls), ("p", ch.puts)]:
+                        for _, row in df.iterrows():
+                            vol  = int(row.get("volume", 0) or 0)
+                            last = float(row.get("lastPrice", 0) or 0)
+                            oi   = int(row.get("openInterest", 0) or 0)
+                            if vol <= 0 or last <= 0: continue
+                            prem = vol * last * 100
+                            if last >= 3.0 and vol >= 30:
+                                if side == "c": sc += prem
+                                else:           sp += prem
+                            elif last < 2.0 or vol < 15:
+                                if side == "c": rc += prem
+                                else:           rp += prem
+                    for _, row in ch.calls.iterrows():
+                        strike = float(row.get("strike", 0) or 0)
+                        vol    = int(row.get("volume", 0) or 0)
+                        oi     = int(row.get("openInterest", 0) or 0)
+                        last   = float(row.get("lastPrice", 0) or 0)
+                        if strike <= 0 or last <= 0: continue
+                        otm = (strike - price) / price * 100
+                        p   = (vol + oi) * last * 100
+                        if otm > 5 and days_out > 60:
+                            accum_prem += p
+                            if p > top_accum["prem"]:
+                                top_accum = {"strike": round(strike,2), "expiry": exp, "otm_pct": round(otm,1), "prem": p}
+                        elif -3 < otm < 3 and days_out < 45:
+                            fomo_prem += p
+                except Exception: continue
+
+            s_cp = sc/sp if sp > 0 else 1.0
+            r_cp = rc/rp if rp > 0 else 1.0
+            sm_pts = min(30.0, max(0.0, (s_cp - 1.0) * 10.0))
+            score += sm_pts - 15
+            components["smart_cp"] = round(s_cp, 2)
+            components["retail_cp"] = round(r_cp, 2)
+            components["sm_score"] = round(sm_pts, 1)
+
+            total_call = accum_prem + fomo_prem
+            accum_pct  = accum_prem / total_call * 100 if total_call > 0 else 50.0
+            accum_pts  = round((accum_pct - 50) / 50 * 15, 1)
+            score += accum_pts
+            components["accum_pct"] = round(accum_pct, 1)
+            components["accum_score"] = accum_pts
+            components["top_accum"] = top_accum
+
+            # Max pain (0–15 pts for being below pain = bullish pull)
+            mp_strike = None; mp_pts = 0.0
+            try:
+                strikes2 = sorted(set(list(chain.puts["strike"]) + list(chain.calls["strike"])))
+                best = strikes2[0]; lo = float("inf")
+                for s in strikes2:
+                    cp2 = sum(max(0.0, float(s)-float(k)) * float(o or 0) for k, o in zip(chain.calls["strike"], chain.calls["openInterest"].fillna(0)))
+                    pp2 = sum(max(0.0, float(k)-float(s)) * float(o or 0) for k, o in zip(chain.puts["strike"],  chain.puts["openInterest"].fillna(0)))
+                    if (cp2+pp2) < lo: lo = cp2+pp2; best = s
+                mp_strike = float(best)
+                dist = (price - mp_strike) / mp_strike * 100
+                mp_pts = min(15.0, max(-15.0, -dist * 1.5))
+                score += mp_pts
+            except Exception: pass
+            components["max_pain"] = round(mp_strike, 2) if mp_strike else None
+            components["mp_score"] = round(mp_pts, 1)
+
+            score = round(max(0.0, min(100.0, score)), 1)
+            bias  = "STRONG BULL" if score >= 75 else "BULLISH" if score >= 60 else "NEUTRAL" if score >= 40 else "BEARISH" if score >= 25 else "STRONG BEAR"
+
+            return {"ticker": ticker, "price": round(price, 2), "score": score, "bias": bias,
+                    "components": components, "nearest_exp": exps[0]}
+        except Exception: return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(_score, t): t for t in DEFAULT_LEADERBOARD}
+        rows = [r for f in as_completed(futs) if (r := f.result()) is not None]
+    rows.sort(key=lambda x: x["score"], reverse=True)
+    out = {"results": rows, "scanned": len(DEFAULT_LEADERBOARD)}
+    app._cs_cache = out; app._cs_cache_ts = now
+    return jsonify(out)
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

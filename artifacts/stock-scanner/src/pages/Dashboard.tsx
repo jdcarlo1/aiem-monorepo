@@ -10,11 +10,13 @@ import {
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchPutIntent,
   fetchVolCrush, fetchCallIntent, fetchSmartVsRetail, fetchMaxPain, fetchGammaWall,
+  fetchAITrades, fetchSignalFeed, fetchCompositeScore,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
   SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief, DarkPoolRow, PutIntentRow,
   VolCrushRow, CallIntentRow, SmartVsRetailRow, MaxPainRow, GammaWallRow, GammaStrike,
+  AITradeSetup, SignalEvent, CompositeScoreRow,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -2426,6 +2428,328 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   );
 }
 
+// ---- AI Trades Tab -------------------------------------------------------
+function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [trades, setTrades]           = useState<AITradeSetup[]>([]);
+  const [loading, setLoading]         = useState(false);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [scanned, setScanned]         = useState(0);
+  const [expanded, setExpanded]       = useState<number | null>(0);
+  const [isSubscribed]                = useState(false);
+  const [sources, setSources]         = useState<string[]>([]);
+  const [error, setError]             = useState<string | null>(null);
+
+  const run = async () => {
+    setLoading(true); setError(null);
+    try {
+      const d = await fetchAITrades();
+      if (d.error) { setError(d.error); setTrades([]); return; }
+      setTrades(d.trades || []);
+      setGeneratedAt(d.generated_at);
+      setScanned(d.tickers_scanned);
+      setSources(d.signal_sources || []);
+    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  };
+  useEffect(() => { run(); }, []);
+
+  const dColor = (d: string) => d === "BULLISH" ? "#4ade80" : d === "BEARISH" ? "#f87171" : "#fbbf24";
+  const dBg    = (d: string) => d === "BULLISH" ? "rgba(74,222,128,0.08)" : d === "BEARISH" ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.08)";
+  const rColor = (r: string) => r === "LOW" ? "#4ade80" : r === "HIGH" ? "#f87171" : "#fbbf24";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+            🤖 AI Trade Setups
+            <span className="text-xs px-2 py-0.5 rounded-full font-normal" style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>GPT-4o</span>
+            <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-normal" style={{ background: "rgba(255,255,255,0.04)", color: "#94a3b8", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <svg width="11" height="11" viewBox="0 0 41 41" fill="none"><path d="M37.532 16.87a9.963 9.963 0 0 0-.856-8.184 10.078 10.078 0 0 0-10.855-4.835 9.964 9.964 0 0 0-6.52-3.272A10.08 10.08 0 0 0 8.733 5.183a9.965 9.965 0 0 0-6.663 4.81 10.079 10.079 0 0 0 1.24 11.817 9.965 9.965 0 0 0 .856 8.185 10.079 10.079 0 0 0 10.855 4.835 9.965 9.965 0 0 0 6.52 3.272 10.08 10.08 0 0 0 10.568-4.604 9.965 9.965 0 0 0 6.663-4.81 10.079 10.079 0 0 0-1.24-11.818zM22.498 37.886a7.474 7.474 0 0 1-4.799-1.735c.061-.033.168-.091.237-.134l7.964-4.6a1.294 1.294 0 0 0 .655-1.134V19.054l3.366 1.944a.12.12 0 0 1 .066.092v9.299a7.505 7.505 0 0 1-7.49 7.496zM6.392 31.006a7.471 7.471 0 0 1-.894-5.023c.06.036.162.099.237.141l7.964 4.6a1.297 1.297 0 0 0 1.308 0l9.724-5.614v3.888a.12.12 0 0 1-.048.103l-8.051 4.649a7.504 7.504 0 0 1-10.24-2.744zM4.297 13.62A7.469 7.469 0 0 1 8.2 10.333c0 .068-.004.19-.004.274v9.201a1.294 1.294 0 0 0 .654 1.132l9.723 5.614-3.366 1.944a.12.12 0 0 1-.114.012L7.044 23.86a7.504 7.504 0 0 1-2.747-10.24zm27.658 6.437l-9.724-5.615 3.367-1.943a.121.121 0 0 1 .114-.012l8.048 4.648a7.498 7.498 0 0 1-1.158 13.528v-9.476a1.293 1.293 0 0 0-.647-1.13zm3.35-5.043c-.059-.037-.162-.099-.236-.141l-7.965-4.6a1.298 1.298 0 0 0-1.308 0l-9.723 5.614v-3.888a.12.12 0 0 1 .048-.103l8.05-4.645a7.497 7.497 0 0 1 11.135 7.763zm-21.063 6.929l-3.367-1.944a.12.12 0 0 1-.065-.092v-9.299a7.497 7.497 0 0 1 12.293-5.756 6.94 6.94 0 0 0-.236.134l-7.965 4.6a1.294 1.294 0 0 0-.654 1.132l-.006 11.225zm1.829-3.943l4.33-2.501 4.332 2.498v4.997l-4.331 2.5-4.331-2.5V18z" fill="currentColor"/></svg>
+              Powered by OpenAI
+            </span>
+          </h2>
+          <p className="text-slate-500 text-sm mt-0.5">5 high-conviction trades synthesized by OpenAI across <strong className="text-slate-400">every signal source</strong> — dark pool, smart money, vol crush, call intent, max pain, gamma wall &amp; more.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {generatedAt && <span className="text-slate-600 text-xs hidden sm:block">{scanned} tickers · {sources.length} signal sources · {new Date(generatedAt).toLocaleTimeString()}</span>}
+          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>{loading ? "Analyzing…" : "↻ Regenerate"}</button>
+        </div>
+      </div>
+
+      {/* Signal sources used */}
+      {sources.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {sources.map(s => (
+            <span key={s} className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,0.06)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.15)" }}>● {s}</span>
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs text-slate-600 mb-5 italic">Not financial advice. Always do your own research. AI analysis is based on public options data and synthesized by OpenAI.</p>
+
+      {error && (
+        <div className="rounded-xl p-4 mb-4 text-sm" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)", color: "#fbbf24" }}>
+          ⚠ {error}
+          <p className="text-slate-500 text-xs mt-1">Tip: visit Vol Crush, Smart vs Retail, and Max Pain tabs first to load signal data, then come back here.</p>
+        </div>
+      )}
+
+      {loading && trades.length === 0 && (
+        <div className="text-center py-16">
+          <div className="text-3xl mb-4 animate-pulse">🤖</div>
+          <div className="text-slate-400 text-sm font-bold">OpenAI is reading all your signal sources…</div>
+          <div className="text-slate-600 text-xs mt-2">Vol Crush · Call Intent · Smart vs Retail · Max Pain · Gamma Wall · Dark Pool · Composite Score</div>
+          <div className="text-slate-700 text-xs mt-1">Finding the 5 trades where the most signals converge</div>
+        </div>
+      )}
+
+      {trades.length > 0 && (
+        <div className="space-y-3">
+          {trades.map((t, i) => {
+            const isOpen = expanded === i;
+            const blurred = !isSubscribed && i >= 2;
+            return (
+              <div key={i} className="rounded-xl overflow-hidden" style={{ border: `1px solid ${t.conviction === "HIGH" ? "rgba(251,191,36,0.25)" : "rgba(255,255,255,0.07)"}`, background: "rgba(255,255,255,0.01)" }}>
+                {/* Header row — always visible */}
+                <div className="flex items-center gap-3 p-4 cursor-pointer select-none" onClick={() => setExpanded(isOpen ? null : i)}>
+                  {t.conviction === "HIGH" && <span className="text-xs px-1.5 py-0.5 rounded font-black" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>HIGH</span>}
+                  <span className="font-black text-white text-lg">{t.ticker}</span>
+                  <span className="text-slate-500 text-xs">${t.price?.toFixed(2)}</span>
+                  <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: dBg(t.direction), color: dColor(t.direction) }}>{t.direction}</span>
+                  <span className="text-slate-400 text-xs hidden sm:block">{t.setup_type}</span>
+                  <div className="ml-auto flex items-center gap-3">
+                    <span className="text-xs" style={{ color: rColor(t.risk_level) }}>Risk: {t.risk_level}</span>
+                    <span className="text-slate-600 text-xs">{isOpen ? "▲" : "▼"}</span>
+                  </div>
+                </div>
+
+                {/* Expanded detail */}
+                {isOpen && (
+                  <div className={`px-4 pb-4 ${blurred ? "blur-sm select-none pointer-events-none" : ""}`}>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+                      {[
+                        { label: "Setup", val: t.setup_type },
+                        { label: "Strike", val: `$${t.entry_strike}` },
+                        { label: "Expiry", val: t.expiry },
+                        { label: "Target", val: `$${t.target_price}` },
+                        { label: "Stop", val: `$${t.stop_loss}` },
+                        { label: "Risk", val: t.risk_level },
+                        { label: "Conviction", val: t.conviction },
+                        { label: "Direction", val: t.direction },
+                      ].map(({ label, val }) => (
+                        <div key={label} className="rounded-lg p-2.5 text-center" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                          <div className="text-slate-600 text-xs">{label}</div>
+                          <div className="font-bold text-white text-sm mt-0.5">{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {t.signals_aligned?.map(s => (
+                        <span key={s} className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)" }}>✓ {s}</span>
+                      ))}
+                    </div>
+                    <p className="text-slate-300 text-sm leading-relaxed rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}>{t.thesis}</p>
+                    <button onClick={() => onSelectTicker(t.ticker)} className="mt-3 text-xs text-slate-500 hover:text-white transition-colors">View {t.ticker} full analysis →</button>
+                  </div>
+                )}
+
+                {/* Paywall overlay for trades 3–5 */}
+                {blurred && isOpen && (
+                  <div className="mx-4 mb-4 rounded-xl p-4 text-center" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)" }}>
+                    <div className="text-yellow-400 font-black text-sm mb-1">🔒 Pro Feature</div>
+                    <div className="text-slate-400 text-xs">All 5 AI trade setups are available with a Pro subscription.</div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Signal Feed Tab -----------------------------------------------------
+function SignalFeedTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [events, setEvents]   = useState<SignalEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [filter, setFilter]   = useState<string>("ALL");
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const d = await fetchSignalFeed();
+      setEvents(d.events || []);
+      setGeneratedAt(d.generated_at);
+    } catch {} finally { setLoading(false); }
+  };
+  useEffect(() => { run(); const t = setInterval(run, 300000); return () => clearInterval(t); }, []);
+
+  const types = ["ALL", ...Array.from(new Set(events.map(e => e.type)))];
+  const visible = filter === "ALL" ? events : events.filter(e => e.type === filter);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+            📡 Live Signal Feed
+            {loading && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />}
+          </h2>
+          <p className="text-slate-500 text-sm mt-0.5">Real-time notable signals — IV spikes, smart money divergence, max pain gaps, accumulation bursts.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {generatedAt && <span className="text-slate-600 text-xs">{new Date(generatedAt).toLocaleTimeString()} · auto-refreshes every 5 min</span>}
+          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", color: "#4ade80" }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+
+      {/* Filter pills */}
+      <div className="flex gap-2 flex-wrap mb-5">
+        {types.map(t => (
+          <button key={t} onClick={() => setFilter(t)} className="px-3 py-1 rounded-full text-xs font-bold transition-all"
+            style={{ background: filter === t ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)", color: filter === t ? "#fff" : "#64748b", border: filter === t ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(255,255,255,0.07)" }}>{t}</button>
+        ))}
+      </div>
+
+      {loading && events.length === 0 && (
+        <div className="text-center py-16 text-slate-500 text-sm">Scanning 20 tickers for notable signal activity…<div className="text-xs text-slate-600 mt-2">~20 seconds</div></div>
+      )}
+      {!loading && visible.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">No notable signals detected right now. Markets may be quiet.</div>}
+
+      {visible.length > 0 && (
+        <div className="space-y-2">
+          {visible.map((ev, i) => (
+            <div key={i} onClick={() => onSelectTicker(ev.ticker)} className="flex items-start gap-4 rounded-xl p-4 cursor-pointer hover:bg-white/5 transition-colors" style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.07)" }}>
+              <span className="text-2xl shrink-0 mt-0.5">{ev.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className="font-black text-white">{ev.ticker}</span>
+                  <span className="text-slate-500 text-xs">${ev.price?.toFixed(2)}</span>
+                  <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: `${ev.color}15`, color: ev.color, border: `1px solid ${ev.color}30` }}>{ev.type}</span>
+                </div>
+                <p className="text-slate-400 text-sm">{ev.msg}</p>
+              </div>
+              <span className="text-slate-700 text-xs shrink-0 mt-1">→</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Composite Score Board Tab -------------------------------------------
+function CompositeBoardTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults]     = useState<CompositeScoreRow[]>([]);
+  const [loading, setLoading]     = useState(false);
+  const [scanned, setScanned]     = useState(0);
+  const [expanded, setExpanded]   = useState<string | null>(null);
+  const [filter, setFilter]       = useState<string>("ALL");
+
+  const run = async () => {
+    setLoading(true);
+    try { const d = await fetchCompositeScore(); setResults(d.results); setScanned(d.scanned); }
+    catch {} finally { setLoading(false); }
+  };
+  useEffect(() => { run(); }, []);
+
+  const biasColor = (b: string) => b === "STRONG BULL" ? "#4ade80" : b === "BULLISH" ? "#86efac" : b === "NEUTRAL" ? "#94a3b8" : b === "BEARISH" ? "#fca5a5" : "#f87171";
+  const biasBg    = (b: string) => b.includes("BULL") ? "rgba(74,222,128,0.1)" : b === "NEUTRAL" ? "rgba(148,163,184,0.08)" : "rgba(248,113,113,0.1)";
+
+  const biasFilters = ["ALL", "STRONG BULL", "BULLISH", "NEUTRAL", "BEARISH", "STRONG BEAR"];
+  const visible = filter === "ALL" ? results : results.filter(r => r.bias === filter);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">🎯 Signal Score Board</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Every ticker scored 0–100 by combining IV rank, smart money flow, call accumulation, and max pain alignment.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {scanned > 0 && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
+          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.25)", color: "#60a5fa" }}>{loading ? "Scoring…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+
+      {/* Score legend */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-5">
+        {[["STRONG BULL","75–100","#4ade80"],["BULLISH","60–74","#86efac"],["NEUTRAL","40–59","#94a3b8"],["BEARISH","25–39","#fca5a5"],["STRONG BEAR","0–24","#f87171"]].map(([b,r,c]) => (
+          <div key={b} className="rounded-xl p-2 text-center" style={{ background: `${c}10`, border: `1px solid ${c}25` }}>
+            <div className="font-black text-xs" style={{ color: c }}>{b}</div>
+            <div className="text-slate-600 text-xs mt-0.5">{r}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter pills */}
+      <div className="flex gap-2 flex-wrap mb-5">
+        {biasFilters.map(f => (
+          <button key={f} onClick={() => setFilter(f)} className="px-3 py-1 rounded-full text-xs font-bold transition-all"
+            style={{ background: filter === f ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)", color: filter === f ? "#fff" : "#64748b", border: filter === f ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(255,255,255,0.07)" }}>{f}</button>
+        ))}
+      </div>
+
+      {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Scoring all signals for {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~40s · cached 30 min</div></div>}
+
+      {visible.length > 0 && (
+        <div className="space-y-2">
+          {visible.map((r, i) => {
+            const isOpen = expanded === r.ticker;
+            const scoreColor = r.score >= 75 ? "#4ade80" : r.score >= 60 ? "#86efac" : r.score >= 40 ? "#94a3b8" : r.score >= 25 ? "#fca5a5" : "#f87171";
+            return (
+              <div key={r.ticker} className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.01)" }}>
+                <div className="flex items-center gap-3 p-4 cursor-pointer" onClick={() => setExpanded(isOpen ? null : r.ticker)}>
+                  <span className="text-slate-600 text-xs w-5">{i+1}</span>
+                  {/* Score dial */}
+                  <div className="w-12 h-12 shrink-0 rounded-full flex items-center justify-center font-black text-sm" style={{ background: `${scoreColor}15`, border: `2px solid ${scoreColor}40`, color: scoreColor }}>{r.score.toFixed(0)}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-black text-white">{r.ticker}</span>
+                      <span className="text-slate-500 text-xs">${r.price.toFixed(2)}</span>
+                      <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: biasBg(r.bias), color: biasColor(r.bias), border: `1px solid ${biasColor(r.bias)}30` }}>{r.bias}</span>
+                    </div>
+                    {/* Score bar */}
+                    <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+                      <div style={{ width: `${r.score}%`, background: scoreColor, opacity: 0.7, transition: "width 0.5s" }} className="h-full rounded-full" />
+                    </div>
+                  </div>
+                  <span className="text-slate-600 text-xs">{isOpen ? "▲" : "▼"}</span>
+                </div>
+
+                {isOpen && (
+                  <div className="px-4 pb-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                      {[
+                        { label: "IV Rank", val: `${r.components.iv_rank?.toFixed(0)}%`, sub: r.components.iv_score >= 0 ? "Cheap premium ✓" : "Expensive premium" },
+                        { label: "Smart C/P", val: `${r.components.smart_cp?.toFixed(2)}×`, sub: r.components.smart_cp >= 1.5 ? "Inst. bullish ✓" : r.components.smart_cp <= 0.7 ? "Inst. bearish ✗" : "Neutral" },
+                        { label: "Retail C/P", val: `${r.components.retail_cp?.toFixed(2)}×`, sub: r.components.retail_cp >= 1.5 ? "Retail bullish" : r.components.retail_cp <= 0.7 ? "Retail bearish" : "Neutral" },
+                        { label: "Accum Calls", val: `${r.components.accum_pct?.toFixed(0)}%`, sub: r.components.accum_pct >= 60 ? "Inst. building ✓" : "Retail-driven" },
+                        { label: "Max Pain", val: r.components.max_pain ? `$${r.components.max_pain}` : "N/A", sub: r.components.mp_score > 0 ? "Below pain ✓" : "Above pain" },
+                        { label: "Exp", val: r.nearest_exp, sub: "Nearest expiry" },
+                        ...(r.components.top_accum?.strike ? [{ label: "Top Accum", val: `$${r.components.top_accum.strike}`, sub: `+${r.components.top_accum.otm_pct?.toFixed(1)}% OTM · ${r.components.top_accum.expiry}` }] : []),
+                      ].map(({ label, val, sub }) => (
+                        <div key={label} className="rounded-lg p-2.5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                          <div className="text-slate-600 text-xs">{label}</div>
+                          <div className="font-bold text-white text-sm mt-0.5">{val}</div>
+                          {sub && <div className="text-xs text-slate-500 mt-0.5">{sub}</div>}
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={() => onSelectTicker(r.ticker)} className="text-xs text-slate-500 hover:text-white transition-colors">Open {r.ticker} full analysis →</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Vol Crush Detector Tab ----------------------------------------------
 function VolCrushTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [results, setResults] = useState<VolCrushRow[]>([]);
@@ -3670,7 +3994,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"outcomes">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -3750,6 +4074,9 @@ export default function Dashboard() {
 
   const TABS = [
     { id: "overview",     label: "OVERVIEW" },
+    { id: "aitrades",     label: "🤖 AI TRADES" },
+    { id: "signalboard",  label: "📡 SIGNAL FEED" },
+    { id: "composite",    label: "🎯 SCORE BOARD" },
     { id: "morningbrief", label: "🌅 MORNING BRIEF" },
     { id: "convergence",  label: "⚡ CONVERGENCE" },
     { id: "darkpool",     label: "🌑 DARK POOL" },
@@ -4355,6 +4682,9 @@ export default function Dashboard() {
         {tab === "morningbrief" && <MorningBriefTab />}
         {tab === "convergence" && <ConvergenceTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "darkpool" && <DarkPoolTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "aitrades"     && <AITradesTab     onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "signalboard"  && <SignalFeedTab   onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "composite"    && <CompositeBoardTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "putintent"    && <PutIntentTab    onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "callintent"   && <CallIntentTab   onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "volcrush"     && <VolCrushTab     onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
