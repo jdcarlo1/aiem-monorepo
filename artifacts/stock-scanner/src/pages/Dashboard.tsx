@@ -18,7 +18,7 @@ import {
   VolCrushRow, CallIntentRow, SmartVsRetailRow, MaxPainRow, GammaWallRow, GammaStrike,
   AITradeSetup, SignalEvent, CompositeScoreRow,
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
-  fetchWhaleActivity, WhaleBlock,
+  fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -3550,6 +3550,173 @@ function WhaleActivityTab() {
   );
 }
 
+// ---- Whale Log Tab (persistent all-time history) -------------------------
+function WhaleLogTab() {
+  const [data, setData]         = useState<{ blocks: WhaleHistoryBlock[]; total: number } | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState("");
+  const [filter, setFilter]     = useState<"ALL"|"CALL"|"PUT"|"LEAPS"|"MEGA_WHALE">("ALL");
+
+  const BB_F = "JetBrains Mono, monospace";
+
+  useEffect(() => {
+    setLoading(true);
+    fetchWhaleHistory()
+      .then(d => setData(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = (data?.blocks ?? []).filter(b => {
+    const matchSearch = !search || b.ticker.includes(search.toUpperCase());
+    const matchFilter =
+      filter === "ALL"       ? true :
+      filter === "CALL"      ? b.direction === "CALL" :
+      filter === "PUT"       ? b.direction === "PUT" :
+      filter === "LEAPS"     ? b.category === "LEAPS" :
+      filter === "MEGA_WHALE"? b.tier === "MEGA_WHALE" : true;
+    return matchSearch && matchFilter;
+  });
+
+  const tierBadge = (tier: string) => {
+    if (tier === "MEGA_WHALE") return { label: "🐋 MEGA WHALE", color: "#818cf8", bg: "rgba(129,140,248,0.15)", border: "rgba(129,140,248,0.35)" };
+    if (tier === "WHALE")      return { label: "🐳 WHALE",      color: "#60a5fa", bg: "rgba(96,165,250,0.12)",  border: "rgba(96,165,250,0.3)" };
+    return                            { label: "⚡ BIG BLOCK",  color: "#fbbf24", bg: "rgba(251,191,36,0.1)",   border: "rgba(251,191,36,0.25)" };
+  };
+
+  const megaCount  = (data?.blocks ?? []).filter(b => b.tier === "MEGA_WHALE").length;
+  const leapsCount = (data?.blocks ?? []).filter(b => b.category === "LEAPS").length;
+  const totalPrem  = (data?.blocks ?? []).reduce((s, b) => s + b.prem_m, 0);
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>📋 Whale Block Log</h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            All-time history · Every $5M+ block ever detected · Newest first
+            {data ? ` · ${data.total} blocks on record` : " · loading…"}
+          </p>
+        </div>
+      </div>
+
+      {/* Stats */}
+      {data && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 24 }}>
+          {[
+            { label: "Total Blocks on Record", val: data.total,                         color: "#4ade80" },
+            { label: "Mega Whales ($20M+)",     val: megaCount,                          color: "#818cf8" },
+            { label: "Total Premium Tracked",   val: `$${totalPrem.toFixed(0)}M`,        color: "#fbbf24" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "16px 20px", textAlign: "center" }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 24, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Filters + Search */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20, alignItems: "center" }}>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Filter by ticker…"
+          style={{ fontFamily: BB_F, fontSize: 12, padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)", color: "#f1f5f9", outline: "none", width: 160 }}
+        />
+        {(["ALL","CALL","PUT","LEAPS","MEGA_WHALE"] as const).map(f => (
+          <button key={f} onClick={() => setFilter(f)} style={{
+            padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer", transition: "all 0.15s",
+            background: filter === f ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+            border: `1px solid ${filter === f ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.1)"}`,
+            color: filter === f ? "#4ade80" : "#64748b",
+          }}>{f === "MEGA_WHALE" ? "🐋 MEGA" : f}</button>
+        ))}
+        {filtered.length !== (data?.total ?? 0) && (
+          <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{filtered.length} shown</span>
+        )}
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+            {[0,1,2].map(i => (
+              <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", display: "inline-block",
+                animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />
+            ))}
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>Loading whale block history…</p>
+        </div>
+      )}
+
+      {/* Empty */}
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+          <p style={{ fontFamily: BB_F, color: "#475569" }}>
+            {data?.total === 0
+              ? "No blocks saved yet. Open the 🐋 Whale Activity tab to trigger the first scan."
+              : "No blocks match your filter."}
+          </p>
+        </div>
+      )}
+
+      {/* Block list */}
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filtered.map((b, i) => {
+            const tier    = tierBadge(b.tier);
+            const isCall  = b.direction === "CALL";
+            const dirColor = isCall ? "#4ade80" : "#f87171";
+            const dirBg    = isCall ? "rgba(74,222,128,0.12)" : "rgba(248,113,113,0.12)";
+            const megaBorder = b.tier === "MEGA_WHALE" ? "rgba(129,140,248,0.35)"
+                             : b.tier === "WHALE"      ? "rgba(96,165,250,0.2)"
+                             : "rgba(255,255,255,0.07)";
+            return (
+              <div key={i} style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${megaBorder}`,
+                borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center",
+                justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 18 }}>{b.ticker}</span>
+                      {b.price && <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>${b.price.toFixed(2)}</span>}
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                        background: dirBg, color: dirColor, border: `1px solid ${dirColor}40` }}>{b.direction}</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                        background: tier.bg, color: tier.color, border: `1px solid ${tier.border}` }}>{tier.label}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 12, fontWeight: 700 }}>${b.strike} strike</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>exp {b.expiry}</span>
+                      {b.days_out != null && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{b.days_out}d out</span>}
+                      <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 11 }}>first seen {b.first_seen}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, letterSpacing: "-0.04em", marginBottom: 2,
+                    color: b.prem_m >= 20 ? "#818cf8" : b.prem_m >= 10 ? "#60a5fa" : "#fbbf24" }}>
+                    ${b.prem_m}M
+                  </div>
+                  {b.volume && <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{b.volume.toLocaleString()} contracts</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p style={{ fontFamily: BB_F, textAlign: "center", color: "#1e293b", fontSize: 11, marginTop: 28 }}>
+        Updated every time 🐋 Whale Activity is scanned · Blocks never deleted · Max 500 shown
+      </p>
+    </div>
+  );
+}
+
+
 // ---- Signal Outcome Tracker Tab ------------------------------------------
 function TrackRecordTab() {
   const [data, setData]         = useState<AITradeLogResult | null>(null);
@@ -4474,7 +4641,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"whale">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"whale"|"whalelog">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -4594,6 +4761,7 @@ export default function Dashboard() {
     { id: "portfolio",    label: "PORTFOLIO" },
     { id: "trackrecord",  label: "📈 AI TRACK RECORD" },
     { id: "whale",        label: "🐋 WHALE ACTIVITY" },
+    { id: "whalelog",    label: "📋 WHALE LOG" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -5188,7 +5356,8 @@ export default function Dashboard() {
         {tab === "premarket"    && <PremarketTab    onSelectTicker={selectTicker} />}
         {tab === "trackrecord"  && <TrackRecordTab />}
 
-        {tab === "whale" && <WhaleActivityTab />}
+        {tab === "whale"    && <WhaleActivityTab />}
+        {tab === "whalelog" && <WhaleLogTab />}
 
       </div>
       </main>

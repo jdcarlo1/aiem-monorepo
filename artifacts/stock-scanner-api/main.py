@@ -264,6 +264,66 @@ def _compute_daily_top10():
 _init_daily_top10_table()
 
 
+# ── Whale Blocks persistent table ─────────────────────────────────────────────
+def _init_whale_blocks_table():
+    sql = """
+    CREATE TABLE IF NOT EXISTS whale_blocks (
+        id          SERIAL PRIMARY KEY,
+        ticker      TEXT NOT NULL,
+        direction   TEXT NOT NULL,
+        strike      NUMERIC NOT NULL,
+        expiry      TEXT NOT NULL,
+        days_out    INTEGER,
+        prem_m      NUMERIC NOT NULL,
+        volume      INTEGER,
+        otm_pct     NUMERIC,
+        category    TEXT,
+        tier        TEXT,
+        price       NUMERIC,
+        first_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (ticker, direction, strike, expiry)
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[whale_blocks] init table error: {e}")
+
+
+def _save_whale_blocks_to_db(blocks: list):
+    if not blocks:
+        return
+    sql = """
+    INSERT INTO whale_blocks (ticker, direction, strike, expiry, days_out, prem_m, volume, otm_pct, category, tier, price)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (ticker, direction, strike, expiry) DO UPDATE
+        SET days_out   = EXCLUDED.days_out,
+            prem_m     = EXCLUDED.prem_m,
+            volume     = EXCLUDED.volume,
+            otm_pct    = EXCLUDED.otm_pct,
+            category   = EXCLUDED.category,
+            tier       = EXCLUDED.tier,
+            price      = EXCLUDED.price;
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            for b in blocks:
+                cur.execute(sql, (
+                    b["ticker"], b["direction"], b["strike"], b["expiry"],
+                    b["days_out"], b["prem_m"], b["volume"], b["otm_pct"],
+                    b["category"], b["tier"], b["price"]
+                ))
+            conn.commit()
+        print(f"[whale_blocks] saved {len(blocks)} blocks to DB")
+    except Exception as e:
+        print(f"[whale_blocks] save error: {e}")
+
+
+_init_whale_blocks_table()
+
+
 # ── AI Trade Log — DB-backed track record ────────────────────────────────────
 
 def _init_ai_trade_log_table():
@@ -3481,7 +3541,45 @@ def whale_activity():
     out = {"blocks": all_blocks[:60], "total": len(all_blocks), "scanned": len(DEFAULT_LEADERBOARD)}
     app._whale_cache    = out
     app._whale_cache_ts = _dt.now()
+    _save_whale_blocks_to_db(all_blocks)
     return jsonify(out)
+
+
+@app.route("/stock-api/whale-history", methods=["GET"])
+def whale_history():
+    """Return all-time whale block log from DB, newest first."""
+    ticker = request.args.get("ticker", "").upper().strip()
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            if ticker:
+                cur.execute("""
+                    SELECT ticker, direction, strike::float, expiry, days_out, prem_m::float,
+                           volume, otm_pct::float, category, tier, price::float,
+                           first_seen AT TIME ZONE 'UTC' AS first_seen
+                    FROM whale_blocks
+                    WHERE ticker = %s
+                    ORDER BY first_seen DESC
+                    LIMIT 500
+                """, (ticker,))
+            else:
+                cur.execute("""
+                    SELECT ticker, direction, strike::float, expiry, days_out, prem_m::float,
+                           volume, otm_pct::float, category, tier, price::float,
+                           first_seen AT TIME ZONE 'UTC' AS first_seen
+                    FROM whale_blocks
+                    ORDER BY first_seen DESC
+                    LIMIT 500
+                """)
+            cols = ["ticker","direction","strike","expiry","days_out","prem_m",
+                    "volume","otm_pct","category","tier","price","first_seen"]
+            rows = []
+            for row in cur.fetchall():
+                d = dict(zip(cols, row))
+                d["first_seen"] = d["first_seen"].strftime("%Y-%m-%d %H:%M UTC") if d["first_seen"] else None
+                rows.append(d)
+        return jsonify({"blocks": rows, "total": len(rows)})
+    except Exception as e:
+        return jsonify({"error": str(e), "blocks": [], "total": 0}), 500
 
 
 @app.route("/stock-api/healthz", methods=["GET"])

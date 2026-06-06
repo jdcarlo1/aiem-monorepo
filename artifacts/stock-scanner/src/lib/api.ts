@@ -751,3 +751,17 @@ export interface WhaleActivityResult {
 export function fetchWhaleActivity() {
   return fetchJson<WhaleActivityResult>("/whale-activity");
 }
+
+export interface WhaleHistoryBlock extends WhaleBlock {
+  first_seen: string;
+}
+
+export interface WhaleHistoryResult {
+  blocks: WhaleHistoryBlock[];
+  total: number;
+}
+
+export function fetchWhaleHistory(ticker?: string) {
+  const q = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+  return fetchJson<WhaleHistoryResult>(`/whale-history${q}`);
+}
