@@ -1080,7 +1080,7 @@ def convergence():
             today_vol = float(getattr(info, "last_volume", 0) or 0)
             vol_ratio = today_vol / avg_vol if avg_vol > 0 else 0
 
-            if vol_ratio < 1.5 or price <= 0:
+            if vol_ratio < 1.2 or price <= 0:
                 return None
 
             opts = fetch_options_data(ticker)
@@ -1090,7 +1090,7 @@ def convergence():
             call_put_ratio = float(opts.get("call_put_ratio", 0))
             prem = float(opts.get("top_prem_value", 0))
 
-            if call_put_ratio < 2.0 or prem <= 0:
+            if call_put_ratio < 1.3 or prem <= 0:
                 return None
 
             convergence_score = round(vol_ratio * call_put_ratio, 1)

@@ -2264,26 +2264,28 @@ function ConvergenceTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
       )}
 
       {results.length > 0 && (
-        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.07)" }}>
-          <div className="grid text-xs font-bold text-slate-500 uppercase px-4 py-2.5" style={{ gridTemplateColumns: "32px 72px 80px 90px 90px 90px 1fr", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}>
-            <span>#</span><span>Ticker</span><span className="text-right">Price</span><span className="text-right">Vol Ratio</span><span className="text-right">C/P Ratio</span><span className="text-right">Premium</span><span className="text-right">Conv. Score</span>
-          </div>
-          {results.map((r, i) => (
-            <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} className="grid items-center px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors"
-              style={{ gridTemplateColumns: "32px 72px 80px 90px 90px 90px 1fr", borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
-              <span className="text-slate-600 text-xs">{i + 1}</span>
-              <span className="font-black text-white text-sm">{r.ticker}</span>
-              <span className="text-right text-slate-300 text-sm font-medium">${r.price.toFixed(2)}</span>
-              <span className="text-right text-amber-400 text-sm font-bold">{r.vol_ratio.toFixed(1)}×</span>
-              <span className="text-right text-emerald-400 text-sm font-bold">{r.call_put_ratio.toFixed(1)}×</span>
-              <span className="text-right text-slate-300 text-sm">${r.premium_m.toFixed(1)}M</span>
-              <div className="flex justify-end">
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-black" style={{ background: `${scoreColor(r.convergence_score)}18`, color: scoreColor(r.convergence_score), border: `1px solid ${scoreColor(r.convergence_score)}40` }}>
-                  {r.convergence_score.toFixed(1)}
-                </span>
-              </div>
+        <div className="overflow-x-auto -mx-2 px-2">
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.07)", minWidth: 520 }}>
+            <div className="grid text-xs font-bold text-slate-500 uppercase px-4 py-2.5" style={{ gridTemplateColumns: "28px 60px 72px 70px 70px 70px 80px", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}>
+              <span>#</span><span>Ticker</span><span className="text-right">Price</span><span className="text-right">Vol</span><span className="text-right">C/P</span><span className="text-right">Prem.</span><span className="text-right">Score</span>
             </div>
-          ))}
+            {results.map((r, i) => (
+              <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} className="grid items-center px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors"
+                style={{ gridTemplateColumns: "28px 60px 72px 70px 70px 70px 80px", borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                <span className="text-slate-600 text-xs">{i + 1}</span>
+                <span className="font-black text-white text-sm">{r.ticker}</span>
+                <span className="text-right text-slate-300 text-sm font-medium">${r.price.toFixed(2)}</span>
+                <span className="text-right text-amber-400 text-sm font-bold">{r.vol_ratio.toFixed(1)}×</span>
+                <span className="text-right text-emerald-400 text-sm font-bold">{r.call_put_ratio.toFixed(1)}×</span>
+                <span className="text-right text-slate-400 text-xs">${r.premium_m.toFixed(1)}M</span>
+                <div className="flex justify-end">
+                  <span className="px-2 py-0.5 rounded-full text-xs font-black" style={{ background: `${scoreColor(r.convergence_score)}18`, color: scoreColor(r.convergence_score), border: `1px solid ${scoreColor(r.convergence_score)}40` }}>
+                    {r.convergence_score.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
