@@ -2755,6 +2755,14 @@ function CompositeBoardTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
 
       {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Scoring all signals for {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~40s · cached 30 min</div></div>}
 
+      {!loading && results.length > 0 && visible.length === 0 && (
+        <div className="text-center py-16">
+          <div className="text-3xl mb-3">🔍</div>
+          <div className="text-slate-400 text-sm font-bold">No {filter} tickers right now</div>
+          <div className="text-slate-600 text-xs mt-2">Try <button onClick={() => setFilter("ALL")} className="underline text-slate-500 hover:text-white transition-colors">viewing all {results.length} tickers</button> or a different bias filter</div>
+        </div>
+      )}
+
       {visible.length > 0 && (
         <div className="space-y-2">
           {visible.map((r, i) => {
