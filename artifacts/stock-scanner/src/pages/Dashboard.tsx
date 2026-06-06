@@ -4089,6 +4089,18 @@ export default function Dashboard() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["portfolio"] }); setTradeShares(""); },
   });
 
+  const selectTicker = useCallback((t: string) => {
+    const sym = t.trim().toUpperCase();
+    if (!sym) return;
+    setTicker(sym);
+    setInputTicker(sym);
+    setAiText(null);
+    setAiError(null);
+    setAiTicker(null);
+    setTab("lookup");
+    qc.invalidateQueries({ queryKey: ["stock", sym] });
+  }, [qc]);
+
   const handleLookup = useCallback(() => {
     const t = inputTicker.trim().toUpperCase();
     if (t) { setTicker(t); setAiText(null); setAiError(null); setAiTicker(null); }
@@ -4258,7 +4270,7 @@ export default function Dashboard() {
 
       {/* ── MAIN CONTENT ── */}
       {tab === "overview" ? (
-        <OverviewTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
+        <OverviewTab onSelectTicker={selectTicker} />
       ) : (
       <main style={{ flex: 1, overflowY: "auto", background: "#060c14" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
@@ -4618,7 +4630,7 @@ export default function Dashboard() {
         {/* --- Scanner --- */}
         {tab === "scanner" && (
           <div className="space-y-4">
-            <DailyTop10Banner onSelect={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
+            <DailyTop10Banner onSelect={selectTicker} />
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
               <div className="text-slate-400 text-sm mb-3">Tickers to scan (comma-separated, max 20)</div>
               <div className="flex gap-2">
@@ -4634,7 +4646,7 @@ export default function Dashboard() {
                   <div className="text-slate-400 text-sm">{scanData.results.filter(r => !r.error).length} stocks analyzed</div>
                   <div className="text-xs text-slate-500">Click a row to analyze</div>
                 </div>
-                <ScanTable results={scanData.results.filter(r => !r.error)} onSelect={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
+                <ScanTable results={scanData.results.filter(r => !r.error)} onSelect={selectTicker} />
               </div>
             )}
             {!scanData && !loadingScan && <div className="text-center py-16 text-slate-500">Click "Scan" to analyze the tickers above</div>}
@@ -4643,7 +4655,7 @@ export default function Dashboard() {
 
         {tab === "analytics" && (
           <div className="space-y-4">
-            <DailyTop10Banner onSelect={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
+            <DailyTop10Banner onSelect={selectTicker} />
             <AnalyticsTab />
           </div>
         )}
@@ -4653,9 +4665,9 @@ export default function Dashboard() {
         {tab === "smartmoney" && <SmartMoneyTab />}
         {tab === "congress"   && <CongressTab />}
         {tab === "market"     && <MarketTab />}
-        {tab === "squeeze"    && <SqueezeTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "squeeze"    && <SqueezeTab onSelectTicker={selectTicker} />}
         {tab === "insiders"   && <InsidersTab />}
-        {tab === "breakout"   && <BreakoutTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "breakout"   && <BreakoutTab onSelectTicker={selectTicker} />}
 
         {/* --- Portfolio --- */}
         {tab === "portfolio" && (
@@ -4726,24 +4738,24 @@ export default function Dashboard() {
         )}
         {/* --- Bull Flow Top 10 --- */}
         {tab === "bullflow" && (
-          <BullFlowTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />
+          <BullFlowTab onSelectTicker={selectTicker} />
         )}
 
         {tab === "outcomes" && <OutcomesTab />}
 
         {tab === "morningbrief" && <MorningBriefTab />}
-        {tab === "convergence" && <ConvergenceTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "darkpool" && <DarkPoolTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "aitrades"     && <AITradesTab     onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "signalboard"  && <SignalFeedTab   onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "composite"    && <CompositeBoardTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "putintent"    && <PutIntentTab    onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "callintent"   && <CallIntentTab   onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "volcrush"     && <VolCrushTab     onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "smartvretail" && <SmartVsRetailTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "maxpain"      && <MaxPainTab      onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "gammawall"    && <GammaWallTab    onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
-        {tab === "premarket"    && <PremarketTab    onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "convergence" && <ConvergenceTab onSelectTicker={selectTicker} />}
+        {tab === "darkpool" && <DarkPoolTab onSelectTicker={selectTicker} />}
+        {tab === "aitrades"     && <AITradesTab     onSelectTicker={selectTicker} />}
+        {tab === "signalboard"  && <SignalFeedTab   onSelectTicker={selectTicker} />}
+        {tab === "composite"    && <CompositeBoardTab onSelectTicker={selectTicker} />}
+        {tab === "putintent"    && <PutIntentTab    onSelectTicker={selectTicker} />}
+        {tab === "callintent"   && <CallIntentTab   onSelectTicker={selectTicker} />}
+        {tab === "volcrush"     && <VolCrushTab     onSelectTicker={selectTicker} />}
+        {tab === "smartvretail" && <SmartVsRetailTab onSelectTicker={selectTicker} />}
+        {tab === "maxpain"      && <MaxPainTab      onSelectTicker={selectTicker} />}
+        {tab === "gammawall"    && <GammaWallTab    onSelectTicker={selectTicker} />}
+        {tab === "premarket"    && <PremarketTab    onSelectTicker={selectTicker} />}
 
       </div>
       </main>
