@@ -1903,6 +1903,16 @@ def vol_crush():
                     analyst_recommendation = rec.lower().replace("_", " ")
             except Exception: pass
 
+            # Analyst price target dispersion (how much analysts disagree)
+            analyst_dispersion_pct = None
+            try:
+                _tgt_lo = info.get("targetLowPrice")
+                _tgt_hi = info.get("targetHighPrice")
+                _tgt_mn = info.get("targetMeanPrice")
+                if _tgt_lo and _tgt_hi and _tgt_mn and float(_tgt_mn) > 0:
+                    analyst_dispersion_pct = round((float(_tgt_hi) - float(_tgt_lo)) / float(_tgt_mn) * 100, 1)
+            except Exception: pass
+
             # Analyst revision velocity (last 7 days)
             try:
                 from datetime import timedelta as _td_vc
@@ -2086,22 +2096,28 @@ def vol_crush():
             put_call_oi_ratio = None
             call_vol_oi_ratio = None
             put_vol_oi_ratio  = None
+            pc_premium_ratio  = None
             try:
                 _tot_put_oi = 0; _tot_call_oi = 0
                 _tot_call_vol = 0; _tot_put_vol = 0
+                _tot_call_prem = 0.0; _tot_put_prem = 0.0
                 for _exp_oi in exps[:4]:
                     try:
                         _ch_oi = tkr.option_chain(_exp_oi)
-                        _tot_put_oi   += int(_ch_oi.puts["openInterest"].fillna(0).sum())
-                        _tot_call_oi  += int(_ch_oi.calls["openInterest"].fillna(0).sum())
-                        _tot_call_vol += int(_ch_oi.calls["volume"].fillna(0).sum())
-                        _tot_put_vol  += int(_ch_oi.puts["volume"].fillna(0).sum())
+                        _tot_put_oi    += int(_ch_oi.puts["openInterest"].fillna(0).sum())
+                        _tot_call_oi   += int(_ch_oi.calls["openInterest"].fillna(0).sum())
+                        _tot_call_vol  += int(_ch_oi.calls["volume"].fillna(0).sum())
+                        _tot_put_vol   += int(_ch_oi.puts["volume"].fillna(0).sum())
+                        _tot_call_prem += float((_ch_oi.calls["volume"].fillna(0) * _ch_oi.calls["lastPrice"].fillna(0)).sum()) * 100
+                        _tot_put_prem  += float((_ch_oi.puts["volume"].fillna(0)  * _ch_oi.puts["lastPrice"].fillna(0)).sum()) * 100
                     except Exception: continue
                 if _tot_call_oi > 0:
                     put_call_oi_ratio = round(_tot_put_oi / _tot_call_oi, 2)
                     call_vol_oi_ratio = round(_tot_call_vol / _tot_call_oi, 3)
                 if _tot_put_oi > 0:
                     put_vol_oi_ratio = round(_tot_put_vol / _tot_put_oi, 3)
+                if _tot_call_prem > 0:
+                    pc_premium_ratio = round(_tot_put_prem / _tot_call_prem, 2)
             except Exception: pass
 
             # Q8. Earnings implied move (IV-based expected ±% move into earnings)
@@ -2157,6 +2173,20 @@ def vol_crush():
                     hist_earn_reaction_pct = round(sum(_top4) / len(_top4), 1)
             except Exception: pass
 
+            # Q13. Short squeeze risk score (composite — higher = more squeeze potential)
+            squeeze_risk = None
+            try:
+                _sq_pts = 0
+                if short_float_pct is not None and short_float_pct >= 15: _sq_pts += 1
+                if borrow_cost_proxy in ("HIGH_BORROW", "ELEVATED_BORROW"):        _sq_pts += 1
+                if rsi is not None and rsi > 60:                                    _sq_pts += 1
+                if vol_trend_5d is not None and vol_trend_5d >= 1.3:               _sq_pts += 1
+                if short_float_pct is not None:
+                    squeeze_risk = ("EXTREME" if _sq_pts == 4 else
+                                    "HIGH"    if _sq_pts == 3 else
+                                    "MEDIUM"  if _sq_pts == 2 else "LOW")
+            except Exception: pass
+
             verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
             return {
                 "ticker": ticker, "price": round(price, 2),
@@ -2189,6 +2219,9 @@ def vol_crush():
                 "borrow_cost_proxy": borrow_cost_proxy,
                 "eps_revision_trend": eps_revision_trend,
                 "hist_earn_reaction_pct": hist_earn_reaction_pct,
+                "squeeze_risk": squeeze_risk,
+                "analyst_dispersion_pct": analyst_dispersion_pct,
+                "pc_premium_ratio": pc_premium_ratio,
             }
         except Exception: return None
 
@@ -2607,6 +2640,9 @@ def ai_trades():
             _add(t, "borrow_cost_proxy", r.get("borrow_cost_proxy"))
             _add(t, "eps_revision_trend", r.get("eps_revision_trend"))
             _add(t, "hist_earn_reaction_pct", r.get("hist_earn_reaction_pct"))
+            _add(t, "squeeze_risk", r.get("squeeze_risk"))
+            _add(t, "analyst_dispersion_pct", r.get("analyst_dispersion_pct"))
+            _add(t, "pc_premium_ratio", r.get("pc_premium_ratio"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -3082,6 +3118,17 @@ def ai_trades():
             her = v["hist_earn_reaction_pct"]
             her_tag = "LARGE_MOVER" if her >= 8 else "moderate" if her >= 3 else "small_mover"
             parts.append(f"hist_earn_move=±{her}%({her_tag})")
+        if v.get("squeeze_risk") in ("HIGH", "EXTREME"):
+            sq = v["squeeze_risk"]
+            parts.append(f"squeeze_risk={sq}(short_squeeze_imminent_danger_for_bears)")
+        if v.get("analyst_dispersion_pct") is not None:
+            ad = v["analyst_dispersion_pct"]
+            ad_tag = "HIGH_DISAGREEMENT(prefer_straddle)" if ad >= 30 else "MODERATE_DISAGREEMENT" if ad >= 15 else "CONSENSUS(directional_ok)"
+            parts.append(f"analyst_dispersion={ad}%({ad_tag})")
+        if v.get("pc_premium_ratio") is not None:
+            pcp = v["pc_premium_ratio"]
+            pcp_tag = "HEAVY_PUT_SPEND(institutional_fear)" if pcp > 1.5 else "HEAVY_CALL_SPEND(risk_on)" if pcp < 0.6 else "balanced_spend"
+            parts.append(f"pc_prem_ratio={pcp}({pcp_tag})")
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
         sig_lines.append(" | ".join(parts))
@@ -3122,6 +3169,9 @@ def ai_trades():
         "20. FLOW PERSISTENCE: flow_persist shows call/put vol-to-OI ratios. calls=STRUCTURAL(multi_week) means call OI has been building over multiple days — institutional conviction. calls=FRESH(one_day) means today's activity only — could be noise or a hedge. Weight STRUCTURAL flow 2x vs FRESH flow in your conviction score.\n"
         "21. EPS REVISION TREND: eps_trend=RISING means analysts are raising forward earnings estimates — a strong fundamental tailwind. eps_trend=DECLINING means estimates are being cut — a headwind even if flow looks bullish. When eps_trend=DECLINING and call flow is present, reduce conviction; the flow may be a short-term trade against a deteriorating fundamental trend.\n"
         "22. HISTORICAL EARNINGS REACTION: hist_earn_move=±X% is the average absolute price move this stock has made on past earnings days. Use this to calibrate STRADDLE pricing: if impl_earn_move < hist_earn_move, the straddle is cheap (buy vol); if impl_earn_move > hist_earn_move by >50%, the market is overpricing earnings risk (sell premium). This is one of the highest-edge signals for earnings-event trades.\n"
+        "23. SHORT SQUEEZE RISK: squeeze_risk=HIGH or EXTREME means the stock has: high short float (≥15%), hard-to-borrow conditions, rising price momentum (RSI>60), AND volume surging. In this scenario: (a) NEVER recommend LONG PUT or BEAR PUT SPREAD — short squeeze could cause catastrophic loss. (b) Consider LONG CALL as a squeeze-capture setup. (c) For bearish plays, use far OTM puts only with strict stop loss.\n"
+        "24. ANALYST DISPERSION: analyst_dispersion≥30% (HIGH_DISAGREEMENT) means analysts have wildly different price targets — the outcome is binary and uncertain. In this case: prefer STRADDLE over directional setups, even if flow is one-directional. analyst_dispersion<15% (CONSENSUS) means the fundamental story is clear — directional plays are appropriate.\n"
+        "25. PUT/CALL PREMIUM RATIO (DOLLAR-WEIGHTED): pc_prem_ratio measures actual dollars spent on puts vs calls today. This is more reliable than volume-based ratios because it captures trade size. pc_prem_ratio>1.5 (HEAVY_PUT_SPEND) = institutions are buying protection aggressively. pc_prem_ratio<0.6 (HEAVY_CALL_SPEND) = risk-on positioning. Use this to confirm or contradict the OI-based pc_oi_ratio — if both agree, conviction doubles; if they diverge, reduce directional confidence.\n"
         "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
     )
 
@@ -3166,6 +3216,9 @@ SIGNAL KEY:
 - flow_persist: call/put vol÷OI ratio across 4 expirations (STRUCTURAL<0.05=built over weeks=institutional conviction; FRESH>0.25=today only=may be noise)
 - eps_trend: forward vs trailing EPS direction (RISING=estimates going up=tailwind; DECLINING=estimates cut=headwind even if flow bullish)
 - hist_earn_move: average absolute % price reaction on past earnings days; compare to impl_earn_move to assess straddle value (hist>impl=buy vol; impl>hist×1.5=sell premium)
+- squeeze_risk: composite short squeeze risk (HIGH/EXTREME = high short float + hard borrow + rising RSI + surging vol → danger zone for bears, opportunity for LONG CALL)
+- analyst_dispersion: spread of analyst price targets as % of mean (≥30%=HIGH_DISAGREEMENT=prefer straddle; <15%=CONSENSUS=directional ok)
+- pc_prem_ratio: actual dollars spent on puts ÷ call premium today (>1.5=HEAVY_PUT_SPEND=institutional fear; <0.6=HEAVY_CALL_SPEND=risk-on; cross-check vs pc_oi_ratio)
 
 PRIORITY WEIGHTING (use in order):
 1. opt_spread>12% → SKIP (non-negotiable liquidity gate)
