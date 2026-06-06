@@ -295,11 +295,37 @@ export default function Landing() {
       <div className="px-6 pb-20 max-w-5xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">Everything included</p>
         <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>One scanner. Every edge.</h2>
-        <p className="text-center text-slate-500 mb-10 mx-auto" style={{ maxWidth: "540px", fontSize: "1rem", lineHeight: 1.6 }}>Including 4 new AI features just added — none of which competitors offer at any price.</p>
+        <p className="text-center text-slate-500 mb-10 mx-auto" style={{ maxWidth: "580px", fontSize: "1rem", lineHeight: 1.6 }}>Including 6 exclusive features just added — 2 of which no competitor offers at <em>any</em> price point.</p>
 
-        {/* NEW — AI features callout strip */}
+        {/* NEW — Exclusive features callout — Dark Pool + Put Intent spotlight */}
+        <div className="rounded-2xl p-6 mb-6" style={{ background: "linear-gradient(135deg, rgba(15,23,42,0.9), rgba(6,12,20,0.95))", border: "2px solid rgba(251,191,36,0.25)", boxShadow: "0 0 60px rgba(251,191,36,0.05)" }}>
+          <div className="text-center text-xs font-black uppercase tracking-widest mb-2" style={{ color: "#fbbf24" }}>🔒 Exclusive — Competitors don't have these</div>
+          <p className="text-center text-slate-500 text-xs mb-5">Unusual Whales, FlowAlgo, Cheddar Flow, and BlackBoxStocks all show options flow — none of them decode <em>intent</em>.</p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="rounded-xl p-5" style={{ background: "rgba(15,23,42,0.8)", border: "1px solid rgba(251,191,36,0.2)" }}>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-2xl">🌑</span>
+                <span className="text-xs font-black px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.35)" }}>EXCLUSIVE</span>
+              </div>
+              <div className="font-black text-white text-base mb-2">Dark Pool Radar</div>
+              <div className="text-slate-400 text-sm leading-relaxed mb-3">FINRA short-sale volume decoded into institutional conviction signals — STRONG BUY to STRONG SELL — ranked and sorted. Not available anywhere else at this price.</div>
+              <div className="text-xs text-slate-600">Others show: raw volume numbers &nbsp;·&nbsp; We show: what it means</div>
+            </div>
+            <div className="rounded-xl p-5" style={{ background: "rgba(15,23,42,0.8)", border: "1px solid rgba(251,191,36,0.2)" }}>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-2xl">🎯</span>
+                <span className="text-xs font-black px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.35)" }}>EXCLUSIVE</span>
+              </div>
+              <div className="font-black text-white text-base mb-2">Put Intent Decoder</div>
+              <div className="text-slate-400 text-sm leading-relaxed mb-3">Sees a flood of put activity? We tell you if it's a <span className="text-emerald-400 font-bold">hedge</span> (OTM + long-dated — still bullish) or a genuine <span className="text-red-400 font-bold">bearish bet</span> (near-money + short-dated). Nobody else does this.</div>
+              <div className="text-xs text-slate-600">Others show: put volume &nbsp;·&nbsp; We show: what smart money actually intends</div>
+            </div>
+          </div>
+        </div>
+
+        {/* AI features callout strip */}
         <div className="rounded-2xl p-5 mb-8" style={{ background: "linear-gradient(135deg, rgba(34,197,94,0.06), rgba(16,163,74,0.03))", border: "1px solid rgba(34,197,94,0.25)" }}>
-          <div className="text-center text-xs font-black uppercase tracking-widest mb-4" style={{ color: "#4ade80" }}>✨ New — AI-Powered Features</div>
+          <div className="text-center text-xs font-black uppercase tracking-widest mb-4" style={{ color: "#4ade80" }}>✨ Also New — AI-Powered Features</div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { icon: "🌅", title: "AI Morning Brief", desc: "Claude reads today's unusual flow and writes your daily trading brief every morning — automatically.", tag: "NEW" },
@@ -333,6 +359,8 @@ export default function Landing() {
             { icon: "👁️", title: "Insider Filings", desc: "SEC Form 4 insider purchases tracked in real time — when executives buy their own stock, we flag it." },
             { icon: "📈", title: "Breakout Radar", desc: "Stocks within 2% of a 52-week high with rising volume — momentum breakouts before the crowd." },
             { icon: "🚫", title: "0DTE Filtered Out", desc: "Same-day expirations stripped automatically. Only real, forward-dated signals make the cut." },
+            { icon: "🌑", title: "Dark Pool Radar ★ Exclusive", desc: "FINRA institutional short-sale flow decoded into conviction signals — STRONG BUY to STRONG SELL. Competitors show numbers; we show what they mean." },
+            { icon: "🎯", title: "Put Intent Decoder ★ Exclusive", desc: "Classifies every put position as a hedge (OTM + long-dated) or a directional bearish bet (near-money + short-dated). No other platform does this." },
           ].map(f => (
             <div key={f.title} className="rounded-2xl p-6 transition-all" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}
               onMouseEnter={e => (e.currentTarget.style.border = "1px solid rgba(74,222,128,0.25)")}
@@ -348,33 +376,40 @@ export default function Landing() {
       {/* Comparison */}
       <div className="px-6 pb-20 max-w-5xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">vs. the competition</p>
-        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Same data. Half the price. More AI.</h2>
-        <p className="text-center text-slate-400 mb-3 mx-auto" style={{ maxWidth: "620px", fontSize: "1.05rem", lineHeight: 1.6 }}>
+        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Same data. Half the price. <span style={{ color: "#fbbf24" }}>Features they don't have.</span></h2>
+        <p className="text-center text-slate-400 mb-3 mx-auto" style={{ maxWidth: "660px", fontSize: "1.05rem", lineHeight: 1.6 }}>
           Yes — Unusual Whales, FlowAlgo, and the others all scan options flow too. We're not pretending otherwise.
         </p>
-        <p className="text-center mb-10 mx-auto font-bold" style={{ maxWidth: "620px", fontSize: "1.05rem", lineHeight: 1.6, color: "#4ade80" }}>
-          The difference: they charge $85–149/month for scanning alone. We charge $39 — and ship AI features they haven't built at any price.
+        <p className="text-center mb-4 mx-auto font-bold" style={{ maxWidth: "660px", fontSize: "1.05rem", lineHeight: 1.6, color: "#4ade80" }}>
+          The difference: they charge $85–149/month for scanning alone. We charge $39 — and ship two features they haven't built at any price.
         </p>
+        <div className="flex flex-wrap justify-center gap-3 mb-10">
+          <span className="text-sm font-bold px-4 py-2 rounded-full" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}>🌑 Dark Pool Radar — not on Unusual Whales</span>
+          <span className="text-sm font-bold px-4 py-2 rounded-full" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}>🎯 Put Intent Decoder — not on FlowAlgo</span>
+          <span className="text-sm font-bold px-4 py-2 rounded-full" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}>🌅 AI Morning Brief — not on Cheddar Flow</span>
+        </div>
         <div className="overflow-x-auto">
           <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "860px" }}>
             {/* Column group labels */}
-            <div className="grid px-5 pt-3 pb-1 text-xs font-black uppercase tracking-widest" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr" }}>
+            <div className="grid px-5 pt-3 pb-1 text-xs font-black uppercase tracking-widest" style={{ gridTemplateColumns: "1.4fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr" }}>
               <span />
               <span />
-              <span className="text-center col-span-3" style={{ color: "#4ade80" }}>— AI features (exclusive) —</span>
-              <span className="text-center col-span-4 text-slate-600">— tools —</span>
+              <span className="text-center col-span-2" style={{ color: "#fbbf24" }}>— exclusive only here —</span>
+              <span className="text-center col-span-3" style={{ color: "#4ade80" }}>— AI features —</span>
+              <span className="text-center col-span-3 text-slate-600">— tools —</span>
             </div>
             {/* Header */}
-            <div className="grid px-5 py-3 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)" }}>
+            <div className="grid px-5 py-3 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.4fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)" }}>
               <span>Service</span>
               <span className="text-center">Price/mo</span>
+              <span className="text-center" style={{ color: "#fbbf24" }}>🌑 Dark Pool</span>
+              <span className="text-center" style={{ color: "#fbbf24" }}>🎯 Put Intent</span>
               <span className="text-center" style={{ color: "#4ade80" }}>AI Brief</span>
               <span className="text-center" style={{ color: "#4ade80" }}>Convergence</span>
               <span className="text-center" style={{ color: "#4ade80" }}>Catalyst AI</span>
               <span className="text-center">Options Flow</span>
               <span className="text-center">Prop Desk</span>
               <span className="text-center">Backtest</span>
-              <span className="text-center">AI Score</span>
               <span className="text-center">Portfolio</span>
             </div>
             {/* Competitor rows */}
@@ -384,30 +419,34 @@ export default function Landing() {
               { name: "Cheddar Flow",    price: "$85–99†"  },
               { name: "BlackBoxStocks",  price: "$99–149†" },
             ].map(r => (
-              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.4fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <span className="text-slate-400 font-semibold">{r.name}</span>
                 <span className="text-center text-red-400 font-black">{r.price}</span>
+                {/* Exclusive features — all ✕ */}
+                {[0,1].map(i => (
+                  <span key={i} className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
+                ))}
                 {/* AI features — all ✕ */}
                 {[0,1,2].map(i => (
                   <span key={i} className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
                 ))}
-                {/* Options flow — all ✓ (they have it, just expensive) */}
+                {/* Options flow — all ✓ */}
                 <span className="text-center text-slate-500 font-black text-base">✓</span>
                 {/* Other tools — all ✕ */}
-                {[0,1,2,3].map(i => (
+                {[0,1,2].map(i => (
                   <span key={i} className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
                 ))}
               </div>
             ))}
             {/* StockScanner AI row */}
-            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.5fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr 0.85fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
+            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.4fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
               <div>
                 <div className="font-black text-emerald-300 text-base leading-tight">StockScanner AI ⭐</div>
                 <div className="text-xs text-emerald-600 mt-0.5">Everything included</div>
               </div>
               <span className="text-center text-emerald-400 font-black text-base">$39</span>
               {/* All ✓ */}
-              {[0,1,2,3,4,5,6,7].map(i => (
+              {[0,1,2,3,4,5,6,7,8].map(i => (
                 <span key={i} className="text-center text-emerald-400 font-black text-xl">✓</span>
               ))}
             </div>
@@ -415,6 +454,8 @@ export default function Landing() {
         </div>
         {/* Legend */}
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-1.5 mt-5 text-slate-500 text-xs">
+          <span><span className="font-bold" style={{ color: "#fbbf24" }}>🌑 Dark Pool</span> — FINRA short-sale flow decoded into conviction signals</span>
+          <span><span className="font-bold" style={{ color: "#fbbf24" }}>🎯 Put Intent</span> — hedges vs bearish bets, decoded automatically</span>
           <span><span className="text-emerald-400 font-bold">AI Brief</span> — Claude writes your daily market brief from live flow data</span>
           <span><span className="text-emerald-400 font-bold">Convergence</span> — stocks with unusual volume AND call flow at the same time</span>
           <span><span className="text-emerald-400 font-bold">Catalyst AI</span> — ask Claude why any ticker is moving, get a thesis instantly</span>
@@ -465,18 +506,22 @@ export default function Landing() {
           </div>
           <ul className="space-y-3.5 mb-8">
             {[
-              "Bull Flow Top 20 — bullish + bearish",
-              "High Conviction 5x+ spotlight (daily)",
-              "Smart Money Leaderboard + AI scores",
-              "Congressional trades — live STOCK Act filings",
-              "Sector heatmap + advance/decline breadth",
-              "Prop Desk simulator with risk limits",
-              "Backtesting engine",
-              "Portfolio tracker",
-              "0DTE filtered — only real signals",
+              { text: "🌑 Dark Pool Radar — exclusive, nowhere else", highlight: true },
+              { text: "🎯 Put Intent Decoder — exclusive, nowhere else", highlight: true },
+              { text: "Bull Flow Top 20 — bullish + bearish", highlight: false },
+              { text: "High Conviction 5x+ spotlight (daily)", highlight: false },
+              { text: "🌅 AI Morning Brief — Claude writes your daily brief", highlight: false },
+              { text: "⚡ Convergence Scanner — vol + flow at the same time", highlight: false },
+              { text: "Smart Money Leaderboard + AI scores", highlight: false },
+              { text: "Congressional trades — live STOCK Act filings", highlight: false },
+              { text: "Sector heatmap + advance/decline breadth", highlight: false },
+              { text: "Prop Desk simulator with risk limits", highlight: false },
+              { text: "Backtesting engine", highlight: false },
+              { text: "Portfolio tracker", highlight: false },
+              { text: "0DTE filtered — only real signals", highlight: false },
             ].map(f => (
-              <li key={f} className="flex items-center gap-3 text-base text-slate-200">
-                <span className="text-emerald-400 font-black text-xl shrink-0">✓</span>{f}
+              <li key={f.text} className="flex items-center gap-3 text-base" style={{ color: f.highlight ? "#fbbf24" : "#e2e8f0" }}>
+                <span className="font-black text-xl shrink-0" style={{ color: f.highlight ? "#fbbf24" : "#4ade80" }}>✓</span>{f.text}
               </li>
             ))}
           </ul>
