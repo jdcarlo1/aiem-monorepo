@@ -116,6 +116,18 @@ try:
         id="outcomes_update",
         replace_existing=True,
     )
+    # Signal snapshot: Mon-Fri 4:00 PM ET — snapshot today's signals for multi-day persistence tracking
+    def _run_signal_snapshot():
+        try:
+            _save_signal_snapshot()
+        except Exception as e:
+            print(f"[scheduler] signal snapshot error: {e}")
+    _scheduler.add_job(
+        _run_signal_snapshot,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=0, timezone=_ET),
+        id="signal_snapshot",
+        replace_existing=True,
+    )
     _scheduler.start()
     print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri")
 except Exception as _e:
@@ -483,6 +495,74 @@ def _update_ai_trade_outcomes():
 
 
 _init_ai_trade_log_table()
+
+
+def _init_signal_history_table():
+    """Create signal_history table for multi-day persistence tracking."""
+    create_sql = """
+    CREATE TABLE IF NOT EXISTS signal_history (
+        id           SERIAL PRIMARY KEY,
+        ticker       TEXT NOT NULL,
+        signal_date  DATE NOT NULL,
+        comp_score   FLOAT,
+        smart_cp     FLOAT,
+        call_verdict TEXT,
+        dp_prem_m    FLOAT,
+        iv_rank      FLOAT,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(ticker, signal_date)
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(create_sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[signal_history] init table error: {e}")
+
+_init_signal_history_table()
+
+
+def _save_signal_snapshot():
+    """Snapshot today's composite + call-intent + darkpool signals for persistence tracking."""
+    from datetime import date as _snap_date
+    today = _snap_date.today()
+    cs = getattr(app, "_cs_cache", None)
+    ci = getattr(app, "_ci_cache", None)
+    dp = getattr(app, "_dp_cache", None)
+    if not cs:
+        print("[signal_history] no composite cache — skipping snapshot")
+        return
+    ci_map = {r["ticker"]: r for r in (ci or {}).get("results", [])}
+    dp_map = {r["ticker"]: r for r in (dp or {}).get("results", [])}
+    rows_to_insert = []
+    for r in cs.get("results", []):
+        t = r["ticker"]
+        comp = r.get("components", {})
+        rows_to_insert.append((
+            t, today,
+            r.get("score"),
+            comp.get("smart_cp"),
+            ci_map.get(t, {}).get("verdict"),
+            dp_map.get(t, {}).get("premium_m"),
+            comp.get("iv_rank"),
+        ))
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            for row in rows_to_insert:
+                cur.execute("""
+                    INSERT INTO signal_history
+                        (ticker, signal_date, comp_score, smart_cp, call_verdict, dp_prem_m, iv_rank)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (ticker, signal_date) DO UPDATE SET
+                        comp_score=EXCLUDED.comp_score, smart_cp=EXCLUDED.smart_cp,
+                        call_verdict=EXCLUDED.call_verdict, dp_prem_m=EXCLUDED.dp_prem_m,
+                        iv_rank=EXCLUDED.iv_rank
+                """, row)
+            conn.commit()
+        print(f"[signal_history] saved {len(rows_to_insert)} rows for {today}")
+    except Exception as e:
+        print(f"[signal_history] save error: {e}")
 
 
 @app.route("/stock-api/daily-top10", methods=["GET"])
@@ -1692,8 +1772,9 @@ def vol_crush():
             iv_vals = [v for v in list(ivp) + list(ivc) if v and v > 0]
             if not iv_vals: return None
             current_iv = float(np.mean(iv_vals))
-            hist = tkr.history(period="1y")["Close"]
-            if len(hist) < 40: return None
+            hist_full = tkr.history(period="1y")
+            hist = hist_full["Close"]
+            if len(hist) < 50: return None
             rets = hist.pct_change().dropna()
             hv_s = rets.rolling(21).std() * np.sqrt(252)
             hv_s = hv_s.dropna()
@@ -1702,13 +1783,47 @@ def vol_crush():
             iv_rank = round((current_iv - hv_min) / (hv_max - hv_min) * 100, 1) if (hv_max - hv_min) > 0 else 50.0
             iv_rank = max(0.0, min(100.0, iv_rank))
             iv_hv   = round(current_iv / hv30, 2) if hv30 > 0 else None
+
+            # RSI (14-period)
+            rsi = None
+            try:
+                gains  = rets.where(rets > 0, 0).rolling(14).mean()
+                losses = (-rets.where(rets < 0, 0)).rolling(14).mean()
+                rs = gains.iloc[-1] / losses.iloc[-1] if losses.iloc[-1] > 0 else 100
+                rsi = round(100 - 100 / (1 + rs), 1)
+            except Exception: pass
+
+            # SMA50 position (% above / below)
+            sma50_pct = None
+            try:
+                sma50 = float(hist.rolling(50).mean().iloc[-1])
+                sma50_pct = round((price - sma50) / sma50 * 100, 1)
+            except Exception: pass
+
+            # 5-day vs 20-day volume trend
+            vol_trend_5d = None
+            try:
+                vol = hist_full["Volume"].dropna()
+                avg5  = float(vol.tail(5).mean())
+                avg20 = float(vol.tail(20).mean())
+                if avg20 > 0:
+                    vol_trend_5d = round(avg5 / avg20, 2)
+            except Exception: pass
+
             earnings_date = None
             short_float_pct = None
             short_ratio = None
+            days_since_earnings = None
+            net_upgrades_7d = None
             try:
                 info = tkr.info
                 ed = info.get("earningsTimestamp") or info.get("earningsTimestampStart")
-                if ed: earnings_date = _dt.fromtimestamp(int(ed)).strftime("%Y-%m-%d")
+                if ed:
+                    ed_dt = _dt.fromtimestamp(int(ed))
+                    earnings_date = ed_dt.strftime("%Y-%m-%d")
+                    diff_days = (_dt.now() - ed_dt).days
+                    if 0 <= diff_days <= 10:
+                        days_since_earnings = diff_days
                 sfp = info.get("shortPercentOfFloat")
                 if sfp and sfp > 0:
                     short_float_pct = round(float(sfp) * 100, 1)
@@ -1716,11 +1831,34 @@ def vol_crush():
                 if sr and sr > 0:
                     short_ratio = round(float(sr), 1)
             except Exception: pass
+
+            # Analyst revision velocity (last 7 days)
+            try:
+                from datetime import timedelta as _td_vc
+                updn = tkr.upgrades_downgrades
+                if updn is not None and not updn.empty:
+                    cutoff = _dt.now() - _td_vc(days=7)
+                    recent = updn[updn.index.tz_localize(None) >= cutoff] if updn.index.tz is not None else updn[updn.index >= cutoff]
+                    if not recent.empty:
+                        action_col = next((c for c in recent.columns if "action" in c.lower()), None)
+                        if action_col:
+                            acts = recent[action_col].str.lower()
+                            ups = int(acts.str.contains("up|rais|init|strong", na=False).sum())
+                            dns = int(acts.str.contains("down|lower|cut|reduc|under", na=False).sum())
+                            net_upgrades_7d = ups - dns
+            except Exception: pass
+
             verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
-            return {"ticker": ticker, "price": round(price, 2), "current_iv": round(current_iv * 100, 1),
-                    "hv_30": round(hv30 * 100, 1), "iv_hv_ratio": iv_hv, "iv_rank": iv_rank,
-                    "verdict": verdict, "earnings_date": earnings_date,
-                    "short_float_pct": short_float_pct, "short_ratio": short_ratio}
+            return {
+                "ticker": ticker, "price": round(price, 2),
+                "current_iv": round(current_iv * 100, 1),
+                "hv_30": round(hv30 * 100, 1), "iv_hv_ratio": iv_hv, "iv_rank": iv_rank,
+                "verdict": verdict,
+                "earnings_date": earnings_date, "days_since_earnings": days_since_earnings,
+                "short_float_pct": short_float_pct, "short_ratio": short_ratio,
+                "rsi": rsi, "sma50_pct": sma50_pct, "vol_trend_5d": vol_trend_5d,
+                "net_upgrades_7d": net_upgrades_7d,
+            }
         except Exception: return None
 
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -2026,10 +2164,10 @@ def ai_trades():
             _add(t, "top_accum_expiry", ta.get("expiry"))
             _add(t, "nearest_exp", r.get("nearest_exp"))
 
-    # 2. Vol Crush Detector
+    # 2. Vol Crush Detector (+ RSI, SMA50%, volume trend, analyst revisions, days-since-earnings)
     vc = getattr(app, "_vc_cache", None)
     if vc:
-        active_sources.append("Vol Crush Detector")
+        active_sources.append("Vol Crush + Price Structure")
         for r in vc.get("results", []):
             t = r["ticker"]
             _add(t, "price", r.get("price"))
@@ -2038,8 +2176,13 @@ def ai_trades():
             _add(t, "hv_30", r.get("hv_30"))
             _add(t, "iv_verdict", r.get("verdict"))
             _add(t, "earnings_date", r.get("earnings_date"))
+            _add(t, "days_since_earnings", r.get("days_since_earnings"))
             _add(t, "short_float_pct", r.get("short_float_pct"))
             _add(t, "short_ratio", r.get("short_ratio"))
+            _add(t, "rsi", r.get("rsi"))
+            _add(t, "sma50_pct", r.get("sma50_pct"))
+            _add(t, "vol_trend_5d", r.get("vol_trend_5d"))
+            _add(t, "net_upgrades_7d", r.get("net_upgrades_7d"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -2053,6 +2196,7 @@ def ai_trades():
             _add(t, "fomo_pct", r.get("fomo_pct"))
             _add(t, "accum_prem_m", r.get("accum_prem_m"))
             _add(t, "top_accum_strike", r.get("top_accum_strike"))
+            _add(t, "call_vol_oi", r.get("call_vol_oi"))
             _add(t, "top_accum_expiry", r.get("top_accum_expiry"))
             _add(t, "top_accum_otm_pct", r.get("top_accum_otm_pct"))
 
@@ -2201,6 +2345,29 @@ def ai_trades():
         return " | ".join(parts) if parts else ""
     macro_context = _macro_context()
 
+    # 14. Multi-day signal persistence — query signal_history for 3-day rolling confirmation
+    try:
+        with _psycopg2.connect(_DB_URL) as _ph_conn, _ph_conn.cursor() as _ph_cur:
+            _ph_cur.execute("""
+                SELECT ticker,
+                       COUNT(DISTINCT signal_date) AS days,
+                       AVG(comp_score)              AS avg_score
+                FROM signal_history
+                WHERE signal_date >= CURRENT_DATE - INTERVAL '5 days'
+                  AND (comp_score >= 60
+                       OR call_verdict IN ('HEAVY_ACCUMULATION','STRONG_ACCUMULATION','ACCUMULATION'))
+                GROUP BY ticker
+                HAVING COUNT(DISTINCT signal_date) >= 2
+            """)
+            _ph_rows = _ph_cur.fetchall()
+        if _ph_rows:
+            active_sources.append("Multi-day Signal Persistence")
+            for _ph_t, _ph_days, _ph_avg in _ph_rows:
+                _add(_ph_t, "persistence_days", int(_ph_days))
+                _add(_ph_t, "persistence_avg_score", round(float(_ph_avg or 0), 1))
+    except Exception:
+        pass
+
     # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
     rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
 
@@ -2260,14 +2427,26 @@ def ai_trades():
         parts = [f"{v['ticker']} ${v.get('price','?')}"]
         if v.get("composite_score") is not None:
             parts.append(f"score={v['composite_score']}/100({v.get('bias','?')})")
+        if v.get("persistence_days") is not None:
+            parts.append(f"persist={v['persistence_days']}d(avg_score={v.get('persistence_avg_score','?')})")
         if v.get("iv_rank") is not None:
             parts.append(f"iv_rank={v['iv_rank']}%({v.get('iv_verdict','')})")
         if v.get("implied_move_pct") is not None:
             parts.append(f"impl_move=±{v['implied_move_pct']}%")
+        if v.get("rsi") is not None:
+            rsi_tag = "overbought" if v["rsi"] > 70 else "oversold" if v["rsi"] < 30 else "neutral"
+            parts.append(f"rsi={v['rsi']}({rsi_tag})")
+        if v.get("sma50_pct") is not None:
+            parts.append(f"sma50={v['sma50_pct']:+.1f}%")
+        if v.get("vol_trend_5d") is not None:
+            vt = v["vol_trend_5d"]
+            vt_tag = "surging" if vt >= 1.5 else "declining" if vt < 0.7 else "normal"
+            parts.append(f"vol_trend={vt}x({vt_tag})")
         if v.get("divergence"):
             parts.append(f"SmartVsRetail={v['divergence']}({v.get('signal_strength','?')}) scp={v.get('smart_cp','?')} rcp={v.get('retail_cp','?')}")
         if v.get("call_verdict"):
-            parts.append(f"calls={v['call_verdict']} accum={v.get('accum_pct','?')}%")
+            vol_oi_tag = f" vol/oi={v['call_vol_oi']}x" if v.get("call_vol_oi") else ""
+            parts.append(f"calls={v['call_verdict']} accum={v.get('accum_pct','?')}%{vol_oi_tag}")
         if v.get("put_verdict"):
             parts.append(f"puts={v['put_verdict']} bear={v.get('bear_pct','?')}%")
         if v.get("max_pain"):
@@ -2278,8 +2457,13 @@ def ai_trades():
             parts.append(f"dp=${v['dark_pool_prem_m']}M cp={v.get('dark_pool_cp_ratio','?')}")
         if v.get("top_accum_strike"):
             parts.append(f"topstrike=${v['top_accum_strike']} exp={v.get('top_accum_expiry','?')}")
-        if v.get("earnings_date"):
+        if v.get("days_since_earnings") is not None:
+            parts.append(f"post_earnings={v['days_since_earnings']}d_ago(IV_crush_window)")
+        elif v.get("earnings_date"):
             parts.append(f"earnings={v['earnings_date']}")
+        if v.get("net_upgrades_7d") is not None and v["net_upgrades_7d"] != 0:
+            tag = f"+{v['net_upgrades_7d']} upgrades" if v["net_upgrades_7d"] > 0 else f"{v['net_upgrades_7d']} downgrades"
+            parts.append(f"analysts({tag}_7d)")
         if v.get("short_float_pct") is not None:
             si_str = f"short={v['short_float_pct']}%"
             if v.get("short_ratio") is not None:
@@ -2300,11 +2484,13 @@ def ai_trades():
     context_block = "\n".join(x for x in [macro_line, sector_line, index_line] if x)
 
     system_msg = (
-        "You are an elite institutional options trader with full access to real-time market data. "
-        "Use ALL provided signals: options flow, dark pool, IV rank, implied move, short interest, "
-        "earnings catalysts, pre-market gaps, sector rotation, and macro calendar. "
-        "Return a JSON array of exactly 3 high-conviction trade setups. "
-        "Be very concise — short thesis, short signal strings. "
+        "You are an elite institutional options trader with full access to real-time multi-source market data. "
+        "You receive 18+ signal types per ticker: options flow, dark pool, IV rank, implied move, RSI, "
+        "SMA50 position, volume trend, call vol/OI ratio (unusual activity), short interest, analyst revisions, "
+        "earnings proximity, post-earnings IV crush windows, pre-market gaps, sector rotation, macro calendar, "
+        "and multi-day signal persistence (how many consecutive days a setup has been building). "
+        "Persistence is your highest-conviction filter — a signal firing 3+ consecutive days is far stronger than a one-day spike. "
+        "Return a JSON array of exactly 3 high-conviction trade setups. Be concise. "
         "Output ONLY the JSON array, no markdown, no text outside the array."
     )
 
@@ -2312,23 +2498,37 @@ def ai_trades():
 TICKERS SCANNED: {len(rich)}
 {context_block}
 
-TICKER SIGNALS (score-ranked):
+TICKER SIGNALS (score-ranked, highest composite first):
 {sig_text}
 
 SIGNAL KEY:
-- score: composite conviction 0-100 | iv_rank: IV percentile vs 1yr HV | impl_move: market-priced ±% move by expiry
+- score: composite conviction 0-100 | persist: days in a row the signal has been building (3d = very high conviction)
+- iv_rank: IV percentile vs 1yr HV | impl_move: options market's priced-in ±% move to expiry
+- rsi: momentum (>70 overbought, <30 oversold) | sma50: % above/below 50-day moving avg
+- vol_trend: 5d vs 20d average volume ratio (>1.5x = institutional accumulation surge)
 - SmartVsRetail: institutional vs retail C/P divergence | calls/puts: intent verdict
-- mp: max pain strike & distance | gwall: gamma wall level | dp: dark pool premium flow
-- earnings: next earnings date (avoid selling premium BEFORE this date; elevated IV expected)
-- short: short float % / days-to-cover (high = squeeze potential on BULLISH plays)
-- premarket: pre-market price change & relative volume (gap direction bias)
-- MACRO: days to Fed/CPI/OPEX (avoid naked short premium near these events)
-- SECTORS: which sectors are in/out of rotation today (align directional bias)
+- vol/oi: call volume-to-open-interest ratio (>2x = concentrated new position, not retail churn)
+- mp: max pain & distance | gwall: gamma wall | dp: dark pool premium
+- earnings: next earnings date | post_earnings: days since earnings = IV crush window (sell premium / buy spreads)
+- analysts: net upgrades minus downgrades in last 7 days (positive = tailwind, negative = headwind)
+- short: short float % / days-to-cover (high = squeeze fuel on bullish plays)
+- premarket: pre-market gap % & relative volume | MACRO: days to Fed/CPI/OPEX
+- SECTORS: today's sector rotation (match directional bias to leading sectors)
 
-Pick the 3 highest-conviction setups where 3+ signals align. Weight: Smart vs Retail divergence > composite score≥75 > dark pool flow > earnings catalyst > short squeeze potential > IV rank extremes > premarket gap. Account for macro risk (Fed/CPI proximity) when recommending expiry dates.
+PRIORITY WEIGHTING (highest to lowest):
+1. persist=3d+ (multi-day signal confirmation — rarest and most reliable)
+2. Smart vs Retail divergence (institutional vs retail misalignment)
+3. composite score ≥75 + vol_trend surging (institutional accumulation surge)
+4. call vol/oi >2x (concentrated new unusual options activity)
+5. post_earnings IV crush window (sell elevated premium while IV deflates)
+6. analyst upgrades + positive premarket gap (momentum confirmation)
+7. dark pool + earnings catalyst alignment
+8. IV rank extremes + macro timing
 
-Return a JSON array of exactly 3 objects sorted from most BULLISH to most BEARISH. Each object must have ALL these fields:
-ticker (string), price (number), setup_type (one of: LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 3-4 short strings), thesis (1-2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
+Pick the 3 highest-conviction setups. Account for: macro risk (avoid naked short premium <5 days to Fed/CPI), earnings risk (avoid shorting volatility before earnings), and sector tailwinds.
+
+Return a JSON array of exactly 3 objects sorted BULLISH first, NEUTRAL second, BEARISH last. Each object must have ALL fields:
+ticker (string), price (number), setup_type (LONG CALL|LONG PUT|BULL CALL SPREAD|BEAR PUT SPREAD|IRON CONDOR|STRADDLE), direction ("BULLISH"|"BEARISH"|"NEUTRAL"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 4-5 short strings naming the exact signals), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
 
 JSON array only. No markdown. Start immediately with ["""
 
