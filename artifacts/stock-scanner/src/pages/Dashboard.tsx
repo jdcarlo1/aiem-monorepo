@@ -50,6 +50,69 @@ function Spinner() {
   return <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />;
 }
 
+function ClaudeMarkdown({ text }: { text: string }) {
+  const PROSE: React.CSSProperties = {
+    color: "#d4d4d4",
+    fontSize: 13,
+    lineHeight: 1.75,
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    margin: 0,
+  };
+  const lines = text.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let listBuf: string[] = [];
+  const flushList = (key: string) => {
+    if (!listBuf.length) return;
+    nodes.push(
+      <ul key={key} style={{ margin: "6px 0 8px 0", paddingLeft: 18 }}>
+        {listBuf.map((li, i) => (
+          <li key={i} style={{ ...PROSE, marginBottom: 4, listStyleType: "disc", listStylePosition: "outside" }}>
+            <InlineMd text={li} />
+          </li>
+        ))}
+      </ul>
+    );
+    listBuf = [];
+  };
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+    if (!trimmed) { flushList(`ul-${i}`); nodes.push(<div key={`br-${i}`} style={{ height: 4 }} />); return; }
+    if (trimmed.startsWith("# ")) {
+      flushList(`ul-${i}`);
+      nodes.push(<div key={i} style={{ ...PROSE, fontSize: 15, fontWeight: 700, color: "#e8e8e8", marginBottom: 8, marginTop: 4 }}><InlineMd text={trimmed.slice(2)} /></div>);
+      return;
+    }
+    if (trimmed.startsWith("## ")) {
+      flushList(`ul-${i}`);
+      nodes.push(<div key={i} style={{ ...PROSE, fontSize: 13, fontWeight: 700, color: "#e0e0e0", marginBottom: 6, marginTop: 6 }}><InlineMd text={trimmed.slice(3)} /></div>);
+      return;
+    }
+    if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
+      listBuf.push(trimmed.slice(2));
+      return;
+    }
+    flushList(`ul-${i}`);
+    nodes.push(<p key={i} style={{ ...PROSE, marginBottom: 6 }}><InlineMd text={trimmed} /></p>);
+  });
+  flushList("ul-end");
+  return <div>{nodes}</div>;
+}
+
+function InlineMd({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  const re = /\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`/g;
+  let last = 0, m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m[1] != null) parts.push(<strong key={m.index} style={{ color: "#f0f0f0", fontWeight: 700 }}>{m[1]}</strong>);
+    else if (m[2] != null) parts.push(<em key={m.index} style={{ color: "#ccc" }}>{m[2]}</em>);
+    else if (m[3] != null) parts.push(<code key={m.index} style={{ background: "#1a1a1a", color: "#cc785c", padding: "1px 5px", borderRadius: 3, fontSize: 12 }}>{m[3]}</code>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
 function ScoreBadge({ score, rating }: { score: number; rating: string }) {
   const color = score >= 8 ? "text-emerald-400 border-emerald-500"
     : score >= 6.5 ? "text-green-400 border-green-500"
@@ -3061,37 +3124,65 @@ export default function Dashboard() {
 
                     {lookupSubTab === "analysis" && (
                       <div style={{ padding: 16 }}>
-                        {/* Header row with label + REFRESH button */}
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em" }}>SWING ANALYSIS</span>
-                            <span style={{ background: "#1a0a00", color: BB_ORANGE, fontSize: 9, padding: "2px 8px", border: `1px solid ${BB_ORANGE}33`, letterSpacing: "0.1em" }}>CLAUDE AI</span>
-                          </div>
-                          <button
-                            onClick={() => runAIAnalysis(analysis)}
-                            disabled={aiLoading}
-                            style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: aiLoading ? BB_LABEL : BB_GREEN, padding: "4px 12px", fontFamily: BB_FONT, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", cursor: aiLoading ? "default" : "pointer", opacity: aiLoading ? 0.6 : 1 }}
-                          >
-                            {aiLoading ? "ANALYZING…" : "↻ REFRESH"}
-                          </button>
-                        </div>
-
-                        {/* AI text output */}
-                        <div style={{ background: "#050505", border: `1px solid #111`, padding: 14, minHeight: 80, marginBottom: 14 }}>
-                          {aiLoading && (
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, color: BB_LABEL, fontSize: 11 }}>
-                              <Spinner /> Generating analysis…
+                        {/* Claude-style AI response card */}
+                        <div style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
+                          {/* Card header — Claude avatar + name + refresh */}
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #1a1a1a" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              {/* Claude logo mark */}
+                              <div style={{ width: 28, height: 28, borderRadius: 6, background: "linear-gradient(135deg, #cc785c 0%, #d4956a 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" fill="white" opacity="0.9"/>
+                                </svg>
+                              </div>
+                              <div>
+                                <div style={{ color: "#e5e5e5", fontSize: 12, fontWeight: 600, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", letterSpacing: 0 }}>Claude</div>
+                                <div style={{ color: "#555", fontSize: 10, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>Swing Analysis · {analysis.ticker}</div>
+                              </div>
                             </div>
-                          )}
-                          {!aiLoading && aiError && (
-                            <div style={{ color: BB_RED, fontSize: 11 }}>{aiError}</div>
-                          )}
-                          {!aiLoading && aiText && aiTicker === analysis.ticker && (
-                            <p style={{ color: BB_WHITE, fontSize: 11, lineHeight: 1.7, margin: 0, fontFamily: BB_FONT }}>{aiText}</p>
-                          )}
-                          {!aiLoading && !aiText && !aiError && (
-                            <div style={{ color: BB_LABEL, fontSize: 10, letterSpacing: "0.05em" }}>
-                              Click <span style={{ color: BB_GREEN }}>↻ REFRESH</span> to generate AI analysis for {analysis.ticker}
+                            <button
+                              onClick={() => runAIAnalysis(analysis)}
+                              disabled={aiLoading}
+                              style={{ background: aiLoading ? "transparent" : "#1a1a1a", border: "1px solid #2a2a2a", color: aiLoading ? "#444" : "#ccc", padding: "5px 12px", borderRadius: 6, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: 11, fontWeight: 500, cursor: aiLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5, transition: "all 0.15s" }}
+                            >
+                              {aiLoading ? (
+                                <><Spinner /><span>Analyzing…</span></>
+                              ) : (
+                                <><span style={{ fontSize: 13 }}>↻</span><span>Refresh</span></>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Message body */}
+                          <div style={{ padding: "16px 18px", minHeight: 80 }}>
+                            {aiLoading && (
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                {[0,1,2].map(i => (
+                                  <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#cc785c", opacity: 0.7, animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+                                ))}
+                              </div>
+                            )}
+                            {!aiLoading && aiError && (
+                              <div style={{ color: "#e05c5c", fontSize: 13, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", lineHeight: 1.6 }}>
+                                ⚠ {aiError}
+                              </div>
+                            )}
+                            {!aiLoading && aiText && aiTicker === analysis.ticker && (
+                              <ClaudeMarkdown text={aiText} />
+                            )}
+                            {!aiLoading && !aiText && !aiError && (
+                              <div style={{ color: "#444", fontSize: 13, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", lineHeight: 1.6 }}>
+                                Click <span style={{ color: "#cc785c", fontWeight: 600 }}>↻ Refresh</span> to get an AI-powered swing trade analysis for <strong style={{ color: "#777" }}>{analysis.ticker}</strong> from Claude.
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Footer */}
+                          {aiText && aiTicker === analysis.ticker && (
+                            <div style={{ padding: "8px 18px 12px", borderTop: "1px solid #161616" }}>
+                              <span style={{ color: "#333", fontSize: 10, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+                                Powered by Claude · For informational purposes only, not financial advice
+                              </span>
                             </div>
                           )}
                         </div>
