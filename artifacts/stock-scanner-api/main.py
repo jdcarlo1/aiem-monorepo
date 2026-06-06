@@ -128,8 +128,20 @@ try:
         id="signal_snapshot",
         replace_existing=True,
     )
+    # Daily vol snapshot: Mon-Fri 4:05 PM ET — store IV skew + short interest for future percentile ranking
+    def _run_daily_vol_snapshot():
+        try:
+            _save_daily_vol_snapshot()
+        except Exception as e:
+            print(f"[scheduler] daily vol snapshot error: {e}")
+    _scheduler.add_job(
+        _run_daily_vol_snapshot,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=5, timezone=_ET),
+        id="daily_vol_snapshot",
+        replace_existing=True,
+    )
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri")
+    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
@@ -581,6 +593,64 @@ def _init_signal_history_table():
         print(f"[signal_history] init table error: {e}")
 
 _init_signal_history_table()
+
+
+def _init_daily_vol_snapshots_table():
+    """Create daily_vol_snapshots table for IV skew & short interest percentile tracking."""
+    try:
+        import psycopg2 as _pg2_dvs
+        with _pg2_dvs.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS daily_vol_snapshots (
+                    id            SERIAL PRIMARY KEY,
+                    ticker        TEXT NOT NULL,
+                    snap_date     DATE NOT NULL,
+                    iv_skew       FLOAT,
+                    short_float   FLOAT,
+                    pc_oi_ratio   FLOAT,
+                    pc_prem_ratio FLOAT,
+                    rs_vs_spy     FLOAT,
+                    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE(ticker, snap_date)
+                );
+            """)
+            conn.commit()
+    except Exception as e:
+        print(f"[daily_vol_snapshots] init error: {e}")
+
+_init_daily_vol_snapshots_table()
+
+
+def _save_daily_vol_snapshot():
+    """Store today's vol signals for IV skew + short interest percentile tracking."""
+    from datetime import date as _dvs_date
+    import psycopg2 as _pg2_snap
+    today = _dvs_date.today()
+    vc = getattr(app, "_vc_cache", None)
+    if not vc:
+        print("[daily_vol_snapshots] no vol-crush cache — skipping")
+        return
+    try:
+        with _pg2_snap.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for r in vc.get("results", []):
+                cur.execute("""
+                    INSERT INTO daily_vol_snapshots
+                        (ticker, snap_date, iv_skew, short_float, pc_oi_ratio, pc_prem_ratio, rs_vs_spy)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (ticker, snap_date) DO UPDATE SET
+                        iv_skew=EXCLUDED.iv_skew, short_float=EXCLUDED.short_float,
+                        pc_oi_ratio=EXCLUDED.pc_oi_ratio, pc_prem_ratio=EXCLUDED.pc_prem_ratio,
+                        rs_vs_spy=EXCLUDED.rs_vs_spy
+                """, (
+                    r["ticker"], today,
+                    r.get("iv_skew"), r.get("short_float_pct"),
+                    r.get("put_call_oi_ratio"), r.get("pc_premium_ratio"),
+                    r.get("rs_vs_spy"),
+                ))
+            conn.commit()
+        print(f"[daily_vol_snapshots] saved {len(vc.get('results', []))} rows for {today}")
+    except Exception as e:
+        print(f"[daily_vol_snapshots] save error: {e}")
 
 
 def _save_signal_snapshot():
@@ -2187,6 +2257,86 @@ def vol_crush():
                                     "MEDIUM"  if _sq_pts == 2 else "LOW")
             except Exception: pass
 
+            # Q14. Relative strength vs SPY (stock 1-year return minus SPY 1-year return)
+            rs_vs_spy = None
+            try:
+                if len(hist) >= 200 and _spy_1y_return is not None:
+                    _stock_1y = round((float(hist.iloc[-1]) / float(hist.iloc[0]) - 1) * 100, 1)
+                    rs_vs_spy = round(_stock_1y - _spy_1y_return, 1)
+            except Exception: pass
+
+            # Q15. Money flow ratio (up-day vs down-day average volume — accumulation vs distribution)
+            money_flow_ratio = None
+            try:
+                _vol_s = hist_full["Volume"].dropna()
+                _cidx = rets.index.intersection(_vol_s.index)
+                if len(_cidx) >= 30:
+                    _rv = _vol_s.loc[_cidx]; _rm = rets.loc[_cidx]
+                    _up_v = float(_rv[_rm > 0].mean()); _dn_v = float(_rv[_rm < 0].mean())
+                    if _dn_v > 0:
+                        money_flow_ratio = round(_up_v / _dn_v, 2)
+            except Exception: pass
+
+            # Q16. Insider transaction net (open-market purchases vs sales last 30 days)
+            insider_net = None
+            try:
+                from datetime import timedelta as _td_ins
+                ins = tkr.insider_transactions
+                if ins is not None and not ins.empty:
+                    _cutoff_ins = _dt.now() - _td_ins(days=30)
+                    # Normalize index timezone
+                    if hasattr(ins.index, 'tz') and ins.index.tz is not None:
+                        _idx_ins = ins.index.tz_localize(None)
+                    else:
+                        _idx_ins = ins.index
+                    _recent_ins = ins[_idx_ins >= _cutoff_ins]
+                    if not _recent_ins.empty:
+                        # yfinance insider_transactions columns: Insider, Title, Date, Transaction, Value, Text, Shares, Url
+                        # Try 'Transaction' column first (most common), then fallback scan
+                        _cols_lower = {c.lower(): c for c in _recent_ins.columns}
+                        _txt_c = (_cols_lower.get('transaction') or
+                                  next((c for c in _recent_ins.columns if any(k in c.lower() for k in ['transaction', 'text', 'type', 'desc'])), None))
+                        _shr_c = (_cols_lower.get('shares') or
+                                  next((c for c in _recent_ins.columns if 'share' in c.lower()), None))
+                        if _txt_c and _shr_c:
+                            _buys = _recent_ins[_recent_ins[_txt_c].astype(str).str.contains('Purchase|Buy|Acqui', case=False, na=False)]
+                            _sells = _recent_ins[_recent_ins[_txt_c].astype(str).str.contains('Sale|Sell|Dispo', case=False, na=False)]
+                            _buy_sh = int(_buys[_shr_c].fillna(0).abs().sum())
+                            _sell_sh = int(_sells[_shr_c].fillna(0).abs().sum())
+                            if _buy_sh + _sell_sh > 0:
+                                _net_ins = _buy_sh - _sell_sh
+                                insider_net = ("BUYING" if _net_ins > 1000 else
+                                               "SELLING" if _net_ins < -1000 else "NEUTRAL")
+            except Exception: pass
+
+            # Q17. Dividend yield + days to ex-dividend date
+            div_yield_pct = None
+            ex_div_days = None
+            try:
+                _dy = info.get("dividendYield")
+                if _dy and float(_dy) > 0:
+                    _dy_f = float(_dy)
+                    # yfinance returns as decimal (0.035) or percentage (3.5) depending on version
+                    div_yield_pct = round(_dy_f if _dy_f > 1 else _dy_f * 100, 2)
+                _exd = info.get("exDividendDate")
+                if _exd:
+                    _exd_dt = _dt.fromtimestamp(int(_exd))
+                    _dd = (_exd_dt - _dt.now()).days
+                    if -5 <= _dd <= 90:
+                        ex_div_days = _dd
+            except Exception: pass
+
+            # Q18. Tail risk put concentration (crash hedging proxy — % of put vol in deep OTM strikes)
+            tail_risk_put_pct = None
+            try:
+                _deep_k = price * 0.85
+                _deep_puts = puts[puts["strike"] < _deep_k]
+                _tot_pvol = int(puts["volume"].fillna(0).sum())
+                if _tot_pvol > 100:
+                    _deep_pvol = int(_deep_puts["volume"].fillna(0).sum())
+                    tail_risk_put_pct = round(_deep_pvol / _tot_pvol * 100, 1)
+            except Exception: pass
+
             verdict = ("HIGH FEAR" if iv_rank >= 80 else "ELEVATED" if iv_rank >= 60 else "NORMAL" if iv_rank >= 30 else "LOW IV")
             return {
                 "ticker": ticker, "price": round(price, 2),
@@ -2222,16 +2372,25 @@ def vol_crush():
                 "squeeze_risk": squeeze_risk,
                 "analyst_dispersion_pct": analyst_dispersion_pct,
                 "pc_premium_ratio": pc_premium_ratio,
+                "rs_vs_spy": rs_vs_spy,
+                "money_flow_ratio": money_flow_ratio,
+                "insider_net": insider_net,
+                "div_yield_pct": div_yield_pct,
+                "ex_div_days": ex_div_days,
+                "tail_risk_put_pct": tail_risk_put_pct,
             }
         except Exception: return None
 
     # Pre-fetch SPY returns once (shared across all tickers for beta calculation)
     _spy_rets_arr = None
+    _spy_1y_return = None
     try:
-        _spy_raw = yf.download("SPY", period="60d", interval="1d", progress=False, auto_adjust=True)["Close"]
+        _spy_raw = yf.download("SPY", period="1y", interval="1d", progress=False, auto_adjust=True)["Close"]
         # Handle both Series (single ticker) and DataFrame (multi-ticker) shapes
         _spy_hist = _spy_raw.iloc[:, 0] if hasattr(_spy_raw, "columns") else _spy_raw
-        _spy_rets_arr = _spy_hist.dropna().pct_change().dropna().values
+        _spy_hist_clean = _spy_hist.dropna()
+        _spy_rets_arr = _spy_hist_clean.pct_change().dropna().values
+        _spy_1y_return = round((float(_spy_hist_clean.iloc[-1]) / float(_spy_hist_clean.iloc[0]) - 1) * 100, 1) if len(_spy_hist_clean) >= 50 else None
     except Exception:
         pass
 
@@ -2266,6 +2425,37 @@ def vol_crush():
         futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
         rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
     rows.sort(key=lambda x: x["iv_rank"], reverse=True)
+
+    # Enrich with IV skew percentile + short float trend from daily_vol_snapshots history
+    try:
+        import psycopg2 as _pg2_vc
+        _snap_tickers = [r["ticker"] for r in rows]
+        with _pg2_vc.connect(os.environ["DATABASE_URL"]) as _conn_vc, _conn_vc.cursor() as _cur_vc:
+            _cur_vc.execute("""
+                SELECT ticker, iv_skew, short_float
+                FROM daily_vol_snapshots
+                WHERE ticker = ANY(%s) AND snap_date >= CURRENT_DATE - INTERVAL '252 days'
+                ORDER BY ticker, snap_date
+            """, (_snap_tickers,))
+            _snap_rows = _cur_vc.fetchall()
+        _hist_map: dict = {}
+        for _hr in _snap_rows:
+            _ht = _hr[0]
+            if _ht not in _hist_map:
+                _hist_map[_ht] = []
+            _hist_map[_ht].append({"iv_skew": _hr[1], "short_float": _hr[2]})
+        for r in rows:
+            t = r["ticker"]
+            if t in _hist_map and len(_hist_map[t]) >= 30:
+                _skews = [h["iv_skew"] for h in _hist_map[t] if h["iv_skew"] is not None]
+                _sfps  = [h["short_float"] for h in _hist_map[t] if h["short_float"] is not None]
+                if _skews and r.get("iv_skew") is not None:
+                    r["iv_skew_pctl"] = int(sum(1 for s in _skews if s <= r["iv_skew"]) / len(_skews) * 100)
+                if len(_sfps) >= 5 and r.get("short_float_pct") is not None:
+                    r["short_float_trend"] = round(r["short_float_pct"] - _sfps[-5], 1)
+    except Exception:
+        pass
+
     out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
     app._vc_cache = out; app._vc_cache_ts = _dt.now()
     return jsonify(out)
@@ -2643,6 +2833,14 @@ def ai_trades():
             _add(t, "squeeze_risk", r.get("squeeze_risk"))
             _add(t, "analyst_dispersion_pct", r.get("analyst_dispersion_pct"))
             _add(t, "pc_premium_ratio", r.get("pc_premium_ratio"))
+            _add(t, "rs_vs_spy", r.get("rs_vs_spy"))
+            _add(t, "money_flow_ratio", r.get("money_flow_ratio"))
+            _add(t, "insider_net", r.get("insider_net"))
+            _add(t, "div_yield_pct", r.get("div_yield_pct"))
+            _add(t, "ex_div_days", r.get("ex_div_days"))
+            _add(t, "tail_risk_put_pct", r.get("tail_risk_put_pct"))
+            _add(t, "iv_skew_pctl", r.get("iv_skew_pctl"))
+            _add(t, "short_float_trend", r.get("short_float_trend"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -3129,6 +3327,37 @@ def ai_trades():
             pcp = v["pc_premium_ratio"]
             pcp_tag = "HEAVY_PUT_SPEND(institutional_fear)" if pcp > 1.5 else "HEAVY_CALL_SPEND(risk_on)" if pcp < 0.6 else "balanced_spend"
             parts.append(f"pc_prem_ratio={pcp}({pcp_tag})")
+        if v.get("rs_vs_spy") is not None:
+            rs = v["rs_vs_spy"]
+            rs_tag = "BEATING_MARKET" if rs > 20 else "LAGGING_MARKET" if rs < -20 else "in_line_with_SPY"
+            parts.append(f"rs_vs_spy={rs:+.1f}%({rs_tag})")
+        if v.get("money_flow_ratio") is not None:
+            mf = v["money_flow_ratio"]
+            mf_tag = "ACCUMULATION" if mf > 1.3 else "DISTRIBUTION" if mf < 0.8 else "neutral_flow"
+            parts.append(f"money_flow={mf}({mf_tag})")
+        if v.get("insider_net") and v["insider_net"] != "NEUTRAL":
+            ins = v["insider_net"]
+            ins_tag = "INSIDER_BUYING(high_conviction_bull)" if ins == "BUYING" else "insider_selling(neutral)"
+            parts.append(f"insider={ins}({ins_tag})")
+        if v.get("div_yield_pct") is not None:
+            parts.append(f"div_yield={v['div_yield_pct']}%")
+        if v.get("ex_div_days") is not None:
+            exd = v["ex_div_days"]
+            exd_tag = "IMMINENT_EXDIV(early_assign_risk_on_calls)" if exd <= 7 else f"ex_div_in_{exd}d"
+            parts.append(f"ex_div={exd}d({exd_tag})")
+        if v.get("tail_risk_put_pct") is not None:
+            trp = v["tail_risk_put_pct"]
+            if trp > 20:
+                trp_tag = "CRASH_HEDGING_ACTIVE(extreme)" if trp > 40 else "CRASH_HEDGING(elevated)"
+                parts.append(f"tail_risk_puts={trp}%({trp_tag})")
+        if v.get("iv_skew_pctl") is not None:
+            skp = v["iv_skew_pctl"]
+            skp_tag = "EXTREME_HISTORICAL_FEAR" if skp >= 90 else "HIGH_HISTORICAL_FEAR" if skp >= 75 else "below_avg_fear" if skp <= 25 else "avg_fear"
+            parts.append(f"iv_skew_pctl={skp}th({skp_tag})")
+        if v.get("short_float_trend") is not None:
+            sft = v["short_float_trend"]
+            sft_tag = "SHORTS_BUILDING(bear_conviction)" if sft > 1 else "SHORTS_COVERING(squeeze_trigger)" if sft < -1 else "short_stable"
+            parts.append(f"short_trend={sft:+.1f}pp({sft_tag})")
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
         sig_lines.append(" | ".join(parts))
@@ -3172,6 +3401,13 @@ def ai_trades():
         "23. SHORT SQUEEZE RISK: squeeze_risk=HIGH or EXTREME means the stock has: high short float (≥15%), hard-to-borrow conditions, rising price momentum (RSI>60), AND volume surging. In this scenario: (a) NEVER recommend LONG PUT or BEAR PUT SPREAD — short squeeze could cause catastrophic loss. (b) Consider LONG CALL as a squeeze-capture setup. (c) For bearish plays, use far OTM puts only with strict stop loss.\n"
         "24. ANALYST DISPERSION: analyst_dispersion≥30% (HIGH_DISAGREEMENT) means analysts have wildly different price targets — the outcome is binary and uncertain. In this case: prefer STRADDLE over directional setups, even if flow is one-directional. analyst_dispersion<15% (CONSENSUS) means the fundamental story is clear — directional plays are appropriate.\n"
         "25. PUT/CALL PREMIUM RATIO (DOLLAR-WEIGHTED): pc_prem_ratio measures actual dollars spent on puts vs calls today. This is more reliable than volume-based ratios because it captures trade size. pc_prem_ratio>1.5 (HEAVY_PUT_SPEND) = institutions are buying protection aggressively. pc_prem_ratio<0.6 (HEAVY_CALL_SPEND) = risk-on positioning. Use this to confirm or contradict the OI-based pc_oi_ratio — if both agree, conviction doubles; if they diverge, reduce directional confidence.\n"
+        "26. RELATIVE STRENGTH VS SPY: rs_vs_spy is the stock's 1-year return minus SPY's 1-year return. BEATING_MARKET(>+20%) = institutions are actively accumulating; strong confirmation for LONG CALL or BULL CALL SPREAD. LAGGING_MARKET(<-20%) = the stock is a structural underperformer — a powerful headwind even with bullish call flow; reduce conviction or use defined-risk spreads only. Use RS to confirm momentum: only go high-conviction LONG CALL on stocks with positive RS alignment.\n"
+        "27. MONEY FLOW RATIO: money_flow is average volume on up-price days divided by average volume on down-price days over the past 30 sessions. ACCUMULATION(>1.3) = institutions consistently buying on strength AND dips — confirms bullish setups. DISTRIBUTION(<0.8) = sellers are dominant even on green days — confirms bearish or reduces bullish conviction. This is a structural signal; it takes weeks to shift, so treat it as a high-weight baseline.\n"
+        "28. INSIDER TRANSACTIONS: insider=BUYING means company officers or directors purchased shares on the open market in the last 30 days — one of the most reliable long-term bullish signals in finance (insiders only buy with their own money when they believe the stock is undervalued). Add +1 conviction tier when insider=BUYING aligns with bullish call flow. insider=SELLING is NEUTRAL — insiders sell for taxes, diversification, estate planning; never use it as a bearish signal alone.\n"
+        "29. DIVIDEND YIELD & EX-DIVIDEND DATE: CRITICAL RULE — if ex_div<=7d, DO NOT recommend LONG CALL or naked COVERED CALL — the option holder may exercise early to capture the dividend, creating assignment risk. For dividend-paying stocks near ex-div, prefer BULL CALL SPREAD (defined risk, no assignment risk) over LONG CALL. div_yield>3% acts as a price floor: income buyers support the stock on dips, making PUT SELLING setups higher probability.\n"
+        "30. TAIL RISK PUT CONCENTRATION: tail_risk_puts is the % of total put volume in deep OTM strikes (>15% below spot). CRASH_HEDGING_ACTIVE(>40%) = institutions are paying for disaster protection, not making directional bets — this is a macro risk-off signal. When tail_risk_puts>30%, do NOT sell premium structures (IRON CONDOR, BULL PUT SPREAD) — institutions may know about an upcoming systemic risk event. The signal does NOT mean the stock will definitely fall; it means smart money is buying insurance at scale.\n"
+        "31. IV SKEW PERCENTILE (when available after 30+ days of data): iv_skew_pctl ranks today's IV skew vs the past year for this specific stock. EXTREME_HISTORICAL_FEAR(>=90th percentile) = put premium is at historically extreme levels for this stock — highest edge to SELL PUT SPREADS when bullish, or BUY CALL SPREADS as mean-reversion plays. Below_avg_fear(<=25th percentile) = options are historically cheap — favor LONG options (calls or straddles) over premium selling.\n"
+        "32. SHORT INTEREST TREND (when available after 5+ sessions of data): short_trend shows change in short float vs 5 sessions ago. SHORTS_BUILDING(>+1pp) = new bearish institutional conviction entering the stock — validates bearish setups and contradicts bullish flow. SHORTS_COVERING(<-1pp) = short sellers are exiting — potential squeeze trigger forming; combine with squeeze_risk=HIGH or EXTREME for maximum conviction LONG CALL setup (short covering can accelerate a move by 2-3x).\n"
         "Output ONLY a JSON array of exactly 3 setups. No markdown. No text outside the array."
     )
 
@@ -3219,6 +3455,13 @@ SIGNAL KEY:
 - squeeze_risk: composite short squeeze risk (HIGH/EXTREME = high short float + hard borrow + rising RSI + surging vol → danger zone for bears, opportunity for LONG CALL)
 - analyst_dispersion: spread of analyst price targets as % of mean (≥30%=HIGH_DISAGREEMENT=prefer straddle; <15%=CONSENSUS=directional ok)
 - pc_prem_ratio: actual dollars spent on puts ÷ call premium today (>1.5=HEAVY_PUT_SPEND=institutional fear; <0.6=HEAVY_CALL_SPEND=risk-on; cross-check vs pc_oi_ratio)
+- rs_vs_spy: stock 1-year return minus SPY 1-year return (>+20%=BEATING_MARKET=institutional accumulation; <-20%=LAGGING_MARKET=headwind — only go high-conviction LONG CALL on positive RS)
+- money_flow: up-day vs down-day avg volume ratio over 30 sessions (>1.3=ACCUMULATION; <0.8=DISTRIBUTION — structural signal, high weight)
+- insider: net insider open-market buys vs sells last 30d (BUYING=high-conviction bullish; SELLING=neutral — only BUYING counts as a signal)
+- div_yield: annual dividend yield % | ex_div: days to ex-dividend (<=7d=IMMINENT_EXDIV → avoid LONG CALL / COVERED CALL, early assign risk; use BULL CALL SPREAD instead)
+- tail_risk_puts: % of put vol in deep OTM strikes >15% below spot (>40%=CRASH_HEDGING_ACTIVE=risk-off; >30% = do NOT sell premium structures)
+- iv_skew_pctl: today's IV skew ranked vs 1-year history for this stock (>=90th=EXTREME_HISTORICAL_FEAR=sell put prem / buy call spreads; <=25th=historically cheap vol=buy options)
+- short_trend: change in short float vs 5 sessions ago in pp (>+1=SHORTS_BUILDING=bear conviction; <-1=SHORTS_COVERING=squeeze trigger — combine with squeeze_risk=HIGH for max conviction LONG CALL)
 
 PRIORITY WEIGHTING (use in order):
 1. opt_spread>12% → SKIP (non-negotiable liquidity gate)
