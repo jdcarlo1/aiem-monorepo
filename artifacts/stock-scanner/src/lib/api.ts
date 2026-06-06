@@ -586,3 +586,19 @@ export interface DarkPoolRow {
 export function fetchDarkPool() {
   return fetchJson<{ results: DarkPoolRow[]; date: string | null; total_in_db: number }>("/darkpool");
 }
+
+export interface PutIntentRow {
+  ticker: string;
+  price: number;
+  hedge_prem_m: number;
+  bear_prem_m: number;
+  hedge_pct: number;
+  bear_pct: number;
+  verdict: "BEARISH BET" | "HEDGE" | "MIXED";
+  top_bear_strike: number | null;
+  top_bear_expiry: string | null;
+}
+
+export function fetchPutIntent() {
+  return fetchJson<{ results: PutIntentRow[]; scanned: number }>("/options-intent");
+}

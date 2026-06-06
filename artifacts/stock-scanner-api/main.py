@@ -1323,6 +1323,89 @@ def darkpool():
     return jsonify(out)
 
 
+@app.route("/stock-api/options-intent", methods=["GET"])
+def options_intent():
+    """Classify put options as HEDGE (OTM+long-dated) vs BEARISH BET (near-money+short-dated)."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_oi_cache", None)
+    _ts    = getattr(app, "_oi_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    now = _dt.now()
+
+    def _analyze(ticker):
+        try:
+            tkr   = yf.Ticker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0:
+                return None
+            exps = tkr.options
+            if not exps:
+                return None
+
+            hedge_prem = 0.0; bear_prem = 0.0
+            hedge_vol  = 0;   bear_vol  = 0
+            top_bear   = {"strike": None, "expiry": None, "prem": 0.0}
+
+            for exp in exps[:8]:
+                try:
+                    days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
+                    puts = tkr.option_chain(exp).puts
+                    for _, row in puts.iterrows():
+                        strike = float(row.get("strike", 0) or 0)
+                        vol    = int(row.get("volume", 0) or 0)
+                        oi     = int(row.get("openInterest", 0) or 0)
+                        last   = float(row.get("lastPrice", 0) or 0)
+                        if strike <= 0 or last <= 0:
+                            continue
+                        otm_pct = (price - strike) / price * 100
+                        prem    = (vol + oi) * last * 100
+                        if otm_pct > 5 and days_out > 60:
+                            hedge_prem += prem; hedge_vol += vol
+                        elif -3 < otm_pct < 3 and days_out < 45:
+                            bear_prem += prem;  bear_vol  += vol
+                            if prem > top_bear["prem"]:
+                                top_bear = {"strike": round(strike, 2), "expiry": exp, "prem": prem}
+                except Exception:
+                    continue
+
+            total = hedge_prem + bear_prem
+            if total < 1000:
+                return None
+
+            hedge_pct = round(hedge_prem / total * 100, 1)
+            bear_pct  = round(bear_prem  / total * 100, 1)
+            verdict   = ("BEARISH BET" if bear_pct >= 60
+                        else "HEDGE"      if hedge_pct >= 60
+                        else "MIXED")
+            return {
+                "ticker":          ticker,
+                "price":           round(price, 2),
+                "hedge_prem_m":    round(hedge_prem / 1e6, 2),
+                "bear_prem_m":     round(bear_prem  / 1e6, 2),
+                "hedge_pct":       hedge_pct,
+                "bear_pct":        bear_pct,
+                "verdict":         verdict,
+                "top_bear_strike": top_bear["strike"],
+                "top_bear_expiry": top_bear["expiry"],
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+
+    rows.sort(key=lambda x: x["bear_prem_m"], reverse=True)
+    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+    app._oi_cache = out
+    app._oi_cache_ts = _dt.now()
+    return jsonify(out)
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

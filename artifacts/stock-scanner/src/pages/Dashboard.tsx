@@ -8,11 +8,11 @@ import {
   createStockScannerCheckout, manageStockScannerSubscription,
   fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
-  fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool,
+  fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchPutIntent,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
-  SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief, DarkPoolRow,
+  SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief, DarkPoolRow, PutIntentRow,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -2424,6 +2424,107 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   );
 }
 
+// ---- Put Intent Decoder Tab ----------------------------------------------
+function PutIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<PutIntentRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchPutIntent();
+      setResults(data.results); setScanned(data.scanned); setLastRun(new Date());
+    } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { run(); }, []);
+
+  const verdictColor = (v: string) =>
+    v === "BEARISH BET" ? "#f87171" : v === "HEDGE" ? "#4ade80" : "#fbbf24";
+  const verdictBg = (v: string) =>
+    v === "BEARISH BET" ? "rgba(248,113,113,0.12)" : v === "HEDGE" ? "rgba(74,222,128,0.12)" : "rgba(251,191,36,0.10)";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight">Put Intent Decoder</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Are those puts a hedge or a genuine bearish bet? We decode the difference.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
+          <button onClick={run} disabled={loading}
+            className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+            style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>
+            {loading ? "Analyzing…" : "↻ Refresh"}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="rounded-xl p-3.5" style={{ background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.15)" }}>
+          <div className="text-emerald-400 font-bold text-sm mb-1">🛡 HEDGE</div>
+          <div className="text-slate-400 text-xs">Strike 5%+ below price AND expiry 60+ days out. Still bullish — just protecting their long position.</div>
+        </div>
+        <div className="rounded-xl p-3.5" style={{ background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.15)" }}>
+          <div className="text-red-400 font-bold text-sm mb-1">🎯 BEARISH BET</div>
+          <div className="text-xs text-slate-400">Strike within 3% of price AND expiry under 45 days. Directional — they expect a near-term drop.</div>
+        </div>
+      </div>
+
+      {loading && results.length === 0 && (
+        <div className="text-center py-16 text-slate-500 text-sm">
+          Analyzing options chains across {scanned || "50+"} tickers…
+          <div className="text-xs text-slate-600 mt-2">First load takes ~30s · results cached for 30 min</div>
+        </div>
+      )}
+      {!loading && results.length === 0 && lastRun && (
+        <div className="text-center py-16 text-slate-500 text-sm">No significant put activity found right now.</div>
+      )}
+
+      {results.length > 0 && (
+        <div className="space-y-2">
+          {results.map((r, i) => (
+            <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)}
+              className="rounded-xl p-4 cursor-pointer hover:bg-white/5 transition-colors"
+              style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.01)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-slate-600 text-xs w-5">{i + 1}</span>
+                  <span className="font-black text-white text-base">{r.ticker}</span>
+                  <span className="text-slate-500 text-xs">${r.price.toFixed(2)}</span>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-black"
+                  style={{ background: verdictBg(r.verdict), color: verdictColor(r.verdict), border: `1px solid ${verdictColor(r.verdict)}30` }}>
+                  {r.verdict}
+                </span>
+              </div>
+
+              <div className="h-2 rounded-full overflow-hidden flex mb-2.5" style={{ background: "rgba(255,255,255,0.05)" }}>
+                <div style={{ width: `${r.hedge_pct}%`, background: "rgba(74,222,128,0.55)", transition: "width 0.4s" }} />
+                <div style={{ width: `${r.bear_pct}%`, background: "rgba(248,113,113,0.55)", transition: "width 0.4s" }} />
+              </div>
+
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div className="flex gap-4 text-xs">
+                  <span className="text-emerald-400">🛡 Hedge <span className="font-bold">${r.hedge_prem_m.toFixed(1)}M</span> <span className="text-slate-600">({r.hedge_pct}%)</span></span>
+                  <span className="text-red-400">🎯 Bear <span className="font-bold">${r.bear_prem_m.toFixed(1)}M</span> <span className="text-slate-600">({r.bear_pct}%)</span></span>
+                </div>
+                {r.top_bear_strike && r.top_bear_expiry && (
+                  <span className="text-slate-600 text-xs">Top put: <span className="text-slate-400">${r.top_bear_strike}</span> exp <span className="text-slate-400">{r.top_bear_expiry}</span></span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Pre-Market Flow Tab -------------------------------------------------
 function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData] = useState<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number } | null>(null);
@@ -3164,7 +3265,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"outcomes">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"outcomes">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -3247,6 +3348,7 @@ export default function Dashboard() {
     { id: "morningbrief", label: "🌅 MORNING BRIEF" },
     { id: "convergence",  label: "⚡ CONVERGENCE" },
     { id: "darkpool",     label: "🌑 DARK POOL" },
+    { id: "putintent",    label: "🎯 PUT INTENT" },
     { id: "premarket",    label: "PRE-MARKET" },
     { id: "bullflow",     label: "BULL FLOW" },
     { id: "smartmoney",   label: "SMART MONEY" },
@@ -3843,6 +3945,7 @@ export default function Dashboard() {
         {tab === "morningbrief" && <MorningBriefTab />}
         {tab === "convergence" && <ConvergenceTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "darkpool" && <DarkPoolTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
+        {tab === "putintent" && <PutIntentTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
         {tab === "premarket" && <PremarketTab onSelectTicker={t => { setTicker(t); setInputTicker(t); setTab("lookup"); }} />}
 
       </div>
