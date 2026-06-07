@@ -22,10 +22,12 @@ DEFAULT_LEADERBOARD = [
     # ── ETFs ─────────────────────────────────────────────────────────────────
     # Broad market
     "SPY", "QQQ", "IWM", "DIA", "MDY", "VTI", "VOO",
-    # Leveraged bull
+    # 3x Leveraged bull
     "TQQQ", "SPXL", "SOXL", "UDOW", "LABU", "FNGU", "TECL",
-    # Leveraged bear / inverse
-    "SQQQ", "SPXS", "SOXS", "SDOW",
+    "UPRO", "TNA", "FAS", "ERX", "CURE", "NAIL", "DPST",
+    "DFEN", "RETL", "DUSL", "MIDU", "YINN", "URTY",
+    # 3x Leveraged bear / inverse
+    "SQQQ", "SPXS", "SOXS", "SDOW", "TZA", "FAZ", "ERY", "YANG",
     # Volatility
     "VXX", "UVXY", "SVXY",
     # Sector — SPDR
