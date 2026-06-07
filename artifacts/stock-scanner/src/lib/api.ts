@@ -957,3 +957,10 @@ export function fetchNetFlow() {
 export function fetchNetFlowSingle(ticker: string) {
   return fetchJson<NetFlowSingleResult>(`/net-flow/single?ticker=${encodeURIComponent(ticker)}`);
 }
+
+export function fetchNetFlowMicrocap() {
+  return fetchJson<{ results: NetFlowRow[]; scanned: number }>(
+    "/net-flow/microcap",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
+  );
+}

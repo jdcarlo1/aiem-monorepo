@@ -1460,6 +1460,94 @@ def net_flow_single():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Micro-Cap Net Flow ────────────────────────────────────────────────────────
+
+MICRO_CAP_LEADERBOARD = [
+    # EV / Clean energy
+    "EVGO", "BLNK", "CHPT", "FCEL", "PLUG", "NKLA", "WKHS", "ZEV", "PTRA",
+    # Growth / tech
+    "HIMS", "JOBY", "OPEN", "BYND", "LMND", "ROOT", "COUR", "SKIN", "PSFE",
+    "BARK", "TIGR", "ACMR", "VNET", "WOLF", "XPOF", "LAUR", "PRGO",
+    # Space / defense
+    "RCAT", "LUNR", "BBAI", "AEVA", "SPIR", "LIDR",
+    # Biotech (liquid)
+    "RCKT", "FOLD", "DNLI", "ARQT", "VERA", "KYMR", "MGNX", "SNDX",
+    "PRLD", "AXNX", "BLUE", "NTLA", "GOSS", "ARVN", "IMVT", "EDIT",
+    "CRSP", "BEAM", "FIXX",
+    # Other small / micro
+    "NOVA", "CLOV", "OPAD", "ATIP", "CERE", "JMIA", "GETY",
+]
+
+
+@app.route("/stock-api/net-flow/microcap", methods=["POST"])
+def net_flow_microcap():
+    """Net equity flow scan for the micro/small-cap universe."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+    import threading
+
+    if not hasattr(app, "_nfmc_lock"):
+        app._nfmc_lock = threading.Lock()
+
+    _cache = getattr(app, "_nfmc_cache", None)
+    _ts    = getattr(app, "_nfmc_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 300:
+        return jsonify(_cache)
+
+    with app._nfmc_lock:
+        _cache = getattr(app, "_nfmc_cache", None)
+        _ts    = getattr(app, "_nfmc_cache_ts", None)
+        if _cache and _ts and (_dt.now() - _ts).total_seconds() < 300:
+            return jsonify(_cache)
+
+        def _compute_flow_mc(ticker):
+            try:
+                hist = yf.Ticker(ticker).history(period="1d", interval="1m")
+                if hist.empty or len(hist) < 5:
+                    return None
+                inflow = outflow = 0.0
+                for _, row in hist.iterrows():
+                    if row["Volume"] <= 0:
+                        continue
+                    avg = (float(row["Open"]) + float(row["Close"])) / 2
+                    dv  = avg * float(row["Volume"])
+                    if float(row["Close"]) >= float(row["Open"]):
+                        inflow  += dv
+                    else:
+                        outflow += dv
+                net   = inflow - outflow
+                total = inflow + outflow
+                if net <= 0:
+                    return None
+                last_price = float(hist["Close"].iloc[-1])
+                return {
+                    "ticker":      ticker,
+                    "price":       round(last_price, 2),
+                    "inflow_m":    round(inflow  / 1_000_000, 2),
+                    "outflow_m":   round(outflow / 1_000_000, 2),
+                    "net_m":       round(net     / 1_000_000, 2),
+                    "total_vol_m": round(total   / 1_000_000, 2),
+                    "flow_ratio":  round(inflow / max(outflow, 1), 3),
+                }
+            except Exception:
+                return None
+
+        rows = []
+        with ThreadPoolExecutor(max_workers=12) as ex:
+            for r in ex.map(_compute_flow_mc, MICRO_CAP_LEADERBOARD):
+                if r:
+                    rows.append(r)
+
+        rows.sort(key=lambda x: x["net_m"], reverse=True)
+        for i, r in enumerate(rows):
+            r["rank"] = i + 1
+
+        out = {"results": rows, "scanned": len(MICRO_CAP_LEADERBOARD)}
+        app._nfmc_cache    = out
+        app._nfmc_cache_ts = _dt.now()
+        return jsonify(out)
+
+
 @app.route("/stock-api/market/overview", methods=["GET"])
 def market_overview():
     import yfinance as yf

@@ -23,7 +23,7 @@ import {
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
   saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
-  fetchNetFlow, NetFlowRow, fetchNetFlowSingle, NetFlowSingleResult,
+  fetchNetFlow, NetFlowRow, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -5853,13 +5853,192 @@ function NetFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
 }
 
 
+// ---- Micro-Cap Net Flow Tab ----------------------------------------------
+
+function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [results, setResults] = useState<NetFlowRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [scanned, setScanned] = useState(0);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [minNet, setMinNet]   = useState<1 | 5 | 10>(5);
+  const [saved, setSaved]     = useState<Record<string, boolean>>({});
+
+  const run = async () => {
+    setLoading(true); setError(null);
+    try {
+      const data = await fetchNetFlowMicrocap();
+      setResults(data.results);
+      setScanned(data.scanned);
+      setLastRun(new Date());
+    } catch (e: any) {
+      setError(e.message ?? "Scan failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { run(); }, []);
+
+  const handleSave = async (e: React.MouseEvent, row: NetFlowRow) => {
+    e.stopPropagation();
+    try {
+      await addTradeWatchlist({
+        ticker: row.ticker,
+        option_type: "CALL",
+        notes: `Micro Net Flow: +$${row.net_m.toFixed(2)}M net · ratio ${row.flow_ratio.toFixed(2)}x · accumulation signal`,
+      });
+      setSaved(s => ({ ...s, [row.ticker]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [row.ticker]: false })), 2500);
+    } catch { /* silent */ }
+  };
+
+  const filtered = results.filter(r => r.net_m >= minNet);
+
+  const fmtM = (v: number) =>
+    v >= 1 ? `$${v.toFixed(1)}M` : `$${(v * 1000).toFixed(0)}K`;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-white font-bold text-lg">🔬 Micro-Cap Net Flow</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Small &amp; micro-cap stocks being actively accumulated — on these floats, even $5M of net buying is significant.
+            </p>
+          </div>
+          <button
+            onClick={run}
+            disabled={loading}
+            className="shrink-0 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+          >
+            {loading ? <><Spinner /> Scanning…</> : "🔄 Run Scan"}
+          </button>
+        </div>
+
+        {/* Threshold toggle */}
+        <div className="flex gap-2">
+          {([1, 5, 10] as const).map(v => (
+            <button
+              key={v}
+              onClick={() => setMinNet(v)}
+              className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${minNet === v ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
+            >
+              ${v}M+
+            </button>
+          ))}
+        </div>
+
+        {lastRun && (
+          <p className="text-slate-600 text-xs mt-2">
+            Scanned {scanned} micro/small-caps · {lastRun.toLocaleTimeString()} · {filtered.length} with ${minNet}M+ net inflow
+          </p>
+        )}
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+      </div>
+
+      {/* Info callout */}
+      <div className="bg-blue-950/30 border border-blue-800/40 rounded-xl p-4">
+        <p className="text-blue-300 text-xs leading-relaxed">
+          <span className="font-bold">📖 How to read this:</span> On a $200M float stock, $5M net inflow = ~2.5% of the float changing hands to buyers. That's institutional accumulation. Stocks appearing here on a red market day are being <em>bought into weakness</em> — the strongest pre-move signal.
+        </p>
+      </div>
+
+      {/* Not yet run */}
+      {!loading && results.length === 0 && !error && !lastRun && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">🔬</div>
+          <div className="font-semibold text-slate-400 mb-1">Run the scan to find accumulation</div>
+          <div className="text-sm">Scans {scanned || 55}+ small &amp; micro-cap stocks for unusual buy pressure</div>
+        </div>
+      )}
+
+      {/* Ran but nothing above threshold */}
+      {!loading && lastRun && filtered.length === 0 && !error && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">🔕</div>
+          <div className="font-semibold text-slate-400 mb-1">No micro-cap accumulation above ${minNet}M right now</div>
+          <div className="text-sm">Try $1M+ threshold, or check back during market hours (9:30 AM – 4 PM ET)</div>
+        </div>
+      )}
+
+      {/* Results */}
+      {filtered.map(row => {
+        const pctIn  = row.total_vol_m > 0 ? (row.inflow_m / row.total_vol_m * 100) : 50;
+        const isSaved = saved[row.ticker];
+        const isStrong = row.flow_ratio >= 1.5;
+        return (
+          <div
+            key={row.ticker}
+            onClick={() => onSelectTicker(row.ticker)}
+            className="bg-slate-900 border border-slate-800 hover:border-slate-600 rounded-xl p-4 cursor-pointer transition-all"
+          >
+            {/* Top row */}
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-slate-500 text-sm font-bold w-8">#{row.rank}</span>
+                <span className="text-white font-black text-xl">{row.ticker}</span>
+                <span className="text-slate-400 text-sm">${row.price.toLocaleString()}</span>
+                {isStrong && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-bold">
+                    🔥 Strong
+                  </span>
+                )}
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-emerald-400 font-black text-lg">+{fmtM(row.net_m)}</div>
+                <div className="text-slate-500 text-xs">net inflow</div>
+              </div>
+            </div>
+
+            {/* Flow bar */}
+            <div className="rounded-full overflow-hidden h-2 bg-red-900/40 mb-3">
+              <div
+                className="h-full bg-emerald-500 rounded-full"
+                style={{ width: `${Math.min(pctIn, 100)}%` }}
+              />
+            </div>
+
+            {/* Stats grid */}
+            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+              <div className="bg-emerald-950/40 rounded-lg p-2">
+                <div className="text-emerald-400 font-bold text-sm">{fmtM(row.inflow_m)}</div>
+                <div className="text-slate-500 text-xs">Inflow</div>
+              </div>
+              <div className="bg-red-950/40 rounded-lg p-2">
+                <div className="text-red-400 font-bold text-sm">{fmtM(row.outflow_m)}</div>
+                <div className="text-slate-500 text-xs">Outflow</div>
+              </div>
+              <div className="bg-slate-800/60 rounded-lg p-2">
+                <div className="text-white font-bold text-sm">{row.flow_ratio.toFixed(2)}x</div>
+                <div className="text-slate-500 text-xs">Buy/Sell</div>
+              </div>
+            </div>
+
+            {/* Save */}
+            <button
+              onClick={e => handleSave(e, row)}
+              className={`w-full py-2 rounded-lg text-xs font-bold transition-all border ${isSaved ? "bg-emerald-900/40 border-emerald-600 text-emerald-300" : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"}`}
+            >
+              {isSaved ? "✓ SAVED TO WATCHLIST" : "📌 Save"}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
 // ---- Main Dashboard ------------------------------------------------------
 
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -5986,6 +6165,7 @@ export default function Dashboard() {
     { id: "mytrades",        label: "📈 MY TRADES" },
     { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
     { id: "netflow",         label: "💰 NET FLOW" },
+    { id: "micronetflow",    label: "🔬 MICRO NET FLOW" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -6569,6 +6749,7 @@ export default function Dashboard() {
         {tab === "mytrades"        && <MyTradesTab />}
         {tab === "aishortcalls"    && <AIShortCallsTab />}
         {tab === "netflow"         && <NetFlowTab onSelectTicker={selectTicker} />}
+        {tab === "micronetflow"    && <NetFlowMicrocapTab onSelectTicker={selectTicker} />}
 
       </div>
       </main>
