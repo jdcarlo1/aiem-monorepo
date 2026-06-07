@@ -4424,6 +4424,7 @@ def unusual_calls_log():
 @app.route("/stock-api/ai-short-calls", methods=["GET"])
 def ai_short_calls():
     """5 AI-picked short-term call plays (≤30d expiry) drawn from the Unusual Calls scanner."""
+    import sys
     from datetime import datetime as _dt
     from openai import OpenAI
 
@@ -4432,14 +4433,39 @@ def ai_short_calls():
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
         return jsonify(_cache)
 
-    uc = getattr(app, "_unusual_calls_cache", None)
-    if not uc or not uc.get("hits"):
+    # 1. Try in-memory live cache first
+    uc   = getattr(app, "_unusual_calls_cache", None)
+    hits = (uc.get("hits") or []) if uc else []
+
+    # 2. Fall back to DB if live cache is empty (e.g. weekend / after restart)
+    if not hits:
+        try:
+            with _psycopg2.connect(_DB_URL) as conn_fb, conn_fb.cursor() as cur_fb:
+                cur_fb.execute("""
+                    SELECT ticker, strike, expiry, days_out, vol_oi, prem, otm_pct, iv, urgency, price
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL '5 days'
+                      AND days_out BETWEEN 1 AND 30
+                    ORDER BY last_seen DESC, vol_oi DESC
+                    LIMIT 25
+                """)
+                rows = cur_fb.fetchall()
+            hits = [
+                {"ticker": r[0], "strike": r[1], "expiry": str(r[2]), "days_out": r[3],
+                 "vol_oi": float(r[4]), "prem": int(r[5]), "otm_pct": float(r[6]),
+                 "iv": float(r[7]) if r[7] else 0.0, "urgency": r[8], "price": float(r[9])}
+                for r in rows
+            ]
+        except Exception as _dbe:
+            print(f"[ai_short_calls] DB fallback error: {_dbe}", file=sys.stderr)
+
+    if not hits:
         return jsonify({
-            "error": "No unusual calls data available yet. Open the 🚨 Unusual Calls tab first to run a scan, then come back.",
+            "error": "No unusual calls data available. Run a scan in the 🚨 Unusual Calls tab first, then come back.",
             "picks": [], "generated_at": None
         }), 202
 
-    hits = uc.get("hits", [])[:20]
+    hits = hits[:20]
 
     try:
         oai = OpenAI(
@@ -4481,26 +4507,53 @@ For each pick output a JSON object with ALL these fields:
 
 Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
 
-    try:
-        resp = oai.chat.completions.create(
+    system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."
+
+    def _stream_ai():
+        chunks = []
+        finish = "unknown"
+        stream = oai.chat.completions.create(
             model="gpt-5-mini",
-            max_completion_tokens=3000,
+            max_completion_tokens=9000,
+            stream=True,
             messages=[
-                {"role": "system", "content": "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."},
+                {"role": "system", "content": system_msg},
                 {"role": "user",   "content": user_msg},
             ],
         )
-        raw = (resp.choices[0].message.content or "").strip()
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                chunks.append(delta)
+            if chunk.choices and chunk.choices[0].finish_reason:
+                finish = chunk.choices[0].finish_reason
+        return "".join(chunks).strip(), finish
 
+    def _extract_json(raw):
         if "```" in raw:
             for part in raw.split("```"):
                 stripped = part.lstrip("json").strip()
                 if stripped.startswith("["):
-                    raw = stripped
-                    break
+                    return stripped
         if not raw.startswith("["):
             s = raw.find("["); e2 = raw.rfind("]") + 1
-            if s >= 0 and e2 > s: raw = raw[s:e2]
+            if s >= 0 and e2 > s:
+                return raw[s:e2]
+        return raw
+
+    try:
+        import time as _time
+        raw, finish = _stream_ai()
+        raw = _extract_json(raw)
+
+        if not raw:
+            print("[ai_short_calls] empty on first attempt — retrying in 6s", file=sys.stderr, flush=True)
+            _time.sleep(6)
+            raw, finish = _stream_ai()
+            raw = _extract_json(raw)
+
+        if not raw:
+            return jsonify({"error": f"AI returned no content (finish={finish}). Hit Regenerate to try again.", "picks": []}), 500
 
         picks = _json.loads(raw)
         out = {
@@ -4512,6 +4565,8 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         app._aisc_cache_ts = _dt.now()
         return jsonify(out)
     except Exception as e:
+        import traceback
+        print(f"[ai_short_calls] error: {e}\n{traceback.format_exc()}", file=sys.stderr, flush=True)
         return jsonify({"error": str(e), "picks": []}), 500
 
 
