@@ -3923,10 +3923,12 @@ def whale_activity():
                             vol    = int(row.get("volume", 0) or 0)
                             last   = float(row.get("lastPrice", 0) or 0)
                             if strike <= 0 or last <= 0 or vol <= 0: continue
-                            if strike < price * 0.15: continue  # filter micro-strikes (e.g. $0.5 on a $200 stock)
+                            if strike < price * 0.15: continue  # filter micro-strikes
+                            pre_otm = (strike - price) / price * 100
+                            if pre_otm < -75: continue  # skip deeply ITM (>75% ITM) — not a directional signal
                             prem_m = vol * last * 100 / 1e6
                             if prem_m >= MIN_PREM_M:
-                                otm_pct  = round((strike - price) / price * 100, 1)
+                                otm_pct  = round(pre_otm, 1)
                                 category = "LEAPS" if days_out >= 180 else "AGGRESSIVE" if days_out <= 90 else "MEDIUM"
                                 tier     = "MEGA_WHALE" if prem_m >= 20 else "WHALE" if prem_m >= 10 else "BIG_BLOCK"
                                 blocks.append({
