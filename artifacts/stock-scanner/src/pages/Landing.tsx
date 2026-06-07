@@ -139,7 +139,7 @@ export default function Landing() {
             <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
               className="font-black px-12 py-5 rounded-2xl transition-all text-xl"
               style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", boxShadow: "0 16px 56px rgba(34,197,94,0.5)", letterSpacing: "-0.02em" }}>
-              Get Instant Access — $59/mo
+              Get Instant Access — $100/mo
             </button>
             <button onClick={() => setLocation("/app")}
               className="font-bold px-10 py-5 rounded-2xl transition-all text-xl"
@@ -563,7 +563,7 @@ export default function Landing() {
                 <div className="font-black text-emerald-300 text-base">StockScanner AI ⭐</div>
                 <div className="text-xs text-emerald-600 mt-0.5">Everything included</div>
               </div>
-              <span className="text-center text-emerald-400 font-black text-base">$39</span>
+              <span className="text-center text-emerald-400 font-black text-base">$100</span>
               {[0,1,2,3,4,5,6,7].map(i => (
                 <span key={i} className="text-center text-emerald-400 font-black text-xl">✓</span>
               ))}
@@ -652,7 +652,7 @@ export default function Landing() {
             { stat: "16", label: "Signal sources synthesized" },
             { stat: "3", label: "Written trade setups daily" },
             { stat: "47+", label: "Tickers scanned" },
-            { stat: "$59", label: "Cancel anytime" },
+            { stat: "$100", label: "Cancel anytime" },
           ].map(s => (
             <div key={s.stat} className="text-center rounded-2xl py-8 px-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
               <div className="font-black mb-1" style={{ fontSize: "3.2rem", color: "#4ade80", letterSpacing: "-0.04em", lineHeight: 1 }}>{s.stat}</div>
@@ -731,14 +731,13 @@ export default function Landing() {
         <div className="rounded-3xl p-8 sm:p-10 relative overflow-hidden" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(34,197,94,0.2)", boxShadow: "0 0 80px rgba(34,197,94,0.08)" }}>
           <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "500px", height: "200px", background: "radial-gradient(ellipse at 50% 0%, rgba(34,197,94,0.12) 0%, transparent 70%)", pointerEvents: "none" }} />
           <div className="relative text-center mb-8">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-black mb-4" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#f87171" }}>
-              🔥 Limited Time — Price goes up soon
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-black mb-4" style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.35)", color: "#4ade80" }}>
+              🔥 Pro Plan — Everything Included
             </div>
             <div className="flex items-end justify-center gap-3 mb-1">
-              <div className="font-black" style={{ fontSize: "5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$59</div>
-              <div className="mb-4 text-slate-500 line-through text-3xl font-bold">$79</div>
+              <div className="font-black" style={{ fontSize: "5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$100</div>
             </div>
-            <div className="text-slate-400 text-lg mb-1">per month · save $20/mo while it lasts</div>
+            <div className="text-slate-400 text-lg mb-1">per month · cancel anytime</div>
             <p className="text-slate-600 text-base">Cancel anytime · Instant access · No contracts</p>
           </div>
           <ul className="space-y-3.5 mb-8">
@@ -780,7 +779,7 @@ export default function Landing() {
             {status === "err" && <div className="text-red-400 text-base text-center">{errMsg}</div>}
           </div>
           <p className="text-center text-slate-600 text-sm mt-4">
-            Lock in $59/mo before the price goes up.{" "}
+            The most complete options intelligence platform available.{" "}
             <button onClick={() => setShowManage(!showManage)} className="text-slate-500 hover:text-slate-300 transition-colors underline">Already subscribed?</button>
           </p>
           {showManage && (
