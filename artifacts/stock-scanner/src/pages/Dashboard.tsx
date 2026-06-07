@@ -5306,12 +5306,20 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
       </div>
 
-      {/* Empty state */}
-      {!loading && results.length === 0 && !error && (
+      {/* Empty state — not yet run */}
+      {!loading && results.length === 0 && !error && !lastRun && (
         <div className="text-center py-20 text-slate-500">
           <div className="text-5xl mb-4">🔥</div>
           <div className="font-semibold text-slate-400 mb-1">Run the scan to see today's flow</div>
           <div className="text-sm">Ranks {scanned || 25}+ stocks by options premium — then splits by direction</div>
+        </div>
+      )}
+      {/* Empty state — scan ran but no $500K+ results */}
+      {!loading && results.length === 0 && !error && lastRun && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">🔕</div>
+          <div className="font-semibold text-slate-400 mb-1">No $500K+ institutional flow right now</div>
+          <div className="text-sm">Options premium thins out after market close — check back during market hours (9:30 AM – 4 PM ET)</div>
         </div>
       )}
 
