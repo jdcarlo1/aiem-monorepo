@@ -527,13 +527,14 @@ export default function Landing() {
           Same flow data.<br /><span style={{ color: "#fbbf24" }}>One AI layer they haven't built.</span>
         </h2>
         <div className="overflow-x-auto">
-          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "780px" }}>
-            <div className="grid px-5 py-3 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)" }}>
+          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "960px" }}>
+            <div className="grid px-5 py-3 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)" }}>
               <span>Service</span>
               <span className="text-center">Price/mo</span>
               <span className="text-center" style={{ color: "#4ade80" }}>🤖 AI Synthesis</span>
               <span className="text-center" style={{ color: "#fbbf24" }}>🎯 Put Intent</span>
               <span className="text-center" style={{ color: "#fbbf24" }}>🌑 Dark Pool</span>
+              <span className="text-center" style={{ color: "#818cf8" }}>📐 Quant Signals</span>
               <span className="text-center">Options Flow</span>
               <span className="text-center">Congress</span>
               <span className="text-center">Prop Desk</span>
@@ -546,9 +547,10 @@ export default function Landing() {
               { name: "BlackBoxStocks",  price: "$99–149†", flow: true, congress: false },
               { name: "Trade Ideas",     price: "$118–228†",flow: false, congress: false },
             ].map(r => (
-              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <span className="text-slate-400 font-semibold">{r.name}</span>
                 <span className="text-center text-red-400 font-black">{r.price}</span>
+                <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
                 <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
                 <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
                 <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
@@ -558,22 +560,23 @@ export default function Landing() {
                 <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
               </div>
             ))}
-            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
+            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
               <div>
                 <div className="font-black text-emerald-300 text-base">StockScanner AI ⭐</div>
                 <div className="text-xs text-emerald-600 mt-0.5">Everything included</div>
               </div>
               <span className="text-center text-emerald-400 font-black text-base">$100</span>
-              {[0,1,2,3,4,5,6,7].map(i => (
+              {[0,1,2,3,4,5,6,7,8].map(i => (
                 <span key={i} className="text-center text-emerald-400 font-black text-xl">✓</span>
               ))}
             </div>
           </div>
         </div>
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-1.5 mt-5 text-slate-600 text-xs">
-          <span><span className="font-bold text-emerald-400">🤖 AI Synthesis</span> — all 12 sources → 3 written trade setups daily</span>
+          <span><span className="font-bold text-emerald-400">🤖 AI Synthesis</span> — all 17 sources → 5 written trade setups daily</span>
           <span><span className="font-bold" style={{ color: "#fbbf24" }}>🎯 Put Intent</span> — hedge vs bearish bet, decoded automatically</span>
           <span><span className="font-bold" style={{ color: "#fbbf24" }}>🌑 Dark Pool</span> — conviction signals, not raw numbers</span>
+          <span><span className="font-bold" style={{ color: "#818cf8" }}>📐 Quant Signals</span> — IV skew · dealer gamma (GEX) · yield curve · VIX term structure · credit spreads · gold · crude · dollar index</span>
         </div>
         <p className="text-center text-slate-600 text-sm mt-4">† Prices checked June 2025. Options flow ✓ for most — that's table stakes. The AI layer is what they haven't shipped.</p>
       </div>
