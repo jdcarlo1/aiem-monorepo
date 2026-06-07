@@ -5694,7 +5694,7 @@ function NetFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
   const [error, setError]       = useState<string | null>(null);
   const [scanned, setScanned]   = useState(0);
   const [lastRun, setLastRun]   = useState<Date | null>(null);
-  const [minNet, setMinNet]     = useState<10 | 25 | 50>(50);
+  const [minNet, setMinNet]     = useState<50 | 100 | 250>(50);
   const [saved, setSaved]       = useState<Record<string, boolean>>({});
 
   const run = async () => {
@@ -5754,7 +5754,7 @@ function NetFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
 
         {/* Min threshold filter */}
         <div className="flex gap-2">
-          {([10, 25, 50] as const).map(v => (
+          {([50, 100, 250] as const).map(v => (
             <button
               key={v}
               onClick={() => setMinNet(v)}
