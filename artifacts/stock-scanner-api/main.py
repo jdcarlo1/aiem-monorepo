@@ -3415,9 +3415,18 @@ def ai_trades():
     # Sort by composite score descending, fall back to alphabetical
     sorted_tickers = sorted(rich.values(), key=lambda x: x.get("composite_score", 50), reverse=True)
 
+    # Premium gate: tickers with $500K+ unusual call premium come first (sorted by premium size).
+    # Only fall back to non-premium tickers if fewer than 5 premium tickers exist.
+    uc_qualified   = sorted(
+        [v for v in rich.values() if (v.get("uc_prem_m") or 0) >= 0.5],
+        key=lambda x: x.get("uc_prem_m", 0), reverse=True
+    )
+    uc_fallback    = [v for v in sorted_tickers if (v.get("uc_prem_m") or 0) < 0.5]
+    candidate_pool = uc_qualified + uc_fallback  # AI sees premium tickers first
+
     # Build compact signal block — top 15 tickers, one line each, key fields only
     sig_lines = []
-    for v in sorted_tickers[:10]:
+    for v in candidate_pool[:15]:
         parts = [f"{v['ticker']} ${v.get('price','?')}"]
         if v.get("composite_score") is not None:
             parts.append(f"score={v['composite_score']}/100({v.get('bias','?')})")
@@ -3777,6 +3786,26 @@ JSON array only. No markdown. Start immediately with ["""
         except Exception:
             from json_repair import repair_json as _rj
             trades = _json.loads(_rj(raw))
+
+        # Post-filter: drop any picks the AI made that lack real uc_prem >= $500K.
+        # Build a set of tickers confirmed to have unusual call premium >= 0.5M.
+        _uc_now = getattr(app, "_unusual_calls_cache", None)
+        if _uc_now:
+            _uc_prem_map = {}
+            for _h in _uc_now.get("hits", []):
+                _t = _h["ticker"]
+                _p = _h.get("prem", 0)
+                if _p > _uc_prem_map.get(_t, 0):
+                    _uc_prem_map[_t] = _p
+            _qualified = {t for t, p in _uc_prem_map.items() if p >= 500_000}
+            _filtered = [tr for tr in trades if tr.get("ticker") in _qualified]
+            # Only apply filter if it leaves at least 2 picks; otherwise keep all (data may be stale)
+            if len(_filtered) >= 2:
+                trades = _filtered
+                print(f"[ai_trades] premium filter: {len(trades)} picks kept (had {len(_uc_prem_map)} uc tickers, {len(_qualified)} ≥$500K)")
+            else:
+                print(f"[ai_trades] premium filter skipped — only {len(_filtered)} qualified picks (keeping all {len(trades)})")
+
         out = {
             "trades": trades,
             "generated_at": _dt.now().isoformat(),
