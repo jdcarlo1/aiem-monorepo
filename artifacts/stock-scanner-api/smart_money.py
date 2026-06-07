@@ -39,7 +39,7 @@ DEFAULT_LEADERBOARD = [
     # Sector — SPDR
     "XLF", "XLE", "XLK", "XLY", "XLI", "XLV", "XLB", "XLP", "XLU", "XLRE",
     # Sector — thematic
-    "SMH", "SOXX", "XBI", "IBB", "KRE", "XRT", "ITB", "JETS", "KWEB",
+    "SMH", "SOXX", "XBI", "IBB", "KRE", "XRT", "ITB", "JETS", "KWEB", "DRAM",
     # Commodities
     "GLD", "IAU", "SLV", "USO", "UNG", "GDX", "GDXJ", "OIH",
     # Bonds
