@@ -3072,12 +3072,22 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
   const run = async () => {
     setLoading(true);
     try { const d = await fetchCallIntent(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
     catch {} finally { setLoading(false); }
   };
   useEffect(() => { run(); }, []);
+  const handleSave = async (e: React.MouseEvent, r: CallIntentRow) => {
+    e.stopPropagation();
+    if (!r.top_accum_strike || !r.top_accum_expiry) return;
+    try {
+      await addTradeWatchlist({ ticker: r.ticker, strike: r.top_accum_strike, expiry: r.top_accum_expiry, option_type: "CALL", notes: `Call Intent: Accum $${r.accum_prem_m.toFixed(1)}M (${r.accum_pct}%)` });
+      setSaved(s => ({ ...s, [r.ticker]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [r.ticker]: false })), 2500);
+    } catch {}
+  };
   const vColor = (v: string) => v === "ACCUMULATION" ? "#4ade80" : v === "FOMO" ? "#f87171" : "#fbbf24";
   const vBg    = (v: string) => v === "ACCUMULATION" ? "rgba(74,222,128,0.12)" : v === "FOMO" ? "rgba(248,113,113,0.12)" : "rgba(251,191,36,0.10)";
   return (
@@ -3114,7 +3124,18 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
                   <span className="font-black text-white text-base">{r.ticker}</span>
                   <span className="text-slate-500 text-xs">${r.price.toFixed(2)}</span>
                 </div>
-                <span className="px-2.5 py-1 rounded-lg text-xs font-black" style={{ background: vBg(r.verdict), color: vColor(r.verdict), border: `1px solid ${vColor(r.verdict)}30` }}>{r.verdict}</span>
+                <div className="flex items-center gap-2">
+                  {r.top_accum_strike && r.top_accum_expiry && (
+                    <button onClick={e => handleSave(e, r)}
+                      style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.2s",
+                        background: saved[r.ticker] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                        borderColor: saved[r.ticker] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                        color: saved[r.ticker] ? "#4ade80" : "#64748b" }}>
+                      {saved[r.ticker] ? "✓ Saved" : "📌 Save"}
+                    </button>
+                  )}
+                  <span className="px-2.5 py-1 rounded-lg text-xs font-black" style={{ background: vBg(r.verdict), color: vColor(r.verdict), border: `1px solid ${vColor(r.verdict)}30` }}>{r.verdict}</span>
+                </div>
               </div>
               <div className="h-2 rounded-full overflow-hidden flex mb-2.5" style={{ background: "rgba(255,255,255,0.05)" }}>
                 <div style={{ width: `${r.accum_pct}%`, background: "rgba(74,222,128,0.55)", transition: "width 0.4s" }} />
@@ -3578,6 +3599,16 @@ function WhaleActivityTab() {
   const [whaleData, setWhaleData] = useState<{ blocks: WhaleBlock[]; total: number; scanned: number } | null>(null);
   const [loading, setLoading]     = useState(true);
   const [filter, setFilter]       = useState<"ALL"|"CALL"|"PUT"|"LEAPS">("ALL");
+  const [saved, setSaved]         = useState<Record<string, boolean>>({});
+  const handleSave = async (e: React.MouseEvent, b: WhaleBlock) => {
+    e.stopPropagation();
+    const key = `${b.ticker}-${b.strike}-${b.expiry}`;
+    try {
+      await addTradeWatchlist({ ticker: b.ticker, strike: b.strike, expiry: b.expiry, option_type: b.direction, notes: `Whale Block: $${b.prem_m}M · ${b.tier}` });
+      setSaved(s => ({ ...s, [key]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
+    } catch {}
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -3706,7 +3737,7 @@ function WhaleActivityTab() {
                     </div>
                   </div>
                 </div>
-                {/* Right side — premium */}
+                {/* Right side — premium + save */}
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 28, letterSpacing: "-0.04em", marginBottom: 2,
                     color: b.prem_m >= 20 ? "#818cf8" : b.prem_m >= 10 ? "#60a5fa" : "#fbbf24" }}>
@@ -3714,6 +3745,12 @@ function WhaleActivityTab() {
                   </div>
                   <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{b.volume.toLocaleString()} contracts</div>
                   <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 11 }}>{b.days_out}d out</div>
+                  <button onClick={e => handleSave(e, b)} style={{ marginTop: 8, padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.2s",
+                    background: saved[`${b.ticker}-${b.strike}-${b.expiry}`] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                    borderColor: saved[`${b.ticker}-${b.strike}-${b.expiry}`] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                    color: saved[`${b.ticker}-${b.strike}-${b.expiry}`] ? "#4ade80" : "#64748b" }}>
+                    {saved[`${b.ticker}-${b.strike}-${b.expiry}`] ? "✓ Saved" : "📌 Save"}
+                  </button>
                 </div>
               </div>
             );
@@ -3734,8 +3771,19 @@ function WhaleLogTab() {
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState("");
   const [filter, setFilter]     = useState<"ALL"|"CALL"|"PUT"|"LEAPS"|"MEGA_WHALE">("ALL");
+  const [saved, setSaved]       = useState<Record<string, boolean>>({});
 
   const BB_F = "JetBrains Mono, monospace";
+
+  const handleSave = async (e: React.MouseEvent, b: WhaleHistoryBlock) => {
+    e.stopPropagation();
+    const key = `${b.ticker}-${b.strike}-${b.expiry}`;
+    try {
+      await addTradeWatchlist({ ticker: b.ticker, strike: b.strike, expiry: b.expiry, option_type: b.direction, notes: `Whale Log: $${b.prem_m}M · ${b.tier}` });
+      setSaved(s => ({ ...s, [key]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
+    } catch {}
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -3880,6 +3928,12 @@ function WhaleLogTab() {
                     ${b.prem_m}M
                   </div>
                   {b.volume && <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{b.volume.toLocaleString()} contracts</div>}
+                  <button onClick={e => handleSave(e, b)} style={{ marginTop: 8, padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.2s",
+                    background: saved[`${b.ticker}-${b.strike}-${b.expiry}`] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                    borderColor: saved[`${b.ticker}-${b.strike}-${b.expiry}`] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                    color: saved[`${b.ticker}-${b.strike}-${b.expiry}`] ? "#4ade80" : "#64748b" }}>
+                    {saved[`${b.ticker}-${b.strike}-${b.expiry}`] ? "✓ Saved" : "📌 Save"}
+                  </button>
                 </div>
               </div>
             );
