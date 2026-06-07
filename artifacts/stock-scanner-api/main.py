@@ -1217,18 +1217,27 @@ def bull_flow_top10():
     """
     import yfinance as yf
     from smart_money import fetch_options_data
-
-    # Force a fresh Yahoo Finance crumb/session before bulk fetching
-    try:
-        yf.utils.get_crumb(reuse_session=False)
-    except Exception:
-        pass
+    from datetime import datetime as _dt
 
     body    = request.get_json(silent=True) or {}
     tickers = body.get("tickers", DEFAULT_LEADERBOARD)
     if not isinstance(tickers, list) or not tickers:
         tickers = DEFAULT_LEADERBOARD
     tickers = [t.strip().upper() for t in tickers[:50]]
+
+    # 5-minute cache — prevents concurrent tab-open requests from hammering yfinance
+    _bf_cache = getattr(app, "_bf_cache", None)
+    _bf_ts    = getattr(app, "_bf_cache_ts", None)
+    _bf_key   = getattr(app, "_bf_cache_key", None)
+    if (_bf_cache and _bf_ts and _bf_key == tickers
+            and (_dt.now() - _bf_ts).total_seconds() < 300):
+        return jsonify(_bf_cache)
+
+    # Force a fresh Yahoo Finance crumb/session before bulk fetching
+    try:
+        yf.utils.get_crumb(reuse_session=False)
+    except Exception:
+        pass
 
     def _get_row(ticker):
         try:
@@ -1318,7 +1327,11 @@ def bull_flow_top10():
     except Exception as _se:
         print(f"[bull_flow] signal store error: {_se}")
 
-    return jsonify({"results": top40, "scanned": len(tickers), "returned": len(top40)})
+    out = {"results": top40, "scanned": len(tickers), "returned": len(top40)}
+    app._bf_cache     = out
+    app._bf_cache_ts  = _dt.now()
+    app._bf_cache_key = tickers
+    return jsonify(out)
 
 
 @app.route("/stock-api/market/overview", methods=["GET"])
