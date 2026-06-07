@@ -5694,7 +5694,7 @@ function NetFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
   const [error, setError]       = useState<string | null>(null);
   const [scanned, setScanned]   = useState(0);
   const [lastRun, setLastRun]   = useState<Date | null>(null);
-  const [minNet, setMinNet]     = useState<10 | 25 | 50>(25);
+  const [minNet, setMinNet]     = useState<10 | 25 | 50>(50);
   const [saved, setSaved]       = useState<Record<string, boolean>>({});
 
   const run = async () => {
