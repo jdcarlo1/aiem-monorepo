@@ -924,3 +924,36 @@ export function updateMyTrade(id: number, payload: {
 export function deleteMyTrade(id: number) {
   return fetchJson<{ ok: boolean }>(`/my-trades/${id}`, { method: "DELETE" });
 }
+
+export interface NetFlowRow {
+  rank: number;
+  ticker: string;
+  price: number;
+  inflow_m: number;
+  outflow_m: number;
+  net_m: number;
+  total_vol_m: number;
+  flow_ratio: number;
+}
+
+export interface NetFlowSingleResult {
+  ticker: string;
+  price: number;
+  inflow_m: number;
+  outflow_m: number;
+  net_m: number;
+  total_vol_m: number;
+  flow_ratio: number;
+  bars: { t: string; v: number; dir: "buy" | "sell" }[];
+}
+
+export function fetchNetFlow() {
+  return fetchJson<{ results: NetFlowRow[]; scanned: number }>(
+    "/net-flow",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
+  );
+}
+
+export function fetchNetFlowSingle(ticker: string) {
+  return fetchJson<NetFlowSingleResult>(`/net-flow/single?ticker=${encodeURIComponent(ticker)}`);
+}

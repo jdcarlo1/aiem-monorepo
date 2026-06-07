@@ -1336,6 +1336,130 @@ def bull_flow_top10():
     return jsonify(out)
 
 
+# ── Net Equity Flow ──────────────────────────────────────────────────────────
+
+@app.route("/stock-api/net-flow", methods=["POST"])
+def net_flow_scan():
+    """
+    Scan tickers for today's net equity flow using intraday 1-min bars.
+    Tick rule: bars where close >= open = buy flow; else = sell flow.
+    Returns tickers with positive net flow sorted largest to smallest.
+    """
+    import yfinance as yf
+    from datetime import datetime as _dt
+    import threading
+
+    if not hasattr(app, "_nf_lock"):
+        app._nf_lock = threading.Lock()
+
+    body    = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", DEFAULT_LEADERBOARD[:50])
+    if not isinstance(tickers, list) or not tickers:
+        tickers = DEFAULT_LEADERBOARD[:50]
+    tickers = [t.strip().upper() for t in tickers[:50]]
+
+    _nf_cache = getattr(app, "_nf_cache", None)
+    _nf_ts    = getattr(app, "_nf_cache_ts", None)
+    _nf_key   = getattr(app, "_nf_cache_key", None)
+    if (_nf_cache and _nf_ts and _nf_key == tickers
+            and (_dt.now() - _nf_ts).total_seconds() < 300):
+        return jsonify(_nf_cache)
+
+    with app._nf_lock:
+        _nf_cache = getattr(app, "_nf_cache", None)
+        _nf_ts    = getattr(app, "_nf_cache_ts", None)
+        _nf_key   = getattr(app, "_nf_cache_key", None)
+        if (_nf_cache and _nf_ts and _nf_key == tickers
+                and (_dt.now() - _nf_ts).total_seconds() < 300):
+            return jsonify(_nf_cache)
+
+        def _compute_flow(ticker):
+            try:
+                hist = yf.Ticker(ticker).history(period="1d", interval="1m")
+                if hist.empty or len(hist) < 5:
+                    return None
+                inflow = outflow = 0.0
+                for _, row in hist.iterrows():
+                    if row["Volume"] <= 0:
+                        continue
+                    avg = (float(row["Open"]) + float(row["Close"])) / 2
+                    dv  = avg * float(row["Volume"])
+                    if float(row["Close"]) >= float(row["Open"]):
+                        inflow  += dv
+                    else:
+                        outflow += dv
+                net = inflow - outflow
+                last_price = float(hist["Close"].iloc[-1])
+                total      = inflow + outflow
+                return {
+                    "ticker":       ticker,
+                    "price":        round(last_price, 2),
+                    "inflow_m":     round(inflow   / 1_000_000, 1),
+                    "outflow_m":    round(outflow  / 1_000_000, 1),
+                    "net_m":        round(net       / 1_000_000, 1),
+                    "total_vol_m":  round(total    / 1_000_000, 1),
+                    "flow_ratio":   round(inflow / max(outflow, 1), 3),
+                }
+            except Exception:
+                return None
+
+        rows = []
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            for r in ex.map(_compute_flow, tickers):
+                if r and r["net_m"] > 0:
+                    rows.append(r)
+
+        rows.sort(key=lambda x: x["net_m"], reverse=True)
+        for i, r in enumerate(rows):
+            r["rank"] = i + 1
+
+        out = {"results": rows, "scanned": len(tickers)}
+        app._nf_cache     = out
+        app._nf_cache_ts  = _dt.now()
+        app._nf_cache_key = tickers
+        return jsonify(out)
+
+
+@app.route("/stock-api/net-flow/single", methods=["GET"])
+def net_flow_single():
+    """Net equity flow for a single ticker — used by Stock Lookup."""
+    import yfinance as yf
+    ticker = request.args.get("ticker", "").upper().strip()
+    if not ticker:
+        return jsonify({"error": "ticker required"}), 400
+    try:
+        hist = yf.Ticker(ticker).history(period="1d", interval="1m")
+        if hist.empty or len(hist) < 5:
+            return jsonify({"error": "no data"}), 404
+        inflow = outflow = 0.0
+        bars = []
+        for ts, row in hist.iterrows():
+            if row["Volume"] <= 0:
+                continue
+            avg = (float(row["Open"]) + float(row["Close"])) / 2
+            dv  = avg * float(row["Volume"])
+            if float(row["Close"]) >= float(row["Open"]):
+                inflow  += dv
+                bars.append({"t": str(ts)[:16], "v": round(dv / 1_000_000, 2), "dir": "buy"})
+            else:
+                outflow += dv
+                bars.append({"t": str(ts)[:16], "v": round(dv / 1_000_000, 2), "dir": "sell"})
+        net   = inflow - outflow
+        total = inflow + outflow
+        return jsonify({
+            "ticker":      ticker,
+            "price":       round(float(hist["Close"].iloc[-1]), 2),
+            "inflow_m":    round(inflow  / 1_000_000, 1),
+            "outflow_m":   round(outflow / 1_000_000, 1),
+            "net_m":       round(net     / 1_000_000, 1),
+            "total_vol_m": round(total   / 1_000_000, 1),
+            "flow_ratio":  round(inflow / max(outflow, 1), 3),
+            "bars":        bars[-60:],   # last 60 min for chart
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/stock-api/market/overview", methods=["GET"])
 def market_overview():
     import yfinance as yf
