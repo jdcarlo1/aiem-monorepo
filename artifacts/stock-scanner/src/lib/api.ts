@@ -765,3 +765,49 @@ export function fetchWhaleHistory(ticker?: string) {
   const q = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
   return fetchJson<WhaleHistoryResult>(`/whale-history${q}`);
 }
+
+export interface TradeWatchlistEntry {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  option_type: "CALL" | "PUT";
+  entry_price: number | null;
+  contracts: number;
+  notes: string | null;
+  saved_at: string;
+  current_price: number | null;
+  days_to_expiry: number | null;
+  days_held: number;
+  strike_vs_price_pct: number | null;
+  total_cost: number | null;
+}
+
+export interface TradeWatchlistResult {
+  trades: TradeWatchlistEntry[];
+  count: number;
+}
+
+export function fetchTradeWatchlist() {
+  return fetchJson<TradeWatchlistResult>("/trade-watchlist");
+}
+
+export function addTradeWatchlist(payload: {
+  ticker: string;
+  strike: number;
+  expiry: string;
+  option_type: string;
+  entry_price?: number | null;
+  contracts?: number;
+  notes?: string;
+}) {
+  return fetchJson<{ ok: boolean; id: number }>("/trade-watchlist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteTradeWatchlist(id: number) {
+  return fetchJson<{ ok: boolean }>(`/trade-watchlist/${id}`, { method: "DELETE" });
+}

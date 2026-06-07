@@ -3996,6 +3996,131 @@ def whale_history():
         return jsonify({"error": str(e), "blocks": [], "total": 0}), 500
 
 
+# ── Trade Watchlist ───────────────────────────────────────────────────────────
+
+def _init_trade_watchlist_table():
+    sql = """
+    CREATE TABLE IF NOT EXISTS trade_watchlist (
+        id           SERIAL PRIMARY KEY,
+        ticker       TEXT NOT NULL,
+        strike       NUMERIC NOT NULL,
+        expiry       TEXT NOT NULL,
+        option_type  TEXT NOT NULL DEFAULT 'CALL',
+        entry_price  NUMERIC,
+        contracts    INTEGER DEFAULT 1,
+        notes        TEXT,
+        saved_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[trade_watchlist] init error: {e}")
+
+_init_trade_watchlist_table()
+
+
+@app.route("/stock-api/trade-watchlist", methods=["GET"])
+def get_trade_watchlist():
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ticker, strike::float, expiry, option_type,
+                       entry_price::float, contracts, notes,
+                       saved_at AT TIME ZONE 'UTC' AS saved_at
+                FROM trade_watchlist
+                WHERE saved_at > NOW() - INTERVAL '30 days'
+                ORDER BY saved_at DESC
+            """)
+            cols = ["id","ticker","strike","expiry","option_type","entry_price","contracts","notes","saved_at"]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+        # enrich with current stock price
+        tickers = list({r["ticker"] for r in rows})
+        prices = {}
+        if tickers:
+            import yfinance as yf
+            from concurrent.futures import ThreadPoolExecutor
+            def _get_price(t):
+                try:
+                    h = yf.Ticker(t).history(period="1d", interval="1m")
+                    return t, float(h["Close"].iloc[-1]) if not h.empty else None
+                except Exception:
+                    return t, None
+            with ThreadPoolExecutor(max_workers=min(8, len(tickers))) as ex:
+                for t, p in ex.map(_get_price, tickers):
+                    prices[t] = p
+
+        now = datetime.now(timezone.utc)
+        for r in rows:
+            r["saved_at"] = r["saved_at"].strftime("%Y-%m-%d %H:%M UTC") if r["saved_at"] else None
+            r["current_price"] = prices.get(r["ticker"])
+            # days until expiry
+            try:
+                exp_dt = datetime.strptime(r["expiry"], "%Y-%m-%d").date()
+                r["days_to_expiry"] = (exp_dt - now.date()).days
+            except Exception:
+                r["days_to_expiry"] = None
+            # days held
+            try:
+                saved_dt = datetime.strptime(r["saved_at"], "%Y-%m-%d %H:%M UTC")
+                r["days_held"] = (now.replace(tzinfo=None) - saved_dt).days
+            except Exception:
+                r["days_held"] = 0
+            # OTM/ITM %
+            if r["current_price"] and r["strike"]:
+                r["strike_vs_price_pct"] = round((r["strike"] / r["current_price"] - 1) * 100, 1)
+            else:
+                r["strike_vs_price_pct"] = None
+            # total cost
+            if r["entry_price"] and r["contracts"]:
+                r["total_cost"] = round(r["entry_price"] * r["contracts"] * 100, 2)
+            else:
+                r["total_cost"] = None
+
+        return jsonify({"trades": rows, "count": len(rows)})
+    except Exception as e:
+        return jsonify({"error": str(e), "trades": [], "count": 0}), 500
+
+
+@app.route("/stock-api/trade-watchlist", methods=["POST"])
+def add_trade_watchlist():
+    body = request.get_json(force=True) or {}
+    ticker = body.get("ticker", "").upper().strip()
+    strike = body.get("strike")
+    expiry = body.get("expiry", "").strip()
+    option_type = body.get("option_type", "CALL").upper()
+    entry_price = body.get("entry_price")
+    contracts = body.get("contracts", 1)
+    notes = body.get("notes", "").strip()
+    if not ticker or not strike or not expiry:
+        return jsonify({"error": "ticker, strike, and expiry are required"}), 400
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO trade_watchlist (ticker, strike, expiry, option_type, entry_price, contracts, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, (ticker, strike, expiry, option_type, entry_price, contracts, notes or None))
+            new_id = cur.fetchone()[0]
+            conn.commit()
+        return jsonify({"ok": True, "id": new_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/trade-watchlist/<int:trade_id>", methods=["DELETE"])
+def delete_trade_watchlist(trade_id):
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM trade_watchlist WHERE id = %s", (trade_id,))
+            conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

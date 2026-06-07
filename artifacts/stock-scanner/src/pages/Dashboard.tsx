@@ -19,6 +19,7 @@ import {
   AITradeSetup, SignalEvent, CompositeScoreRow,
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
+  fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -2139,6 +2140,183 @@ function InsidersTab() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- Trade Watchlist Tab -------------------------------------------------
+function TradeWatchlistTab() {
+  const BB = "#060c14";
+  const PANEL = "#0b1320";
+  const BORDER = "rgba(255,255,255,0.07)";
+  const GREEN = "#22c55e";
+  const RED = "#ef4444";
+  const ORANGE = "#f97316";
+  const LABEL = "#64748b";
+
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ ticker: "", strike: "", expiry: "", option_type: "CALL", entry_price: "", contracts: "1", notes: "" });
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["trade-watchlist"],
+    queryFn: fetchTradeWatchlist,
+    refetchInterval: 60000,
+  });
+
+  const handleAdd = async () => {
+    if (!form.ticker || !form.strike || !form.expiry) { setAddError("Ticker, strike, and expiry are required"); return; }
+    setAdding(true); setAddError(null);
+    try {
+      await addTradeWatchlist({
+        ticker: form.ticker.toUpperCase().trim(),
+        strike: parseFloat(form.strike),
+        expiry: form.expiry,
+        option_type: form.option_type,
+        entry_price: form.entry_price ? parseFloat(form.entry_price) : null,
+        contracts: parseInt(form.contracts) || 1,
+        notes: form.notes.trim() || undefined,
+      });
+      setForm({ ticker: "", strike: "", expiry: "", option_type: "CALL", entry_price: "", contracts: "1", notes: "" });
+      qc.invalidateQueries({ queryKey: ["trade-watchlist"] });
+    } catch (e: any) { setAddError(e?.message ?? "Failed to save"); }
+    finally { setAdding(false); }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteTradeWatchlist(id);
+      qc.invalidateQueries({ queryKey: ["trade-watchlist"] });
+    } catch {}
+  };
+
+  const inputStyle: React.CSSProperties = { background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, borderRadius: 6, color: "#f1f5f9", fontSize: 13, padding: "7px 10px", outline: "none", width: "100%", fontFamily: "IBM Plex Mono, monospace" };
+  const labelStyle: React.CSSProperties = { color: LABEL, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 4, display: "block" };
+
+  return (
+    <div style={{ padding: "16px", maxWidth: 700, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ color: "#f1f5f9", fontSize: 18, fontWeight: 900, margin: 0 }}>📌 Trade Watchlist</h2>
+        <p style={{ color: LABEL, fontSize: 12, marginTop: 4 }}>Save calls you're watching. Auto-expires after 30 days.</p>
+      </div>
+
+      {/* Add Form */}
+      <div style={{ background: PANEL, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <div style={{ color: "#f1f5f9", fontSize: 12, fontWeight: 700, marginBottom: 12, letterSpacing: "0.05em" }}>+ ADD TRADE TO WATCH</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <span style={labelStyle}>TICKER</span>
+            <input style={inputStyle} placeholder="INTC" value={form.ticker} onChange={e => setForm(f => ({ ...f, ticker: e.target.value.toUpperCase() }))} />
+          </div>
+          <div>
+            <span style={labelStyle}>STRIKE</span>
+            <input style={inputStyle} placeholder="30" type="number" value={form.strike} onChange={e => setForm(f => ({ ...f, strike: e.target.value }))} />
+          </div>
+          <div>
+            <span style={labelStyle}>EXPIRY</span>
+            <input style={{ ...inputStyle, colorScheme: "dark" }} type="date" value={form.expiry} onChange={e => setForm(f => ({ ...f, expiry: e.target.value }))} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <span style={labelStyle}>TYPE</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {["CALL","PUT"].map(t => (
+                <button key={t} onClick={() => setForm(f => ({ ...f, option_type: t }))}
+                  style={{ flex: 1, padding: "7px 0", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.15s",
+                    background: form.option_type === t ? (t === "CALL" ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)") : "rgba(255,255,255,0.03)",
+                    borderColor: form.option_type === t ? (t === "CALL" ? GREEN : RED) : BORDER,
+                    color: form.option_type === t ? (t === "CALL" ? GREEN : RED) : LABEL }}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span style={labelStyle}>ENTRY $</span>
+            <input style={inputStyle} placeholder="1.50" type="number" step="0.01" value={form.entry_price} onChange={e => setForm(f => ({ ...f, entry_price: e.target.value }))} />
+          </div>
+          <div>
+            <span style={labelStyle}>CONTRACTS</span>
+            <input style={inputStyle} placeholder="1" type="number" value={form.contracts} onChange={e => setForm(f => ({ ...f, contracts: e.target.value }))} />
+          </div>
+          <div>
+            <span style={labelStyle}>NOTES (optional)</span>
+            <input style={inputStyle} placeholder="High accum, deep OTM..." value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+          </div>
+        </div>
+        {addError && <div style={{ color: RED, fontSize: 11, marginBottom: 8 }}>{addError}</div>}
+        <button onClick={handleAdd} disabled={adding}
+          style={{ background: adding ? "rgba(34,197,94,0.05)" : "rgba(34,197,94,0.12)", border: `1px solid rgba(34,197,94,0.3)`, color: GREEN, borderRadius: 7, padding: "8px 18px", fontSize: 12, fontWeight: 700, cursor: adding ? "not-allowed" : "pointer" }}>
+          {adding ? "Saving…" : "SAVE TRADE"}
+        </button>
+      </div>
+
+      {/* Saved Trades */}
+      {isLoading && <div style={{ color: LABEL, textAlign: "center", padding: 40 }}>Loading…</div>}
+      {error && <div style={{ color: RED, textAlign: "center", padding: 20 }}>Failed to load watchlist</div>}
+      {!isLoading && data?.trades.length === 0 && (
+        <div style={{ textAlign: "center", padding: 48, color: LABEL }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+          <div style={{ fontSize: 14, color: "#94a3b8" }}>No trades saved yet</div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>Add an option trade above to start tracking it</div>
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {(data?.trades ?? []).map((trade: TradeWatchlistEntry) => {
+          const isCall = trade.option_type === "CALL";
+          const otmPct = trade.strike_vs_price_pct;
+          const otmLabel = otmPct == null ? "—" : otmPct > 0 ? `+${otmPct.toFixed(1)}% OTM` : `${Math.abs(otmPct).toFixed(1)}% ITM`;
+          const otmColor = otmPct == null ? LABEL : otmPct > 0 ? ORANGE : GREEN;
+          const dteColor = (trade.days_to_expiry ?? 999) <= 14 ? RED : (trade.days_to_expiry ?? 999) <= 30 ? ORANGE : GREEN;
+          const expiring = (trade.days_to_expiry ?? 999) <= 7;
+          return (
+            <div key={trade.id} style={{ background: PANEL, border: `1px solid ${expiring ? "rgba(239,68,68,0.3)" : BORDER}`, borderRadius: 10, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ color: "#f1f5f9", fontSize: 18, fontWeight: 900, fontFamily: "IBM Plex Mono, monospace" }}>{trade.ticker}</span>
+                  <span style={{ background: isCall ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)", color: isCall ? GREEN : RED, border: `1px solid ${isCall ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`, borderRadius: 4, padding: "2px 7px", fontSize: 10, fontWeight: 700 }}>{trade.option_type}</span>
+                  {expiring && <span style={{ background: "rgba(239,68,68,0.12)", color: RED, border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, padding: "2px 7px", fontSize: 10, fontWeight: 700 }}>⚠ EXPIRING SOON</span>}
+                </div>
+                <button onClick={() => handleDelete(trade.id)}
+                  style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: RED, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                  Remove
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginTop: 12 }}>
+                <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 6, padding: "8px 10px" }}>
+                  <div style={{ color: LABEL, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 3 }}>STRIKE</div>
+                  <div style={{ color: "#f1f5f9", fontSize: 14, fontWeight: 700, fontFamily: "IBM Plex Mono, monospace" }}>${trade.strike}</div>
+                  <div style={{ color: otmColor, fontSize: 10, fontWeight: 600, marginTop: 2 }}>{otmLabel}</div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 6, padding: "8px 10px" }}>
+                  <div style={{ color: LABEL, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 3 }}>STOCK NOW</div>
+                  <div style={{ color: "#f1f5f9", fontSize: 14, fontWeight: 700, fontFamily: "IBM Plex Mono, monospace" }}>{trade.current_price != null ? `$${trade.current_price.toFixed(2)}` : "—"}</div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 6, padding: "8px 10px" }}>
+                  <div style={{ color: LABEL, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 3 }}>EXPIRY</div>
+                  <div style={{ color: dteColor, fontSize: 13, fontWeight: 700, fontFamily: "IBM Plex Mono, monospace" }}>{trade.days_to_expiry != null ? `${trade.days_to_expiry}d` : "—"}</div>
+                  <div style={{ color: LABEL, fontSize: 10, marginTop: 2 }}>{trade.expiry}</div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 6, padding: "8px 10px" }}>
+                  <div style={{ color: LABEL, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 3 }}>COST BASIS</div>
+                  <div style={{ color: "#f1f5f9", fontSize: 13, fontWeight: 700, fontFamily: "IBM Plex Mono, monospace" }}>{trade.total_cost != null ? `$${trade.total_cost.toLocaleString()}` : "—"}</div>
+                  <div style={{ color: LABEL, fontSize: 10, marginTop: 2 }}>{trade.contracts} × ${trade.entry_price ?? "?"} × 100</div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+                {trade.notes && <span style={{ color: "#94a3b8", fontSize: 11, fontStyle: "italic" }}>"{trade.notes}"</span>}
+                {!trade.notes && <span />}
+                <span style={{ color: LABEL, fontSize: 10 }}>Saved {trade.days_held === 0 ? "today" : `${trade.days_held}d ago`} · {trade.saved_at?.slice(0, 10)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -4641,7 +4819,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"whale"|"whalelog">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"whale"|"whalelog"|"watchlist">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -4762,6 +4940,7 @@ export default function Dashboard() {
     { id: "trackrecord",  label: "📈 AI TRACK RECORD" },
     { id: "whale",        label: "🐋 WHALE ACTIVITY" },
     { id: "whalelog",    label: "📋 WHALE LOG" },
+    { id: "watchlist",   label: "📌 MY WATCHLIST" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -5339,6 +5518,7 @@ export default function Dashboard() {
 
         {tab === "whale"    && <WhaleActivityTab />}
         {tab === "whalelog" && <WhaleLogTab />}
+        {tab === "watchlist" && <TradeWatchlistTab />}
 
       </div>
       </main>
