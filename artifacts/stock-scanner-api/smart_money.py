@@ -28,6 +28,12 @@ DEFAULT_LEADERBOARD = [
     "DFEN", "RETL", "DUSL", "MIDU", "YINN", "URTY",
     # 3x Leveraged bear / inverse
     "SQQQ", "SPXS", "SOXS", "SDOW", "TZA", "FAZ", "ERY", "YANG",
+    # 2x Leveraged bull
+    "SSO", "QLD", "DDM", "UWM", "ROM", "UYG", "MVV", "BIB",
+    "UCO", "BOIL", "AGQ", "DIG", "UCC", "RXL",
+    # 2x Leveraged bear / inverse
+    "SDS", "QID", "DXD", "TWM", "SKF", "REW", "SCO", "KOLD",
+    "GLL", "ZSL", "DUG", "SRS",
     # Volatility
     "VXX", "UVXY", "SVXY",
     # Sector — SPDR
