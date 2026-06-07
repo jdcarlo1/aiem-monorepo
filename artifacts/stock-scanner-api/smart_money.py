@@ -17,10 +17,31 @@ DEFAULT_LEADERBOARD = [
     # Growth / meme / crypto-adjacent
     "NFLX", "PLTR", "COIN", "SOFI", "MARA", "RBLX", "HOOD", "UBER",
     "SMCI", "ARM", "INTC", "MU", "AI",
-    # ETFs
-    "SPY", "QQQ", "IWM",
     # Others
     "ORCL", "CRM", "SHOP", "SNOW", "PYPL", "BABA", "RIVN",
+    # ── ETFs ─────────────────────────────────────────────────────────────────
+    # Broad market
+    "SPY", "QQQ", "IWM", "DIA", "MDY", "VTI", "VOO",
+    # Leveraged bull
+    "TQQQ", "SPXL", "SOXL", "UDOW", "LABU", "FNGU", "TECL",
+    # Leveraged bear / inverse
+    "SQQQ", "SPXS", "SOXS", "SDOW",
+    # Volatility
+    "VXX", "UVXY", "SVXY",
+    # Sector — SPDR
+    "XLF", "XLE", "XLK", "XLY", "XLI", "XLV", "XLB", "XLP", "XLU", "XLRE",
+    # Sector — thematic
+    "SMH", "SOXX", "XBI", "IBB", "KRE", "XRT", "ITB", "JETS", "KWEB",
+    # Commodities
+    "GLD", "IAU", "SLV", "USO", "UNG", "GDX", "GDXJ", "OIH",
+    # Bonds
+    "TLT", "HYG", "LQD", "TBT", "TMF", "SHY", "IEF", "JNK",
+    # International
+    "EEM", "EFA", "FXI", "EWJ", "EWZ", "EWY", "IEMG",
+    # Thematic / ARK
+    "ARKK", "ARKG", "ARKW", "ARKF",
+    # Crypto-equity
+    "IBIT", "FBTC", "BITB",
 ]
 
 
