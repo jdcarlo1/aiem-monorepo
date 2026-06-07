@@ -2167,7 +2167,7 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
     e.stopPropagation();
     const key = `${h.ticker}-${h.strike}-${h.expiry}`;
     try {
-      await saveMyTrade({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, vol_oi: h.vol_oi, prem: h.prem, otm_pct: h.otm_pct, urgency: h.urgency });
+      await addTradeWatchlist({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, option_type: "CALL", notes: `Unusual Call: ${h.vol_oi}x vol/OI · $${Math.round(h.prem/1000)}K prem · ${h.urgency}` });
       setSaved(s => ({ ...s, [key]: true }));
       setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
     } catch {}
@@ -2493,6 +2493,16 @@ function AIShortCallsTab() {
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [signalsEvaluated, setSignalsEvaluated] = useState(0);
   const [expanded, setExpanded]   = useState<number | null>(null);
+  const [saved, setSaved]         = useState<Record<number, boolean>>({});
+
+  const handleSave = async (e: React.MouseEvent, p: AIShortCall, i: number) => {
+    e.stopPropagation();
+    try {
+      await addTradeWatchlist({ ticker: p.ticker, strike: p.strike, expiry: p.expiry, option_type: "CALL", notes: `AI Short Call: ${p.vol_oi}x vol/OI · $${Math.round(p.prem/1000)}K · ${p.urgency}` });
+      setSaved(s => ({ ...s, [i]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [i]: false })), 2500);
+    } catch { /* silent */ }
+  };
 
   const run = async () => {
     setLoading(true);
@@ -2649,6 +2659,15 @@ function AIShortCallsTab() {
                   <div style={{ fontSize: 9, color: BB_DIM, marginBottom: 4 }}>AI THESIS</div>
                   <div style={{ fontSize: 11, color: "#ccc", lineHeight: 1.6 }}>{p.thesis}</div>
                 </div>
+                <button
+                  onClick={e => handleSave(e, p, i)}
+                  style={{ marginTop: 12, padding: "5px 14px", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.2s",
+                    background: saved[i] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                    borderColor: saved[i] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                    color: saved[i] ? "#00e676" : "#555", fontFamily: BB_FONT }}
+                >
+                  {saved[i] ? "✓ SAVED TO WATCHLIST" : "📌 SAVE TO WATCHLIST"}
+                </button>
               </div>
             )}
           </div>
@@ -3371,6 +3390,16 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [isSubscribed]                = useState(false);
   const [sources, setSources]         = useState<string[]>([]);
   const [error, setError]             = useState<string | null>(null);
+  const [saved, setSaved]             = useState<Record<string, boolean>>({});
+
+  const handleSave = async (e: React.MouseEvent, t: AITradeSetup) => {
+    e.stopPropagation();
+    try {
+      await addTradeWatchlist({ ticker: t.ticker, strike: t.entry_strike, expiry: t.expiry, option_type: "CALL", notes: `AI Trade: ${t.setup_type} · ${t.conviction} conviction` });
+      setSaved(s => ({ ...s, [t.ticker]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [t.ticker]: false })), 2500);
+    } catch { /* silent */ }
+  };
 
   const [warming, setWarming]         = useState(false);
   const [warmCountdown, setWarmCountdown] = useState(0);
@@ -3512,6 +3541,15 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                   <span className="text-slate-400 text-xs hidden sm:block">{t.setup_type}</span>
                   <div className="ml-auto flex items-center gap-3">
                     <span className="text-xs" style={{ color: rColor(t.risk_level) }}>Risk: {t.risk_level}</span>
+                    <button
+                      onClick={e => handleSave(e, t)}
+                      style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.2s",
+                        background: saved[t.ticker] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                        borderColor: saved[t.ticker] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                        color: saved[t.ticker] ? "#4ade80" : "#64748b" }}
+                    >
+                      {saved[t.ticker] ? "✓ Saved" : "📌 Save"}
+                    </button>
                     <span className="text-slate-600 text-xs">{isOpen ? "▲" : "▼"}</span>
                   </div>
                 </div>
@@ -5137,6 +5175,16 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [theses,       setTheses]       = useState<Record<string, string>>({});
   const [loadThesis,   setLoadThesis]   = useState<Record<string, boolean>>({});
   const [expandThesis, setExpandThesis] = useState<Set<string>>(new Set());
+  const [saved, setSaved]               = useState<Record<string, boolean>>({});
+
+  const handleSave = async (e: React.MouseEvent, row: BullFlowRow) => {
+    e.stopPropagation();
+    try {
+      await addTradeWatchlist({ ticker: row.ticker, strike: row.strike ?? undefined, expiry: row.expiry ?? undefined, option_type: "CALL", notes: `Bull Flow: $${row.premium_m.toFixed(1)}M · C/P ${row.call_put_ratio.toFixed(1)}x` });
+      setSaved(s => ({ ...s, [row.ticker]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [row.ticker]: false })), 2500);
+    } catch { /* silent */ }
+  };
 
   const run = async () => {
     setLoading(true); setError(null);
@@ -5376,7 +5424,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
               </div>
 
               {/* AI Thesis button + expanded thesis */}
-              <div className="px-4 pb-3">
+              <div className="px-4 pb-3 flex items-center gap-4">
                 <button
                   onClick={e => { e.stopPropagation(); handleThesis(row); }}
                   className="flex items-center gap-1.5 text-xs font-semibold text-purple-400 hover:text-purple-300 transition-colors"
@@ -5394,6 +5442,15 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                     {theses[row.ticker]}
                   </div>
                 )}
+                <button
+                  onClick={e => handleSave(e, row)}
+                  style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.2s",
+                    background: saved[row.ticker] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                    borderColor: saved[row.ticker] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                    color: saved[row.ticker] ? "#4ade80" : "#64748b" }}
+                >
+                  {saved[row.ticker] ? "✓ Saved" : "📌 Save"}
+                </button>
               </div>
             </div>
           ))}
