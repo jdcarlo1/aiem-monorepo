@@ -4421,6 +4421,100 @@ def unusual_calls_log():
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
 
 
+@app.route("/stock-api/ai-short-calls", methods=["GET"])
+def ai_short_calls():
+    """5 AI-picked short-term call plays (≤30d expiry) drawn from the Unusual Calls scanner."""
+    from datetime import datetime as _dt
+    from openai import OpenAI
+
+    _cache = getattr(app, "_aisc_cache", None)
+    _ts    = getattr(app, "_aisc_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
+        return jsonify(_cache)
+
+    uc = getattr(app, "_unusual_calls_cache", None)
+    if not uc or not uc.get("hits"):
+        return jsonify({
+            "error": "No unusual calls data available yet. Open the 🚨 Unusual Calls tab first to run a scan, then come back.",
+            "picks": [], "generated_at": None
+        }), 202
+
+    hits = uc.get("hits", [])[:20]
+
+    try:
+        oai = OpenAI(
+            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
+            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
+            timeout=45.0,
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    signals_text = "\n".join([
+        f"{i+1}. {h['ticker']} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
+        f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | {'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
+        f"IV={h.get('iv',0)}% | urgency={h['urgency']} | stock_price=${h['price']:.2f}"
+        for i, h in enumerate(hits)
+    ])
+
+    user_msg = f"""These are today's unusual call signals (Vol/OI ≥3x, ≤30 day expiry, OTM/near-ATM calls only):
+
+{signals_text}
+
+Select the 5 BEST short-term call trade opportunities from this list. Rank by conviction.
+Criteria: highest Vol/OI (fresh institutional buying), reasonable OTM% (not too far), premium size (commitment), days_out (urgency), urgency tier.
+
+For each pick output a JSON object with ALL these fields:
+- ticker (string)
+- strike (number — use the strike from the signal)
+- expiry (string YYYY-MM-DD — use from signal)
+- days_out (integer — from signal)
+- vol_oi (number — from signal)
+- prem (integer — from signal)
+- stock_price (number — from signal)
+- otm_pct (number — from signal)
+- breakeven (number — strike + estimated option premium per share; estimate option price as prem / (vol * 100) if vol known, else use a reasonable estimate)
+- conviction ("HIGH" | "MEDIUM")
+- urgency (string — from signal)
+- thesis (string — 2 sentences MAX: why this signal is high conviction, what the move scenario is)
+- why_it_stands_out (string — 1 sentence: the single most compelling data point)
+
+Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
+
+    try:
+        resp = oai.chat.completions.create(
+            model="gpt-5-mini",
+            max_completion_tokens=3000,
+            messages=[
+                {"role": "system", "content": "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."},
+                {"role": "user",   "content": user_msg},
+            ],
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+
+        if "```" in raw:
+            for part in raw.split("```"):
+                stripped = part.lstrip("json").strip()
+                if stripped.startswith("["):
+                    raw = stripped
+                    break
+        if not raw.startswith("["):
+            s = raw.find("["); e2 = raw.rfind("]") + 1
+            if s >= 0 and e2 > s: raw = raw[s:e2]
+
+        picks = _json.loads(raw)
+        out = {
+            "picks": picks,
+            "generated_at": _dt.now().isoformat(),
+            "signals_evaluated": len(hits),
+        }
+        app._aisc_cache    = out
+        app._aisc_cache_ts = _dt.now()
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({"error": str(e), "picks": []}), 500
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

@@ -668,6 +668,25 @@ export function fetchAITrades() {
   return fetchJson<{ trades: AITradeSetup[]; generated_at: string; tickers_scanned: number; signal_sources?: string[]; warming?: boolean; error?: string }>("/ai-trades");
 }
 
+export interface AIShortCall {
+  ticker: string;
+  strike: number;
+  expiry: string;
+  days_out: number;
+  vol_oi: number;
+  prem: number;
+  stock_price: number;
+  otm_pct: number;
+  breakeven: number;
+  conviction: "HIGH" | "MEDIUM";
+  urgency: string;
+  thesis: string;
+  why_it_stands_out: string;
+}
+export function fetchAIShortCalls() {
+  return fetchJson<{ picks: AIShortCall[]; generated_at: string | null; signals_evaluated: number; error?: string }>("/ai-short-calls");
+}
+
 export interface SignalEvent {
   ticker: string; price: number; type: string;
   icon: string; color: string; msg: string;

@@ -10,7 +10,7 @@ import {
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchPutIntent,
   fetchVolCrush, fetchCallIntent, fetchSmartVsRetail, fetchMaxPain, fetchGammaWall,
-  fetchAITrades, fetchSignalFeed, fetchCompositeScore,
+  fetchAITrades, fetchAIShortCalls, AIShortCall, fetchSignalFeed, fetchCompositeScore,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
@@ -2474,6 +2474,192 @@ function UnusualCallsLogTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
       <p style={{ fontFamily: BB_F, color: "#334155", fontSize: 10, marginTop: 20, textAlign: "center" }}>
         Captured every time 🚨 Unusual Calls is scanned · Signals never deleted · Max 500 shown · first_seen = when first detected
       </p>
+    </div>
+  );
+}
+
+// ---- AI Short Calls Tab --------------------------------------------------
+function AIShortCallsTab() {
+  const BB_BG   = "#0a0a0a";
+  const BB_FONT = "JetBrains Mono, monospace";
+  const BB_BORDER = "#1a1a1a";
+  const BB_ORANGE = "#ff6600";
+  const BB_DIM  = "#555";
+  const BB_GREEN = "#00e676";
+
+  const [picks, setPicks]         = useState<AIShortCall[]>([]);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [signalsEvaluated, setSignalsEvaluated] = useState(0);
+  const [expanded, setExpanded]   = useState<number | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const d = await fetchAIShortCalls();
+      if (d.error) { setError(d.error); setPicks([]); }
+      else { setPicks(d.picks || []); setGeneratedAt(d.generated_at); setSignalsEvaluated(d.signals_evaluated || 0); }
+    } catch (e: any) {
+      setError(e.message || "Request failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { run(); }, []);
+
+  const urgencyColor = (u: string) => {
+    if (!u) return BB_DIM;
+    const up = u.toUpperCase();
+    if (up.includes("HIGH") || up.includes("EXTREME")) return "#ff4444";
+    if (up.includes("MED")) return BB_ORANGE;
+    return "#aaa";
+  };
+
+  return (
+    <div style={{ fontFamily: BB_FONT, background: BB_BG, minHeight: "100%", padding: 16 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <span style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, letterSpacing: "0.08em" }}>⚡ AI SHORT CALLS</span>
+          <span style={{ fontSize: 10, color: BB_DIM, marginLeft: 10 }}>5 AI-PICKED CALLS · ≤30 DAY EXPIRY</span>
+          {generatedAt && (
+            <span style={{ fontSize: 9, color: BB_DIM, marginLeft: 10 }}>
+              Generated {new Date(generatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          {signalsEvaluated > 0 && (
+            <span style={{ fontSize: 9, color: BB_DIM, marginLeft: 8 }}>· {signalsEvaluated} signals evaluated</span>
+          )}
+        </div>
+        <button
+          onClick={run}
+          disabled={loading}
+          style={{ fontSize: 10, fontFamily: BB_FONT, background: loading ? "#111" : BB_ORANGE, color: loading ? BB_DIM : "#000", border: "none", borderRadius: 3, padding: "5px 12px", cursor: loading ? "default" : "pointer", fontWeight: 700 }}
+        >
+          {loading ? "GENERATING…" : "↻ REGENERATE"}
+        </button>
+      </div>
+
+      {/* Error / no-data states */}
+      {error && (
+        <div style={{ background: "#1a0a00", border: `1px solid #ff4400`, borderRadius: 4, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: "#ff6644", fontWeight: 700, marginBottom: 4 }}>⚠ NOTE</div>
+          <div style={{ fontSize: 11, color: "#ccc", lineHeight: 1.6 }}>{error}</div>
+          {error.includes("Unusual Calls") && (
+            <div style={{ fontSize: 10, color: BB_DIM, marginTop: 8 }}>
+              Run a scan in the 🚨 Unusual Calls tab first, then come back and hit Regenerate.
+            </div>
+          )}
+        </div>
+      )}
+
+      {!loading && !error && picks.length === 0 && (
+        <div style={{ textAlign: "center", color: BB_DIM, fontSize: 11, padding: 40 }}>
+          No picks generated yet. Hit Regenerate to run.
+        </div>
+      )}
+
+      {/* Picks cards */}
+      {picks.map((p, i) => {
+        const isHigh = p.conviction === "HIGH";
+        const accentColor = isHigh ? BB_ORANGE : "#888";
+        const isOpen = expanded === i;
+        const pnlPct = p.stock_price > 0
+          ? (((p.strike - p.stock_price) / p.stock_price) * 100).toFixed(1)
+          : "—";
+
+        return (
+          <div key={i} style={{ background: "#0d0d0d", border: `1px solid ${isHigh ? "#ff660033" : BB_BORDER}`, borderRadius: 5, marginBottom: 10, overflow: "hidden" }}>
+            {/* Card header row */}
+            <div
+              onClick={() => setExpanded(isOpen ? null : i)}
+              style={{ display: "flex", alignItems: "center", padding: "10px 14px", cursor: "pointer", gap: 10 }}
+            >
+              {/* Rank badge */}
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: accentColor, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 900, color: "#000" }}>{i + 1}</span>
+              </div>
+
+              {/* Ticker + strike/expiry */}
+              <div style={{ flex: "0 0 auto", minWidth: 80 }}>
+                <div style={{ fontSize: 14, fontWeight: 900, color: "#fff" }}>{p.ticker}</div>
+                <div style={{ fontSize: 9, color: BB_DIM }}>${p.strike} CALL · {p.expiry}</div>
+              </div>
+
+              {/* Stats row */}
+              <div style={{ flex: 1, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: BB_GREEN, fontWeight: 700 }}>{p.vol_oi}x</div>
+                  <div style={{ fontSize: 8, color: BB_DIM }}>VOL/OI</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: "#fff", fontWeight: 700 }}>${(p.prem / 1000).toFixed(0)}K</div>
+                  <div style={{ fontSize: 8, color: BB_DIM }}>PREM</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.days_out}d</div>
+                  <div style={{ fontSize: 8, color: BB_DIM }}>DAYS OUT</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: p.otm_pct > 5 ? "#aaa" : BB_GREEN, fontWeight: 700 }}>
+                    {p.otm_pct > 0 ? "+" : ""}{p.otm_pct}%
+                  </div>
+                  <div style={{ fontSize: 8, color: BB_DIM }}>OTM</div>
+                </div>
+              </div>
+
+              {/* Right side: conviction + urgency */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: accentColor, border: `1px solid ${accentColor}`, borderRadius: 3, padding: "1px 5px" }}>
+                  {p.conviction}
+                </span>
+                <span style={{ fontSize: 9, color: urgencyColor(p.urgency) }}>{p.urgency}</span>
+              </div>
+
+              <span style={{ fontSize: 9, color: BB_DIM, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
+            </div>
+
+            {/* Expanded detail */}
+            {isOpen && (
+              <div style={{ borderTop: `1px solid ${BB_BORDER}`, padding: "12px 14px", background: "#0a0a0a" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 9, color: BB_DIM }}>STOCK PRICE</div>
+                    <div style={{ fontSize: 12, color: "#fff", fontWeight: 700 }}>${p.stock_price?.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9, color: BB_DIM }}>BREAKEVEN</div>
+                    <div style={{ fontSize: 12, color: BB_ORANGE, fontWeight: 700 }}>${p.breakeven?.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9, color: BB_DIM }}>NEEDS TO MOVE</div>
+                    <div style={{ fontSize: 12, color: "#fff", fontWeight: 700 }}>{pnlPct}% to strike</div>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 9, color: BB_DIM, marginBottom: 4 }}>⚡ WHY IT STANDS OUT</div>
+                  <div style={{ fontSize: 11, color: BB_ORANGE, lineHeight: 1.5 }}>{p.why_it_stands_out}</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 9, color: BB_DIM, marginBottom: 4 }}>AI THESIS</div>
+                  <div style={{ fontSize: 11, color: "#ccc", lineHeight: 1.6 }}>{p.thesis}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {picks.length > 0 && (
+        <div style={{ fontSize: 9, color: BB_DIM, marginTop: 14, lineHeight: 1.7 }}>
+          ⚠ These are AI-generated picks based on unusual options flow. Not financial advice. Always verify with your own research before trading.
+        </div>
+      )}
     </div>
   );
 }
@@ -5440,7 +5626,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -5565,6 +5751,7 @@ export default function Dashboard() {
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
     { id: "mytrades",        label: "📈 MY TRADES" },
+    { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -6146,6 +6333,7 @@ export default function Dashboard() {
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
         {tab === "mytrades"        && <MyTradesTab />}
+        {tab === "aishortcalls"    && <AIShortCallsTab />}
 
       </div>
       </main>
