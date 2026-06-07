@@ -4313,19 +4313,20 @@ def get_trade_watchlist():
                 for t, p in ex.map(_get_price, tickers):
                     prices[t] = p
 
-        now = datetime.now(timezone.utc)
+        from datetime import datetime as _dt2, timezone as _tz
+        now = _dt2.now(_tz.utc)
         for r in rows:
             r["saved_at"] = r["saved_at"].strftime("%Y-%m-%d %H:%M UTC") if r["saved_at"] else None
             r["current_price"] = prices.get(r["ticker"])
             # days until expiry
             try:
-                exp_dt = datetime.strptime(r["expiry"], "%Y-%m-%d").date()
+                exp_dt = _dt2.strptime(r["expiry"], "%Y-%m-%d").date()
                 r["days_to_expiry"] = (exp_dt - now.date()).days
             except Exception:
                 r["days_to_expiry"] = None
             # days held
             try:
-                saved_dt = datetime.strptime(r["saved_at"], "%Y-%m-%d %H:%M UTC")
+                saved_dt = _dt2.strptime(r["saved_at"], "%Y-%m-%d %H:%M UTC")
                 r["days_held"] = (now.replace(tzinfo=None) - saved_dt).days
             except Exception:
                 r["days_held"] = 0
