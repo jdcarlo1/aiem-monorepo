@@ -1259,6 +1259,8 @@ def bull_flow_top10():
                 hist  = tkr.history(period="1d")
                 price = float(hist["Close"].iloc[-1]) if not hist.empty else 0
             prem_k = float(opts.get("top_prem_value", 0))
+            if prem_k < 500:   # minimum $500K — institutional smart money only
+                return None
 
             # Days to earnings
             days_to_earnings = None
