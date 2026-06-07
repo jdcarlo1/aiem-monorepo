@@ -3,6 +3,7 @@ from flask_cors import CORS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import math
+import threading
 
 from scanner import analyze_ticker, scan_tickers, WATCHLIST_DEFAULT, fetch_stock_data
 from portfolio import get_portfolio, add_position, remove_position, get_portfolio_value
@@ -152,8 +153,24 @@ try:
         id="spy_cache_refresh",
         replace_existing=True,
     )
+    # Micro-cap net flow pre-warm: every 30 min during market hours (9:45 AM – 3:30 PM ET)
+    def _run_microcap_prewarm():
+        try:
+            from datetime import datetime as _dt
+            out = _run_microcap_flow_scan()
+            app._nfmc_cache    = out
+            app._nfmc_cache_ts = _dt.now()
+            print(f"[scheduler] micro-cap pre-warm → scanned {out['scanned']} tickers, {len(out['results'])} positive")
+        except Exception as e:
+            print(f"[scheduler] micro-cap pre-warm error: {e}")
+    _scheduler.add_job(
+        _run_microcap_prewarm,
+        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/30", timezone=_ET),
+        id="microcap_prewarm",
+        replace_existing=True,
+    )
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri")
+    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
@@ -1462,90 +1479,178 @@ def net_flow_single():
 
 # ── Micro-Cap Net Flow ────────────────────────────────────────────────────────
 
-MICRO_CAP_LEADERBOARD = [
-    # EV / Clean energy
-    "EVGO", "BLNK", "CHPT", "FCEL", "PLUG", "NKLA", "WKHS", "ZEV", "PTRA",
-    # Growth / tech
-    "HIMS", "JOBY", "OPEN", "BYND", "LMND", "ROOT", "COUR", "SKIN", "PSFE",
-    "BARK", "TIGR", "ACMR", "VNET", "WOLF", "XPOF", "LAUR", "PRGO",
-    # Space / defense
-    "RCAT", "LUNR", "BBAI", "AEVA", "SPIR", "LIDR",
-    # Biotech (liquid)
-    "RCKT", "FOLD", "DNLI", "ARQT", "VERA", "KYMR", "MGNX", "SNDX",
-    "PRLD", "AXNX", "BLUE", "NTLA", "GOSS", "ARVN", "IMVT", "EDIT",
-    "CRSP", "BEAM", "FIXX",
-    # Other small / micro
-    "NOVA", "CLOV", "OPAD", "ATIP", "CERE", "JMIA", "GETY",
-]
+# ── Micro-cap universe (~350 actively-traded small/micro-caps across all sectors)
+# Curated for liquidity and trading interest — covers NASDAQ, NYSE, AMEX.
+# On small floats even $1-5M net inflow is a strong accumulation signal.
+_MICRO_CAP_UNIVERSE = sorted(set([
+    # ── EV / Clean Energy ──────────────────────────────────────────────────
+    "EVGO","BLNK","CHPT","FCEL","PLUG","NKLA","WKHS","ZEV","PTRA",
+    "GOEV","RIDE","HYLN","MULN","SOLO","MVST","HLBZ","LCID","FFIE",
+    "SOLO","KNDI","AYRO","SHPW","CBAT","CENN","IDAI","TEVN",
+    # ── Space / Defense small-cap ──────────────────────────────────────────
+    "RCAT","LUNR","BBAI","AEVA","SPIR","LIDR","ASTS","MNTS",
+    "VORB","KULR","ATRO","RKLB","SATL","SFET","BWXT","CPI","CODA",
+    "KTOS","LOAR","SLDP","ACHR","JOBY",
+    # ── Biotech / Gene therapy / RNA ───────────────────────────────────────
+    "RCKT","FOLD","DNLI","ARQT","VERA","KYMR","MGNX","SNDX",
+    "PRLD","AXNX","BLUE","NTLA","GOSS","ARVN","IMVT","EDIT",
+    "CRSP","BEAM","FIXX","FATE","ALDX","AGEN","ADAP","AKRO",
+    "APLT","AVXL","BHVN","BLCM","BOLT","BTAI","BXRX","CGEM",
+    "CHRS","CLBS","CMPS","CNCE","CPRX","CRBP","CRIS","CRNX",
+    "CTMX","ENTA","FGEN","FHTX","FLXN","FMTX","FREQ","GBIO",
+    "GERN","GLYC","GRTS","GRTX","HOOK","HRTX","IDRA","IMAB",
+    "IMCR","IMGN","IMTX","INAB","INBX","IOVA","JANX","JNCE",
+    "KALA","KNSA","KPTI","KRTX","KURA","LQDA","MIRM","MNKD",
+    "NVAX","OCGN","ONCT","PACB","PALI","PRAX","SAGE","SAVA",
+    "SGMO","STTK","SYRS","TGTX","TTOO","TYRA","VCNX","VERV",
+    "VSTM","XNCR","RAPT","RXST","TRIL","RCUS","RVMD","SMMT",
+    "VRNA","VYGR","KDNY","ALVO","CELC","NRIX","PLRX","PMVP",
+    "RLMD","SCPH","SURF","SVRA","TDUP","TIRX","UROS","VACC",
+    "VGVS","ZLAB","OMER","ORPH","PTGX","PULM","RIGL","RPRX",
+    "SABS","SILK","SNSE","SPPI","SSTI","TOCA","TRDA","TYME",
+    "XOMA","ZNTH","ACRS","ALEC","AMRX","ANTE","ARMO","AUTL",
+    "BDTX","BFLY","BHAT","BIOR","BJRI","BLPH","CALA","CGEN",
+    "CCCC","CLPT","CODA","COHU","CORT","CSIQ","CTSO","CYCN",
+    "DERM","EPZM","ETNB","FDMT","FBIO","GCBC","GLDD","HARP",
+    "HGEN","HLTH","HMHC","HSKA","IDEX","INFI","INSM","IRWD",
+    "ITCI","ITOS","PCVX","PERL","PHAT","PIRS","PRME","PSTV",
+    "PTCT","QGEN","RCEL","RGLS","RMTI","SEER","SENS","SLNO",
+    "SRNE","STVN","TCDA","TPIC","TRVN","VTVT","ZAFG","AKBA",
+    # ── Growth tech / SaaS small-cap ───────────────────────────────────────
+    "HIMS","OPEN","BYND","LMND","ROOT","COUR","SKIN","PSFE",
+    "BARK","TIGR","ACMR","VNET","WOLF","XPOF","LAUR","PRGO",
+    "GETY","OPAD","ATIP","CERE","JMIA","NOVA","CLOV","PAYO",
+    "DAVE","RELY","MAPS","PRPL","GNUS","MVIS","CELH","SOUN",
+    "CXAI","SMAR","DOMO","PAGS","SPRK","AMPL","BIGC","BRZE",
+    "CFLT","DOCN","DUOL","FROG","GLBE","GTLB","JAMF","LSPD",
+    "MNTV","NCNO","NEWR","OMER","OSPN","PLTR","PSTG","RSKD",
+    "RELY","SDGR","SMAR","SOUN","SPSC","SWAG","TASK","TOST",
+    "TSPX","TTWO","TUYA","UPLD","VRNS","XMTR","YEXT","ZETA",
+    # ── Fintech / Consumer finance ─────────────────────────────────────────
+    "UPST","LC","EEFT","GDOT","INBK","MFIN","NRDS","PRAA",
+    "QFIN","RPAY","SOFI","TREE","CURO","ATLC","EVRI","FLYW",
+    "FUTU","HOOD","JFIN","KATX","LPLA","MGNI","MKTW","NRDS",
+    "OPEN","OPK","PAYSIGN","PFSI","PRAA","RDFN","RDVT","RIOT",
+    "STER","STRS","UWMC","VLTA","WRLD",
+    # ── Consumer / Lifestyle ───────────────────────────────────────────────
+    "SFIX","ACMR","COOK","XPER","PRPL","GNUS","CELH","CENT",
+    "LOVE","LAZR","FLWS","GOED","JILL","LESL","LOVE","MGRX",
+    "MNST","NKLA","OPAD","PAYA","PETZ","PRPL","PUBM","PTON",
+    "RDFN","RENT","RVLV","SAMG","SFIX","SSYS","SWIM","TLRY",
+    "TORRID","TPVG","TPIC","TRTN","TSRI","TTGT","TWST","TYRA",
+    "VLCN","VVOS","WETG","WKME","XELA","XPOF","ZVIA","ZYME",
+    # ── Mining / Rare earths / Commodities ─────────────────────────────────
+    "MP","GATO","MAG","TMST","AEYE","AZEK","CATO","CEIX","CLNE",
+    "CLF","CMP","CORE","CTRA","DUNE","ELEV","FANG","GATO","GFI",
+    "GOLD","HL","HLIO","KORE","MTAL","NOVAGOLD","PAAS","RIO",
+    "SAND","SILV","SVM","TECK","TRQ","UEC","UUUU","WDFC","WFG",
+    # ── Healthcare / Medical devices ───────────────────────────────────────
+    "SILK","INMD","OSUR","AXNX","HSKA","SEER","FLXN","PACB",
+    "ATEC","AMED","AMWL","AXDX","BEAT","CHNG","CLFD","CNMD",
+    "CSTL","DXCM","EHTH","EMED","FRHC","HAIN","HAYW","HMSY",
+    "HOLX","INSP","IPAR","ISEE","KIDS","LHCG","LNTH","MASI",
+    "MCRB","MDCO","MDGL","MDVX","MELI","MGNX","MMSI","MNMD",
+    "NTRA","NVCR","OFIX","OMCL","OPCH","ORGO","OSUR","PDCO",
+    "PETS","PFGC","PGNY","PINC","PRCT","PRTK","QDEL","RGEN",
+    "RLMD","RMBS","RNST","RPAY","RRTS","RXDX","SANA","SDGR",
+    "SEAS","SEER","SENS","SILK","SOLY","SPNE","SRNE","SRTX",
+    "SSYS","STAA","STEP","STGW","SWAV","SXCL","SYBX","SYNH",
+]))
+
+
+def _get_microcap_tickers() -> list:
+    """Return the curated micro-cap ticker universe (~350 stocks)."""
+    return list(_MICRO_CAP_UNIVERSE)
+
+
+def _run_microcap_flow_scan() -> dict:
+    """Core scan: fetch intraday data for all micro-cap tickers and rank by net inflow."""
+    import yfinance as yf
+    from datetime import datetime as _dt
+
+    tickers = _get_microcap_tickers()
+
+    def _compute_flow_mc(ticker):
+        try:
+            hist = yf.Ticker(ticker).history(period="1d", interval="1m")
+            if hist.empty or len(hist) < 5:
+                return None
+            inflow = outflow = 0.0
+            for _, row in hist.iterrows():
+                if row["Volume"] <= 0:
+                    continue
+                avg = (float(row["Open"]) + float(row["Close"])) / 2
+                dv  = avg * float(row["Volume"])
+                if float(row["Close"]) >= float(row["Open"]):
+                    inflow  += dv
+                else:
+                    outflow += dv
+            net   = inflow - outflow
+            total = inflow + outflow
+            if net <= 0:
+                return None
+            last_price = float(hist["Close"].iloc[-1])
+            return {
+                "ticker":      ticker,
+                "price":       round(last_price, 2),
+                "inflow_m":    round(inflow  / 1_000_000, 2),
+                "outflow_m":   round(outflow / 1_000_000, 2),
+                "net_m":       round(net     / 1_000_000, 2),
+                "total_vol_m": round(total   / 1_000_000, 2),
+                "flow_ratio":  round(inflow / max(outflow, 1), 3),
+            }
+        except Exception:
+            return None
+
+    rows = []
+    with ThreadPoolExecutor(max_workers=14) as ex:
+        for r in ex.map(_compute_flow_mc, tickers):
+            if r:
+                rows.append(r)
+
+    rows.sort(key=lambda x: x["net_m"], reverse=True)
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+
+    return {"results": rows, "scanned": len(tickers)}
 
 
 @app.route("/stock-api/net-flow/microcap", methods=["POST"])
 def net_flow_microcap():
-    """Net equity flow scan for the micro/small-cap universe."""
-    import yfinance as yf
+    """Net equity flow scan for the dynamic micro-cap universe (200-400 tickers).
+
+    Results are pre-cached every 30 min by the scheduler during market hours.
+    Cache TTL is 30 min; first cold load takes ~40-90 s depending on ticker count.
+    """
     from datetime import datetime as _dt
-    import threading
 
     if not hasattr(app, "_nfmc_lock"):
         app._nfmc_lock = threading.Lock()
 
+    _CACHE_TTL = 1800  # 30 minutes
+
     _cache = getattr(app, "_nfmc_cache", None)
     _ts    = getattr(app, "_nfmc_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 300:
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
         return jsonify(_cache)
 
     with app._nfmc_lock:
         _cache = getattr(app, "_nfmc_cache", None)
         _ts    = getattr(app, "_nfmc_cache_ts", None)
-        if _cache and _ts and (_dt.now() - _ts).total_seconds() < 300:
+        if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
             return jsonify(_cache)
 
-        def _compute_flow_mc(ticker):
-            try:
-                hist = yf.Ticker(ticker).history(period="1d", interval="1m")
-                if hist.empty or len(hist) < 5:
-                    return None
-                inflow = outflow = 0.0
-                for _, row in hist.iterrows():
-                    if row["Volume"] <= 0:
-                        continue
-                    avg = (float(row["Open"]) + float(row["Close"])) / 2
-                    dv  = avg * float(row["Volume"])
-                    if float(row["Close"]) >= float(row["Open"]):
-                        inflow  += dv
-                    else:
-                        outflow += dv
-                net   = inflow - outflow
-                total = inflow + outflow
-                if net <= 0:
-                    return None
-                last_price = float(hist["Close"].iloc[-1])
-                return {
-                    "ticker":      ticker,
-                    "price":       round(last_price, 2),
-                    "inflow_m":    round(inflow  / 1_000_000, 2),
-                    "outflow_m":   round(outflow / 1_000_000, 2),
-                    "net_m":       round(net     / 1_000_000, 2),
-                    "total_vol_m": round(total   / 1_000_000, 2),
-                    "flow_ratio":  round(inflow / max(outflow, 1), 3),
-                }
-            except Exception:
-                return None
-
-        rows = []
-        with ThreadPoolExecutor(max_workers=12) as ex:
-            for r in ex.map(_compute_flow_mc, MICRO_CAP_LEADERBOARD):
-                if r:
-                    rows.append(r)
-
-        rows.sort(key=lambda x: x["net_m"], reverse=True)
-        for i, r in enumerate(rows):
-            r["rank"] = i + 1
-
-        out = {"results": rows, "scanned": len(MICRO_CAP_LEADERBOARD)}
+        out = _run_microcap_flow_scan()
         app._nfmc_cache    = out
         app._nfmc_cache_ts = _dt.now()
         return jsonify(out)
+
+
+@app.route("/stock-api/net-flow/microcap/tickers", methods=["GET"])
+def microcap_ticker_count():
+    """Returns the current size of the dynamic micro-cap ticker universe."""
+    tickers = _get_microcap_tickers()
+    return jsonify({"count": len(tickers), "tickers": tickers})
 
 
 @app.route("/stock-api/market/overview", methods=["GET"])

@@ -5951,7 +5951,7 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         <div className="text-center py-20 text-slate-500">
           <div className="text-5xl mb-4">🔬</div>
           <div className="font-semibold text-slate-400 mb-1">Run the scan to find accumulation</div>
-          <div className="text-sm">Scans {scanned || 55}+ small &amp; micro-cap stocks for unusual buy pressure</div>
+          <div className="text-sm">Scans {scanned || 473}+ small &amp; micro-cap stocks for unusual buy pressure</div>
         </div>
       )}
 
