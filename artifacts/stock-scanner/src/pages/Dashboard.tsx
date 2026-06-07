@@ -22,6 +22,7 @@ import {
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
+  saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -2166,7 +2167,7 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
     e.stopPropagation();
     const key = `${h.ticker}-${h.strike}-${h.expiry}`;
     try {
-      await addTradeWatchlist({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, option_type: "CALL", notes: `Unusual Call: ${h.vol_oi}x Vol/OI · $${(h.prem/1000).toFixed(0)}k premium` });
+      await saveMyTrade({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, vol_oi: h.vol_oi, prem: h.prem, otm_pct: h.otm_pct, urgency: h.urgency });
       setSaved(s => ({ ...s, [key]: true }));
       setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
     } catch {}
@@ -2338,7 +2339,7 @@ function UnusualCallsLogTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
     e.stopPropagation();
     const key = `${h.ticker}-${h.strike}-${h.expiry}`;
     try {
-      await addTradeWatchlist({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, option_type: "CALL", notes: `Unusual Call Log: ${h.vol_oi}x Vol/OI · $${(h.prem/1000).toFixed(0)}k` });
+      await saveMyTrade({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, vol_oi: h.vol_oi, prem: h.prem, otm_pct: h.otm_pct, urgency: h.urgency, signal_detected_at: h.first_seen });
       setSaved(s => ({ ...s, [key]: true }));
       setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
     } catch {}
@@ -2472,6 +2473,239 @@ function UnusualCallsLogTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
       )}
       <p style={{ fontFamily: BB_F, color: "#334155", fontSize: 10, marginTop: 20, textAlign: "center" }}>
         Captured every time 🚨 Unusual Calls is scanned · Signals never deleted · Max 500 shown · first_seen = when first detected
+      </p>
+    </div>
+  );
+}
+
+// ---- My Trades Tab -------------------------------------------------------
+function MyTradesTab() {
+  const BB_F = "JetBrains Mono, monospace";
+  const [trades, setTrades] = useState<MyTrade[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [editing, setEditing]   = useState<Record<number, { entry: string; exit: string; contracts: string; notes: string }>>({});
+
+  const load = () => {
+    setLoading(true);
+    fetchMyTrades().then(d => setTrades(d.trades)).catch(() => {}).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const startEdit = (t: MyTrade) => {
+    setEditing(e => ({
+      ...e,
+      [t.id]: {
+        entry:     t.entry_price != null ? String(t.entry_price) : "",
+        exit:      t.exit_price  != null ? String(t.exit_price)  : "",
+        contracts: String(t.contracts ?? 1),
+        notes:     t.notes ?? "",
+      },
+    }));
+  };
+
+  const saveEdit = async (id: number) => {
+    const e = editing[id];
+    if (!e) return;
+    const entryN  = e.entry     !== "" ? parseFloat(e.entry)     : null;
+    const exitN   = e.exit      !== "" ? parseFloat(e.exit)       : null;
+    const contsN  = e.contracts !== "" ? parseInt(e.contracts)    : 1;
+    let status = "open";
+    if (exitN != null && entryN != null) status = exitN >= entryN ? "win" : "loss";
+    await updateMyTrade(id, { entry_price: entryN, exit_price: exitN, contracts: contsN, notes: e.notes, status });
+    load();
+    setEditing(ex => { const n = { ...ex }; delete n[id]; return n; });
+  };
+
+  const handleDelete = async (id: number) => {
+    await deleteMyTrade(id);
+    setTrades(t => t.filter(x => x.id !== id));
+    if (expanded === id) setExpanded(null);
+  };
+
+  const pnl = (t: MyTrade) => {
+    if (t.entry_price == null || t.exit_price == null) return null;
+    return (t.exit_price - t.entry_price) * (t.contracts ?? 1) * 100;
+  };
+
+  const statusBadge = (t: MyTrade) => {
+    const p = pnl(t);
+    if (t.status === "win"  || (p != null && p > 0))  return { color: "#4ade80", bg: "rgba(74,222,128,0.12)",  border: "rgba(74,222,128,0.3)",  label: "✅ WIN"  };
+    if (t.status === "loss" || (p != null && p < 0))  return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "❌ LOSS" };
+    return { color: "#94a3b8", bg: "rgba(148,163,184,0.08)", border: "rgba(148,163,184,0.2)", label: "⏳ OPEN" };
+  };
+
+  const fmt = (iso: string | null) => {
+    if (!iso) return "—";
+    try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; }
+    catch { return iso; }
+  };
+
+  const totalPnl = trades.reduce((s, t) => s + (pnl(t) ?? 0), 0);
+  const wins     = trades.filter(t => t.status === "win"  || (pnl(t) ?? 0) > 0).length;
+  const losses   = trades.filter(t => t.status === "loss" || (pnl(t) ?? 0) < 0).length;
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>📈 My Trades</h2>
+        <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+          Signals you saved · Click a row to add entry/exit prices · P&amp;L calculated automatically
+        </p>
+      </div>
+
+      {/* Stats */}
+      {trades.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 24 }}>
+          {[
+            { label: "Saved Trades",  val: trades.length,                                                          color: "#94a3b8" },
+            { label: "Wins",          val: wins,                                                                    color: "#4ade80" },
+            { label: "Losses",        val: losses,                                                                  color: "#f87171" },
+            { label: "Total P&L",     val: `${totalPnl >= 0 ? "+" : ""}$${totalPnl.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, color: totalPnl >= 0 ? "#4ade80" : "#f87171" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "16px 20px", textAlign: "center" }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loading && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+            {[0,1,2].map(i => <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ade80", display: "inline-block", animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />)}
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>Loading your trades…</p>
+        </div>
+      )}
+
+      {!loading && trades.length === 0 && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📈</div>
+          <p style={{ fontFamily: BB_F, color: "#475569" }}>No trades saved yet. Hit <strong style={{ color: "#94a3b8" }}>📌 My Trade</strong> on any signal in the 🚨 Unusual Calls or 📋 Calls Log tabs.</p>
+        </div>
+      )}
+
+      {!loading && trades.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {trades.map(t => {
+            const sb   = statusBadge(t);
+            const p    = pnl(t);
+            const isEx = expanded === t.id;
+            const ed   = editing[t.id];
+            const premK = t.prem != null ? (t.prem >= 1_000_000 ? `$${(t.prem/1_000_000).toFixed(1)}M` : `$${(t.prem/1000).toFixed(0)}k`) : "—";
+            return (
+              <div key={t.id} style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 18, overflow: "hidden", transition: "border-color 0.2s" }}>
+                {/* Summary row */}
+                <div onClick={() => { setExpanded(isEx ? null : t.id); if (!isEx) startEdit(t); }}
+                  style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap", cursor: "pointer" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                >
+                  {/* Left */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 19 }}>{t.ticker}</span>
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99, background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>CALL</span>
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99, background: sb.bg, color: sb.color, border: `1px solid ${sb.border}` }}>{sb.label}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${t.strike} strike · exp {t.expiry}</span>
+                        {t.vol_oi != null && <span style={{ fontFamily: BB_F, color: "#facc15", fontSize: 12 }}>{t.vol_oi}x Vol/OI</span>}
+                        {t.prem != null && <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11 }}>{premK} premium</span>}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 3, flexWrap: "wrap" }}>
+                        {t.signal_detected_at && <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>Signal: {fmt(t.signal_detected_at)}</span>}
+                        <span style={{ fontFamily: BB_F, color: "#1e293b", fontSize: 10 }}>Saved: {fmt(t.saved_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Right */}
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    {t.entry_price != null && (
+                      <div style={{ fontFamily: BB_F, fontSize: 12, color: "#94a3b8" }}>Entry: <strong style={{ color: "#f1f5f9" }}>${t.entry_price}</strong></div>
+                    )}
+                    {t.exit_price != null && (
+                      <div style={{ fontFamily: BB_F, fontSize: 12, color: "#94a3b8" }}>Exit: <strong style={{ color: "#f1f5f9" }}>${t.exit_price}</strong></div>
+                    )}
+                    {p != null && (
+                      <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 20, color: p >= 0 ? "#4ade80" : "#f87171", letterSpacing: "-0.04em", marginTop: 2 }}>
+                        {p >= 0 ? "+" : ""}${Math.abs(p).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </div>
+                    )}
+                    {p == null && t.entry_price == null && (
+                      <div style={{ fontFamily: BB_F, fontSize: 11, color: "#334155" }}>Click to add prices ↓</div>
+                    )}
+                    <div style={{ fontFamily: BB_F, fontSize: 11, color: "#334155", marginTop: 2 }}>{t.contracts} contract{t.contracts !== 1 ? "s" : ""}</div>
+                  </div>
+                </div>
+
+                {/* Expanded edit panel */}
+                {isEx && ed && (
+                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "18px 20px", background: "rgba(0,0,0,0.2)" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 14, marginBottom: 14 }}>
+                      {[
+                        { label: "Entry price (per contract $)",  key: "entry",     placeholder: "e.g. 2.50" },
+                        { label: "Exit price (per contract $)",   key: "exit",      placeholder: "e.g. 6.00" },
+                        { label: "# of contracts",                key: "contracts", placeholder: "e.g. 5" },
+                      ].map(f => (
+                        <div key={f.key}>
+                          <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginBottom: 5 }}>{f.label}</div>
+                          <input
+                            value={(ed as Record<string,string>)[f.key]}
+                            onChange={ev => setEditing(e => ({ ...e, [t.id]: { ...e[t.id], [f.key]: ev.target.value } }))}
+                            placeholder={f.placeholder}
+                            style={{ width: "100%", fontFamily: BB_F, fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#f1f5f9", outline: "none", boxSizing: "border-box" }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginBottom: 5 }}>Notes (optional)</div>
+                      <input
+                        value={ed.notes}
+                        onChange={ev => setEditing(e => ({ ...e, [t.id]: { ...e[t.id], notes: ev.target.value } }))}
+                        placeholder="e.g. Took profit at open · Unusual call seen day before earnings"
+                        style={{ width: "100%", fontFamily: BB_F, fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#f1f5f9", outline: "none", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    {/* Live P&L preview */}
+                    {ed.entry !== "" && ed.exit !== "" && (
+                      (() => {
+                        const ep = parseFloat(ed.entry), xp = parseFloat(ed.exit), ct = parseInt(ed.contracts) || 1;
+                        const preview = (!isNaN(ep) && !isNaN(xp)) ? (xp - ep) * ct * 100 : null;
+                        return preview != null ? (
+                          <div style={{ fontFamily: BB_F, fontSize: 13, marginBottom: 14, color: preview >= 0 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                            P&L Preview: {preview >= 0 ? "+" : ""}${preview.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                            <span style={{ fontWeight: 400, color: "#475569", fontSize: 11 }}> ({ct} contract{ct !== 1 ? "s" : ""} × 100 shares)</span>
+                          </div>
+                        ) : null;
+                      })()
+                    )}
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={() => saveEdit(t.id)} style={{ padding: "8px 20px", borderRadius: 9, fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer", background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80" }}>
+                        💾 Save
+                      </button>
+                      <button onClick={() => { setExpanded(null); setEditing(e => { const n = {...e}; delete n[t.id]; return n; }); }} style={{ padding: "8px 16px", borderRadius: 9, fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "#64748b" }}>
+                        Cancel
+                      </button>
+                      <button onClick={() => handleDelete(t.id)} style={{ marginLeft: "auto", padding: "8px 14px", borderRadius: 9, fontFamily: BB_F, fontSize: 11, fontWeight: 700, cursor: "pointer", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)", color: "#f87171" }}>
+                        🗑 Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p style={{ fontFamily: BB_F, color: "#334155", fontSize: 10, marginTop: 20, textAlign: "center" }}>
+        P&L = (exit − entry) × contracts × 100 · Each options contract = 100 shares · All times Eastern
       </p>
     </div>
   );
@@ -5206,7 +5440,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -5330,6 +5564,7 @@ export default function Dashboard() {
     { id: "watchlist",   label: "📌 MY WATCHLIST" },
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
+    { id: "mytrades",        label: "📈 MY TRADES" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -5910,6 +6145,7 @@ export default function Dashboard() {
         {tab === "watchlist" && <TradeWatchlistTab />}
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
+        {tab === "mytrades"        && <MyTradesTab />}
 
       </div>
       </main>

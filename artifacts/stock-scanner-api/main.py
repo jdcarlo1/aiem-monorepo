@@ -412,6 +412,125 @@ def _save_unusual_calls_to_db(hits: list):
 _init_unusual_calls_log_table()
 
 
+# ── My Trades — personal trade journal ───────────────────────────────────────
+
+def _init_my_trades_table():
+    sql = """
+    CREATE TABLE IF NOT EXISTS my_trades (
+        id                  SERIAL PRIMARY KEY,
+        ticker              TEXT NOT NULL,
+        strike              NUMERIC NOT NULL,
+        expiry              TEXT NOT NULL,
+        vol_oi              NUMERIC,
+        prem                BIGINT,
+        otm_pct             NUMERIC,
+        urgency             TEXT,
+        signal_detected_at  TIMESTAMPTZ,
+        saved_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        entry_price         NUMERIC,
+        exit_price          NUMERIC,
+        contracts           INTEGER DEFAULT 1,
+        notes               TEXT,
+        status              TEXT DEFAULT 'open',
+        UNIQUE (ticker, strike, expiry)
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[my_trades] init table error: {e}")
+
+_init_my_trades_table()
+
+
+@app.route("/stock-api/my-trades", methods=["GET"])
+def get_my_trades():
+    """Return all saved trades, newest first."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ticker, strike::float, expiry, vol_oi::float, prem::bigint,
+                       otm_pct::float, urgency,
+                       signal_detected_at AT TIME ZONE 'UTC' AS signal_detected_at,
+                       saved_at AT TIME ZONE 'UTC' AS saved_at,
+                       entry_price::float, exit_price::float,
+                       contracts, notes, status
+                FROM my_trades
+                ORDER BY saved_at DESC
+            """)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for r in rows:
+                for f in ("signal_detected_at", "saved_at"):
+                    if r.get(f): r[f] = r[f].isoformat()
+        return jsonify({"trades": rows, "total": len(rows)})
+    except Exception as e:
+        return jsonify({"error": str(e), "trades": [], "total": 0}), 500
+
+
+@app.route("/stock-api/my-trades", methods=["POST"])
+def save_my_trade():
+    """Save a signal as a personal trade. Idempotent on (ticker, strike, expiry)."""
+    body = request.get_json(silent=True) or {}
+    ticker  = str(body.get("ticker", "")).upper().strip()
+    strike  = body.get("strike")
+    expiry  = body.get("expiry", "")
+    if not ticker or strike is None or not expiry:
+        return jsonify({"error": "ticker, strike, expiry required"}), 400
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO my_trades (ticker, strike, expiry, vol_oi, prem, otm_pct, urgency, signal_detected_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (ticker, strike, expiry) DO NOTHING
+                RETURNING id
+            """, (
+                ticker, strike, expiry,
+                body.get("vol_oi"), body.get("prem"), body.get("otm_pct"),
+                body.get("urgency"), body.get("signal_detected_at"),
+            ))
+            row = cur.fetchone()
+            conn.commit()
+        return jsonify({"ok": True, "created": row is not None})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/my-trades/<int:trade_id>", methods=["PATCH"])
+def update_my_trade(trade_id):
+    """Update entry/exit prices, contracts, notes, and status."""
+    body = request.get_json(silent=True) or {}
+    allowed = ["entry_price", "exit_price", "contracts", "notes", "status"]
+    sets, vals = [], []
+    for k in allowed:
+        if k in body:
+            sets.append(f"{k} = %s")
+            vals.append(body[k])
+    if not sets:
+        return jsonify({"error": "nothing to update"}), 400
+    vals.append(trade_id)
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(f"UPDATE my_trades SET {', '.join(sets)} WHERE id = %s", vals)
+            conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/my-trades/<int:trade_id>", methods=["DELETE"])
+def delete_my_trade(trade_id):
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM my_trades WHERE id = %s", (trade_id,))
+            conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── AI Trade Log — DB-backed track record ────────────────────────────────────
 
 def _init_ai_trade_log_table():

@@ -851,3 +851,57 @@ export function fetchUnusualCallsLog(ticker?: string) {
   const q = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
   return fetchJson<UnusualCallsLogResult>(`/unusual-calls-log${q}`);
 }
+
+export interface MyTrade {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  vol_oi: number | null;
+  prem: number | null;
+  otm_pct: number | null;
+  urgency: string | null;
+  signal_detected_at: string | null;
+  saved_at: string;
+  entry_price: number | null;
+  exit_price: number | null;
+  contracts: number;
+  notes: string | null;
+  status: string;
+}
+
+export interface MyTradesResult {
+  trades: MyTrade[];
+  total: number;
+}
+
+export function fetchMyTrades() {
+  return fetchJson<MyTradesResult>("/my-trades");
+}
+
+export function saveMyTrade(payload: {
+  ticker: string; strike: number; expiry: string;
+  vol_oi?: number; prem?: number; otm_pct?: number;
+  urgency?: string; signal_detected_at?: string;
+}) {
+  return fetchJson<{ ok: boolean; created: boolean }>("/my-trades", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateMyTrade(id: number, payload: {
+  entry_price?: number | null; exit_price?: number | null;
+  contracts?: number; notes?: string; status?: string;
+}) {
+  return fetchJson<{ ok: boolean }>(`/my-trades/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteMyTrade(id: number) {
+  return fetchJson<{ ok: boolean }>(`/my-trades/${id}`, { method: "DELETE" });
+}
