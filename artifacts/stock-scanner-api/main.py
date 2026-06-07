@@ -3923,6 +3923,7 @@ def whale_activity():
                             vol    = int(row.get("volume", 0) or 0)
                             last   = float(row.get("lastPrice", 0) or 0)
                             if strike <= 0 or last <= 0 or vol <= 0: continue
+                            if strike < price * 0.15: continue  # filter micro-strikes (e.g. $0.5 on a $200 stock)
                             prem_m = vol * last * 100 / 1e6
                             if prem_m >= MIN_PREM_M:
                                 otm_pct  = round((strike - price) / price * 100, 1)
