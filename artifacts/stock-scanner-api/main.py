@@ -3746,7 +3746,11 @@ JSON array only. No markdown. Start immediately with ["""
                 "signal_sources": active_sources,
             }), 500
 
-        trades = _json.loads(raw)
+        try:
+            trades = _json.loads(raw)
+        except Exception:
+            from json_repair import repair_json as _rj
+            trades = _json.loads(_rj(raw))
         out = {
             "trades": trades,
             "generated_at": _dt.now().isoformat(),
@@ -4555,7 +4559,11 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         if not raw:
             return jsonify({"error": f"AI returned no content (finish={finish}). Hit Regenerate to try again.", "picks": []}), 500
 
-        picks = _json.loads(raw)
+        try:
+            picks = _json.loads(raw)
+        except Exception:
+            from json_repair import repair_json as _rj
+            picks = _json.loads(_rj(raw))
         out = {
             "picks": picks,
             "generated_at": _dt.now().isoformat(),

@@ -9,3 +9,4 @@ anthropic
 psycopg2-binary
 apscheduler
 pytz
+json-repair
