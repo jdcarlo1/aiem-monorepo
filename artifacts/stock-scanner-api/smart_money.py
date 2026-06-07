@@ -6,20 +6,82 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DEFAULT_LEADERBOARD = [
-    # Mega-cap tech
-    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD",
-    # Finance / banks
-    "JPM", "GS", "MS", "BAC", "WFC", "C", "V", "MA",
-    # Healthcare / biotech
-    "LLY", "UNH", "JNJ", "ABBV", "PFE", "MRK",
-    # Industrials / energy
-    "CAT", "GE", "XOM", "CVX", "BA",
-    # Growth / meme / crypto-adjacent
-    "NFLX", "PLTR", "COIN", "SOFI", "MARA", "RBLX", "HOOD", "UBER",
-    "SMCI", "ARM", "INTC", "MU", "AI",
-    # Others
-    "ORCL", "CRM", "SHOP", "SNOW", "PYPL", "BABA", "RIVN",
-    # ── ETFs ─────────────────────────────────────────────────────────────────
+    # ── Mega-cap tech ─────────────────────────────────────────────────────────
+    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "GOOG", "AMD",
+    # ── Semiconductors ────────────────────────────────────────────────────────
+    "AVGO", "QCOM", "TXN", "INTC", "MU", "AMAT", "LRCX", "KLAC", "MRVL",
+    "MPWR", "ON", "SWKS", "QRVO", "TER", "KEYS", "SMCI", "ARM", "ENTG",
+    "CREE", "WOLF", "MCHP", "STM", "INDI", "ACMR", "COHU", "FORM",
+    # ── Software / Cloud ──────────────────────────────────────────────────────
+    "ADBE", "CRM", "NOW", "INTU", "ORCL", "IBM", "CSCO", "ANET", "FICO",
+    "FISV", "CDNS", "ANSS", "ADSK", "TEAM", "WDAY", "HUBS", "VEEV", "MDB",
+    "DDOG", "NET", "SNOW", "ZS", "OKTA", "CRWD", "PANW", "FTNT", "CTSH",
+    "EPAM", "GDDY", "GEN", "NTAP", "STX", "WDC", "PSTG", "ZBRA", "NTNX",
+    "ZM", "DOCU", "TWLO", "AI", "SHOP", "PYPL", "SOFI", "HOOD", "COIN",
+    # ── Internet / Consumer Tech ──────────────────────────────────────────────
+    "NFLX", "UBER", "ABNB", "BKNG", "EXPE", "DASH", "LYFT", "PINS", "SNAP",
+    "RBLX", "TTWO", "EA", "ROKU", "PLTR", "MSTR", "SQ", "HOOD",
+    # ── Hardware / Other Tech ─────────────────────────────────────────────────
+    "HPQ", "HPE", "DELL", "LOGI", "CDW", "ACN", "JNPR",
+    # ── Finance / Banks ───────────────────────────────────────────────────────
+    "JPM", "GS", "MS", "BAC", "WFC", "C", "V", "MA", "AXP",
+    "BLK", "SCHW", "MCO", "ICE", "CME", "SPGI", "MSCI", "CBOE", "NDAQ",
+    "USB", "PNC", "TFC", "COF", "DFS", "SYF", "ALLY", "RF", "CFG",
+    "KEY", "FITB", "HBAN", "MTB", "BK", "STT", "NTRS",
+    "PGR", "AFL", "MET", "PRU", "AIG", "ALL", "TRV", "HIG", "CB",
+    "MMC", "AON", "RJF", "BR", "BEN", "IVZ", "AMG",
+    # ── Healthcare / Pharma ───────────────────────────────────────────────────
+    "LLY", "UNH", "JNJ", "ABBV", "PFE", "MRK", "BMY", "AMGN", "GILD",
+    "BIIB", "VRTX", "REGN", "MRNA", "TMO", "DHR", "ABT", "MDT", "ISRG",
+    "BSX", "EW", "SYK", "ZBH", "IDXX", "DXCM", "RMD", "ALGN", "HOLX",
+    "IQV", "MTD", "A", "WAT", "CRL", "PODD", "EXAS", "ILMN",
+    "HCA", "CI", "CVS", "ELV", "CNC", "MOH", "HUM", "DGX", "LH",
+    # ── Consumer Staples ──────────────────────────────────────────────────────
+    "PG", "KO", "PEP", "PM", "MO", "COST", "WMT", "TGT", "MDLZ",
+    "STZ", "KHC", "GIS", "K", "SJM", "CAG", "CPB", "HRL", "MKC",
+    "CLX", "EL", "CL", "CHD", "COTY",
+    # ── Consumer Discretionary ────────────────────────────────────────────────
+    "HD", "LOW", "MCD", "SBUX", "NKE", "YUM", "CMG", "DRI",
+    "BURL", "ROST", "TJX", "DG", "DLTR", "FIVE",
+    "F", "GM", "MAR", "HLT", "LVS", "MGM", "WYNN", "CZR",
+    "NVR", "LEN", "DHI", "TOL", "PHM", "MDC",
+    "LULU", "DECK", "CROX", "SKX", "RL", "HAS", "MAT",
+    "GRMN", "POOL", "SWK", "WHR", "MHK", "FBHS",
+    # ── Automotive / EV ───────────────────────────────────────────────────────
+    "RIVN", "LCID", "NIO", "XPEV", "LI", "FSR",
+    # ── Energy ────────────────────────────────────────────────────────────────
+    "XOM", "CVX", "COP", "EOG", "PXD", "OXY", "HES", "DVN", "APA", "MRO",
+    "MPC", "PSX", "VLO", "HAL", "SLB", "BKR", "OIH",
+    "KMI", "WMB", "OKE", "LNG", "FANG",
+    # ── Industrials ───────────────────────────────────────────────────────────
+    "HON", "MMM", "EMR", "ETN", "ITW", "PH", "ROK", "DOV", "GWW",
+    "LMT", "NOC", "RTX", "GD", "TDG", "BA", "HEI", "TXT", "L3H",
+    "UPS", "FDX", "DE", "PCAR", "CMI", "CAT", "GE",
+    "NSC", "UNP", "CSX", "ODFL", "JBHT", "XPO", "CHRW",
+    "WM", "RSG", "CTAS", "ADP", "PAYX", "VRSK", "CPRT", "FAST", "GPC",
+    "ROP", "FTV", "GNRC", "CARR", "OTIS", "AXON", "SNA", "MAS",
+    "LDOS", "SAIC", "TDY", "HII",
+    # ── Materials ─────────────────────────────────────────────────────────────
+    "LIN", "APD", "ECL", "SHW", "PPG", "NEM", "FCX", "NUE", "CLF",
+    "CF", "MOS", "ALB", "LYB", "DD", "DOW", "EMN", "CE",
+    "AVY", "IP", "PKG", "SEE", "AA", "X",
+    # ── Real Estate ───────────────────────────────────────────────────────────
+    "AMT", "PLD", "EQIX", "CCI", "SPG", "WELL", "PSA", "DLR", "VICI",
+    "O", "VTR", "HST", "ARE", "BXP", "EQR", "AVB", "MAA",
+    # ── Utilities ─────────────────────────────────────────────────────────────
+    "NEE", "DUK", "SO", "D", "EXC", "AEP", "XEL", "ES", "ED",
+    "FE", "ETR", "PPL", "AES", "WEC", "DTE", "PEG", "PCG", "SRE",
+    # ── Communication ─────────────────────────────────────────────────────────
+    "DIS", "CMCSA", "CHTR", "TMUS", "T", "VZ", "WBD", "PARA",
+    "LYV", "IPG", "OMC", "FOX", "FOXA",
+    # ── Clean Energy / Solar ──────────────────────────────────────────────────
+    "FSLR", "ENPH", "SEDG", "RUN", "ARRY", "NOVA",
+    # ── Quantum / AI / Space / Speculative ───────────────────────────────────
+    "IONQ", "RGTI", "QBTS", "SOUN", "LUNR", "RKLB", "SPCE",
+    # ── Crypto-adjacent / Meme ───────────────────────────────────────────────
+    "MARA", "RIOT", "CLSK", "HUT", "BTBT", "BRRR",
+    "GME", "AMC", "BBAI",
+    # ── ── ETFs ───────────────────────────────────────────────────────────────
     # Broad market
     "SPY", "QQQ", "IWM", "DIA", "MDY", "VTI", "VOO",
     # 3x Leveraged bull
@@ -49,7 +111,7 @@ DEFAULT_LEADERBOARD = [
     # Thematic / ARK
     "ARKK", "ARKG", "ARKW", "ARKF",
     # Bitcoin spot ETFs
-    "IBIT", "FBTC", "BITB", "ARKB", "HODL", "BTCO", "EZBC", "BTCW", "BRRR",
+    "IBIT", "FBTC", "BITB", "ARKB", "HODL", "BTCO", "EZBC", "BTCW",
     # Bitcoin miner ETF
     "WGMI",
     # Precious metals extras
@@ -57,6 +119,15 @@ DEFAULT_LEADERBOARD = [
     # International financials
     "EUFN",
 ]
+
+# Deduplicate while preserving order
+_seen = set()
+_deduped = []
+for _t in DEFAULT_LEADERBOARD:
+    if _t not in _seen:
+        _seen.add(_t)
+        _deduped.append(_t)
+DEFAULT_LEADERBOARD = _deduped
 
 
 def _f(v, default=0.0):
