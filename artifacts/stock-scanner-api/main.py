@@ -4420,7 +4420,7 @@ def unusual_calls():
                         vol_oi = round(vol / max(oi, 1), 2)
                         if vol_oi < 3.0: continue    # need 3x vol vs OI = new money
                         prem = round(vol * last * 100, 0)
-                        if prem < 500000: continue   # minimum $500K — institutional smart money only
+                        if prem < 25000: continue    # minimum $25K — filters pure retail noise
                         urgency = "EXPIRING" if days_out <= 7 else "NEAR" if days_out <= 14 else "SHORT"
                         hits.append({
                             "ticker":   ticker,
@@ -4469,7 +4469,7 @@ def unusual_calls_log():
                            last_seen  AT TIME ZONE 'UTC' AS last_seen
                     FROM unusual_calls_log
                     WHERE ticker = %s
-                      AND prem >= 500000
+                      AND prem >= 25000
                     ORDER BY first_seen DESC
                     LIMIT 500
                 """, (ticker,))
@@ -4481,7 +4481,7 @@ def unusual_calls_log():
                            first_seen AT TIME ZONE 'UTC' AS first_seen,
                            last_seen  AT TIME ZONE 'UTC' AS last_seen
                     FROM unusual_calls_log
-                    WHERE prem >= 500000
+                    WHERE prem >= 25000
                     ORDER BY first_seen DESC
                     LIMIT 500
                 """)
@@ -4520,7 +4520,7 @@ def ai_short_calls():
                     FROM unusual_calls_log
                     WHERE last_seen >= NOW() - INTERVAL '5 days'
                       AND days_out BETWEEN 1 AND 30
-                      AND prem >= 500000
+                      AND prem >= 25000
                     ORDER BY last_seen DESC, vol_oi DESC
                     LIMIT 25
                 """)
