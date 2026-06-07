@@ -348,6 +348,70 @@ def _save_whale_blocks_to_db(blocks: list):
 _init_whale_blocks_table()
 
 
+def _init_unusual_calls_log_table():
+    sql = """
+    CREATE TABLE IF NOT EXISTS unusual_calls_log (
+        id          SERIAL PRIMARY KEY,
+        ticker      TEXT NOT NULL,
+        price       NUMERIC NOT NULL,
+        strike      NUMERIC NOT NULL,
+        expiry      TEXT NOT NULL,
+        days_out    INTEGER,
+        volume      INTEGER,
+        oi          INTEGER,
+        vol_oi      NUMERIC,
+        prem        BIGINT,
+        otm_pct     NUMERIC,
+        iv          NUMERIC,
+        urgency     TEXT,
+        first_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (ticker, strike, expiry)
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[unusual_calls_log] init table error: {e}")
+
+
+def _save_unusual_calls_to_db(hits: list):
+    if not hits:
+        return
+    sql = """
+    INSERT INTO unusual_calls_log (ticker, price, strike, expiry, days_out, volume, oi, vol_oi, prem, otm_pct, iv, urgency)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (ticker, strike, expiry) DO UPDATE
+        SET price    = EXCLUDED.price,
+            days_out = EXCLUDED.days_out,
+            volume   = EXCLUDED.volume,
+            oi       = EXCLUDED.oi,
+            vol_oi   = EXCLUDED.vol_oi,
+            prem     = EXCLUDED.prem,
+            otm_pct  = EXCLUDED.otm_pct,
+            iv       = EXCLUDED.iv,
+            urgency  = EXCLUDED.urgency,
+            last_seen = NOW();
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            for h in hits:
+                cur.execute(sql, (
+                    h["ticker"], h["price"], h["strike"], h["expiry"],
+                    h["days_out"], h["volume"], h["oi"], h["vol_oi"],
+                    h["prem"], h["otm_pct"], h["iv"], h["urgency"]
+                ))
+            conn.commit()
+        print(f"[unusual_calls_log] saved {len(hits)} signals to DB")
+    except Exception as e:
+        print(f"[unusual_calls_log] save error: {e}")
+
+
+_init_unusual_calls_log_table()
+
+
 # ── AI Trade Log — DB-backed track record ────────────────────────────────────
 
 def _init_ai_trade_log_table():
@@ -4195,7 +4259,47 @@ def unusual_calls():
     out = {"hits": all_hits[:80], "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
     app._unusual_calls_cache    = out
     app._unusual_calls_cache_ts = _dt.now()
+    _save_unusual_calls_to_db(all_hits)
     return jsonify(out)
+
+
+@app.route("/stock-api/unusual-calls-log", methods=["GET"])
+def unusual_calls_log():
+    """Return all-time unusual calls history from DB, newest first."""
+    ticker = request.args.get("ticker", "").upper().strip()
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            if ticker:
+                cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry, days_out,
+                           volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                           iv::float, urgency,
+                           first_seen AT TIME ZONE 'UTC' AS first_seen,
+                           last_seen  AT TIME ZONE 'UTC' AS last_seen
+                    FROM unusual_calls_log
+                    WHERE ticker = %s
+                    ORDER BY first_seen DESC
+                    LIMIT 500
+                """, (ticker,))
+            else:
+                cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry, days_out,
+                           volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                           iv::float, urgency,
+                           first_seen AT TIME ZONE 'UTC' AS first_seen,
+                           last_seen  AT TIME ZONE 'UTC' AS last_seen
+                    FROM unusual_calls_log
+                    ORDER BY first_seen DESC
+                    LIMIT 500
+                """)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for r in rows:
+                if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
+                if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
+        return jsonify({"signals": rows, "total": len(rows)})
+    except Exception as e:
+        return jsonify({"error": str(e), "signals": [], "total": 0}), 500
 
 
 @app.route("/stock-api/healthz", methods=["GET"])

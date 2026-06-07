@@ -836,3 +836,18 @@ export interface UnusualCallsResult {
 export function fetchUnusualCalls() {
   return fetchJson<UnusualCallsResult>("/unusual-calls");
 }
+
+export interface UnusualCallsLogEntry extends UnusualCall {
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface UnusualCallsLogResult {
+  signals: UnusualCallsLogEntry[];
+  total: number;
+}
+
+export function fetchUnusualCallsLog(ticker?: string) {
+  const q = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+  return fetchJson<UnusualCallsLogResult>(`/unusual-calls-log${q}`);
+}
