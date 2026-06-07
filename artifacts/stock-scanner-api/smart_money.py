@@ -35,7 +35,7 @@ DEFAULT_LEADERBOARD = [
     "SDS", "QID", "DXD", "TWM", "SKF", "REW", "SCO", "KOLD",
     "GLL", "ZSL", "DUG", "SRS",
     # Volatility
-    "VXX", "UVXY", "SVXY",
+    "VXX", "UVXY", "SVXY", "VIXY", "SVOL",
     # Sector — SPDR
     "XLF", "XLE", "XLK", "XLY", "XLI", "XLV", "XLB", "XLP", "XLU", "XLRE",
     # Sector — thematic
@@ -48,8 +48,14 @@ DEFAULT_LEADERBOARD = [
     "EEM", "EFA", "FXI", "EWJ", "EWZ", "EWY", "IEMG",
     # Thematic / ARK
     "ARKK", "ARKG", "ARKW", "ARKF",
-    # Crypto-equity
-    "IBIT", "FBTC", "BITB",
+    # Bitcoin spot ETFs
+    "IBIT", "FBTC", "BITB", "ARKB", "HODL", "BTCO", "EZBC", "BTCW", "BRRR",
+    # Bitcoin miner ETF
+    "WGMI",
+    # Precious metals extras
+    "PALL", "PLTM",
+    # International financials
+    "EUFN",
 ]
 
 
