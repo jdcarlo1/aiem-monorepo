@@ -3342,6 +3342,26 @@ def ai_trades():
     except Exception:
         macro_cross_asset = ""
 
+    # 18. Unusual Calls — inject per-ticker best premium entry (highest single-strike premium)
+    uc = getattr(app, "_unusual_calls_cache", None)
+    if uc:
+        active_sources.append("Unusual Call Flow")
+        uc_by_ticker = {}
+        for hit in uc.get("hits", []):
+            t = hit["ticker"]
+            prem = hit.get("prem", 0)
+            if t not in uc_by_ticker or prem > uc_by_ticker[t].get("prem", 0):
+                uc_by_ticker[t] = hit
+        for t, hit in uc_by_ticker.items():
+            if t not in tickers_data:
+                tickers_data[t] = {"ticker": t}
+            _add(t, "uc_prem_m", round(hit["prem"] / 1_000_000, 2))
+            _add(t, "uc_vol_oi", hit.get("vol_oi"))
+            _add(t, "uc_strike", hit.get("strike"))
+            _add(t, "uc_expiry", hit.get("expiry"))
+            _add(t, "uc_otm_pct", hit.get("otm_pct"))
+            _add(t, "uc_urgency", hit.get("urgency"))
+
     # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
     rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
 
@@ -3429,6 +3449,10 @@ def ai_trades():
             parts.append(f"gwall=${v['gamma_wall_strike']}({v.get('gamma_wall_dist_pct',0):+.1f}%)")
         if v.get("dark_pool_prem_m"):
             parts.append(f"dp=${v['dark_pool_prem_m']}M cp={v.get('dark_pool_cp_ratio','?')}")
+        if v.get("uc_prem_m") is not None:
+            pm = v["uc_prem_m"]
+            pm_tag = "WHALE" if pm >= 5 else "INSTITUTIONAL" if pm >= 1 else "NOTABLE"
+            parts.append(f"uc_prem=${pm}M({pm_tag}) uc_vol_oi={v.get('uc_vol_oi','?')}x strike={v.get('uc_strike','?')} exp={v.get('uc_expiry','?')} otm={v.get('uc_otm_pct','?')}%({v.get('uc_urgency','?')})")
         if v.get("top_accum_strike"):
             parts.append(f"topstrike=${v['top_accum_strike']} exp={v.get('top_accum_expiry','?')}")
         if v.get("days_since_earnings") is not None:
@@ -3615,6 +3639,7 @@ def ai_trades():
         "30. TAIL RISK PUT CONCENTRATION: tail_risk_puts is the % of total put volume in deep OTM strikes (>15% below spot). CRASH_HEDGING_ACTIVE(>40%) = institutions are paying for disaster protection, not making directional bets — this is a macro risk-off signal. When tail_risk_puts>30%, do NOT sell premium structures (IRON CONDOR, BULL PUT SPREAD) — institutions may know about an upcoming systemic risk event. The signal does NOT mean the stock will definitely fall; it means smart money is buying insurance at scale.\n"
         "31. IV SKEW PERCENTILE (when available after 30+ days of data): iv_skew_pctl ranks today's IV skew vs the past year for this specific stock. EXTREME_HISTORICAL_FEAR(>=90th percentile) = put premium is at historically extreme levels for this stock — highest edge to SELL PUT SPREADS when bullish, or BUY CALL SPREADS as mean-reversion plays. Below_avg_fear(<=25th percentile) = options are historically cheap — favor LONG options (calls or straddles) over premium selling.\n"
         "32. SHORT INTEREST TREND (when available after 5+ sessions of data): short_trend shows change in short float vs 5 sessions ago. SHORTS_BUILDING(>+1pp) = new bearish institutional conviction entering the stock — validates bearish setups and contradicts bullish flow. SHORTS_COVERING(<-1pp) = short sellers are exiting — potential squeeze trigger forming; combine with squeeze_risk=HIGH or EXTREME for maximum conviction LONG CALL setup (short covering can accelerate a move by 2-3x).\n"
+        "33. UNUSUAL CALL PREMIUM GATE (MANDATORY): Every recommended ticker MUST have a uc_prem signal present in its data AND uc_prem ≥ 0.50M ($500K). Tickers without a uc_prem field, or with uc_prem < 0.50M, must be SKIPPED entirely — no exceptions. This ensures every pick has documented institutional unusual call activity backing it. Prefer picks with uc_prem ≥ 1.0M (INSTITUTIONAL) or ≥ 5.0M (WHALE) when available — these represent the highest-conviction smart money flows. If fewer than 5 tickers meet the $500K threshold, fill remaining slots ONLY from the next-highest uc_prem tickers; do NOT recommend tickers with no unusual call flow.\n"
         "ABSOLUTE MANDATE — ALL 5 SETUPS MUST BE: direction=BULLISH, setup_type=LONG CALL only. No spreads. No puts. No iron condors. No straddles. No neutral. No bearish. Every single output must be a naked long call buy. If you cannot find 5 strong bullish setups, pick the 5 best available bullish signals regardless. Never output anything other than LONG CALL.\n"
         "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."
     )
@@ -3636,6 +3661,7 @@ SIGNAL KEY:
 - vol/oi: call volume-to-open-interest ratio (>2x = concentrated new institutional position)
 - opt_spread: ATM call bid/ask spread % of mid (<5%=liquid, >12%=ILLIQUID_AVOID — do NOT recommend)
 - earn_beat: quarters beat vs missed EPS estimate (3/4 or 4/4 = serial earnings beater)
+- uc_prem: unusual call premium in $M — NOTABLE=<$1M, INSTITUTIONAL=$1-5M, WHALE=$5M+ | uc_vol_oi: vol/OI ratio on the unusual strike
 - mp: max pain & distance | gwall: gamma wall | dp: dark pool premium
 - earnings: next earnings | post_earnings: days since = IV crush window (sell premium while IV deflates)
 - analysts: net upgrades minus downgrades in last 7 days
