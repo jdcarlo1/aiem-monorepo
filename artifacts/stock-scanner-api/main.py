@@ -4385,73 +4385,87 @@ def unusual_calls():
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import yfinance as yf
     from datetime import datetime as _dt
+    import threading
+
+    # Ensure a single scan lock exists
+    if not hasattr(app, "_uc_lock"):
+        app._uc_lock = threading.Lock()
 
     _cache = getattr(app, "_unusual_calls_cache", None)
     _ts    = getattr(app, "_unusual_calls_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:
         return jsonify(_cache)
 
-    now = _dt.now()
+    # Only one scan at a time — concurrent requests block here until the scan
+    # finishes, then the re-check returns the fresh cache instead of re-scanning.
+    with app._uc_lock:
+        # Re-check after acquiring lock — another thread may have just finished
+        _cache = getattr(app, "_unusual_calls_cache", None)
+        _ts    = getattr(app, "_unusual_calls_cache_ts", None)
+        if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:
+            return jsonify(_cache)
 
-    def _scan_unusual(ticker):
-        hits = []
-        try:
-            tkr   = yf.Ticker(ticker)
-            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
-            if price <= 0: return hits
-            exps = tkr.options
-            if not exps: return hits
-            for exp in exps:
-                try:
-                    days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
-                    if not (1 <= days_out <= 30): continue
-                    calls = tkr.option_chain(exp).calls
-                    for _, row in calls.iterrows():
-                        strike = float(row.get("strike", 0) or 0)
-                        vol    = int(row.get("volume", 0) or 0)
-                        oi     = int(row.get("openInterest", 0) or 0)
-                        last   = float(row.get("lastPrice", 0) or 0)
-                        iv     = float(row.get("impliedVolatility", 0) or 0)
-                        if strike <= 0 or last <= 0 or vol < 50: continue
-                        if strike < price * 0.15: continue
-                        pre_otm = (strike - price) / price * 100
-                        if pre_otm < -15: continue   # skip deep ITM — those are hedges
-                        if pre_otm > 50: continue    # skip lottery-ticket far OTM
-                        vol_oi = round(vol / max(oi, 1), 2)
-                        if vol_oi < 3.0: continue    # need 3x vol vs OI = new money
-                        prem = round(vol * last * 100, 0)
-                        if prem < 500000: continue   # minimum $500K — institutional smart money only
-                        urgency = "EXPIRING" if days_out <= 7 else "NEAR" if days_out <= 14 else "SHORT"
-                        hits.append({
-                            "ticker":   ticker,
-                            "price":    round(price, 2),
-                            "strike":   round(strike, 2),
-                            "expiry":   exp,
-                            "days_out": days_out,
-                            "volume":   vol,
-                            "oi":       oi,
-                            "vol_oi":   vol_oi,
-                            "prem":     int(prem),
-                            "otm_pct":  round(pre_otm, 1),
-                            "iv":       round(iv * 100, 1),
-                            "urgency":  urgency,
-                        })
-                except Exception: continue
-        except Exception: pass
-        return hits
+        now = _dt.now()
 
-    all_hits = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_scan_unusual, t): t for t in DEFAULT_LEADERBOARD}
-        for fut in as_completed(futures):
-            all_hits.extend(fut.result() or [])
+        def _scan_unusual(ticker):
+            hits = []
+            try:
+                tkr   = yf.Ticker(ticker)
+                price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+                if price <= 0: return hits
+                exps = tkr.options
+                if not exps: return hits
+                for exp in exps:
+                    try:
+                        days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
+                        if not (1 <= days_out <= 30): continue
+                        calls = tkr.option_chain(exp).calls
+                        for _, row in calls.iterrows():
+                            strike = float(row.get("strike", 0) or 0)
+                            vol    = int(row.get("volume", 0) or 0)
+                            oi     = int(row.get("openInterest", 0) or 0)
+                            last   = float(row.get("lastPrice", 0) or 0)
+                            iv     = float(row.get("impliedVolatility", 0) or 0)
+                            if strike <= 0 or last <= 0 or vol < 50: continue
+                            if strike < price * 0.15: continue
+                            pre_otm = (strike - price) / price * 100
+                            if pre_otm < -15: continue   # skip deep ITM — those are hedges
+                            if pre_otm > 50: continue    # skip lottery-ticket far OTM
+                            vol_oi = round(vol / max(oi, 1), 2)
+                            if vol_oi < 3.0: continue    # need 3x vol vs OI = new money
+                            prem = round(vol * last * 100, 0)
+                            if prem < 500000: continue   # minimum $500K — institutional smart money only
+                            urgency = "EXPIRING" if days_out <= 7 else "NEAR" if days_out <= 14 else "SHORT"
+                            hits.append({
+                                "ticker":   ticker,
+                                "price":    round(price, 2),
+                                "strike":   round(strike, 2),
+                                "expiry":   exp,
+                                "days_out": days_out,
+                                "volume":   vol,
+                                "oi":       oi,
+                                "vol_oi":   vol_oi,
+                                "prem":     int(prem),
+                                "otm_pct":  round(pre_otm, 1),
+                                "iv":       round(iv * 100, 1),
+                                "urgency":  urgency,
+                            })
+                    except Exception: continue
+            except Exception: pass
+            return hits
 
-    all_hits.sort(key=lambda x: x["vol_oi"], reverse=True)
-    out = {"hits": all_hits[:80], "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
-    app._unusual_calls_cache    = out
-    app._unusual_calls_cache_ts = _dt.now()
-    _save_unusual_calls_to_db(all_hits)
-    return jsonify(out)
+        all_hits = []
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futures = {ex.submit(_scan_unusual, t): t for t in DEFAULT_LEADERBOARD}
+            for fut in as_completed(futures):
+                all_hits.extend(fut.result() or [])
+
+        all_hits.sort(key=lambda x: x["vol_oi"], reverse=True)
+        out = {"hits": all_hits[:80], "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
+        app._unusual_calls_cache    = out
+        app._unusual_calls_cache_ts = _dt.now()
+        _save_unusual_calls_to_db(all_hits)
+        return jsonify(out)
 
 
 @app.route("/stock-api/unusual-calls-log", methods=["GET"])
