@@ -20,6 +20,7 @@ import {
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
+  fetchUnusualCalls, UnusualCall,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -2138,6 +2139,178 @@ function InsidersTab() {
           <p className="text-center text-slate-600 text-xs pt-2">
             Data sourced from SEC EDGAR Form 4 filings · Not financial advice
           </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Unusual Calls Tab ---------------------------------------------------
+function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]       = useState<{ hits: UnusualCall[]; total: number; scanned: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved]     = useState<Record<string, boolean>>({});
+  const [filter, setFilter]   = useState<"ALL"|"EXPIRING"|"NEAR"|"SHORT">("ALL");
+
+  useEffect(() => {
+    setLoading(true);
+    fetchUnusualCalls()
+      .then(d => setData(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async (e: React.MouseEvent, h: UnusualCall) => {
+    e.stopPropagation();
+    const key = `${h.ticker}-${h.strike}-${h.expiry}`;
+    try {
+      await addTradeWatchlist({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, option_type: "CALL", notes: `Unusual Call: ${h.vol_oi}x Vol/OI · $${(h.prem/1000).toFixed(0)}k premium` });
+      setSaved(s => ({ ...s, [key]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
+    } catch {}
+  };
+
+  const filtered = (data?.hits ?? []).filter(h => filter === "ALL" || h.urgency === filter);
+
+  const urgencyStyle = (u: string) => {
+    if (u === "EXPIRING") return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 EXPIRING ≤7d" };
+    if (u === "NEAR")     return { color: "#fb923c", bg: "rgba(251,146,60,0.12)",  border: "rgba(251,146,60,0.3)",  label: "🟠 NEAR ≤14d" };
+    return                       { color: "#facc15", bg: "rgba(250,204,21,0.1)",   border: "rgba(250,204,21,0.25)", label: "🟡 SHORT ≤30d" };
+  };
+
+  const volOiBadge = (r: number) => {
+    if (r >= 20) return { color: "#f87171", label: `${r}x 🚨` };
+    if (r >= 10) return { color: "#fb923c", label: `${r}x 🔥` };
+    if (r >= 5)  return { color: "#facc15", label: `${r}x ⚡` };
+    return              { color: "#4ade80", label: `${r}x` };
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🚨 Unusual Calls</h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            Pure bullish calls · Expiring ≤30 days · Vol/OI ≥3x · "Someone knows something"
+            {data ? ` · ${data.scanned} tickers scanned` : " · scanning…"}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {(["ALL","EXPIRING","NEAR","SHORT"] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)} style={{
+              padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "all 0.15s",
+              background: filter === f ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${filter === f ? "rgba(248,113,113,0.4)" : "rgba(255,255,255,0.1)"}`,
+              color: filter === f ? "#f87171" : "#64748b",
+            }}>{f}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Stats row */}
+      {data && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 24 }}>
+          {[
+            { label: "Unusual Signals Found", val: data.total,                                                  color: "#f87171" },
+            { label: "Expiring ≤7 Days",       val: data.hits.filter(h => h.urgency === "EXPIRING").length,     color: "#fb923c" },
+            { label: "Vol/OI ≥10x (Extreme)",  val: data.hits.filter(h => h.vol_oi >= 10).length,              color: "#facc15" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "16px 20px", textAlign: "center" }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 28, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Legend */}
+      <div style={{ background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.15)", borderRadius: 12, padding: "12px 18px", marginBottom: 20,
+        fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.7 }}>
+        <span style={{ color: "#f87171", fontWeight: 700 }}>How to read: </span>
+        Vol/OI = today's volume ÷ existing open interest. A ratio ≥3x means more contracts traded today than exist in the market — someone is aggressively opening <em>new</em> positions.
+        Only OTM/slightly-ITM calls (not deep ITM hedges) · ≤30 day expiry = high conviction, short timeframe.
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+            {[0,1,2].map(i => (
+              <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#f87171", display: "inline-block",
+                animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />
+            ))}
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>Scanning all tickers for unusual near-term call activity… ~30s</p>
+        </div>
+      )}
+
+      {/* Empty */}
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🚨</div>
+          <p style={{ fontFamily: BB_F, color: "#475569" }}>No unusual call activity detected right now. Markets may be quiet — check back after open.</p>
+        </div>
+      )}
+
+      {/* Hits list */}
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((h, i) => {
+            const urg  = urgencyStyle(h.urgency);
+            const voib = volOiBadge(h.vol_oi);
+            const key  = `${h.ticker}-${h.strike}-${h.expiry}`;
+            const premK = h.prem >= 1_000_000 ? `$${(h.prem/1_000_000).toFixed(1)}M` : `$${(h.prem/1000).toFixed(0)}k`;
+            const otmLabel = h.otm_pct > 0 ? `+${h.otm_pct}% OTM` : h.otm_pct < 0 ? `${Math.abs(h.otm_pct)}% ITM` : "ATM";
+            return (
+              <div key={i} onClick={() => onSelectTicker(h.ticker)} style={{
+                background: "rgba(255,255,255,0.025)", border: `1px solid ${i < 3 ? urg.border : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 18, padding: "16px 20px", display: "flex", alignItems: "center",
+                justifyContent: "space-between", gap: 16, flexWrap: "wrap", cursor: "pointer",
+                transition: "background 0.15s",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.025)")}
+              >
+                {/* Left */}
+                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#334155", fontSize: 16, minWidth: 28 }}>#{i+1}</span>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>{h.ticker}</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${h.price.toFixed(2)}</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                        background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>CALL</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                        background: urg.bg, color: urg.color, border: `1px solid ${urg.border}` }}>{urg.label}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${h.strike} strike</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>exp {h.expiry}</span>
+                      <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11 }}>{otmLabel}</span>
+                      {h.iv > 0 && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>IV {h.iv}%</span>}
+                    </div>
+                  </div>
+                </div>
+                {/* Right */}
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, letterSpacing: "-0.04em", marginBottom: 2, color: voib.color }}>
+                    {voib.label}
+                  </div>
+                  <div style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11, marginBottom: 1 }}>Vol/OI ratio</div>
+                  <div style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>{premK} premium</div>
+                  <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{h.volume.toLocaleString()} vol · {h.oi.toLocaleString()} OI · {h.days_out}d left</div>
+                  <button onClick={e => handleSave(e, h)} style={{ marginTop: 8, padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.2s",
+                    background: saved[key] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                    borderColor: saved[key] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                    color: saved[key] ? "#4ade80" : "#64748b" }}>
+                    {saved[key] ? "✓ Saved" : "📌 Save"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -4873,7 +5046,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"whale"|"whalelog"|"watchlist">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"whale"|"whalelog"|"watchlist"|"unusualcalls">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -4995,6 +5168,7 @@ export default function Dashboard() {
     { id: "whale",        label: "🐋 WHALE ACTIVITY" },
     { id: "whalelog",    label: "📋 WHALE LOG" },
     { id: "watchlist",   label: "📌 MY WATCHLIST" },
+    { id: "unusualcalls", label: "🚨 UNUSUAL CALLS" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -5573,6 +5747,7 @@ export default function Dashboard() {
         {tab === "whale"    && <WhaleActivityTab />}
         {tab === "whalelog" && <WhaleLogTab />}
         {tab === "watchlist" && <TradeWatchlistTab />}
+        {tab === "unusualcalls" && <UnusualCallsTab onSelectTicker={selectTicker} />}
 
       </div>
       </main>

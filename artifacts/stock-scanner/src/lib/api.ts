@@ -811,3 +811,28 @@ export function addTradeWatchlist(payload: {
 export function deleteTradeWatchlist(id: number) {
   return fetchJson<{ ok: boolean }>(`/trade-watchlist/${id}`, { method: "DELETE" });
 }
+
+export interface UnusualCall {
+  ticker: string;
+  price: number;
+  strike: number;
+  expiry: string;
+  days_out: number;
+  volume: number;
+  oi: number;
+  vol_oi: number;
+  prem: number;
+  otm_pct: number;
+  iv: number;
+  urgency: "EXPIRING" | "NEAR" | "SHORT";
+}
+
+export interface UnusualCallsResult {
+  hits: UnusualCall[];
+  total: number;
+  scanned: number;
+}
+
+export function fetchUnusualCalls() {
+  return fetchJson<UnusualCallsResult>("/unusual-calls");
+}
