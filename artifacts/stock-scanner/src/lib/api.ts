@@ -747,6 +747,22 @@ export function fetchConvictionCalls() {
   return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string; error?: string }>("/conviction-calls");
 }
 
+export interface EodSweepStrike {
+  ticker: string; price: number; strike: number; expiry: string;
+  days_out: number; vol_oi: number; prem: number; otm_pct: number;
+  iv: number; urgency: string; detected_at: string; minutes_to_close: number;
+}
+export interface EodSweepSignal {
+  ticker: string; price: number; score: number; grade: string;
+  rank: number; num_strikes: number; total_prem_m: number;
+  max_vol_oi: number; avg_iv: number; latest_at: string;
+  minutes_to_close: number; urgency: string;
+  strikes: EodSweepStrike[];
+}
+export function fetchEodSweeps() {
+  return fetchJson<{ signals: EodSweepSignal[]; generated_at: string; total: number; note?: string }>("/eod-sweeps");
+}
+
 export interface SignalEvent {
   ticker: string; price: number; type: string;
   icon: string; color: string; msg: string;

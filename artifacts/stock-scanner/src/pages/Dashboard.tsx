@@ -20,6 +20,7 @@ import {
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
   fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
   fetchConvictionCalls, ConvictionCallSignal, ConvictionCallStrike,
+  fetchEodSweeps, EodSweepSignal, EodSweepStrike,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
@@ -6244,6 +6245,165 @@ function WhaleLogTab() {
 }
 
 
+// ---- EOD Institutional Sweep Tab ------------------------------------------
+function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [data, setData]         = useState<{ signals: EodSweepSignal[]; generated_at: string; total: number; note?: string } | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try { setData(await fetchEodSweeps()); }
+    catch (e: any) { setError(e.message ?? "Failed to load"); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const convColor = (c: string) => {
+    if (c === "EXTREME") return "#ff4444";
+    if (c === "HIGH")    return "#fbbf24";
+    if (c === "ELEVATED") return "#22c55e";
+    return "#64748b";
+  };
+  const convBg = (c: string) => {
+    if (c === "EXTREME")  return "rgba(255,68,68,0.12)";
+    if (c === "HIGH")     return "rgba(251,191,36,0.12)";
+    if (c === "ELEVATED") return "rgba(34,197,94,0.08)";
+    return "rgba(100,116,139,0.08)";
+  };
+
+  const fmtTime = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/New_York" }) + " ET";
+    } catch { return iso; }
+  };
+  const fmtPrem = (p: number) => p >= 1 ? `$${p.toFixed(1)}M` : `$${(p * 1000).toFixed(0)}K`;
+  const signals = data?.signals ?? [];
+
+  return (
+    <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.15em", color: "#fbbf24" }}>🌙 EOD HIGH CONVICTION</div>
+          <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2, letterSpacing: "0.08em" }}>
+            Aggressive naked calls placed 3:00–4:15 PM ET · Institutions positioning for next day · ≤15d expiry · OTM only
+          </div>
+        </div>
+        <button onClick={load} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
+          {loading ? "SCANNING…" : "↻ REFRESH"}
+        </button>
+      </div>
+
+      {/* Score legend — same as morning HIGH CONVICTION */}
+      <div style={{ background: "#0a0a0a", border: "1px solid #1e293b", padding: "8px 14px", marginBottom: 16, display: "flex", gap: 20, flexWrap: "wrap" }}>
+        <span style={{ color: "#ff4444", fontSize: 9, fontWeight: 700 }}>🔥 EXTREME score ≥12</span>
+        <span style={{ color: "#fbbf24", fontSize: 9, fontWeight: 700 }}>⚡ HIGH score ≥7</span>
+        <span style={{ color: "#22c55e", fontSize: 9, fontWeight: 700 }}>✓ ELEVATED score ≥4</span>
+        <span style={{ color: BB_LABEL, fontSize: 9 }}>Power hour bonus: detected in last 30 min = 2× score multiplier</span>
+      </div>
+
+      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
+
+      {loading && (
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 40 }}>SCANNING FOR EOD HIGH-CONVICTION SWEEPS…</div>
+      )}
+
+      {!loading && data?.note && signals.length === 0 && (
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 36, lineHeight: 1.9 }}>
+          {data.note}
+          <br /><span style={{ fontSize: 9, color: "#334155" }}>Scheduled scans run at 3:30 PM, 4:00 PM, 4:05 PM and 4:15 PM ET weekdays.</span>
+        </div>
+      )}
+
+      {!loading && signals.map(sig => (
+        <div key={sig.ticker} style={{ background: BB_PANEL, border: `1px solid ${expanded === sig.ticker ? convColor(sig.grade) : BB_BORDER}`, marginBottom: 10, transition: "border-color 0.2s" }}>
+          {/* Main row */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer" }}
+               onClick={() => setExpanded(expanded === sig.ticker ? null : sig.ticker)}>
+
+            {/* Rank + conviction */}
+            <div style={{ textAlign: "center", minWidth: 36 }}>
+              <div style={{ color: BB_LABEL, fontSize: 8 }}>#{sig.rank}</div>
+              <div style={{ background: convBg(sig.grade), color: convColor(sig.grade), fontSize: 8, fontWeight: 900, padding: "2px 5px", marginTop: 2, letterSpacing: "0.05em" }}>{sig.grade}</div>
+            </div>
+
+            {/* Ticker + stats */}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span
+                  style={{ color: BB_WHITE, fontWeight: 900, fontSize: 16, cursor: "pointer" }}
+                  onClick={e => { e.stopPropagation(); onSelectTicker(sig.ticker); }}
+                >{sig.ticker}</span>
+                <span style={{ color: BB_LABEL, fontSize: 10 }}>${sig.price.toFixed(2)}</span>
+                <span style={{ background: sig.minutes_to_close <= 30 ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.1)", color: sig.minutes_to_close <= 30 ? BB_RED : "#fbbf24", fontSize: 8, fontWeight: 700, padding: "2px 7px" }}>
+                  {sig.minutes_to_close <= 0 ? "AT CLOSE" : sig.minutes_to_close <= 30 ? `🔥 ${sig.minutes_to_close}min to close` : `${sig.minutes_to_close}min to close`}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Strikes: <span style={{ color: sig.num_strikes >= 2 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.num_strikes} sweeping</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>EOD prem: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{fmtPrem(sig.total_prem_m)}</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Max Vol/OI: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{sig.max_vol_oi.toFixed(0)}x</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Avg IV: <span style={{ color: sig.avg_iv >= 80 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.avg_iv.toFixed(0)}%</span></span>
+                <span style={{ color: "#64748b", fontSize: 9 }}>Detected {fmtTime(sig.latest_at)}</span>
+              </div>
+            </div>
+
+            {/* Score */}
+            <div style={{ textAlign: "right" }}>
+              <div style={{ color: BB_LABEL, fontSize: 8, marginBottom: 2 }}>SCORE</div>
+              <div style={{ color: convColor(sig.grade), fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{sig.score.toFixed(1)}</div>
+            </div>
+
+            <span style={{ color: BB_LABEL, fontSize: 12 }}>{expanded === sig.ticker ? "▲" : "▼"}</span>
+          </div>
+
+          {/* Expanded strikes */}
+          {expanded === sig.ticker && (
+            <div style={{ borderTop: `1px solid ${BB_BORDER}`, padding: "12px 16px" }}>
+              <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 10 }}>
+                {sig.num_strikes} STRIKE{sig.num_strikes > 1 ? "S" : ""} IN EOD WINDOW · INSTITUTIONAL NEXT-DAY POSITIONING
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {sig.strikes.map((s, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#0a0a0a", padding: "8px 12px", border: `1px solid ${i === 0 ? convColor(sig.grade) + "44" : BB_BORDER}` }}>
+                    {i === 0 && <span style={{ color: convColor(sig.grade), fontSize: 8, fontWeight: 900 }}>▶</span>}
+                    {i > 0  && <span style={{ color: BB_LABEL, fontSize: 8 }}>{i + 1}</span>}
+                    <span style={{ color: BB_WHITE, fontWeight: 700, fontSize: 11, minWidth: 70 }}>${s.strike}C</span>
+                    <span style={{ color: BB_LABEL, fontSize: 9, minWidth: 70 }}>{s.expiry} ({s.days_out}d)</span>
+                    <span style={{ color: BB_GREEN, fontSize: 9, fontWeight: 700, minWidth: 55 }}>{s.vol_oi.toFixed(0)}x V/OI</span>
+                    <span style={{ color: BB_WHITE, fontSize: 9, minWidth: 55 }}>${(s.prem / 1_000_000).toFixed(2)}M</span>
+                    <span style={{ color: s.otm_pct > 0 ? BB_LABEL : "#fbbf24", fontSize: 9 }}>{s.otm_pct > 0 ? "+" : ""}{s.otm_pct.toFixed(1)}% OTM</span>
+                    <span style={{ color: s.iv >= 80 ? "#ff4444" : BB_LABEL, fontSize: 9 }}>IV {s.iv.toFixed(0)}%</span>
+                    <span style={{ color: "#64748b", fontSize: 8 }}>{fmtTime(s.detected_at)}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 10, background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.15)", padding: "8px 12px" }}>
+                <div style={{ color: "#fbbf24", fontSize: 8, fontWeight: 900, letterSpacing: "0.08em", marginBottom: 3 }}>📋 NEXT DAY PLAY</div>
+                <div style={{ color: BB_LABEL, fontSize: 9, lineHeight: 1.6 }}>
+                  Institution placed <span style={{ color: BB_WHITE }}>{fmtPrem(sig.total_prem_m)}</span> in {sig.ticker} calls expiring in {sig.strikes[0]?.days_out ?? "?"} days — right before close.
+                  {sig.num_strikes >= 2 ? ` Multi-strike sweep (${sig.num_strikes} strikes) = strongest conviction signal.` : " Watch for follow-through at tomorrow's open."}
+                  {" "}Target: stock above ${sig.strikes[0]?.strike ?? "?"} by expiry.
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {data && signals.length > 0 && (
+        <div style={{ color: BB_LABEL, fontSize: 8, textAlign: "center", marginTop: 12 }}>
+          {data.total} EOD setups · Generated {new Date(data.generated_at).toLocaleTimeString()} · Refreshes every 15 min · Data from last 2 days of close scans
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ---- High Conviction Calls Tab --------------------------------------------
 function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData]       = useState<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string } | null>(null);
@@ -8863,7 +9023,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -8988,6 +9148,7 @@ export default function Dashboard() {
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
     { id: "convictioncalls", label: "🔥 HIGH CONVICTION" },
+    { id: "eodsweep",        label: "🌙 EOD SWEEP" },
     { id: "mytrades",        label: "📈 MY TRADES" },
     { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
     { id: "shortcallrecord", label: "📋 SHORT CALLS RECORD" },
@@ -9584,6 +9745,7 @@ export default function Dashboard() {
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
         {tab === "convictioncalls" && <ConvictionCallsTab onSelectTicker={selectTicker} />}
+        {tab === "eodsweep"        && <EodSweepTab       onSelectTicker={selectTicker} />}
         {tab === "mytrades"        && <MyTradesTab />}
         {tab === "aishortcalls"    && <AIShortCallsTab />}
         {tab === "shortcallrecord" && <ShortCallRecordTab />}

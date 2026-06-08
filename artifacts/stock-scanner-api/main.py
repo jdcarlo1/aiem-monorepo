@@ -5515,6 +5515,133 @@ def unusual_calls_log():
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
 
 
+@app.route("/stock-api/eod-sweeps", methods=["GET"])
+def eod_sweeps():
+    """
+    End-of-day institutional sweep detector.
+    Finds aggressive bullish naked calls placed in the last 90 min of trading
+    (3:00–4:30 PM ET = 19:00–20:30 UTC) — signals institutions positioning for next day.
+    """
+    import math as _math
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+
+    _cache = getattr(app, "_eod_sweeps_cache", None)
+    _ts    = getattr(app, "_eod_sweeps_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:
+        return jsonify(_cache)
+
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, price::float, strike::float, expiry, days_out,
+                       vol_oi::float, prem::bigint, otm_pct::float, iv::float,
+                       urgency, last_seen
+                FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '2 days'
+                  AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 19 AND 20
+                  AND days_out BETWEEN 1 AND 15
+                  AND vol_oi  >= 5
+                  AND prem    >= 300000
+                  AND otm_pct BETWEEN -2 AND 25
+                  AND strike  >= price * 0.97
+                ORDER BY last_seen DESC, vol_oi DESC
+            """)
+            cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+        if not rows:
+            out = {"signals": [], "generated_at": _dt.now().isoformat(), "total": 0,
+                   "note": "No EOD sweeps found in the last 2 days. Run a scan at market close (3:30–4:15 PM ET) to capture institutional positioning."}
+            return jsonify(out)
+
+        from collections import defaultdict as _dd
+        by_ticker = _dd(list)
+        for r in rows:
+            by_ticker[r["ticker"]].append(r)
+
+        results = []
+        for ticker, strikes in by_ticker.items():
+            num_strikes  = len(strikes)
+            total_prem   = sum(s["prem"] for s in strikes)
+            max_vol_oi   = max(s["vol_oi"] for s in strikes)
+            avg_iv       = sum(s["iv"] or 0 for s in strikes) / num_strikes
+            best         = max(strikes, key=lambda s: s["vol_oi"])
+            price        = best["price"]
+
+            # How late was the latest detection? Closer to 4 PM ET = higher bonus
+            # last_seen is stored as UTC; 4 PM ET = 20:00 UTC
+            latest_ts = max(s["last_seen"] for s in strikes)
+            if hasattr(latest_ts, "hour"):
+                hour_utc = latest_ts.hour + latest_ts.minute / 60.0
+            else:
+                try:
+                    from dateutil import parser as _dp
+                    _dt_obj = _dp.parse(str(latest_ts))
+                    hour_utc = _dt_obj.hour + _dt_obj.minute / 60.0
+                except Exception:
+                    hour_utc = 19.5
+            # Minutes before 4 PM ET close (20:00 UTC); earlier = more time to close
+            minutes_to_close = max(0, (20.0 - hour_utc) * 60)
+            # Late bonus: detected within 30 min of close gets 2.0x, 60 min = 1.5x, 90 min = 1.0x
+            late_bonus = 2.0 if minutes_to_close <= 30 else 1.5 if minutes_to_close <= 60 else 1.0
+
+            # Scoring
+            vol_oi_factor = _math.log1p(max_vol_oi) / _math.log1p(5)
+            prem_factor   = _math.log1p(total_prem / 1_000_000) / _math.log1p(1)
+            iv_bonus      = 1.8 if avg_iv >= 90 else 1.5 if avg_iv >= 70 else 1.2 if avg_iv >= 50 else 1.0
+            sweep_mult    = 1.0 + 0.4 * (num_strikes - 1)
+            score         = round(vol_oi_factor * prem_factor * iv_bonus * sweep_mult * late_bonus, 1)
+
+            grade = "EXTREME" if score >= 12 else "HIGH" if score >= 7 else "ELEVATED" if score >= 4 else "MODERATE"
+
+            urgency_rank = {"EXPIRING": 3, "SHORT": 2, "NEAR": 1}.get(best["urgency"], 1)
+
+            results.append({
+                "ticker":          ticker,
+                "price":           round(price, 2),
+                "score":           score,
+                "grade":           grade,
+                "num_strikes":     num_strikes,
+                "total_prem_m":    round(total_prem / 1_000_000, 2),
+                "max_vol_oi":      round(max_vol_oi, 1),
+                "avg_iv":          round(avg_iv, 1),
+                "latest_at":       str(latest_ts),
+                "minutes_to_close": round(minutes_to_close, 0),
+                "urgency":         best["urgency"],
+                "strikes": [
+                    {
+                        "ticker":           ticker,
+                        "price":            round(s["price"], 2),
+                        "strike":           float(s["strike"]),
+                        "expiry":           str(s["expiry"]),
+                        "days_out":         s["days_out"],
+                        "vol_oi":           round(s["vol_oi"], 1),
+                        "prem":             s["prem"],
+                        "otm_pct":          round(s["otm_pct"], 1),
+                        "iv":               round(s["iv"] or 0, 1),
+                        "urgency":          s["urgency"],
+                        "detected_at":      str(s["last_seen"]),
+                        "minutes_to_close": round(minutes_to_close, 0),
+                    }
+                    for s in sorted(strikes, key=lambda x: x["vol_oi"], reverse=True)
+                ],
+            })
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+        for i, r in enumerate(results):
+            r["rank"] = i + 1
+
+        out = {"signals": results, "generated_at": _dt.now().isoformat(), "total": len(results)}
+        app._eod_sweeps_cache    = out
+        app._eod_sweeps_cache_ts = _dt.now()
+        return jsonify(out)
+
+    except Exception as e:
+        import traceback
+        print(f"[eod_sweeps] error: {e}\n{traceback.format_exc()}", file=__import__("sys").stderr)
+        return jsonify({"error": str(e), "signals": []}), 500
+
+
 @app.route("/stock-api/conviction-calls", methods=["GET"])
 def conviction_calls():
     """
