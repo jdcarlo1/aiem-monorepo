@@ -5308,7 +5308,7 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
 
 @app.route("/stock-api/multi-signal", methods=["GET"])
 def multi_signal_convergence():
-    """Multi-signal convergence scanner — checks every ticker against all signal conditions."""
+    """Multi-signal convergence scanner — 17 signal conditions including cross-referenced caches."""
     import yfinance as yf
     from datetime import datetime as _ms_dt
 
@@ -5318,15 +5318,70 @@ def multi_signal_convergence():
         return jsonify(_cache)
 
     SIGNAL_DEFS = [
-        ("VOLUME_SURGE",       "🔥 Volume Surge",      "Relative volume ≥ 3× average"),
-        ("MORNING_RUNNER",     "🌅 Morning Runner",    "Gap up + vol ≥ 1.8× on the day"),
-        ("NEAR_52WK_HIGH",     "📈 Near 52wk High",    "Within 3% of 52-week high"),
-        ("ABOVE_52WK_HIGH",    "🚀 New 52wk High",     "Price above 52-week high"),
-        ("MOMENTUM",           "⚡ Momentum",          "Day change ≥ 3%"),
-        ("BIG_MOVE",           "💥 Big Move",          "Day change ≥ 5%"),
-        ("MICRO_SQUEEZE",      "💎 Micro Squeeze",     "Market cap < $300M + rel vol ≥ 2×"),
-        ("SECTOR_STRENGTH",    "💪 Sector Strength",   "Day ≥ 2% + rel vol ≥ 1.5×"),
+        # ── Quant / price-action signals (computed live) ──────────────────
+        ("VOLUME_SURGE",       "🔥 Volume Surge",        "Relative volume ≥ 3× average"),
+        ("MORNING_RUNNER",     "🌅 Morning Runner",      "Gap up + rel vol ≥ 1.8× on the day"),
+        ("NEAR_52WK_HIGH",     "📈 Near 52wk High",      "Within 3% of 52-week high"),
+        ("ABOVE_52WK_HIGH",    "🚀 New 52wk High",       "Price currently above 52-week high"),
+        ("MOMENTUM",           "⚡ Momentum",            "Day change ≥ 3%"),
+        ("BIG_MOVE",           "💥 Big Move",            "Day change ≥ 5%"),
+        ("MICRO_SQUEEZE",      "💎 Micro Squeeze",       "Market cap < $300M + rel vol ≥ 2×"),
+        ("SECTOR_STRENGTH",    "💪 Sector Strength",     "Up ≥ 2% with rel vol ≥ 1.5×"),
+        # ── Cross-referenced from real signal caches ──────────────────────
+        ("DARK_POOL_HIT",      "🌑 Dark Pool",           "Appeared in dark pool scanner today"),
+        ("UNUSUAL_CALLS",      "🎯 Unusual Calls",       "Flagged in unusual options call activity"),
+        ("SQUEEZE_SETUP",      "💥 Squeeze Setup",       "Flagged by squeeze / low-float scanner"),
+        ("MORNING_SCAN",       "🌅 Morning Scan Hit",    "Appeared in morning runners scanner"),
+        ("BULL_FLOW",          "📈 Bull Flow",           "In the bull flow top signals today"),
+        ("WHALE_ACTIVITY",     "🐋 Whale Activity",      "Whale block trade detected"),
+        ("AI_TRADE_SIGNAL",    "🤖 AI Trade Signal",     "AI Trade tab selected this ticker today"),
+        ("CHEAP_OPTIONS",      "💰 Cheap Options",       "IV rank < 20 — options priced below historical avg"),
+        ("HIGH_QUANT_SCORE",   "🏆 High Quant Score",   "Composite quant score in top 20 of universe"),
+        ("GAMMA_WALL",         "🧲 Gamma Wall",          "Near/above gamma wall — dealer buying amplifies move"),
+        ("VOL_CRUSH_SETUP",    "📉 Vol Crush Setup",     "Inflated IV ahead of catalyst — market pricing in big move"),
+        ("MAX_PAIN_PULL",      "⚡ Max Pain Pull",       "Price below max pain — MM pressure targets upside"),
+        ("CALL_INTENT_HIGH",   "🎯 Call Intent",         "High call OI / unusual call intent detected"),
     ]
+
+    # ── Build ticker sets from existing caches (read-only, safe) ─────────
+    def _get_tickers(cache_attr, *keys):
+        data = getattr(app, cache_attr, None) or {}
+        for k in keys:
+            items = data.get(k)
+            if items:
+                return set(r.get("ticker", "") for r in items if r.get("ticker"))
+        return set()
+
+    dp_tickers       = _get_tickers("_dp_cache",             "results")
+    uc_tickers       = _get_tickers("_unusual_calls_cache",  "hits", "results")
+    mr_tickers       = _get_tickers("_mr_cache",             "runners", "results")
+    sq_tickers       = _get_tickers("_sq_cache",             "results", "hits")
+    bf_tickers       = _get_tickers("_bf_cache",             "results", "top10")
+    whale_tickers    = _get_tickers("_whale_cache",          "blocks", "results")
+    ait_tickers      = _get_tickers("_ait_cache",            "picks", "results")
+    cheap_iv_tickers = set(
+        r.get("ticker", "") for r in (getattr(app, "_ivs_cache", None) or {}).get("rows", [])
+        if r.get("setup") == "CHEAP_OPTIONS" and r.get("ticker")
+    )
+    cs_rows          = sorted(
+        (getattr(app, "_cs_cache", None) or {}).get("results", []),
+        key=lambda x: x.get("score", 0), reverse=True
+    )
+    high_quant_tickers = set(r.get("ticker", "") for r in cs_rows[:25] if r.get("ticker"))
+    gw_tickers       = _get_tickers("_gw_cache",             "results")
+    vc_tickers       = _get_tickers("_vc_cache",             "results")
+    oi_tickers       = _get_tickers("_oi_cache",             "results")
+    mp_map           = {r["ticker"]: r["max_pain"] for r in (getattr(app, "_mp_cache", None) or {}).get("results", []) if r.get("ticker") and r.get("max_pain")}
+
+    # ── Get sector rotation context ───────────────────────────────────────
+    sr_data = getattr(app, "_sr_cache", None) or {}
+    sectors = sr_data.get("sectors", [])
+    top_sector    = sectors[0]  if sectors else None
+    bottom_sector = sectors[-1] if len(sectors) > 1 else None
+    sector_context = {
+        "top":    {"ticker": top_sector["ticker"],    "name": top_sector["name"],    "day_chg": top_sector["day_chg"],    "flow": top_sector["flow"]}    if top_sector    else None,
+        "bottom": {"ticker": bottom_sector["ticker"], "name": bottom_sector["name"], "day_chg": bottom_sector["day_chg"], "flow": bottom_sector["flow"]} if bottom_sector else None,
+    }
 
     results = []
 
@@ -5348,6 +5403,7 @@ def multi_signal_convergence():
             pct_from_high = round((price - high52) / high52 * 100, 2) if high52 > 0 else -100
 
             fired = []
+            # ── Live quant checks ─────────────────────────────────────────
             if rel_vol >= 3.0:
                 fired.append("VOLUME_SURGE")
             if rel_vol >= 1.8 and 1.0 <= day_chg <= 25:
@@ -5364,19 +5420,35 @@ def multi_signal_convergence():
                 fired.append("MICRO_SQUEEZE")
             if day_chg >= 2.0 and rel_vol >= 1.5:
                 fired.append("SECTOR_STRENGTH")
+            # ── Cross-reference existing signal caches ────────────────────
+            if ticker in dp_tickers:           fired.append("DARK_POOL_HIT")
+            if ticker in uc_tickers:           fired.append("UNUSUAL_CALLS")
+            if ticker in sq_tickers:           fired.append("SQUEEZE_SETUP")
+            if ticker in mr_tickers:           fired.append("MORNING_SCAN")
+            if ticker in bf_tickers:           fired.append("BULL_FLOW")
+            if ticker in whale_tickers:        fired.append("WHALE_ACTIVITY")
+            if ticker in ait_tickers:          fired.append("AI_TRADE_SIGNAL")
+            if ticker in cheap_iv_tickers:     fired.append("CHEAP_OPTIONS")
+            if ticker in high_quant_tickers:   fired.append("HIGH_QUANT_SCORE")
+            if ticker in gw_tickers:           fired.append("GAMMA_WALL")
+            if ticker in vc_tickers:           fired.append("VOL_CRUSH_SETUP")
+            if ticker in oi_tickers:           fired.append("CALL_INTENT_HIGH")
+            mp_level = mp_map.get(ticker)
+            if mp_level and price > 0 and price < mp_level:
+                fired.append("MAX_PAIN_PULL")
 
             if len(fired) < 2:
                 return None
 
             return {
-                "ticker":    ticker,
-                "price":     round(price, 2),
-                "day_chg":   day_chg,
-                "rel_vol":   rel_vol,
+                "ticker":        ticker,
+                "price":         round(price, 2),
+                "day_chg":       day_chg,
+                "rel_vol":       rel_vol,
                 "pct_from_high": pct_from_high,
-                "mkt_cap_b": round(mkt_cap / 1e9, 2) if mkt_cap else None,
-                "signals":   fired,
-                "score":     len(fired),
+                "mkt_cap_b":     round(mkt_cap / 1e9, 2) if mkt_cap else None,
+                "signals":       fired,
+                "score":         len(fired),
             }
         except Exception:
             return None
@@ -5391,10 +5463,27 @@ def multi_signal_convergence():
     results.sort(key=lambda x: (x["score"], x["rel_vol"]), reverse=True)
     signal_defs_map = {s[0]: {"id": s[0], "label": s[1], "desc": s[2]} for s in SIGNAL_DEFS}
     out = {
-        "hits":        results[:35],
-        "total":       len(results),
-        "scanned":     len(DEFAULT_LEADERBOARD),
-        "signal_defs": signal_defs_map,
+        "hits":           results[:40],
+        "total":          len(results),
+        "scanned":        len(DEFAULT_LEADERBOARD),
+        "signal_defs":    signal_defs_map,
+        "max_signals":    len(SIGNAL_DEFS),
+        "sector_context": sector_context,
+        "cache_status": {
+            "dark_pool":       len(dp_tickers),
+            "unusual_calls":   len(uc_tickers),
+            "morning_runners": len(mr_tickers),
+            "squeeze":         len(sq_tickers),
+            "bull_flow":       len(bf_tickers),
+            "whale":           len(whale_tickers),
+            "ai_trades":       len(ait_tickers),
+            "cheap_iv":        len(cheap_iv_tickers),
+            "quant_score":     len(high_quant_tickers),
+            "gamma_wall":      len(gw_tickers),
+            "vol_crush":       len(vc_tickers),
+            "call_intent":     len(oi_tickers),
+            "max_pain":        len(mp_map),
+        },
     }
     app._ms_cache    = out
     app._ms_cache_ts = _ms_dt.now()

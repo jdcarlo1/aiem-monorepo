@@ -892,7 +892,13 @@ export function fetchMultiSignal() {
     hits: MultiSignalRow[];
     total: number;
     scanned: number;
+    max_signals: number;
     signal_defs: Record<string, SignalDef>;
+    sector_context: {
+      top:    { ticker: string; name: string; day_chg: number; flow: string } | null;
+      bottom: { ticker: string; name: string; day_chg: number; flow: string } | null;
+    };
+    cache_status: Record<string, number>;
   }>("/multi-signal");
 }
 

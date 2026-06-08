@@ -4329,12 +4329,26 @@ function PutIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
 // ---- Multi-Signal Convergence Tab -----------------------------------------
 function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB = "JetBrains Mono, monospace";
-  const [data, setData]         = useState<{ hits: MultiSignalRow[]; total: number; scanned: number; signal_defs: Record<string, SignalDef> } | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [selected, setSelected] = useState<MultiSignalRow | null>(null);
-  const [thesis, setThesis]     = useState<string | null>(null);
+  type MSData = Awaited<ReturnType<typeof fetchMultiSignal>>;
+
+  const [data, setData]                   = useState<MSData | null>(null);
+  const [loading, setLoading]             = useState(false);
+  const [selected, setSelected]           = useState<MultiSignalRow | null>(null);
+  const [thesis, setThesis]               = useState<string | null>(null);
   const [thesisLoading, setThesisLoading] = useState(false);
-  const [minScore, setMinScore] = useState(2);
+  const [minScore, setMinScore]           = useState(2);
+  const [watchlist, setWatchlist]         = useState<string[]>([]);
+  const [thesisHistory, setThesisHistory] = useState<Record<string, { thesis: string; timestamp: number; score: number }>>({});
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
+
+  useEffect(() => {
+    try {
+      const wl = localStorage.getItem("ms_watchlist");
+      if (wl) setWatchlist(JSON.parse(wl));
+      const th = localStorage.getItem("ms_thesis_history");
+      if (th) setThesisHistory(JSON.parse(th));
+    } catch {}
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -4342,6 +4356,13 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
     finally { setLoading(false); }
   };
   useEffect(() => { load(); const t = setInterval(load, 600_000); return () => clearInterval(t); }, []);
+
+  const toggleWatchlist = (e: React.MouseEvent, ticker: string) => {
+    e.stopPropagation();
+    const next = watchlist.includes(ticker) ? watchlist.filter(t => t !== ticker) : [...watchlist, ticker];
+    setWatchlist(next);
+    localStorage.setItem("ms_watchlist", JSON.stringify(next));
+  };
 
   const getAIThesis = async (row: MultiSignalRow) => {
     setSelected(row);
@@ -4355,31 +4376,46 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
         mkt_cap_b: row.mkt_cap_b,
       });
       setThesis(res.thesis);
+      const newHist = { ...thesisHistory, [row.ticker]: { thesis: res.thesis, timestamp: Date.now(), score: row.score } };
+      setThesisHistory(newHist);
+      localStorage.setItem("ms_thesis_history", JSON.stringify(newHist));
     } catch { setThesis("Error generating thesis. Try again."); }
     finally { setThesisLoading(false); }
   };
 
   const SIGNAL_COLORS: Record<string, string> = {
-    VOLUME_SURGE:    "#f97316",
-    MORNING_RUNNER:  "#fbbf24",
-    NEAR_52WK_HIGH:  "#60a5fa",
-    ABOVE_52WK_HIGH: "#34d399",
-    MOMENTUM:        "#a78bfa",
-    BIG_MOVE:        "#f87171",
-    MICRO_SQUEEZE:   "#fb7185",
-    SECTOR_STRENGTH: "#4ade80",
+    VOLUME_SURGE:     "#f97316", MORNING_RUNNER:   "#fbbf24",
+    NEAR_52WK_HIGH:   "#60a5fa", ABOVE_52WK_HIGH:  "#34d399",
+    MOMENTUM:         "#a78bfa", BIG_MOVE:         "#f87171",
+    MICRO_SQUEEZE:    "#fb7185", SECTOR_STRENGTH:  "#4ade80",
+    DARK_POOL_HIT:    "#94a3b8", UNUSUAL_CALLS:    "#06b6d4",
+    SQUEEZE_SETUP:    "#e879f9", MORNING_SCAN:     "#f59e0b",
+    BULL_FLOW:        "#22c55e", WHALE_ACTIVITY:   "#8b5cf6",
+    AI_TRADE_SIGNAL:  "#10b981", CHEAP_OPTIONS:    "#2dd4bf",
+    HIGH_QUANT_SCORE: "#eab308", GAMMA_WALL:       "#c084fc",
+    VOL_CRUSH_SETUP:  "#fb923c", MAX_PAIN_PULL:    "#38bdf8",
+    CALL_INTENT_HIGH: "#f0abfc",
   };
 
-  const filtered = (data?.hits ?? []).filter(r => r.score >= minScore);
-  const max5plus = filtered.filter(r => r.score >= 5).length;
+  const maxSig    = data?.max_signals ?? 21;
+  const filtered  = (data?.hits ?? []).filter(r =>
+    r.score >= minScore && (!showWatchlistOnly || watchlist.includes(r.ticker))
+  );
+  const highCount = (data?.hits ?? []).filter(r => r.score >= 7).length;
+
+  const timeAgo = (ts: number) => {
+    const m = Math.floor((Date.now() - ts) / 60000);
+    return m < 1 ? "just now" : m < 60 ? `${m}m ago` : `${Math.floor(m/60)}h ago`;
+  };
 
   return (
     <div style={{ padding: "20px 0" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h2 style={{ fontFamily: BB, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🎯 Multi-Signal Convergence</h2>
           <p style={{ fontFamily: BB, color: "#64748b", fontSize: 12, margin: 0 }}>
-            Every ticker checked against 8 signal conditions simultaneously · {data?.scanned ?? "—"} tickers · click any row for AI thesis
+            {maxSig} signal conditions · {data?.scanned ?? "—"} tickers · {data?.total ?? "—"} multi-signal hits · click any row for AI thesis
           </p>
         </div>
         <button onClick={load} disabled={loading} style={{
@@ -4389,140 +4425,232 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
         }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
       </div>
 
+      {/* Sector context banner */}
+      {data?.sector_context && (data.sector_context.top || data.sector_context.bottom) && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+          {data.sector_context.top && (
+            <div style={{ flex: 1, minWidth: 160, padding: "8px 14px", borderRadius: 10, background: "rgba(74,222,128,0.07)", border: "1px solid rgba(74,222,128,0.2)", display: "flex", gap: 10, alignItems: "center" }}>
+              <span style={{ fontFamily: BB, fontSize: 10, color: "#475569" }}>📈 HOT SECTOR</span>
+              <span style={{ fontFamily: BB, fontWeight: 900, color: "#4ade80", fontSize: 13 }}>{data.sector_context.top.ticker}</span>
+              <span style={{ fontFamily: BB, color: "#94a3b8", fontSize: 11 }}>{data.sector_context.top.name}</span>
+              <span style={{ fontFamily: BB, fontWeight: 700, color: "#4ade80", fontSize: 12 }}>+{data.sector_context.top.day_chg}%</span>
+            </div>
+          )}
+          {data.sector_context.bottom && (
+            <div style={{ flex: 1, minWidth: 160, padding: "8px 14px", borderRadius: 10, background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.2)", display: "flex", gap: 10, alignItems: "center" }}>
+              <span style={{ fontFamily: BB, fontSize: 10, color: "#475569" }}>📉 COLD SECTOR</span>
+              <span style={{ fontFamily: BB, fontWeight: 900, color: "#f87171", fontSize: 13 }}>{data.sector_context.bottom.ticker}</span>
+              <span style={{ fontFamily: BB, color: "#94a3b8", fontSize: 11 }}>{data.sector_context.bottom.name}</span>
+              <span style={{ fontFamily: BB, fontWeight: 700, color: "#f87171", fontSize: 12 }}>{data.sector_context.bottom.day_chg}%</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Stat bar */}
       {data && (
-        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
           {[
-            { label: "Tickers Scanned",   val: data.scanned,      color: "#94a3b8" },
-            { label: "Multi-Signal Hits", val: data.total,        color: "#a78bfa" },
-            { label: "5+ Signals",        val: max5plus,          color: "#f97316" },
-            { label: "Signals Tracked",   val: 8,                 color: "#fbbf24" },
+            { label: "Tickers Scanned",   val: data.scanned,  color: "#94a3b8" },
+            { label: "Multi-Signal Hits", val: data.total,    color: "#a78bfa" },
+            { label: "7+ Signals 🔥",     val: highCount,     color: "#f97316" },
+            { label: "Signal Sources",    val: maxSig,        color: "#fbbf24" },
+            { label: "★ Watchlisted",     val: watchlist.length, color: "#4ade80" },
           ].map(s => (
-            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: "12px 18px", flex: 1, minWidth: 100 }}>
-              <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 26, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
-              <div style={{ fontFamily: BB, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: "10px 16px", flex: 1, minWidth: 90 }}>
+              <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 22, color: s.color, letterSpacing: "-0.04em", marginBottom: 3 }}>{s.val}</div>
+              <div style={{ fontFamily: BB, color: "#475569", fontSize: 10 }}>{s.label}</div>
             </div>
           ))}
         </div>
       )}
 
+      {/* Cache status — shows which signal sources have live data */}
+      {data?.cache_status && (
+        <div style={{ marginBottom: 14, padding: "8px 12px", background: "rgba(255,255,255,0.02)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{ fontFamily: BB, fontSize: 9, color: "#334155", marginBottom: 5 }}>LIVE SIGNAL SOURCES</div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {Object.entries(data.cache_status).map(([key, count]) => {
+              const warm = count > 0;
+              const labels: Record<string, string> = {
+                dark_pool: "🌑 Dark Pool", unusual_calls: "🎯 Unusual Calls",
+                morning_runners: "🌅 Morning", squeeze: "💥 Squeeze",
+                bull_flow: "📈 Bull Flow", whale: "🐋 Whale",
+                ai_trades: "🤖 AI Trades", cheap_iv: "💰 Cheap IV",
+                quant_score: "🏆 Quant", gamma_wall: "🧲 Gamma Wall",
+                vol_crush: "📉 Vol Crush", call_intent: "🎯 Call Intent",
+                max_pain: "⚡ Max Pain",
+              };
+              return (
+                <span key={key} style={{ padding: "2px 8px", borderRadius: 6, fontFamily: BB, fontSize: 9, fontWeight: 700,
+                  background: warm ? "rgba(74,222,128,0.1)" : "rgba(71,85,105,0.1)",
+                  color: warm ? "#4ade80" : "#334155",
+                  border: `1px solid ${warm ? "rgba(74,222,128,0.25)" : "rgba(71,85,105,0.2)"}` }}>
+                  {labels[key] ?? key} {warm ? `(${count})` : "○"}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Signal legend */}
       {data && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
           {Object.entries(data.signal_defs).map(([id, def]) => (
-            <div key={id} title={def.desc} style={{ padding: "3px 10px", borderRadius: 99, fontSize: 10, fontFamily: BB, fontWeight: 700,
-              background: `${SIGNAL_COLORS[id] || "#94a3b8"}18`,
+            <div key={id} title={def.desc} style={{ padding: "2px 8px", borderRadius: 99, fontSize: 9, fontFamily: BB, fontWeight: 700,
+              background: `${SIGNAL_COLORS[id] || "#94a3b8"}15`,
               color: SIGNAL_COLORS[id] || "#94a3b8",
-              border: `1px solid ${SIGNAL_COLORS[id] || "#94a3b8"}40`,
-              cursor: "help" }}>
+              border: `1px solid ${SIGNAL_COLORS[id] || "#94a3b8"}35`, cursor: "help" }}>
               {def.label}
             </div>
           ))}
         </div>
       )}
 
-      {/* Min score filter */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontFamily: BB, color: "#475569", fontSize: 11 }}>Min signals:</span>
-        {[2,3,4,5,6].map(n => (
+        {[2,3,4,5,7,9].map(n => (
           <button key={n} onClick={() => setMinScore(n)} style={{
-            padding: "5px 12px", borderRadius: 8, fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
+            padding: "5px 10px", borderRadius: 7, fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
             background: minScore === n ? "rgba(167,139,250,0.18)" : "rgba(255,255,255,0.04)",
             color:      minScore === n ? "#a78bfa" : "#64748b",
             border:     minScore === n ? "1px solid rgba(167,139,250,0.45)" : "1px solid rgba(255,255,255,0.06)",
           }}>{n}+</button>
         ))}
+        <button onClick={() => setShowWatchlistOnly(w => !w)} style={{
+          marginLeft: 8, padding: "5px 12px", borderRadius: 7, fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
+          background: showWatchlistOnly ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.04)",
+          color:      showWatchlistOnly ? "#4ade80" : "#64748b",
+          border:     showWatchlistOnly ? "1px solid rgba(74,222,128,0.35)" : "1px solid rgba(255,255,255,0.06)",
+        }}>★ Watchlist only</button>
       </div>
 
       {loading && !data && (
         <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB, fontSize: 13 }}>
-          Scanning 473 tickers across 8 signal conditions… ~25s
+          Scanning 473 tickers across {maxSig} signal conditions including live quant + dark pool + unusual calls + gamma wall + max pain… ~25s
         </div>
       )}
 
       {/* AI Thesis panel */}
       {selected && (
-        <div style={{ marginBottom: 20, padding: "20px 24px", background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div style={{ marginBottom: 18, padding: "18px 22px", background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontFamily: BB, fontWeight: 900, color: "#a78bfa", fontSize: 18 }}>{selected.ticker}</span>
-              <span style={{ fontFamily: BB, fontWeight: 700, fontSize: 12, color: "#fbbf24" }}>{selected.score}/8 signals</span>
+              <span style={{ fontFamily: BB, fontWeight: 900, fontSize: 13, padding: "2px 10px", borderRadius: 99,
+                background: "rgba(167,139,250,0.15)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.4)" }}>
+                {selected.score}/{maxSig} signals
+              </span>
+              {thesisHistory[selected.ticker] && (
+                <span style={{ fontFamily: BB, fontSize: 10, color: "#475569" }}>
+                  Last thesis: {timeAgo(thesisHistory[selected.ticker].timestamp)}
+                </span>
+              )}
             </div>
-            <button onClick={() => { setSelected(null); setThesis(null); }} style={{ background: "none", border: "none", color: "#475569", fontSize: 18, cursor: "pointer" }}>×</button>
+            <button onClick={() => { setSelected(null); setThesis(null); }} style={{ background: "none", border: "none", color: "#475569", fontSize: 20, cursor: "pointer" }}>×</button>
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
             {selected.signals.map(s => (
-              <span key={s} style={{ padding: "2px 10px", borderRadius: 99, fontSize: 10, fontFamily: BB, fontWeight: 700,
+              <span key={s} style={{ padding: "2px 9px", borderRadius: 99, fontSize: 10, fontFamily: BB, fontWeight: 700,
                 background: `${SIGNAL_COLORS[s] || "#94a3b8"}18`, color: SIGNAL_COLORS[s] || "#94a3b8",
                 border: `1px solid ${SIGNAL_COLORS[s] || "#94a3b8"}40` }}>
                 {data?.signal_defs[s]?.label ?? s}
               </span>
             ))}
           </div>
+          {/* Show previous thesis if available and no current load */}
+          {!thesis && !thesisLoading && thesisHistory[selected.ticker] && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontFamily: BB, fontSize: 9, color: "#334155", marginBottom: 6 }}>PREVIOUS THESIS — {timeAgo(thesisHistory[selected.ticker].timestamp)}</div>
+              <div style={{ fontFamily: BB, fontSize: 11, color: "#64748b", lineHeight: 1.9, whiteSpace: "pre-wrap", opacity: 0.75 }}>
+                {thesisHistory[selected.ticker].thesis}
+              </div>
+            </div>
+          )}
           {thesisLoading && (
-            <div style={{ fontFamily: BB, color: "#475569", fontSize: 12, padding: "16px 0" }}>🤖 AI is analyzing {selected.score} convergent signals…</div>
+            <div style={{ fontFamily: BB, color: "#a78bfa", fontSize: 12, padding: "14px 0" }}>
+              🤖 AI analyzing all {selected.score} convergent signals — dark pool, quant, gamma, max pain…
+            </div>
           )}
           {thesis && (
-            <div style={{ fontFamily: BB, fontSize: 12, color: "#cbd5e1", lineHeight: 2, whiteSpace: "pre-wrap" }}>{thesis}</div>
+            <div style={{ fontFamily: BB, fontSize: 12, color: "#cbd5e1", lineHeight: 2.1, whiteSpace: "pre-wrap" }}>{thesis}</div>
           )}
-          <button onClick={() => getAIThesis(selected)} disabled={thesisLoading} style={{
-            marginTop: 12, background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.4)",
-            color: "#a78bfa", borderRadius: 8, padding: "7px 16px", fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
-          }}>{thesisLoading ? "Generating…" : thesis ? "↻ Regenerate" : "🤖 Generate AI Thesis"}</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={() => getAIThesis(selected)} disabled={thesisLoading} style={{
+              background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.4)",
+              color: "#a78bfa", borderRadius: 8, padding: "7px 16px", fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
+            }}>{thesisLoading ? "Generating…" : thesis ? "↻ Regenerate" : "🤖 Generate AI Thesis"}</button>
+            <button onClick={e => toggleWatchlist(e, selected.ticker)} style={{
+              background: watchlist.includes(selected.ticker) ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${watchlist.includes(selected.ticker) ? "rgba(74,222,128,0.35)" : "rgba(255,255,255,0.1)"}`,
+              color: watchlist.includes(selected.ticker) ? "#4ade80" : "#64748b",
+              borderRadius: 8, padding: "7px 14px", fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
+            }}>{watchlist.includes(selected.ticker) ? "★ Saved" : "☆ Save to Watchlist"}</button>
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 && !loading && data && (
+        <div style={{ textAlign: "center", padding: "40px 0", color: "#475569", fontFamily: BB, fontSize: 12 }}>
+          No results at this filter level. {showWatchlistOnly ? "No watchlisted tickers have this many signals." : "Lower the minimum signal count."}
         </div>
       )}
 
       {filtered.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {filtered.map((r, i) => {
-            const scoreColor = r.score >= 6 ? "#f97316" : r.score >= 4 ? "#a78bfa" : "#fbbf24";
+            const pct    = r.score / maxSig;
+            const scoreColor = pct >= 0.6 ? "#f97316" : pct >= 0.35 ? "#a78bfa" : "#fbbf24";
             const isSelected = selected?.ticker === r.ticker;
+            const isWatched  = watchlist.includes(r.ticker);
+            const hasHistory = !!thesisHistory[r.ticker];
             return (
-              <div key={r.ticker} onClick={() => { onSelectTicker(r.ticker); getAIThesis(r); }}
+              <div key={r.ticker}
+                onClick={() => { onSelectTicker(r.ticker); getAIThesis(r); }}
                 style={{ background: isSelected ? "rgba(167,139,250,0.08)" : "rgba(255,255,255,0.025)",
                   border: `1px solid ${isSelected ? "rgba(167,139,250,0.4)" : i < 3 ? `${scoreColor}40` : "rgba(255,255,255,0.07)"}`,
-                  borderRadius: 18, padding: "14px 18px", cursor: "pointer", transition: "background 0.15s" }}
+                  borderRadius: 16, padding: "13px 16px", cursor: "pointer", transition: "background 0.15s" }}
                 onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
                 onMouseLeave={e => (e.currentTarget.style.background = isSelected ? "rgba(167,139,250,0.08)" : "rgba(255,255,255,0.025)")}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontFamily: BB, fontWeight: 900, color: "#334155", fontSize: 14, minWidth: 26 }}>#{i+1}</span>
-                  <span style={{ fontFamily: BB, fontWeight: 900, color: "#f1f5f9", fontSize: 18 }}>{r.ticker}</span>
-
-                  {/* Score badge */}
-                  <span style={{ fontFamily: BB, fontWeight: 900, fontSize: 13, padding: "3px 12px", borderRadius: 99,
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB, fontWeight: 900, color: "#334155", fontSize: 13, minWidth: 24 }}>#{i+1}</span>
+                  <span style={{ fontFamily: BB, fontWeight: 900, color: "#f1f5f9", fontSize: 17 }}>{r.ticker}</span>
+                  <span style={{ fontFamily: BB, fontWeight: 900, fontSize: 12, padding: "2px 10px", borderRadius: 99,
                     background: `${scoreColor}18`, color: scoreColor, border: `1px solid ${scoreColor}40` }}>
-                    {r.score}/8 signals
+                    {r.score}/{maxSig}
                   </span>
-
-                  <span style={{ fontFamily: BB, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                  <span style={{ fontFamily: BB, fontWeight: 700, fontSize: 10, padding: "2px 7px", borderRadius: 99,
                     background: r.day_chg >= 0 ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)",
                     color: r.day_chg >= 0 ? "#4ade80" : "#f87171",
-                    border: `1px solid ${r.day_chg >= 0 ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}` }}>
-                    {r.day_chg >= 0 ? "+" : ""}{r.day_chg}% today
+                    border: `1px solid ${r.day_chg >= 0 ? "rgba(74,222,128,0.25)" : "rgba(248,113,113,0.25)"}` }}>
+                    {r.day_chg >= 0 ? "+" : ""}{r.day_chg}%
                   </span>
-                  <span style={{ fontFamily: BB, color: "#475569", fontSize: 11 }}>${r.price.toFixed(2)} · {r.rel_vol}× vol</span>
+                  <span style={{ fontFamily: BB, color: "#475569", fontSize: 10 }}>${r.price.toFixed(2)} · {r.rel_vol}×</span>
                   {r.mkt_cap_b !== null && (
-                    <span style={{ fontFamily: BB, color: "#334155", fontSize: 10 }}>
+                    <span style={{ fontFamily: BB, color: "#334155", fontSize: 9 }}>
                       {r.mkt_cap_b < 1 ? `$${(r.mkt_cap_b * 1000).toFixed(0)}M` : `$${r.mkt_cap_b.toFixed(1)}B`}
                     </span>
                   )}
+                  {hasHistory && <span style={{ fontFamily: BB, fontSize: 9, color: "#475569" }}>📝 thesis {timeAgo(thesisHistory[r.ticker].timestamp)}</span>}
+                  <button onClick={e => toggleWatchlist(e, r.ticker)} style={{
+                    marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16,
+                    color: isWatched ? "#4ade80" : "#334155", padding: "0 4px",
+                  }}>{isWatched ? "★" : "☆"}</button>
                 </div>
-
-                {/* Signal chips */}
-                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
                   {r.signals.map(s => (
-                    <span key={s} style={{ padding: "2px 9px", borderRadius: 99, fontSize: 10, fontFamily: BB, fontWeight: 700,
-                      background: `${SIGNAL_COLORS[s] || "#94a3b8"}15`, color: SIGNAL_COLORS[s] || "#94a3b8",
-                      border: `1px solid ${SIGNAL_COLORS[s] || "#94a3b8"}35` }}>
+                    <span key={s} style={{ padding: "1px 7px", borderRadius: 99, fontSize: 9, fontFamily: BB, fontWeight: 700,
+                      background: `${SIGNAL_COLORS[s] || "#94a3b8"}14`, color: SIGNAL_COLORS[s] || "#94a3b8",
+                      border: `1px solid ${SIGNAL_COLORS[s] || "#94a3b8"}30` }}>
                       {data?.signal_defs[s]?.label ?? s}
                     </span>
                   ))}
                 </div>
-
-                {/* Score bar */}
-                <div style={{ marginTop: 10, height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 99 }}>
-                  <div style={{ height: "100%", width: `${(r.score / 8) * 100}%`, background: scoreColor, borderRadius: 99, transition: "width 0.4s" }} />
+                <div style={{ height: 3, background: "rgba(255,255,255,0.05)", borderRadius: 99 }}>
+                  <div style={{ height: "100%", width: `${pct * 100}%`, background: scoreColor, borderRadius: 99, transition: "width 0.4s" }} />
                 </div>
               </div>
             );
@@ -4530,11 +4658,10 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
         </div>
       )}
 
-      <div style={{ marginTop: 24, padding: "14px 18px", background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.12)", borderRadius: 12 }}>
-        <p style={{ fontFamily: BB, fontSize: 11, color: "#64748b", margin: 0, lineHeight: 1.9 }}>
-          <strong style={{ color: "#a78bfa" }}>How it works:</strong> Every ticker is checked against 8 independent signal conditions simultaneously. 
-          A stock with 2 signals is interesting. 4 signals = strong setup. 6+ signals = the AI thesis is almost always worth reading.<br/>
-          <strong style={{ color: "#fbbf24" }}>Click any row</strong> to pull an AI trade thesis that accounts for all convergent signals at once — not just one in isolation.
+      <div style={{ marginTop: 22, padding: "13px 16px", background: "rgba(167,139,250,0.04)", border: "1px solid rgba(167,139,250,0.1)", borderRadius: 12 }}>
+        <p style={{ fontFamily: BB, fontSize: 10, color: "#64748b", margin: 0, lineHeight: 2 }}>
+          <strong style={{ color: "#a78bfa" }}>How it works:</strong> {maxSig} independent signals checked per ticker: 8 live quant (volume, momentum, 52wk high) + 13 cross-referenced from your real scanner caches (dark pool, unusual calls, gamma wall, max pain, vol crush, squeeze, whale, AI trades, bull flow, quant score, cheap IV, call intent, morning runners).<br/>
+          <strong style={{ color: "#fbbf24" }}>Click any row</strong> → AI generates a single thesis using ALL convergent signals at once. <strong style={{ color: "#4ade80" }}>★ Star</strong> any row to save it to your watchlist.
         </p>
       </div>
     </div>
