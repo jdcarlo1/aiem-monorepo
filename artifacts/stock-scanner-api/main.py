@@ -5306,6 +5306,73 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         return jsonify({"error": str(e), "picks": []}), 500
 
 
+@app.route("/stock-api/morning-runners", methods=["GET"])
+def morning_runners():
+    """Morning runners — scans all tickers for pre-market volume spikes + gap moves."""
+    import yfinance as yf
+    from datetime import datetime as _mr_dt
+
+    _cache = getattr(app, "_mr_cache", None)
+    _ts    = getattr(app, "_mr_cache_ts", None)
+    if _cache and _ts and (_mr_dt.now() - _ts).total_seconds() < 600:
+        return jsonify(_cache)
+
+    results = []
+
+    def _scan_mr(ticker):
+        try:
+            fi         = yf.Ticker(ticker).fast_info
+            price      = float(getattr(fi, "last_price",                0) or 0)
+            prev_close = float(getattr(fi, "previous_close",            0) or 0)
+            if price <= 0 or prev_close <= 0:
+                return None
+            gap_pct    = round((price - prev_close) / prev_close * 100, 2)
+            avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
+            today_vol  = float(getattr(fi, "last_volume",               0) or 0)
+            rel_vol    = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
+            mkt_cap    = float(getattr(fi, "market_cap",                0) or 0)
+            mkt_cap_b  = round(mkt_cap / 1e9, 2) if mkt_cap else None
+
+            if rel_vol < 1.5 and abs(gap_pct) < 4.0:
+                return None
+
+            # score = relative volume * (|gap%| + 1) — big vol + big gap = top of list
+            score   = round(rel_vol * (abs(gap_pct) + 1), 2)
+            squeeze = bool(mkt_cap_b is not None and mkt_cap_b < 2.0 and rel_vol >= 3.0)
+
+            return {
+                "ticker":     ticker,
+                "price":      round(price, 2),
+                "prev_close": round(prev_close, 2),
+                "gap_pct":    gap_pct,
+                "rel_vol":    rel_vol,
+                "avg_vol":    int(avg_vol),
+                "today_vol":  int(today_vol),
+                "mkt_cap_b":  mkt_cap_b,
+                "score":      score,
+                "squeeze":    squeeze,
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        futures = {ex.submit(_scan_mr, t): t for t in DEFAULT_LEADERBOARD}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                results.append(r)
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    out = {
+        "runners": results[:40],
+        "total":   len(results),
+        "scanned": len(DEFAULT_LEADERBOARD),
+    }
+    app._mr_cache    = out
+    app._mr_cache_ts = _mr_dt.now()
+    return jsonify(out)
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

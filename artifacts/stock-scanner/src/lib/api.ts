@@ -853,6 +853,23 @@ export interface UnusualCallsResult {
   scanned: number;
 }
 
+export interface MorningRunnerRow {
+  ticker: string;
+  price: number;
+  prev_close: number;
+  gap_pct: number;
+  rel_vol: number;
+  avg_vol: number;
+  today_vol: number;
+  mkt_cap_b: number | null;
+  score: number;
+  squeeze: boolean;
+}
+
+export function fetchMorningRunners() {
+  return fetchJson<{ runners: MorningRunnerRow[]; total: number; scanned: number }>("/morning-runners");
+}
+
 export function fetchUnusualCalls() {
   return fetchJson<UnusualCallsResult>("/unusual-calls");
 }

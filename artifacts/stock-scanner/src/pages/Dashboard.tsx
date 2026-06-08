@@ -26,6 +26,7 @@ import {
   fetchNetFlow, NetFlowRow, NetFlowMicrocapResult, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
   NetFlowStreakRow, NetFlowStreakResult, NetFlowDayDot, fetchNetFlowMultiday,
   AISignal, AISignalResult, fetchAISignal,
+  MorningRunnerRow, fetchMorningRunners,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -4320,6 +4321,202 @@ function PutIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
 }
 
 // ---- Pre-Market Flow Tab -------------------------------------------------
+// ---- Morning Runners Tab --------------------------------------------------
+function MorningRunnersTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  type FilterType = "ALL" | "GAPUP" | "GAPDOWN" | "HIGHVOL" | "SQUEEZE";
+  const [data, setData]     = useState<{ runners: MorningRunnerRow[]; total: number; scanned: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter]  = useState<FilterType>("ALL");
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetchMorningRunners()); } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); const t = setInterval(load, 120_000); return () => clearInterval(t); }, []);
+
+  const filtered = (data?.runners ?? []).filter(r => {
+    if (filter === "GAPUP")   return r.gap_pct >= 5;
+    if (filter === "GAPDOWN") return r.gap_pct <= -5;
+    if (filter === "HIGHVOL") return r.rel_vol >= 5;
+    if (filter === "SQUEEZE") return r.squeeze;
+    return true;
+  });
+
+  const squeezeCount = (data?.runners ?? []).filter(r => r.squeeze).length;
+
+  const gapColor  = (g: number) => g > 0
+    ? { color: "#4ade80", bg: "rgba(74,222,128,0.12)", border: "rgba(74,222,128,0.3)" }
+    : { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.3)" };
+
+  const volBadge  = (rv: number) => {
+    if (rv >= 10) return { color: "#f97316", bg: "rgba(249,115,22,0.15)", border: "rgba(249,115,22,0.4)", label: `${rv.toFixed(1)}×` };
+    if (rv >= 5)  return { color: "#fbbf24", bg: "rgba(251,191,36,0.15)", border: "rgba(251,191,36,0.35)", label: `${rv.toFixed(1)}×` };
+    return             { color: "#94a3b8", bg: "rgba(148,163,184,0.08)", border: "rgba(148,163,184,0.2)",  label: `${rv.toFixed(1)}×` };
+  };
+
+  const fmtVol = (v: number) => v >= 1_000_000 ? `${(v/1_000_000).toFixed(1)}M` : v >= 1_000 ? `${(v/1_000).toFixed(0)}K` : String(v);
+
+  const FILTERS: { id: FilterType; label: string }[] = [
+    { id: "ALL",     label: "All Runners" },
+    { id: "GAPUP",   label: "🟢 Gap Up ≥5%" },
+    { id: "GAPDOWN", label: "🔴 Gap Down ≥5%" },
+    { id: "HIGHVOL", label: "⚡ Vol Spike ≥5×" },
+    { id: "SQUEEZE", label: "🔥 Squeeze Setup" },
+  ];
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🌅 Morning Runners</h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            Pre-market volume spikes + gap moves across {data?.scanned ?? "—"} tickers · score = rel-vol × (|gap%|+1) · refreshes every 2min
+          </p>
+        </div>
+        <button onClick={load} disabled={loading} style={{
+          background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)",
+          color: "#fbbf24", borderRadius: 10, padding: "8px 18px",
+          fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
+        }}>
+          {loading ? "Scanning…" : "↻ Refresh"}
+        </button>
+      </div>
+
+      {/* Stat bar */}
+      {data && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Tickers Scanned",    val: data.scanned,  color: "#94a3b8" },
+            { label: "Runners Found",      val: data.total,    color: "#fbbf24" },
+            { label: "Squeeze Setups",     val: squeezeCount,  color: "#f97316" },
+            { label: "Gap Up ≥5%",         val: data.runners.filter(r => r.gap_pct >= 5).length,    color: "#4ade80" },
+            { label: "Gap Down ≥5%",       val: data.runners.filter(r => r.gap_pct <= -5).length,   color: "#f87171" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: "12px 18px", minWidth: 110, flex: 1 }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Filter buttons */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {FILTERS.map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)} style={{
+            padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
+            cursor: "pointer", transition: "all 0.15s",
+            background: filter === f.id ? "rgba(251,191,36,0.18)" : "rgba(255,255,255,0.04)",
+            color:      filter === f.id ? "#fbbf24" : "#64748b",
+            border:     filter === f.id ? "1px solid rgba(251,191,36,0.45)" : "1px solid rgba(255,255,255,0.06)",
+          }}>{f.label} {data && f.id !== "ALL" && (
+            <span style={{ color: "#475569", fontWeight: 400 }}>
+              ({f.id === "GAPUP"   ? data.runners.filter(r => r.gap_pct >= 5).length
+               :f.id === "GAPDOWN" ? data.runners.filter(r => r.gap_pct <= -5).length
+               :f.id === "HIGHVOL" ? data.runners.filter(r => r.rel_vol >= 5).length
+               :squeezeCount})
+            </span>
+          )}</button>
+        ))}
+      </div>
+
+      {/* Loading / empty */}
+      {loading && !data && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
+          Scanning 473 tickers for volume spikes… ~20s
+        </div>
+      )}
+      {!loading && data && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
+          No runners match this filter right now. Markets may be closed or quiet — try "All Runners".
+        </div>
+      )}
+
+      {/* Runner cards */}
+      {filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((r, i) => {
+            const gc  = gapColor(r.gap_pct);
+            const vb  = volBadge(r.rel_vol);
+            return (
+              <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} style={{
+                background: "rgba(255,255,255,0.025)", border: `1px solid ${i < 3 ? "rgba(251,191,36,0.25)" : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 18, padding: "16px 20px", display: "flex", alignItems: "center",
+                justifyContent: "space-between", gap: 16, flexWrap: "wrap", cursor: "pointer", transition: "background 0.15s",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.025)")}
+              >
+                {/* Left */}
+                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#334155", fontSize: 16, minWidth: 28 }}>#{i+1}</span>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>{r.ticker}</span>
+                      {/* Gap badge */}
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 13, padding: "3px 10px", borderRadius: 99,
+                        background: gc.bg, color: gc.color, border: `1px solid ${gc.border}` }}>
+                        {r.gap_pct > 0 ? "+" : ""}{r.gap_pct.toFixed(2)}%
+                      </span>
+                      {/* Rel vol badge */}
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                        background: vb.bg, color: vb.color, border: `1px solid ${vb.border}` }}>
+                        VOL {vb.label}
+                      </span>
+                      {/* Squeeze badge */}
+                      {r.squeeze && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(249,115,22,0.15)", color: "#f97316", border: "1px solid rgba(249,115,22,0.4)" }}>
+                          🔥 SQUEEZE
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${r.price.toFixed(2)}</span>
+                      <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 12 }}>prev ${r.prev_close.toFixed(2)}</span>
+                      {r.mkt_cap_b !== null && (
+                        <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>
+                          MCap ${r.mkt_cap_b < 1 ? `${(r.mkt_cap_b * 1000).toFixed(0)}M` : `${r.mkt_cap_b.toFixed(1)}B`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right — score + vol details */}
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, letterSpacing: "-0.04em", marginBottom: 2,
+                    color: r.score >= 50 ? "#f97316" : r.score >= 20 ? "#fbbf24" : "#94a3b8" }}>
+                    {r.score.toFixed(0)}
+                  </div>
+                  <div style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11, marginBottom: 1 }}>momentum score</div>
+                  <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>
+                    {fmtVol(r.today_vol)} vol · avg {fmtVol(r.avg_vol)}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Footer note */}
+      <div style={{ marginTop: 28, padding: "14px 18px", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.12)", borderRadius: 12 }}>
+        <p style={{ fontFamily: BB_F, fontSize: 11, color: "#64748b", margin: 0, lineHeight: 1.8 }}>
+          <strong style={{ color: "#fbbf24" }}>How scoring works:</strong> Score = Relative Volume × (|Gap%| + 1).
+          A stock with 8× volume and a 12% gap scores 104 — far ahead of a 2× volume / 3% gap stock (score 8).
+          🔥 Squeeze Setup = micro/small cap (&lt;$2B) with 3× or more relative volume — the combination most likely to run explosively at open.
+          <br /><strong style={{ color: "#fbbf24" }}>Best used:</strong> 7:00–9:30 AM ET pre-market. Cache refreshes every 10 minutes.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData] = useState<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -6746,7 +6943,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -6876,6 +7073,7 @@ export default function Dashboard() {
     { id: "micronetflow",    label: "🔬 MICRO NET FLOW" },
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
     { id: "streakflow",      label: "📈 FLOW STREAK" },
+    { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -7462,6 +7660,7 @@ export default function Dashboard() {
         {tab === "micronetflow"    && <NetFlowMicrocapTab onSelectTicker={selectTicker} />}
         {tab === "midnetflow"      && <NetFlowMidcapTab  onSelectTicker={selectTicker} />}
         {tab === "streakflow"      && <NetFlowStreakTab  onSelectTicker={selectTicker} />}
+        {tab === "morningrunners"  && <MorningRunnersTab onSelectTicker={selectTicker} />}
 
       </div>
       </main>
