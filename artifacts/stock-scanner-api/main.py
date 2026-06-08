@@ -98,6 +98,91 @@ try:
         id="preclose_scan",
         replace_existing=True,
     )
+
+    # EOD unusual-calls auto-scan — populates unusual_calls_log so the EOD SWEEP tab
+    # has data without a user needing to manually open the Unusual Calls tab first.
+    def _run_unusual_calls_scan(label: str):
+        try:
+            import yfinance as yf
+            from concurrent.futures import ThreadPoolExecutor, as_completed as _asc
+            _ETF_SET = {
+                "SPY","QQQ","IWM","DIA","MDY","VTI","VOO",
+                "XLF","XLE","XLK","XLY","XLI","XLV","XLB","XLP","XLU","XLRE",
+                "SMH","SOXX","XBI","IBB","KRE","XRT","ITB","JETS","KWEB","DRAM",
+                "TQQQ","SPXL","SOXL","UDOW","LABU","FNGU","TECL","UPRO","TNA","FAS","ERX",
+                "SQQQ","SPXS","SOXS","SDOW","TZA","FAZ","ERY",
+                "GLD","IAU","SLV","USO","UNG","GDX","GDXJ","OIH",
+                "TLT","HYG","LQD","TBT","TMF","SHY","IEF","JNK",
+                "EEM","EFA","FXI","EWJ","EWZ","EWY","IEMG","ARKK","IBIT","FBTC",
+            }
+            def _scan_one(ticker):
+                hits = []
+                try:
+                    is_etf  = ticker in _ETF_SET
+                    min_voi = 1.5 if is_etf else 3.0
+                    min_prem= 250_000 if is_etf else 500_000
+                    max_exp = 60 if is_etf else 30
+                    tk = yf.Ticker(ticker)
+                    price = tk.fast_info.get("lastPrice") or tk.fast_info.get("regularMarketPrice") or 0
+                    if not price: return hits
+                    for exp in (tk.options or []):
+                        from datetime import datetime as _dt2
+                        days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
+                        if not (1 <= days <= max_exp): continue
+                        chain = tk.option_chain(exp).calls
+                        for _, row in chain.iterrows():
+                            try:
+                                vol = int(row.get("volume") or 0)
+                                oi  = int(row.get("openInterest") or 0)
+                                if oi < 10 or vol < 50: continue
+                                voi = vol / oi
+                                if voi < min_voi: continue
+                                strike = float(row["strike"])
+                                otm_pct = round((strike - price) / price * 100, 2)
+                                if otm_pct < -5 or otm_pct > 30: continue
+                                bid = float(row.get("bid") or 0)
+                                ask = float(row.get("ask") or 0)
+                                mid = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
+                                prem = int(mid * vol * 100)
+                                if prem < min_prem: continue
+                                iv = round(float(row.get("impliedVolatility") or 0) * 100, 1)
+                                urgency = "EXPIRING" if days <= 3 else "SHORT" if days <= 7 else "NEAR"
+                                hits.append({"ticker": ticker, "price": price, "strike": strike,
+                                             "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
+                                             "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
+                                             "iv": iv, "urgency": urgency})
+                            except Exception: pass
+                except Exception: pass
+                return hits
+            all_hits = []
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                for fut in _asc({ex.submit(_scan_one, t): t for t in DEFAULT_LEADERBOARD}):
+                    all_hits.extend(fut.result() or [])
+            _save_unusual_calls_to_db(all_hits)
+            print(f"[scheduler] {label} unusual-calls scan → {len(all_hits)} hits saved")
+        except Exception as e:
+            import traceback
+            print(f"[scheduler] {label} unusual-calls scan error: {e}\n{traceback.format_exc()}")
+
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("pre-close"),
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone=_ET),
+        id="preclose_unusual_calls",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("eod-1"),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=0, timezone=_ET),
+        id="eod_unusual_calls_1",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("eod-2"),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
+        id="eod_unusual_calls_2",
+        replace_existing=True,
+    )
+
     # EOD: Mon-Fri 4:15 PM ET  (market closes 4:00, options data settled by 4:15)
     _scheduler.add_job(
         _run_eod_scan,
@@ -224,7 +309,7 @@ try:
         replace_existing=True,
     )
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min + AI trades at 10:00 AM + AI short calls at 10:15 AM")
+    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + EOD unusual-calls auto-scan at 3:30 PM, 4:00 PM, 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min + AI trades at 10:00 AM + AI short calls at 10:15 AM")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
