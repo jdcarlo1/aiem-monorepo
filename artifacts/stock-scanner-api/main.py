@@ -6726,7 +6726,7 @@ def iv_rank_scan():
             return None
 
     tickers_dedup = list(dict.fromkeys(IV_SCAN_TICKERS))
-    with ThreadPoolExecutor(max_workers=15) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(_scan_iv, t): t for t in tickers_dedup}
         for fut in as_completed(futures):
             r = fut.result()
@@ -6841,65 +6841,78 @@ def sector_rotation():
     ]
 
     results = []
+    ticker_names = {t: n for t, n in SECTORS}
+    tickers_list = [t for t, n in SECTORS]
 
-    def _scan_sector(ticker, name):
-        try:
-            tkr  = yf.Ticker(ticker)
-            fi   = tkr.fast_info
-            price      = float(getattr(fi, "last_price",                0) or 0)
-            prev_close = float(getattr(fi, "previous_close",            0) or 0)
-            avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
-            today_vol  = float(getattr(fi, "last_volume",               0) or 0)
-            high52     = float(getattr(fi, "year_high",                  0) or 0)
-            low52      = float(getattr(fi, "year_low",                   0) or 0)
+    # Batch download 1-year daily data (1 API call for all 11 ETFs — avoids rate limiting)
+    try:
+        batch = yf.download(
+            tickers_list, period="1y", interval="1d",
+            auto_adjust=True, progress=False, threads=True
+        )
+        # Multi-ticker download returns multi-level columns: (field, ticker)
+        for ticker in tickers_list:
+            try:
+                name = ticker_names[ticker]
+                if len(tickers_list) > 1:
+                    close  = batch["Close"][ticker].dropna()
+                    volume = batch["Volume"][ticker].dropna()
+                    high_s = batch["High"][ticker].dropna()
+                    low_s  = batch["Low"][ticker].dropna()
+                else:
+                    close  = batch["Close"].dropna()
+                    volume = batch["Volume"].dropna()
+                    high_s = batch["High"].dropna()
+                    low_s  = batch["Low"].dropna()
 
-            if price <= 0 or prev_close <= 0:
-                return None
+                if len(close) < 2:
+                    continue
 
-            day_chg   = round((price - prev_close) / prev_close * 100, 2)
-            rel_vol   = round(today_vol / avg_vol, 2) if avg_vol > 0 else 1.0
-            range_pos = round((price - low52) / (high52 - low52) * 100, 1) if high52 > low52 else 50
+                price      = float(close.iloc[-1])
+                prev_close = float(close.iloc[-2])
+                if price <= 0 or prev_close <= 0:
+                    continue
 
-            # Get 5-day and 1-month returns
-            hist = tkr.history(period="1mo", interval="1d")
-            wk1_chg = mo1_chg = None
-            if len(hist) >= 5:
-                wk1_chg = round((price - float(hist["Close"].iloc[-5])) / float(hist["Close"].iloc[-5]) * 100, 2)
-            if len(hist) >= 20:
-                mo1_chg = round((price - float(hist["Close"].iloc[0])) / float(hist["Close"].iloc[0]) * 100, 2)
+                high52 = float(high_s.max())
+                low52  = float(low_s.min())
+                today_vol = float(volume.iloc[-1]) if len(volume) > 0 else 0
+                # 3-month average volume (~63 trading days)
+                avg_vol = float(volume.iloc[-63:].mean()) if len(volume) >= 10 else float(volume.mean())
+                avg_vol = max(avg_vol, 1)
 
-            # Flow signal
-            if day_chg > 0 and rel_vol >= 1.1:
-                flow = "INFLOW"
-            elif day_chg < 0 and rel_vol >= 1.1:
-                flow = "OUTFLOW"
-            elif day_chg > 0:
-                flow = "RISING"
-            elif day_chg < 0:
-                flow = "FALLING"
-            else:
-                flow = "NEUTRAL"
+                day_chg   = round((price - prev_close) / prev_close * 100, 2)
+                rel_vol   = round(today_vol / avg_vol, 2)
+                range_pos = round((price - low52) / (high52 - low52) * 100, 1) if high52 > low52 else 50
 
-            return {
-                "ticker":    ticker,
-                "name":      name,
-                "price":     round(price, 2),
-                "day_chg":   day_chg,
-                "wk1_chg":   wk1_chg,
-                "mo1_chg":   mo1_chg,
-                "rel_vol":   rel_vol,
-                "range_pos": range_pos,
-                "flow":      flow,
-            }
-        except Exception:
-            return None
+                wk1_chg = round((price - float(close.iloc[-5])) / float(close.iloc[-5]) * 100, 2) if len(close) >= 5 else None
+                mo1_chg = round((price - float(close.iloc[-21])) / float(close.iloc[-21]) * 100, 2) if len(close) >= 21 else None
 
-    with ThreadPoolExecutor(max_workers=11) as ex:
-        futures = {ex.submit(_scan_sector, t, n): (t, n) for t, n in SECTORS}
-        for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                results.append(r)
+                if day_chg > 0 and rel_vol >= 1.1:
+                    flow = "INFLOW"
+                elif day_chg < 0 and rel_vol >= 1.1:
+                    flow = "OUTFLOW"
+                elif day_chg > 0:
+                    flow = "RISING"
+                elif day_chg < 0:
+                    flow = "FALLING"
+                else:
+                    flow = "NEUTRAL"
+
+                results.append({
+                    "ticker":    ticker,
+                    "name":      name,
+                    "price":     round(price, 2),
+                    "day_chg":   day_chg,
+                    "wk1_chg":   wk1_chg,
+                    "mo1_chg":   mo1_chg,
+                    "rel_vol":   rel_vol,
+                    "range_pos": range_pos,
+                    "flow":      flow,
+                })
+            except Exception:
+                continue
+    except Exception:
+        pass
 
     results.sort(key=lambda x: x["day_chg"], reverse=True)
     out = {"sectors": results, "scanned": len(SECTORS)}
@@ -6970,7 +6983,7 @@ def squeeze_setup():
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=20) as ex:
+    with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {ex.submit(_scan_sq, t): t for t in DEFAULT_LEADERBOARD}
         for fut in as_completed(futures):
             r = fut.result()
