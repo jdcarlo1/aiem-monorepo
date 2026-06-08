@@ -4398,6 +4398,8 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
     HIGH_QUANT_SCORE: "#eab308", GAMMA_WALL:       "#c084fc",
     VOL_CRUSH_SETUP:  "#fb923c", MAX_PAIN_PULL:    "#38bdf8",
     CALL_INTENT_HIGH: "#f0abfc",
+    MARKET_REGIME:     "#34d399", RELATIVE_STRENGTH: "#fbbf24",
+    SHORT_SQUEEZE_FUEL:"#f43f5e", EPS_REVISION_UP:   "#818cf8",
   };
 
   const maxSig    = data?.max_signals ?? 21;
@@ -4427,6 +4429,31 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
           fontFamily: BB, fontSize: 12, fontWeight: 700, cursor: "pointer",
         }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
       </div>
+
+      {/* Market regime banner */}
+      {data && (
+        <div style={{
+          marginBottom: 14, padding: "10px 16px", borderRadius: 10,
+          background: data.market_regime_on ? "rgba(52,211,153,0.07)" : "rgba(248,113,113,0.07)",
+          border: `1px solid ${data.market_regime_on ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
+          display: "flex", alignItems: "center", gap: 12,
+        }}>
+          <span style={{ fontSize: 16 }}>{data.market_regime_on ? "🟢" : "🔴"}</span>
+          <div>
+            <span style={{ fontFamily: BB, fontWeight: 900, fontSize: 13, color: data.market_regime_on ? "#34d399" : "#f87171", marginRight: 8 }}>
+              {data.market_regime_on ? "RISK-ON" : "RISK-OFF"}
+            </span>
+            <span style={{ fontFamily: BB, fontSize: 11, color: "#64748b" }}>
+              Market Regime · SPY {data.market_regime_on ? "above" : "below"} 50-day MA · VIX {data.market_regime_on ? "< 25 (favorable)" : "≥ 25 or SPY weak (caution)"}
+            </span>
+          </div>
+          {data.market_regime_on && (
+            <span style={{ marginLeft: "auto", fontFamily: BB, fontSize: 10, color: "#34d399", background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.25)", borderRadius: 6, padding: "3px 8px" }}>
+              🌍 MARKET REGIME fires for all tickers
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Sector context banner */}
       {data?.sector_context && (data.sector_context.top || data.sector_context.bottom) && (

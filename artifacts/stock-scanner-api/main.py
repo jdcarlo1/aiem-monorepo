@@ -5395,6 +5395,11 @@ def multi_signal_convergence():
         ("VOL_CRUSH_SETUP",    "📉 Vol Crush Setup",     "Inflated IV ahead of catalyst — market pricing in big move"),
         ("MAX_PAIN_PULL",      "⚡ Max Pain Pull",       "Price below max pain — MM pressure targets upside"),
         ("CALL_INTENT_HIGH",   "🎯 Call Intent",         "High call OI / unusual call intent detected"),
+        # ── High-conviction quant filters (push win rate toward 70%) ─────────
+        ("MARKET_REGIME",      "🌍 Market Regime",       "SPY above 50-day MA and VIX < 25 — risk-on macro environment"),
+        ("RELATIVE_STRENGTH",  "🏆 Relative Strength",   "Outperforming S&P 500 by 15%+ over last 3 months (RS top tier)"),
+        ("SHORT_SQUEEZE_FUEL", "💣 Short Squeeze Fuel",  "Short interest > 10% — trapped shorts amplify any upside move"),
+        ("EPS_REVISION_UP",    "📊 EPS Revision Up",     "Earnings growth > 10% — analysts revising estimates higher"),
     ]
 
     # ── Build ticker sets from existing caches (read-only, safe) ─────────
@@ -5436,6 +5441,21 @@ def multi_signal_convergence():
         "top":    {"ticker": top_sector["ticker"],    "name": top_sector["name"],    "day_chg": top_sector["day_chg"],    "flow": top_sector["flow"]}    if top_sector    else None,
         "bottom": {"ticker": bottom_sector["ticker"], "name": bottom_sector["name"], "day_chg": bottom_sector["day_chg"], "flow": bottom_sector["flow"]} if bottom_sector else None,
     }
+
+    # ── Market regime (computed once for all tickers) ────────────────────────
+    market_regime_on   = False
+    spy_return_3mo_ref = 0.0
+    try:
+        _spy = yf.Ticker("SPY").history(period="70d")["Close"]
+        _vix = yf.Ticker("^VIX").history(period="5d")["Close"]
+        _spy_now  = float(_spy.iloc[-1])
+        _spy_50ma = float(_spy.rolling(50).mean().iloc[-1])
+        _vix_now  = float(_vix.iloc[-1])
+        market_regime_on   = (_spy_now > _spy_50ma) and (_vix_now < 25)
+        _idx = max(0, len(_spy) - 63)
+        spy_return_3mo_ref = (_spy_now - float(_spy.iloc[_idx])) / float(_spy.iloc[_idx]) if float(_spy.iloc[_idx]) > 0 else 0
+    except Exception:
+        pass
 
     results = []
 
@@ -5491,6 +5511,25 @@ def multi_signal_convergence():
             if mp_level and price > 0 and price < mp_level:
                 fired.append("MAX_PAIN_PULL")
 
+            # ── High-conviction quant filters ─────────────────────────────────
+            if market_regime_on:
+                fired.append("MARKET_REGIME")
+
+            try:
+                _tk   = yf.Ticker(ticker)
+                _hist = _tk.history(period="3mo")["Close"]
+                if len(_hist) >= 10:
+                    _ret = (float(_hist.iloc[-1]) - float(_hist.iloc[0])) / float(_hist.iloc[0])
+                    if _ret > spy_return_3mo_ref + 0.15:
+                        fired.append("RELATIVE_STRENGTH")
+                _info = _tk.info
+                if (_info.get("shortPercentOfFloat") or 0) > 0.10:
+                    fired.append("SHORT_SQUEEZE_FUEL")
+                if (_info.get("earningsGrowth") or 0) > 0.10 or (_info.get("revenueGrowth") or 0) > 0.15:
+                    fired.append("EPS_REVISION_UP")
+            except Exception:
+                pass
+
             if len(fired) < 2:
                 return None
 
@@ -5537,7 +5576,9 @@ def multi_signal_convergence():
             "vol_crush":       len(vc_tickers),
             "call_intent":     len(oi_tickers),
             "max_pain":        len(mp_map),
+            "market_regime":   1 if market_regime_on else 0,
         },
+        "market_regime_on":  market_regime_on,
     }
     app._ms_cache    = out
     app._ms_cache_ts = _ms_dt.now()

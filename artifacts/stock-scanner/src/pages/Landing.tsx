@@ -123,12 +123,12 @@ export default function Landing() {
           </div>
 
           <h1 className="font-black leading-none mb-8" style={{ fontSize: "clamp(3.2rem,9vw,7.5rem)", letterSpacing: "-0.055em", lineHeight: 0.92 }}>
-            17 scanners.<br />
+            21 scanners.<br />
             <span style={{ color: "#4ade80", textShadow: "0 0 160px rgba(74,222,128,0.5)" }}>One AI thesis.</span>
           </h1>
 
           <p className="mx-auto mb-6 text-slate-300" style={{ fontSize: "clamp(1.1rem,2.5vw,1.4rem)", maxWidth: "660px", lineHeight: 1.75 }}>
-            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 17 sources into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, dealer gamma exposure, volatility surface, macro cross-asset context, institutional whale blocks, and more — and outputs 3 complete, written trade setups every day.
+            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 21 sources into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, dealer gamma exposure, volatility surface, macro cross-asset context, institutional whale blocks, and more — and outputs 3 complete, written trade setups every day.
           </p>
 
           <p className="mx-auto mb-12 font-bold" style={{ fontSize: "1.05rem", maxWidth: "580px", color: "#fbbf24" }}>

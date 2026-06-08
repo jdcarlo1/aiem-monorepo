@@ -915,6 +915,7 @@ export function fetchMultiSignal() {
       bottom: { ticker: string; name: string; day_chg: number; flow: string } | null;
     };
     cache_status: Record<string, number>;
+    market_regime_on: boolean;
   }>("/multi-signal");
 }
 
