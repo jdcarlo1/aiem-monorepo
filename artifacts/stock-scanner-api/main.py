@@ -5231,77 +5231,120 @@ def multi_signal_log():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/stock-api/whale-activity", methods=["GET"])
-def whale_activity():
-    """Scan for large institutional options blocks ($5M+ single-strike) across 30-365 day expirations."""
+def _run_whale_scan_background():
+    """Live whale scan — runs in background thread, populates cache + DB when done."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import yfinance as yf
     from datetime import datetime as _dt
+
+    if getattr(app, "_whale_scan_running", False):
+        return
+    app._whale_scan_running = True
+    try:
+        now = _dt.now()
+        MIN_PREM_M = 5.0
+
+        def _scan_whale(ticker):
+            blocks = []
+            try:
+                tkr   = yf.Ticker(ticker)
+                price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+                if price <= 0: return blocks
+                exps = tkr.options
+                if not exps: return blocks
+                for exp in exps:
+                    try:
+                        days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
+                        if not (30 <= days_out <= 365): continue
+                        for direction, chain in [("CALL", tkr.option_chain(exp).calls),
+                                                 ("PUT",  tkr.option_chain(exp).puts)]:
+                            for _, row in chain.iterrows():
+                                strike = float(row.get("strike", 0) or 0)
+                                vol    = int(row.get("volume", 0) or 0)
+                                last   = float(row.get("lastPrice", 0) or 0)
+                                if strike <= 0 or last <= 0 or vol <= 0: continue
+                                if strike < price * 0.15: continue
+                                pre_otm = (strike - price) / price * 100
+                                if pre_otm < -75: continue
+                                prem_m = vol * last * 100 / 1e6
+                                if prem_m >= MIN_PREM_M:
+                                    otm_pct  = round(pre_otm, 1)
+                                    category = "LEAPS" if days_out >= 180 else "AGGRESSIVE" if days_out <= 90 else "MEDIUM"
+                                    tier     = "MEGA_WHALE" if prem_m >= 20 else "WHALE" if prem_m >= 10 else "BIG_BLOCK"
+                                    blocks.append({
+                                        "ticker":    ticker,
+                                        "price":     round(price, 2),
+                                        "direction": direction,
+                                        "strike":    round(strike, 2),
+                                        "expiry":    exp,
+                                        "days_out":  days_out,
+                                        "prem_m":    round(prem_m, 1),
+                                        "volume":    vol,
+                                        "otm_pct":   otm_pct,
+                                        "category":  category,
+                                        "tier":      tier,
+                                    })
+                    except Exception: continue
+            except Exception: pass
+            return blocks
+
+        all_blocks = []
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            futures = {ex.submit(_scan_whale, t): t for t in DEFAULT_LEADERBOARD}
+            for fut in as_completed(futures):
+                all_blocks.extend(fut.result() or [])
+
+        all_blocks.sort(key=lambda x: x["prem_m"], reverse=True)
+        out = {"blocks": all_blocks[:60], "total": len(all_blocks), "scanned": len(DEFAULT_LEADERBOARD)}
+        app._whale_cache    = out
+        app._whale_cache_ts = _dt.now()
+        _save_whale_blocks_to_db(all_blocks)
+    finally:
+        app._whale_scan_running = False
+
+
+@app.route("/stock-api/whale-activity", methods=["GET"])
+def whale_activity():
+    """Scan for large institutional options blocks ($5M+ single-strike) across 30-365 day expirations."""
+    from datetime import datetime as _dt
+    import threading
 
     _cache = getattr(app, "_whale_cache", None)
     _ts    = getattr(app, "_whale_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
         return jsonify(_cache)
 
-    now = _dt.now()
-    MIN_PREM_M = 5.0
+    # Cache is cold — return recent DB blocks immediately, kick off live scan in background
+    db_blocks = []
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, direction, strike::float, expiry, days_out, prem_m::float,
+                       volume, otm_pct::float, category, tier, price::float
+                FROM whale_blocks
+                WHERE first_seen >= NOW() - INTERVAL '3 days'
+                ORDER BY prem_m DESC
+                LIMIT 60
+            """)
+            cols = ["ticker","direction","strike","expiry","days_out","prem_m","volume","otm_pct","category","tier","price"]
+            db_blocks = [dict(zip(cols, row)) for row in cur.fetchall()]
+    except Exception:
+        pass
 
-    def _scan_whale(ticker):
-        blocks = []
-        try:
-            tkr   = yf.Ticker(ticker)
-            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
-            if price <= 0: return blocks
-            exps = tkr.options
-            if not exps: return blocks
-            for exp in exps:
-                try:
-                    days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
-                    if not (30 <= days_out <= 365): continue
-                    for direction, chain in [("CALL", tkr.option_chain(exp).calls),
-                                             ("PUT",  tkr.option_chain(exp).puts)]:
-                        for _, row in chain.iterrows():
-                            strike = float(row.get("strike", 0) or 0)
-                            vol    = int(row.get("volume", 0) or 0)
-                            last   = float(row.get("lastPrice", 0) or 0)
-                            if strike <= 0 or last <= 0 or vol <= 0: continue
-                            if strike < price * 0.15: continue  # filter micro-strikes
-                            pre_otm = (strike - price) / price * 100
-                            if pre_otm < -75: continue  # skip deeply ITM (>75% ITM) — not a directional signal
-                            prem_m = vol * last * 100 / 1e6
-                            if prem_m >= MIN_PREM_M:
-                                otm_pct  = round(pre_otm, 1)
-                                category = "LEAPS" if days_out >= 180 else "AGGRESSIVE" if days_out <= 90 else "MEDIUM"
-                                tier     = "MEGA_WHALE" if prem_m >= 20 else "WHALE" if prem_m >= 10 else "BIG_BLOCK"
-                                blocks.append({
-                                    "ticker":    ticker,
-                                    "price":     round(price, 2),
-                                    "direction": direction,
-                                    "strike":    round(strike, 2),
-                                    "expiry":    exp,
-                                    "days_out":  days_out,
-                                    "prem_m":    round(prem_m, 1),
-                                    "volume":    vol,
-                                    "otm_pct":   otm_pct,
-                                    "category":  category,
-                                    "tier":      tier,
-                                })
-                except Exception: continue
-        except Exception: pass
-        return blocks
+    # Kick off live scan in background (only one at a time)
+    if not getattr(app, "_whale_scan_running", False):
+        threading.Thread(target=_run_whale_scan_background, daemon=True).start()
 
-    all_blocks = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_scan_whale, t): t for t in DEFAULT_LEADERBOARD}
-        for fut in as_completed(futures):
-            all_blocks.extend(fut.result() or [])
+    if db_blocks:
+        out = {"blocks": db_blocks, "total": len(db_blocks), "scanned": len(DEFAULT_LEADERBOARD), "source": "db"}
+        return jsonify(out)
 
-    all_blocks.sort(key=lambda x: x["prem_m"], reverse=True)
-    out = {"blocks": all_blocks[:60], "total": len(all_blocks), "scanned": len(DEFAULT_LEADERBOARD)}
-    app._whale_cache    = out
-    app._whale_cache_ts = _dt.now()
-    _save_whale_blocks_to_db(all_blocks)
-    return jsonify(out)
+    # No DB data either — wait for live scan synchronously (first ever run)
+    _run_whale_scan_background()
+    _cache = getattr(app, "_whale_cache", None)
+    if _cache:
+        return jsonify(_cache)
+    return jsonify({"blocks": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD)})
 
 
 @app.route("/stock-api/whale-history", methods=["GET"])
