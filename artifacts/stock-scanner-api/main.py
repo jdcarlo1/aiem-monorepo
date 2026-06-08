@@ -5515,6 +5515,117 @@ def unusual_calls_log():
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
 
 
+@app.route("/stock-api/conviction-calls", methods=["GET"])
+def conviction_calls():
+    """
+    High-conviction call screener: stocks where calls DRAMATICALLY outpace puts.
+    Criteria: multiple strikes lighting up simultaneously, Vol/OI ≥5x, ≤30d expiry,
+    premium ≥$500K. Groups by ticker and scores by institutional sweep pattern.
+    """
+    import math as _math
+    from datetime import datetime as _dt
+
+    _cache = getattr(app, "_conv_calls_cache", None)
+    _ts    = getattr(app, "_conv_calls_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:  # 15-min cache
+        return jsonify(_cache)
+
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, price::float, strike::float, expiry, days_out,
+                       vol_oi::float, prem::bigint, otm_pct::float, iv::float,
+                       urgency, last_seen
+                FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '3 days'
+                  AND days_out BETWEEN 1 AND 30
+                  AND vol_oi  >= 5
+                  AND prem    >= 500000
+                  AND otm_pct BETWEEN -5 AND 30
+                ORDER BY last_seen DESC, vol_oi DESC
+            """)
+            cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+        if not rows:
+            return jsonify({"signals": [], "generated_at": _dt.now().isoformat(), "note": "No high-conviction calls in last 3 days. Run a scan in 🚨 Unusual Calls first."})
+
+        # Group by ticker — multi-strike sweep = strongest institutional signal
+        from collections import defaultdict as _dd
+        by_ticker = _dd(list)
+        for r in rows:
+            by_ticker[r["ticker"]].append(r)
+
+        results = []
+        for ticker, strikes in by_ticker.items():
+            # Aggregate metrics
+            num_strikes    = len(strikes)
+            total_prem     = sum(s["prem"] for s in strikes)
+            max_vol_oi     = max(s["vol_oi"] for s in strikes)
+            avg_iv         = sum(s["iv"] or 0 for s in strikes) / num_strikes
+            best_strike    = max(strikes, key=lambda s: s["vol_oi"])
+            price          = best_strike["price"]
+
+            # Urgency: EXPIRING > SHORT > NEAR
+            urgency_rank   = {"EXPIRING": 3, "SHORT": 2, "NEAR": 1}.get(best_strike["urgency"], 1)
+
+            # IV conviction bonus (screaming options → screaming conviction)
+            iv_bonus = 1.8 if avg_iv >= 90 else 1.5 if avg_iv >= 70 else 1.2 if avg_iv >= 50 else 1.0
+
+            # Multi-strike sweep multiplier — every extra strike adds more conviction
+            sweep_mult = 1.0 + 0.4 * (num_strikes - 1)
+
+            # Compound conviction score
+            prem_factor   = _math.log(total_prem / 1_000_000 + 1) + 1
+            vol_oi_factor = _math.log(max_vol_oi + 1)
+            score = round(vol_oi_factor * prem_factor * iv_bonus * sweep_mult * urgency_rank, 2)
+
+            # Conviction label
+            if score >= 12:   conviction = "EXTREME"
+            elif score >= 7:  conviction = "HIGH"
+            elif score >= 4:  conviction = "ELEVATED"
+            else:             conviction = "MODERATE"
+
+            # Urgency label for display
+            days_out_min = min(s["days_out"] for s in strikes if s["days_out"])
+            urgency_label = "EXPIRING" if days_out_min <= 5 else f"{days_out_min}D"
+
+            results.append({
+                "ticker":         ticker,
+                "price":          price,
+                "score":          score,
+                "conviction":     conviction,
+                "num_strikes":    num_strikes,
+                "total_prem_m":   round(total_prem / 1_000_000, 2),
+                "max_vol_oi":     round(max_vol_oi, 1),
+                "avg_iv":         round(avg_iv, 1),
+                "urgency":        urgency_label,
+                "strikes":        sorted(strikes, key=lambda s: s["vol_oi"], reverse=True)[:8],
+            })
+
+        # Sort by conviction score descending
+        results.sort(key=lambda x: x["score"], reverse=True)
+        results = results[:15]
+        for i, r in enumerate(results):
+            r["rank"] = i + 1
+            for s in r["strikes"]:
+                if s.get("last_seen"):
+                    s["last_seen"] = s["last_seen"].isoformat()
+
+        out = {
+            "signals":      results,
+            "generated_at": _dt.now().isoformat(),
+            "total":        len(results),
+        }
+        app._conv_calls_cache    = out
+        app._conv_calls_cache_ts = _dt.now()
+        return jsonify(out)
+    except Exception as e:
+        import traceback
+        print(f"[conviction_calls] error: {e}\n{traceback.format_exc()}", file=__import__("sys").stderr)
+        return jsonify({"error": str(e), "signals": []}), 500
+
+
 @app.route("/stock-api/ai-short-calls", methods=["GET"])
 def ai_short_calls():
     """5 AI-picked short-term call plays (≤30d expiry) drawn from the Unusual Calls scanner."""

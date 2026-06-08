@@ -19,6 +19,7 @@ import {
   AITradeSetup, SignalEvent, CompositeScoreRow,
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
   fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
+  fetchConvictionCalls, ConvictionCallSignal, ConvictionCallStrike,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
@@ -6243,6 +6244,149 @@ function WhaleLogTab() {
 }
 
 
+// ---- High Conviction Calls Tab --------------------------------------------
+function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [data, setData]       = useState<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try { setData(await fetchConvictionCalls()); }
+    catch (e: any) { setError(e.message ?? "Failed to load"); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const convColor = (c: string) => {
+    if (c === "EXTREME") return "#ff4444";
+    if (c === "HIGH")    return "#fbbf24";
+    if (c === "ELEVATED") return "#22c55e";
+    return "#64748b";
+  };
+  const convBg = (c: string) => {
+    if (c === "EXTREME") return "rgba(255,68,68,0.12)";
+    if (c === "HIGH")    return "rgba(251,191,36,0.12)";
+    if (c === "ELEVATED") return "rgba(34,197,94,0.08)";
+    return "rgba(100,116,139,0.08)";
+  };
+
+  const fmtPrem = (p: number) => p >= 1 ? `$${p.toFixed(1)}M` : `$${(p * 1000).toFixed(0)}K`;
+  const signals = data?.signals ?? [];
+
+  return (
+    <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.15em", color: "#ff4444" }}>🔥 HIGH CONVICTION CALLS</div>
+          <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2, letterSpacing: "0.08em" }}>
+            Stocks where calls DRAMATICALLY outpace puts · Multi-strike sweeps · ≤30d · Pure naked calls only
+          </div>
+        </div>
+        <button onClick={load} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
+          {loading ? "SCANNING…" : "↻ REFRESH"}
+        </button>
+      </div>
+
+      {/* How scoring works */}
+      <div style={{ background: "#0a0a0a", border: "1px solid #1e293b", padding: "8px 14px", marginBottom: 16, display: "flex", gap: 20, flexWrap: "wrap" }}>
+        <span style={{ color: "#ff4444", fontSize: 9, fontWeight: 700 }}>🔥 EXTREME score ≥12</span>
+        <span style={{ color: "#fbbf24", fontSize: 9, fontWeight: 700 }}>⚡ HIGH score ≥7</span>
+        <span style={{ color: "#22c55e", fontSize: 9, fontWeight: 700 }}>✓ ELEVATED score ≥4</span>
+        <span style={{ color: BB_LABEL, fontSize: 9 }}>Score = Vol/OI × Premium × IV × Strike sweep count</span>
+      </div>
+
+      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
+
+      {loading && (
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 40 }}>SCANNING FOR HIGH-CONVICTION SWEEPS…</div>
+      )}
+
+      {!loading && data?.note && signals.length === 0 && (
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32, lineHeight: 1.8 }}>
+          {data.note}<br />
+          <span style={{ fontSize: 9 }}>Run a scan in 🚨 Unusual Calls first to populate the database.</span>
+        </div>
+      )}
+
+      {!loading && signals.map(sig => (
+        <div key={sig.ticker} style={{ background: BB_PANEL, border: `1px solid ${expanded === sig.ticker ? convColor(sig.conviction) : BB_BORDER}`, marginBottom: 10, transition: "border-color 0.2s" }}>
+          {/* Main row */}
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer" }}
+            onClick={() => setExpanded(expanded === sig.ticker ? null : sig.ticker)}
+          >
+            {/* Rank + conviction */}
+            <div style={{ textAlign: "center", minWidth: 32 }}>
+              <div style={{ color: BB_LABEL, fontSize: 8 }}>#{sig.rank}</div>
+              <div style={{ background: convBg(sig.conviction), color: convColor(sig.conviction), fontSize: 8, fontWeight: 900, padding: "2px 5px", marginTop: 2, letterSpacing: "0.05em" }}>{sig.conviction}</div>
+            </div>
+
+            {/* Ticker + urgency */}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span
+                  style={{ color: BB_WHITE, fontWeight: 900, fontSize: 16, cursor: "pointer", letterSpacing: "-0.01em" }}
+                  onClick={e => { e.stopPropagation(); onSelectTicker(sig.ticker); }}
+                >{sig.ticker}</span>
+                <span style={{ color: BB_LABEL, fontSize: 10 }}>${sig.price.toFixed(2)}</span>
+                <span style={{ background: sig.urgency === "EXPIRING" ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.12)", color: sig.urgency === "EXPIRING" ? BB_RED : "#fbbf24", fontSize: 8, fontWeight: 700, padding: "2px 7px" }}>{sig.urgency}</span>
+              </div>
+              <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Strikes: <span style={{ color: sig.num_strikes >= 3 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.num_strikes} sweeping</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Total prem: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{fmtPrem(sig.total_prem_m)}</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Max Vol/OI: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{sig.max_vol_oi.toFixed(0)}x</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Avg IV: <span style={{ color: sig.avg_iv >= 80 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.avg_iv.toFixed(0)}%</span></span>
+              </div>
+            </div>
+
+            {/* Score */}
+            <div style={{ textAlign: "right" }}>
+              <div style={{ color: BB_LABEL, fontSize: 8, marginBottom: 2 }}>SCORE</div>
+              <div style={{ color: convColor(sig.conviction), fontSize: 22, fontWeight: 900, fontFamily: BB_FONT, lineHeight: 1 }}>{sig.score.toFixed(1)}</div>
+            </div>
+
+            <span style={{ color: BB_LABEL, fontSize: 12 }}>{expanded === sig.ticker ? "▲" : "▼"}</span>
+          </div>
+
+          {/* Expanded strikes grid */}
+          {expanded === sig.ticker && (
+            <div style={{ borderTop: `1px solid ${BB_BORDER}`, padding: "12px 16px" }}>
+              <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 10 }}>
+                {sig.num_strikes} STRIKES SWEEPING — INSTITUTIONAL MULTI-STRIKE PATTERN
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {sig.strikes.map((s, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#0a0a0a", padding: "8px 12px", border: `1px solid ${i === 0 ? convColor(sig.conviction) + "44" : BB_BORDER}` }}>
+                    {i === 0 && <span style={{ color: convColor(sig.conviction), fontSize: 8, fontWeight: 900 }}>▶</span>}
+                    {i > 0  && <span style={{ color: BB_LABEL, fontSize: 8 }}>{i + 1}</span>}
+                    <span style={{ color: BB_WHITE, fontWeight: 700, fontSize: 11, minWidth: 70 }}>${s.strike}C</span>
+                    <span style={{ color: BB_LABEL, fontSize: 9, minWidth: 70 }}>{s.expiry} ({s.days_out}d)</span>
+                    <span style={{ color: BB_GREEN, fontSize: 9, fontWeight: 700, minWidth: 55 }}>{s.vol_oi.toFixed(0)}x V/OI</span>
+                    <span style={{ color: BB_WHITE, fontSize: 9, minWidth: 55 }}>${(s.prem / 1_000_000).toFixed(2)}M</span>
+                    <span style={{ color: s.otm_pct > 0 ? BB_LABEL : "#fbbf24", fontSize: 9 }}>{s.otm_pct > 0 ? "+" : ""}{s.otm_pct.toFixed(1)}% OTM</span>
+                    <span style={{ color: s.iv >= 80 ? "#ff4444" : BB_LABEL, fontSize: 9 }}>IV {s.iv.toFixed(0)}%</span>
+                    <span style={{ background: s.urgency === "EXPIRING" ? "rgba(239,68,68,0.1)" : "rgba(251,191,36,0.08)", color: s.urgency === "EXPIRING" ? BB_RED : "#fbbf24", fontSize: 7, fontWeight: 700, padding: "1px 5px" }}>{s.urgency}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {data && signals.length > 0 && (
+        <div style={{ color: BB_LABEL, fontSize: 8, textAlign: "center", marginTop: 12 }}>
+          {data.total} high-conviction setups · Generated {new Date(data.generated_at).toLocaleTimeString()} · Refreshes every 15 min · Data from last 3 days of scans
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ---- Signal Outcome Tracker Tab ------------------------------------------
 function ShortCallRecordTab() {
   const [data, setData]       = useState<AIShortCallLogResult | null>(null);
@@ -8719,7 +8863,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -8843,6 +8987,7 @@ export default function Dashboard() {
     { id: "watchlist",   label: "📌 MY WATCHLIST" },
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
+    { id: "convictioncalls", label: "🔥 HIGH CONVICTION" },
     { id: "mytrades",        label: "📈 MY TRADES" },
     { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
     { id: "shortcallrecord", label: "📋 SHORT CALLS RECORD" },
@@ -9438,6 +9583,7 @@ export default function Dashboard() {
         {tab === "watchlist" && <TradeWatchlistTab />}
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
+        {tab === "convictioncalls" && <ConvictionCallsTab onSelectTicker={selectTicker} />}
         {tab === "mytrades"        && <MyTradesTab />}
         {tab === "aishortcalls"    && <AIShortCallsTab />}
         {tab === "shortcallrecord" && <ShortCallRecordTab />}

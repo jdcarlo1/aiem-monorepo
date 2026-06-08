@@ -732,6 +732,21 @@ export function fetchAIShortCallsLog() {
   return fetchJson<AIShortCallLogResult>("/ai-short-calls-log");
 }
 
+export interface ConvictionCallStrike {
+  ticker: string; price: number; strike: number; expiry: string;
+  days_out: number; vol_oi: number; prem: number; otm_pct: number;
+  iv: number; urgency: string; last_seen: string;
+}
+export interface ConvictionCallSignal {
+  ticker: string; price: number; score: number; conviction: string;
+  rank: number; num_strikes: number; total_prem_m: number;
+  max_vol_oi: number; avg_iv: number; urgency: string;
+  strikes: ConvictionCallStrike[];
+}
+export function fetchConvictionCalls() {
+  return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string; error?: string }>("/conviction-calls");
+}
+
 export interface SignalEvent {
   ticker: string; price: number; type: string;
   icon: string; color: string; msg: string;
