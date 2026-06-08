@@ -667,10 +667,8 @@ export interface AITradeSetup {
 export function fetchAITrades() {
   return fetchJson<{ trades: AITradeSetup[]; generated_at?: string; tickers_scanned?: number; signal_sources?: string[]; warming?: boolean; loading?: boolean; refreshing?: boolean; error?: string }>("/ai-trades");
 }
-export async function triggerAITradesRegenerate() {
-  const base = (import.meta as any).env?.BASE_URL ?? "/stock-scanner/";
-  const res = await fetch(`${base}stock-api/ai-trades/regenerate`, { method: "POST" });
-  return res.json();
+export function triggerAITradesRegenerate() {
+  return fetchJson<{ status: string; message: string }>("/ai-trades/regenerate", { method: "POST" });
 }
 
 export interface AIShortCall {
