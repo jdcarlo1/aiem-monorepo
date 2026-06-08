@@ -734,6 +734,7 @@ export interface AITradeLogEntry {
   expiry_win: boolean | null;
   outcome: "OPEN" | "WIN" | "LOSS";
   created_at: string;
+  source: "AI_TRADE" | "MULTI_SIGNAL" | "BOTH";
 }
 
 export interface AITradeLogResult {
@@ -741,10 +742,25 @@ export interface AITradeLogResult {
   count: number;
   win_rates: { expiry: number | null; t1: number | null; t3: number | null; t5: number | null; t10: number | null };
   by_direction: Record<string, { count: number; win_rate_expiry: number | null; win_rate_t5: number | null }>;
+  by_source: Record<string, { count: number; win_rate_expiry: number | null; win_rate_t5: number | null }>;
 }
 
 export function fetchAITradeLog() {
   return fetchJson<AITradeLogResult>("/ai-trade-log");
+}
+
+export function logMultiSignalThesis(payload: {
+  ticker: string;
+  signals: string[];
+  score: number;
+  price: number;
+  thesis: string;
+}) {
+  return fetchJson<{ ok: boolean; ticker: string; date: string }>("/multi-signal/log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 export interface WhaleBlock {

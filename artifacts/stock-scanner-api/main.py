@@ -591,6 +591,7 @@ def _init_ai_trade_log_table():
         "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_price FLOAT",
         "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_pct   FLOAT",
         "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_win   BOOL",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'AI_TRADE'",
     ]
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -4706,7 +4707,8 @@ def ai_trade_log():
                        t1_pct, t3_pct, t5_pct, t10_pct,
                        t1_win, t3_win, t5_win, t10_win,
                        expiry_price, expiry_pct, expiry_win,
-                       outcome, created_at
+                       outcome, created_at,
+                       COALESCE(source, 'AI_TRADE') AS source
                 FROM ai_trade_log
                 ORDER BY trade_date DESC, id DESC
             """)
@@ -4718,7 +4720,7 @@ def ai_trade_log():
                     "t1_pct","t3_pct","t5_pct","t10_pct",
                     "t1_win","t3_win","t5_win","t10_win",
                     "expiry_price","expiry_pct","expiry_win",
-                    "outcome","created_at"]
+                    "outcome","created_at","source"]
             trades = []
             for row in rows:
                 d = dict(zip(cols, row))
@@ -4739,7 +4741,7 @@ def ai_trade_log():
                 "t5": _wr("t5_win"), "t10": _wr("t10_win"),
             }
 
-            # By direction breakdown
+            # By direction breakdown (kept for backward compat)
             by_dir = {}
             for d in ["BULLISH", "BEARISH", "NEUTRAL"]:
                 sub = [t for t in trades if t["direction"] == d]
@@ -4751,16 +4753,68 @@ def ai_trade_log():
                     "win_rate_t5": round(sum(1 for v in t5s if v) / len(t5s) * 100, 1) if t5s else None,
                 }
 
+            # By source breakdown — AI_TRADE vs MULTI_SIGNAL vs BOTH
+            by_src = {}
+            for s in ["AI_TRADE", "MULTI_SIGNAL", "BOTH"]:
+                sub = [t for t in trades if t.get("source") == s]
+                exp_wins = [t["expiry_win"] for t in sub if t["expiry_win"] is not None]
+                t5s = [t["t5_win"] for t in sub if t["t5_win"] is not None]
+                by_src[s] = {
+                    "count": len(sub),
+                    "win_rate_expiry": round(sum(1 for v in exp_wins if v) / len(exp_wins) * 100, 1) if exp_wins else None,
+                    "win_rate_t5": round(sum(1 for v in t5s if v) / len(t5s) * 100, 1) if t5s else None,
+                }
+
             return jsonify({
                 "trades": trades,
                 "count": len(trades),
                 "win_rates": win_rates,
                 "by_direction": by_dir,
+                "by_source": by_src,
             })
     except Exception as e:
         return jsonify({"error": str(e), "trades": [], "count": 0,
                         "win_rates": {"t1": None, "t3": None, "t5": None, "t10": None},
-                        "by_direction": {}}), 500
+                        "by_direction": {}, "by_source": {}}), 500
+
+
+@app.route("/stock-api/multi-signal/log", methods=["POST"])
+def multi_signal_log():
+    """Persist a multi-signal AI thesis call to the ai_trade_log table."""
+    try:
+        from datetime import datetime as _msl_dt
+        import pytz
+        body    = request.get_json(force=True) or {}
+        ticker  = (body.get("ticker") or "").upper().strip()
+        signals = body.get("signals") or []
+        score   = int(body.get("score", len(signals)))
+        price   = float(body.get("price") or 0)
+        thesis  = (body.get("thesis") or "").strip()
+
+        if not ticker or not thesis:
+            return jsonify({"error": "ticker and thesis required"}), 400
+
+        conviction = "HIGH" if score >= 10 else ("MEDIUM" if score >= 6 else "LOW")
+        today = _msl_dt.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d")
+
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO ai_trade_log
+                    (trade_date, ticker, direction, setup_type, conviction,
+                     price_at_signal, signals_aligned, thesis, risk_level, source)
+                VALUES (%s, %s, 'BULLISH', 'MULTI_SIGNAL', %s, %s, %s, %s, 'MEDIUM', 'MULTI_SIGNAL')
+                ON CONFLICT (trade_date, ticker, direction)
+                DO UPDATE SET
+                    source          = CASE WHEN ai_trade_log.source = 'AI_TRADE' THEN 'BOTH' ELSE 'MULTI_SIGNAL' END,
+                    signals_aligned = EXCLUDED.signals_aligned,
+                    thesis          = EXCLUDED.thesis,
+                    setup_type      = CASE WHEN ai_trade_log.source = 'AI_TRADE' THEN ai_trade_log.setup_type ELSE 'MULTI_SIGNAL' END
+            """, (today, ticker, conviction, price, _json.dumps(signals), thesis))
+            conn.commit()
+
+        return jsonify({"ok": True, "ticker": ticker, "date": today})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/stock-api/whale-activity", methods=["GET"])

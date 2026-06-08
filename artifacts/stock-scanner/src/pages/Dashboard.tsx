@@ -30,7 +30,7 @@ import {
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
   BreakoutRow, fetch52WeekBreakout,
   SectorRow, fetchSectorRotation,
-  MultiSignalRow, SignalDef, fetchMultiSignal, fetchMultiSignalAIThesis,
+  MultiSignalRow, SignalDef, fetchMultiSignal, fetchMultiSignalAIThesis, logMultiSignalThesis,
   IVRankResult, IVScanRow, fetchIVRank, fetchIVRankScan,
 } from "@/lib/api";
 import {
@@ -4379,6 +4379,7 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
       const newHist = { ...thesisHistory, [row.ticker]: { thesis: res.thesis, timestamp: Date.now(), score: row.score } };
       setThesisHistory(newHist);
       localStorage.setItem("ms_thesis_history", JSON.stringify(newHist));
+      logMultiSignalThesis({ ticker: row.ticker, signals: row.signals, score: row.score, price: row.price, thesis: res.thesis }).catch(() => {});
     } catch { setThesis("Error generating thesis. Try again."); }
     finally { setThesisLoading(false); }
   };
@@ -6105,7 +6106,7 @@ function TrackRecordTab() {
   const [data, setData]         = useState<AITradeLogResult | null>(null);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
-  const [dirFilter, setDirFilter] = useState<"ALL" | "BULLISH" | "BEARISH" | "NEUTRAL">("ALL");
+  const [sourceFilter, setSourceFilter] = useState<"ALL" | "AI_TRADE" | "MULTI_SIGNAL" | "BOTH">("ALL");
   const [expanded, setExpanded] = useState<number | null>(null);
 
   const load = async () => {
@@ -6121,7 +6122,7 @@ function TrackRecordTab() {
 
   useEffect(() => { load(); }, []);
 
-  const trades = (data?.trades ?? []).filter(t => dirFilter === "ALL" || t.direction === dirFilter);
+  const trades = (data?.trades ?? []).filter(t => sourceFilter === "ALL" || t.source === sourceFilter);
 
   const pctColor = (v: number | null) => {
     if (v === null) return BB_LABEL;
@@ -6187,15 +6188,17 @@ function TrackRecordTab() {
         </div>
       )}
 
-      {/* Direction breakdown */}
+      {/* Source breakdown */}
       {data && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-          {(["BULLISH", "BEARISH", "NEUTRAL"] as const).map(d => {
-            const s = data.by_direction[d];
-            if (!s) return null;
+          {(["AI_TRADE", "MULTI_SIGNAL", "BOTH"] as const).map(src => {
+            const s = data.by_source?.[src];
+            if (!s || s.count === 0) return null;
+            const srcColor = src === "BOTH" ? "#f97316" : src === "MULTI_SIGNAL" ? "#a78bfa" : BB_GREEN;
+            const srcLabel = src === "AI_TRADE" ? "AI TRADE DESK" : src === "MULTI_SIGNAL" ? "MULTI-SIGNAL" : "🔥 BOTH SYSTEMS";
             return (
-              <div key={d} style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "10px 14px", display: "flex", gap: 20, alignItems: "center" }}>
-                <span style={{ color: dirColor(d), fontSize: 10, fontWeight: 700, letterSpacing: "0.1em" }}>{d}</span>
+              <div key={src} style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "10px 14px", display: "flex", gap: 20, alignItems: "center" }}>
+                <span style={{ color: srcColor, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em" }}>{srcLabel}</span>
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>{s.count} calls</span>
                 <span style={{ color: s.win_rate_expiry != null && s.win_rate_expiry >= 50 ? BB_GREEN : s.win_rate_expiry != null ? BB_RED : BB_LABEL, fontSize: 11, fontWeight: 700 }}>
                   {s.win_rate_expiry != null ? `${s.win_rate_expiry}% @ EXPIRY` : s.win_rate_t5 != null ? `${s.win_rate_t5}% @ T+5` : "—"}
@@ -6206,17 +6209,24 @@ function TrackRecordTab() {
         </div>
       )}
 
-      {/* Direction filter */}
+      {/* Source filter */}
       <div style={{ display: "flex", gap: 0, marginBottom: 12, borderBottom: `1px solid ${BB_BORDER}` }}>
-        {(["ALL", "BULLISH", "BEARISH", "NEUTRAL"] as const).map(f => (
-          <button key={f} onClick={() => setDirFilter(f)} style={{
-            background: "transparent", border: "none", borderBottom: dirFilter === f ? `2px solid ${BB_GREEN}` : "2px solid transparent",
-            color: dirFilter === f ? BB_GREEN : BB_LABEL, padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9,
-            fontWeight: dirFilter === f ? 700 : 500, cursor: "pointer", letterSpacing: "0.08em", marginBottom: -1,
-          }}>{f}</button>
+        {([
+          { key: "ALL",          label: "ALL" },
+          { key: "AI_TRADE",     label: "AI TRADE DESK" },
+          { key: "MULTI_SIGNAL", label: "MULTI-SIGNAL" },
+          { key: "BOTH",         label: "🔥 BOTH" },
+        ] as const).map(f => (
+          <button key={f.key} onClick={() => setSourceFilter(f.key)} style={{
+            background: "transparent", border: "none",
+            borderBottom: sourceFilter === f.key ? `2px solid ${f.key === "BOTH" ? "#f97316" : f.key === "MULTI_SIGNAL" ? "#a78bfa" : BB_GREEN}` : "2px solid transparent",
+            color: sourceFilter === f.key ? (f.key === "BOTH" ? "#f97316" : f.key === "MULTI_SIGNAL" ? "#a78bfa" : BB_GREEN) : BB_LABEL,
+            padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9,
+            fontWeight: sourceFilter === f.key ? 700 : 500, cursor: "pointer", letterSpacing: "0.08em", marginBottom: -1,
+          }}>{f.label}</button>
         ))}
         <span style={{ marginLeft: "auto", padding: "6px 12px", color: BB_LABEL, fontSize: 9 }}>
-          {trades.length} TRADES
+          {trades.length} CALLS
         </span>
       </div>
 
@@ -6236,22 +6246,25 @@ function TrackRecordTab() {
           {/* Table header */}
           <div style={{
             display: "grid",
-            gridTemplateColumns: "80px 65px 85px 65px 65px 65px 60px 60px 80px 70px",
+            gridTemplateColumns: "80px 65px 95px 65px 65px 65px 60px 60px 80px 70px",
             gap: 0, borderBottom: `1px solid ${BB_BORDER}`,
             padding: "5px 8px", marginBottom: 2,
           }}>
-            {["DATE","TICKER","DIRECTION","ENTRY","TARGET","STOP","T+1","T+3","@ EXPIRY","OUTCOME"].map(h => (
+            {["DATE","TICKER","SOURCE","ENTRY","TARGET","STOP","T+1","T+3","@ EXPIRY","OUTCOME"].map(h => (
               <span key={h} style={{ color: h === "@ EXPIRY" ? "#fbbf24" : BB_LABEL, fontSize: 8, letterSpacing: "0.1em", fontWeight: 700 }}>{h}</span>
             ))}
           </div>
 
-          {trades.map(t => (
+          {trades.map(t => {
+            const srcColor = t.source === "BOTH" ? "#f97316" : t.source === "MULTI_SIGNAL" ? "#a78bfa" : BB_GREEN;
+            const srcLabel = t.source === "AI_TRADE" ? "AI TRADE" : t.source === "MULTI_SIGNAL" ? "MULTI-SIG" : "🔥 BOTH";
+            return (
             <React.Fragment key={t.id}>
               <div
                 onClick={() => setExpanded(expanded === t.id ? null : t.id)}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "80px 65px 85px 65px 65px 65px 60px 60px 80px 70px",
+                  gridTemplateColumns: "80px 65px 95px 65px 65px 65px 60px 60px 80px 70px",
                   gap: 0, padding: "8px 8px", cursor: "pointer",
                   borderBottom: `1px solid ${BB_BORDER}`,
                   background: expanded === t.id ? "#0d1a0d" : "transparent",
@@ -6260,7 +6273,7 @@ function TrackRecordTab() {
               >
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>{t.trade_date}</span>
                 <span style={{ color: BB_WHITE, fontSize: 10, fontWeight: 700 }}>{t.ticker}</span>
-                <span style={{ color: dirColor(t.direction), fontSize: 9, fontWeight: 700 }}>{t.direction}</span>
+                <span style={{ color: srcColor, fontSize: 9, fontWeight: 700 }}>{srcLabel}</span>
                 <span style={{ color: BB_WHITE, fontSize: 9 }}>${t.price_at_signal?.toFixed(2) ?? "—"}</span>
                 <span style={{ color: BB_GREEN, fontSize: 9 }}>{t.target_price ? `$${t.target_price.toFixed(2)}` : "—"}</span>
                 <span style={{ color: BB_RED,   fontSize: 9 }}>{t.stop_loss    ? `$${t.stop_loss.toFixed(2)}`    : "—"}</span>
@@ -6349,7 +6362,7 @@ function TrackRecordTab() {
                 </div>
               )}
             </React.Fragment>
-          ))}
+          ); })}
         </div>
       )}
     </div>
