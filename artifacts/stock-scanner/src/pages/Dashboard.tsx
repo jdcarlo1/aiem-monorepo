@@ -6242,6 +6242,7 @@ function TrackRecordTab() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<"ALL" | "AI_TRADE" | "MULTI_SIGNAL" | "BOTH">("ALL");
+  const [dateFilter, setDateFilter]     = useState<string>("latest");
   const [expanded, setExpanded] = useState<number | null>(null);
 
   const load = async () => {
@@ -6257,7 +6258,12 @@ function TrackRecordTab() {
 
   useEffect(() => { load(); }, []);
 
-  const trades = (data?.trades ?? []).filter(t => sourceFilter === "ALL" || t.source === sourceFilter);
+  const allTrades = data?.trades ?? [];
+  const uniqueDates = Array.from(new Set(allTrades.map(t => t.trade_date))).sort((a, b) => b.localeCompare(a));
+  const activeDateFilter = dateFilter === "latest" ? (uniqueDates[0] ?? null) : dateFilter;
+  const trades = allTrades
+    .filter(t => activeDateFilter === null || t.trade_date === activeDateFilter)
+    .filter(t => sourceFilter === "ALL" || t.source === sourceFilter);
 
   const pctColor = (v: number | null) => {
     if (v === null) return BB_LABEL;
@@ -6341,6 +6347,28 @@ function TrackRecordTab() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Date selector */}
+      {uniqueDates.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 6 }}>FILTER BY DATE</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {uniqueDates.map(d => {
+              const isActive = activeDateFilter === d;
+              const label = new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+              return (
+                <button key={d} onClick={() => setDateFilter(d)} style={{
+                  background: isActive ? "rgba(34,197,94,0.12)" : "transparent",
+                  border: `1px solid ${isActive ? "#22c55e" : BB_BORDER}`,
+                  color: isActive ? BB_GREEN : BB_LABEL,
+                  padding: "5px 12px", fontFamily: BB_FONT, fontSize: 9,
+                  fontWeight: isActive ? 700 : 400, cursor: "pointer", letterSpacing: "0.06em",
+                }}>{label}</button>
+              );
+            })}
+          </div>
         </div>
       )}
 
