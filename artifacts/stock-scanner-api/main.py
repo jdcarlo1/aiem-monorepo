@@ -5527,7 +5527,8 @@ def conviction_calls():
 
     _cache = getattr(app, "_conv_calls_cache", None)
     _ts    = getattr(app, "_conv_calls_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:  # 15-min cache
+    force  = request.args.get("force") == "1"
+    if not force and _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:  # 15-min cache
         return jsonify(_cache)
 
     try:
@@ -5541,7 +5542,8 @@ def conviction_calls():
                   AND days_out BETWEEN 1 AND 30
                   AND vol_oi  >= 5
                   AND prem    >= 500000
-                  AND otm_pct BETWEEN -5 AND 30
+                  AND otm_pct BETWEEN -2 AND 30
+                  AND strike  >= price * 0.97
                 ORDER BY last_seen DESC, vol_oi DESC
             """)
             cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
