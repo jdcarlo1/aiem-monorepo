@@ -2287,6 +2287,8 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                       <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${h.price.toFixed(2)}</span>
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
                         background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>CALL</span>
+                      {h.is_etf && <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                        background: "rgba(96,165,250,0.12)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.3)" }}>ETF</span>}
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
                         background: urg.bg, color: urg.color, border: `1px solid ${urg.border}` }}>{urg.label}</span>
                     </div>

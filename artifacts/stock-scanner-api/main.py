@@ -5027,8 +5027,30 @@ def unusual_calls():
 
         now = _dt.now()
 
+        # ETF tickers get calibrated thresholds: lower vol/OI (they carry massive OI) and
+        # wider expiry window (institutional ETF plays tend to go 30-60 days out).
+        _ETF_SET = {
+            "SPY","QQQ","IWM","DIA","MDY","VTI","VOO",
+            "XLF","XLE","XLK","XLY","XLI","XLV","XLB","XLP","XLU","XLRE",
+            "SMH","SOXX","XBI","IBB","KRE","XRT","ITB","JETS","KWEB","DRAM",
+            "TQQQ","SPXL","SOXL","UDOW","LABU","FNGU","TECL","UPRO","TNA","FAS","ERX",
+            "SQQQ","SPXS","SOXS","SDOW","TZA","FAZ","ERY",
+            "SSO","QLD","DDM","UWM","SDS","QID","DXD","TWM",
+            "VXX","UVXY","SVXY","VIXY","SVOL",
+            "GLD","IAU","SLV","USO","UNG","GDX","GDXJ","OIH",
+            "TLT","HYG","LQD","TBT","TMF","SHY","IEF","JNK",
+            "EEM","EFA","FXI","EWJ","EWZ","EWY","IEMG",
+            "ARKK","ARKG","ARKW","ARKF",
+            "IBIT","FBTC","BITB","ARKB","WGMI",
+        }
+
         def _scan_unusual(ticker):
-            hits = []
+            hits    = []
+            is_etf  = ticker in _ETF_SET
+            # ETFs: 1.5× vol/OI (vs 3× stocks), $250K premium (vs $500K), 1-60d expiry (vs 1-30d)
+            min_voi  = 1.5  if is_etf else 3.0
+            min_prem = 250_000 if is_etf else 500_000
+            max_days = 60   if is_etf else 30
             try:
                 tkr   = yf.Ticker(ticker)
                 price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
@@ -5038,7 +5060,7 @@ def unusual_calls():
                 for exp in exps:
                     try:
                         days_out = (_dt.strptime(exp, "%Y-%m-%d") - now).days
-                        if not (1 <= days_out <= 30): continue
+                        if not (1 <= days_out <= max_days): continue
                         calls = tkr.option_chain(exp).calls
                         for _, row in calls.iterrows():
                             strike = float(row.get("strike", 0) or 0)
@@ -5049,12 +5071,12 @@ def unusual_calls():
                             if strike <= 0 or last <= 0 or vol < 50: continue
                             if strike < price * 0.15: continue
                             pre_otm = (strike - price) / price * 100
-                            if pre_otm < -15: continue   # skip deep ITM — those are hedges
+                            if pre_otm < -15: continue   # skip deep ITM — hedges
                             if pre_otm > 50: continue    # skip lottery-ticket far OTM
                             vol_oi = round(vol / max(oi, 1), 2)
-                            if vol_oi < 3.0: continue    # need 3x vol vs OI = new money
+                            if vol_oi < min_voi: continue
                             prem = round(vol * last * 100, 0)
-                            if prem < 500000: continue   # minimum $500K — institutional smart money only
+                            if prem < min_prem: continue
                             urgency = "EXPIRING" if days_out <= 7 else "NEAR" if days_out <= 14 else "SHORT"
                             hits.append({
                                 "ticker":   ticker,
@@ -5069,6 +5091,7 @@ def unusual_calls():
                                 "otm_pct":  round(pre_otm, 1),
                                 "iv":       round(iv * 100, 1),
                                 "urgency":  urgency,
+                                "is_etf":   is_etf,
                             })
                     except Exception: continue
             except Exception: pass

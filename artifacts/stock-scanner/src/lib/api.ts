@@ -844,6 +844,7 @@ export interface UnusualCall {
   otm_pct: number;
   iv: number;
   urgency: "EXPIRING" | "NEAR" | "SHORT";
+  is_etf?: boolean;
 }
 
 export interface UnusualCallsResult {
