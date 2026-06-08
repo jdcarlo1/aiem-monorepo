@@ -5306,6 +5306,368 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         return jsonify({"error": str(e), "picks": []}), 500
 
 
+@app.route("/stock-api/multi-signal", methods=["GET"])
+def multi_signal_convergence():
+    """Multi-signal convergence scanner — checks every ticker against all signal conditions."""
+    import yfinance as yf
+    from datetime import datetime as _ms_dt
+
+    _cache = getattr(app, "_ms_cache", None)
+    _ts    = getattr(app, "_ms_cache_ts", None)
+    if _cache and _ts and (_ms_dt.now() - _ts).total_seconds() < 600:
+        return jsonify(_cache)
+
+    SIGNAL_DEFS = [
+        ("VOLUME_SURGE",       "🔥 Volume Surge",      "Relative volume ≥ 3× average"),
+        ("MORNING_RUNNER",     "🌅 Morning Runner",    "Gap up + vol ≥ 1.8× on the day"),
+        ("NEAR_52WK_HIGH",     "📈 Near 52wk High",    "Within 3% of 52-week high"),
+        ("ABOVE_52WK_HIGH",    "🚀 New 52wk High",     "Price above 52-week high"),
+        ("MOMENTUM",           "⚡ Momentum",          "Day change ≥ 3%"),
+        ("BIG_MOVE",           "💥 Big Move",          "Day change ≥ 5%"),
+        ("MICRO_SQUEEZE",      "💎 Micro Squeeze",     "Market cap < $300M + rel vol ≥ 2×"),
+        ("SECTOR_STRENGTH",    "💪 Sector Strength",   "Day ≥ 2% + rel vol ≥ 1.5×"),
+    ]
+
+    results = []
+
+    def _check(ticker):
+        try:
+            fi       = yf.Ticker(ticker).fast_info
+            price    = float(getattr(fi, "last_price",                 0) or 0)
+            prev_cl  = float(getattr(fi, "previous_close",             0) or 0)
+            avg_vol  = float(getattr(fi, "three_month_average_volume",  1) or 1)
+            today_vol= float(getattr(fi, "last_volume",                0) or 0)
+            high52   = float(getattr(fi, "year_high",                  0) or 0)
+            mkt_cap  = float(getattr(fi, "market_cap",                 0) or 0)
+
+            if price <= 0 or prev_cl <= 0:
+                return None
+
+            day_chg  = round((price - prev_cl) / prev_cl * 100, 2)
+            rel_vol  = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
+            pct_from_high = round((price - high52) / high52 * 100, 2) if high52 > 0 else -100
+
+            fired = []
+            if rel_vol >= 3.0:
+                fired.append("VOLUME_SURGE")
+            if rel_vol >= 1.8 and 1.0 <= day_chg <= 25:
+                fired.append("MORNING_RUNNER")
+            if pct_from_high >= -3.0:
+                fired.append("NEAR_52WK_HIGH")
+            if pct_from_high >= 0:
+                fired.append("ABOVE_52WK_HIGH")
+            if day_chg >= 3.0:
+                fired.append("MOMENTUM")
+            if day_chg >= 5.0:
+                fired.append("BIG_MOVE")
+            if mkt_cap > 0 and mkt_cap < 300_000_000 and rel_vol >= 2.0:
+                fired.append("MICRO_SQUEEZE")
+            if day_chg >= 2.0 and rel_vol >= 1.5:
+                fired.append("SECTOR_STRENGTH")
+
+            if len(fired) < 2:
+                return None
+
+            return {
+                "ticker":    ticker,
+                "price":     round(price, 2),
+                "day_chg":   day_chg,
+                "rel_vol":   rel_vol,
+                "pct_from_high": pct_from_high,
+                "mkt_cap_b": round(mkt_cap / 1e9, 2) if mkt_cap else None,
+                "signals":   fired,
+                "score":     len(fired),
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=25) as ex:
+        futures = {ex.submit(_check, t): t for t in DEFAULT_LEADERBOARD}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                results.append(r)
+
+    results.sort(key=lambda x: (x["score"], x["rel_vol"]), reverse=True)
+    signal_defs_map = {s[0]: {"id": s[0], "label": s[1], "desc": s[2]} for s in SIGNAL_DEFS}
+    out = {
+        "hits":        results[:35],
+        "total":       len(results),
+        "scanned":     len(DEFAULT_LEADERBOARD),
+        "signal_defs": signal_defs_map,
+    }
+    app._ms_cache    = out
+    app._ms_cache_ts = _ms_dt.now()
+    return jsonify(out)
+
+
+@app.route("/stock-api/multi-signal/ai-thesis", methods=["POST"])
+def multi_signal_ai_thesis():
+    """Generate an AI trade thesis for a ticker based on all its convergent signals."""
+    try:
+        body    = request.get_json(force=True) or {}
+        ticker  = (body.get("ticker") or "").upper().strip()
+        signals = body.get("signals") or []
+        price   = body.get("price", 0)
+        day_chg = body.get("day_chg", 0)
+        rel_vol = body.get("rel_vol", 0)
+        pct_from_high = body.get("pct_from_high", 0)
+        mkt_cap_b     = body.get("mkt_cap_b")
+
+        if not ticker or not signals:
+            return jsonify({"error": "ticker and signals required"}), 400
+
+        cap_str = f"${mkt_cap_b:.1f}B" if mkt_cap_b and mkt_cap_b >= 1 else (f"${mkt_cap_b*1000:.0f}M" if mkt_cap_b else "unknown")
+
+        prompt = f"""You are a professional quantitative trader analyzing a convergence signal alert.
+
+Ticker: {ticker}
+Current Price: ${price}
+Day Change: {day_chg:+.2f}%
+Relative Volume: {rel_vol:.2f}x average
+Distance from 52-week high: {pct_from_high:+.2f}%
+Market Cap: {cap_str}
+
+Signals firing simultaneously ({len(signals)}/8):
+{chr(10).join(f"  ✅ {s}" for s in signals)}
+
+Write a concise, actionable trade thesis with:
+1. SETUP SUMMARY (2-3 sentences on why {len(signals)} converging signals matters)
+2. BULL CASE (price target, catalyst, timeframe)
+3. BEAR CASE / RISK (what could go wrong)
+4. CONVICTION: CRITICAL / HIGH / WATCH / NOISE
+5. SUGGESTED ACTION (buy calls, buy stock, watch for entry, avoid)
+
+Be direct, specific, and professional. No disclaimers."""
+
+        client = OpenAI(
+            api_key=os.environ["AI_INTEGRATIONS_OPENAI_API_KEY"],
+            base_url=os.environ["AI_INTEGRATIONS_OPENAI_BASE_URL"],
+        )
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=500,
+        )
+        return jsonify({"ticker": ticker, "thesis": resp.choices[0].message.content.strip()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/iv-rank", methods=["GET"])
+def iv_rank():
+    """IV rank (volatility rank) for a single ticker using options + historical price data."""
+    import yfinance as yf, numpy as np
+    ticker = (request.args.get("ticker") or "AAPL").upper().strip()
+    try:
+        tkr  = yf.Ticker(ticker)
+        hist = tkr.history(period="1y", interval="1d")
+        if len(hist) < 20:
+            return jsonify({"error": "Not enough price history"}), 400
+
+        # Calculate historical volatility (annualized) at multiple windows
+        log_ret = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
+        hv30  = float(log_ret[-30:].std()  * np.sqrt(252) * 100) if len(log_ret) >= 30  else None
+        hv60  = float(log_ret[-60:].std()  * np.sqrt(252) * 100) if len(log_ret) >= 60  else None
+        hv90  = float(log_ret[-90:].std()  * np.sqrt(252) * 100) if len(log_ret) >= 90  else None
+
+        # Rolling 30-day HV for each day in the past year → used for HV rank
+        rolling_hv30 = (
+            log_ret.rolling(30).std() * np.sqrt(252) * 100
+        ).dropna()
+        hv_min  = float(rolling_hv30.min())
+        hv_max  = float(rolling_hv30.max())
+        hv_rank = round((hv30 - hv_min) / (hv_max - hv_min) * 100, 1) if hv30 and hv_max > hv_min else None
+
+        # Get current IV from options chain (ATM, nearest 30-45d expiry)
+        iv30 = None
+        expiries = tkr.options
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        target = now + timedelta(days=30)
+        best_exp = None
+        best_diff = 9999
+        for exp in (expiries or []):
+            try:
+                exp_dt = datetime.strptime(exp, "%Y-%m-%d")
+                diff = abs((exp_dt - target).days)
+                if diff < best_diff and (exp_dt - now).days >= 7:
+                    best_diff = diff
+                    best_exp = exp
+            except Exception:
+                pass
+
+        if best_exp:
+            try:
+                chain = tkr.option_chain(best_exp)
+                fi    = tkr.fast_info
+                spot  = float(getattr(fi, "last_price", 0) or 0)
+                calls = chain.calls
+                puts  = chain.puts
+                if not calls.empty and spot > 0:
+                    calls["dist"] = (calls["strike"] - spot).abs()
+                    atm_call = calls.nsmallest(1, "dist")
+                    iv30_call = float(atm_call["impliedVolatility"].iloc[0]) * 100 if not atm_call.empty else None
+                    puts_f = puts.copy()
+                    puts_f["dist"] = (puts_f["strike"] - spot).abs()
+                    atm_put = puts_f.nsmallest(1, "dist")
+                    iv30_put = float(atm_put["impliedVolatility"].iloc[0]) * 100 if not atm_put.empty else None
+                    if iv30_call and iv30_put:
+                        iv30 = round((iv30_call + iv30_put) / 2, 1)
+                    elif iv30_call:
+                        iv30 = round(iv30_call, 1)
+            except Exception:
+                pass
+
+        iv_hv_ratio = round(iv30 / hv30, 2) if iv30 and hv30 else None
+
+        fi = tkr.fast_info
+        price = float(getattr(fi, "last_price", 0) or 0)
+        prev  = float(getattr(fi, "previous_close", 0) or 0)
+        day_chg = round((price - prev) / prev * 100, 2) if prev > 0 else 0
+
+        # IV rank proxy: use IV vs rolling HV range as a volatility premium signal
+        iv_rank_val = None
+        if iv30 and hv_max > hv_min:
+            iv_rank_val = round((iv30 - hv_min) / (hv_max - hv_min) * 100, 1)
+            iv_rank_val = min(max(iv_rank_val, 0), 100)
+
+        return jsonify({
+            "ticker":      ticker,
+            "price":       round(price, 2),
+            "day_chg":     day_chg,
+            "hv30":        round(hv30, 1)  if hv30  else None,
+            "hv60":        round(hv60, 1)  if hv60  else None,
+            "hv90":        round(hv90, 1)  if hv90  else None,
+            "hv_min":      round(hv_min, 1),
+            "hv_max":      round(hv_max, 1),
+            "hv_rank":     hv_rank,
+            "iv30":        iv30,
+            "iv_rank":     iv_rank_val,
+            "iv_hv_ratio": iv_hv_ratio,
+            "expiry_used": best_exp,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+IV_SCAN_TICKERS = [
+    "AAPL","MSFT","NVDA","TSLA","AMZN","GOOGL","META","AMD","SMCI","PLTR",
+    "ARM","COIN","MSTR","HOOD","SOFI","RIVN","LCID","NKLA","JOBY","ACHR",
+    "GME","AMC","BBBY","SPCE","CLOV","SNDL","MVIS","WKHS","RIDE","GOEV",
+    "UPST","AFRM","OPEN","LMND","PSFE","PAYA","LFMD","HIMS","GENI","BODY",
+    "RBLX","U","DKNG","PENN","SKLZ","FTIV","SPNV","APPH","MVST","NKLA",
+]
+
+@app.route("/stock-api/iv-rank/scan", methods=["GET"])
+def iv_rank_scan():
+    """Scan a curated set of liquid/volatile tickers for interesting IV setups."""
+    import yfinance as yf, numpy as np
+    from datetime import datetime as _ivs_dt
+
+    _cache = getattr(app, "_ivs_cache", None)
+    _ts    = getattr(app, "_ivs_cache_ts", None)
+    if _cache and _ts and (_ivs_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    from datetime import datetime, timedelta
+
+    results = []
+
+    def _scan_iv(ticker):
+        try:
+            tkr  = yf.Ticker(ticker)
+            hist = tkr.history(period="1y", interval="1d")
+            if len(hist) < 30:
+                return None
+
+            log_ret = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
+            hv30 = float(log_ret[-30:].std() * np.sqrt(252) * 100)
+            rolling_hv30 = (log_ret.rolling(30).std() * np.sqrt(252) * 100).dropna()
+            hv_min = float(rolling_hv30.min())
+            hv_max = float(rolling_hv30.max())
+            hv_rank = round((hv30 - hv_min) / (hv_max - hv_min) * 100, 1) if hv_max > hv_min else 50
+
+            # Try to get ATM IV
+            iv30 = None
+            expiries = tkr.options
+            now_dt = datetime.now()
+            target = now_dt + timedelta(days=30)
+            best_exp = None
+            best_diff = 9999
+            for exp in (expiries or []):
+                try:
+                    exp_dt = datetime.strptime(exp, "%Y-%m-%d")
+                    diff = abs((exp_dt - target).days)
+                    if diff < best_diff and (exp_dt - now_dt).days >= 7:
+                        best_diff = diff
+                        best_exp = exp
+                except Exception:
+                    pass
+
+            if best_exp:
+                try:
+                    chain = tkr.option_chain(best_exp)
+                    fi = tkr.fast_info
+                    spot = float(getattr(fi, "last_price", 0) or 0)
+                    if not chain.calls.empty and spot > 0:
+                        calls = chain.calls.copy()
+                        calls["dist"] = (calls["strike"] - spot).abs()
+                        atm = calls.nsmallest(1, "dist")
+                        if not atm.empty:
+                            iv30 = round(float(atm["impliedVolatility"].iloc[0]) * 100, 1)
+                except Exception:
+                    pass
+
+            fi    = tkr.fast_info
+            price = float(getattr(fi, "last_price", 0) or 0)
+            prev  = float(getattr(fi, "previous_close", 0) or 0)
+            day_chg = round((price - prev) / prev * 100, 2) if prev > 0 else 0
+
+            iv_hv_ratio = round(iv30 / hv30, 2) if iv30 and hv30 else None
+            iv_rank_val = round((iv30 - hv_min) / (hv_max - hv_min) * 100, 1) if iv30 and hv_max > hv_min else hv_rank
+
+            # Setup classification
+            setup = "NEUTRAL"
+            if iv30 and iv_hv_ratio:
+                if iv_rank_val < 20:
+                    setup = "CHEAP_OPTIONS"
+                elif iv_rank_val > 80:
+                    setup = "EXPENSIVE_OPTIONS"
+                if iv_hv_ratio > 1.5:
+                    setup = "IV_PREMIUM"
+                elif iv_hv_ratio < 0.8 and iv_rank_val < 30:
+                    setup = "CHEAP_OPTIONS"
+
+            return {
+                "ticker":      ticker,
+                "price":       round(price, 2),
+                "day_chg":     day_chg,
+                "hv30":        round(hv30, 1),
+                "hv_rank":     hv_rank,
+                "iv30":        iv30,
+                "iv_rank":     round(iv_rank_val, 1),
+                "iv_hv_ratio": iv_hv_ratio,
+                "setup":       setup,
+            }
+        except Exception:
+            return None
+
+    tickers_dedup = list(dict.fromkeys(IV_SCAN_TICKERS))
+    with ThreadPoolExecutor(max_workers=15) as ex:
+        futures = {ex.submit(_scan_iv, t): t for t in tickers_dedup}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                results.append(r)
+
+    results.sort(key=lambda x: (x.get("iv_rank") or 50), reverse=True)
+    out = {"rows": results, "scanned": len(tickers_dedup)}
+    app._ivs_cache    = out
+    app._ivs_cache_ts = _ivs_dt.now()
+    return jsonify(out)
+
+
 @app.route("/stock-api/52week-breakout", methods=["GET"])
 def breakout_52week():
     """52-week high breakout scanner — price near/above 52wk high + volume confirmation."""

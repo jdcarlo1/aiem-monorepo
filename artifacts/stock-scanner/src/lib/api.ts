@@ -870,6 +870,84 @@ export function fetchMorningRunners() {
   return fetchJson<{ runners: MorningRunnerRow[]; total: number; scanned: number }>("/morning-runners");
 }
 
+export interface MultiSignalRow {
+  ticker: string;
+  price: number;
+  day_chg: number;
+  rel_vol: number;
+  pct_from_high: number;
+  mkt_cap_b: number | null;
+  signals: string[];
+  score: number;
+}
+
+export interface SignalDef {
+  id: string;
+  label: string;
+  desc: string;
+}
+
+export function fetchMultiSignal() {
+  return fetchJson<{
+    hits: MultiSignalRow[];
+    total: number;
+    scanned: number;
+    signal_defs: Record<string, SignalDef>;
+  }>("/multi-signal");
+}
+
+export function fetchMultiSignalAIThesis(payload: {
+  ticker: string;
+  signals: string[];
+  price: number;
+  day_chg: number;
+  rel_vol: number;
+  pct_from_high: number;
+  mkt_cap_b: number | null;
+}) {
+  return fetchJson<{ ticker: string; thesis: string }>("/multi-signal/ai-thesis", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface IVRankResult {
+  ticker: string;
+  price: number;
+  day_chg: number;
+  hv30: number | null;
+  hv60: number | null;
+  hv90: number | null;
+  hv_min: number;
+  hv_max: number;
+  hv_rank: number | null;
+  iv30: number | null;
+  iv_rank: number | null;
+  iv_hv_ratio: number | null;
+  expiry_used: string | null;
+}
+
+export function fetchIVRank(ticker: string) {
+  return fetchJson<IVRankResult>(`/iv-rank?ticker=${encodeURIComponent(ticker)}`);
+}
+
+export interface IVScanRow {
+  ticker: string;
+  price: number;
+  day_chg: number;
+  hv30: number;
+  hv_rank: number;
+  iv30: number | null;
+  iv_rank: number;
+  iv_hv_ratio: number | null;
+  setup: "CHEAP_OPTIONS" | "EXPENSIVE_OPTIONS" | "IV_PREMIUM" | "NEUTRAL";
+}
+
+export function fetchIVRankScan() {
+  return fetchJson<{ rows: IVScanRow[]; scanned: number }>("/iv-rank/scan");
+}
+
 export interface BreakoutRow {
   ticker: string;
   price: number;

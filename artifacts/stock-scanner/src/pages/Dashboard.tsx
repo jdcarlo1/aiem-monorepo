@@ -30,6 +30,8 @@ import {
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
   BreakoutRow, fetch52WeekBreakout,
   SectorRow, fetchSectorRotation,
+  MultiSignalRow, SignalDef, fetchMultiSignal, fetchMultiSignalAIThesis,
+  IVRankResult, IVScanRow, fetchIVRank, fetchIVRankScan,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -4324,6 +4326,460 @@ function PutIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
 }
 
 // ---- Pre-Market Flow Tab -------------------------------------------------
+// ---- Multi-Signal Convergence Tab -----------------------------------------
+function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB = "JetBrains Mono, monospace";
+  const [data, setData]         = useState<{ hits: MultiSignalRow[]; total: number; scanned: number; signal_defs: Record<string, SignalDef> } | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [selected, setSelected] = useState<MultiSignalRow | null>(null);
+  const [thesis, setThesis]     = useState<string | null>(null);
+  const [thesisLoading, setThesisLoading] = useState(false);
+  const [minScore, setMinScore] = useState(2);
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetchMultiSignal()); } catch {}
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); const t = setInterval(load, 600_000); return () => clearInterval(t); }, []);
+
+  const getAIThesis = async (row: MultiSignalRow) => {
+    setSelected(row);
+    setThesis(null);
+    setThesisLoading(true);
+    try {
+      const res = await fetchMultiSignalAIThesis({
+        ticker: row.ticker, signals: row.signals,
+        price: row.price, day_chg: row.day_chg,
+        rel_vol: row.rel_vol, pct_from_high: row.pct_from_high,
+        mkt_cap_b: row.mkt_cap_b,
+      });
+      setThesis(res.thesis);
+    } catch { setThesis("Error generating thesis. Try again."); }
+    finally { setThesisLoading(false); }
+  };
+
+  const SIGNAL_COLORS: Record<string, string> = {
+    VOLUME_SURGE:    "#f97316",
+    MORNING_RUNNER:  "#fbbf24",
+    NEAR_52WK_HIGH:  "#60a5fa",
+    ABOVE_52WK_HIGH: "#34d399",
+    MOMENTUM:        "#a78bfa",
+    BIG_MOVE:        "#f87171",
+    MICRO_SQUEEZE:   "#fb7185",
+    SECTOR_STRENGTH: "#4ade80",
+  };
+
+  const filtered = (data?.hits ?? []).filter(r => r.score >= minScore);
+  const max5plus = filtered.filter(r => r.score >= 5).length;
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🎯 Multi-Signal Convergence</h2>
+          <p style={{ fontFamily: BB, color: "#64748b", fontSize: 12, margin: 0 }}>
+            Every ticker checked against 8 signal conditions simultaneously · {data?.scanned ?? "—"} tickers · click any row for AI thesis
+          </p>
+        </div>
+        <button onClick={load} disabled={loading} style={{
+          background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.3)",
+          color: "#a78bfa", borderRadius: 10, padding: "8px 18px",
+          fontFamily: BB, fontSize: 12, fontWeight: 700, cursor: "pointer",
+        }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
+      </div>
+
+      {/* Stat bar */}
+      {data && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Tickers Scanned",   val: data.scanned,      color: "#94a3b8" },
+            { label: "Multi-Signal Hits", val: data.total,        color: "#a78bfa" },
+            { label: "5+ Signals",        val: max5plus,          color: "#f97316" },
+            { label: "Signals Tracked",   val: 8,                 color: "#fbbf24" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: "12px 18px", flex: 1, minWidth: 100 }}>
+              <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 26, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Signal legend */}
+      {data && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+          {Object.entries(data.signal_defs).map(([id, def]) => (
+            <div key={id} title={def.desc} style={{ padding: "3px 10px", borderRadius: 99, fontSize: 10, fontFamily: BB, fontWeight: 700,
+              background: `${SIGNAL_COLORS[id] || "#94a3b8"}18`,
+              color: SIGNAL_COLORS[id] || "#94a3b8",
+              border: `1px solid ${SIGNAL_COLORS[id] || "#94a3b8"}40`,
+              cursor: "help" }}>
+              {def.label}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Min score filter */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontFamily: BB, color: "#475569", fontSize: 11 }}>Min signals:</span>
+        {[2,3,4,5,6].map(n => (
+          <button key={n} onClick={() => setMinScore(n)} style={{
+            padding: "5px 12px", borderRadius: 8, fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
+            background: minScore === n ? "rgba(167,139,250,0.18)" : "rgba(255,255,255,0.04)",
+            color:      minScore === n ? "#a78bfa" : "#64748b",
+            border:     minScore === n ? "1px solid rgba(167,139,250,0.45)" : "1px solid rgba(255,255,255,0.06)",
+          }}>{n}+</button>
+        ))}
+      </div>
+
+      {loading && !data && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB, fontSize: 13 }}>
+          Scanning 473 tickers across 8 signal conditions… ~25s
+        </div>
+      )}
+
+      {/* AI Thesis panel */}
+      {selected && (
+        <div style={{ marginBottom: 20, padding: "20px 24px", background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <span style={{ fontFamily: BB, fontWeight: 900, color: "#a78bfa", fontSize: 18 }}>{selected.ticker}</span>
+              <span style={{ fontFamily: BB, fontWeight: 700, fontSize: 12, color: "#fbbf24" }}>{selected.score}/8 signals</span>
+            </div>
+            <button onClick={() => { setSelected(null); setThesis(null); }} style={{ background: "none", border: "none", color: "#475569", fontSize: 18, cursor: "pointer" }}>×</button>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {selected.signals.map(s => (
+              <span key={s} style={{ padding: "2px 10px", borderRadius: 99, fontSize: 10, fontFamily: BB, fontWeight: 700,
+                background: `${SIGNAL_COLORS[s] || "#94a3b8"}18`, color: SIGNAL_COLORS[s] || "#94a3b8",
+                border: `1px solid ${SIGNAL_COLORS[s] || "#94a3b8"}40` }}>
+                {data?.signal_defs[s]?.label ?? s}
+              </span>
+            ))}
+          </div>
+          {thesisLoading && (
+            <div style={{ fontFamily: BB, color: "#475569", fontSize: 12, padding: "16px 0" }}>🤖 AI is analyzing {selected.score} convergent signals…</div>
+          )}
+          {thesis && (
+            <div style={{ fontFamily: BB, fontSize: 12, color: "#cbd5e1", lineHeight: 2, whiteSpace: "pre-wrap" }}>{thesis}</div>
+          )}
+          <button onClick={() => getAIThesis(selected)} disabled={thesisLoading} style={{
+            marginTop: 12, background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.4)",
+            color: "#a78bfa", borderRadius: 8, padding: "7px 16px", fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
+          }}>{thesisLoading ? "Generating…" : thesis ? "↻ Regenerate" : "🤖 Generate AI Thesis"}</button>
+        </div>
+      )}
+
+      {filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((r, i) => {
+            const scoreColor = r.score >= 6 ? "#f97316" : r.score >= 4 ? "#a78bfa" : "#fbbf24";
+            const isSelected = selected?.ticker === r.ticker;
+            return (
+              <div key={r.ticker} onClick={() => { onSelectTicker(r.ticker); getAIThesis(r); }}
+                style={{ background: isSelected ? "rgba(167,139,250,0.08)" : "rgba(255,255,255,0.025)",
+                  border: `1px solid ${isSelected ? "rgba(167,139,250,0.4)" : i < 3 ? `${scoreColor}40` : "rgba(255,255,255,0.07)"}`,
+                  borderRadius: 18, padding: "14px 18px", cursor: "pointer", transition: "background 0.15s" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = isSelected ? "rgba(167,139,250,0.08)" : "rgba(255,255,255,0.025)")}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB, fontWeight: 900, color: "#334155", fontSize: 14, minWidth: 26 }}>#{i+1}</span>
+                  <span style={{ fontFamily: BB, fontWeight: 900, color: "#f1f5f9", fontSize: 18 }}>{r.ticker}</span>
+
+                  {/* Score badge */}
+                  <span style={{ fontFamily: BB, fontWeight: 900, fontSize: 13, padding: "3px 12px", borderRadius: 99,
+                    background: `${scoreColor}18`, color: scoreColor, border: `1px solid ${scoreColor}40` }}>
+                    {r.score}/8 signals
+                  </span>
+
+                  <span style={{ fontFamily: BB, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                    background: r.day_chg >= 0 ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)",
+                    color: r.day_chg >= 0 ? "#4ade80" : "#f87171",
+                    border: `1px solid ${r.day_chg >= 0 ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}` }}>
+                    {r.day_chg >= 0 ? "+" : ""}{r.day_chg}% today
+                  </span>
+                  <span style={{ fontFamily: BB, color: "#475569", fontSize: 11 }}>${r.price.toFixed(2)} · {r.rel_vol}× vol</span>
+                  {r.mkt_cap_b !== null && (
+                    <span style={{ fontFamily: BB, color: "#334155", fontSize: 10 }}>
+                      {r.mkt_cap_b < 1 ? `$${(r.mkt_cap_b * 1000).toFixed(0)}M` : `$${r.mkt_cap_b.toFixed(1)}B`}
+                    </span>
+                  )}
+                </div>
+
+                {/* Signal chips */}
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                  {r.signals.map(s => (
+                    <span key={s} style={{ padding: "2px 9px", borderRadius: 99, fontSize: 10, fontFamily: BB, fontWeight: 700,
+                      background: `${SIGNAL_COLORS[s] || "#94a3b8"}15`, color: SIGNAL_COLORS[s] || "#94a3b8",
+                      border: `1px solid ${SIGNAL_COLORS[s] || "#94a3b8"}35` }}>
+                      {data?.signal_defs[s]?.label ?? s}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Score bar */}
+                <div style={{ marginTop: 10, height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 99 }}>
+                  <div style={{ height: "100%", width: `${(r.score / 8) * 100}%`, background: scoreColor, borderRadius: 99, transition: "width 0.4s" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ marginTop: 24, padding: "14px 18px", background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.12)", borderRadius: 12 }}>
+        <p style={{ fontFamily: BB, fontSize: 11, color: "#64748b", margin: 0, lineHeight: 1.9 }}>
+          <strong style={{ color: "#a78bfa" }}>How it works:</strong> Every ticker is checked against 8 independent signal conditions simultaneously. 
+          A stock with 2 signals is interesting. 4 signals = strong setup. 6+ signals = the AI thesis is almost always worth reading.<br/>
+          <strong style={{ color: "#fbbf24" }}>Click any row</strong> to pull an AI trade thesis that accounts for all convergent signals at once — not just one in isolation.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---- IV Rank Tab ----------------------------------------------------------
+function IVRankTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB = "JetBrains Mono, monospace";
+  const [input, setInput]       = useState("AAPL");
+  const [result, setResult]     = useState<IVRankResult | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [scanData, setScanData] = useState<{ rows: IVScanRow[]; scanned: number } | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanFilter, setScanFilter]   = useState<"ALL" | "CHEAP_OPTIONS" | "EXPENSIVE_OPTIONS" | "IV_PREMIUM">("ALL");
+
+  const lookup = async (t?: string) => {
+    const ticker = (t ?? input).trim().toUpperCase();
+    if (!ticker) return;
+    setLoading(true);
+    setResult(null);
+    try { setResult(await fetchIVRank(ticker)); } catch {}
+    finally { setLoading(false); }
+  };
+
+  const runScan = async () => {
+    setScanLoading(true);
+    try { setScanData(await fetchIVRankScan()); } catch {}
+    finally { setScanLoading(false); }
+  };
+
+  useEffect(() => { lookup("AAPL"); runScan(); }, []);
+
+  const SETUP_STYLES: Record<string, { color: string; bg: string; border: string; label: string }> = {
+    CHEAP_OPTIONS:     { color: "#4ade80", bg: "rgba(74,222,128,0.12)",  border: "rgba(74,222,128,0.35)",  label: "🟢 CHEAP OPTIONS" },
+    EXPENSIVE_OPTIONS: { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 EXPENSIVE OPTIONS" },
+    IV_PREMIUM:        { color: "#fbbf24", bg: "rgba(251,191,36,0.12)",  border: "rgba(251,191,36,0.35)",  label: "⚠️ IV PREMIUM" },
+    NEUTRAL:           { color: "#475569", bg: "rgba(71,85,105,0.08)",   border: "rgba(71,85,105,0.25)",   label: "➡️ NEUTRAL" },
+  };
+
+  const scanFiltered = (scanData?.rows ?? []).filter(r =>
+    scanFilter === "ALL" ? true : r.setup === scanFilter
+  );
+
+  const hvRankColor = (r: number) => r < 25 ? "#4ade80" : r > 75 ? "#f87171" : "#fbbf24";
+  const ivRankColor = (r: number) => r < 25 ? "#4ade80" : r > 75 ? "#f87171" : "#fbbf24";
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontFamily: BB, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>📊 IV Rank & Volatility Intelligence</h2>
+        <p style={{ fontFamily: BB, color: "#64748b", fontSize: 12, margin: 0 }}>
+          Is a stock's volatility cheap or expensive right now? IV rank tells you when to buy vs. sell options.
+        </p>
+      </div>
+
+      {/* Single ticker lookup */}
+      <div style={{ padding: "18px 20px", background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, marginBottom: 24 }}>
+        <div style={{ fontFamily: BB, fontWeight: 700, color: "#94a3b8", fontSize: 11, marginBottom: 10 }}>TICKER LOOKUP</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <input value={input} onChange={e => setInput(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === "Enter" && lookup()}
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8,
+              color: "#f1f5f9", fontFamily: BB, fontSize: 14, fontWeight: 700, padding: "8px 14px", width: 120, outline: "none" }}
+            placeholder="AAPL"
+          />
+          <button onClick={() => lookup()} disabled={loading} style={{
+            background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.3)",
+            color: "#60a5fa", borderRadius: 8, padding: "8px 18px", fontFamily: BB, fontSize: 12, fontWeight: 700, cursor: "pointer",
+          }}>{loading ? "Loading…" : "Look Up"}</button>
+          {result && <span style={{ fontFamily: BB, color: "#475569", fontSize: 11 }}>→ click any scan row to look it up</span>}
+        </div>
+
+        {result && !loading && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: BB, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>{result.ticker}</span>
+              <span style={{ fontFamily: BB, color: "#94a3b8", fontSize: 14 }}>${result.price.toFixed(2)}</span>
+              <span style={{ fontFamily: BB, fontWeight: 700, fontSize: 12,
+                color: result.day_chg >= 0 ? "#4ade80" : "#f87171" }}>
+                {result.day_chg >= 0 ? "+" : ""}{result.day_chg}% today
+              </span>
+              {result.expiry_used && (
+                <span style={{ fontFamily: BB, color: "#334155", fontSize: 10 }}>Options expiry: {result.expiry_used}</span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+              {[
+                { label: "Current IV (30d)",  val: result.iv30   !== null ? `${result.iv30.toFixed(1)}%`  : "N/A", color: "#60a5fa" },
+                { label: "IV Rank",           val: result.iv_rank !== null ? `${result.iv_rank.toFixed(0)}/100` : "N/A", color: result.iv_rank !== null ? ivRankColor(result.iv_rank) : "#475569" },
+                { label: "HV 30d",            val: result.hv30   !== null ? `${result.hv30.toFixed(1)}%`  : "N/A", color: "#a78bfa" },
+                { label: "HV 60d",            val: result.hv60   !== null ? `${result.hv60.toFixed(1)}%`  : "N/A", color: "#818cf8" },
+                { label: "HV 90d",            val: result.hv90   !== null ? `${result.hv90.toFixed(1)}%`  : "N/A", color: "#6366f1" },
+                { label: "HV Rank",           val: result.hv_rank !== null ? `${result.hv_rank.toFixed(0)}/100` : "N/A", color: result.hv_rank !== null ? hvRankColor(result.hv_rank) : "#475569" },
+                { label: "IV/HV Ratio",       val: result.iv_hv_ratio !== null ? `${result.iv_hv_ratio.toFixed(2)}×` : "N/A", color: result.iv_hv_ratio !== null && result.iv_hv_ratio > 1.3 ? "#f87171" : "#4ade80" },
+              ].map(s => (
+                <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: "10px 16px", flex: 1, minWidth: 90 }}>
+                  <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 20, color: s.color, letterSpacing: "-0.03em", marginBottom: 3 }}>{s.val}</div>
+                  <div style={{ fontFamily: BB, color: "#475569", fontSize: 10 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* IV Rank gauge */}
+            {result.iv_rank !== null && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontFamily: BB, color: "#475569", fontSize: 10, marginBottom: 5 }}>
+                  IV RANK — {result.iv_rank < 20 ? "Options are CHEAP (consider buying calls/puts)" : result.iv_rank > 80 ? "Options are EXPENSIVE (consider selling premium)" : "Options are fairly priced"}
+                </div>
+                <div style={{ height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 99, position: "relative" }}>
+                  <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: "33%", background: "rgba(74,222,128,0.15)", borderRadius: "99px 0 0 99px" }} />
+                  <div style={{ position: "absolute", right: 0, top: 0, height: "100%", width: "33%", background: "rgba(248,113,113,0.15)", borderRadius: "0 99px 99px 0" }} />
+                  <div style={{ position: "absolute", top: "-2px", left: `${result.iv_rank}%`, transform: "translateX(-50%)", width: 12, height: 12, borderRadius: "50%", background: ivRankColor(result.iv_rank), border: "2px solid #0f172a" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontFamily: BB, fontSize: 9, color: "#334155", marginTop: 4 }}>
+                  <span style={{ color: "#4ade80" }}>0 — Cheapest</span>
+                  <span>50 — Fair</span>
+                  <span style={{ color: "#f87171" }}>100 — Most Expensive</span>
+                </div>
+              </div>
+            )}
+
+            {/* Interpretation box */}
+            <div style={{ padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ fontFamily: BB, fontSize: 11, color: "#64748b", lineHeight: 1.8 }}>
+                {result.iv_rank !== null && result.iv30 !== null && result.hv30 !== null && (() => {
+                  const r = result.iv_rank;
+                  const ratio = result.iv_hv_ratio;
+                  if (r < 20) return <span><strong style={{ color: "#4ade80" }}>Cheap options signal:</strong> IV rank is in the bottom 20% of its 52-week range. Buying calls or puts here gives you historical volatility at a discount — strong signal to buy options before a catalyst.</span>;
+                  if (r > 80) return <span><strong style={{ color: "#f87171" }}>Expensive options warning:</strong> IV rank is in the top 20%. The market is pricing in a big move. Buying options here means paying a premium — consider selling premium via spreads instead.</span>;
+                  if (ratio && ratio > 1.5) return <span><strong style={{ color: "#fbbf24" }}>IV premium alert:</strong> Current IV is {ratio.toFixed(1)}× historical volatility. Options are priced significantly above realized moves — strong signal to sell premium.</span>;
+                  return <span><strong style={{ color: "#94a3b8" }}>Neutral volatility:</strong> Options are fairly priced relative to recent history. No strong directional edge from vol alone — weight your signal from price action and flow.</span>;
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Scan results */}
+      <div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+          <div style={{ fontFamily: BB, fontWeight: 700, color: "#94a3b8", fontSize: 12 }}>
+            IV SCAN — {scanData?.scanned ?? "—"} liquid tickers · 30min cache
+          </div>
+          <button onClick={runScan} disabled={scanLoading} style={{
+            background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)",
+            color: "#fbbf24", borderRadius: 8, padding: "6px 14px", fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
+          }}>{scanLoading ? "Scanning…" : "↻ Run Scan"}</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+          {[
+            { id: "ALL",               label: "All" },
+            { id: "CHEAP_OPTIONS",     label: "🟢 Cheap Options" },
+            { id: "EXPENSIVE_OPTIONS", label: "🔴 Expensive" },
+            { id: "IV_PREMIUM",        label: "⚠️ IV Premium" },
+          ].map(f => (
+            <button key={f.id} onClick={() => setScanFilter(f.id as any)} style={{
+              padding: "5px 12px", borderRadius: 8, fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: scanFilter === f.id ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.04)",
+              color:      scanFilter === f.id ? "#fbbf24" : "#64748b",
+              border:     scanFilter === f.id ? "1px solid rgba(251,191,36,0.4)" : "1px solid rgba(255,255,255,0.06)",
+            }}>{f.label}</button>
+          ))}
+        </div>
+
+        {scanLoading && !scanData && (
+          <div style={{ textAlign: "center", padding: "40px 0", color: "#475569", fontFamily: BB, fontSize: 12 }}>
+            Fetching options chains… ~30s
+          </div>
+        )}
+
+        {scanFiltered.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+            {scanFiltered.map(r => {
+              const ss = SETUP_STYLES[r.setup] ?? SETUP_STYLES["NEUTRAL"];
+              return (
+                <div key={r.ticker} onClick={() => { setInput(r.ticker); lookup(r.ticker); onSelectTicker(r.ticker); }}
+                  style={{ background: "rgba(255,255,255,0.025)", border: `1px solid ${r.setup !== "NEUTRAL" ? ss.border : "rgba(255,255,255,0.07)"}`,
+                    borderRadius: 14, padding: "14px 16px", cursor: "pointer", transition: "background 0.15s" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.025)")}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontFamily: BB, fontWeight: 900, color: "#f1f5f9", fontSize: 16 }}>{r.ticker}</div>
+                      <div style={{ fontFamily: BB, color: r.day_chg >= 0 ? "#4ade80" : "#f87171", fontSize: 11, fontWeight: 700 }}>
+                        {r.day_chg >= 0 ? "+" : ""}{r.day_chg}%
+                      </div>
+                    </div>
+                    <span style={{ padding: "3px 8px", borderRadius: 99, fontFamily: BB, fontSize: 9, fontWeight: 700,
+                      background: ss.bg, color: ss.color, border: `1px solid ${ss.border}` }}>{ss.label}</span>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 16, color: "#60a5fa" }}>
+                        {r.iv30 !== null ? `${r.iv30.toFixed(1)}%` : "N/A"}
+                      </div>
+                      <div style={{ fontFamily: BB, color: "#475569", fontSize: 9 }}>IV 30d</div>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 16, color: "#a78bfa" }}>{r.hv30.toFixed(1)}%</div>
+                      <div style={{ fontFamily: BB, color: "#475569", fontSize: 9 }}>HV 30d</div>
+                    </div>
+                    {r.iv_hv_ratio !== null && (
+                      <div>
+                        <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 16, color: r.iv_hv_ratio > 1.3 ? "#f87171" : "#4ade80" }}>
+                          {r.iv_hv_ratio.toFixed(2)}×
+                        </div>
+                        <div style={{ fontFamily: BB, color: "#475569", fontSize: 9 }}>IV/HV</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* IV rank bar */}
+                  <div>
+                    <div style={{ fontFamily: BB, color: "#475569", fontSize: 9, marginBottom: 3 }}>IV rank {r.iv_rank.toFixed(0)}/100</div>
+                    <div style={{ height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 99 }}>
+                      <div style={{ height: "100%", width: `${r.iv_rank}%`,
+                        background: ivRankColor(r.iv_rank), borderRadius: 99, transition: "width 0.4s" }} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 24, padding: "14px 18px", background: "rgba(96,165,250,0.05)", border: "1px solid rgba(96,165,250,0.12)", borderRadius: 12 }}>
+        <p style={{ fontFamily: BB, fontSize: 11, color: "#64748b", margin: 0, lineHeight: 1.9 }}>
+          <strong style={{ color: "#4ade80" }}>🟢 Cheap Options (IV rank &lt; 20):</strong> Options cost less than usual. Ideal for buying calls/puts before a catalyst.<br/>
+          <strong style={{ color: "#f87171" }}>🔴 Expensive Options (IV rank &gt; 80):</strong> Options cost more than usual. Better to sell premium via spreads or iron condors.<br/>
+          <strong style={{ color: "#fbbf24" }}>⚠️ IV Premium (IV/HV &gt; 1.5):</strong> Implied vol is 50%+ above realized vol. Market expects a bigger move than history suggests — sell premium or wait.<br/>
+          <strong style={{ color: "#a78bfa" }}>HV = Historical (realized) Volatility</strong> — what the stock actually moved.<br/>
+          <strong style={{ color: "#60a5fa" }}>IV = Implied Volatility</strong> — what options traders expect it to move.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ---- 52-Week Breakout Tab -------------------------------------------------
 function Breakout52WeekTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
@@ -7518,7 +7974,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -7652,6 +8108,8 @@ export default function Dashboard() {
     { id: "squeezesetup",   label: "💥 SQUEEZE SETUP" },
     { id: "breakout52week", label: "🚀 52WK BREAKOUT" },
     { id: "sectorrotation", label: "🌀 SECTOR ROTATION" },
+    { id: "multisignal",    label: "🎯 MULTI-SIGNAL" },
+    { id: "ivrank",         label: "📊 IV RANK" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -8242,6 +8700,8 @@ export default function Dashboard() {
         {tab === "squeezesetup"   && <SqueezeSetupTab   onSelectTicker={selectTicker} />}
         {tab === "breakout52week" && <Breakout52WeekTab  onSelectTicker={selectTicker} />}
         {tab === "sectorrotation" && <SectorRotationTab />}
+        {tab === "multisignal"    && <MultiSignalTab     onSelectTicker={selectTicker} />}
+        {tab === "ivrank"         && <IVRankTab          onSelectTicker={selectTicker} />}
 
       </div>
       </main>
