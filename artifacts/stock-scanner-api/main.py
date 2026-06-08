@@ -2943,6 +2943,24 @@ def darkpool():
             row["bias"] = bias
             row["flow"] = flow
 
+    # Cross-reference unusual_calls_log: tickers with strong call sweeps in DB = confirmed BULLISH
+    try:
+        with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
+            _cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '5 days'
+                  AND vol_oi >= 5 AND prem >= 300000
+            """)
+            _sweep_bullish = {row[0] for row in _cur.fetchall()}
+    except Exception:
+        _sweep_bullish = set()
+
+    for r in candidates:
+        if r["ticker"] in _sweep_bullish:
+            r["bias"] = "BULLISH"
+            if r["flow"] == "UNKNOWN":
+                r["flow"] = "INFLOW"
+
     def _bullish_score(r):
         s = 0
         if r["flow"]  == "INFLOW":   s += 30
@@ -2965,10 +2983,12 @@ def darkpool():
     for r in candidates:
         r["conviction"] = _conviction(r)
     results = sorted(candidates, key=_bullish_score, reverse=True)
-    for i, r in enumerate(results[:15]):
+    # Only BULLISH — confirmed via live C/P ratio OR unusual_calls_log sweep in last 5 days
+    bullish_only = [r for r in results if r["bias"] == "BULLISH"]
+    for i, r in enumerate(bullish_only[:25]):
         r["rank"] = i + 1
 
-    out = {"results": results[:15], "date": date_used, "total_in_db": len(raw)}
+    out = {"results": bullish_only[:25], "date": date_used, "total_in_db": len(raw), "total_candidates": len(candidates)}
     app._dp_cache = out
     app._dp_cache_ts = datetime.now()
     return jsonify(out)
