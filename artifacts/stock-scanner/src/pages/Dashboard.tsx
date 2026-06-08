@@ -6121,13 +6121,232 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 }
 
 
+// ---- Net Flow Mid-cap Tab -----------------------------------------------
+
+function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [data, setData]       = useState<NetFlowMicrocapResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [saved, setSaved]     = useState<Record<string, boolean>>({});
+  const [midMin, setMidMin]   = useState<5 | 10 | 20>(10);   // $5M / $10M / $20M
+
+  const run = async () => {
+    setLoading(true); setError(null);
+    try {
+      const d = await fetchNetFlowMicrocap();
+      setData(d);
+      setLastRun(new Date());
+    } catch (e: any) {
+      setError(e.message ?? "Scan failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { run(); }, []);
+
+  const handleSave = async (e: React.MouseEvent, row: NetFlowRow) => {
+    e.stopPropagation();
+    try {
+      const mktcap = row.market_cap_m ? `$${(row.market_cap_m / 1000).toFixed(1)}B mktcap` : "";
+      const pct    = row.net_pct_mktcap ? ` · ${row.net_pct_mktcap.toFixed(2)}% of mktcap` : "";
+      await addTradeWatchlist({
+        ticker: row.ticker,
+        option_type: "CALL",
+        notes: `Mid-cap Net Flow: +${fmtMid(row.net_m)} net · ratio ${row.flow_ratio.toFixed(2)}x${pct} · ${mktcap}`,
+      });
+      setSaved(s => ({ ...s, [row.ticker]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [row.ticker]: false })), 2500);
+    } catch { /* silent */ }
+  };
+
+  const fmtMid = (v: number) => {
+    if (v >= 1000) return `$${(v / 1000).toFixed(1)}B`;
+    if (v >= 1)    return `$${v.toFixed(2)}M`;
+    if (v >= 0.01) return `$${(v * 1000).toFixed(0)}K`;
+    return `$${(v * 1_000_000).toFixed(0)}`;
+  };
+
+  const fmtMktcap = (m: number | null) => {
+    if (m === null) return "—";
+    if (m >= 1000)  return `$${(m / 1000).toFixed(1)}B`;
+    return `$${m.toFixed(0)}M`;
+  };
+
+  const rows = data?.mid ?? [];
+  const filtered = rows.filter(r => r.net_m >= midMin);
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <h2 className="text-white font-bold text-lg">🏢 Mid-Cap Net Flow</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              $2B–$10B+ companies ranked by <span className="text-cyan-400 font-bold">% of market cap</span> flowing in — institutional accumulation before the crowd notices.
+            </p>
+          </div>
+          <button
+            onClick={run}
+            disabled={loading}
+            className="shrink-0 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+          >
+            {loading ? <><Spinner /> Scanning…</> : "🔄 Run Scan"}
+          </button>
+        </div>
+        {lastRun && (
+          <p className="text-slate-600 text-xs">
+            Scanned {data?.scanned ?? 473} stocks · {lastRun.toLocaleTimeString()} · {filtered.length} mid-caps above threshold
+          </p>
+        )}
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+      </div>
+
+      {/* Callout */}
+      <div className="bg-cyan-950/20 border border-cyan-800/30 rounded-xl p-4">
+        <p className="text-cyan-300 text-xs leading-relaxed">
+          <span className="font-bold">🏢 Mid-cap sweet spot:</span> $2B–$10B companies are large enough for institutions to build meaningful positions, but small enough that a strong inflow day still moves the price. When ≥0.5% of market cap flows in, a fund is loading shares.
+        </p>
+      </div>
+
+      {/* Cold state */}
+      {!loading && !lastRun && !error && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">🏢</div>
+          <div className="font-semibold text-slate-400 mb-1">Scan mid-cap stocks by net flow</div>
+          <div className="text-sm">$2B+ market cap — institutional money moves these names</div>
+        </div>
+      )}
+
+      {/* Section */}
+      {lastRun && data && (
+        <div className="space-y-3">
+          {/* Section header with threshold filters */}
+          <div className="bg-cyan-950/20 border border-cyan-900/40 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🏢</span>
+                  <span className="text-white font-bold">Mid-cap</span>
+                </div>
+                <p className="text-slate-400 text-xs mt-0.5">Above $2B — institutions accumulate here before analyst upgrades and price targets</p>
+              </div>
+              <span className="text-slate-600 text-xs shrink-0">{filtered.length} stocks</span>
+            </div>
+            <div className="flex gap-1.5">
+              {([5, 10, 20] as const).map((v, i) => (
+                <button
+                  key={v}
+                  onClick={() => setMidMin(v)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${midMin === v ? "bg-cyan-600 border-cyan-500 text-white" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+                >
+                  {["$5M", "$10M", "$20M"][i]}+
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {filtered.length === 0 && (
+            <div className="text-center py-8 text-slate-600 text-sm">
+              No mid-cap stocks above ${midMin}M net inflow right now
+            </div>
+          )}
+
+          {/* Cards */}
+          <div className="space-y-3">
+            {filtered.map(row => {
+              const pctIn    = row.total_vol_m > 0 ? (row.inflow_m / row.total_vol_m * 100) : 50;
+              const isSaved  = saved[row.ticker];
+              const isStrong = row.flow_ratio >= 1.5;
+              const isBig    = (row.net_pct_mktcap ?? 0) >= 0.5;   // ≥0.5% of mktcap = notable for mid-cap
+
+              return (
+                <div
+                  key={row.ticker}
+                  onClick={() => onSelectTicker(row.ticker)}
+                  className={`bg-slate-900 border rounded-xl p-4 cursor-pointer transition-all hover:border-slate-600 ${isBig ? "border-cyan-700/60" : "border-slate-800"}`}
+                >
+                  {/* Top row */}
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-slate-500 text-xs font-bold">#{row.rank}</span>
+                      <span className="text-white font-black text-lg">{row.ticker}</span>
+                      <span className="text-slate-400 text-sm">${row.price.toLocaleString()}</span>
+                      {isBig && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-900/50 text-cyan-300 border border-cyan-700/50 font-bold">
+                          ⚡ {row.net_pct_mktcap?.toFixed(2)}% of mktcap
+                        </span>
+                      )}
+                      {!isBig && isStrong && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-bold">
+                          🔥 Strong
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-emerald-400 font-black text-base">+{fmtMid(row.net_m)}</div>
+                      {row.net_pct_mktcap !== null && (
+                        <div className={`text-xs font-bold ${isBig ? "text-cyan-400" : "text-slate-500"}`}>
+                          {row.net_pct_mktcap.toFixed(2)}% of co.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Market cap */}
+                  {row.market_cap_m !== null && (
+                    <div className="text-slate-600 text-xs mb-2">
+                      Mkt cap: <span className="text-slate-400 font-bold">{fmtMktcap(row.market_cap_m)}</span>
+                    </div>
+                  )}
+
+                  {/* Flow bar */}
+                  <div className="rounded-full overflow-hidden h-1.5 bg-red-900/40 mb-3">
+                    <div className="h-full bg-cyan-500 rounded-full" style={{ width: `${Math.min(pctIn, 100)}%` }} />
+                  </div>
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-1.5 text-center mb-3">
+                    <div className="bg-emerald-950/40 rounded-lg p-1.5">
+                      <div className="text-emerald-400 font-bold text-xs">{fmtMid(row.inflow_m)}</div>
+                      <div className="text-slate-600 text-xs">Inflow</div>
+                    </div>
+                    <div className="bg-red-950/40 rounded-lg p-1.5">
+                      <div className="text-red-400 font-bold text-xs">{fmtMid(row.outflow_m)}</div>
+                      <div className="text-slate-600 text-xs">Outflow</div>
+                    </div>
+                    <div className="bg-slate-800/60 rounded-lg p-1.5">
+                      <div className="text-white font-bold text-xs">{row.flow_ratio.toFixed(2)}x</div>
+                      <div className="text-slate-600 text-xs">Buy/Sell</div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={e => handleSave(e, row)}
+                    className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all border ${isSaved ? "bg-emerald-900/40 border-emerald-600 text-emerald-300" : "border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300"}`}
+                  >
+                    {isSaved ? "✓ SAVED" : "📌 Save to Watchlist"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ---- Main Dashboard ------------------------------------------------------
 
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -6255,6 +6474,7 @@ export default function Dashboard() {
     { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
     { id: "netflow",         label: "💰 NET FLOW" },
     { id: "micronetflow",    label: "🔬 MICRO NET FLOW" },
+    { id: "midnetflow",      label: "🏢 MID NET FLOW" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -6839,6 +7059,7 @@ export default function Dashboard() {
         {tab === "aishortcalls"    && <AIShortCallsTab />}
         {tab === "netflow"         && <NetFlowTab onSelectTicker={selectTicker} />}
         {tab === "micronetflow"    && <NetFlowMicrocapTab onSelectTicker={selectTicker} />}
+        {tab === "midnetflow"      && <NetFlowMidcapTab  onSelectTicker={selectTicker} />}
 
       </div>
       </main>
