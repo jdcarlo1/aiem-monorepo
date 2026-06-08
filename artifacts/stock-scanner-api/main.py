@@ -169,8 +169,23 @@ try:
         id="microcap_prewarm",
         replace_existing=True,
     )
+    # AI Trades auto-generation: Mon-Fri 10:00 AM ET — caches are warm after 9:45 AM morning scan
+    def _run_ai_trades_auto():
+        try:
+            import threading as _thr
+            if not getattr(app, "_ait_generating", False):
+                _thr.Thread(target=_ai_trades_worker, daemon=True).start()
+                print("[scheduler] AI trades auto-generation started")
+        except Exception as e:
+            print(f"[scheduler] AI trades auto error: {e}")
+    _scheduler.add_job(
+        _run_ai_trades_auto,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=_ET),
+        id="ai_trades_auto",
+        replace_existing=True,
+    )
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min")
+    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min + AI trades at 10:00 AM")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
