@@ -813,8 +813,8 @@ export function fetchTradeWatchlist() {
 
 export function addTradeWatchlist(payload: {
   ticker: string;
-  strike: number;
-  expiry: string;
+  strike?: number | null;
+  expiry?: string | null;
   option_type: string;
   entry_price?: number | null;
   contracts?: number;

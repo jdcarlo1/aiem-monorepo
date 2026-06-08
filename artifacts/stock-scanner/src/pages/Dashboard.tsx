@@ -24,7 +24,7 @@ import {
   fetchUnusualCallsLog, UnusualCallsLogEntry,
   saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
   fetchNetFlow, NetFlowRow, NetFlowMicrocapResult, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
-  NetFlowStreakRow, NetFlowStreakResult, fetchNetFlowMultiday,
+  NetFlowStreakRow, NetFlowStreakResult, NetFlowDayDot, fetchNetFlowMultiday,
   AISignal, AISignalResult, fetchAISignal,
 } from "@/lib/api";
 import {
