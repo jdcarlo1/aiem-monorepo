@@ -366,6 +366,56 @@ export default function Landing() {
           ))}
         </div>
 
+        {/* Accumulation Streak — standalone differentiator */}
+        <div className="rounded-2xl p-7 mb-10" style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.08) 0%, rgba(6,12,20,0.9) 60%)", border: "2px solid rgba(124,58,237,0.35)" }}>
+          <div className="flex flex-col sm:flex-row sm:items-start gap-6">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-3xl">📈</span>
+                <span className="text-xs font-black px-2 py-0.5 rounded-full" style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.3)" }}>NOBODY HAS THIS</span>
+              </div>
+              <div className="font-black text-white mb-3" style={{ fontSize: "clamp(1.25rem,3vw,1.6rem)", letterSpacing: "-0.02em" }}>Accumulation Streak Scanner</div>
+              <p className="text-slate-400 text-sm leading-relaxed mb-5" style={{ maxWidth: "560px" }}>
+                Every other platform shows you <em>today's</em> flow. We show you who has been buying the same stock for <strong className="text-white">5, 10, or 15 consecutive trading days</strong> — quietly, steadily, without moving the price. That's not retail. That's an institution building a position.
+              </p>
+              <div className="grid sm:grid-cols-3 gap-3 mb-5">
+                {[
+                  { icon: "📆", label: "60-Day Lookback", sub: "Detect 1-week, 2-week, and 3-week accumulation campaigns — not just yesterday" },
+                  { icon: "📊", label: "Consistency Score", sub: "Separates smooth institutional buying ($1M/day × 10 days) from one-day retail spikes" },
+                  { icon: "🔬", label: "Flow Intelligence AI", sub: "GPT reads every streak and tells you CONVICTION, BUILDING, WATCH, or NOISE — in plain English" },
+                ].map(c => (
+                  <div key={c.label} className="rounded-xl p-3" style={{ background: "rgba(124,58,237,0.07)", border: "1px solid rgba(124,58,237,0.2)" }}>
+                    <div className="text-lg mb-1">{c.icon}</div>
+                    <div className="text-white text-xs font-black mb-1">{c.label}</div>
+                    <div className="text-slate-500 text-xs leading-relaxed">{c.sub}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs italic" style={{ color: "rgba(124,58,237,0.7)" }}>
+                Unusual Whales, Finviz, FlowAlgo, Blackbox, InsiderFinance — none track consecutive-day accumulation streaks. You either see it here, or you don't see it.
+              </p>
+            </div>
+            <div className="shrink-0 sm:w-52 rounded-xl p-4 text-center" style={{ background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.25)" }}>
+              <div className="text-5xl font-black mb-1" style={{ color: "#a78bfa" }}>473</div>
+              <div className="text-slate-400 text-xs mb-4">micro-cap stocks scanned<br />every trading day</div>
+              <div className="space-y-2">
+                {[
+                  { icon: "🏦", label: "20d+", sub: "1 month streak", color: "#c4b5fd" },
+                  { icon: "🚀", label: "15d",  sub: "3 weeks", color: "#a78bfa" },
+                  { icon: "⚡", label: "10d",  sub: "2 weeks", color: "#fbbf24" },
+                  { icon: "🔥", label: "5d",   sub: "1 week",  color: "#fb923c" },
+                ].map(b => (
+                  <div key={b.label} className="flex items-center gap-2 rounded-lg px-3 py-1.5" style={{ background: "rgba(0,0,0,0.3)" }}>
+                    <span className="text-sm">{b.icon}</span>
+                    <span className="font-black text-xs" style={{ color: b.color }}>{b.label}</span>
+                    <span className="text-slate-600 text-xs">{b.sub}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* More differentiators */}
         <div className="rounded-2xl p-6" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)" }}>
           <p className="text-slate-500 text-xs uppercase tracking-widest font-bold mb-5">Also included — things competitors charge more for or don't offer</p>
