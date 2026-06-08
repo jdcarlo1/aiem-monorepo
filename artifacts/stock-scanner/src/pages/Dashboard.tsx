@@ -3444,11 +3444,17 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
   const startPolling = () => {
     stopPolling();
-    let secs = 40;
+    let secs = 180;
     setWarmCountdown(secs);
     countRef.current = setInterval(() => {
       secs = Math.max(0, secs - 1);
       setWarmCountdown(secs);
+      if (secs <= 0) {
+        stopPolling();
+        setWarming(false);
+        setRefreshing(false);
+        setError("Generation timed out — the server may still be warming up. Try Regenerate again in a moment.");
+      }
     }, 1000);
     pollRef.current = setInterval(async () => {
       try {

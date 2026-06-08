@@ -4029,6 +4029,12 @@ def _ai_trades_worker():
                     for f in as_completed(futs):
                         try: f.result()
                         except: pass
+                # After warming, retry AI trades generation once
+                import time as _time
+                _time.sleep(2)
+                if not getattr(app, "_ait_generating", False):
+                    import threading as _thr2
+                    _thr2.Thread(target=_ai_trades_worker, daemon=True).start()
             finally:
                 app._cache_warming = False
         import threading
