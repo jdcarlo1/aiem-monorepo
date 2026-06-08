@@ -5537,8 +5537,8 @@ def eod_sweeps():
                        vol_oi::float, prem::bigint, otm_pct::float, iv::float,
                        urgency, last_seen
                 FROM unusual_calls_log
-                WHERE last_seen >= NOW() - INTERVAL '2 days'
-                  AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 19 AND 20
+                WHERE last_seen >= NOW() - INTERVAL '5 days'
+                  AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 18 AND 23
                   AND days_out BETWEEN 1 AND 15
                   AND vol_oi  >= 5
                   AND prem    >= 300000
