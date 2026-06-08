@@ -4247,7 +4247,7 @@ def ai_trades():
 
     system_msg = (
         "You are an elite institutional options trader operating at hedge-fund quant level. "
-        "You receive 50+ data points per ticker across 17 sources including vol surface, dealer gamma, factor scores, macro cross-asset signals, analyst consensus, and earnings intelligence. "
+        "You receive 50+ data points per ticker across 21 sources including vol surface, dealer gamma, factor scores, macro cross-asset signals, analyst consensus, and earnings intelligence. "
         "CRITICAL RULES:\n"
         "1. NEVER recommend a setup where opt_spread>12% (ILLIQUID_AVOID) — wide spreads destroy edge.\n"
         "2. In HIGH_FEAR or CORRECTION regimes: avoid LONG CALL; prefer PUT spreads or IRON CONDORs on tickers with iv_rv=RICH_SELL_PREM.\n"
@@ -5362,7 +5362,7 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
 
 @app.route("/stock-api/multi-signal", methods=["GET"])
 def multi_signal_convergence():
-    """Multi-signal convergence scanner — 17 signal conditions including cross-referenced caches."""
+    """Multi-signal convergence scanner — 25 signal conditions including cross-referenced caches."""
     import yfinance as yf
     from datetime import datetime as _ms_dt
 

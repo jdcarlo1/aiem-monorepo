@@ -162,7 +162,7 @@ export default function Landing() {
         </p>
         <div className="grid sm:grid-cols-3 gap-4 text-left">
           {[
-            { before: "You open 6 different tabs trying to figure out if signals agree.", after: "One AI reads all 17 sources together and tells you exactly what they say — combined.", icon: "🗂️" },
+            { before: "You open 6 different tabs trying to figure out if signals agree.", after: "One AI reads all 21 sources together and tells you exactly what they say — combined.", icon: "🗂️" },
             { before: "You see heavy put volume and don't know if it's a hedge or a real bearish bet.", after: "Put Intent Decoder classifies every put: hedge vs directional bet. Nobody else does this.", icon: "🎯" },
             { before: "You get a signal score. No entry, no strike, no expiry, no thesis.", after: "You get: ticker, direction, entry strike, expiry, target, stop loss, and a written thesis. Ready to execute.", icon: "📋" },
           ].map(p => (
@@ -187,7 +187,7 @@ export default function Landing() {
               AI Trade Synthesis
             </h2>
             <p className="text-slate-300 mb-8" style={{ maxWidth: "620px", fontSize: "1.1rem", lineHeight: 1.75 }}>
-              Every day, our AI reads all 17 signal sources simultaneously — dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime (VIX + SPY trend), multi-day signal persistence, options liquidity, analyst consensus targets, put/call OI positioning, VIX term structure, earnings proximity + implied move, SPY beta, pre-market gaps, sector rotation, and more. Then it outputs 3 complete trade setups, written in plain English, ranked from most bullish to most bearish.
+              Every day, our AI reads all 21 signal sources simultaneously — dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime (VIX + SPY trend), multi-day signal persistence, options liquidity, analyst consensus targets, put/call OI positioning, VIX term structure, earnings proximity + implied move, SPY beta, pre-market gaps, sector rotation, and more. Then it outputs 3 complete trade setups, written in plain English, ranked from most bullish to most bearish.
             </p>
             <div className="grid sm:grid-cols-2 gap-6 mb-8">
               <div>
@@ -210,7 +210,7 @@ export default function Landing() {
                 <p className="text-xs uppercase tracking-widest font-bold mb-3" style={{ color: "#4ade80" }}>What you get from StockScanner AI</p>
                 <div className="space-y-2">
                   {[
-                    "All 17 sources → fed to AI together",
+                    "All 21 sources → fed to AI together",
                     "3 picks → sorted most bullish to bearish",
                     "Entry strike + expiry + target + stop",
                     "Written thesis: why these signals align",
@@ -623,7 +623,7 @@ export default function Landing() {
           </div>
         </div>
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-1.5 mt-5 text-slate-600 text-xs">
-          <span><span className="font-bold text-emerald-400">🤖 AI Synthesis</span> — all 17 sources → 5 written trade setups daily</span>
+          <span><span className="font-bold text-emerald-400">🤖 AI Synthesis</span> — all 21 sources → 5 written trade setups daily</span>
           <span><span className="font-bold" style={{ color: "#fbbf24" }}>🎯 Put Intent</span> — hedge vs bearish bet, decoded automatically</span>
           <span><span className="font-bold" style={{ color: "#fbbf24" }}>🌑 Dark Pool</span> — conviction signals, not raw numbers</span>
           <span><span className="font-bold" style={{ color: "#818cf8" }}>📐 Quant Signals</span> — IV skew · dealer gamma (GEX) · yield curve · VIX term structure · credit spreads · gold · crude · dollar index</span>
@@ -795,7 +795,7 @@ export default function Landing() {
           </div>
           <ul className="space-y-3.5 mb-8">
             {[
-              { text: "🤖 AI Trade Synthesis — 17 sources → 3 written setups daily, no competitor has this", highlight: true },
+              { text: "🤖 AI Trade Synthesis — 21 sources → 3 written setups daily, no competitor has this", highlight: true },
               { text: "🎯 Put Intent Decoder — hedge vs bearish bet, exclusively here", highlight: true },
               { text: "🌑 Dark Pool Radar — conviction signals, not raw numbers", highlight: true },
               { text: "🌡️ Market Regime Detection — strategy auto-adapts to bull/correction/chop", highlight: true },
