@@ -821,6 +821,12 @@ function EmailSignupBanner() {
     if (!email.trim() || !email.includes("@")) { setErrMsg("Enter a valid email"); setStatus("err"); return; }
     setStatus("loading");
     try {
+      const check = await checkAITradesSubscription(email.trim());
+      if (check.subscribed) {
+        localStorage.setItem("ait_sub_email", email.trim());
+        setStatus("ok");
+        return;
+      }
       const { url } = await createStockScannerCheckout(email.trim());
       window.location.href = url;
     } catch (err: any) {
