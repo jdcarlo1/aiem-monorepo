@@ -106,8 +106,48 @@ DEFAULT_LEADERBOARD = [
     "GLD", "IAU", "SLV", "USO", "UNG", "GDX", "GDXJ", "OIH",
     # Bonds
     "TLT", "HYG", "LQD", "TBT", "TMF", "SHY", "IEF", "JNK",
-    # International
-    "EEM", "EFA", "FXI", "EWJ", "EWZ", "EWY", "IEMG",
+    # International broad
+    "EEM", "EFA", "IEMG", "VEA", "VWO", "VXUS", "ACWI", "ACWX",
+    # iShares MSCI country ETFs — developed
+    "EWJ",  # Japan
+    "EWG",  # Germany
+    "EWU",  # United Kingdom
+    "EWQ",  # France
+    "EWL",  # Switzerland
+    "EWA",  # Australia
+    "EWC",  # Canada
+    "EWI",  # Italy
+    "EWP",  # Spain
+    "EWD",  # Sweden
+    "EWN",  # Netherlands
+    "EWO",  # Austria
+    "EWK",  # Belgium
+    "EWS",  # Singapore
+    "EWH",  # Hong Kong
+    "EWT",  # Taiwan
+    "NORW", # Norway
+    "EDEN", # Denmark
+    "EFNL", # Finland
+    "EPIQ", # Ireland
+    # iShares MSCI country ETFs — emerging
+    "EWY",  # South Korea
+    "EWZ",  # Brazil
+    "FXI",  # China large-cap
+    "MCHI", # China broad
+    "EWW",  # Mexico
+    "EZA",  # South Africa
+    "EWM",  # Malaysia
+    "EPHE", # Philippines
+    "EIDO", # Indonesia
+    "THD",  # Thailand
+    "EIS",  # Israel
+    "GREK", # Greece
+    "TUR",  # Turkey
+    "EPOL", # Poland
+    "ECH",  # Chile
+    "EPU",  # Peru
+    "ARGT", # Argentina
+    "EWX",  # Emerging small-cap
     # Thematic / ARK
     "ARKK", "ARKG", "ARKW", "ARKF",
     # Bitcoin spot ETFs
