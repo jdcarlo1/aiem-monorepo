@@ -1708,6 +1708,251 @@ def microcap_ticker_count():
     return jsonify({"count": len(tickers), "tickers": tickers})
 
 
+# ── Multi-day flow streak scan ────────────────────────────────────────────────
+
+def _run_multiday_flow_scan(n_days: int = 40) -> dict:
+    """
+    For every ticker in the micro-cap universe, fetch `period='60d' interval='1d'`
+    daily OHLCV (~42 trading days) and compute per-day net flow using the same
+    buy/sell candle logic as the intraday scan (close >= open → inflow; else → outflow).
+
+    Looks back up to ~3 months so 1-week (5d), 2-week (10d), and 3-week (15d)
+    institutional accumulation streaks are all detectable.
+
+    Returns only tickers with streak >= 2 consecutive positive-net days,
+    sorted by streak desc then by cumulative % of market cap.
+    """
+    import yfinance as yf
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    tickers = _get_microcap_tickers()
+
+    def _compute(ticker):
+        try:
+            t_obj = yf.Ticker(ticker)
+            hist  = t_obj.history(period="60d", interval="1d")
+            if hist.empty or len(hist) < 2:
+                return None
+
+            market_cap = None
+            try:
+                market_cap = t_obj.fast_info.market_cap
+                if market_cap and market_cap <= 0:
+                    market_cap = None
+            except Exception:
+                pass
+
+            # Build per-day flow list (oldest → newest)
+            daily = []
+            for dt, row in hist.iterrows():
+                vol = float(row.get("Volume", 0))
+                if vol <= 0:
+                    continue
+                avg   = (float(row["Open"]) + float(row["Close"])) / 2
+                dv    = avg * vol
+                is_up = float(row["Close"]) >= float(row["Open"])
+                net_m = round(dv / 1_000_000 if is_up else -dv / 1_000_000, 3)
+                date_str = dt.strftime("%Y-%m-%d") if hasattr(dt, "strftime") else str(dt)[:10]
+                daily.append({"date": date_str, "net_m": net_m, "positive": net_m > 0})
+
+            if not daily:
+                return None
+
+            # Count consecutive positive days from the most recent day backwards
+            streak = 0
+            for d in reversed(daily):
+                if d["positive"]:
+                    streak += 1
+                else:
+                    break
+
+            if streak < 2:
+                return None
+
+            # Accumulated net flow over the streak window
+            streak_days     = daily[-streak:]
+            streak_net_vals = [d["net_m"] for d in streak_days]
+            total_net_m     = round(sum(streak_net_vals), 3)
+            avg_daily_net_m = round(total_net_m / streak, 3)
+            min_daily_net_m = round(min(streak_net_vals), 3)
+
+            # Consistency: how even is the buying across days?
+            # min/avg ratio — 1.0 = perfectly even, 0.0 = all in one day
+            consistency = round(min_daily_net_m / avg_daily_net_m, 2) if avg_daily_net_m > 0 else 0.0
+
+            mktcap_m    = round(market_cap / 1_000_000, 1) if market_cap else None
+            total_pct   = round(total_net_m / (market_cap / 1_000_000) * 100, 2) \
+                          if market_cap and market_cap > 0 else None
+            avg_pct_day = round(avg_daily_net_m / (market_cap / 1_000_000) * 100, 3) \
+                          if market_cap and market_cap > 0 else None
+
+            # Tier
+            if market_cap is None:
+                cap_tier = "unknown"
+            elif market_cap < 50_000_000:
+                cap_tier = "nano"
+            elif market_cap < 300_000_000:
+                cap_tier = "micro"
+            elif market_cap < 2_000_000_000:
+                cap_tier = "small"
+            else:
+                cap_tier = "mid"
+
+            last_price = round(float(hist["Close"].iloc[-1]), 2)
+
+            return {
+                "ticker":           ticker,
+                "price":            last_price,
+                "streak":           streak,
+                "total_net_m":      total_net_m,
+                "avg_daily_net_m":  avg_daily_net_m,
+                "min_daily_net_m":  min_daily_net_m,
+                "consistency":      consistency,      # 0–1; ≥0.4 = institutional-like
+                "market_cap_m":     mktcap_m,
+                "total_pct_mktcap": total_pct,
+                "avg_pct_per_day":  avg_pct_day,      # avg % of mktcap flowing in per day
+                "cap_tier":         cap_tier,
+                "days":             daily[-n_days:],  # last N daily dots for UI
+            }
+        except Exception:
+            return None
+
+    results = []
+    with ThreadPoolExecutor(max_workers=14) as ex:
+        futures = {ex.submit(_compute, t): t for t in tickers}
+        for f in as_completed(futures):
+            r = f.result()
+            if r:
+                results.append(r)
+
+    # Sort: longest streak first, then cumulative % of mktcap descending
+    results.sort(key=lambda x: (-x["streak"], -(x["total_pct_mktcap"] or 0)))
+    for i, r in enumerate(results, 1):
+        r["rank"] = i
+
+    return {"results": results, "scanned": len(tickers), "found": len(results)}
+
+
+@app.route("/stock-api/net-flow/multiday", methods=["POST", "GET"])
+def net_flow_multiday():
+    """Multi-day accumulation streak scan. Cached for 2 hours (daily data)."""
+    from datetime import datetime as _dt
+
+    if not hasattr(app, "_nfmd_lock"):
+        app._nfmd_lock = threading.Lock()
+
+    _CACHE_TTL = 7200   # 2 hours — daily candles change slowly
+
+    _cache = getattr(app, "_nfmd_cache", None)
+    _ts    = getattr(app, "_nfmd_cache_ts", None)
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
+        return jsonify(_cache)
+
+    with app._nfmd_lock:
+        _cache = getattr(app, "_nfmd_cache", None)
+        _ts    = getattr(app, "_nfmd_cache_ts", None)
+        if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
+            return jsonify(_cache)
+
+        out = _run_multiday_flow_scan()
+        app._nfmd_cache    = out
+        app._nfmd_cache_ts = _dt.now()
+        return jsonify(out)
+
+
+# ── AI Signal Analysis ────────────────────────────────────────────────────────
+
+@app.route("/stock-api/net-flow/ai-signal", methods=["POST"])
+def net_flow_ai_signal():
+    """Analyze streak rows with OpenAI and return structured conviction signals."""
+    import os, json, re
+    from openai import OpenAI
+
+    body = request.get_json(silent=True) or {}
+    rows = body.get("rows", [])
+
+    if not rows:
+        return jsonify({"error": "No streak data provided — run the Accumulation Streak scan first."}), 400
+
+    # Sort by streak desc, then consistency desc; cap at 30
+    rows = sorted(rows, key=lambda r: (-r.get("streak", 0), -r.get("consistency", 0)))[:30]
+
+    # Build compact, LLM-readable context
+    stock_lines = []
+    for r in rows:
+        parts = [
+            f"ticker={r.get('ticker')}",
+            f"streak={r.get('streak')}d",
+            f"avg_flow=${r.get('avg_daily_net_m', 0):.2f}M/day",
+            f"consistency={r.get('consistency', 0):.2f}",
+        ]
+        if r.get("min_daily_net_m") is not None:
+            parts.append(f"min_day=${r.get('min_daily_net_m', 0):.2f}M")
+        if r.get("total_pct_mktcap"):
+            parts.append(f"pct_mktcap={r.get('total_pct_mktcap'):.3f}%")
+        if r.get("market_cap_m"):
+            parts.append(f"mktcap=${r.get('market_cap_m'):.0f}M")
+        if r.get("cap_tier"):
+            parts.append(f"tier={r.get('cap_tier')}")
+        stock_lines.append("  " + " | ".join(parts))
+
+    stock_block = "\n".join(stock_lines)
+
+    prompt = f"""You are an institutional flow analyst specializing in micro-cap and small-cap accumulation patterns.
+
+Analyze each stock for signs of sustained institutional accumulation using multi-day net flow data.
+
+Field definitions:
+- streak: consecutive trading days with positive net flow (no breaks)
+- avg_flow: average daily net inflow in $M
+- min_day: weakest single day inflow — if close to avg_flow, buying is EVEN (institutional pattern); near 0 = one big day dominated (retail spike or event)
+- consistency: min_day / avg_day ratio (0-1) — 1.0 = perfectly smooth increments, 0.0 = one giant day did all the work
+- pct_mktcap: cumulative inflow as % of market cap over the streak period
+- tier: nano (<$50M mktcap), micro ($50-300M), small ($300M-1B), mid ($1-5B)
+
+Stocks to analyze:
+{stock_block}
+
+Signal classification — assign exactly ONE per stock:
+- CONVICTION: streak ≥ 10d AND consistency ≥ 0.65 — textbook stealth accumulation, likely institutional loading
+- BUILDING: streak 5-9d OR (streak ≥ 10d but consistency 0.40-0.64) — pattern forming, early positioning
+- WATCH: streak 3-4d with consistency ≥ 0.40 — too short to confirm but worth monitoring
+- NOISE: consistency < 0.35 regardless of streak, or streak < 3 — likely event-driven or retail, not sustained
+
+Key insight: true institutional accumulation shows SMOOTH increments (high consistency). A 7-day streak where day 1 = $10M and days 2-7 = $0.1M each is a retail spike, not accumulation. True accumulation: $1.0M, $0.9M, $1.1M, $1.0M, $0.95M... every day.
+
+Also: for nano-caps ($20-50M mktcap), even $0.3M/day sustained over 10 days represents meaningful size — harder to hide than mid-cap flow.
+
+Return ONLY valid JSON, zero markdown fences or extra text:
+{{"signals":[{{"ticker":"XXXX","signal":"CONVICTION","thesis":"1-2 punchy sentences specific to the numbers — what this pattern implies for the stock.","confidence":85}}]}}"""
+
+    try:
+        client = OpenAI(
+            api_key=os.environ["AI_INTEGRATIONS_OPENAI_API_KEY"],
+            base_url=os.environ["AI_INTEGRATIONS_OPENAI_BASE_URL"],
+        )
+        response = client.chat.completions.create(
+            model="gpt-5.4",
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=2500,
+        )
+        raw = response.choices[0].message.content.strip()
+
+        # Strip markdown fences if the model adds them anyway
+        raw = re.sub(r'^```(?:json)?\s*', '', raw).strip()
+        raw = re.sub(r'\s*```$',          '', raw).strip()
+
+        result = json.loads(raw)
+        result["model"]    = "gpt-5.4"
+        result["analyzed"] = len(rows)
+        return jsonify(result)
+
+    except json.JSONDecodeError as exc:
+        return jsonify({"error": f"AI returned invalid JSON: {exc}", "raw": raw[:500]}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/stock-api/market/overview", methods=["GET"])
 def market_overview():
     import yfinance as yf

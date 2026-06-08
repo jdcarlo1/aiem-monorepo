@@ -976,3 +976,58 @@ export function fetchNetFlowMicrocap() {
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
   );
 }
+
+export interface NetFlowDayDot {
+  date:     string;
+  net_m:    number;
+  positive: boolean;
+}
+
+export interface NetFlowStreakRow {
+  rank:             number;
+  ticker:           string;
+  price:            number;
+  streak:           number;
+  total_net_m:      number;
+  avg_daily_net_m:  number;
+  min_daily_net_m:  number;
+  consistency:      number;       // 0–1; min/avg ratio over streak days
+  market_cap_m:     number | null;
+  total_pct_mktcap: number | null;
+  avg_pct_per_day:  number | null; // avg % of mktcap per day
+  cap_tier:         string;
+  days:             NetFlowDayDot[];
+}
+
+export interface NetFlowStreakResult {
+  results: NetFlowStreakRow[];
+  scanned: number;
+  found:   number;
+}
+
+export function fetchNetFlowMultiday() {
+  return fetchJson<NetFlowStreakResult>(
+    "/net-flow/multiday",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
+  );
+}
+
+export interface AISignal {
+  ticker:     string;
+  signal:     "CONVICTION" | "BUILDING" | "WATCH" | "NOISE";
+  thesis:     string;
+  confidence: number;
+}
+
+export interface AISignalResult {
+  signals:  AISignal[];
+  model:    string;
+  analyzed: number;
+}
+
+export function fetchAISignal(rows: NetFlowStreakRow[]) {
+  return fetchJson<AISignalResult>(
+    "/net-flow/ai-signal",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows }) }
+  );
+}

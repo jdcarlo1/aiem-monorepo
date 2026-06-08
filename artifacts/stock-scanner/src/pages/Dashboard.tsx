@@ -24,6 +24,8 @@ import {
   fetchUnusualCallsLog, UnusualCallsLogEntry,
   saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
   fetchNetFlow, NetFlowRow, NetFlowMicrocapResult, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
+  NetFlowStreakRow, NetFlowStreakResult, fetchNetFlowMultiday,
+  AISignal, AISignalResult, fetchAISignal,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -6340,13 +6342,409 @@ function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 }
 
 
+// ---- Net Flow Streak Tab -------------------------------------------------
+
+function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [data, setData]           = useState<NetFlowStreakResult | null>(null);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [lastRun, setLastRun]     = useState<Date | null>(null);
+  const [saved, setSaved]         = useState<Record<string, boolean>>({});
+  const [minStreak, setMinStreak] = useState<3 | 5 | 10 | 15>(5);
+  // Institutional filter: requires consistency ≥ 0.3 (buying is evenly distributed, not spiked)
+  const [instOnly, setInstOnly]   = useState(true);
+  // AI signal state
+  const [aiSignals, setAiSignals] = useState<AISignalResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError,   setAiError]   = useState<string | null>(null);
+
+  const run = async () => {
+    setLoading(true); setError(null);
+    try {
+      const d = await fetchNetFlowMultiday();
+      setData(d);
+      setLastRun(new Date());
+    } catch (e: any) {
+      setError(e.message ?? "Scan failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runAI = async (rows: NetFlowStreakRow[]) => {
+    if (!rows.length) return;
+    setAiLoading(true); setAiError(null); setAiSignals(null);
+    try {
+      const result = await fetchAISignal(rows);
+      setAiSignals(result);
+    } catch (e: any) {
+      setAiError(e.message ?? "AI analysis failed");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  useEffect(() => { run(); }, []);
+
+  const handleSave = async (e: React.MouseEvent, row: NetFlowStreakRow) => {
+    e.stopPropagation();
+    try {
+      const mktcap = row.market_cap_m
+        ? (row.market_cap_m >= 1000 ? `$${(row.market_cap_m/1000).toFixed(1)}B` : `$${row.market_cap_m}M`) + " mktcap"
+        : "";
+      const cons = ` · consistency ${Math.round(row.consistency * 100)}%`;
+      const pct  = row.total_pct_mktcap ? ` · ${row.total_pct_mktcap.toFixed(2)}% mktcap over ${row.streak}d` : "";
+      await addTradeWatchlist({
+        ticker: row.ticker,
+        option_type: "CALL",
+        notes: `${row.streak}-Day Accumulation · +${fmtNet(row.total_net_m)} cumul · avg ${fmtNet(row.avg_daily_net_m)}/day${cons}${pct} · ${mktcap}`,
+      });
+      setSaved(s => ({ ...s, [row.ticker]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [row.ticker]: false })), 2500);
+    } catch { /* silent */ }
+  };
+
+  const fmtNet = (v: number) => {
+    if (v >= 1000) return `$${(v/1000).toFixed(1)}B`;
+    if (v >= 1)    return `$${v.toFixed(2)}M`;
+    if (v >= 0.01) return `$${(v*1000).toFixed(0)}K`;
+    return `$${(v*1_000_000).toFixed(0)}`;
+  };
+
+  const fmtMktcap = (m: number | null) => {
+    if (m === null) return "—";
+    if (m >= 1000)  return `$${(m/1000).toFixed(1)}B`;
+    return `$${m.toFixed(0)}M`;
+  };
+
+  const streakBadge = (n: number) => {
+    if (n >= 20) return { icon: "🏦", label: `${n}d (1mo+)`,   color: "bg-purple-900/60 text-purple-200 border-purple-600/60" };
+    if (n >= 15) return { icon: "🚀", label: `${n}d (3wk)`,    color: "bg-purple-900/50 text-purple-300 border-purple-700/50" };
+    if (n >= 10) return { icon: "⚡", label: `${n}d (2wk)`,    color: "bg-amber-900/50  text-amber-300  border-amber-700/50"  };
+    if (n >= 5)  return { icon: "🔥", label: `${n}d (1wk)`,    color: "bg-orange-900/50 text-orange-300 border-orange-700/50" };
+    return           { icon: "📈", label: `${n}d`,              color: "bg-emerald-900/50 text-emerald-300 border-emerald-700/50" };
+  };
+
+  // Consistency label: how evenly distributed is the buying across days?
+  const consLabel = (c: number) => {
+    if (c >= 0.7) return { label: "High", color: "text-emerald-400" };
+    if (c >= 0.4) return { label: "Med",  color: "text-yellow-400"  };
+    return              { label: "Low",   color: "text-orange-400"  };
+  };
+
+  const tierColor: Record<string, string> = {
+    nano:  "text-red-400",
+    micro: "text-violet-400",
+    small: "text-blue-400",
+    mid:   "text-cyan-400",
+  };
+
+  const filtered = (data?.results ?? []).filter(r => {
+    if (r.streak < minStreak) return false;
+    if (instOnly && r.consistency < 0.3) return false;   // spike buyers filtered out
+    return true;
+  });
+
+  // For proportional dot heights: find max absolute flow in the visible set
+  const maxAbsFlow = (days: NetFlowDayDot[]) =>
+    Math.max(...days.map(d => Math.abs(d.net_m)), 0.001);
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <h2 className="text-white font-bold text-lg">📈 Accumulation Streak</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Stocks with <span className="text-emerald-400 font-bold">consecutive days</span> of net buying across <span className="text-white font-bold">up to 60 days</span> — detect 1-week, 2-week, and 3-week institutional accumulation.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 shrink-0">
+            <button
+              onClick={run}
+              disabled={loading}
+              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+            >
+              {loading ? <><Spinner /> Scanning…</> : "🔄 Run Scan"}
+            </button>
+            <button
+              onClick={() => runAI(filtered.length ? filtered : (data?.results ?? []))}
+              disabled={aiLoading || !data?.results?.length}
+              title="Flow Intelligence — AI analysis of multi-week accumulation patterns. Separate from daily AI Options Signals."
+              className="bg-violet-800 hover:bg-violet-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 border border-violet-700/60"
+            >
+              {aiLoading ? <><Spinner /> Analyzing…</> : "🔬 Flow Intelligence"}
+            </button>
+          </div>
+        </div>
+        {lastRun && (
+          <p className="text-slate-600 text-xs">
+            Scanned {data?.scanned ?? 473} stocks · {lastRun.toLocaleTimeString()} · {filtered.length} conviction plays
+          </p>
+        )}
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+      </div>
+
+      {/* ── Flow Intelligence Panel ─────────────────────────────────────────── */}
+      {(aiSignals || aiLoading || aiError) && (
+        <div className="bg-[#0f0a1e] border border-violet-900/60 rounded-xl p-5 shadow-lg shadow-violet-950/30">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-violet-400 text-lg">🔬</span>
+                <span className="text-white font-bold">Flow Intelligence</span>
+                <span className="text-violet-600 text-xs border border-violet-800 rounded px-1.5 py-0.5 font-mono">STREAK ANALYSIS</span>
+              </div>
+              {aiSignals && (
+                <p className="text-violet-700 text-xs mt-0.5">
+                  {aiSignals.analyzed} accumulation patterns analyzed · {aiSignals.model} · separate from daily options signals
+                </p>
+              )}
+            </div>
+            {aiSignals && (
+              <button onClick={() => setAiSignals(null)} className="text-slate-700 hover:text-slate-400 text-xs">✕</button>
+            )}
+          </div>
+
+          {aiLoading && (
+            <div className="text-center py-10 text-slate-500">
+              <Spinner />
+              <div className="mt-3 text-sm text-violet-400">Analyzing {filtered.length || data?.results?.length || 0} accumulation patterns…</div>
+              <div className="text-xs mt-1 text-violet-900">Detecting stealth accumulation · 1-week through 3-week streaks</div>
+            </div>
+          )}
+
+          {aiError && <p className="text-red-400 text-sm">{aiError}</p>}
+
+          {aiSignals && !aiLoading && (() => {
+            const counts = {
+              CONVICTION: aiSignals.signals.filter(s => s.signal === "CONVICTION").length,
+              BUILDING:   aiSignals.signals.filter(s => s.signal === "BUILDING").length,
+              WATCH:      aiSignals.signals.filter(s => s.signal === "WATCH").length,
+              NOISE:      aiSignals.signals.filter(s => s.signal === "NOISE").length,
+            };
+            return (
+              <div className="space-y-3">
+                {/* Summary row */}
+                <div className="flex flex-wrap gap-3 pb-3 border-b border-violet-900/40 text-xs font-bold">
+                  {counts.CONVICTION > 0 && <span className="text-purple-300">🏦 CONVICTION ×{counts.CONVICTION}</span>}
+                  {counts.BUILDING   > 0 && <span className="text-amber-300">🔥 BUILDING ×{counts.BUILDING}</span>}
+                  {counts.WATCH      > 0 && <span className="text-blue-300">👁 WATCH ×{counts.WATCH}</span>}
+                  {counts.NOISE      > 0 && <span className="text-slate-600">📉 NOISE ×{counts.NOISE}</span>}
+                </div>
+
+                {/* Signal cards */}
+                {aiSignals.signals.map(s => {
+                  const cfg = {
+                    CONVICTION: { border: "border-purple-700/50", bg: "bg-purple-950/30", icon: "🏦", color: "text-purple-300", bar: "bg-purple-500" },
+                    BUILDING:   { border: "border-amber-700/50",  bg: "bg-amber-950/20",  icon: "🔥", color: "text-amber-300",  bar: "bg-amber-500"  },
+                    WATCH:      { border: "border-blue-700/50",   bg: "bg-blue-950/20",   icon: "👁", color: "text-blue-300",   bar: "bg-blue-500"   },
+                    NOISE:      { border: "border-slate-800",     bg: "bg-slate-900/50",  icon: "📉", color: "text-slate-600",  bar: "bg-slate-600"  },
+                  }[s.signal] ?? { border: "border-slate-800", bg: "bg-slate-900", icon: "📊", color: "text-slate-400", bar: "bg-slate-500" };
+
+                  return (
+                    <div
+                      key={s.ticker}
+                      className={`rounded-lg border p-3 cursor-pointer hover:brightness-110 transition-all ${cfg.border} ${cfg.bg}`}
+                      onClick={() => onSelectTicker(s.ticker)}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white font-bold text-sm">{s.ticker}</span>
+                          <span className={`text-xs font-bold ${cfg.color}`}>{cfg.icon} {s.signal}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-1 w-14 bg-slate-800 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${cfg.bar}`} style={{ width: `${s.confidence}%` }} />
+                          </div>
+                          <span className="text-slate-500 text-xs">{s.confidence}%</span>
+                        </div>
+                      </div>
+                      <p className="text-slate-400 text-xs leading-relaxed">{s.thesis}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Institutional filter explainer */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-white font-bold text-sm">🏦 Institutional Filter</div>
+            <p className="text-slate-500 text-xs mt-0.5">
+              Requires <span className="text-white">consistency ≥ 30%</span> — buying evenly distributed across days, not one big spike surrounded by tiny days
+            </p>
+          </div>
+          <button
+            onClick={() => setInstOnly(v => !v)}
+            className={`shrink-0 px-4 py-2 rounded-lg text-xs font-bold border transition-all ${instOnly ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-500"}`}
+          >
+            {instOnly ? "ON" : "OFF"}
+          </button>
+        </div>
+        {!instOnly && (
+          <div className="text-xs text-orange-400 border border-orange-800/40 bg-orange-950/20 rounded-lg px-3 py-2">
+            ⚠️ Institutional filter OFF — results may include retail-driven spikes
+          </div>
+        )}
+      </div>
+
+      {/* Streak length filter */}
+      <div className="flex gap-2">
+        {([3, 5, 10, 15] as const).map((n, i) => (
+          <button
+            key={n}
+            onClick={() => setMinStreak(n)}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-colors ${minStreak === n ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+          >
+            {["3+ days", "1 week+", "2 weeks+", "3 weeks+"][i]}
+          </button>
+        ))}
+      </div>
+
+      {/* Cold state */}
+      {!loading && !lastRun && !error && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">📈</div>
+          <div className="font-semibold text-slate-400 mb-1">Find institutional accumulation patterns</div>
+          <div className="text-sm">Consistent multi-day buying — not one-day retail spikes</div>
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && !lastRun && (
+        <div className="text-center py-16 text-slate-500">
+          <Spinner />
+          <div className="mt-4 text-sm">Fetching up to 60 days of history for 473+ stocks…</div>
+          <div className="text-xs mt-1 text-slate-600">First load takes 90–120 seconds — detecting 1-week, 2-week, and 3-week streaks</div>
+        </div>
+      )}
+
+      {/* Results */}
+      {lastRun && (
+        <>
+          {filtered.length === 0 && (
+            <div className="text-center py-10 text-slate-600 text-sm space-y-2">
+              <div>No conviction plays found with current filters</div>
+              <div className="text-xs">Try lowering the streak minimum or turning off the institutional filter</div>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {filtered.map(row => {
+              const badge    = streakBadge(row.streak);
+              const cons     = consLabel(row.consistency);
+              const isSaved  = saved[row.ticker];
+              const isBig    = (row.total_pct_mktcap ?? 0) >= 3;
+              const maxFlow  = maxAbsFlow(row.days);
+
+              return (
+                <div
+                  key={row.ticker}
+                  onClick={() => onSelectTicker(row.ticker)}
+                  className={`bg-slate-900 border rounded-xl p-4 cursor-pointer transition-all hover:border-slate-600 ${isBig ? "border-emerald-700/50" : "border-slate-800"}`}
+                >
+                  {/* Top row */}
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-slate-500 text-xs font-bold">#{row.rank}</span>
+                      <span className="text-white font-black text-lg">{row.ticker}</span>
+                      <span className="text-slate-400 text-sm">${row.price.toLocaleString()}</span>
+                      <span className={`text-xs font-medium ${tierColor[row.cap_tier] ?? "text-slate-400"}`}>
+                        {row.cap_tier}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${badge.color}`}>
+                        {badge.icon} {badge.label}
+                      </span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-emerald-400 font-black text-base">+{fmtNet(row.total_net_m)}</div>
+                      <div className="text-slate-500 text-xs">{row.streak}d cumulative</div>
+                    </div>
+                  </div>
+
+                  {/* Day flow bars — proportional height, oldest left → today right */}
+                  <div className="mb-3">
+                    <div className="flex items-end gap-0.5 h-8 mb-1">
+                      {row.days.map((d, i) => {
+                        const pct = Math.abs(d.net_m) / maxFlow;
+                        const h   = Math.max(Math.round(pct * 100), 8);
+                        return (
+                          <div
+                            key={i}
+                            title={`${d.date}: ${d.net_m > 0 ? "+" : ""}${d.net_m.toFixed(2)}M`}
+                            style={{ height: `${h}%` }}
+                            className={`flex-1 rounded-sm ${d.positive ? "bg-emerald-500" : "bg-red-800/70"}`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between text-slate-600 text-xs">
+                      <span>← 60 days ago</span>
+                      <span>today →</span>
+                    </div>
+                  </div>
+
+                  {/* Consistency + stats */}
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="bg-slate-800/60 rounded-lg p-2 text-center">
+                      <div className={`font-bold text-xs ${cons.color}`}>{cons.label}</div>
+                      <div className="text-slate-600 text-xs">Consistency</div>
+                      {/* Mini bar */}
+                      <div className="mt-1 h-1 bg-slate-700 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${row.consistency >= 0.7 ? "bg-emerald-500" : row.consistency >= 0.4 ? "bg-yellow-500" : "bg-orange-500"}`}
+                          style={{ width: `${Math.min(row.consistency * 100, 100)}%` }} />
+                      </div>
+                    </div>
+                    <div className="bg-slate-800/60 rounded-lg p-2 text-center">
+                      <div className="text-white font-bold text-xs">{fmtNet(row.avg_daily_net_m)}</div>
+                      <div className="text-slate-600 text-xs">Avg/day</div>
+                    </div>
+                    <div className="bg-slate-800/60 rounded-lg p-2 text-center">
+                      <div className="text-slate-300 font-bold text-xs">{fmtMktcap(row.market_cap_m)}</div>
+                      <div className="text-slate-600 text-xs">Mkt cap</div>
+                    </div>
+                  </div>
+
+                  {/* % of mktcap accumulated */}
+                  {row.total_pct_mktcap !== null && (
+                    <div className={`text-xs font-bold mb-3 ${isBig ? "text-emerald-400" : "text-slate-500"}`}>
+                      {row.total_pct_mktcap.toFixed(2)}% of market cap accumulated over {row.streak} days
+                      {row.avg_pct_per_day !== null && (
+                        <span className="text-slate-600 font-normal"> · {row.avg_pct_per_day.toFixed(3)}%/day avg</span>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={e => handleSave(e, row)}
+                    className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all border ${isSaved ? "bg-emerald-900/40 border-emerald-600 text-emerald-300" : "border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300"}`}
+                  >
+                    {isSaved ? "✓ SAVED" : "📌 Save to Watchlist"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 // ---- Main Dashboard ------------------------------------------------------
 
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -6475,6 +6873,7 @@ export default function Dashboard() {
     { id: "netflow",         label: "💰 NET FLOW" },
     { id: "micronetflow",    label: "🔬 MICRO NET FLOW" },
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
+    { id: "streakflow",      label: "📈 FLOW STREAK" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -7060,6 +7459,7 @@ export default function Dashboard() {
         {tab === "netflow"         && <NetFlowTab onSelectTicker={selectTicker} />}
         {tab === "micronetflow"    && <NetFlowMicrocapTab onSelectTicker={selectTicker} />}
         {tab === "midnetflow"      && <NetFlowMidcapTab  onSelectTicker={selectTicker} />}
+        {tab === "streakflow"      && <NetFlowStreakTab  onSelectTicker={selectTicker} />}
 
       </div>
       </main>
