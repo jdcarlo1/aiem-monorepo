@@ -4580,11 +4580,23 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
           {thesis && (
             <div style={{ fontFamily: BB, fontSize: 12, color: "#cbd5e1", lineHeight: 2.1, whiteSpace: "pre-wrap" }}>{thesis}</div>
           )}
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={() => getAIThesis(selected)} disabled={thesisLoading} style={{
-              background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.4)",
-              color: "#a78bfa", borderRadius: 8, padding: "7px 16px", fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "pointer",
-            }}>{thesisLoading ? "Generating…" : thesis ? "↻ Regenerate" : "🤖 Generate AI Thesis"}</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+            {selected.score < 6 ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button disabled style={{
+                  background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#475569", borderRadius: 8, padding: "7px 16px", fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: "not-allowed",
+                }}>🤖 Generate AI Thesis</button>
+                <span style={{ color: "#f97316", fontSize: 10, fontWeight: 700, fontFamily: BB }}>
+                  ⚠️ {6 - selected.score} MORE SIGNAL{6 - selected.score !== 1 ? "S" : ""} NEEDED FOR AI THESIS
+                </span>
+              </div>
+            ) : (
+              <button onClick={() => getAIThesis(selected)} disabled={thesisLoading} style={{
+                background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.4)",
+                color: "#a78bfa", borderRadius: 8, padding: "7px 16px", fontFamily: BB, fontSize: 11, fontWeight: 700, cursor: thesisLoading ? "default" : "pointer",
+              }}>{thesisLoading ? "Generating…" : thesis ? "↻ Regenerate" : "🤖 Generate AI Thesis"}</button>
+            )}
             <button onClick={e => toggleWatchlist(e, selected.ticker)} style={{
               background: watchlist.includes(selected.ticker) ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.04)",
               border: `1px solid ${watchlist.includes(selected.ticker) ? "rgba(74,222,128,0.35)" : "rgba(255,255,255,0.1)"}`,
@@ -4611,7 +4623,7 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
             const hasHistory = !!thesisHistory[r.ticker];
             return (
               <div key={r.ticker}
-                onClick={() => { onSelectTicker(r.ticker); getAIThesis(r); }}
+                onClick={() => { onSelectTicker(r.ticker); if (r.score >= 6) getAIThesis(r); }}
                 style={{ background: isSelected ? "rgba(167,139,250,0.08)" : "rgba(255,255,255,0.025)",
                   border: `1px solid ${isSelected ? "rgba(167,139,250,0.4)" : i < 3 ? `${scoreColor}40` : "rgba(255,255,255,0.07)"}`,
                   borderRadius: 16, padding: "13px 16px", cursor: "pointer", transition: "background 0.15s" }}
