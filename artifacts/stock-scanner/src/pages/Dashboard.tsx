@@ -4400,6 +4400,14 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
     CALL_INTENT_HIGH: "#f0abfc",
     MARKET_REGIME:     "#34d399", RELATIVE_STRENGTH: "#fbbf24",
     SHORT_SQUEEZE_FUEL:"#f43f5e", EPS_REVISION_UP:   "#818cf8",
+    RSI_SETUP:         "#a3e635", MACD_BULLISH:      "#22d3ee",
+    BB_SQUEEZE:        "#f472b6", GOLDEN_CROSS:      "#fcd34d",
+    MOMENTUM_12_1:     "#a78bfa", OBV_DIVERGE:       "#6ee7b7",
+    FLOAT_ROTATION:    "#fb923c", PRICE_TARGET_UP:   "#60a5fa",
+    HIGH_QUALITY:      "#c084fc", ANALYST_UPGRADE:   "#4ade80",
+    EARNINGS_BEAT:     "#fbbf24", REVENUE_ACCEL:     "#f87171",
+    MARGIN_EXPAND:     "#38bdf8", VIX_CONTANGO:      "#86efac",
+    HYG_HEALTHY:       "#67e8f9",
   };
 
   const maxSig    = data?.max_signals ?? 21;
@@ -4430,28 +4438,29 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
         }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
       </div>
 
-      {/* Market regime banner */}
+      {/* Macro health banner — 3 global signals */}
       {data && (
-        <div style={{
-          marginBottom: 14, padding: "10px 16px", borderRadius: 10,
-          background: data.market_regime_on ? "rgba(52,211,153,0.07)" : "rgba(248,113,113,0.07)",
-          border: `1px solid ${data.market_regime_on ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
-          display: "flex", alignItems: "center", gap: 12,
-        }}>
-          <span style={{ fontSize: 16 }}>{data.market_regime_on ? "🟢" : "🔴"}</span>
-          <div>
-            <span style={{ fontFamily: BB, fontWeight: 900, fontSize: 13, color: data.market_regime_on ? "#34d399" : "#f87171", marginRight: 8 }}>
-              {data.market_regime_on ? "RISK-ON" : "RISK-OFF"}
-            </span>
-            <span style={{ fontFamily: BB, fontSize: 11, color: "#64748b" }}>
-              Market Regime · SPY {data.market_regime_on ? "above" : "below"} 50-day MA · VIX {data.market_regime_on ? "< 25 (favorable)" : "≥ 25 or SPY weak (caution)"}
-            </span>
-          </div>
-          {data.market_regime_on && (
-            <span style={{ marginLeft: "auto", fontFamily: BB, fontSize: 10, color: "#34d399", background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.25)", borderRadius: 6, padding: "3px 8px" }}>
-              🌍 MARKET REGIME fires for all tickers
-            </span>
-          )}
+        <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+          {([
+            { key: "market_regime_on", on: data.market_regime_on,  label: "MARKET REGIME",  sub: "SPY above 50MA · VIX < 25",      onColor: "#34d399", signal: "🌍" },
+            { key: "vix_contango",     on: data.vix_contango,      label: "VIX CONTANGO",   sub: "Spot VIX < 3-month VIX",         onColor: "#86efac", signal: "📉" },
+            { key: "hyg_healthy",      on: data.hyg_healthy,       label: "CREDIT OK",      sub: "HYG not diverging from SPY",     onColor: "#67e8f9", signal: "🔋" },
+          ] as const).map(m => (
+            <div key={m.key} style={{
+              flex: 1, minWidth: 140, padding: "9px 14px", borderRadius: 10,
+              background: m.on ? `${m.onColor}09` : "rgba(248,113,113,0.07)",
+              border: `1px solid ${m.on ? `${m.onColor}30` : "rgba(248,113,113,0.2)"}`,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span style={{ fontSize: 14 }}>{m.on ? "🟢" : "🔴"}</span>
+              <div>
+                <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 11, color: m.on ? m.onColor : "#f87171" }}>
+                  {m.signal} {m.label}
+                </div>
+                <div style={{ fontFamily: BB, fontSize: 10, color: "#475569", marginTop: 1 }}>{m.sub}</div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

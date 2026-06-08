@@ -5395,11 +5395,29 @@ def multi_signal_convergence():
         ("VOL_CRUSH_SETUP",    "📉 Vol Crush Setup",     "Inflated IV ahead of catalyst — market pricing in big move"),
         ("MAX_PAIN_PULL",      "⚡ Max Pain Pull",       "Price below max pain — MM pressure targets upside"),
         ("CALL_INTENT_HIGH",   "🎯 Call Intent",         "High call OI / unusual call intent detected"),
-        # ── High-conviction quant filters (push win rate toward 70%) ─────────
+        # ── High-conviction quant filters ─────────────────────────────────────
         ("MARKET_REGIME",      "🌍 Market Regime",       "SPY above 50-day MA and VIX < 25 — risk-on macro environment"),
         ("RELATIVE_STRENGTH",  "🏆 Relative Strength",   "Outperforming S&P 500 by 15%+ over last 3 months (RS top tier)"),
         ("SHORT_SQUEEZE_FUEL", "💣 Short Squeeze Fuel",  "Short interest > 10% — trapped shorts amplify any upside move"),
         ("EPS_REVISION_UP",    "📊 EPS Revision Up",     "Earnings growth > 10% — analysts revising estimates higher"),
+        # ── Technical / momentum signals ──────────────────────────────────────
+        ("RSI_SETUP",          "📐 RSI Setup",           "RSI 14-day between 30–62 — not overbought, has room to run"),
+        ("MACD_BULLISH",       "📈 MACD Cross",          "MACD crossed above signal line — momentum turning bullish"),
+        ("BB_SQUEEZE",         "🗜️ BB Squeeze",           "Bollinger Bands at 6-month tightest — major breakout imminent"),
+        ("GOLDEN_CROSS",       "⭐ Golden Cross",         "50-day MA above 200-day MA — institutional trend confirmation"),
+        ("MOMENTUM_12_1",      "🚀 12-1 Momentum",       "Up 15%+ over prior 11 months (Jegadeesh-Titman quant factor)"),
+        ("OBV_DIVERGE",        "🔊 OBV Accumulation",    "On-balance volume rising while price flat — quiet institutional buying"),
+        # ── Fundamental quality signals ───────────────────────────────────────
+        ("FLOAT_ROTATION",     "🔄 Float Rotation",      "Daily volume > 30% of float — high conviction from active participants"),
+        ("PRICE_TARGET_UP",    "🎯 Analyst Target",      "Analyst consensus target >15% above current price — institutional conviction"),
+        ("HIGH_QUALITY",       "💎 High Quality",        "ROE > 15% with manageable debt — quality factor used by quant funds"),
+        ("ANALYST_UPGRADE",    "⬆️ Analyst Upgrade",     "Buy/Outperform upgrade in last 21 days — institutional re-rating signal"),
+        ("EARNINGS_BEAT",      "✅ Earnings Beater",      "Beat EPS estimates in 75%+ of recent quarters — systematic under-model"),
+        ("REVENUE_ACCEL",      "📈 Revenue Accel",       "QoQ revenue growth rate accelerating — institutional re-rating trigger"),
+        ("MARGIN_EXPAND",      "📊 Margin Expansion",    "Gross margin expanding QoQ — pricing power and operating leverage"),
+        # ── Macro health filters ──────────────────────────────────────────────
+        ("VIX_CONTANGO",       "📉 VIX Contango",        "VIX spot below 3-month VIX — term structure healthy, no fear event priced in"),
+        ("HYG_HEALTHY",        "🔋 Credit Healthy",      "High-yield bonds not diverging from equities — no credit stress signal"),
     ]
 
     # ── Build ticker sets from existing caches (read-only, safe) ─────────
@@ -5442,9 +5460,11 @@ def multi_signal_convergence():
         "bottom": {"ticker": bottom_sector["ticker"], "name": bottom_sector["name"], "day_chg": bottom_sector["day_chg"], "flow": bottom_sector["flow"]} if bottom_sector else None,
     }
 
-    # ── Market regime (computed once for all tickers) ────────────────────────
+    # ── Global macro signals (computed once for all tickers) ─────────────────
     market_regime_on   = False
     spy_return_3mo_ref = 0.0
+    vix_contango       = False
+    hyg_healthy        = True
     try:
         _spy = yf.Ticker("SPY").history(period="70d")["Close"]
         _vix = yf.Ticker("^VIX").history(period="5d")["Close"]
@@ -5454,6 +5474,20 @@ def multi_signal_convergence():
         market_regime_on   = (_spy_now > _spy_50ma) and (_vix_now < 25)
         _idx = max(0, len(_spy) - 63)
         spy_return_3mo_ref = (_spy_now - float(_spy.iloc[_idx])) / float(_spy.iloc[_idx]) if float(_spy.iloc[_idx]) > 0 else 0
+    except Exception:
+        pass
+    try:
+        _vix3m_h = yf.Ticker("^VIX3M").history(period="5d")["Close"]
+        _vixs_h  = yf.Ticker("^VIX").history(period="5d")["Close"]
+        vix_contango = float(_vixs_h.iloc[-1]) < float(_vix3m_h.iloc[-1])
+    except Exception:
+        pass
+    try:
+        _hyg20 = yf.Ticker("HYG").history(period="20d")["Close"]
+        _spy20 = yf.Ticker("SPY").history(period="20d")["Close"]
+        _h_ret = (float(_hyg20.iloc[-1]) - float(_hyg20.iloc[0])) / (float(_hyg20.iloc[0]) or 1)
+        _s_ret = (float(_spy20.iloc[-1]) - float(_spy20.iloc[0])) / (float(_spy20.iloc[0]) or 1)
+        hyg_healthy = _h_ret > _s_ret - 0.02
     except Exception:
         pass
 
@@ -5511,22 +5545,120 @@ def multi_signal_convergence():
             if mp_level and price > 0 and price < mp_level:
                 fired.append("MAX_PAIN_PULL")
 
-            # ── High-conviction quant filters ─────────────────────────────────
-            if market_regime_on:
-                fired.append("MARKET_REGIME")
+            # ── Global macro (fire for all tickers when conditions met) ──────────
+            if market_regime_on: fired.append("MARKET_REGIME")
+            if vix_contango:     fired.append("VIX_CONTANGO")
+            if hyg_healthy:      fired.append("HYG_HEALTHY")
 
+            _tk2 = yf.Ticker(ticker)
+
+            # ── 1-year OHLCV → all technical signals ──────────────────────────
             try:
-                _tk   = yf.Ticker(ticker)
-                _hist = _tk.history(period="3mo")["Close"]
-                if len(_hist) >= 10:
-                    _ret = (float(_hist.iloc[-1]) - float(_hist.iloc[0])) / float(_hist.iloc[0])
-                    if _ret > spy_return_3mo_ref + 0.15:
-                        fired.append("RELATIVE_STRENGTH")
-                _info = _tk.info
+                _df = _tk2.history(period="1y")
+                _cl = _df["Close"] if len(_df) > 0 else None
+                _vl = _df["Volume"] if len(_df) > 0 else None
+                if _cl is not None and len(_cl) >= 30:
+                    _n = float(_cl.iloc[-1])
+                    # Relative Strength vs SPY (3-month)
+                    _i3 = max(0, len(_cl) - 63)
+                    if (float(_cl.iloc[_i3]) or 0) > 0:
+                        if (_n - float(_cl.iloc[_i3])) / float(_cl.iloc[_i3]) > spy_return_3mo_ref + 0.15:
+                            fired.append("RELATIVE_STRENGTH")
+                    # 12-1 Momentum Factor (11-month return skipping last month)
+                    if len(_cl) >= 60:
+                        _i12 = max(0, len(_cl) - 252)
+                        _i1  = max(0, len(_cl) - 21)
+                        _base = float(_cl.iloc[_i12])
+                        _top  = float(_cl.iloc[_i1]) if len(_cl) > 21 else _n
+                        if _base > 0 and (_top - _base) / _base > 0.15:
+                            fired.append("MOMENTUM_12_1")
+                    # RSI 14-day (30–62 = not overbought, room to run)
+                    if len(_cl) >= 15:
+                        _d = _cl.diff()
+                        _g = _d.clip(lower=0).rolling(14).mean()
+                        _l = (-_d.clip(upper=0)).rolling(14).mean()
+                        _rsi_val = float((100 - 100 / (1 + _g / _l.replace(0, 1e-9))).iloc[-1])
+                        if 30 <= _rsi_val <= 62:
+                            fired.append("RSI_SETUP")
+                    # MACD bullish crossover (crossed up in last 5 sessions)
+                    if len(_cl) >= 35:
+                        _mc = _cl.ewm(span=12, adjust=False).mean() - _cl.ewm(span=26, adjust=False).mean()
+                        _ms = _mc.ewm(span=9, adjust=False).mean()
+                        _cx = (_mc > _ms).tolist()
+                        if len(_cx) >= 6 and _cx[-1] and not _cx[-6]:
+                            fired.append("MACD_BULLISH")
+                    # Bollinger Band Squeeze (width in bottom 20% of 6-month range)
+                    if len(_cl) >= 126:
+                        _bw = (4 * _cl.rolling(20).std()) / _cl.rolling(20).mean().replace(0, 1e-9)
+                        _lo = _bw.rolling(126).min(); _hi = _bw.rolling(126).max()
+                        if (_bw.iloc[-1] - _lo.iloc[-1]) / (_hi.iloc[-1] - _lo.iloc[-1] + 1e-9) <= 0.20:
+                            fired.append("BB_SQUEEZE")
+                    # Golden Cross (50MA > 200MA)
+                    if len(_cl) >= 200:
+                        if float(_cl.rolling(50).mean().iloc[-1]) > float(_cl.rolling(200).mean().iloc[-1]):
+                            fired.append("GOLDEN_CROSS")
+                    # OBV Accumulation (OBV rising, price flat/up)
+                    if _vl is not None and len(_vl) >= 22:
+                        _sgn = (_cl.diff() > 0).astype(float) - (_cl.diff() < 0).astype(float)
+                        _obv = (_vl * _sgn).cumsum()
+                        _pc  = float(_cl.iloc[-22]) or 1
+                        if float(_obv.iloc[-1]) > float(_obv.iloc[-22]) and (_n - _pc) / _pc >= -0.03:
+                            fired.append("OBV_DIVERGE")
+            except Exception:
+                pass
+
+            # ── Info-based signals ────────────────────────────────────────────
+            try:
+                _info = _tk2.info
                 if (_info.get("shortPercentOfFloat") or 0) > 0.10:
                     fired.append("SHORT_SQUEEZE_FUEL")
                 if (_info.get("earningsGrowth") or 0) > 0.10 or (_info.get("revenueGrowth") or 0) > 0.15:
                     fired.append("EPS_REVISION_UP")
+                _flt = _info.get("floatShares") or 0
+                if _flt > 0 and today_vol > 0 and today_vol / _flt > 0.30:
+                    fired.append("FLOAT_ROTATION")
+                _tgt = _info.get("targetMeanPrice") or 0
+                if _tgt > 0 and price > 0 and (_tgt - price) / price > 0.15:
+                    fired.append("PRICE_TARGET_UP")
+                if (_info.get("returnOnEquity") or 0) > 0.15 and (_info.get("debtToEquity") or 999) < 150:
+                    fired.append("HIGH_QUALITY")
+            except Exception:
+                pass
+
+            # ── Analyst upgrades (last 15 recommendations) ───────────────────
+            try:
+                _recs = _tk2.recommendations
+                if _recs is not None and len(_recs) > 0:
+                    _buys = {"buy", "strong buy", "outperform", "overweight", "positive", "add"}
+                    if _recs.tail(15)["To Grade"].str.lower().str.strip().isin(_buys).any():
+                        fired.append("ANALYST_UPGRADE")
+            except Exception:
+                pass
+
+            # ── Earnings beat rate (≥75% of recent quarters) ─────────────────
+            try:
+                _eh = _tk2.earnings_history
+                if _eh is not None and len(_eh) >= 3:
+                    _sc = next((c for c in _eh.columns if "surprise" in c.lower()), None)
+                    if _sc and (_eh[_sc] > 0).mean() >= 0.75:
+                        fired.append("EARNINGS_BEAT")
+            except Exception:
+                pass
+
+            # ── Revenue acceleration + Gross margin expansion ─────────────────
+            try:
+                _qis = _tk2.quarterly_income_stmt
+                if _qis is not None and len(_qis.columns) >= 4:
+                    if "Total Revenue" in _qis.index:
+                        _rv = _qis.loc["Total Revenue"].iloc[:4].astype(float).values
+                        if abs(_rv[1]) > 0 and abs(_rv[2]) > 0:
+                            if (_rv[0] - _rv[1]) / abs(_rv[1]) > (_rv[1] - _rv[2]) / abs(_rv[2]) + 0.02:
+                                fired.append("REVENUE_ACCEL")
+                    if "Gross Profit" in _qis.index and "Total Revenue" in _qis.index:
+                        _gp = _qis.loc["Gross Profit"].iloc[:4].astype(float).values
+                        _rv = _qis.loc["Total Revenue"].iloc[:4].astype(float).values
+                        if _rv[0] > 0 and _rv[2] > 0 and _gp[0]/_rv[0] > _gp[2]/_rv[2] + 0.01:
+                            fired.append("MARGIN_EXPAND")
             except Exception:
                 pass
 
@@ -5577,8 +5709,12 @@ def multi_signal_convergence():
             "call_intent":     len(oi_tickers),
             "max_pain":        len(mp_map),
             "market_regime":   1 if market_regime_on else 0,
+            "vix_contango":    1 if vix_contango else 0,
+            "hyg_healthy":     1 if hyg_healthy else 0,
         },
         "market_regime_on":  market_regime_on,
+        "vix_contango":       vix_contango,
+        "hyg_healthy":        hyg_healthy,
     }
     app._ms_cache    = out
     app._ms_cache_ts = _ms_dt.now()

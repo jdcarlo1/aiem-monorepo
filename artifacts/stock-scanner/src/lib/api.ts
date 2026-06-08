@@ -916,6 +916,8 @@ export function fetchMultiSignal() {
     };
     cache_status: Record<string, number>;
     market_regime_on: boolean;
+    vix_contango: boolean;
+    hyg_healthy: boolean;
   }>("/multi-signal");
 }
 
