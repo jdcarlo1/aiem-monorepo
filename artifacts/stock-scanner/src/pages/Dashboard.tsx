@@ -32,6 +32,8 @@ import {
   SectorRow, fetchSectorRotation,
   MultiSignalRow, SignalDef, fetchMultiSignal, fetchMultiSignalAIThesis, logMultiSignalThesis,
   IVRankResult, IVScanRow, fetchIVRank, fetchIVRankScan,
+  MarketPressArticle, MarketPressResult, fetchMarketPress,
+  EarningsRow, EarningsCalendarResult, fetchEarningsCalendar,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -8110,11 +8112,220 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 
 // ---- Main Dashboard ------------------------------------------------------
 
+// ── MARKET PRESS TAB ─────────────────────────────────────────────────────────
+function MarketPressTab() {
+  const [data, setData]       = useState<MarketPressResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [catFilter, setCatFilter] = useState<"ALL"|"MARKETS"|"TECH"|"RATES"|"COMMODITIES">("ALL");
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try { setData(await fetchMarketPress()); }
+    catch (e: any) { setError(e.message ?? "Failed to load news"); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const articles = (data?.articles ?? []).filter(a => catFilter === "ALL" || a.category === catFilter);
+  const catColor = (c: string) =>
+    c === "TECH" ? "#a78bfa" : c === "RATES" ? "#f97316" : c === "COMMODITIES" ? "#fbbf24" : BB_GREEN;
+
+  return (
+    <div style={{ fontFamily: BB_FONT }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <div style={{ color: BB_GREEN, fontSize: 11, fontWeight: 700, letterSpacing: "0.15em" }}>📰 MARKET PRESS</div>
+          <div style={{ color: BB_LABEL, fontSize: 9, marginTop: 2 }}>
+            {data ? `${data.count} STORIES · UPDATED ${new Date(data.fetched_at).toLocaleTimeString("en-US", { hour12: false })}` : "LIVE FINANCIAL NEWS"}
+          </div>
+        </div>
+        <button onClick={load} disabled={loading} style={{ background: loading ? BB_BORDER : BB_GREEN, color: "#000", border: "none", padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9, fontWeight: 700, cursor: loading ? "default" : "pointer", letterSpacing: "0.08em" }}>
+          {loading ? "LOADING..." : "↻ REFRESH"}
+        </button>
+      </div>
+
+      {/* Category filter */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 16, borderBottom: `1px solid ${BB_BORDER}` }}>
+        {(["ALL","MARKETS","TECH","RATES","COMMODITIES"] as const).map(c => (
+          <button key={c} onClick={() => setCatFilter(c)} style={{
+            background: "transparent", border: "none",
+            borderBottom: catFilter === c ? `2px solid ${catColor(c)}` : "2px solid transparent",
+            color: catFilter === c ? catColor(c) : BB_LABEL,
+            padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9,
+            fontWeight: catFilter === c ? 700 : 500, cursor: "pointer", letterSpacing: "0.08em", marginBottom: -1,
+          }}>{c}</button>
+        ))}
+        <span style={{ marginLeft: "auto", padding: "6px 10px", color: BB_LABEL, fontSize: 9 }}>
+          {articles.length} ARTICLES
+        </span>
+      </div>
+
+      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12, padding: "8px 12px", background: "#1a0000", border: `1px solid ${BB_RED}40` }}>{error}</div>}
+      {loading && <div style={{ color: BB_LABEL, fontSize: 10, padding: "40px 0", textAlign: "center" }}>FETCHING LATEST NEWS...</div>}
+
+      {/* Articles */}
+      {!loading && articles.length === 0 && !error && (
+        <div style={{ color: BB_LABEL, fontSize: 10, padding: "40px 0", textAlign: "center" }}>NO ARTICLES AVAILABLE</div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        {articles.map((a, i) => (
+          <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{
+              background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "12px 14px",
+              transition: "border-color 0.15s", cursor: "pointer",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = BB_GREEN + "60")}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = BB_BORDER)}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
+                <span style={{ background: catColor(a.category) + "22", color: catColor(a.category), fontSize: 8, fontWeight: 700, padding: "2px 7px", letterSpacing: "0.1em", whiteSpace: "nowrap", flexShrink: 0 }}>
+                  {a.category}
+                </span>
+                <span style={{ color: BB_WHITE, fontSize: 11, fontWeight: 600, lineHeight: 1.4, flex: 1 }}>{a.title}</span>
+              </div>
+              {a.summary && (
+                <div style={{ color: BB_LABEL, fontSize: 9, lineHeight: 1.5, marginBottom: 6, paddingLeft: 2 }}>
+                  {a.summary.slice(0, 180)}{a.summary.length > 180 ? "…" : ""}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <span style={{ color: BB_LABEL, fontSize: 8 }}>{a.source}</span>
+                <span style={{ color: "#334155", fontSize: 8 }}>·</span>
+                <span style={{ color: a.age.includes("m ago") ? BB_GREEN : BB_LABEL, fontSize: 8 }}>{a.age || a.published_at.slice(0, 10)}</span>
+                <span style={{ marginLeft: "auto", color: BB_GREEN, fontSize: 8, opacity: 0.7 }}>↗</span>
+              </div>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── EARNINGS CALENDAR TAB ─────────────────────────────────────────────────────
+function EarningsCalendarTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [data, setData]       = useState<EarningsCalendarResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try { setData(await fetchEarningsCalendar()); }
+    catch (e: any) { setError(e.message ?? "Failed to load earnings"); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const rows = data?.earnings ?? [];
+
+  // Group by days_until
+  const groups: Record<string, EarningsRow[]> = {};
+  rows.forEach(r => {
+    const label = r.days_until === 0 ? "TODAY" : r.days_until === 1 ? "TOMORROW" : `IN ${r.days_until} DAYS (${r.earnings_date})`;
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(r);
+  });
+
+  const moveColor = (pct: number | null) => {
+    if (pct === null) return BB_LABEL;
+    if (pct >= 10) return "#f97316";
+    if (pct >= 6)  return "#fbbf24";
+    if (pct >= 3)  return BB_GREEN;
+    return "#64748b";
+  };
+
+  return (
+    <div style={{ fontFamily: BB_FONT }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <div style={{ color: BB_GREEN, fontSize: 11, fontWeight: 700, letterSpacing: "0.15em" }}>📅 EARNINGS CALENDAR</div>
+          <div style={{ color: BB_LABEL, fontSize: 9, marginTop: 2 }}>
+            {data ? `${data.count} REPORTS · NEXT ${data.window_days} DAYS · AS OF ${data.as_of}` : "UPCOMING EARNINGS + IMPLIED MOVE"}
+          </div>
+        </div>
+        <button onClick={load} disabled={loading} style={{ background: loading ? BB_BORDER : BB_GREEN, color: "#000", border: "none", padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9, fontWeight: 700, cursor: loading ? "default" : "pointer", letterSpacing: "0.08em" }}>
+          {loading ? "LOADING..." : "↻ REFRESH"}
+        </button>
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 14, padding: "8px 12px", background: BB_PANEL, border: `1px solid ${BB_BORDER}` }}>
+        <span style={{ color: BB_LABEL, fontSize: 8 }}>IMPLIED MOVE:</span>
+        {[["< 3%","#64748b"],["3–6%",BB_GREEN],["6–10%","#fbbf24"],["> 10%","#f97316"]].map(([l,c]) => (
+          <span key={l} style={{ color: c as string, fontSize: 8, fontWeight: 700 }}>{l}</span>
+        ))}
+        <span style={{ marginLeft: "auto", color: BB_LABEL, fontSize: 8 }}>CLICK TICKER → STOCK LOOKUP</span>
+      </div>
+
+      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12, padding: "8px 12px", background: "#1a0000", border: `1px solid ${BB_RED}40` }}>{error}</div>}
+      {loading && <div style={{ color: BB_LABEL, fontSize: 10, padding: "40px 0", textAlign: "center" }}>SCANNING EARNINGS CALENDAR...</div>}
+
+      {!loading && rows.length === 0 && !error && (
+        <div style={{ color: BB_LABEL, fontSize: 10, padding: "40px 0", textAlign: "center" }}>NO EARNINGS IN THE NEXT 10 DAYS</div>
+      )}
+
+      {!loading && Object.entries(groups).map(([label, groupRows]) => (
+        <div key={label} style={{ marginBottom: 20 }}>
+          <div style={{ color: label === "TODAY" ? BB_ORANGE : label === "TOMORROW" ? "#fbbf24" : BB_LABEL, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", marginBottom: 8, padding: "4px 0", borderBottom: `1px solid ${BB_BORDER}` }}>
+            {label === "TODAY" ? "🔴 TODAY" : label === "TOMORROW" ? "🟡 TOMORROW" : `📅 ${label}`}
+            <span style={{ color: BB_LABEL, fontWeight: 400, marginLeft: 10 }}>{groupRows.length} REPORTS</span>
+          </div>
+
+          {/* Table header */}
+          <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 70px 65px 80px 90px", gap: 0, padding: "4px 8px", marginBottom: 2 }}>
+            {["TICKER","COMPANY","PRICE","EPS EST","IMPLIED MOVE","MKT CAP"].map(h => (
+              <span key={h} style={{ color: BB_LABEL, fontSize: 8, fontWeight: 700, letterSpacing: "0.08em" }}>{h}</span>
+            ))}
+          </div>
+
+          {groupRows.map(r => (
+            <div key={r.ticker}
+              onClick={() => onSelectTicker(r.ticker)}
+              style={{
+                display: "grid", gridTemplateColumns: "60px 1fr 70px 65px 80px 90px",
+                gap: 0, padding: "10px 8px", cursor: "pointer",
+                borderBottom: `1px solid ${BB_BORDER}`,
+                background: "transparent", transition: "background 0.12s",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = "#0d1a0d")}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              <span style={{ color: BB_GREEN, fontSize: 11, fontWeight: 800 }}>{r.ticker}</span>
+              <span style={{ color: BB_WHITE, fontSize: 9, paddingRight: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+              <span style={{ color: BB_WHITE, fontSize: 9 }}>${r.price.toFixed(2)}</span>
+              <span style={{ color: r.eps_estimate !== null ? (r.eps_estimate >= 0 ? BB_GREEN : BB_RED) : BB_LABEL, fontSize: 9, fontWeight: 700 }}>
+                {r.eps_estimate !== null ? `${r.eps_estimate >= 0 ? "+" : ""}$${r.eps_estimate.toFixed(2)}` : "—"}
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {r.implied_move_pct !== null ? (
+                  <>
+                    <span style={{ color: moveColor(r.implied_move_pct), fontSize: 10, fontWeight: 800 }}>±{r.implied_move_pct}%</span>
+                    <div style={{ width: 32, height: 4, background: "#1e293b", borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ width: `${Math.min(100, r.implied_move_pct * 6)}%`, height: "100%", background: moveColor(r.implied_move_pct), borderRadius: 2 }} />
+                    </div>
+                  </>
+                ) : (
+                  <span style={{ color: BB_LABEL, fontSize: 9 }}>—</span>
+                )}
+              </div>
+              <span style={{ color: BB_LABEL, fontSize: 9 }}>
+                {r.mkt_cap_b !== null ? (r.mkt_cap_b >= 1000 ? `$${(r.mkt_cap_b/1000).toFixed(1)}T` : `$${r.mkt_cap_b.toFixed(0)}B`) : "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -8250,6 +8461,8 @@ export default function Dashboard() {
     { id: "sectorrotation", label: "🌀 SECTOR ROTATION" },
     { id: "multisignal",    label: "🎯 MULTI-SIGNAL" },
     { id: "ivrank",         label: "📊 IV RANK" },
+    { id: "marketpress",    label: "📰 MARKET PRESS" },
+    { id: "earningscal",    label: "📅 EARNINGS CALENDAR" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -8842,6 +9055,8 @@ export default function Dashboard() {
         {tab === "sectorrotation" && <SectorRotationTab />}
         {tab === "multisignal"    && <MultiSignalTab     onSelectTicker={selectTicker} />}
         {tab === "ivrank"         && <IVRankTab          onSelectTicker={selectTicker} />}
+        {tab === "marketpress"    && <MarketPressTab />}
+        {tab === "earningscal"    && <EarningsCalendarTab onSelectTicker={selectTicker} />}
 
       </div>
       </main>

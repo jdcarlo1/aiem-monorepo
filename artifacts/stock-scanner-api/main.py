@@ -5562,6 +5562,23 @@ def multi_signal_ai_thesis():
 
         cap_str = f"${mkt_cap_b:.1f}B" if mkt_cap_b and mkt_cap_b >= 1 else (f"${mkt_cap_b*1000:.0f}M" if mkt_cap_b else "unknown")
 
+        # ── Earnings context (non-blocking, best-effort) ──────────────────────
+        earnings_ctx = ""
+        try:
+            earn = _check_earnings(ticker)
+            if earn:
+                imp = earn.get("implied_move_pct")
+                eps = earn.get("eps_estimate")
+                imp_str = f"±{imp}% implied move (ATM straddle)" if imp else "implied move unavailable"
+                eps_str = f"EPS estimate: ${eps:+.2f}" if eps is not None else "EPS estimate: N/A"
+                earnings_ctx = f"""
+⚠️  EARNINGS EVENT: {ticker} reports in {earn['days_until']} day(s) on {earn['earnings_date']}
+    Options market pricing {imp_str}
+    {eps_str}
+"""
+        except Exception:
+            pass
+
         prompt = f"""You are a professional quantitative trader analyzing a convergence signal alert.
 
 Ticker: {ticker}
@@ -5570,16 +5587,16 @@ Day Change: {day_chg:+.2f}%
 Relative Volume: {rel_vol:.2f}x average
 Distance from 52-week high: {pct_from_high:+.2f}%
 Market Cap: {cap_str}
-
+{earnings_ctx}
 Signals firing simultaneously ({len(signals)}/8):
 {chr(10).join(f"  ✅ {s}" for s in signals)}
 
 Write a concise, actionable trade thesis with:
 1. SETUP SUMMARY (2-3 sentences on why {len(signals)} converging signals matters)
-2. BULL CASE (price target, catalyst, timeframe)
-3. BEAR CASE / RISK (what could go wrong)
+2. BULL CASE (price target, catalyst, timeframe){" — factor in the earnings event and implied move" if earnings_ctx else ""}
+3. BEAR CASE / RISK (what could go wrong){" — include earnings binary risk" if earnings_ctx else ""}
 4. CONVICTION: CRITICAL / HIGH / WATCH / NOISE
-5. SUGGESTED ACTION (buy calls, buy stock, watch for entry, avoid)
+5. SUGGESTED ACTION (buy calls, watch for entry, avoid) — naked long calls only, no spreads
 
 Be direct, specific, and professional. No disclaimers."""
 
@@ -6225,6 +6242,228 @@ def morning_runners():
     }
     app._mr_cache    = out
     app._mr_cache_ts = _mr_dt.now()
+    return jsonify(out)
+
+
+import xml.etree.ElementTree as _ET_xml
+import re as _re_mp
+
+# ── MARKET PRESS ──────────────────────────────────────────────────────────────
+_mp_cache    = None
+_mp_cache_ts = None
+_mp_lock     = threading.Lock()
+_MP_TTL      = 120   # 2-minute cache
+
+_MP_FEEDS = [
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US", "category": "MARKETS",     "source": "Yahoo Finance"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^DJI&region=US&lang=en-US",  "category": "MARKETS",     "source": "Yahoo Finance"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=QQQ&region=US&lang=en-US",   "category": "TECH",        "source": "Yahoo Finance"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=GLD&region=US&lang=en-US",   "category": "COMMODITIES", "source": "Yahoo Finance"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=TLT&region=US&lang=en-US",   "category": "RATES",       "source": "Yahoo Finance"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY&region=US&lang=en-US",   "category": "MARKETS",     "source": "Yahoo Finance"},
+]
+
+def _fetch_rss_feed(feed_info):
+    import urllib.request as _ureq
+    import datetime as _dt_mp2
+    items = []
+    try:
+        req = _ureq.Request(feed_info["url"], headers={"User-Agent": "Mozilla/5.0 StockScannerBot/1.0"})
+        resp = _ureq.urlopen(req, timeout=8)
+        root = _ET_xml.fromstring(resp.read())
+        for item in root.findall(".//item"):
+            title    = (item.findtext("title")      or "").strip()
+            link     = (item.findtext("link")       or "").strip()
+            pub_date = (item.findtext("pubDate")    or "").strip()
+            desc     = _re_mp.sub(r"<[^>]+>", "", item.findtext("description") or "")[:220].strip()
+            if not title:
+                continue
+            try:
+                from email.utils import parsedate_to_datetime
+                dt = parsedate_to_datetime(pub_date)
+                ts = dt.isoformat()
+                now_utc = _dt_mp2.datetime.now(_dt_mp2.timezone.utc)
+                diff_m = int((now_utc - dt).total_seconds() / 60)
+                age = (f"{diff_m}m ago" if diff_m < 60
+                       else f"{diff_m//60}h ago" if diff_m < 1440
+                       else f"{diff_m//1440}d ago")
+            except Exception:
+                ts, age = pub_date, ""
+            items.append({
+                "title":        title,
+                "url":          link,
+                "source":       feed_info["source"],
+                "category":     feed_info["category"],
+                "published_at": ts,
+                "age":          age,
+                "summary":      desc,
+            })
+    except Exception:
+        pass
+    return items
+
+@app.route("/stock-api/market-press", methods=["GET"])
+def market_press():
+    global _mp_cache, _mp_cache_ts
+    import datetime as _dt_mp3
+    with _mp_lock:
+        if _mp_cache and _mp_cache_ts and (_dt_mp3.datetime.now() - _mp_cache_ts).total_seconds() < _MP_TTL:
+            return jsonify(_mp_cache)
+    raw = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for rows in ex.map(_fetch_rss_feed, _MP_FEEDS):
+            raw.extend(rows)
+    raw.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+    seen, deduped = set(), []
+    for a in raw:
+        if a["title"] not in seen:
+            seen.add(a["title"])
+            deduped.append(a)
+    out = {"articles": deduped[:60], "count": len(deduped),
+           "fetched_at": _dt_mp3.datetime.now(_dt_mp3.timezone.utc).isoformat()}
+    with _mp_lock:
+        _mp_cache, _mp_cache_ts = out, _dt_mp3.datetime.now()
+    return jsonify(out)
+
+
+# ── EARNINGS CALENDAR + IMPLIED MOVE ─────────────────────────────────────────
+_ec_cache    = None
+_ec_cache_ts = None
+_ec_lock     = threading.Lock()
+_EC_TTL      = 600   # 10-minute cache
+
+_EC_WATCHLIST = [
+    "AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","AMD","INTC","NFLX",
+    "CRM","ORCL","IBM","ADBE","QCOM","MU","AVGO","TXN","AMAT","MRVL",
+    "JPM","GS","BAC","WFC","MS","BLK","SCHW","C","V","MA",
+    "JNJ","PFE","MRNA","ABBV","BMY","LLY","UNH","CVS","AMGN","GILD",
+    "XOM","CVX","COP","SLB","EOG",
+    "DIS","CMCSA","T","VZ","NFLX",
+    "WMT","TGT","COST","HD","LOW",
+    "BA","CAT","MMM","GE","HON","RTX","LMT",
+    "COIN","HOOD","PLTR","SNOW","UBER","LYFT","ABNB","DASH",
+    "SHOP","SQ","PYPL","AFRM","RIVN","LCID",
+    "ZM","DOCU","NOW","DDOG","NET","CRWD","PANW",
+    "F","GM","RIVN",
+]
+
+def _check_earnings(ticker):
+    import datetime as _dt_ec
+    import yfinance as yf
+    today = _dt_ec.date.today()
+    cutoff = today + _dt_ec.timedelta(days=30)
+    try:
+        tk = yf.Ticker(ticker)
+        cal = tk.calendar
+        if cal is None:
+            return None
+        earn_date = None
+        try:
+            if hasattr(cal, "empty") and not cal.empty:
+                if "Earnings Date" in cal.index:
+                    earn_date = cal.loc["Earnings Date"].iloc[0]
+                elif "Earnings Date" in cal.columns:
+                    earn_date = cal.iloc[0]["Earnings Date"]
+            elif isinstance(cal, dict):
+                ed_list = cal.get("Earnings Date", [])
+                earn_date = ed_list[0] if ed_list else None
+        except Exception:
+            return None
+        if earn_date is None:
+            return None
+        if hasattr(earn_date, "date"):
+            earn_dt = earn_date.date()
+        else:
+            earn_dt = _dt_ec.datetime.strptime(str(earn_date)[:10], "%Y-%m-%d").date()
+        if earn_dt < today or earn_dt > cutoff:
+            return None
+
+        info  = tk.fast_info
+        price = getattr(info, "last_price", None) or getattr(info, "regularMarketPrice", None)
+        if not price or price <= 0:
+            return None
+
+        # Implied move via ATM straddle
+        implied_move_pct = None
+        try:
+            exps = tk.options
+            target_exp = next(
+                (e for e in (exps or [])
+                 if _dt_ec.datetime.strptime(e, "%Y-%m-%d").date() >= earn_dt),
+                None
+            )
+            if target_exp:
+                chain  = tk.option_chain(target_exp)
+                calls, puts = chain.calls, chain.puts
+                if not calls.empty and not puts.empty:
+                    strikes = calls["strike"].values
+                    atm = strikes[abs(strikes - price).argmin()]
+                    c_row = calls[calls["strike"] == atm]
+                    p_row = puts[puts["strike"]  == atm]
+                    if not c_row.empty and not p_row.empty:
+                        def _mid(row, col):
+                            b, a = row.iloc[0].get("bid", 0), row.iloc[0].get("ask", 0)
+                            m = (b + a) / 2
+                            return m if m > 0 else row.iloc[0].get("lastPrice", 0)
+                        straddle = _mid(c_row, "call") + _mid(p_row, "put")
+                        implied_move_pct = round(straddle / price * 100, 1)
+        except Exception:
+            pass
+
+        # EPS estimate
+        eps_est = None
+        try:
+            if isinstance(cal, dict):
+                ea = cal.get("Earnings Average", [])
+                eps_est = ea[0] if ea else None
+            elif "Earnings Average" in cal.index:
+                eps_est = cal.loc["Earnings Average"].iloc[0]
+        except Exception:
+            pass
+
+        # Short name + market cap
+        mkt_cap_b, short_name = None, ticker
+        try:
+            mc = getattr(info, "market_cap", None)
+            if mc:
+                mkt_cap_b = round(mc / 1e9, 1)
+        except Exception:
+            pass
+        try:
+            short_name = (tk.info.get("shortName") or ticker)[:30]
+        except Exception:
+            pass
+
+        return {
+            "ticker":           ticker,
+            "name":             short_name,
+            "earnings_date":    earn_dt.isoformat(),
+            "days_until":       (earn_dt - today).days,
+            "price":            round(price, 2),
+            "eps_estimate":     round(float(eps_est), 2) if eps_est is not None else None,
+            "implied_move_pct": implied_move_pct,
+            "mkt_cap_b":        mkt_cap_b,
+        }
+    except Exception:
+        return None
+
+@app.route("/stock-api/earnings-calendar", methods=["GET"])
+def earnings_calendar():
+    global _ec_cache, _ec_cache_ts
+    import datetime as _dt_ec2
+    with _ec_lock:
+        if _ec_cache and _ec_cache_ts and (_dt_ec2.datetime.now() - _ec_cache_ts).total_seconds() < _EC_TTL:
+            return jsonify(_ec_cache)
+    results = []
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        for r in ex.map(_check_earnings, _EC_WATCHLIST):
+            if r:
+                results.append(r)
+    results.sort(key=lambda x: (x["earnings_date"], -(x["mkt_cap_b"] or 0)))
+    out = {"earnings": results, "count": len(results),
+           "as_of": _dt_ec2.date.today().isoformat(), "window_days": 30}
+    with _ec_lock:
+        _ec_cache, _ec_cache_ts = out, _dt_ec2.datetime.now()
     return jsonify(out)
 
 

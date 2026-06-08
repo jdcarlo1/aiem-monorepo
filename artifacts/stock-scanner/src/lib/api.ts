@@ -1207,3 +1207,43 @@ export function fetchAISignal(rows: NetFlowStreakRow[]) {
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows }) }
   );
 }
+
+// ── Market Press ──────────────────────────────────────────────────────────────
+export interface MarketPressArticle {
+  title:        string;
+  url:          string;
+  source:       string;
+  category:     "MARKETS" | "TECH" | "COMMODITIES" | "RATES";
+  published_at: string;
+  age:          string;
+  summary:      string;
+}
+export interface MarketPressResult {
+  articles:   MarketPressArticle[];
+  count:      number;
+  fetched_at: string;
+}
+export function fetchMarketPress() {
+  return fetchJson<MarketPressResult>("/market-press");
+}
+
+// ── Earnings Calendar ─────────────────────────────────────────────────────────
+export interface EarningsRow {
+  ticker:           string;
+  name:             string;
+  earnings_date:    string;
+  days_until:       number;
+  price:            number;
+  eps_estimate:     number | null;
+  implied_move_pct: number | null;
+  mkt_cap_b:        number | null;
+}
+export interface EarningsCalendarResult {
+  earnings:    EarningsRow[];
+  count:       number;
+  as_of:       string;
+  window_days: number;
+}
+export function fetchEarningsCalendar() {
+  return fetchJson<EarningsCalendarResult>("/earnings-calendar");
+}
