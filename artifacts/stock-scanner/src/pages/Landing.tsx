@@ -187,7 +187,7 @@ export default function Landing() {
               AI Trade Synthesis
             </h2>
             <p className="text-slate-300 mb-8" style={{ maxWidth: "620px", fontSize: "1.1rem", lineHeight: 1.75 }}>
-              Every day, our AI reads all 21 signal sources simultaneously — dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime (VIX + SPY trend), multi-day signal persistence, options liquidity, analyst consensus targets, put/call OI positioning, VIX term structure, earnings proximity + implied move, SPY beta, pre-market gaps, sector rotation, and more. Then it outputs 3 complete trade setups, written in plain English, ranked from most bullish to most bearish.
+              Every day, our AI reads all 40 signals simultaneously — dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime (VIX + SPY trend), RSI/MACD/Bollinger technicals, momentum factors, OBV accumulation, golden cross, revenue acceleration, analyst upgrades, earnings beat rate, VIX term structure, HYG credit health, and more. Then it outputs 3 complete trade setups, written in plain English, ranked from most bullish to most bearish.
             </p>
             <div className="grid sm:grid-cols-2 gap-6 mb-8">
               <div>
@@ -328,7 +328,7 @@ export default function Landing() {
               tagBorder: "rgba(34,197,94,0.3)",
               border: "rgba(34,197,94,0.3)",
               title: "AI Trade Synthesis",
-              desc: "All 21 signal sources fed into GPT simultaneously. Outputs 3 written trade setups daily: ticker, direction, entry strike, expiry, target, stop loss, and thesis. No competitor does cross-source synthesis at any price.",
+              desc: "All 40 signals fed into GPT simultaneously. Outputs 3 written trade setups daily: ticker, direction, entry strike, expiry, target, stop loss, and thesis. No competitor does cross-source synthesis at any price.",
               note: "Unusual Whales, FlowAlgo, Trade Ideas — none of them do this."
             },
             {
@@ -650,7 +650,7 @@ export default function Landing() {
           </div>
           <div className="p-5 sm:p-6">
             <div className="mb-4 flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-black px-3 py-1.5 rounded-full" style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.35)", color: "#4ade80" }}>🤖 AI synthesized 21 signal sources → 3 trade setups</span>
+              <span className="text-xs font-black px-3 py-1.5 rounded-full" style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.35)", color: "#4ade80" }}>🤖 AI synthesized 40 signals → 3 trade setups</span>
               <span className="text-xs text-slate-600">47 tickers scanned · updated now</span>
             </div>
             <div className="space-y-2.5 mb-5">
