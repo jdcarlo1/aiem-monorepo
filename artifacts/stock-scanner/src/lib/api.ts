@@ -870,6 +870,40 @@ export function fetchMorningRunners() {
   return fetchJson<{ runners: MorningRunnerRow[]; total: number; scanned: number }>("/morning-runners");
 }
 
+export interface BreakoutRow {
+  ticker: string;
+  price: number;
+  high_52: number;
+  low_52: number;
+  pct_from_high: number;
+  range_pos: number;
+  rel_vol: number;
+  day_chg_pct: number;
+  mkt_cap_b: number | null;
+  score: number;
+  breakout: boolean;
+}
+
+export function fetch52WeekBreakout() {
+  return fetchJson<{ hits: BreakoutRow[]; total: number; scanned: number }>("/52week-breakout");
+}
+
+export interface SectorRow {
+  ticker: string;
+  name: string;
+  price: number;
+  day_chg: number;
+  wk1_chg: number | null;
+  mo1_chg: number | null;
+  rel_vol: number;
+  range_pos: number;
+  flow: "INFLOW" | "OUTFLOW" | "RISING" | "FALLING" | "NEUTRAL";
+}
+
+export function fetchSectorRotation() {
+  return fetchJson<{ sectors: SectorRow[]; scanned: number }>("/sector-rotation");
+}
+
 export interface SqueezeSetupRow {
   ticker: string;
   price: number;

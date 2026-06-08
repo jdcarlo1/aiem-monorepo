@@ -28,6 +28,8 @@ import {
   AISignal, AISignalResult, fetchAISignal,
   MorningRunnerRow, fetchMorningRunners,
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
+  BreakoutRow, fetch52WeekBreakout,
+  SectorRow, fetchSectorRotation,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -4322,6 +4324,335 @@ function PutIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
 }
 
 // ---- Pre-Market Flow Tab -------------------------------------------------
+// ---- 52-Week Breakout Tab -------------------------------------------------
+function Breakout52WeekTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  type FilterType = "ALL" | "BREAKOUT" | "NEAR";
+  const [data, setData]     = useState<{ hits: BreakoutRow[]; total: number; scanned: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter]   = useState<FilterType>("ALL");
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetch52WeekBreakout()); } catch {}
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); const t = setInterval(load, 900_000); return () => clearInterval(t); }, []);
+
+  const filtered = (data?.hits ?? []).filter(r =>
+    filter === "ALL"      ? true
+    : filter === "BREAKOUT" ? r.breakout
+    : !r.breakout
+  );
+  const breakoutCount = (data?.hits ?? []).filter(r => r.breakout).length;
+  const nearCount     = (data?.hits ?? []).filter(r => !r.breakout).length;
+
+  const FILTERS: { id: FilterType; label: string }[] = [
+    { id: "ALL",      label: "All" },
+    { id: "BREAKOUT", label: "🚀 New Highs" },
+    { id: "NEAR",     label: "📈 Near High (≤3%)" },
+  ];
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🚀 52-Week Breakout Scanner</h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            Stocks at or above their 52-week high with above-average volume · {data?.scanned ?? "—"} tickers · 15min cache
+          </p>
+        </div>
+        <button onClick={load} disabled={loading} style={{
+          background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)",
+          color: "#fbbf24", borderRadius: 10, padding: "8px 18px",
+          fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
+        }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
+      </div>
+
+      {data && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Tickers Scanned", val: data.scanned,  color: "#94a3b8" },
+            { label: "Total Hits",      val: data.total,    color: "#fbbf24" },
+            { label: "🚀 New Highs",   val: breakoutCount, color: "#f97316" },
+            { label: "📈 Near High",   val: nearCount,     color: "#60a5fa" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: "12px 18px", flex: 1, minWidth: 100 }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {FILTERS.map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)} style={{
+            padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
+            cursor: "pointer", transition: "all 0.15s",
+            background: filter === f.id ? "rgba(251,191,36,0.18)" : "rgba(255,255,255,0.04)",
+            color:      filter === f.id ? "#fbbf24" : "#64748b",
+            border:     filter === f.id ? "1px solid rgba(251,191,36,0.45)" : "1px solid rgba(255,255,255,0.06)",
+          }}>{f.label}</button>
+        ))}
+      </div>
+
+      {loading && !data && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
+          Scanning 473 tickers for 52-week breakouts… ~25s
+        </div>
+      )}
+      {!loading && data && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
+          No breakouts in this filter right now. Try "All" or refresh during market hours.
+        </div>
+      )}
+
+      {filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((r, i) => {
+            const isBreakout = r.breakout;
+            const mainColor  = isBreakout ? "#f97316" : "#60a5fa";
+            const mainBorder = isBreakout ? "rgba(249,115,22,0.35)" : "rgba(96,165,250,0.25)";
+            const dayPos     = r.day_chg_pct >= 0;
+            return (
+              <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} style={{
+                background: "rgba(255,255,255,0.025)", border: `1px solid ${i < 3 ? mainBorder : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 18, padding: "16px 20px", cursor: "pointer", transition: "background 0.15s",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.025)")}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#334155", fontSize: 16, minWidth: 28 }}>#{i+1}</span>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>{r.ticker}</span>
+                  <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 10px", borderRadius: 99,
+                    background: isBreakout ? "rgba(249,115,22,0.15)" : "rgba(96,165,250,0.12)",
+                    color: mainColor, border: `1px solid ${mainBorder}` }}>
+                    {isBreakout ? "🚀 NEW HIGH" : "📈 NEAR HIGH"}
+                  </span>
+                  <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                    background: dayPos ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)",
+                    color: dayPos ? "#4ade80" : "#f87171",
+                    border: `1px solid ${dayPos ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}` }}>
+                    {dayPos ? "+" : ""}{r.day_chg_pct}% today
+                  </span>
+                  {r.mkt_cap_b !== null && (
+                    <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>
+                      ${r.mkt_cap_b < 1 ? `${(r.mkt_cap_b * 1000).toFixed(0)}M` : `${r.mkt_cap_b.toFixed(1)}B`}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, color: "#f1f5f9", letterSpacing: "-0.03em" }}>${r.price.toFixed(2)}</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>price</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 18, color: mainColor, letterSpacing: "-0.02em" }}>${r.high_52.toFixed(2)}</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>52wk high</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 18, color: isBreakout ? "#f97316" : "#60a5fa" }}>
+                      {r.pct_from_high > 0 ? "+" : ""}{r.pct_from_high}%
+                    </div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>vs 52wk high</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 18, color: "#fbbf24" }}>{r.rel_vol}×</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>rel volume</div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 120 }}>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginBottom: 4 }}>52wk range position</div>
+                    <div style={{ height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${r.range_pos}%`, background: mainColor, borderRadius: 99, transition: "width 0.5s" }} />
+                    </div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 9, marginTop: 2, display: "flex", justifyContent: "space-between" }}>
+                      <span>52wk low ${r.low_52.toFixed(0)}</span>
+                      <span style={{ color: mainColor }}>{r.range_pos}%</span>
+                      <span>52wk high ${r.high_52.toFixed(0)}</span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 24, color: r.score >= 4 ? "#f97316" : "#fbbf24", letterSpacing: "-0.04em" }}>{r.score.toFixed(1)}</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>score</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ marginTop: 28, padding: "14px 18px", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.12)", borderRadius: 12 }}>
+        <p style={{ fontFamily: BB_F, fontSize: 11, color: "#64748b", margin: 0, lineHeight: 1.8 }}>
+          <strong style={{ color: "#f97316" }}>🚀 New Highs:</strong> Price ≥ 52-week high with 1.3× or more relative volume — institutional momentum entry signal.<br />
+          <strong style={{ color: "#60a5fa" }}>📈 Near High:</strong> Within 3% of 52-week high with elevated volume — consolidation before potential breakout.<br />
+          <strong style={{ color: "#fbbf24" }}>Score:</strong> Relative volume × (1 + % above high). A stock up 5% above its high on 4× volume scores much higher than one just touching it.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---- Sector Rotation Tab --------------------------------------------------
+function SectorRotationTab() {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]     = useState<{ sectors: SectorRow[]; scanned: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetchSectorRotation()); } catch {}
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); const t = setInterval(load, 1_800_000); return () => clearInterval(t); }, []);
+
+  const flowStyle = (f: string) => ({
+    INFLOW:  { color: "#4ade80", bg: "rgba(74,222,128,0.12)",  border: "rgba(74,222,128,0.35)",  label: "💚 INFLOW" },
+    OUTFLOW: { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 OUTFLOW" },
+    RISING:  { color: "#60a5fa", bg: "rgba(96,165,250,0.10)",  border: "rgba(96,165,250,0.3)",   label: "📈 RISING" },
+    FALLING: { color: "#fb923c", bg: "rgba(251,146,60,0.10)",  border: "rgba(251,146,60,0.3)",   label: "📉 FALLING" },
+    NEUTRAL: { color: "#475569", bg: "rgba(71,85,105,0.08)",   border: "rgba(71,85,105,0.25)",   label: "➡️ NEUTRAL" },
+  } as Record<string, { color: string; bg: string; border: string; label: string }>)[f] ?? { color: "#475569", bg: "transparent", border: "transparent", label: f };
+
+  const inflow  = (data?.sectors ?? []).filter(s => s.flow === "INFLOW").length;
+  const outflow = (data?.sectors ?? []).filter(s => s.flow === "OUTFLOW").length;
+  const topSector = data?.sectors[0];
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🌀 Sector Rotation Heatmap</h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            All 11 SPDR sector ETFs · flow direction, relative volume, and range position · refreshes every 30min
+          </p>
+        </div>
+        <button onClick={load} disabled={loading} style={{
+          background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.3)",
+          color: "#60a5fa", borderRadius: 10, padding: "8px 18px",
+          fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
+        }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+      </div>
+
+      {data && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Sectors Tracked",   val: data.scanned, color: "#94a3b8" },
+            { label: "💚 Inflow Sectors",  val: inflow,       color: "#4ade80" },
+            { label: "🔴 Outflow Sectors", val: outflow,      color: "#f87171" },
+            { label: "Strongest Today",    val: topSector?.name ?? "—", color: "#fbbf24" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: "12px 18px", flex: 1, minWidth: 110 }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: typeof s.val === "number" ? 26 : 16, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loading && !data && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
+          Fetching all 11 sector ETFs… ~10s
+        </div>
+      )}
+
+      {data && (
+        <>
+          {/* Heatmap grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12, marginBottom: 24 }}>
+            {data.sectors.map((s, i) => {
+              const fs = flowStyle(s.flow);
+              const isTop = i < 3;
+              return (
+                <div key={s.ticker} style={{
+                  background: "rgba(255,255,255,0.025)", border: `1px solid ${isTop && s.flow === "INFLOW" ? "rgba(74,222,128,0.3)" : isTop && s.flow === "OUTFLOW" ? "rgba(248,113,113,0.3)" : "rgba(255,255,255,0.07)"}`,
+                  borderRadius: 16, padding: "16px 18px",
+                }}>
+                  {/* Header */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 16 }}>{s.ticker}</div>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.name}</div>
+                    </div>
+                    <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "3px 8px", borderRadius: 99,
+                      background: fs.bg, color: fs.color, border: `1px solid ${fs.border}` }}>{fs.label}</span>
+                  </div>
+
+                  {/* Price + day change */}
+                  <div style={{ display: "flex", gap: 16, marginBottom: 10, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 20, color: "#f1f5f9" }}>${s.price.toFixed(2)}</div>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>price</div>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 20, color: s.day_chg >= 0 ? "#4ade80" : "#f87171" }}>
+                        {s.day_chg >= 0 ? "+" : ""}{s.day_chg}%
+                      </div>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>today</div>
+                    </div>
+                    {s.wk1_chg !== null && (
+                      <div>
+                        <div style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 14, color: s.wk1_chg >= 0 ? "#4ade80" : "#f87171" }}>
+                          {s.wk1_chg >= 0 ? "+" : ""}{s.wk1_chg}%
+                        </div>
+                        <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>1wk</div>
+                      </div>
+                    )}
+                    {s.mo1_chg !== null && (
+                      <div>
+                        <div style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 14, color: s.mo1_chg >= 0 ? "#4ade80" : "#f87171" }}>
+                          {s.mo1_chg >= 0 ? "+" : ""}{s.mo1_chg}%
+                        </div>
+                        <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>1mo</div>
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 14, color: s.rel_vol >= 2 ? "#fbbf24" : "#94a3b8" }}>{s.rel_vol}×</div>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>rel vol</div>
+                    </div>
+                  </div>
+
+                  {/* 52-week range bar */}
+                  <div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginBottom: 4 }}>52wk range position</div>
+                    <div style={{ height: 5, background: "rgba(255,255,255,0.06)", borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${s.range_pos}%`,
+                        background: s.range_pos >= 80 ? "#f97316" : s.range_pos >= 50 ? "#fbbf24" : "#475569",
+                        borderRadius: 99, transition: "width 0.5s" }} />
+                    </div>
+                    <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 9, marginTop: 2, textAlign: "right" }}>{s.range_pos}%</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Flow summary bar */}
+          <div style={{ padding: "16px 20px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14 }}>
+            <div style={{ fontFamily: BB_F, fontWeight: 700, color: "#94a3b8", fontSize: 11, marginBottom: 10 }}>TODAY'S ROTATION FLOW</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {data.sectors.map(s => {
+                const fs = flowStyle(s.flow);
+                return (
+                  <div key={s.ticker} style={{ padding: "6px 12px", borderRadius: 8, background: fs.bg, border: `1px solid ${fs.border}`, textAlign: "center" }}>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, color: fs.color, fontSize: 12 }}>{s.ticker}</div>
+                    <div style={{ fontFamily: BB_F, color: s.day_chg >= 0 ? "#4ade80" : "#f87171", fontSize: 11, fontWeight: 700 }}>
+                      {s.day_chg >= 0 ? "+" : ""}{s.day_chg}%
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---- Squeeze Setup Tab ----------------------------------------------------
 function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
@@ -7187,7 +7518,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -7319,6 +7650,8 @@ export default function Dashboard() {
     { id: "streakflow",      label: "📈 FLOW STREAK" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
     { id: "squeezesetup",   label: "💥 SQUEEZE SETUP" },
+    { id: "breakout52week", label: "🚀 52WK BREAKOUT" },
+    { id: "sectorrotation", label: "🌀 SECTOR ROTATION" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -7907,6 +8240,8 @@ export default function Dashboard() {
         {tab === "streakflow"      && <NetFlowStreakTab  onSelectTicker={selectTicker} />}
         {tab === "morningrunners"  && <MorningRunnersTab onSelectTicker={selectTicker} />}
         {tab === "squeezesetup"   && <SqueezeSetupTab   onSelectTicker={selectTicker} />}
+        {tab === "breakout52week" && <Breakout52WeekTab  onSelectTicker={selectTicker} />}
+        {tab === "sectorrotation" && <SectorRotationTab />}
 
       </div>
       </main>

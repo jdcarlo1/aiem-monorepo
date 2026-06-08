@@ -5306,6 +5306,174 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         return jsonify({"error": str(e), "picks": []}), 500
 
 
+@app.route("/stock-api/52week-breakout", methods=["GET"])
+def breakout_52week():
+    """52-week high breakout scanner — price near/above 52wk high + volume confirmation."""
+    import yfinance as yf
+    from datetime import datetime as _bk_dt
+
+    _cache = getattr(app, "_bk_cache", None)
+    _ts    = getattr(app, "_bk_cache_ts", None)
+    if _cache and _ts and (_bk_dt.now() - _ts).total_seconds() < 900:
+        return jsonify(_cache)
+
+    results = []
+
+    def _scan_bk(ticker):
+        try:
+            fi    = yf.Ticker(ticker).fast_info
+            price = float(getattr(fi, "last_price",                0) or 0)
+            high52 = float(getattr(fi, "year_high",                0) or 0)
+            low52  = float(getattr(fi, "year_low",                 0) or 0)
+            avg_vol= float(getattr(fi, "three_month_average_volume",1) or 1)
+            today_vol = float(getattr(fi, "last_volume",           0) or 0)
+            mkt_cap   = float(getattr(fi, "market_cap",            0) or 0)
+            prev_close= float(getattr(fi, "previous_close",        0) or 0)
+
+            if price <= 0 or high52 <= 0 or low52 <= 0:
+                return None
+
+            pct_from_high = round((price - high52) / high52 * 100, 2)
+            # Only stocks within 3% below or above their 52-week high
+            if pct_from_high < -3.0:
+                return None
+
+            rel_vol   = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
+            if rel_vol < 1.3:
+                return None
+
+            range_52   = high52 - low52
+            range_pos  = round((price - low52) / range_52 * 100, 1) if range_52 > 0 else 100
+            day_chg_pct= round((price - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0
+            mkt_cap_b  = round(mkt_cap / 1e9, 2) if mkt_cap else None
+
+            # Score: higher rel_vol * closer to/above high
+            above_bonus = max(0, pct_from_high)        # bonus if actually above 52wk high
+            score = round(rel_vol * (1 + above_bonus / 10), 2)
+
+            return {
+                "ticker":        ticker,
+                "price":         round(price, 2),
+                "high_52":       round(high52, 2),
+                "low_52":        round(low52, 2),
+                "pct_from_high": pct_from_high,
+                "range_pos":     range_pos,
+                "rel_vol":       rel_vol,
+                "day_chg_pct":   day_chg_pct,
+                "mkt_cap_b":     mkt_cap_b,
+                "score":         score,
+                "breakout":      pct_from_high >= 0,
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        futures = {ex.submit(_scan_bk, t): t for t in DEFAULT_LEADERBOARD}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                results.append(r)
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    out = {"hits": results[:40], "total": len(results), "scanned": len(DEFAULT_LEADERBOARD)}
+    app._bk_cache    = out
+    app._bk_cache_ts = _bk_dt.now()
+    return jsonify(out)
+
+
+@app.route("/stock-api/sector-rotation", methods=["GET"])
+def sector_rotation():
+    """Sector rotation heatmap — 11 SPDR sector ETFs with flow direction signals."""
+    import yfinance as yf
+    from datetime import datetime as _sr_dt
+
+    _cache = getattr(app, "_sr_cache", None)
+    _ts    = getattr(app, "_sr_cache_ts", None)
+    if _cache and _ts and (_sr_dt.now() - _ts).total_seconds() < 1800:
+        return jsonify(_cache)
+
+    SECTORS = [
+        ("XLK",  "Technology"),
+        ("XLF",  "Financials"),
+        ("XLV",  "Healthcare"),
+        ("XLE",  "Energy"),
+        ("XLI",  "Industrials"),
+        ("XLY",  "Cons. Discretionary"),
+        ("XLP",  "Cons. Staples"),
+        ("XLU",  "Utilities"),
+        ("XLB",  "Materials"),
+        ("XLRE", "Real Estate"),
+        ("XLC",  "Communication"),
+    ]
+
+    results = []
+
+    def _scan_sector(ticker, name):
+        try:
+            tkr  = yf.Ticker(ticker)
+            fi   = tkr.fast_info
+            price      = float(getattr(fi, "last_price",                0) or 0)
+            prev_close = float(getattr(fi, "previous_close",            0) or 0)
+            avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
+            today_vol  = float(getattr(fi, "last_volume",               0) or 0)
+            high52     = float(getattr(fi, "year_high",                  0) or 0)
+            low52      = float(getattr(fi, "year_low",                   0) or 0)
+
+            if price <= 0 or prev_close <= 0:
+                return None
+
+            day_chg   = round((price - prev_close) / prev_close * 100, 2)
+            rel_vol   = round(today_vol / avg_vol, 2) if avg_vol > 0 else 1.0
+            range_pos = round((price - low52) / (high52 - low52) * 100, 1) if high52 > low52 else 50
+
+            # Get 5-day and 1-month returns
+            hist = tkr.history(period="1mo", interval="1d")
+            wk1_chg = mo1_chg = None
+            if len(hist) >= 5:
+                wk1_chg = round((price - float(hist["Close"].iloc[-5])) / float(hist["Close"].iloc[-5]) * 100, 2)
+            if len(hist) >= 20:
+                mo1_chg = round((price - float(hist["Close"].iloc[0])) / float(hist["Close"].iloc[0]) * 100, 2)
+
+            # Flow signal
+            if day_chg > 0 and rel_vol >= 1.1:
+                flow = "INFLOW"
+            elif day_chg < 0 and rel_vol >= 1.1:
+                flow = "OUTFLOW"
+            elif day_chg > 0:
+                flow = "RISING"
+            elif day_chg < 0:
+                flow = "FALLING"
+            else:
+                flow = "NEUTRAL"
+
+            return {
+                "ticker":    ticker,
+                "name":      name,
+                "price":     round(price, 2),
+                "day_chg":   day_chg,
+                "wk1_chg":   wk1_chg,
+                "mo1_chg":   mo1_chg,
+                "rel_vol":   rel_vol,
+                "range_pos": range_pos,
+                "flow":      flow,
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=11) as ex:
+        futures = {ex.submit(_scan_sector, t, n): (t, n) for t, n in SECTORS}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                results.append(r)
+
+    results.sort(key=lambda x: x["day_chg"], reverse=True)
+    out = {"sectors": results, "scanned": len(SECTORS)}
+    app._sr_cache    = out
+    app._sr_cache_ts = _sr_dt.now()
+    return jsonify(out)
+
+
 @app.route("/stock-api/squeeze-setup", methods=["GET"])
 def squeeze_setup():
     """High-conviction short squeeze + low-float breakout scanner."""
