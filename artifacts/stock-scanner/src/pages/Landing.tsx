@@ -328,7 +328,7 @@ export default function Landing() {
               tagBorder: "rgba(34,197,94,0.3)",
               border: "rgba(34,197,94,0.3)",
               title: "AI Trade Synthesis",
-              desc: "All 12 signal sources fed into GPT simultaneously. Outputs 3 written trade setups daily: ticker, direction, entry strike, expiry, target, stop loss, and thesis. No competitor does cross-source synthesis at any price.",
+              desc: "All 21 signal sources fed into GPT simultaneously. Outputs 3 written trade setups daily: ticker, direction, entry strike, expiry, target, stop loss, and thesis. No competitor does cross-source synthesis at any price.",
               note: "Unusual Whales, FlowAlgo, Trade Ideas — none of them do this."
             },
             {
@@ -650,7 +650,7 @@ export default function Landing() {
           </div>
           <div className="p-5 sm:p-6">
             <div className="mb-4 flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-black px-3 py-1.5 rounded-full" style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.35)", color: "#4ade80" }}>🤖 AI synthesized 12 signal sources → 3 trade setups</span>
+              <span className="text-xs font-black px-3 py-1.5 rounded-full" style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.35)", color: "#4ade80" }}>🤖 AI synthesized 21 signal sources → 3 trade setups</span>
               <span className="text-xs text-slate-600">47 tickers scanned · updated now</span>
             </div>
             <div className="space-y-2.5 mb-5">
