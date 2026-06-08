@@ -36,6 +36,11 @@ export default function Landing() {
   const [topPick, setTopPick] = useState<AITradeSetup | null>(null);
   const [topPickLoading, setTopPickLoading] = useState(true);
 
+  // Top blurred section unlock state (independent of pricing form)
+  const [topEmail, setTopEmail] = useState("");
+  const [topStatus, setTopStatus] = useState<"idle"|"loading"|"ok"|"err">("idle");
+  const [topErr, setTopErr] = useState("");
+
   useEffect(() => {
     fetchBullFlow().then(d => setLiveFlow(d.results ?? [])).catch(() => {});
     fetchAITrades()
@@ -45,7 +50,37 @@ export default function Landing() {
       })
       .catch(() => {})
       .finally(() => setTopPickLoading(false));
+
+    // Auto-check localStorage — if already verified, unlock immediately
+    const saved = localStorage.getItem("ait_sub_email");
+    if (saved) {
+      setTopEmail(saved);
+      checkAITradesSubscription(saved)
+        .then(r => { if (r.subscribed) setTopStatus("ok"); })
+        .catch(() => {});
+    }
   }, []);
+
+  const handleTopUnlock = async () => {
+    if (!topEmail.trim() || !topEmail.includes("@")) { setTopErr("Enter a valid email"); return; }
+    setTopStatus("loading"); setTopErr("");
+    try {
+      const r = await checkAITradesSubscription(topEmail.trim());
+      if (r.subscribed) {
+        localStorage.setItem("ait_sub_email", topEmail.trim());
+        setTopStatus("ok");
+        // Also sync the pricing form email
+        setEmail(topEmail.trim());
+        setStatus("ok");
+      } else {
+        setTopStatus("idle");
+        setTopErr("No active subscription — scroll down to subscribe.");
+      }
+    } catch {
+      setTopStatus("idle");
+      setTopErr("Could not verify — try again.");
+    }
+  };
 
   const bullishFlow = liveFlow.filter(r => r.call_put_ratio >= 2);
 
@@ -142,16 +177,44 @@ export default function Landing() {
         </div>
 
         {/* Overlay */}
-        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "linear-gradient(to right, rgba(6,12,20,0.55), rgba(6,12,20,0.3), rgba(6,12,20,0.55))", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 16 }}>🔒</span>
-            <span style={{ color: "#fff", fontWeight: 800, fontSize: 13, letterSpacing: "-0.01em" }}>Today's AI trade setups — live right now</span>
-          </div>
-          <button
-            onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
-            style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", fontWeight: 900, fontSize: 13, padding: "10px 28px", borderRadius: 999, border: "none", cursor: "pointer", boxShadow: "0 8px 32px rgba(34,197,94,0.45)", letterSpacing: "-0.01em" }}>
-            Subscribe to see →
-          </button>
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "linear-gradient(to right, rgba(6,12,20,0.6), rgba(6,12,20,0.35), rgba(6,12,20,0.6))", gap: 8, padding: "0 16px" }}>
+          {topStatus === "ok" ? (
+            /* ── SUCCESS STATE ── */
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 22 }}>✅</div>
+              <div style={{ color: "#4ade80", fontWeight: 900, fontSize: 14, letterSpacing: "-0.01em" }}>You're in! Subscription confirmed.</div>
+              <button
+                onClick={() => setLocation("/app")}
+                style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", fontWeight: 900, fontSize: 13, padding: "10px 28px", borderRadius: 999, border: "none", cursor: "pointer", boxShadow: "0 8px 32px rgba(34,197,94,0.45)" }}>
+                Open App →
+              </button>
+            </div>
+          ) : (
+            /* ── LOCKED STATE — inline email unlock ── */
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                <span style={{ fontSize: 14 }}>🔒</span>
+                <span style={{ color: "#fff", fontWeight: 800, fontSize: 12 }}>Today's AI trade setups — live right now</span>
+              </div>
+              <div style={{ display: "flex", gap: 6, width: "100%", maxWidth: 360 }}>
+                <input
+                  type="email"
+                  value={topEmail}
+                  onChange={e => { setTopEmail(e.target.value); setTopErr(""); }}
+                  onKeyDown={e => e.key === "Enter" && handleTopUnlock()}
+                  placeholder="your@email.com"
+                  style={{ flex: 1, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 999, padding: "9px 16px", color: "#fff", fontSize: 12, outline: "none" }}
+                />
+                <button
+                  onClick={handleTopUnlock}
+                  disabled={topStatus === "loading"}
+                  style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", fontWeight: 900, fontSize: 12, padding: "9px 18px", borderRadius: 999, border: "none", cursor: "pointer", whiteSpace: "nowrap", opacity: topStatus === "loading" ? 0.7 : 1 }}>
+                  {topStatus === "loading" ? "…" : "Subscribe to see →"}
+                </button>
+              </div>
+              {topErr && <div style={{ color: "#f87171", fontSize: 10, marginTop: 2 }}>{topErr}</div>}
+            </>
+          )}
         </div>
       </div>
 
