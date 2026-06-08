@@ -4615,8 +4615,8 @@ JSON array only. No markdown. Start immediately with ["""
         chunks = []
         finish = "unknown"
         stream = oai.chat.completions.create(
-            model="gpt-5-mini",
-            max_completion_tokens=9000,
+            model="gpt-4o-mini",
+            max_completion_tokens=1500,
             stream=True,
             messages=[
                 {"role": "system", "content": system_msg},
@@ -5671,15 +5671,15 @@ def ai_short_calls():
         return jsonify({
             "error": "No unusual calls data available. Run a scan in the 🚨 Unusual Calls tab first, then come back.",
             "picks": [], "generated_at": None
-        }), 202
+        })
 
-    hits = hits[:20]
+    hits = hits[:10]
 
     try:
         oai = OpenAI(
             base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
             api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-            timeout=45.0,
+            timeout=90.0,
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -5721,8 +5721,8 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         chunks = []
         finish = "unknown"
         stream = oai.chat.completions.create(
-            model="gpt-5-mini",
-            max_completion_tokens=9000,
+            model="gpt-4o-mini",
+            max_completion_tokens=1500,
             stream=True,
             messages=[
                 {"role": "system", "content": system_msg},
