@@ -6378,6 +6378,40 @@ function TrackRecordTab() {
         </div>
       )}
 
+      {/* Daily win rate bar for selected date */}
+      {activeDateFilter && (() => {
+        const dayTrades = allTrades.filter(t => t.trade_date === activeDateFilter);
+        const closed  = dayTrades.filter(t => t.outcome === "WIN" || t.outcome === "LOSS");
+        const wins    = dayTrades.filter(t => t.outcome === "WIN").length;
+        const losses  = dayTrades.filter(t => t.outcome === "LOSS").length;
+        const open    = dayTrades.filter(t => t.outcome === "OPEN").length;
+        const pct     = closed.length > 0 ? Math.round(wins / closed.length * 100) : null;
+        const label   = new Date(activeDateFilter + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "10px 14px", background: "rgba(34,197,94,0.04)", border: `1px solid ${BB_BORDER}`, flexWrap: "wrap" }}>
+            <span style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em" }}>{label.toUpperCase()}</span>
+            <span style={{ color: BB_LABEL, fontSize: 9 }}>·</span>
+            <span style={{ color: BB_WHITE, fontSize: 9, fontWeight: 700 }}>{dayTrades.length} CALLS</span>
+            {pct !== null ? (
+              <>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>·</span>
+                <span style={{ color: pct >= 50 ? BB_GREEN : BB_RED, fontSize: 13, fontWeight: 900, letterSpacing: "-0.02em" }}>{pct}% WIN RATE</span>
+                <span style={{ color: BB_GREEN, fontSize: 9 }}>{wins}W</span>
+                <span style={{ color: BB_RED,   fontSize: 9 }}>{losses}L</span>
+                {open > 0 && <span style={{ color: BB_LABEL, fontSize: 9 }}>{open} OPEN</span>}
+              </>
+            ) : (
+              <>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>·</span>
+                <span style={{ color: BB_LABEL, fontSize: 9, fontWeight: 700 }}>
+                  {open > 0 ? `${open} OPEN — outcomes pending` : "NO CLOSED TRADES YET"}
+                </span>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Source filter */}
       <div style={{ display: "flex", gap: 0, marginBottom: 12, borderBottom: `1px solid ${BB_BORDER}` }}>
         {([
