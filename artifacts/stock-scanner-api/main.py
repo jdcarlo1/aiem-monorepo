@@ -603,10 +603,12 @@ def _init_ai_trade_log_table():
     );
     """
     migrate_sql = [
-        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_price FLOAT",
-        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_pct   FLOAT",
-        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_win   BOOL",
-        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'AI_TRADE'",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_price    FLOAT",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_pct      FLOAT",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_win      BOOL",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS source          TEXT DEFAULT 'AI_TRADE'",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS option_premium  FLOAT",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS breakeven_price FLOAT",
     ]
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -628,12 +630,16 @@ def _save_ai_trades_to_log(trades: list, trade_date: str):
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             for t in trades:
+                opt_prem   = t.get("option_premium")
+                strike     = t.get("entry_strike")
+                breakeven  = round(strike + opt_prem, 2) if (strike and opt_prem) else None
                 cur.execute("""
                     INSERT INTO ai_trade_log
                         (trade_date, ticker, direction, setup_type, conviction,
                          price_at_signal, entry_strike, expiry, target_price, stop_loss,
-                         signals_aligned, thesis, risk_level)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         signals_aligned, thesis, risk_level,
+                         option_premium, breakeven_price)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (trade_date, ticker, direction) DO NOTHING
                 """, (
                     trade_date,
@@ -642,13 +648,15 @@ def _save_ai_trades_to_log(trades: list, trade_date: str):
                     t.get("setup_type"),
                     t.get("conviction"),
                     t.get("price"),
-                    t.get("entry_strike"),
+                    strike,
                     t.get("expiry"),
                     t.get("target_price"),
                     t.get("stop_loss"),
                     _json.dumps(t.get("signals_aligned", [])),
                     t.get("thesis"),
                     t.get("risk_level"),
+                    opt_prem,
+                    breakeven,
                 ))
             conn.commit()
         print(f"[ai_trade_log] saved {len(trades)} trades for {trade_date}")
@@ -708,7 +716,8 @@ def _update_ai_trade_outcomes():
             cur.execute("""
                 SELECT id, ticker, trade_date, price_at_signal, direction, target_price, stop_loss,
                        expiry, expiry_price,
-                       t1_price, t3_price, t5_price, t10_price
+                       t1_price, t3_price, t5_price, t10_price,
+                       breakeven_price, entry_strike
                 FROM ai_trade_log
                 WHERE outcome = 'OPEN'
                 ORDER BY trade_date DESC
@@ -732,18 +741,25 @@ def _update_ai_trade_outcomes():
                 except Exception:
                     return None
 
-            def _win(pct, direction):
-                if pct is None:
+            def _win(close_price, pct, direction, breakeven=None, strike=None):
+                """
+                For LONG CALLs: WIN = stock closed above the break-even price.
+                Break-even = entry_strike + option_premium.
+                If breakeven not stored, fall back to a 2% stock-move threshold.
+                """
+                if close_price is None or pct is None:
                     return None
                 if direction == "BULLISH":
-                    return pct >= 1.0
+                    if breakeven and breakeven > 0:
+                        return close_price >= breakeven
+                    return pct >= 2.0   # fallback: stock up ≥2%
                 elif direction == "BEARISH":
-                    return pct <= -1.0
+                    return pct <= -2.0
                 else:
                     return abs(pct) < 3.0
 
             for row in rows:
-                id_, ticker, trade_date, p0, direction, target, stoploss, expiry_str, exp_p, t1p, t3p, t5p, t10p = row
+                id_, ticker, trade_date, p0, direction, target, stoploss, expiry_str, exp_p, t1p, t3p, t5p, t10p, bkeven, strike = row
                 updates = {}
 
                 # ── Expiry date outcome (primary) ────────────────────────────
@@ -754,7 +770,7 @@ def _update_ai_trade_outcomes():
                         pct = round((close - p0) / p0 * 100, 2)
                         updates["expiry_price"] = close
                         updates["expiry_pct"]   = pct
-                        updates["expiry_win"]   = _win(pct, direction)
+                        updates["expiry_win"]   = _win(close, pct, direction, bkeven, strike)
 
                 # ── Fixed T+n checkpoints (supplemental context) ─────────────
                 for n, col_p, col_pct, col_win, existing in [
@@ -773,17 +789,18 @@ def _update_ai_trade_outcomes():
                         pct = round((close - p0) / p0 * 100, 2)
                         updates[col_p]   = close
                         updates[col_pct] = pct
-                        updates[col_win] = _win(pct, direction)
+                        updates[col_win] = _win(close, pct, direction, bkeven, strike)
 
                 if updates:
                     # Primary outcome = expiry result if available, else T+5
                     exp_win_val = updates.get("expiry_win") if "expiry_win" in updates else None
+                    t5_close    = updates.get("t5_price")
                     t5_pct_val  = updates.get("t5_pct")
                     outcome = "OPEN"
                     if exp_win_val is not None:
                         outcome = "WIN" if exp_win_val else "LOSS"
                     elif t5_pct_val is not None:
-                        outcome = "WIN" if _win(t5_pct_val, direction) else "LOSS"
+                        outcome = "WIN" if _win(t5_close, t5_pct_val, direction, bkeven, strike) else "LOSS"
                     updates["outcome"] = outcome
                     set_sql = ", ".join(f"{k} = %s" for k in updates)
                     cur.execute(f"UPDATE ai_trade_log SET {set_sql} WHERE id = %s",
@@ -4374,7 +4391,7 @@ PRIORITY WEIGHTING (use in order):
 12. analyst upgrades + premarket gap + news sentiment confirmation
 
 Return a JSON array of exactly 5 objects. ALL 5 must be BULLISH direction, setup_type LONG CALL only — no spreads, no puts, nothing else. Sort by conviction (HIGH first). Each must have ALL fields:
-ticker (string), price (number), setup_type ("LONG CALL"), direction ("BULLISH"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), signals_aligned (list of 4-5 short strings naming exact signals used), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
+ticker (string), price (number), setup_type ("LONG CALL"), direction ("BULLISH"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), option_premium (number — estimated option ask price per share based on current IV, strike proximity, and days to expiry; this is the cost to buy 1 share of the option, not per contract), signals_aligned (list of 4-5 short strings naming exact signals used), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
 
 JSON array only. No markdown. Start immediately with ["""
 
@@ -4784,7 +4801,8 @@ def ai_trade_log():
                        t1_win, t3_win, t5_win, t10_win,
                        expiry_price, expiry_pct, expiry_win,
                        outcome, created_at,
-                       COALESCE(source, 'AI_TRADE') AS source
+                       COALESCE(source, 'AI_TRADE') AS source,
+                       option_premium, breakeven_price
                 FROM ai_trade_log
                 ORDER BY trade_date DESC, id DESC
             """)
@@ -4796,7 +4814,8 @@ def ai_trade_log():
                     "t1_pct","t3_pct","t5_pct","t10_pct",
                     "t1_win","t3_win","t5_win","t10_win",
                     "expiry_price","expiry_pct","expiry_win",
-                    "outcome","created_at","source"]
+                    "outcome","created_at","source",
+                    "option_premium","breakeven_price"]
             trades = []
             for row in rows:
                 d = dict(zip(cols, row))

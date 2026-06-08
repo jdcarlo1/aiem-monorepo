@@ -6543,9 +6543,26 @@ function TrackRecordTab() {
                       {t.conviction  && <span style={{ color: BB_LABEL, fontSize: 9 }}>CONVICTION: <span style={{ color: BB_WHITE }}>{t.conviction}</span></span>}
                       {t.risk_level  && <span style={{ color: BB_LABEL, fontSize: 9 }}>RISK: <span style={{ color: BB_WHITE }}>{t.risk_level}</span></span>}
                     </div>
-                    {t.entry_strike && (
-                      <div style={{ color: BB_LABEL, fontSize: 9, marginBottom: 6 }}>
-                        STRIKE: <span style={{ color: BB_WHITE }}>${t.entry_strike}</span>
+                    {(t.entry_strike || t.option_premium || t.breakeven_price) && (
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8, padding: "8px 10px", background: "#060c06", border: `1px solid ${BB_BORDER}` }}>
+                        {t.entry_strike && (
+                          <div>
+                            <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.08em" }}>STRIKE</div>
+                            <div style={{ color: BB_WHITE, fontSize: 11, fontWeight: 700 }}>${t.entry_strike}</div>
+                          </div>
+                        )}
+                        {t.option_premium && (
+                          <div>
+                            <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.08em" }}>PREMIUM</div>
+                            <div style={{ color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>${t.option_premium.toFixed(2)}/sh</div>
+                          </div>
+                        )}
+                        {t.breakeven_price && (
+                          <div>
+                            <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.08em" }}>BREAK-EVEN</div>
+                            <div style={{ color: "#f97316", fontSize: 12, fontWeight: 900 }}>${t.breakeven_price.toFixed(2)}</div>
+                          </div>
+                        )}
                       </div>
                     )}
                     {t.thesis && (

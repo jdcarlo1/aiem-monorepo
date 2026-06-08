@@ -734,6 +734,8 @@ export interface AITradeLogEntry {
   expiry: string | null;
   target_price: number | null;
   stop_loss: number | null;
+  option_premium: number | null;
+  breakeven_price: number | null;
   signals_aligned: string[];
   thesis: string;
   risk_level: string;
