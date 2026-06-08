@@ -5654,6 +5654,8 @@ def ai_short_calls():
                     WHERE last_seen >= NOW() - INTERVAL '5 days'
                       AND days_out BETWEEN 1 AND 30
                       AND prem >= 500000
+                      AND otm_pct BETWEEN -2 AND 30
+                      AND strike >= price * 0.97
                     ORDER BY last_seen DESC, vol_oi DESC
                     LIMIT 25
                 """)
