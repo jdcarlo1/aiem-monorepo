@@ -934,6 +934,18 @@ export interface NetFlowRow {
   net_m: number;
   total_vol_m: number;
   flow_ratio: number;
+  market_cap_m: number | null;
+  net_pct_mktcap: number | null;
+  cap_tier: "nano" | "micro" | "small" | "mid" | "unknown";
+}
+
+export interface NetFlowMicrocapResult {
+  micro:   NetFlowRow[];
+  small:   NetFlowRow[];
+  nano:    NetFlowRow[];
+  mid:     NetFlowRow[];
+  unknown: NetFlowRow[];
+  scanned: number;
 }
 
 export interface NetFlowSingleResult {
@@ -959,7 +971,7 @@ export function fetchNetFlowSingle(ticker: string) {
 }
 
 export function fetchNetFlowMicrocap() {
-  return fetchJson<{ results: NetFlowRow[]; scanned: number }>(
+  return fetchJson<NetFlowMicrocapResult>(
     "/net-flow/microcap",
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
   );

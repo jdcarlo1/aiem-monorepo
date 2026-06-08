@@ -1564,17 +1564,35 @@ def _get_microcap_tickers() -> list:
 
 
 def _run_microcap_flow_scan() -> dict:
-    """Core scan: fetch intraday data for all micro-cap tickers and rank by net inflow."""
+    """Core scan: fetch intraday flow + market cap for all tickers.
+
+    Returns results split into cap_tier buckets:
+      micro  → $50M–$300M market cap
+      small  → $300M–$2B
+      mid    → >$2B  (included but shown separately)
+      nano   → <$50M (OTC/illiquid — included but flagged)
+      unknown → market cap unavailable
+    """
     import yfinance as yf
-    from datetime import datetime as _dt
 
     tickers = _get_microcap_tickers()
 
     def _compute_flow_mc(ticker):
         try:
-            hist = yf.Ticker(ticker).history(period="1d", interval="1m")
+            t_obj = yf.Ticker(ticker)
+            hist  = t_obj.history(period="1d", interval="1m")
             if hist.empty or len(hist) < 5:
                 return None
+
+            # Grab market cap via fast_info (lightweight — reuses same session)
+            market_cap = None
+            try:
+                market_cap = t_obj.fast_info.market_cap
+                if market_cap and market_cap <= 0:
+                    market_cap = None
+            except Exception:
+                pass
+
             inflow = outflow = 0.0
             for _, row in hist.iterrows():
                 if row["Volume"] <= 0:
@@ -1585,34 +1603,71 @@ def _run_microcap_flow_scan() -> dict:
                     inflow  += dv
                 else:
                     outflow += dv
+
             net   = inflow - outflow
             total = inflow + outflow
             if net <= 0:
                 return None
-            last_price = float(hist["Close"].iloc[-1])
+
+            last_price  = float(hist["Close"].iloc[-1])
+            net_m       = net / 1_000_000
+            mktcap_m    = round(market_cap / 1_000_000, 1) if market_cap else None
+            net_pct     = round(net / market_cap * 100, 2) if market_cap and market_cap > 0 else None
+
+            # Tier classification (standard Wall Street definitions)
+            if market_cap is None:
+                cap_tier = "unknown"
+            elif market_cap < 50_000_000:
+                cap_tier = "nano"
+            elif market_cap < 300_000_000:
+                cap_tier = "micro"
+            elif market_cap < 2_000_000_000:
+                cap_tier = "small"
+            else:
+                cap_tier = "mid"
+
             return {
-                "ticker":      ticker,
-                "price":       round(last_price, 2),
-                "inflow_m":    round(inflow  / 1_000_000, 2),
-                "outflow_m":   round(outflow / 1_000_000, 2),
-                "net_m":       round(net     / 1_000_000, 2),
-                "total_vol_m": round(total   / 1_000_000, 2),
-                "flow_ratio":  round(inflow / max(outflow, 1), 3),
+                "ticker":         ticker,
+                "price":          round(last_price, 2),
+                "inflow_m":       round(inflow  / 1_000_000, 2),
+                "outflow_m":      round(outflow / 1_000_000, 2),
+                "net_m":          round(net_m, 3),
+                "total_vol_m":    round(total   / 1_000_000, 2),
+                "flow_ratio":     round(inflow / max(outflow, 1), 3),
+                "market_cap_m":   mktcap_m,
+                "net_pct_mktcap": net_pct,
+                "cap_tier":       cap_tier,
             }
         except Exception:
             return None
 
-    rows = []
+    raw = []
     with ThreadPoolExecutor(max_workers=14) as ex:
         for r in ex.map(_compute_flow_mc, tickers):
             if r:
-                rows.append(r)
+                raw.append(r)
 
-    rows.sort(key=lambda x: x["net_m"], reverse=True)
-    for i, r in enumerate(rows):
-        r["rank"] = i + 1
+    # Rank within each tier separately by net_pct_mktcap (most meaningful signal)
+    def _rank_tier(rows):
+        rows.sort(key=lambda x: (x["net_pct_mktcap"] or 0), reverse=True)
+        for i, r in enumerate(rows):
+            r["rank"] = i + 1
+        return rows
 
-    return {"results": rows, "scanned": len(tickers)}
+    micro  = _rank_tier([r for r in raw if r["cap_tier"] == "micro"])
+    small  = _rank_tier([r for r in raw if r["cap_tier"] == "small"])
+    nano   = _rank_tier([r for r in raw if r["cap_tier"] == "nano"])
+    mid    = _rank_tier([r for r in raw if r["cap_tier"] == "mid"])
+    unk    = _rank_tier([r for r in raw if r["cap_tier"] == "unknown"])
+
+    return {
+        "micro":   micro,
+        "small":   small,
+        "nano":    nano,
+        "mid":     mid,
+        "unknown": unk,
+        "scanned": len(tickers),
+    }
 
 
 @app.route("/stock-api/net-flow/microcap", methods=["POST"])

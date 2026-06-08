@@ -23,7 +23,7 @@ import {
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
   saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
-  fetchNetFlow, NetFlowRow, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
+  fetchNetFlow, NetFlowRow, NetFlowMicrocapResult, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -5856,20 +5856,22 @@ function NetFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
 // ---- Micro-Cap Net Flow Tab ----------------------------------------------
 
 function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-  const [results, setResults] = useState<NetFlowRow[]>([]);
+  const [data, setData]       = useState<NetFlowMicrocapResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
-  const [scanned, setScanned] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
-  const [minNet, setMinNet]   = useState<1 | 5 | 10>(5);
   const [saved, setSaved]     = useState<Record<string, boolean>>({});
+
+  // Per-section min thresholds (in $M for small, $K for nano/micro)
+  const [nanoMin,  setNanoMin]  = useState<0.05 | 0.2 | 0.5>(0.2);   // $50K / $200K / $500K
+  const [microMin, setMicroMin] = useState<0.2 | 0.5 | 1>(0.5);      // $200K / $500K / $1M
+  const [smallMin, setSmallMin] = useState<2 | 5 | 10>(5);            // $2M / $5M / $10M
 
   const run = async () => {
     setLoading(true); setError(null);
     try {
-      const data = await fetchNetFlowMicrocap();
-      setResults(data.results);
-      setScanned(data.scanned);
+      const d = await fetchNetFlowMicrocap();
+      setData(d);
       setLastRun(new Date());
     } catch (e: any) {
       setError(e.message ?? "Scan failed");
@@ -5880,153 +5882,240 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 
   useEffect(() => { run(); }, []);
 
-  const handleSave = async (e: React.MouseEvent, row: NetFlowRow) => {
+  const handleSave = async (e: React.MouseEvent, row: NetFlowRow, tier: string) => {
     e.stopPropagation();
     try {
+      const mktcap = row.market_cap_m ? `$${row.market_cap_m.toFixed(0)}M mktcap` : "";
+      const pct    = row.net_pct_mktcap ? ` · ${row.net_pct_mktcap.toFixed(2)}% of mktcap` : "";
       await addTradeWatchlist({
         ticker: row.ticker,
         option_type: "CALL",
-        notes: `Micro Net Flow: +$${row.net_m.toFixed(2)}M net · ratio ${row.flow_ratio.toFixed(2)}x · accumulation signal`,
+        notes: `${tier} Net Flow: +${fmtFlow(row.net_m)} net · ratio ${row.flow_ratio.toFixed(2)}x${pct} · ${mktcap}`,
       });
       setSaved(s => ({ ...s, [row.ticker]: true }));
       setTimeout(() => setSaved(s => ({ ...s, [row.ticker]: false })), 2500);
     } catch { /* silent */ }
   };
 
-  const filtered = results.filter(r => r.net_m >= minNet);
+  // Format dollar amount: auto-scale K/M
+  const fmtFlow = (v: number) => {
+    if (v >= 1)    return `$${v.toFixed(2)}M`;
+    if (v >= 0.01) return `$${(v * 1000).toFixed(0)}K`;
+    return `$${(v * 1_000_000).toFixed(0)}`;
+  };
 
-  const fmtM = (v: number) =>
-    v >= 1 ? `$${v.toFixed(1)}M` : `$${(v * 1000).toFixed(0)}K`;
+  const fmtMktcap = (m: number | null) => {
+    if (m === null) return "—";
+    if (m >= 1000)  return `$${(m / 1000).toFixed(1)}B`;
+    return `$${m.toFixed(0)}M`;
+  };
+
+  // Render a single stock card (shared across all sections)
+  const FlowCard = ({ row, tier }: { row: NetFlowRow; tier: string }) => {
+    const pctIn   = row.total_vol_m > 0 ? (row.inflow_m / row.total_vol_m * 100) : 50;
+    const isSaved = saved[row.ticker];
+    const isStrong = row.flow_ratio >= 1.5;
+    const isHuge   = (row.net_pct_mktcap ?? 0) >= 2;   // ≥2% of mktcap = massive
+
+    return (
+      <div
+        onClick={() => onSelectTicker(row.ticker)}
+        className={`bg-slate-900 border rounded-xl p-4 cursor-pointer transition-all hover:border-slate-600 ${isHuge ? "border-amber-700/60" : "border-slate-800"}`}
+      >
+        {/* Top row */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-slate-500 text-xs font-bold">#{row.rank}</span>
+            <span className="text-white font-black text-lg">{row.ticker}</span>
+            <span className="text-slate-400 text-sm">${row.price.toLocaleString()}</span>
+            {isHuge && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/50 text-amber-300 border border-amber-700/50 font-bold">
+                ⚡ {row.net_pct_mktcap?.toFixed(1)}% of mktcap
+              </span>
+            )}
+            {!isHuge && isStrong && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-bold">
+                🔥 Strong
+              </span>
+            )}
+          </div>
+          <div className="text-right shrink-0">
+            <div className="text-emerald-400 font-black text-base">+{fmtFlow(row.net_m)}</div>
+            {row.net_pct_mktcap !== null && (
+              <div className={`text-xs font-bold ${(row.net_pct_mktcap ?? 0) >= 2 ? "text-amber-400" : "text-slate-500"}`}>
+                {row.net_pct_mktcap.toFixed(2)}% of co.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Market cap badge */}
+        {row.market_cap_m !== null && (
+          <div className="text-slate-600 text-xs mb-2">
+            Mkt cap: <span className="text-slate-400 font-bold">{fmtMktcap(row.market_cap_m)}</span>
+          </div>
+        )}
+
+        {/* Flow bar */}
+        <div className="rounded-full overflow-hidden h-1.5 bg-red-900/40 mb-3">
+          <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.min(pctIn, 100)}%` }} />
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-1.5 text-center mb-3">
+          <div className="bg-emerald-950/40 rounded-lg p-1.5">
+            <div className="text-emerald-400 font-bold text-xs">{fmtFlow(row.inflow_m)}</div>
+            <div className="text-slate-600 text-xs">Inflow</div>
+          </div>
+          <div className="bg-red-950/40 rounded-lg p-1.5">
+            <div className="text-red-400 font-bold text-xs">{fmtFlow(row.outflow_m)}</div>
+            <div className="text-slate-600 text-xs">Outflow</div>
+          </div>
+          <div className="bg-slate-800/60 rounded-lg p-1.5">
+            <div className="text-white font-bold text-xs">{row.flow_ratio.toFixed(2)}x</div>
+            <div className="text-slate-600 text-xs">Buy/Sell</div>
+          </div>
+        </div>
+
+        <button
+          onClick={e => handleSave(e, row, tier)}
+          className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all border ${isSaved ? "bg-emerald-900/40 border-emerald-600 text-emerald-300" : "border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300"}`}
+        >
+          {isSaved ? "✓ SAVED" : "📌 Save to Watchlist"}
+        </button>
+      </div>
+    );
+  };
+
+  // Section renderer
+  const Section = ({
+    emoji, title, subtitle, color, rows, minVal, setMin, thresholds, thresholdLabels,
+  }: {
+    emoji: string; title: string; subtitle: string; color: string;
+    rows: NetFlowRow[]; minVal: number; setMin: (v: any) => void;
+    thresholds: number[]; thresholdLabels: string[];
+  }) => {
+    const filtered = rows.filter(r => r.net_m >= minVal);
+    return (
+      <div className="space-y-3">
+        {/* Section header */}
+        <div className={`border rounded-xl p-4 ${color}`}>
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-lg">{emoji}</span>
+                <span className="text-white font-bold">{title}</span>
+              </div>
+              <p className="text-slate-400 text-xs mt-0.5">{subtitle}</p>
+            </div>
+            {lastRun && (
+              <span className="text-slate-600 text-xs shrink-0">{filtered.length} stocks</span>
+            )}
+          </div>
+          <div className="flex gap-1.5">
+            {thresholds.map((v, i) => (
+              <button
+                key={v}
+                onClick={() => setMin(v)}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${minVal === v ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+              >
+                {thresholdLabels[i]}+
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {filtered.length === 0 && lastRun && (
+          <div className="text-center py-8 text-slate-600 text-sm">
+            No {title.toLowerCase()} stocks above {thresholdLabels[thresholds.indexOf(minVal)]} right now
+          </div>
+        )}
+
+        {filtered.map(row => <FlowCard key={row.ticker} row={row} tier={title} />)}
+      </div>
+    );
+  };
+
+  const totalFound = (data?.nano.length ?? 0) + (data?.micro.length ?? 0) + (data?.small.length ?? 0);
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
+    <div className="space-y-6">
+      {/* Master header */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex items-start justify-between gap-4 mb-3">
           <div>
-            <h2 className="text-white font-bold text-lg">🔬 Micro-Cap Net Flow</h2>
+            <h2 className="text-white font-bold text-lg">🔬 Net Flow by Cap Size</h2>
             <p className="text-slate-400 text-sm mt-1">
-              Small &amp; micro-cap stocks being actively accumulated — on these floats, even $5M of net buying is significant.
+              Ranked by <span className="text-amber-400 font-bold">% of market cap</span> — a $500K inflow on a $20M company is bigger than $5M on a $500M one.
             </p>
           </div>
           <button
             onClick={run}
             disabled={loading}
-            className="shrink-0 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+            className="shrink-0 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
           >
             {loading ? <><Spinner /> Scanning…</> : "🔄 Run Scan"}
           </button>
         </div>
 
-        {/* Threshold toggle */}
-        <div className="flex gap-2">
-          {([1, 5, 10] as const).map(v => (
-            <button
-              key={v}
-              onClick={() => setMinNet(v)}
-              className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${minNet === v ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
-            >
-              ${v}M+
-            </button>
-          ))}
-        </div>
-
         {lastRun && (
-          <p className="text-slate-600 text-xs mt-2">
-            Scanned {scanned} micro/small-caps · {lastRun.toLocaleTimeString()} · {filtered.length} with ${minNet}M+ net inflow
+          <p className="text-slate-600 text-xs">
+            Scanned {data?.scanned ?? 473} stocks · {lastRun.toLocaleTimeString()} · {totalFound} with positive net inflow
           </p>
         )}
         {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
       </div>
 
-      {/* Info callout */}
-      <div className="bg-blue-950/30 border border-blue-800/40 rounded-xl p-4">
-        <p className="text-blue-300 text-xs leading-relaxed">
-          <span className="font-bold">📖 How to read this:</span> On a $200M float stock, $5M net inflow = ~2.5% of the float changing hands to buyers. That's institutional accumulation. Stocks appearing here on a red market day are being <em>bought into weakness</em> — the strongest pre-move signal.
+      {/* Key callout */}
+      <div className="bg-amber-950/20 border border-amber-800/30 rounded-xl p-4">
+        <p className="text-amber-300 text-xs leading-relaxed">
+          <span className="font-bold">⚡ The % of market cap metric:</span> When a $20M company shows 2.5% of its entire market cap flowing in during a single trading session, that's not retail — that's someone loading a position. These moves can be 20-50%+ within days.
         </p>
       </div>
 
-      {/* Not yet run */}
-      {!loading && results.length === 0 && !error && !lastRun && (
+      {/* Cold state */}
+      {!loading && !lastRun && !error && (
         <div className="text-center py-20 text-slate-500">
           <div className="text-5xl mb-4">🔬</div>
-          <div className="font-semibold text-slate-400 mb-1">Run the scan to find accumulation</div>
-          <div className="text-sm">Scans {scanned || 473}+ small &amp; micro-cap stocks for unusual buy pressure</div>
+          <div className="font-semibold text-slate-400 mb-1">Scan 473+ stocks across all cap sizes</div>
+          <div className="text-sm">Nano · Micro · Small — each ranked by % of market cap flowing in</div>
         </div>
       )}
 
-      {/* Ran but nothing above threshold */}
-      {!loading && lastRun && filtered.length === 0 && !error && (
-        <div className="text-center py-20 text-slate-500">
-          <div className="text-5xl mb-4">🔕</div>
-          <div className="font-semibold text-slate-400 mb-1">No micro-cap accumulation above ${minNet}M right now</div>
-          <div className="text-sm">Try $1M+ threshold, or check back during market hours (9:30 AM – 4 PM ET)</div>
-        </div>
+      {/* Three sections */}
+      {lastRun && data && (
+        <>
+          {/* ── NANO ── */}
+          <Section
+            emoji="💥" title="Nano-cap" subtitle="Under $50M — even $200K inflow can move these stocks fast"
+            color="bg-red-950/20 border border-red-900/40"
+            rows={data.nano}
+            minVal={nanoMin} setMin={setNanoMin}
+            thresholds={[0.05, 0.2, 0.5]}
+            thresholdLabels={["$50K", "$200K", "$500K"]}
+          />
+
+          {/* ── MICRO ── */}
+          <Section
+            emoji="🔬" title="Micro-cap" subtitle="$50M–$300M — under-followed, inefficient, institutional accumulation hides here"
+            color="bg-violet-950/20 border border-violet-900/40"
+            rows={data.micro}
+            minVal={microMin} setMin={setMicroMin}
+            thresholds={[0.2, 0.5, 1]}
+            thresholdLabels={["$200K", "$500K", "$1M"]}
+          />
+
+          {/* ── SMALL ── */}
+          <Section
+            emoji="📊" title="Small-cap" subtitle="$300M–$2B — liquid enough to trade options, volatile enough to move"
+            color="bg-blue-950/20 border border-blue-900/40"
+            rows={data.small}
+            minVal={smallMin} setMin={setSmallMin}
+            thresholds={[2, 5, 10]}
+            thresholdLabels={["$2M", "$5M", "$10M"]}
+          />
+        </>
       )}
-
-      {/* Results */}
-      {filtered.map(row => {
-        const pctIn  = row.total_vol_m > 0 ? (row.inflow_m / row.total_vol_m * 100) : 50;
-        const isSaved = saved[row.ticker];
-        const isStrong = row.flow_ratio >= 1.5;
-        return (
-          <div
-            key={row.ticker}
-            onClick={() => onSelectTicker(row.ticker)}
-            className="bg-slate-900 border border-slate-800 hover:border-slate-600 rounded-xl p-4 cursor-pointer transition-all"
-          >
-            {/* Top row */}
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-slate-500 text-sm font-bold w-8">#{row.rank}</span>
-                <span className="text-white font-black text-xl">{row.ticker}</span>
-                <span className="text-slate-400 text-sm">${row.price.toLocaleString()}</span>
-                {isStrong && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-bold">
-                    🔥 Strong
-                  </span>
-                )}
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-emerald-400 font-black text-lg">+{fmtM(row.net_m)}</div>
-                <div className="text-slate-500 text-xs">net inflow</div>
-              </div>
-            </div>
-
-            {/* Flow bar */}
-            <div className="rounded-full overflow-hidden h-2 bg-red-900/40 mb-3">
-              <div
-                className="h-full bg-emerald-500 rounded-full"
-                style={{ width: `${Math.min(pctIn, 100)}%` }}
-              />
-            </div>
-
-            {/* Stats grid */}
-            <div className="grid grid-cols-3 gap-2 text-center mb-3">
-              <div className="bg-emerald-950/40 rounded-lg p-2">
-                <div className="text-emerald-400 font-bold text-sm">{fmtM(row.inflow_m)}</div>
-                <div className="text-slate-500 text-xs">Inflow</div>
-              </div>
-              <div className="bg-red-950/40 rounded-lg p-2">
-                <div className="text-red-400 font-bold text-sm">{fmtM(row.outflow_m)}</div>
-                <div className="text-slate-500 text-xs">Outflow</div>
-              </div>
-              <div className="bg-slate-800/60 rounded-lg p-2">
-                <div className="text-white font-bold text-sm">{row.flow_ratio.toFixed(2)}x</div>
-                <div className="text-slate-500 text-xs">Buy/Sell</div>
-              </div>
-            </div>
-
-            {/* Save */}
-            <button
-              onClick={e => handleSave(e, row)}
-              className={`w-full py-2 rounded-lg text-xs font-bold transition-all border ${isSaved ? "bg-emerald-900/40 border-emerald-600 text-emerald-300" : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"}`}
-            >
-              {isSaved ? "✓ SAVED TO WATCHLIST" : "📌 Save"}
-            </button>
-          </div>
-        );
-      })}
     </div>
   );
 }
