@@ -671,6 +671,14 @@ export function triggerAITradesRegenerate() {
   return fetchJson<{ status: string; message: string }>("/ai-trades/regenerate", { method: "POST" });
 }
 
+export function checkAITradesSubscription(email: string) {
+  return fetchJson<{ subscribed: boolean; admin?: boolean; error?: string }>("/check-subscription", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
 export interface AIShortCall {
   ticker: string;
   strike: number;

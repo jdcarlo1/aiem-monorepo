@@ -4491,6 +4491,27 @@ def ai_trades():
     })
 
 
+@app.route("/stock-api/check-subscription", methods=["POST"])
+def check_subscription():
+    """Check if an email has an active Pro subscription (or is an admin)."""
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"subscribed": False, "error": "Email required"})
+    ADMIN_EMAILS = {"joeldcarlo@gmail.com"}
+    if email in ADMIN_EMAILS:
+        return jsonify({"subscribed": True, "admin": True})
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT active, paid FROM sm_subscribers WHERE LOWER(email) = %s LIMIT 1", (email,))
+            row = cur.fetchone()
+            if row and row[0] and row[1]:
+                return jsonify({"subscribed": True})
+            return jsonify({"subscribed": False})
+    except Exception as e:
+        return jsonify({"subscribed": False, "error": str(e)})
+
+
 @app.route("/stock-api/ai-trades/regenerate", methods=["POST"])
 def ai_trades_regenerate():
     """Force-refresh AI trade setups in background; returns immediately."""

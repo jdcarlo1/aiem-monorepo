@@ -10,7 +10,7 @@ import {
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchPutIntent,
   fetchVolCrush, fetchCallIntent, fetchSmartVsRetail, fetchMaxPain, fetchGammaWall,
-  fetchAITrades, triggerAITradesRegenerate, fetchAIShortCalls, AIShortCall, fetchSignalFeed, fetchCompositeScore,
+  fetchAITrades, triggerAITradesRegenerate, checkAITradesSubscription, fetchAIShortCalls, AIShortCall, fetchSignalFeed, fetchCompositeScore,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
@@ -3401,8 +3401,11 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [scanned, setScanned]         = useState(0);
   const [expanded, setExpanded]       = useState<number | null>(0);
-  const [isSubscribed]                = useState(false);
-  const [sources, setSources]         = useState<string[]>([]);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subEmail, setSubEmail]         = useState("");
+  const [subChecking, setSubChecking]   = useState(false);
+  const [subErr, setSubErr]             = useState("");
+  const [sources, setSources]           = useState<string[]>([]);
   const [error, setError]             = useState<string | null>(null);
   const [saved, setSaved]             = useState<Record<string, boolean>>({});
   const [warming, setWarming]         = useState(false);
@@ -3485,6 +3488,31 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       await triggerAITradesRegenerate();
       startPolling();
     } catch (e: any) { setError(String(e)); setRefreshing(false); }
+  };
+
+  useEffect(() => {
+    const saved = localStorage.getItem("ait_sub_email");
+    if (saved) {
+      setSubEmail(saved);
+      checkAITradesSubscription(saved)
+        .then(r => { if (r.subscribed) setIsSubscribed(true); })
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleSubCheck = async () => {
+    if (!subEmail.includes("@")) { setSubErr("Enter a valid email"); return; }
+    setSubChecking(true); setSubErr("");
+    try {
+      const r = await checkAITradesSubscription(subEmail.trim());
+      if (r.subscribed) {
+        setIsSubscribed(true);
+        localStorage.setItem("ait_sub_email", subEmail.trim());
+      } else {
+        setSubErr("No active subscription found for that email.");
+      }
+    } catch { setSubErr("Could not verify — try again."); }
+    finally { setSubChecking(false); }
   };
 
   useEffect(() => {
@@ -3639,9 +3667,26 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
                 {/* Paywall overlay for trades 3–5 */}
                 {blurred && isOpen && (
-                  <div className="mx-4 mb-4 rounded-xl p-4 text-center" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)" }}>
+                  <div className="mx-4 mb-4 rounded-xl p-4" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)" }}>
                     <div className="text-yellow-400 font-black text-sm mb-1">🔒 Pro Feature</div>
-                    <div className="text-slate-400 text-xs">All 5 AI trade setups are available with a Pro subscription.</div>
+                    <div className="text-slate-400 text-xs mb-3">Enter your subscriber email to unlock all 5 AI trade setups.</div>
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        value={subEmail}
+                        onChange={e => { setSubEmail(e.target.value); setSubErr(""); }}
+                        onKeyDown={e => e.key === "Enter" && handleSubCheck()}
+                        placeholder="your@email.com"
+                        className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-yellow-500"
+                      />
+                      <button
+                        onClick={handleSubCheck}
+                        disabled={subChecking}
+                        className="px-4 py-2 rounded-lg text-xs font-bold transition-all"
+                        style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", color: "#fbbf24", opacity: subChecking ? 0.6 : 1 }}
+                      >{subChecking ? "Checking…" : "Unlock"}</button>
+                    </div>
+                    {subErr && <div className="text-red-400 text-xs mt-2">{subErr}</div>}
                   </div>
                 )}
               </div>
