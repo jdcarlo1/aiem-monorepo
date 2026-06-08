@@ -18,6 +18,7 @@ import {
   VolCrushRow, CallIntentRow, SmartVsRetailRow, MaxPainRow, GammaWallRow, GammaStrike,
   AITradeSetup, SignalEvent, CompositeScoreRow,
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
+  fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
@@ -6243,6 +6244,181 @@ function WhaleLogTab() {
 
 
 // ---- Signal Outcome Tracker Tab ------------------------------------------
+function ShortCallRecordTab() {
+  const [data, setData]       = useState<AIShortCallLogResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [dateFilter, setDateFilter] = useState<string>("latest");
+  const [expanded, setExpanded]     = useState<number | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try { setData(await fetchAIShortCallsLog()); }
+    catch (e: any) { setError(e.message ?? "Failed to load"); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const allPicks    = data?.picks ?? [];
+  const uniqueDates = Array.from(new Set(allPicks.map(p => p.trade_date))).sort((a, b) => b.localeCompare(a));
+  const activeDate  = dateFilter === "latest" ? (uniqueDates[0] ?? null) : dateFilter;
+  const picks       = allPicks.filter(p => activeDate === null || p.trade_date === activeDate);
+
+  const pctFmt = (v: number | null) => v === null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
+  const pctColor = (v: number | null) => v === null ? BB_LABEL : v > 0 ? BB_GREEN : BB_RED;
+
+  const outcomeBadge = (o: string) => {
+    if (o === "WIN")  return <span style={{ background: "#002200", color: BB_GREEN, fontSize: 9, fontWeight: 700, padding: "2px 7px", border: "1px solid #22c55e44" }}>WIN</span>;
+    if (o === "LOSS") return <span style={{ background: "#220000", color: BB_RED,   fontSize: 9, fontWeight: 700, padding: "2px 7px", border: "1px solid #ef444444" }}>LOSS</span>;
+    return <span style={{ color: BB_LABEL, fontSize: 9, fontWeight: 700, padding: "2px 7px", border: `1px solid ${BB_BORDER}` }}>OPEN</span>;
+  };
+
+  const statBox = (label: string, val: string | null, accent?: string) => (
+    <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "12px 16px", minWidth: 110, flex: 1 }}>
+      <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 4 }}>{label}</div>
+      <div style={{ color: accent ?? BB_WHITE, fontSize: 22, fontWeight: 900, fontFamily: BB_FONT }}>{val ?? "—"}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.15em" }}>⚡ SHORT CALLS RECORD</div>
+          <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2, letterSpacing: "0.08em" }}>
+            Every daily AI short-call pick logged · WIN = stock closed ≥ breakeven price at expiry
+          </div>
+        </div>
+        <button onClick={load} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
+          {loading ? "LOADING…" : "REFRESH"}
+        </button>
+      </div>
+
+      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
+
+      {/* Aggregate stats */}
+      {data && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          {statBox("TOTAL PICKS", String(data.count))}
+          <div style={{ background: BB_PANEL, border: `2px solid ${data.win_rates.expiry != null && data.win_rates.expiry >= 50 ? "#22c55e" : data.win_rates.expiry != null ? "#ef4444" : BB_BORDER}`, padding: "12px 16px", minWidth: 140, flex: 1 }}>
+            <div style={{ color: BB_LABEL, fontSize: 9, letterSpacing: "0.1em", marginBottom: 4 }}>WIN RATE @ EXPIRY</div>
+            <div style={{ color: data.win_rates.expiry != null && data.win_rates.expiry >= 50 ? BB_GREEN : data.win_rates.expiry != null ? BB_RED : BB_LABEL, fontSize: 26, fontWeight: 900 }}>
+              {data.win_rates.expiry != null ? `${data.win_rates.expiry}%` : "—"}
+            </div>
+            <div style={{ color: BB_LABEL, fontSize: 8, marginTop: 2 }}>BREAKEVEN-BASED · PRIMARY METRIC</div>
+          </div>
+          {statBox("WIN RATE T+1", data.win_rates.t1 != null ? `${data.win_rates.t1}%` : null, data.win_rates.t1 != null && data.win_rates.t1 >= 50 ? BB_GREEN : BB_RED)}
+          {statBox("WIN RATE T+3", data.win_rates.t3 != null ? `${data.win_rates.t3}%` : null, data.win_rates.t3 != null && data.win_rates.t3 >= 50 ? BB_GREEN : BB_RED)}
+          {statBox("WIN RATE T+5", data.win_rates.t5 != null ? `${data.win_rates.t5}%` : null, data.win_rates.t5 != null && data.win_rates.t5 >= 50 ? BB_GREEN : BB_RED)}
+        </div>
+      )}
+
+      {/* Per-day summary bars */}
+      {data && Object.keys(data.by_date).length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 8 }}>DAILY WIN RATE</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {Object.entries(data.by_date).map(([date, s]) => {
+              const resolved = s.wins + s.losses;
+              const rate = resolved > 0 ? Math.round(s.wins / resolved * 100) : null;
+              return (
+                <div key={date} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ color: BB_LABEL, fontSize: 9, width: 88, flexShrink: 0 }}>{date}</div>
+                  <div style={{ flex: 1, background: "#111", height: 14, position: "relative", overflow: "hidden", border: `1px solid ${BB_BORDER}` }}>
+                    {rate !== null && (
+                      <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${rate}%`, background: rate >= 50 ? "#22c55e33" : "#ef444433", borderRight: `2px solid ${rate >= 50 ? BB_GREEN : BB_RED}`, transition: "width 0.4s" }} />
+                    )}
+                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", paddingLeft: 6 }}>
+                      <span style={{ color: rate !== null ? (rate >= 50 ? BB_GREEN : BB_RED) : BB_LABEL, fontSize: 8, fontWeight: 700 }}>
+                        {rate !== null ? `${rate}% (${s.wins}W / ${s.losses}L)` : `${s.open} OPEN`}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ color: BB_LABEL, fontSize: 8, width: 50, textAlign: "right" }}>{s.total} PICKS</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Date filter */}
+      {uniqueDates.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 6 }}>FILTER BY DATE</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {uniqueDates.map(d => (
+              <button key={d} onClick={() => setDateFilter(d)}
+                style={{ background: activeDate === d ? "#22c55e22" : "transparent", border: `1px solid ${activeDate === d ? BB_GREEN : BB_BORDER}`, color: activeDate === d ? BB_GREEN : BB_LABEL, padding: "4px 12px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.08em" }}>
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pick rows */}
+      {loading && <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32 }}>LOADING RECORD…</div>}
+      {!loading && picks.length === 0 && (
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32 }}>
+          No short-call picks logged yet. They auto-save every weekday at 10:15 AM ET when you open the ⚡ AI SHORT CALLS tab.
+        </div>
+      )}
+      {picks.map(p => (
+        <div key={p.id} style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", cursor: "pointer" }}
+               onClick={() => setExpanded(expanded === p.id ? null : p.id)}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <span style={{ color: BB_LABEL, fontSize: 9, width: 16 }}>#{p.rank}</span>
+              <div>
+                <span style={{ color: BB_WHITE, fontWeight: 900, fontSize: 13 }}>{p.ticker}</span>
+                <span style={{ color: BB_LABEL, fontSize: 9, marginLeft: 8 }}>${p.strike}C · {p.expiry}</span>
+              </div>
+              <span style={{ background: p.conviction === "HIGH" ? "rgba(251,191,36,0.15)" : "rgba(34,197,94,0.1)", color: p.conviction === "HIGH" ? "#fbbf24" : "#4ade80", fontSize: 8, fontWeight: 800, padding: "2px 7px" }}>{p.conviction}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {p.breakeven && <span style={{ color: BB_LABEL, fontSize: 9 }}>BE: ${p.breakeven.toFixed(2)}</span>}
+              {outcomeBadge(p.outcome)}
+              <span style={{ color: BB_LABEL, fontSize: 10 }}>▾</span>
+            </div>
+          </div>
+          {expanded === p.id && (
+            <div style={{ padding: "10px 14px", borderTop: `1px solid ${BB_BORDER}`, display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Checkpoints row */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  { label: "ENTRY PRICE", val: p.stock_price ? `$${p.stock_price.toFixed(2)}` : "—", accent: undefined },
+                  { label: "BREAKEVEN", val: p.breakeven ? `$${p.breakeven.toFixed(2)}` : "—", accent: "#fbbf24" },
+                  { label: "T+1", val: pctFmt(p.t1_pct), accent: pctColor(p.t1_pct) },
+                  { label: "T+3", val: pctFmt(p.t3_pct), accent: pctColor(p.t3_pct) },
+                  { label: "T+5", val: pctFmt(p.t5_pct), accent: pctColor(p.t5_pct) },
+                  { label: "@ EXPIRY", val: pctFmt(p.expiry_pct), accent: pctColor(p.expiry_pct) },
+                ].map(({ label, val, accent }) => (
+                  <div key={label} style={{ background: "#0a0a0a", border: `1px solid ${BB_BORDER}`, padding: "8px 12px", minWidth: 70, flex: 1 }}>
+                    <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.08em", marginBottom: 3 }}>{label}</div>
+                    <div style={{ color: accent ?? BB_WHITE, fontSize: 12, fontWeight: 700 }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Signal info */}
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Vol/OI: <span style={{ color: BB_WHITE }}>{p.vol_oi?.toFixed(0)}x</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Premium: <span style={{ color: BB_WHITE }}>${((p.prem ?? 0) / 1e6).toFixed(1)}M</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>OTM: <span style={{ color: BB_WHITE }}>{p.otm_pct > 0 ? "+" : ""}{p.otm_pct?.toFixed(1)}%</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Days out: <span style={{ color: BB_WHITE }}>{p.days_out}d</span></span>
+              </div>
+              {p.thesis && <div style={{ color: "#94a3b8", fontSize: 10, lineHeight: 1.5 }}>{p.thesis}</div>}
+              {p.why_it_stands_out && <div style={{ color: BB_GREEN, fontSize: 9 }}>★ {p.why_it_stands_out}</div>}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
 function TrackRecordTab() {
   const [data, setData]         = useState<AITradeLogResult | null>(null);
   const [loading, setLoading]   = useState(false);
@@ -8543,7 +8719,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -8669,6 +8845,7 @@ export default function Dashboard() {
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
     { id: "mytrades",        label: "📈 MY TRADES" },
     { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
+    { id: "shortcallrecord", label: "📋 SHORT CALLS RECORD" },
     { id: "netflow",         label: "💰 NET FLOW" },
     { id: "micronetflow",    label: "🔬 MICRO NET FLOW" },
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
@@ -9263,6 +9440,7 @@ export default function Dashboard() {
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
         {tab === "mytrades"        && <MyTradesTab />}
         {tab === "aishortcalls"    && <AIShortCallsTab />}
+        {tab === "shortcallrecord" && <ShortCallRecordTab />}
         {tab === "netflow"         && <NetFlowTab onSelectTicker={selectTicker} />}
         {tab === "micronetflow"    && <NetFlowMicrocapTab onSelectTicker={selectTicker} />}
         {tab === "midnetflow"      && <NetFlowMidcapTab  onSelectTicker={selectTicker} />}

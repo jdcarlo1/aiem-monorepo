@@ -698,6 +698,40 @@ export function fetchAIShortCalls() {
   return fetchJson<{ picks: AIShortCall[]; generated_at: string | null; signals_evaluated: number; error?: string }>("/ai-short-calls");
 }
 
+export interface AIShortCallLogEntry {
+  id: number;
+  trade_date: string;
+  rank: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  days_out: number;
+  vol_oi: number;
+  prem: number;
+  stock_price: number;
+  otm_pct: number;
+  breakeven: number | null;
+  conviction: string;
+  urgency: string;
+  thesis: string;
+  why_it_stands_out: string;
+  outcome: "WIN" | "LOSS" | "OPEN";
+  t1_price: number | null; t3_price: number | null; t5_price: number | null;
+  t1_pct: number | null;   t3_pct: number | null;   t5_pct: number | null;
+  t1_win: boolean | null;  t3_win: boolean | null;  t5_win: boolean | null;
+  expiry_price: number | null; expiry_pct: number | null; expiry_win: boolean | null;
+  created_at: string;
+}
+export interface AIShortCallLogResult {
+  picks: AIShortCallLogEntry[];
+  count: number;
+  win_rates: { expiry: number | null; t1: number | null; t3: number | null; t5: number | null };
+  by_date: Record<string, { total: number; wins: number; losses: number; open: number }>;
+}
+export function fetchAIShortCallsLog() {
+  return fetchJson<AIShortCallLogResult>("/ai-short-calls-log");
+}
+
 export interface SignalEvent {
   ticker: string; price: number; type: string;
   icon: string; color: string; msg: string;

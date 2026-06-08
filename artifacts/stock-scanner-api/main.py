@@ -184,8 +184,47 @@ try:
         id="ai_trades_auto",
         replace_existing=True,
     )
+    # AI Short Calls auto-generation: Mon-Fri 10:15 AM ET — after scanner caches warm
+    def _run_ai_short_calls_auto():
+        try:
+            import threading as _thr2
+            from datetime import datetime as _dt2
+            def _worker():
+                try:
+                    with app.app_context() if hasattr(app, "app_context") else __import__("contextlib").nullcontext():
+                        resp = ai_short_calls()
+                        data = resp.get_json() if hasattr(resp, "get_json") else {}
+                        picks = data.get("picks", [])
+                        if picks:
+                            _save_ai_short_calls_to_log(picks, str(_dt2.now().date()))
+                            print(f"[scheduler] AI short calls saved {len(picks)} picks")
+                        else:
+                            print("[scheduler] AI short calls: no picks returned")
+                except Exception as _we:
+                    print(f"[scheduler] AI short calls worker error: {_we}")
+            _thr2.Thread(target=_worker, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] AI short calls auto error: {e}")
+    _scheduler.add_job(
+        _run_ai_short_calls_auto,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=15, timezone=_ET),
+        id="ai_short_calls_auto",
+        replace_existing=True,
+    )
+    # AI Short Calls outcomes: Mon-Fri 4:32 PM ET — alongside AI trade outcomes
+    def _run_sc_outcomes():
+        try:
+            _update_ai_short_call_outcomes()
+        except Exception as e:
+            print(f"[scheduler] short call outcomes error: {e}")
+    _scheduler.add_job(
+        _run_sc_outcomes,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=32, timezone=_ET),
+        id="sc_outcomes_update",
+        replace_existing=True,
+    )
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min + AI trades at 10:00 AM")
+    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min + AI trades at 10:00 AM + AI short calls at 10:15 AM")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
@@ -812,6 +851,181 @@ def _update_ai_trade_outcomes():
 
 
 _init_ai_trade_log_table()
+
+
+# ── AI SHORT CALLS LOG ──────────────────────────────────────────────────────
+
+def _init_ai_short_calls_log_table():
+    """Create ai_short_calls_log table for daily short-call pick history."""
+    sql = """
+    CREATE TABLE IF NOT EXISTS ai_short_calls_log (
+        id                SERIAL PRIMARY KEY,
+        trade_date        DATE NOT NULL,
+        rank              INT,
+        ticker            TEXT NOT NULL,
+        strike            FLOAT,
+        expiry            TEXT,
+        days_out          INT,
+        vol_oi            FLOAT,
+        prem              BIGINT,
+        stock_price       FLOAT,
+        otm_pct           FLOAT,
+        breakeven         FLOAT,
+        conviction        TEXT,
+        urgency           TEXT,
+        thesis            TEXT,
+        why_it_stands_out TEXT,
+        outcome           TEXT NOT NULL DEFAULT 'OPEN',
+        t1_price          FLOAT,
+        t3_price          FLOAT,
+        t5_price          FLOAT,
+        t1_pct            FLOAT,
+        t3_pct            FLOAT,
+        t5_pct            FLOAT,
+        t1_win            BOOL,
+        t3_win            BOOL,
+        t5_win            BOOL,
+        expiry_price      FLOAT,
+        expiry_pct        FLOAT,
+        expiry_win        BOOL,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(trade_date, ticker, strike, expiry)
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[ai_short_calls_log] init error: {e}")
+
+
+def _save_ai_short_calls_to_log(picks: list, trade_date: str):
+    """Persist today's AI short-call picks. Skips rows already logged."""
+    if not picks:
+        return
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            for i, p in enumerate(picks):
+                cur.execute("""
+                    INSERT INTO ai_short_calls_log
+                        (trade_date, rank, ticker, strike, expiry, days_out, vol_oi,
+                         prem, stock_price, otm_pct, breakeven, conviction, urgency,
+                         thesis, why_it_stands_out)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (trade_date, ticker, strike, expiry) DO NOTHING
+                """, (
+                    trade_date,
+                    i + 1,
+                    p.get("ticker"),
+                    p.get("strike"),
+                    p.get("expiry"),
+                    p.get("days_out"),
+                    p.get("vol_oi"),
+                    int(p.get("prem") or 0),
+                    p.get("stock_price"),
+                    p.get("otm_pct"),
+                    p.get("breakeven"),
+                    p.get("conviction"),
+                    p.get("urgency"),
+                    p.get("thesis"),
+                    p.get("why_it_stands_out"),
+                ))
+            conn.commit()
+        print(f"[ai_short_calls_log] saved {len(picks)} picks for {trade_date}")
+    except Exception as e:
+        print(f"[ai_short_calls_log] save error: {e}")
+
+
+def _update_ai_short_call_outcomes():
+    """Fetch closing prices for open short-call log entries and mark win/loss."""
+    import yfinance as _yf
+    from datetime import date as _date3, timedelta as _td3
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ticker, trade_date, stock_price, strike, breakeven, expiry,
+                       t1_price, t3_price, t5_price, expiry_price
+                FROM ai_short_calls_log
+                WHERE outcome = 'OPEN'
+                ORDER BY trade_date DESC
+                LIMIT 100
+            """)
+            rows = cur.fetchall()
+            if not rows:
+                return
+            today = _date3.today()
+
+            def _fetch_close(ticker, target_dt):
+                try:
+                    hist = _yf.Ticker(ticker).history(
+                        start=str(target_dt),
+                        end=str(target_dt + _td3(days=7))
+                    )["Close"]
+                    return float(hist.iloc[0]) if not hist.empty else None
+                except Exception:
+                    return None
+
+            def _scwin(close, p0, bkeven):
+                """WIN = stock closed above breakeven. Fallback: up >=2%."""
+                if close is None or p0 is None:
+                    return None
+                if bkeven and bkeven > 0:
+                    return close >= bkeven
+                return (close - p0) / p0 * 100 >= 2.0
+
+            for row in rows:
+                id_, ticker, trade_date, p0, strike, bkeven, expiry_str, t1p, t3p, t5p, exp_p = row
+                updates = {}
+
+                # Expiry outcome
+                exp_date = _parse_expiry_date(expiry_str, trade_date)
+                if exp_date and exp_date <= today and exp_p is None:
+                    close = _fetch_close(ticker, exp_date)
+                    if close is not None and p0:
+                        pct = round((close - p0) / p0 * 100, 2)
+                        updates["expiry_price"] = close
+                        updates["expiry_pct"]   = pct
+                        updates["expiry_win"]   = _scwin(close, p0, bkeven)
+
+                # T+1, T+3, T+5
+                for n, col_p, col_pct, col_win, existing in [
+                    (1, "t1_price", "t1_pct", "t1_win", t1p),
+                    (3, "t3_price", "t3_pct", "t3_win", t3p),
+                    (5, "t5_price", "t5_pct", "t5_win", t5p),
+                ]:
+                    if existing is not None:
+                        continue
+                    target_dt = trade_date + _td3(days=n)
+                    if target_dt > today:
+                        continue
+                    close = _fetch_close(ticker, target_dt)
+                    if close is not None and p0:
+                        pct = round((close - p0) / p0 * 100, 2)
+                        updates[col_p]   = close
+                        updates[col_pct] = pct
+                        updates[col_win] = _scwin(close, p0, bkeven)
+
+                if updates:
+                    exp_win_val = updates.get("expiry_win")
+                    t5_pct_val  = updates.get("t5_pct")
+                    t5_close    = updates.get("t5_price")
+                    outcome = "OPEN"
+                    if exp_win_val is not None:
+                        outcome = "WIN" if exp_win_val else "LOSS"
+                    elif t5_pct_val is not None:
+                        outcome = "WIN" if _scwin(t5_close, p0, bkeven) else "LOSS"
+                    updates["outcome"] = outcome
+                    set_sql = ", ".join(f"{k} = %s" for k in updates)
+                    cur.execute(f"UPDATE ai_short_calls_log SET {set_sql} WHERE id = %s",
+                                list(updates.values()) + [id_])
+            conn.commit()
+        print(f"[ai_short_calls_log] outcomes updated for {len(rows)} entries")
+    except Exception as e:
+        print(f"[ai_short_calls_log] update_outcomes error: {e}")
+
+
+_init_ai_short_calls_log_table()
 
 
 def _init_signal_history_table():
@@ -5448,11 +5662,90 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         }
         app._aisc_cache    = out
         app._aisc_cache_ts = _dt.now()
+        # Persist to daily log (skips if already saved today)
+        try:
+            import threading as _scl_thr
+            _today_str = _dt.now().strftime("%Y-%m-%d")
+            _scl_thr.Thread(
+                target=_save_ai_short_calls_to_log,
+                args=(picks, _today_str),
+                daemon=True,
+            ).start()
+        except Exception as _sle:
+            print(f"[ai_short_calls] log save error: {_sle}", file=sys.stderr)
         return jsonify(out)
     except Exception as e:
         import traceback
         print(f"[ai_short_calls] error: {e}\n{traceback.format_exc()}", file=sys.stderr, flush=True)
         return jsonify({"error": str(e), "picks": []}), 500
+
+
+@app.route("/stock-api/ai-short-calls-log", methods=["GET"])
+def ai_short_calls_log():
+    """Return full AI short-calls history with daily win rates (breakeven-based)."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, trade_date, rank, ticker, strike, expiry, days_out,
+                       vol_oi, prem, stock_price, otm_pct, breakeven,
+                       conviction, urgency, thesis, why_it_stands_out, outcome,
+                       t1_price, t3_price, t5_price,
+                       t1_pct, t3_pct, t5_pct,
+                       t1_win, t3_win, t5_win,
+                       expiry_price, expiry_pct, expiry_win,
+                       created_at
+                FROM ai_short_calls_log
+                ORDER BY trade_date DESC, rank ASC
+            """)
+            rows = cur.fetchall()
+            cols = ["id","trade_date","rank","ticker","strike","expiry","days_out",
+                    "vol_oi","prem","stock_price","otm_pct","breakeven",
+                    "conviction","urgency","thesis","why_it_stands_out","outcome",
+                    "t1_price","t3_price","t5_price",
+                    "t1_pct","t3_pct","t5_pct",
+                    "t1_win","t3_win","t5_win",
+                    "expiry_price","expiry_pct","expiry_win",
+                    "created_at"]
+            picks = []
+            for row in rows:
+                d = dict(zip(cols, row))
+                d["trade_date"] = str(d["trade_date"]) if d["trade_date"] else None
+                d["created_at"] = d["created_at"].isoformat() if d["created_at"] else None
+                picks.append(d)
+
+            def _wr(key):
+                vals = [p[key] for p in picks if p[key] is not None]
+                if not vals: return None
+                return round(sum(1 for v in vals if v) / len(vals) * 100, 1)
+
+            win_rates = {
+                "expiry": _wr("expiry_win"),
+                "t1": _wr("t1_win"),
+                "t3": _wr("t3_win"),
+                "t5": _wr("t5_win"),
+            }
+
+            # Per-day stats
+            from collections import defaultdict as _dd
+            by_date = _dd(lambda: {"total": 0, "wins": 0, "losses": 0, "open": 0})
+            for p in picks:
+                d = p["trade_date"]
+                by_date[d]["total"] += 1
+                if p["outcome"] == "WIN":   by_date[d]["wins"]   += 1
+                elif p["outcome"] == "LOSS": by_date[d]["losses"] += 1
+                else:                        by_date[d]["open"]   += 1
+            day_stats = {d: dict(v) for d, v in sorted(by_date.items(), reverse=True)}
+
+            return jsonify({
+                "picks": picks,
+                "count": len(picks),
+                "win_rates": win_rates,
+                "by_date": day_stats,
+            })
+    except Exception as e:
+        return jsonify({"error": str(e), "picks": [], "count": 0,
+                        "win_rates": {"expiry": None, "t1": None, "t3": None, "t5": None},
+                        "by_date": {}}), 500
 
 
 @app.route("/stock-api/multi-signal", methods=["GET"])
