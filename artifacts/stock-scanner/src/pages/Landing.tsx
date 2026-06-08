@@ -113,6 +113,42 @@ export default function Landing() {
         </div>
       </div>
 
+      {/* ── BLURRED SIGNAL PREVIEW ── */}
+      <div style={{ position: "relative", background: "rgba(6,12,20,0.97)", borderBottom: "1px solid rgba(34,197,94,0.12)", padding: "0" }}>
+        {/* Blurred cards */}
+        <div style={{ filter: "blur(5px)", userSelect: "none", pointerEvents: "none", padding: "14px 16px", display: "flex", gap: 10, overflowX: "hidden" }}>
+          {[
+            { ticker: "NVDA", dir: "BULLISH", setup: "BREAKOUT CONTINUATION", strike: "$142C", expiry: "Jul 18", prem: "$11.4M", conv: "HIGH" },
+            { ticker: "META", dir: "BULLISH", setup: "DARK POOL ACCUMULATION", strike: "$660C", expiry: "Jul 11", prem: "$8.7M", conv: "HIGH" },
+            { ticker: "AAPL", dir: "BULLISH", setup: "GAMMA WALL SQUEEZE",    strike: "$220C", expiry: "Jul 18", prem: "$6.2M", conv: "MED"  },
+            { ticker: "TSLA", dir: "BULLISH", setup: "SMART MONEY DIVERGENCE", strike: "$290C", expiry: "Jul 25", prem: "$9.1M", conv: "HIGH" },
+          ].map(t => (
+            <div key={t.ticker} style={{ minWidth: 200, flex: "0 0 200px", background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 12, padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ color: "#fff", fontWeight: 900, fontSize: 18 }}>{t.ticker}</span>
+                <span style={{ background: t.conv === "HIGH" ? "rgba(251,191,36,0.15)" : "rgba(34,197,94,0.1)", color: t.conv === "HIGH" ? "#fbbf24" : "#4ade80", fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 4 }}>{t.conv}</span>
+              </div>
+              <div style={{ color: "#4ade80", fontSize: 10, fontWeight: 700, marginBottom: 4 }}>{t.dir} · {t.setup}</div>
+              <div style={{ color: "#64748b", fontSize: 10 }}>Strike {t.strike} · {t.expiry}</div>
+              <div style={{ color: "#94a3b8", fontSize: 11, fontWeight: 700, marginTop: 6 }}>{t.prem} premium</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Overlay */}
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "linear-gradient(to right, rgba(6,12,20,0.55), rgba(6,12,20,0.3), rgba(6,12,20,0.55))", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 16 }}>🔒</span>
+            <span style={{ color: "#fff", fontWeight: 800, fontSize: 13, letterSpacing: "-0.01em" }}>Today's AI trade setups — live right now</span>
+          </div>
+          <button
+            onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+            style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", fontWeight: 900, fontSize: 13, padding: "10px 28px", borderRadius: 999, border: "none", cursor: "pointer", boxShadow: "0 8px 32px rgba(34,197,94,0.45)", letterSpacing: "-0.01em" }}>
+            Subscribe to see →
+          </button>
+        </div>
+      </div>
+
       {/* ── HERO ── */}
       <div className="relative text-center overflow-hidden" style={{ padding: "100px 24px 80px" }}>
         <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "900px", height: "600px", background: "radial-gradient(ellipse at 50% 0%, rgba(34,197,94,0.18) 0%, transparent 70%)", pointerEvents: "none" }} />
