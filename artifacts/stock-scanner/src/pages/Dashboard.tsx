@@ -10,7 +10,7 @@ import {
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchPutIntent,
   fetchVolCrush, fetchCallIntent, fetchSmartVsRetail, fetchMaxPain, fetchGammaWall,
-  fetchAITrades, fetchAIShortCalls, AIShortCall, fetchSignalFeed, fetchCompositeScore,
+  fetchAITrades, triggerAITradesRegenerate, fetchAIShortCalls, AIShortCall, fetchSignalFeed, fetchCompositeScore,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
@@ -3397,6 +3397,7 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [trades, setTrades]           = useState<AITradeSetup[]>([]);
   const [loading, setLoading]         = useState(false);
+  const [refreshing, setRefreshing]   = useState(false);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [scanned, setScanned]         = useState(0);
   const [expanded, setExpanded]       = useState<number | null>(0);
@@ -3404,6 +3405,15 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [sources, setSources]         = useState<string[]>([]);
   const [error, setError]             = useState<string | null>(null);
   const [saved, setSaved]             = useState<Record<string, boolean>>({});
+  const [warming, setWarming]         = useState(false);
+  const [warmCountdown, setWarmCountdown] = useState(0);
+  const pollRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = () => {
+    if (pollRef.current)  { clearInterval(pollRef.current);  pollRef.current  = null; }
+    if (countRef.current) { clearInterval(countRef.current); countRef.current = null; }
+  };
 
   const handleSave = async (e: React.MouseEvent, t: AITradeSetup) => {
     e.stopPropagation();
@@ -3414,49 +3424,66 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
     } catch { /* silent */ }
   };
 
-  const [warming, setWarming]         = useState(false);
-  const [warmCountdown, setWarmCountdown] = useState(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const countTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const applyData = (d: Awaited<ReturnType<typeof fetchAITrades>>) => {
+    if ((d.trades || []).length > 0) {
+      setTrades(d.trades!);
+      setGeneratedAt(d.generated_at ?? null);
+      setScanned(d.tickers_scanned ?? 0);
+      setSources(d.signal_sources ?? []);
+      setWarming(false);
+      setRefreshing(false);
+      setLoading(false);
+      stopPolling();
+    } else if (d.refreshing) {
+      setRefreshing(true);
+    } else if (d.loading || d.warming) {
+      setWarming(true);
+    }
+    if (d.error && (d.trades ?? []).length === 0) setError(d.error);
+  };
 
-  const run = async (silent = false) => {
-    if (!silent) setLoading(true);
+  const startPolling = () => {
+    stopPolling();
+    let secs = 40;
+    setWarmCountdown(secs);
+    countRef.current = setInterval(() => {
+      secs = Math.max(0, secs - 1);
+      setWarmCountdown(secs);
+    }, 1000);
+    pollRef.current = setInterval(async () => {
+      try {
+        const d = await fetchAITrades();
+        applyData(d);
+        if ((d.trades ?? []).length > 0) stopPolling();
+      } catch { /* keep polling */ }
+    }, 5000);
+  };
+
+  const run = async () => {
+    setLoading(true);
     setError(null);
     try {
       const d = await fetchAITrades();
-      if (d.warming) {
-        setWarming(true);
-        setTrades([]);
-        // Start a 40s countdown then auto-retry
-        let secs = 40;
-        setWarmCountdown(secs);
-        if (countTimerRef.current) clearInterval(countTimerRef.current);
-        countTimerRef.current = setInterval(() => {
-          secs -= 1;
-          setWarmCountdown(secs);
-          if (secs <= 0) { clearInterval(countTimerRef.current!); }
-        }, 1000);
-        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = setTimeout(() => { setWarming(false); run(); }, 41000);
-        return;
+      applyData(d);
+      if ((d.trades ?? []).length === 0 && (d.loading || d.warming || d.refreshing)) {
+        startPolling();
       }
-      setWarming(false);
-      if (countTimerRef.current) clearInterval(countTimerRef.current);
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      if (d.error) { setError(d.error); setTrades([]); return; }
-      setTrades(d.trades || []);
-      setGeneratedAt(d.generated_at);
-      setScanned(d.tickers_scanned);
-      setSources(d.signal_sources || []);
-    } catch (e: any) { setError(String(e)); } finally { if (!silent) setLoading(false); }
+    } catch (e: any) { setError(String(e)); setLoading(false); }
+  };
+
+  const handleRegenerate = async () => {
+    setError(null);
+    setRefreshing(true);
+    setWarmCountdown(40);
+    try {
+      await triggerAITradesRegenerate();
+      startPolling();
+    } catch (e: any) { setError(String(e)); setRefreshing(false); }
   };
 
   useEffect(() => {
     run();
-    return () => {
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      if (countTimerRef.current) clearInterval(countTimerRef.current);
-    };
+    return () => stopPolling();
   }, []);
 
   const dColor = (d: string) => d === "BULLISH" ? "#4ade80" : d === "BEARISH" ? "#f87171" : "#fbbf24";
@@ -3479,7 +3506,8 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         </div>
         <div className="flex items-center gap-3">
           {generatedAt && <span className="text-slate-600 text-xs hidden sm:block">{scanned} tickers · {sources.length} signal sources · {new Date(generatedAt).toLocaleTimeString()}</span>}
-          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>{loading ? "Analyzing…" : "↻ Regenerate"}</button>
+          {(warming || refreshing) && <span className="text-xs text-amber-400 animate-pulse">⚙ Generating… {warmCountdown}s</span>}
+          <button onClick={handleRegenerate} disabled={warming || refreshing} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24", opacity: (warming || refreshing) ? 0.5 : 1 }}>{(warming || refreshing) ? "Generating…" : "↻ Regenerate"}</button>
         </div>
       </div>
 
@@ -3495,23 +3523,29 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       <p className="text-xs text-slate-600 mb-5 italic">Not financial advice. Always do your own research. AI analysis is based on public options data and synthesized by OpenAI.</p>
 
       {/* Warming / first-load state */}
-      {warming && (
+      {(warming && trades.length === 0) && (
         <div className="rounded-xl p-5 mb-4" style={{ background: "rgba(74,222,128,0.04)", border: "1px solid rgba(74,222,128,0.18)" }}>
           <div className="flex items-center gap-3 mb-3">
             <div className="text-2xl animate-spin" style={{ animationDuration: "3s" }}>⚙️</div>
             <div>
-              <div className="text-white font-bold text-sm">Collecting live signals across all tabs…</div>
-              <div className="text-slate-400 text-xs mt-0.5">Vol Crush · Call Intent · Smart vs Retail · Max Pain · Gamma Wall · Dark Pool</div>
+              <div className="text-white font-bold text-sm">AI is analyzing 40 signals in the background…</div>
+              <div className="text-slate-400 text-xs mt-0.5">Vol Crush · Call Intent · Smart vs Retail · Max Pain · Gamma Wall · Dark Pool · Macro</div>
             </div>
           </div>
-          {/* Progress bar */}
           <div className="rounded-full overflow-hidden mb-2" style={{ height: 4, background: "rgba(255,255,255,0.06)" }}>
             <div className="h-full rounded-full transition-all" style={{ background: "linear-gradient(90deg,#16a34a,#22c55e)", width: `${Math.max(5, Math.round((40 - warmCountdown) / 40 * 100))}%` }} />
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-500 text-xs">Auto-generating in {warmCountdown}s…</span>
-            <button onClick={() => { setWarming(false); run(); }} className="text-xs font-bold transition-colors px-3 py-1 rounded-lg" style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)" }}>Try now →</button>
+            <span className="text-slate-500 text-xs">Auto-refreshing every 5s… ({warmCountdown}s remaining est.)</span>
           </div>
+        </div>
+      )}
+
+      {/* Refreshing banner shown above existing results */}
+      {refreshing && trades.length > 0 && (
+        <div className="rounded-lg px-4 py-2 mb-3 flex items-center gap-2 text-xs" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.18)", color: "#fbbf24" }}>
+          <span className="animate-spin" style={{ animationDuration: "2s" }}>⚙</span>
+          AI is regenerating setups in the background — results will update automatically.
         </div>
       )}
 

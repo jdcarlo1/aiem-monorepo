@@ -665,7 +665,12 @@ export interface AITradeSetup {
   thesis: string; risk_level: "LOW" | "MEDIUM" | "HIGH";
 }
 export function fetchAITrades() {
-  return fetchJson<{ trades: AITradeSetup[]; generated_at: string; tickers_scanned: number; signal_sources?: string[]; warming?: boolean; error?: string }>("/ai-trades");
+  return fetchJson<{ trades: AITradeSetup[]; generated_at?: string; tickers_scanned?: number; signal_sources?: string[]; warming?: boolean; loading?: boolean; refreshing?: boolean; error?: string }>("/ai-trades");
+}
+export async function triggerAITradesRegenerate() {
+  const base = (import.meta as any).env?.BASE_URL ?? "/stock-scanner/";
+  const res = await fetch(`${base}stock-api/ai-trades/regenerate`, { method: "POST" });
+  return res.json();
 }
 
 export interface AIShortCall {

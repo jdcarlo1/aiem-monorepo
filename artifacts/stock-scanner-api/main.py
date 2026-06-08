@@ -3574,25 +3574,27 @@ def gamma_wall():
     return jsonify(out)
 
 
-@app.route("/stock-api/ai-trades", methods=["GET"])
-def ai_trades():
-    """Generate 5 AI trade setups by reading ALL cached tab signals — no re-fetching."""
+def _ai_trades_worker():
+    """Background worker: generate AI trade setups and store in app._ait_cache."""
+    import sys
     from datetime import datetime as _dt
     from openai import OpenAI
 
-    _cache = getattr(app, "_ait_cache", None)
-    _ts    = getattr(app, "_ait_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
-        return jsonify(_cache)
+    if getattr(app, "_ait_generating", False):
+        return
+    app._ait_generating = True
+    print("[ai_trades_bg] starting generation…", file=sys.stderr, flush=True)
 
     try:
         oai = OpenAI(
             base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
             api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-            timeout=45.0,
+            timeout=90.0,
         )
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[ai_trades_bg] OpenAI init error: {e}", file=sys.stderr, flush=True)
+        app._ait_generating = False
+        return
 
     tickers_data = {}
 
@@ -4037,13 +4039,10 @@ def ai_trades():
         already_warming = getattr(app, "_cache_warming", False)
         if not already_warming:
             _start_cache_warming()
-        return jsonify({
-            "warming": True,
-            "error": "Collecting live signals from all tabs — first load takes ~35 seconds. Click ↻ Regenerate shortly.",
-            "trades": [],
-            "tickers_scanned": len(rich),
-            "signal_sources": active_sources
-        })
+        import sys
+        print(f"[ai_trades_bg] not enough signals ({len(active_sources)} sources, {len(rich)} tickers) — aborting", file=sys.stderr)
+        app._ait_generating = False
+        return  # background worker exits; HTTP handler will return loading state
 
     # Sort by composite score descending, fall back to alphabetical
     sorted_tickers = sorted(rich.values(), key=lambda x: x.get("composite_score", 50), reverse=True)
@@ -4408,11 +4407,9 @@ JSON array only. No markdown. Start immediately with ["""
             raw = _extract_json(raw)
 
         if not raw:
-            return jsonify({
-                "error": f"OpenAI returned no content (finish={finish}). Please hit Regenerate.",
-                "trades": [],
-                "signal_sources": active_sources,
-            }), 500
+            import sys
+            print(f"[ai_trades_bg] OpenAI returned no content (finish={finish}) — aborting", file=sys.stderr)
+            return  # background worker exits; stale cache stays; user can retry
 
         try:
             trades = _json.loads(raw)
@@ -4448,17 +4445,54 @@ JSON array only. No markdown. Start immediately with ["""
         }
         app._ait_cache = out
         app._ait_cache_ts = _dt.now()
-        # Persist to track record log (once per day; duplicates silently skipped)
+        import sys
+        print(f"[ai_trades_bg] done — {len(trades)} setups cached", file=sys.stderr, flush=True)
         try:
             from datetime import date as _date_now
             _save_ai_trades_to_log(trades, str(_date_now.today()))
         except Exception as _se:
             print(f"[ai_trade_log] background save error: {_se}")
-        return jsonify(out)
     except Exception as e:
         import sys
-        print(f"[ai_trades] exception: {e}", file=sys.stderr, flush=True)
-        return jsonify({"error": str(e), "raw": locals().get("raw", ""), "trades": []}), 500
+        print(f"[ai_trades_bg] exception: {e}", file=sys.stderr, flush=True)
+    finally:
+        app._ait_generating = False
+
+
+@app.route("/stock-api/ai-trades", methods=["GET"])
+def ai_trades():
+    """Return AI trade setups instantly from cache; regenerates in background."""
+    from datetime import datetime as _dt
+    import threading as _thr
+
+    _cache = getattr(app, "_ait_cache", None)
+    _ts    = getattr(app, "_ait_cache_ts", None)
+    _gen   = getattr(app, "_ait_generating", False)
+    _stale = not (_ts and (_dt.now() - _ts).total_seconds() < 3600)
+
+    if _stale and not _gen:
+        _thr.Thread(target=_ai_trades_worker, daemon=True).start()
+
+    if _cache:
+        return jsonify({**_cache, **({"refreshing": True} if _stale else {})})
+
+    return jsonify({
+        "loading": True,
+        "trades": [],
+        "tickers_scanned": 0,
+        "signal_sources": [],
+        "error": "AI is analyzing all 40 signals — takes ~30 sec on first load. Tap Regenerate then wait a moment.",
+    })
+
+
+@app.route("/stock-api/ai-trades/regenerate", methods=["POST"])
+def ai_trades_regenerate():
+    """Force-refresh AI trade setups in background; returns immediately."""
+    import threading as _thr
+    app._ait_cache_ts = None
+    if not getattr(app, "_ait_generating", False):
+        _thr.Thread(target=_ai_trades_worker, daemon=True).start()
+    return jsonify({"status": "generating", "message": "AI generation started."})
 
 
 @app.route("/stock-api/signal-feed", methods=["GET"])
