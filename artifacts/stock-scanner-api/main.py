@@ -5306,6 +5306,188 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         return jsonify({"error": str(e), "picks": []}), 500
 
 
+@app.route("/stock-api/squeeze-setup", methods=["GET"])
+def squeeze_setup():
+    """High-conviction short squeeze + low-float breakout scanner."""
+    import yfinance as yf
+    from datetime import datetime as _sq_dt
+
+    _cache = getattr(app, "_sq_cache", None)
+    _ts    = getattr(app, "_sq_cache_ts", None)
+    if _cache and _ts and (_sq_dt.now() - _ts).total_seconds() < 900:
+        return jsonify(_cache)
+
+    results = []
+
+    def _scan_sq(ticker):
+        try:
+            tkr  = yf.Ticker(ticker)
+            fi   = tkr.fast_info
+            info = tkr.info
+
+            price = float(getattr(fi, "last_price", 0) or 0)
+            if price <= 0:
+                return None
+
+            sfp     = float(info.get("shortPercentOfFloat", 0) or 0) * 100
+            dtc     = float(info.get("shortRatio",          0) or 0)
+            float_sh = float(info.get("floatShares",        0) or 0)
+            mkt_cap  = float(info.get("marketCap",          0) or 0) or float(getattr(fi, "market_cap", 0) or 0)
+            mkt_cap_b = round(mkt_cap / 1e9, 2) if mkt_cap else None
+
+            avg_vol   = float(getattr(fi, "three_month_average_volume", 1) or 1)
+            today_vol = float(getattr(fi, "last_volume", 0) or 0)
+            rel_vol   = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
+
+            vol_pct_float = round(today_vol / float_sh * 100, 2) if float_sh > 0 else None
+            float_m       = round(float_sh / 1e6, 2) if float_sh > 0 else None
+
+            is_squeeze   = sfp >= 15 and dtc >= 5
+            is_low_float = float_m is not None and float_m <= 20 and (vol_pct_float or 0) >= 8
+
+            if not is_squeeze and not is_low_float:
+                return None
+
+            signal_type = "BOTH" if (is_squeeze and is_low_float) else ("SQUEEZE" if is_squeeze else "LOW_FLOAT")
+            sq_comp  = min(sfp * dtc, 200)      if is_squeeze   else 0
+            lf_comp  = min((vol_pct_float or 0) * rel_vol * 5, 200) if is_low_float else 0
+            score    = round(sq_comp + lf_comp, 1)
+
+            return {
+                "ticker":          ticker,
+                "price":           round(price, 2),
+                "signal_type":     signal_type,
+                "short_float_pct": round(sfp, 1),
+                "days_to_cover":   round(dtc, 1),
+                "float_m":         float_m,
+                "vol_pct_float":   vol_pct_float,
+                "rel_vol":         rel_vol,
+                "mkt_cap_b":       mkt_cap_b,
+                "score":           score,
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        futures = {ex.submit(_scan_sq, t): t for t in DEFAULT_LEADERBOARD}
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r:
+                results.append(r)
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    out = {"setups": results[:40], "total": len(results), "scanned": len(DEFAULT_LEADERBOARD)}
+    app._sq_cache    = out
+    app._sq_cache_ts = _sq_dt.now()
+    return jsonify(out)
+
+
+@app.route("/stock-api/squeeze-setup/ai-signal", methods=["POST"])
+def squeeze_ai_signal():
+    """AI conviction analysis for squeeze + low-float setups with optional Twilio SMS."""
+    import os, json, re, sys
+    from openai import OpenAI
+
+    body = request.get_json(silent=True) or {}
+    rows = body.get("rows", [])
+    if not rows:
+        return jsonify({"error": "No setup data provided"}), 400
+
+    rows = sorted(rows, key=lambda r: -r.get("score", 0))[:20]
+
+    lines = []
+    for r in rows:
+        parts = [
+            f"ticker={r['ticker']}",
+            f"signal={r['signal_type']}",
+            f"short_float={r.get('short_float_pct', 0)}%",
+            f"days_to_cover={r.get('days_to_cover', 0)}d",
+        ]
+        if r.get("float_m") is not None:
+            parts.append(f"float={r['float_m']}M_shares")
+        if r.get("vol_pct_float") is not None:
+            parts.append(f"vol_pct_float={r['vol_pct_float']}%")
+        parts.append(f"rel_vol={r.get('rel_vol', 0)}x")
+        if r.get("mkt_cap_b") is not None:
+            parts.append(f"mktcap=${r['mkt_cap_b']}B")
+        parts.append(f"score={r.get('score', 0)}")
+        lines.append("  " + " | ".join(parts))
+
+    prompt = f"""You are a short squeeze and low-float breakout specialist.
+
+Signal types:
+- SQUEEZE: high short float (>=15%) + high days-to-cover (>=5d) — forced buying avalanche on any catalyst
+- LOW_FLOAT: tiny float (<=20M shares) + heavy volume (>=8% of float today) — tiny supply, explosive on demand
+- BOTH: both conditions simultaneously — the most dangerous setup possible
+
+Key metrics:
+- short_float: what % of float is sold short. >25% = extreme. >35% = explosive powder keg
+- days_to_cover: how many trading days shorts need to fully exit at normal volume. >8d = violent squeeze potential
+- float_m: total float in millions. <5M = micro float, any buying pressure moves it 10%+
+- vol_pct_float: today's vol as % of total float. >15% means the float is rotating rapidly — something is happening now
+- rel_vol: today's vol vs 3-month avg. >5x = 5 times normal activity — unusual accumulation
+
+Setups to analyze:
+{chr(10).join(lines)}
+
+Conviction levels:
+- CRITICAL: BOTH signal, OR SQUEEZE with short_float>25% + days_to_cover>8 + rel_vol>3 — near-certain violent move on any catalyst
+- HIGH: SQUEEZE with short_float>18% + days_to_cover>5, OR LOW_FLOAT with vol_pct_float>12% + rel_vol>4 — strong setup
+- WATCH: setup present but one or more metrics are borderline — monitor for volume confirmation
+- NOISE: metrics look okay on one dimension but the composite picture doesn't confirm explosiveness
+
+Return ONLY valid JSON, no markdown:
+{{"signals":[{{"ticker":"XXXX","signal":"CRITICAL","thesis":"2-3 punchy sentences: what makes this explosive, what the catalyst trigger would look like, and the key risk.","confidence":92}}]}}"""
+
+    try:
+        client = OpenAI(
+            api_key=os.environ["AI_INTEGRATIONS_OPENAI_API_KEY"],
+            base_url=os.environ["AI_INTEGRATIONS_OPENAI_BASE_URL"],
+        )
+        response = client.chat.completions.create(
+            model="gpt-5.4",
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=3000,
+        )
+        raw = response.choices[0].message.content.strip()
+        raw = re.sub(r'^```(?:json)?\s*', '', raw).strip()
+        raw = re.sub(r'\s*```$', '', raw).strip()
+        parsed  = json.loads(raw)
+        signals = parsed.get("signals", [])
+
+        sms_sent = []
+        t_sid   = os.getenv("TWILIO_ACCOUNT_SID")
+        t_token = os.getenv("TWILIO_AUTH_TOKEN")
+        t_from  = os.getenv("TWILIO_FROM_NUMBER")
+        t_to    = os.getenv("TWILIO_TO_NUMBER")
+
+        if all([t_sid, t_token, t_from, t_to]):
+            try:
+                from twilio.rest import Client as TwilioClient
+                tw       = TwilioClient(t_sid, t_token)
+                critical = [s for s in signals if s.get("signal") in ("CRITICAL", "HIGH")][:3]
+                for sig in critical:
+                    row = next((r for r in rows if r["ticker"] == sig["ticker"]), {})
+                    msg = (
+                        f"🔥 StockScanner AI — {sig['signal']} SETUP\n"
+                        f"{sig['ticker']} ${row.get('price','?')} | {row.get('signal_type','')} signal\n"
+                        f"Short: {row.get('short_float_pct',0):.1f}% | {row.get('days_to_cover',0):.1f}d to cover\n"
+                        f"Float: {row.get('float_m','?')}M shares | {row.get('rel_vol',0):.1f}x vol\n"
+                        f"{sig['thesis'][:160]}"
+                    )
+                    tw.messages.create(body=msg, from_=t_from, to=t_to)
+                    sms_sent.append(sig["ticker"])
+            except Exception as sms_err:
+                print(f"[squeeze_ai] SMS error: {sms_err}", file=sys.stderr, flush=True)
+
+        return jsonify({"signals": signals, "sms_sent": sms_sent})
+
+    except Exception as e:
+        import traceback
+        print(f"[squeeze_ai] error: {e}\n{traceback.format_exc()}", file=sys.stderr, flush=True)
+        return jsonify({"error": str(e), "signals": []}), 500
+
+
 @app.route("/stock-api/morning-runners", methods=["GET"])
 def morning_runners():
     """Morning runners — scans all tickers for pre-market volume spikes + gap moves."""

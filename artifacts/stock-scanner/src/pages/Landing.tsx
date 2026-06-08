@@ -421,10 +421,10 @@ export default function Landing() {
           <p className="text-slate-500 text-xs uppercase tracking-widest font-bold mb-5">Also included — things competitors charge more for or don't offer</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
+              { icon: "💥", title: "Squeeze + Low Float Setup", desc: "Short float ≥15% + Days-to-cover ≥5 + tiny float — AI rates each setup CRITICAL/HIGH/WATCH and texts you via SMS instantly." },
+              { icon: "🌅", title: "Morning Runners", desc: "Scans all 473 tickers pre-market for volume spikes and gap moves. See what's heating up before the open — scored by momentum." },
               { icon: "⚡", title: "Convergence Scanner", desc: "Stocks with unusual volume AND heavy call flow simultaneously — the highest-conviction setup pattern." },
               { icon: "🏆", title: "Smart vs Retail Divergence", desc: "When institutions and retail are on opposite sides of the same ticker, flagged and ranked." },
-              { icon: "🌅", title: "AI Morning Brief", desc: "AI reads today's live flow and writes your daily market brief automatically, every morning." },
-              { icon: "🎯", title: "Prop Desk Simulator", desc: "Paper trade with real discipline — daily loss limits, drawdown tracking, and profit targets like a funded firm." },
             ].map(f => (
               <div key={f.title} className="rounded-xl p-4" style={{ background: "rgba(34,197,94,0.04)", border: "1px solid rgba(34,197,94,0.12)" }}>
                 <div className="text-2xl mb-2">{f.icon}</div>

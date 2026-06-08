@@ -27,6 +27,7 @@ import {
   NetFlowStreakRow, NetFlowStreakResult, NetFlowDayDot, fetchNetFlowMultiday,
   AISignal, AISignalResult, fetchAISignal,
   MorningRunnerRow, fetchMorningRunners,
+  SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -4321,6 +4322,249 @@ function PutIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
 }
 
 // ---- Pre-Market Flow Tab -------------------------------------------------
+// ---- Squeeze Setup Tab ----------------------------------------------------
+function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  type FilterType = "ALL" | "SQUEEZE" | "LOW_FLOAT" | "BOTH";
+  type AILevel = "CRITICAL" | "HIGH" | "WATCH" | "NOISE";
+
+  const [data, setData]       = useState<{ setups: SqueezeSetupRow[]; total: number; scanned: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter]   = useState<FilterType>("ALL");
+  const [aiResult, setAiResult] = useState<Array<{ ticker: string; signal: AILevel; thesis: string; confidence: number }> | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError]   = useState<string | null>(null);
+  const [smsSent, setSmsSent]   = useState<string[]>([]);
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetchSqueezeSetup()); } catch {}
+    finally { setLoading(false); }
+  };
+
+  const runAI = async () => {
+    if (!data?.setups.length) return;
+    setAiLoading(true); setAiError(null);
+    try {
+      const res = await fetchSqueezeSetupAI(data.setups);
+      setAiResult(res.signals as Array<{ ticker: string; signal: AILevel; thesis: string; confidence: number }>);
+      if (res.sms_sent?.length) setSmsSent(res.sms_sent);
+    } catch (e: any) {
+      setAiError(e.message ?? "AI analysis failed");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); const t = setInterval(load, 900_000); return () => clearInterval(t); }, []);
+
+  const filtered = (data?.setups ?? []).filter(r =>
+    filter === "ALL" ? true : r.signal_type === filter
+  );
+
+  const aiMap = new Map((aiResult ?? []).map(s => [s.ticker, s]));
+
+  const signalStyle = (t: string) => ({
+    BOTH:      { color: "#f97316", bg: "rgba(249,115,22,0.15)", border: "rgba(249,115,22,0.45)", label: "💥 BOTH" },
+    SQUEEZE:   { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔥 SQUEEZE" },
+    LOW_FLOAT: { color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.35)", label: "⚡ LOW FLOAT" },
+  } as Record<string, { color: string; bg: string; border: string; label: string }>)[t] ?? { color: "#94a3b8", bg: "transparent", border: "transparent", label: t };
+
+  const aiStyle = (s: AILevel) => ({
+    CRITICAL: { color: "#f87171", bg: "rgba(248,113,113,0.15)", border: "rgba(248,113,113,0.45)", dot: "#f87171" },
+    HIGH:     { color: "#f97316", bg: "rgba(249,115,22,0.12)",  border: "rgba(249,115,22,0.4)",  dot: "#f97316" },
+    WATCH:    { color: "#fbbf24", bg: "rgba(251,191,36,0.10)",  border: "rgba(251,191,36,0.35)", dot: "#fbbf24" },
+    NOISE:    { color: "#475569", bg: "rgba(71,85,105,0.10)",   border: "rgba(71,85,105,0.3)",   dot: "#475569" },
+  })[s] ?? { color: "#475569", bg: "transparent", border: "transparent", dot: "#475569" };
+
+  const FILTERS: { id: FilterType; label: string }[] = [
+    { id: "ALL",       label: "All Setups" },
+    { id: "BOTH",      label: "💥 Both Signals" },
+    { id: "SQUEEZE",   label: "🔥 Squeeze Only" },
+    { id: "LOW_FLOAT", label: "⚡ Low Float Only" },
+  ];
+
+  const bothCount   = (data?.setups ?? []).filter(r => r.signal_type === "BOTH").length;
+  const sqCount     = (data?.setups ?? []).filter(r => r.signal_type === "SQUEEZE").length;
+  const lfCount     = (data?.setups ?? []).filter(r => r.signal_type === "LOW_FLOAT").length;
+  const critCount   = (aiResult ?? []).filter(r => r.signal === "CRITICAL").length;
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>💥 Squeeze + Low Float Setup</h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            Short squeeze pressure + low-float breakout candidates across {data?.scanned ?? "—"} tickers · cache 15min
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={load} disabled={loading} style={{
+            background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)",
+            color: "#f87171", borderRadius: 10, padding: "8px 18px",
+            fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
+          }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
+          <button onClick={runAI} disabled={aiLoading || !data?.setups.length} style={{
+            background: aiLoading ? "rgba(168,85,247,0.07)" : "rgba(168,85,247,0.12)",
+            border: "1px solid rgba(168,85,247,0.35)", color: "#c084fc",
+            borderRadius: 10, padding: "8px 18px",
+            fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
+          }}>{aiLoading ? "⏳ Analyzing…" : "🤖 AI Signal + SMS"}</button>
+        </div>
+      </div>
+
+      {/* SMS confirmation */}
+      {smsSent.length > 0 && (
+        <div style={{ marginBottom: 16, padding: "10px 16px", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.25)", borderRadius: 10 }}>
+          <span style={{ fontFamily: BB_F, color: "#4ade80", fontSize: 12, fontWeight: 700 }}>
+            📱 SMS sent for: {smsSent.join(", ")}
+          </span>
+        </div>
+      )}
+
+      {/* Stat bar */}
+      {data && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Tickers Scanned",  val: data.scanned, color: "#94a3b8" },
+            { label: "Total Setups",     val: data.total,   color: "#f87171" },
+            { label: "💥 Both Signals",  val: bothCount,    color: "#f97316" },
+            { label: "🔥 Squeeze",       val: sqCount,      color: "#f87171" },
+            { label: "⚡ Low Float",     val: lfCount,      color: "#fbbf24" },
+            ...(critCount > 0 ? [{ label: "🚨 AI Critical", val: critCount, color: "#c084fc" }] : []),
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: "12px 18px", flex: 1, minWidth: 100 }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Filter buttons */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {FILTERS.map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)} style={{
+            padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
+            cursor: "pointer", transition: "all 0.15s",
+            background: filter === f.id ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.04)",
+            color:      filter === f.id ? "#f87171" : "#64748b",
+            border:     filter === f.id ? "1px solid rgba(248,113,113,0.4)" : "1px solid rgba(255,255,255,0.06)",
+          }}>{f.label}</button>
+        ))}
+      </div>
+
+      {aiError && <div style={{ marginBottom: 12, padding: "10px 16px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)", borderRadius: 10, fontFamily: BB_F, color: "#f87171", fontSize: 12 }}>{aiError}</div>}
+
+      {/* Loading / empty */}
+      {loading && !data && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
+          Scanning 473 tickers for short interest + float data… ~45s
+        </div>
+      )}
+      {!loading && data && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
+          No setups match this filter. Try "All Setups" or refresh during market hours.
+        </div>
+      )}
+
+      {/* Setup cards */}
+      {filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {filtered.map((r, i) => {
+            const ss  = signalStyle(r.signal_type);
+            const ai  = aiMap.get(r.ticker);
+            const as_ = ai ? aiStyle(ai.signal as AILevel) : null;
+            return (
+              <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)} style={{
+                background: "rgba(255,255,255,0.025)",
+                border: `1px solid ${i < 3 ? ss.border : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 18, padding: "18px 20px", cursor: "pointer", transition: "background 0.15s",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.025)")}
+              >
+                {/* Top row: rank + ticker + badges */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#334155", fontSize: 16, minWidth: 28 }}>#{i+1}</span>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 22 }}>{r.ticker}</span>
+                  <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${r.price.toFixed(2)}</span>
+                  <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 99,
+                    background: ss.bg, color: ss.color, border: `1px solid ${ss.border}` }}>{ss.label}</span>
+                  {as_ && (
+                    <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 99,
+                      background: as_.bg, color: as_.color, border: `1px solid ${as_.border}` }}>
+                      🤖 AI: {ai!.signal} {ai!.confidence}%
+                    </span>
+                  )}
+                  {r.mkt_cap_b !== null && (
+                    <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>
+                      MCap ${r.mkt_cap_b < 1 ? `${(r.mkt_cap_b * 1000).toFixed(0)}M` : `${r.mkt_cap_b.toFixed(1)}B`}
+                    </span>
+                  )}
+                </div>
+
+                {/* Metrics grid */}
+                <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: ai?.thesis ? 12 : 0 }}>
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, color: "#f87171", letterSpacing: "-0.03em" }}>{r.short_float_pct}%</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>short float</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, color: "#fb923c", letterSpacing: "-0.03em" }}>{r.days_to_cover}d</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>days to cover</div>
+                  </div>
+                  {r.float_m !== null && (
+                    <div>
+                      <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, color: "#fbbf24", letterSpacing: "-0.03em" }}>{r.float_m}M</div>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>float shares</div>
+                    </div>
+                  )}
+                  {r.vol_pct_float !== null && (
+                    <div>
+                      <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, color: "#60a5fa", letterSpacing: "-0.03em" }}>{r.vol_pct_float}%</div>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>vol % of float</div>
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, color: "#94a3b8", letterSpacing: "-0.03em" }}>{r.rel_vol}×</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>rel volume</div>
+                  </div>
+                  <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, letterSpacing: "-0.04em",
+                      color: r.score >= 150 ? "#f97316" : r.score >= 80 ? "#fbbf24" : "#94a3b8" }}>{r.score.toFixed(0)}</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>setup score</div>
+                  </div>
+                </div>
+
+                {/* AI thesis */}
+                {ai?.thesis && (
+                  <div style={{ marginTop: 10, padding: "10px 14px", background: as_!.bg, border: `1px solid ${as_!.border}`, borderRadius: 10 }}>
+                    <div style={{ fontFamily: BB_F, color: as_!.color, fontSize: 11, lineHeight: 1.7 }}>
+                      <strong>AI:</strong> {ai.thesis}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Footer explainer */}
+      <div style={{ marginTop: 28, padding: "14px 18px", background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.12)", borderRadius: 12 }}>
+        <p style={{ fontFamily: BB_F, fontSize: 11, color: "#64748b", margin: 0, lineHeight: 1.8 }}>
+          <strong style={{ color: "#f87171" }}>🔥 SQUEEZE:</strong> Short float ≥15% + Days to Cover ≥5. When a catalyst hits, all shorts must buy simultaneously — price can double in hours.<br />
+          <strong style={{ color: "#fbbf24" }}>⚡ LOW FLOAT:</strong> Float ≤20M shares + Volume ≥8% of float today. Tiny supply means every buyer moves the price more than on large-caps.<br />
+          <strong style={{ color: "#f97316" }}>💥 BOTH:</strong> The most explosive combination — squeezable AND illiquid. These are the stocks that go +100% in a morning.
+          <br /><strong style={{ color: "#c084fc" }}>🤖 AI Signal + SMS:</strong> Click to get AI conviction ratings. When Twilio is configured, CRITICAL and HIGH signals are texted to you instantly.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ---- Morning Runners Tab --------------------------------------------------
 function MorningRunnersTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
@@ -6943,7 +7187,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"mytrades"|"aishortcalls"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -7074,6 +7318,7 @@ export default function Dashboard() {
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
     { id: "streakflow",      label: "📈 FLOW STREAK" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
+    { id: "squeezesetup",   label: "💥 SQUEEZE SETUP" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -7661,6 +7906,7 @@ export default function Dashboard() {
         {tab === "midnetflow"      && <NetFlowMidcapTab  onSelectTicker={selectTicker} />}
         {tab === "streakflow"      && <NetFlowStreakTab  onSelectTicker={selectTicker} />}
         {tab === "morningrunners"  && <MorningRunnersTab onSelectTicker={selectTicker} />}
+        {tab === "squeezesetup"   && <SqueezeSetupTab   onSelectTicker={selectTicker} />}
 
       </div>
       </main>

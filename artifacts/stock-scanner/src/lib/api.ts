@@ -870,6 +870,30 @@ export function fetchMorningRunners() {
   return fetchJson<{ runners: MorningRunnerRow[]; total: number; scanned: number }>("/morning-runners");
 }
 
+export interface SqueezeSetupRow {
+  ticker: string;
+  price: number;
+  signal_type: "SQUEEZE" | "LOW_FLOAT" | "BOTH";
+  short_float_pct: number;
+  days_to_cover: number;
+  float_m: number | null;
+  vol_pct_float: number | null;
+  rel_vol: number;
+  mkt_cap_b: number | null;
+  score: number;
+}
+
+export function fetchSqueezeSetup() {
+  return fetchJson<{ setups: SqueezeSetupRow[]; total: number; scanned: number }>("/squeeze-setup");
+}
+
+export function fetchSqueezeSetupAI(rows: SqueezeSetupRow[]) {
+  return fetchJson<{ signals: Array<{ ticker: string; signal: string; thesis: string; confidence: number }>; sms_sent: string[] }>(
+    "/squeeze-setup/ai-signal",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows }) }
+  );
+}
+
 export function fetchUnusualCalls() {
   return fetchJson<UnusualCallsResult>("/unusual-calls");
 }
