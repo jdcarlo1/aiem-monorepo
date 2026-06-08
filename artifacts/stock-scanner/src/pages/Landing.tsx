@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { createStockScannerCheckout, manageStockScannerSubscription, fetchBullFlow, fetchAITrades, BullFlowRow, AITradeSetup } from "@/lib/api";
+import { createStockScannerCheckout, manageStockScannerSubscription, fetchBullFlow, fetchAITrades, checkAITradesSubscription, BullFlowRow, AITradeSetup } from "@/lib/api";
 
 function fmtPrem(m: number) {
   if (m >= 1) return `$${m.toFixed(1)}M`;
@@ -65,6 +65,12 @@ export default function Landing() {
     if (!email.trim() || !email.includes("@")) { setErrMsg("Enter a valid email"); setStatus("err"); return; }
     setStatus("loading");
     try {
+      const check = await checkAITradesSubscription(email.trim());
+      if (check.subscribed) {
+        localStorage.setItem("ait_sub_email", email.trim());
+        setStatus("ok");
+        return;
+      }
       const { url } = await createStockScannerCheckout(email.trim());
       window.location.href = url;
     } catch (err: any) {
@@ -854,19 +860,32 @@ export default function Landing() {
               </li>
             ))}
           </ul>
-          <div className="space-y-3">
-            <input type="email" value={email} onChange={e => { setEmail(e.target.value); setStatus("idle"); }}
-              onKeyDown={e => e.key === "Enter" && handleSubscribe()}
-              placeholder="Enter your email to get started"
-              className="w-full rounded-xl px-5 py-4 text-white placeholder-slate-500 focus:outline-none text-base"
-              style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)" }} />
-            <button onClick={handleSubscribe} disabled={status === "loading"}
-              className="w-full rounded-xl font-black transition-all disabled:opacity-50 py-5 text-xl"
-              style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", letterSpacing: "-0.02em", boxShadow: "0 12px 40px rgba(34,197,94,0.45)" }}>
-              {status === "loading" ? "One sec…" : "Get Instant Access →"}
-            </button>
-            {status === "err" && <div className="text-red-400 text-base text-center">{errMsg}</div>}
-          </div>
+          {status === "ok" ? (
+            <div className="rounded-2xl p-6 text-center" style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" }}>
+              <div className="text-4xl mb-3">✅</div>
+              <div className="text-emerald-300 font-black text-lg mb-1">You're in!</div>
+              <div className="text-slate-400 text-sm mb-4">Subscription confirmed. Opening the app…</div>
+              <button onClick={() => setLocation("/app")}
+                className="w-full rounded-xl font-black py-4 text-base transition-all"
+                style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", boxShadow: "0 8px 30px rgba(34,197,94,0.4)" }}>
+                Open App →
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <input type="email" value={email} onChange={e => { setEmail(e.target.value); setStatus("idle"); }}
+                onKeyDown={e => e.key === "Enter" && handleSubscribe()}
+                placeholder="Enter your email to get started"
+                className="w-full rounded-xl px-5 py-4 text-white placeholder-slate-500 focus:outline-none text-base"
+                style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)" }} />
+              <button onClick={handleSubscribe} disabled={status === "loading"}
+                className="w-full rounded-xl font-black transition-all disabled:opacity-50 py-5 text-xl"
+                style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", letterSpacing: "-0.02em", boxShadow: "0 12px 40px rgba(34,197,94,0.45)" }}>
+                {status === "loading" ? "One sec…" : "Get Instant Access →"}
+              </button>
+              {status === "err" && <div className="text-red-400 text-base text-center">{errMsg}</div>}
+            </div>
+          )}
           <p className="text-center text-slate-600 text-sm mt-4">
             The most complete options intelligence platform available.{" "}
             <button onClick={() => setShowManage(!showManage)} className="text-slate-500 hover:text-slate-300 transition-colors underline">Already subscribed?</button>
