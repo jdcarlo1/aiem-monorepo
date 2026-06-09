@@ -4179,7 +4179,7 @@ def _enrich_technical_signals(tickers_data):
 def _ai_trades_worker():
     """Background worker: generate AI trade setups and store in app._ait_cache."""
     import sys
-    from datetime import datetime as _dt
+    from datetime import datetime as _dt, date as _date, timedelta as _timedelta
     from openai import OpenAI
 
     if getattr(app, "_ait_generating", False):
@@ -5057,7 +5057,7 @@ def _ai_trades_worker():
         "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities; VIX_TermStructure=BACKWARDATION → event risk priced, vol may spike further.\n"
         "12. sector_corr=IDIOSYNCRATIC (<0.5) → ticker moves on its own; prefer over highly correlated names.\n"
         "13. news=BEARISH_NEWS with BULL_TREND → fade the news; news=BULLISH_NEWS with momentum = confirmation.\n"
-        "14. EXPIRY RULE: Default to expiry 30–90 days from today. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry — this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
+        f"14. EXPIRY RULE: TODAY'S REAL DATE IS {str(_date.today())}. ALL expiry dates you output MUST be in YYYY-MM-DD format AND must fall between {str(_date.today() + _timedelta(days=21))} (earliest) and {str(_date.today() + _timedelta(days=90))} (latest). NEVER output a date from 2024 or any year other than the current year/next year. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry — this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
         "15. EARNINGS PROXIMITY: If earn_in≤7d (IMMINENT), prefer STRADDLE or avoid entirely unless conviction is extreme. If earn_in=8-30d (SOON), IV is likely elevated — check iv_rv; if RICH, sell spreads; if CHEAP, buy vol. impl_earn_move shows the options market's expected ±% move into earnings — compare to earn_beat history.\n"
         "16. ANALYST CONSENSUS: analyst_tgt=STRONG_BUY_CONSENSUS (>25% upside) combined with institutional accumulation (accum_pct≥60%) = highest fundamental + flow alignment. analyst_tgt=FULLY_VALUED (<0% upside) is a headwind for LONG CALL setups.\n"
         "17. PUT/CALL OI RATIO: pc_oi_ratio>1.5 (HEAVY_PUT_OI) = institutions are hedged/bearish positioned; <0.6 (HEAVY_CALL_OI) = bullish positioning. Use as directional confirmation or contrarian signal in conjunction with other factors.\n"
@@ -5091,7 +5091,9 @@ def _ai_trades_worker():
         "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."
     )
 
-    user_msg = f"""SOURCES ({len(active_sources)}): {', '.join(active_sources)}
+    user_msg = f"""⚠ TODAY IS {str(_date.today())}. All expiry dates in your JSON response MUST be after {str(_date.today())} and formatted as YYYY-MM-DD. Do not use any date from 2024 or earlier.
+
+SOURCES ({len(active_sources)}): {', '.join(active_sources)}
 TICKERS SCANNED: {len(rich)}
 {context_block}
 
@@ -5225,6 +5227,19 @@ JSON array only. No markdown. Start immediately with ["""
         except Exception:
             from json_repair import repair_json as _rj
             trades = _json.loads(_rj(raw))
+
+        # Validate expiry dates — catch and fix any past dates the AI hallucinated
+        import datetime as _dtfix
+        _today_fix = _dtfix.date.today()
+        _fallback_exp = str(_today_fix + _dtfix.timedelta(days=45))
+        for _tr in trades:
+            try:
+                _exp = _tr.get("expiry", "")
+                if not _exp or _dtfix.date.fromisoformat(_exp) <= _today_fix:
+                    print(f"[ai_trades] fixing bad expiry '{_exp}' for {_tr.get('ticker')} → {_fallback_exp}")
+                    _tr["expiry"] = _fallback_exp
+            except Exception:
+                _tr["expiry"] = _fallback_exp
 
         # Post-filter: drop any picks the AI made that lack real uc_prem >= $500K.
         # Build a set of tickers confirmed to have unusual call premium >= 0.5M.
