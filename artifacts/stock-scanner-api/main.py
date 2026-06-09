@@ -340,6 +340,24 @@ try:
         id="eod_sweep_outcomes",
         replace_existing=True,
     )
+    # EOD sweep auto-log: Mon-Fri 4:20 PM ET — ensures track record is populated without
+    # anyone needing to visit the tab.  Busts the cache then calls the route directly.
+    def _auto_log_eod_sweeps():
+        try:
+            if hasattr(app, "_eod_sweeps_cache"):
+                app._eod_sweeps_cache    = None
+                app._eod_sweeps_cache_ts = None
+            with app.test_request_context("/stock-api/eod-sweeps"):
+                eod_sweeps()
+            print("[scheduler] EOD sweep auto-log complete")
+        except Exception as e:
+            print(f"[scheduler] EOD sweep auto-log error: {e}")
+    _scheduler.add_job(
+        _auto_log_eod_sweeps,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=20, timezone=_ET),
+        id="eod_sweep_auto_log",
+        replace_existing=True,
+    )
     # Scan cache warmer — every 15 min during market hours so on-demand scans feel instant
     def _warm_sm_cache():
         try:
