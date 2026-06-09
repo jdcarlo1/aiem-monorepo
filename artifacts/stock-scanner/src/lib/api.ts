@@ -267,11 +267,11 @@ export interface SmartMoneyResult {
   data_source?: string;
 }
 
-export function smartMoneyScan(tickers: string[]) {
-  return fetchJson<SmartMoneyResult>("/smart-money/scan", {
+export function smartMoneyScan(tickers: string[], forceRefresh = false) {
+  return fetchJson<SmartMoneyResult & { cached?: boolean; cache_age_secs?: number }>("/smart-money/scan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tickers }),
+    body: JSON.stringify({ tickers, force_refresh: forceRefresh }),
   });
 }
 

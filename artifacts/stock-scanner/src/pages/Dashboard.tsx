@@ -1169,16 +1169,20 @@ function SmartMoneyTab() {
   const [selected, setSelected] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [countdown, setCountdown] = useState(60);
+  const [cacheAgeSecs, setCacheAgeSecs] = useState<number | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const inputRef = useRef(tickerInput);
   inputRef.current = tickerInput;
 
-  const runScan = useCallback(async () => {
+  const runScan = useCallback(async (forceRefresh = false) => {
     const tickers = inputRef.current.split(/[\s,]+/).filter(Boolean).map(t => t.toUpperCase()).slice(0, 50);
     setLoading(true);
     setMsg("");
     try {
-      const data = await smartMoneyScan(tickers);
+      const data = await smartMoneyScan(tickers, forceRefresh);
       setResult(data);
+      setFromCache(data.cached ?? false);
+      setCacheAgeSecs(data.cache_age_secs ?? null);
       setCountdown(60);
     } catch (e: any) {
       setMsg("Scan failed: " + e.message);
@@ -1217,7 +1221,7 @@ function SmartMoneyTab() {
           </div>
           <div className="flex flex-col gap-2 justify-end shrink-0">
             <button
-              onClick={runScan}
+              onClick={() => runScan(false)}
               disabled={loading}
               className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2"
             >
@@ -1231,6 +1235,20 @@ function SmartMoneyTab() {
             </button>
           </div>
         </div>
+        {fromCache && cacheAgeSecs !== null && (
+          <div className="mt-2 flex items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1 bg-emerald-950/60 border border-emerald-700/50 text-emerald-400 px-2.5 py-1 rounded-full">
+              ⚡ Instant — data from {cacheAgeSecs < 60 ? `${cacheAgeSecs}s ago` : `${Math.floor(cacheAgeSecs / 60)}m ago`}
+            </span>
+            <button
+              onClick={() => runScan(true)}
+              disabled={loading}
+              className="text-slate-500 hover:text-slate-300 underline underline-offset-2 transition-colors disabled:opacity-40"
+            >
+              Force refresh
+            </button>
+          </div>
+        )}
         {msg && <p className="mt-2 text-sm text-red-400">{msg}</p>}
       </div>
 

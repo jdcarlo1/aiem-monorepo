@@ -26,6 +26,12 @@ import pnl
 app = Flask(__name__)
 CORS(app)
 
+# ── Scan result cache (pre-warmed every 15 min during market hours) ───────────
+import threading as _threading
+app._sm_cache: dict = {}          # key = frozen sorted ticker tuple → {"result": ..., "ts": datetime}
+app._sm_cache_lock = _threading.Lock()
+_SM_CACHE_TTL_SECS = 1200        # 20 minutes
+
 # ── init DB & scheduler ──────────────────────────────────────────────────────
 init_db()
 init_score_history_table()
@@ -308,8 +314,36 @@ try:
         id="sc_outcomes_update",
         replace_existing=True,
     )
+    # Scan cache warmer — every 15 min during market hours so on-demand scans feel instant
+    def _warm_sm_cache():
+        try:
+            from datetime import datetime as _dtw
+            from pytz import timezone as _tzw
+            _et_now = _dtw.now(_tzw("America/New_York"))
+            _wday = _et_now.weekday()          # 0=Mon … 4=Fri
+            _h, _m = _et_now.hour, _et_now.minute
+            _mins = _h * 60 + _m
+            if _wday > 4 or _mins < 570 or _mins > 970:   # 9:30 AM (570) – 4:10 PM (970) ET
+                return
+            print("[cache_warmer] pre-warming smart money scan…")
+            _warm_result = scan_smart_money(DEFAULT_LEADERBOARD)
+            _cache_key = tuple(sorted(DEFAULT_LEADERBOARD))
+            with app._sm_cache_lock:
+                app._sm_cache[_cache_key] = {"result": _warm_result, "ts": _dtw.now()}
+            print(f"[cache_warmer] cached {len(_warm_result.get('leaderboard', []))} tickers")
+        except Exception as _we:
+            print(f"[cache_warmer] error: {_we}")
+
+    _scheduler.add_job(
+        _warm_sm_cache,
+        "interval",
+        minutes=15,
+        id="sm_cache_warmer",
+        replace_existing=True,
+    )
+
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + EOD unusual-calls auto-scan at 3:30 PM, 4:00 PM, 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min + AI trades at 10:00 AM + AI short calls at 10:15 AM")
+    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + EOD unusual-calls auto-scan at 3:30 PM, 4:00 PM, 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min + AI trades at 10:00 AM + AI short calls at 10:15 AM + scan cache warmer every 15 min")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
@@ -1478,13 +1512,46 @@ def prop_reset():
 
 @app.route("/stock-api/smart-money/scan", methods=["POST"])
 def smart_money_scan_route():
+    from datetime import datetime as _dts
     body = request.get_json(silent=True) or {}
     tickers = body.get("tickers", DEFAULT_LEADERBOARD)
+    force_refresh = body.get("force_refresh", False)
     if not isinstance(tickers, list) or not tickers:
         tickers = DEFAULT_LEADERBOARD
     tickers = [t.strip().upper() for t in tickers[:50]]
+    cache_key = tuple(sorted(tickers))
+
+    # Serve from cache if fresh and not force-refreshing
+    if not force_refresh:
+        with app._sm_cache_lock:
+            entry = app._sm_cache.get(cache_key)
+        if entry:
+            age = (_dts.now() - entry["ts"]).total_seconds()
+            if age < _SM_CACHE_TTL_SECS:
+                resp = dict(entry["result"])
+                resp["cached"] = True
+                resp["cache_age_secs"] = int(age)
+                return jsonify(_safe(resp))
+
+    # Live fetch — then store in cache
     result = scan_smart_money(tickers)
+    result["cached"] = False
+    result["cache_age_secs"] = 0
+    with app._sm_cache_lock:
+        app._sm_cache[cache_key] = {"result": result, "ts": _dts.now()}
     return jsonify(_safe(result))
+
+
+@app.route("/stock-api/smart-money/cache-status", methods=["GET"])
+def sm_cache_status():
+    from datetime import datetime as _dts
+    with app._sm_cache_lock:
+        entries = list(app._sm_cache.items())
+    status = []
+    for key, val in entries:
+        age = int((_dts.now() - val["ts"]).total_seconds())
+        status.append({"tickers_count": len(key), "age_secs": age, "fresh": age < _SM_CACHE_TTL_SECS})
+    return jsonify({"entries": status, "count": len(status)})
 
 
 @app.route("/stock-api/smart-money/detail/<ticker>", methods=["GET"])
