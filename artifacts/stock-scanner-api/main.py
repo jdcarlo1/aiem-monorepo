@@ -375,6 +375,11 @@ def _safe(v):
 PORT = int(os.environ.get("STOCK_API_PORT", 5050))
 
 
+@app.route("/stock-api/", methods=["GET"])
+def health_root():
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route("/stock-api/stock/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").strip().upper()
