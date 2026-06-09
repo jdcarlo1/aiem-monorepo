@@ -3149,6 +3149,7 @@ def vol_crush():
             analyst_target_pct = None
             analyst_recommendation = None
             net_upgrades_7d = None
+            instit_own_pct = None
             try:
                 info = tkr.info
                 ed = info.get("earningsTimestamp") or info.get("earningsTimestampStart")
@@ -3172,6 +3173,9 @@ def vol_crush():
                 rec = info.get("recommendationKey") or ""
                 if rec:
                     analyst_recommendation = rec.lower().replace("_", " ")
+                hip = info.get("heldPercentInstitutions")
+                if hip and float(hip) > 0:
+                    instit_own_pct = round(float(hip) * 100, 1)
             except Exception: pass
 
             # Analyst price target dispersion (how much analysts disagree)
@@ -3545,6 +3549,7 @@ def vol_crush():
                 "earnings_date": earnings_date, "days_since_earnings": days_since_earnings,
                 "days_to_earnings": days_to_earnings,
                 "short_float_pct": short_float_pct, "short_ratio": short_ratio,
+                "instit_own_pct": instit_own_pct,
                 "rsi": rsi, "sma50_pct": sma50_pct, "vol_trend_5d": vol_trend_5d,
                 "net_upgrades_7d": net_upgrades_7d,
                 "options_liquidity_pct": options_liquidity_pct,
@@ -3623,7 +3628,7 @@ def vol_crush():
         _snap_tickers = [r["ticker"] for r in rows]
         with _pg2_vc.connect(os.environ["DATABASE_URL"]) as _conn_vc, _conn_vc.cursor() as _cur_vc:
             _cur_vc.execute("""
-                SELECT ticker, iv_skew, short_float
+                SELECT ticker, iv_skew, short_float, pc_oi_ratio
                 FROM daily_vol_snapshots
                 WHERE ticker = ANY(%s) AND snap_date >= CURRENT_DATE - INTERVAL '252 days'
                 ORDER BY ticker, snap_date
@@ -3634,16 +3639,19 @@ def vol_crush():
             _ht = _hr[0]
             if _ht not in _hist_map:
                 _hist_map[_ht] = []
-            _hist_map[_ht].append({"iv_skew": _hr[1], "short_float": _hr[2]})
+            _hist_map[_ht].append({"iv_skew": _hr[1], "short_float": _hr[2], "pc_oi_ratio": _hr[3]})
         for r in rows:
             t = r["ticker"]
             if t in _hist_map and len(_hist_map[t]) >= 30:
                 _skews = [h["iv_skew"] for h in _hist_map[t] if h["iv_skew"] is not None]
                 _sfps  = [h["short_float"] for h in _hist_map[t] if h["short_float"] is not None]
+                _pcrs  = [h["pc_oi_ratio"] for h in _hist_map[t] if h["pc_oi_ratio"] is not None]
                 if _skews and r.get("iv_skew") is not None:
                     r["iv_skew_pctl"] = int(sum(1 for s in _skews if s <= r["iv_skew"]) / len(_skews) * 100)
                 if len(_sfps) >= 5 and r.get("short_float_pct") is not None:
                     r["short_float_trend"] = round(r["short_float_pct"] - _sfps[-5], 1)
+                if len(_pcrs) >= 5 and r.get("put_call_oi_ratio") is not None:
+                    r["pc_ratio_trend"] = round(r["put_call_oi_ratio"] - _pcrs[-5], 2)
     except Exception:
         pass
 
@@ -4210,6 +4218,8 @@ def _ai_trades_worker():
             _add(t, "tail_risk_put_pct", r.get("tail_risk_put_pct"))
             _add(t, "iv_skew_pctl", r.get("iv_skew_pctl"))
             _add(t, "short_float_trend", r.get("short_float_trend"))
+            _add(t, "pc_ratio_trend", r.get("pc_ratio_trend"))
+            _add(t, "instit_own_pct", r.get("instit_own_pct"))
 
     # 3. Call Intent Decoder
     ci = getattr(app, "_ci_cache", None)
@@ -4392,6 +4402,28 @@ def _ai_trades_worker():
             for _ph_t, _ph_days, _ph_avg in _ph_rows:
                 _add(_ph_t, "persistence_days", int(_ph_days))
                 _add(_ph_t, "persistence_avg_score", round(float(_ph_avg or 0), 1))
+    except Exception:
+        pass
+
+    # 14b. Multi-day UC flow streak — same unusual call contract returning on 3+ distinct days
+    try:
+        with _psycopg2.connect(_DB_URL) as _uc_conn, _uc_conn.cursor() as _uc_cur:
+            _uc_cur.execute("""
+                SELECT ticker,
+                       MAX(EXTRACT(EPOCH FROM (last_seen - first_seen)) / 86400.0) AS max_streak_days,
+                       COUNT(*) AS active_contracts
+                FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '36 hours'
+                  AND first_seen <= NOW() - INTERVAL '48 hours'
+                GROUP BY ticker
+                HAVING MAX(EXTRACT(EPOCH FROM (last_seen - first_seen)) / 86400.0) >= 2
+            """)
+            _uc_streak_rows = _uc_cur.fetchall()
+        if _uc_streak_rows:
+            active_sources.append("Multi-day UC Streak")
+            for _us_t, _us_days, _us_contracts in _uc_streak_rows:
+                _add(_us_t, "uc_streak_days", round(float(_us_days), 1))
+                _add(_us_t, "uc_streak_contracts", int(_us_contracts))
     except Exception:
         pass
 
@@ -4771,6 +4803,19 @@ def _ai_trades_worker():
             sft = v["short_float_trend"]
             sft_tag = "SHORTS_BUILDING(bear_conviction)" if sft > 1 else "SHORTS_COVERING(squeeze_trigger)" if sft < -1 else "short_stable"
             parts.append(f"short_trend={sft:+.1f}pp({sft_tag})")
+        if v.get("pc_ratio_trend") is not None:
+            pct = v["pc_ratio_trend"]
+            pct_tag = "BULLISH_ROTATION(calls_dominating)" if pct < -0.2 else "BEARISH_ROTATION(puts_building)" if pct > 0.2 else "stable"
+            parts.append(f"pc_ratio_mom={pct:+.2f}({pct_tag})")
+        if v.get("instit_own_pct") is not None:
+            iop = v["instit_own_pct"]
+            iop_tag = "HIGH_CONVICTION(smart_money_loaded)" if iop >= 70 else "MODERATE" if iop >= 40 else "LOW_INST_OWN"
+            parts.append(f"instit_own={iop}%({iop_tag})")
+        if v.get("uc_streak_days") is not None:
+            usd = v["uc_streak_days"]
+            usc = v.get("uc_streak_contracts", 1)
+            usd_tag = "PERSISTENT_WHALE(5d+)" if usd >= 5 else "MULTI_DAY_INSTITUTIONAL(3-5d)" if usd >= 3 else "RETURNING_BUYER(2-3d)"
+            parts.append(f"uc_streak={usd:.0f}d({usd_tag}) contracts={usc}")
         if v.get("tech_macd"):
             m = v["tech_macd"]
             m_tag = ("BULLISH_CROSS(fresh_buy_signal)" if m == "BULLISH_CROSS" else
@@ -4842,6 +4887,9 @@ def _ai_trades_worker():
         "35. SUPPORT/RESISTANCE LEVELS: sr=AT_SUPPORT means price is within 2% of a confirmed historical swing low — institutions have defended this exact level before; this is the optimal LONG CALL entry (risk/reward is best here, stop loss is well-defined just below support). ABOVE_SUPPORT(X%_below) shows a cushion below. BELOW_RESISTANCE(X%_above) means a supply zone overhead — if resistance is <3% away, the stock needs to break through first; if >5% away, the trade has room to run before hitting resistance.\n"
         "36. VOLUME PROFILE / POINT OF CONTROL: poc=AT_POC means price is sitting at the highest-traded-volume level of the past 90 days — this acts as both a support magnet AND a breakout launch pad. ABOVE_POC = buyers have pushed price above where 90% of volume traded, confirming institutional demand at lower levels. BELOW_POC = sellers are in control of the distribution; avoid LONG CALL unless other signals are overwhelming. Prefer ABOVE_POC with MACD=BULLISH for highest technical confirmation.\n"
         "37. VWAP (20-DAY): vwap=ABOVE_VWAP means buyers have consistently paid above the average cost basis over the past month — structural bullish; strong confirmation for LONG CALL. BELOW_VWAP is a headwind; institutions are underwater on recent buys. AT_VWAP = decision point, watch for directional resolution. Highest conviction entry: price ABOVE_VWAP + MACD=BULLISH + sr=AT_SUPPORT or ABOVE_SUPPORT — this triple-confirmation setup means technical, momentum, and price structure all agree.\n"
+        "38. P/C RATIO MOMENTUM: pc_ratio_mom tracks the 5-day change in the put/call OI ratio. BULLISH_ROTATION (dropping >0.2) means institutions have been steadily closing puts and opening calls over the past week — this is the single most reliable leading indicator that smart money is shifting bullish BEFORE price moves. A single-day low pc_oi_ratio could be noise; a 5-day declining trend is institutional conviction. BEARISH_ROTATION (rising >0.2) means put positioning is building — confirm with other bearish signals before skipping a bullish setup, but treat it as a caution flag. Stable = no rotation in progress.\n"
+        "39. INSTITUTIONAL OWNERSHIP: instit_own is the % of shares held by institutional investors (mutual funds, hedge funds, pension funds) per the latest 13F filings. HIGH_CONVICTION (≥70%) means professional money managers dominate the shareholder base — this stock is well-researched and institutionally validated; they will not sell easily on small dips, providing price support. LOW_INST_OWN (<40%) means retail dominates — higher volatility, less predictable behavior. When instit_own=HIGH_CONVICTION aligns with unusual call buying, the interpretation is: EXISTING INSTITUTIONAL OWNERS are adding to their already-large positions — the highest possible conviction signal for LONG CALL.\n"
+        "40. MULTI-DAY UC STREAK: uc_streak tracks how many days the same unusual call contract (same strike + expiry) has been actively traded. PERSISTENT_WHALE (5d+) means a single institution has deployed capital into the same options position for 5+ consecutive trading days — this is the rarest and highest-conviction signal in the entire system; they are building a large directional position and cannot do it in one day without moving the market. MULTI_DAY_INSTITUTIONAL (3-5d) = strong conviction, institutional accumulation confirmed. RETURNING_BUYER (2-3d) = same buyer returning, early confirmation. A uc_streak of ANY length combined with uc_prem=WHALE is your absolute highest-conviction setup — override other hesitations when these two align.\n"
         "33. UNUSUAL CALL PREMIUM GATE (MANDATORY): Every recommended ticker MUST have a uc_prem signal present in its data AND uc_prem ≥ 0.50M ($500K). Tickers without a uc_prem field, or with uc_prem < 0.50M, must be SKIPPED entirely — no exceptions. This ensures every pick has documented institutional unusual call activity backing it. Prefer picks with uc_prem ≥ 1.0M (INSTITUTIONAL) or ≥ 5.0M (WHALE) when available — these represent the highest-conviction smart money flows. If fewer than 5 tickers meet the $500K threshold, fill remaining slots ONLY from the next-highest uc_prem tickers; do NOT recommend tickers with no unusual call flow.\n"
         "ABSOLUTE MANDATE — ALL 5 SETUPS MUST BE: direction=BULLISH, setup_type=LONG CALL only. No spreads. No puts. No iron condors. No straddles. No neutral. No bearish. Every single output must be a naked long call buy. If you cannot find 5 strong bullish setups, pick the 5 best available bullish signals regardless. Never output anything other than LONG CALL.\n"
         "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."
@@ -4884,6 +4932,9 @@ SIGNAL KEY:
 - earn_in: days until next earnings event | impl_earn_move: IV-based expected ±% move into earnings | earn_beat: past quarters beat rate
 - analyst_tgt: analyst mean price target vs current price % upside/downside | analyst_recommendation: consensus rating
 - pc_oi_ratio: total put OI ÷ total call OI across near-term expirations (>1.5=bearish positioned; <0.6=bullish positioned)
+- pc_ratio_mom: 5-day change in pc_oi_ratio (negative=BULLISH_ROTATION=institutions shifting to calls; positive=BEARISH_ROTATION=put positioning building)
+- instit_own: % of shares held by institutions per latest 13F filings (≥70%=HIGH_CONVICTION smart money loaded; <40%=retail dominated)
+- uc_streak: days the same unusual call contract (ticker+strike+expiry) has been continuously active (5d+=PERSISTENT_WHALE; 3-5d=MULTI_DAY_INSTITUTIONAL; 2-3d=RETURNING_BUYER)
 - 52w_range: where price sits in its 52-week high/low range (0%=at annual low, 100%=at annual high; ≥90%=breakout zone; ≤10%=support test)
 - borrow: short borrow cost proxy from short interest (HIGH_BORROW≥20% float short = puts may be synthetic hedges by short sellers, not directional bets)
 - flow_persist: call/put vol÷OI ratio across 4 expirations (STRUCTURAL<0.05=built over weeks=institutional conviction; FRESH>0.25=today only=may be noise)
