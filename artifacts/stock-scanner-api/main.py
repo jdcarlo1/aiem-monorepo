@@ -6549,25 +6549,36 @@ def conviction_calls():
         return jsonify(_cache)
 
     try:
-        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-            cur.execute("""
+        _base_sql = """
                 SELECT ticker, price::float, strike::float, expiry, days_out,
                        vol_oi::float, prem::bigint, otm_pct::float, iv::float,
                        urgency, last_seen
                 FROM unusual_calls_log
-                WHERE last_seen >= NOW() - INTERVAL '3 days'
+                WHERE last_seen >= {interval}
                   AND days_out BETWEEN 1 AND 30
                   AND vol_oi  >= 5
                   AND prem    >= 500000
                   AND otm_pct BETWEEN -2 AND 30
                   AND strike  >= price * 0.97
                 ORDER BY last_seen DESC, vol_oi DESC
-            """)
-            cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
-            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            """
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            # Try today first, fall back to 24 hours if no results
+            cur.execute(_base_sql.format(interval="CURRENT_DATE"))
+            rows_today = cur.fetchall()
+            if rows_today:
+                rows_raw = rows_today
+                window_label = "today"
+            else:
+                cur.execute(_base_sql.format(interval="NOW() - INTERVAL '1 day'"))
+                rows_raw = cur.fetchall()
+                window_label = "24h"
+
+        cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
+        rows = [dict(zip(cols, r)) for r in rows_raw]
 
         if not rows:
-            return jsonify({"signals": [], "generated_at": _dt.now().isoformat(), "note": "No high-conviction calls in last 3 days. Run a scan in 🚨 Unusual Calls first."})
+            return jsonify({"signals": [], "generated_at": _dt.now().isoformat(), "note": "No high-conviction calls found. Run a scan in 🚨 Unusual Calls first."})
 
         # Group by ticker — multi-strike sweep = strongest institutional signal
         from collections import defaultdict as _dd
@@ -6583,7 +6594,8 @@ def conviction_calls():
             max_vol_oi     = max(s["vol_oi"] for s in strikes)
             avg_iv         = sum(s["iv"] or 0 for s in strikes) / num_strikes
             best_strike    = max(strikes, key=lambda s: s["vol_oi"])
-            price          = best_strike["price"]
+            most_recent    = max(strikes, key=lambda s: s["last_seen"])
+            price          = most_recent["price"]   # always use freshest price
 
             # Urgency: EXPIRING > SHORT > NEAR
             urgency_rank   = {"EXPIRING": 3, "SHORT": 2, "NEAR": 1}.get(best_strike["urgency"], 1)
