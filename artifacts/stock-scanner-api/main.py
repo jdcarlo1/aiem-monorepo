@@ -3925,6 +3925,182 @@ def gamma_wall():
     return jsonify(out)
 
 
+def _enrich_technical_signals(tickers_data):
+    """
+    Optional enrichment: MACD, Support/Resistance, Volume Profile POC, and VWAP.
+    Runs in-process on tickers that already have price data.
+    All failures are silent — if this function crashes, nothing else breaks.
+    """
+    import sys
+    try:
+        import yfinance as yf
+        import numpy as np
+    except Exception:
+        return
+
+    candidates = [t for t, v in tickers_data.items() if v.get("price")]
+    if not candidates:
+        return
+
+    print(f"[enrich_tech] enriching {len(candidates)} tickers with MACD/S-R/POC/VWAP", file=sys.stderr, flush=True)
+
+    try:
+        raw = yf.download(
+            candidates,
+            period="6mo",
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+            group_by="ticker",
+        )
+    except Exception as e:
+        print(f"[enrich_tech] batch download error: {e}", file=sys.stderr)
+        return
+
+    for ticker in candidates:
+        try:
+            v = tickers_data[ticker]
+            price = float(v["price"])
+
+            try:
+                if len(candidates) == 1:
+                    df = raw
+                else:
+                    lvl0 = raw.columns.get_level_values(0)
+                    df = raw[ticker] if ticker in lvl0 else None
+                if df is None or df.empty or len(df) < 30:
+                    continue
+                close = df["Close"].dropna()
+                volume = df["Volume"].dropna()
+                if len(close) < 30:
+                    continue
+            except Exception:
+                continue
+
+            # ── MACD (12/26/9 EMA) ────────────────────────────────────────────
+            try:
+                ema12 = close.ewm(span=12, adjust=False).mean()
+                ema26 = close.ewm(span=26, adjust=False).mean()
+                macd_line = ema12 - ema26
+                signal_line = macd_line.ewm(span=9, adjust=False).mean()
+                macd_val  = float(macd_line.iloc[-1])
+                sig_val   = float(signal_line.iloc[-1])
+                macd_prev = float(macd_line.iloc[-2]) if len(macd_line) >= 2 else macd_val
+                sig_prev  = float(signal_line.iloc[-2]) if len(signal_line) >= 2 else sig_val
+
+                if macd_prev < sig_prev and macd_val > sig_val:
+                    macd_status = "BULLISH_CROSS"
+                elif macd_val > sig_val:
+                    macd_status = "BULLISH"
+                elif macd_prev > sig_prev and macd_val < sig_val:
+                    macd_status = "BEARISH_CROSS"
+                else:
+                    macd_status = "BEARISH"
+
+                macd_div = None
+                if len(close) >= 20:
+                    price_low_recent = float(close.iloc[-5:].min())
+                    price_low_prior  = float(close.iloc[-20:-5].min())
+                    macd_low_recent  = float(macd_line.iloc[-5:].min())
+                    macd_low_prior   = float(macd_line.iloc[-20:-5].min())
+                    if price_low_recent < price_low_prior and macd_low_recent > macd_low_prior:
+                        macd_div = "BULLISH_DIV"
+                    elif price_low_recent > price_low_prior and macd_low_recent < macd_low_prior:
+                        macd_div = "BEARISH_DIV"
+
+                v["tech_macd"] = macd_status
+                if macd_div:
+                    v["tech_macd_div"] = macd_div
+            except Exception:
+                pass
+
+            # ── Support / Resistance (swing highs/lows, 60-day window) ────────
+            try:
+                window = 5
+                recent_close = close.iloc[-60:] if len(close) >= 60 else close
+                swing_lows, swing_highs = [], []
+                for i in range(window, len(recent_close) - window):
+                    val = float(recent_close.iloc[i])
+                    if all(val <= float(recent_close.iloc[i - j]) for j in range(1, window + 1)) and \
+                       all(val <= float(recent_close.iloc[i + j]) for j in range(1, window + 1)):
+                        swing_lows.append(val)
+                    if all(val >= float(recent_close.iloc[i - j]) for j in range(1, window + 1)) and \
+                       all(val >= float(recent_close.iloc[i + j]) for j in range(1, window + 1)):
+                        swing_highs.append(val)
+
+                supports    = [s for s in swing_lows  if s < price * 0.99]
+                resistances = [r for r in swing_highs if r > price * 1.01]
+
+                sr_parts = []
+                if supports:
+                    nearest_sup = max(supports)
+                    sup_dist = round((price - nearest_sup) / price * 100, 1)
+                    v["tech_support_dist_pct"] = sup_dist
+                    sr_parts.append("AT_SUPPORT" if sup_dist <= 2 else f"ABOVE_SUPPORT({sup_dist}%_below)")
+                if resistances:
+                    nearest_res = min(resistances)
+                    res_dist = round((nearest_res - price) / price * 100, 1)
+                    v["tech_resistance_dist_pct"] = res_dist
+                    sr_parts.append(f"BELOW_RESISTANCE({res_dist}%_above)")
+                if sr_parts:
+                    v["tech_sr_context"] = "_".join(sr_parts)
+            except Exception:
+                pass
+
+            # ── Volume Profile / Point of Control (90-day) ───────────────────
+            try:
+                vol_w   = volume.iloc[-90:] if len(volume) >= 90 else volume
+                close_w = close.iloc[-90:]  if len(close)  >= 90 else close
+                idx = vol_w.index.intersection(close_w.index)
+                if len(idx) >= 20:
+                    c_arr = close_w.loc[idx].values.astype(float)
+                    v_arr = vol_w.loc[idx].values.astype(float)
+                    bins  = 20
+                    pmin, pmax = c_arr.min(), c_arr.max()
+                    if pmax > pmin:
+                        bsize = (pmax - pmin) / bins
+                        vol_buckets = {}
+                        for cv, vv in zip(c_arr, v_arr):
+                            b = min(int((cv - pmin) / bsize), bins - 1)
+                            vol_buckets[b] = vol_buckets.get(b, 0) + vv
+                        poc_b     = max(vol_buckets, key=vol_buckets.get)
+                        poc_price = pmin + (poc_b + 0.5) * bsize
+                        poc_dist  = round((price - poc_price) / poc_price * 100, 1)
+                        v["tech_poc_dist_pct"] = poc_dist
+                        v["tech_poc_context"]  = (
+                            "AT_POC(high_volume_magnet)" if abs(poc_dist) <= 2 else
+                            f"ABOVE_POC({poc_dist:+.1f}%)" if poc_dist > 0 else
+                            f"BELOW_POC({poc_dist:+.1f}%)"
+                        )
+            except Exception:
+                pass
+
+            # ── VWAP (20-day volume-weighted average price) ───────────────────
+            try:
+                if len(close) >= 20 and len(volume) >= 20:
+                    c20 = close.iloc[-20:]
+                    v20 = volume.iloc[-20:]
+                    idx2 = c20.index.intersection(v20.index)
+                    if len(idx2) >= 10:
+                        c_vals = c20.loc[idx2].values.astype(float)
+                        v_vals = v20.loc[idx2].values.astype(float)
+                        vwap      = float(np.average(c_vals, weights=v_vals))
+                        vwap_dist = round((price - vwap) / vwap * 100, 1)
+                        v["tech_vwap_dist_pct"] = vwap_dist
+                        v["tech_vwap_context"]  = (
+                            "ABOVE_VWAP(buyers_in_control)" if vwap_dist >  1.5 else
+                            "BELOW_VWAP(sellers_in_control)" if vwap_dist < -1.5 else
+                            "AT_VWAP(decision_point)"
+                        )
+            except Exception:
+                pass
+
+        except Exception:
+            continue
+
+    print("[enrich_tech] done", file=sys.stderr, flush=True)
+
+
 def _ai_trades_worker():
     """Background worker: generate AI trade setups and store in app._ait_cache."""
     import sys
@@ -4348,6 +4524,14 @@ def _ai_trades_worker():
             _add(t, "uc_otm_pct", hit.get("otm_pct"))
             _add(t, "uc_urgency", hit.get("urgency"))
 
+    # Optional technical enrichment: MACD, Support/Resistance, Volume Profile POC, VWAP
+    # Runs silently — any failure leaves existing signals untouched
+    try:
+        _enrich_technical_signals(tickers_data)
+    except Exception as _et_err:
+        import sys as _sys
+        print(f"[ai_trades_bg] tech enrichment skipped: {_et_err}", file=_sys.stderr)
+
     # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
     rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
 
@@ -4587,6 +4771,23 @@ def _ai_trades_worker():
             sft = v["short_float_trend"]
             sft_tag = "SHORTS_BUILDING(bear_conviction)" if sft > 1 else "SHORTS_COVERING(squeeze_trigger)" if sft < -1 else "short_stable"
             parts.append(f"short_trend={sft:+.1f}pp({sft_tag})")
+        if v.get("tech_macd"):
+            m = v["tech_macd"]
+            m_tag = ("BULLISH_CROSS(fresh_buy_signal)" if m == "BULLISH_CROSS" else
+                     "BULLISH(above_signal)"           if m == "BULLISH"        else
+                     "BEARISH_CROSS(momentum_warning)" if m == "BEARISH_CROSS"  else
+                     "BEARISH(below_signal)")
+            div_str = f"+{v['tech_macd_div']}" if v.get("tech_macd_div") else ""
+            parts.append(f"macd={m_tag}{div_str}")
+        if v.get("tech_sr_context"):
+            parts.append(f"sr={v['tech_sr_context']}")
+        if v.get("tech_poc_context"):
+            poc_d = v.get("tech_poc_dist_pct", 0)
+            parts.append(f"poc={v['tech_poc_context']}")
+        if v.get("tech_vwap_context"):
+            vd = v.get("tech_vwap_dist_pct", 0)
+            vwap_label = v["tech_vwap_context"].split("(")[0]
+            parts.append(f"vwap={vd:+.1f}%({vwap_label})")
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
         sig_lines.append(" | ".join(parts))
@@ -4637,6 +4838,10 @@ def _ai_trades_worker():
         "30. TAIL RISK PUT CONCENTRATION: tail_risk_puts is the % of total put volume in deep OTM strikes (>15% below spot). CRASH_HEDGING_ACTIVE(>40%) = institutions are paying for disaster protection, not making directional bets — this is a macro risk-off signal. When tail_risk_puts>30%, do NOT sell premium structures (IRON CONDOR, BULL PUT SPREAD) — institutions may know about an upcoming systemic risk event. The signal does NOT mean the stock will definitely fall; it means smart money is buying insurance at scale.\n"
         "31. IV SKEW PERCENTILE (when available after 30+ days of data): iv_skew_pctl ranks today's IV skew vs the past year for this specific stock. EXTREME_HISTORICAL_FEAR(>=90th percentile) = put premium is at historically extreme levels for this stock — highest edge to SELL PUT SPREADS when bullish, or BUY CALL SPREADS as mean-reversion plays. Below_avg_fear(<=25th percentile) = options are historically cheap — favor LONG options (calls or straddles) over premium selling.\n"
         "32. SHORT INTEREST TREND (when available after 5+ sessions of data): short_trend shows change in short float vs 5 sessions ago. SHORTS_BUILDING(>+1pp) = new bearish institutional conviction entering the stock — validates bearish setups and contradicts bullish flow. SHORTS_COVERING(<-1pp) = short sellers are exiting — potential squeeze trigger forming; combine with squeeze_risk=HIGH or EXTREME for maximum conviction LONG CALL setup (short covering can accelerate a move by 2-3x).\n"
+        "34. MACD MOMENTUM: macd=BULLISH_CROSS is the strongest technical signal — momentum just flipped bullish; this is the optimal LONG CALL entry timing. BULLISH means momentum is positive but the cross happened days ago (still valid, lower urgency). BEARISH_CROSS is a warning — momentum turning down, reduce conviction on LONG CALL even with bullish flow. BULLISH_DIV = price made a lower low but MACD held a higher low — institutional accumulation on the dip, high-conviction reversal setup even if the stock looks weak on the surface.\n"
+        "35. SUPPORT/RESISTANCE LEVELS: sr=AT_SUPPORT means price is within 2% of a confirmed historical swing low — institutions have defended this exact level before; this is the optimal LONG CALL entry (risk/reward is best here, stop loss is well-defined just below support). ABOVE_SUPPORT(X%_below) shows a cushion below. BELOW_RESISTANCE(X%_above) means a supply zone overhead — if resistance is <3% away, the stock needs to break through first; if >5% away, the trade has room to run before hitting resistance.\n"
+        "36. VOLUME PROFILE / POINT OF CONTROL: poc=AT_POC means price is sitting at the highest-traded-volume level of the past 90 days — this acts as both a support magnet AND a breakout launch pad. ABOVE_POC = buyers have pushed price above where 90% of volume traded, confirming institutional demand at lower levels. BELOW_POC = sellers are in control of the distribution; avoid LONG CALL unless other signals are overwhelming. Prefer ABOVE_POC with MACD=BULLISH for highest technical confirmation.\n"
+        "37. VWAP (20-DAY): vwap=ABOVE_VWAP means buyers have consistently paid above the average cost basis over the past month — structural bullish; strong confirmation for LONG CALL. BELOW_VWAP is a headwind; institutions are underwater on recent buys. AT_VWAP = decision point, watch for directional resolution. Highest conviction entry: price ABOVE_VWAP + MACD=BULLISH + sr=AT_SUPPORT or ABOVE_SUPPORT — this triple-confirmation setup means technical, momentum, and price structure all agree.\n"
         "33. UNUSUAL CALL PREMIUM GATE (MANDATORY): Every recommended ticker MUST have a uc_prem signal present in its data AND uc_prem ≥ 0.50M ($500K). Tickers without a uc_prem field, or with uc_prem < 0.50M, must be SKIPPED entirely — no exceptions. This ensures every pick has documented institutional unusual call activity backing it. Prefer picks with uc_prem ≥ 1.0M (INSTITUTIONAL) or ≥ 5.0M (WHALE) when available — these represent the highest-conviction smart money flows. If fewer than 5 tickers meet the $500K threshold, fill remaining slots ONLY from the next-highest uc_prem tickers; do NOT recommend tickers with no unusual call flow.\n"
         "ABSOLUTE MANDATE — ALL 5 SETUPS MUST BE: direction=BULLISH, setup_type=LONG CALL only. No spreads. No puts. No iron condors. No straddles. No neutral. No bearish. Every single output must be a naked long call buy. If you cannot find 5 strong bullish setups, pick the 5 best available bullish signals regardless. Never output anything other than LONG CALL.\n"
         "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."
