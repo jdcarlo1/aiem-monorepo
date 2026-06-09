@@ -6271,9 +6271,9 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [error, setError]       = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = async (bust = false) => {
     setLoading(true); setError(null);
-    try { setData(await fetchEodSweeps()); }
+    try { setData(await fetchEodSweeps(bust)); }
     catch (e: any) { setError(e.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
@@ -6311,7 +6311,7 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
             Aggressive naked calls placed 3:00–4:15 PM ET · Institutions positioning for next day · ≤15d expiry · OTM only
           </div>
         </div>
-        <button onClick={load} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
+        <button onClick={() => load(true)} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
           {loading ? "SCANNING…" : "↻ REFRESH"}
         </button>
       </div>

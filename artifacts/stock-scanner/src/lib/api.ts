@@ -759,8 +759,8 @@ export interface EodSweepSignal {
   minutes_to_close: number; urgency: string;
   strikes: EodSweepStrike[];
 }
-export function fetchEodSweeps() {
-  return fetchJson<{ signals: EodSweepSignal[]; generated_at: string; total: number; note?: string }>("/eod-sweeps");
+export function fetchEodSweeps(bust = false) {
+  return fetchJson<{ signals: EodSweepSignal[]; generated_at: string; total: number; note?: string }>(`/eod-sweeps${bust ? "?bust=1" : ""}`);
 }
 
 export interface SignalEvent {

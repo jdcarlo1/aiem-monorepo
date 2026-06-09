@@ -6444,19 +6444,21 @@ def eod_sweeps():
     import math as _math
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
+    bust   = request.args.get("bust", "0") == "1"
     _cache = getattr(app, "_eod_sweeps_cache", None)
     _ts    = getattr(app, "_eod_sweeps_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:
+    if not bust and _cache and _ts and (_dt.now() - _ts).total_seconds() < 120:
         return jsonify(_cache)
 
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            # First try today's EOD data only
             cur.execute("""
                 SELECT ticker, price::float, strike::float, expiry, days_out,
                        vol_oi::float, prem::bigint, otm_pct::float, iv::float,
                        urgency, last_seen
                 FROM unusual_calls_log
-                WHERE last_seen >= NOW() - INTERVAL '5 days'
+                WHERE last_seen >= CURRENT_DATE AT TIME ZONE 'America/New_York'
                   AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 18 AND 23
                   AND days_out BETWEEN 1 AND 15
                   AND vol_oi  >= 5
@@ -6465,8 +6467,30 @@ def eod_sweeps():
                   AND strike  >= price * 0.97
                 ORDER BY last_seen DESC, vol_oi DESC
             """)
-            cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
-            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            rows_today = cur.fetchall()
+
+            if rows_today:
+                rows_raw = rows_today
+            else:
+                # Fall back to most recent trading day (up to 5 days)
+                cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry, days_out,
+                           vol_oi::float, prem::bigint, otm_pct::float, iv::float,
+                           urgency, last_seen
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL '5 days'
+                      AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 18 AND 23
+                      AND days_out BETWEEN 1 AND 15
+                      AND vol_oi  >= 5
+                      AND prem    >= 300000
+                      AND otm_pct BETWEEN -2 AND 25
+                      AND strike  >= price * 0.97
+                    ORDER BY last_seen DESC, vol_oi DESC
+                """)
+                rows_raw = cur.fetchall()
+
+        cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
+        rows = [dict(zip(cols, r)) for r in rows_raw]
 
         if not rows:
             out = {"signals": [], "generated_at": _dt.now().isoformat(), "total": 0,
