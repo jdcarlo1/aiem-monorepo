@@ -239,6 +239,23 @@ DEFAULT_LEADERBOARD = [
     "ZIP", "ROMA", "FOXF", "ODTX", "MEC", "CLLS", "BBNX", "RDNW", "AIRS", "SENS",
     "PAMT", "PAR", "ELMT", "PRE", "NL", "FNKO", "CD",
     "MRAM", "FEIM",
+    # Batch from barchart losers/gainers June 2026
+    "ALAB", "CIFR", "SIMO", "VIAV", "NXT", "POWL", "SANM", "TTMI", "SYNA",
+    "HBM", "CDE", "VSAT", "ASTS", "HL", "EQX", "AGI", "KGC", "MBLY", "PBF", "BTG", "EGO",
+    "ARWR", "IBKR",
+    "TSSI", "MRLN", "VATE", "OPTX", "OSS", "AGMB", "IMSR", "ISOU", "SERV", "EVEX",
+    "LTRX", "LZM", "ARMP", "ELVA", "SIDU", "SHMD", "GDYN", "SPIR", "SND", "RR", "VUZI", "QNC",
+    "GRRR", "RBBN", "OBE", "NKLR", "VELO", "CNXU", "MTA", "OPAL", "RPD", "GEMI",
+    "ASYS", "SLDP", "HPK", "SRTA", "BKKT", "ASPN", "ALTO", "WRN", "TSAT", "LAES",
+    "MEI", "METC", "NVEC", "ASTL", "TMQ", "WTI", "CRSR", "ANL", "FWDI", "HNRG",
+    "RZLT", "NABL", "CLFD", "AMPL", "MAKO", "LTBR", "MNTN", "RCKT", "MASS", "NGNE",
+    "TYGO", "PRME", "CRNT", "NEWP", "ITRG", "SLN", "LXU", "AVR", "EDIT", "TTGT",
+    "GTE", "DMAC", "EVGO", "BETR", "ELE", "MITK", "WYFI", "FLWS", "CYRX", "UP",
+    "OSPN", "ALLT", "PNRG", "EBS", "BBOT", "API", "SPT", "VOXR", "ZH", "FWRD",
+    "WEAV", "VOR", "BTGO", "RILY", "GFR", "ODV", "TBN", "UIS",
+    "SD", "JBIO", "IPI", "REPX", "DRTS", "GRNT", "TATT", "HRZN", "CSHR", "EVO",
+    "CABA", "CGNT", "SSP", "KRUS", "MPAA", "FET", "LUXE", "KNOP", "SGP", "PHR",
+    "MNPR", "ROOT", "BGIN", "BNED", "TXO", "YB", "TIGR", "FNLC", "IVA", "DC",
 ]
 
 # Deduplicate while preserving order
