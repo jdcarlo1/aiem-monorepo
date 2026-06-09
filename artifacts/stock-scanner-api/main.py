@@ -6458,8 +6458,8 @@ def eod_sweeps():
                        vol_oi::float, prem::bigint, otm_pct::float, iv::float,
                        urgency, last_seen
                 FROM unusual_calls_log
-                WHERE last_seen >= CURRENT_DATE AT TIME ZONE 'America/New_York'
-                  AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 18 AND 23
+                WHERE last_seen::date = CURRENT_DATE
+                  AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 14 AND 23
                   AND days_out BETWEEN 1 AND 15
                   AND vol_oi  >= 5
                   AND prem    >= 300000
@@ -6583,6 +6583,36 @@ def eod_sweeps():
         import traceback
         print(f"[eod_sweeps] error: {e}\n{traceback.format_exc()}", file=__import__("sys").stderr)
         return jsonify({"error": str(e), "signals": []}), 500
+
+
+@app.route("/stock-api/admin/run-eod-scan", methods=["POST"])
+def admin_run_eod_scan():
+    """
+    Admin endpoint: manually trigger an EOD unusual-calls scan to populate
+    unusual_calls_log for the current trading day.  Runs in a background thread
+    and returns immediately so the HTTP request doesn't time out.
+    """
+    import threading as _thr
+    import traceback as _tb
+
+    def _bg():
+        try:
+            _run_unusual_calls_scan("manual-trigger")
+            # Bust the EOD sweeps cache so the next request re-queries fresh data
+            if hasattr(app, "_eod_sweeps_cache"):
+                app._eod_sweeps_cache    = None
+                app._eod_sweeps_cache_ts = None
+            print("[admin_run_eod_scan] cache busted — fresh data ready")
+        except Exception as exc:
+            print(f"[admin_run_eod_scan] error: {exc}\n{_tb.format_exc()}")
+
+    _thr.Thread(target=_bg, daemon=True).start()
+    return jsonify({
+        "status":  "started",
+        "message": "EOD unusual-calls scan running in background (~2-3 min). "
+                   "Call /stock-api/eod-sweeps?bust=1 afterwards to see fresh data.",
+        "tickers": len(DEFAULT_LEADERBOARD),
+    })
 
 
 @app.route("/stock-api/conviction-calls", methods=["GET"])

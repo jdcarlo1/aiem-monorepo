@@ -61,6 +61,25 @@ All computed in vol-crush `_analyze()` (Q1-Q18):
 - `signal_outcomes` — T+3/5/10 price outcomes for win rate tracking
 - `daily_vol_snapshots` — daily iv_skew, short_float, pc_oi_ratio, pc_prem_ratio, rs_vs_spy per ticker
 - `daily_top10`, `answers`, `questions`, `score_history`, `sessions`, `sm_subscribers`
+- `unusual_calls_log` — per-tick options flow; populated by scheduled scans at 3:30/4:00/4:15 PM ET
+
+## ⚠️ CRITICAL: Dev DB ≠ Production DB
+Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted via dev server (manual scans, curl to localhost) does NOT appear in production.
+
+**EOD Sweep tab shows no data if production DB has no records for today.** This happens when:
+1. The production server deployed AFTER the scheduled scans (3:30–4:15 PM ET)
+2. The server was restarted mid-day
+
+**Fix**: Hit `GET https://nclexai.org/stock-api/unusual-calls` from a detached process — it runs a live scan and saves results to the production DB with `last_seen = NOW()`. Takes ~2–3 minutes.
+
+**Better fix** (deployed): `POST https://nclexai.org/stock-api/admin/run-eod-scan` — starts scan in background, returns immediately.
+
+## EOD Sweep Endpoint (`/stock-api/eod-sweeps`)
+- Line 6441 in main.py
+- Today-first SQL: `WHERE last_seen::date = CURRENT_DATE AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 14 AND 23`
+- Fallback: last 5 days in same hour window
+- Cache: 120s TTL, busted with `?bust=1`
+- Admin trigger: `POST /stock-api/admin/run-eod-scan` (line 6588) — runs scan in background thread
 
 ## Stripe
 - Product: "StockScanner AI Pro" — Price: `price_1TfQfiChn3bmMDTvww8LpUIn` ($59/mo, ACTIVE)
@@ -80,7 +99,7 @@ All computed in vol-crush `_analyze()` (Q1-Q18):
 
 ## Smart Money / Options logic
 - `artifacts/stock-scanner-api/smart_money.py` — strike filter: 80%–150% of spot, skips 0DTE
-- DEFAULT_LEADERBOARD = 50 tickers for all scans
+- DEFAULT_LEADERBOARD = ~1,433 tickers for all scans
 - Use `UUP` (not `^DXY` — delisted on yfinance) for USD strength
 - GEX uses numpy normal PDF — no scipy dependency
 - FREE_LIMIT on NCLEX is 10 — never change
