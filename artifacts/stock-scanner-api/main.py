@@ -4405,7 +4405,79 @@ def _ai_trades_worker():
     except Exception:
         pass
 
-    # 14b. Multi-day UC flow streak — same unusual call contract returning on 3+ distinct days
+    # 14b. Sector ETF flow confirmation — institutional call buying confirmed at the sector level
+    _sector_etf_bullish: set = set()
+    try:
+        with _psycopg2.connect(_DB_URL) as _se_conn, _se_conn.cursor() as _se_cur:
+            _se_cur.execute("""
+                SELECT DISTINCT ticker
+                FROM unusual_calls_log
+                WHERE ticker IN ('XLK','XLF','XLV','XLE','XLI','XLY','XLC','XLB','XLP','XLU','XLRE','QQQ','IWM')
+                  AND last_seen >= NOW() - INTERVAL '28 hours'
+                  AND prem >= 500000
+            """)
+            for (_se_etf,) in _se_cur.fetchall():
+                _sector_etf_bullish.add(_se_etf)
+    except Exception:
+        pass
+
+    _TICKER_TO_ETF_MAP = {
+        "AAPL":"XLK","MSFT":"XLK","NVDA":"XLK","GOOGL":"XLK","META":"XLK","AMD":"XLK",
+        "INTC":"XLK","MU":"XLK","ORCL":"XLK","CRM":"XLK","ADBE":"XLK","QCOM":"XLK",
+        "TXN":"XLK","AVGO":"XLK","AMAT":"XLK","LRCX":"XLK","KLAC":"XLK","NOW":"XLK",
+        "JPM":"XLF","BAC":"XLF","GS":"XLF","WFC":"XLF","MS":"XLF","C":"XLF",
+        "BLK":"XLF","V":"XLF","MA":"XLF","AXP":"XLF","SCHW":"XLF","COF":"XLF",
+        "JNJ":"XLV","UNH":"XLV","MRNA":"XLV","PFE":"XLV","ABBV":"XLV","LLY":"XLV",
+        "AMGN":"XLV","GILD":"XLV","CVS":"XLV","BMY":"XLV","MDT":"XLV","ISRG":"XLV",
+        "XOM":"XLE","CVX":"XLE","SLB":"XLE","OXY":"XLE","MPC":"XLE","COP":"XLE","HAL":"XLE",
+        "LMT":"XLI","CAT":"XLI","BA":"XLI","GE":"XLI","HON":"XLI","RTX":"XLI","NOC":"XLI","DE":"XLI",
+        "AMZN":"XLY","TSLA":"XLY","COST":"XLY","MCD":"XLY","NKE":"XLY","HD":"XLY","LOW":"XLY","GM":"XLY",
+        "NFLX":"XLC","DIS":"XLC","CMCSA":"XLC","T":"XLC","VZ":"XLC","ATVI":"XLC","EA":"XLC",
+        "NEE":"XLU","DUK":"XLU","SO":"XLU","AEP":"XLU","D":"XLU",
+        "PLD":"XLRE","AMT":"XLRE","SPG":"XLRE","EQIX":"XLRE",
+        "APD":"XLB","LIN":"XLB","ECL":"XLB","NEM":"XLB","FCX":"XLB",
+    }
+    if _sector_etf_bullish:
+        active_sources.append("Sector ETF Flow")
+        for _se_t in list(tickers_data.keys()):
+            _etf_match = _TICKER_TO_ETF_MAP.get(_se_t)
+            if _etf_match and _etf_match in _sector_etf_bullish:
+                _add(_se_t, "sector_etf_flow", f"CONFIRMED({_etf_match}_bullish)")
+
+    # 14c. Dark pool premium trend (3-day) — is institutional DP activity accelerating or fading?
+    try:
+        with _psycopg2.connect(_DB_URL) as _dpt_conn, _dpt_conn.cursor() as _dpt_cur:
+            _dpt_cur.execute("""
+                SELECT ticker, signal_date, dp_prem_m
+                FROM signal_history
+                WHERE dp_prem_m IS NOT NULL AND dp_prem_m > 0
+                  AND signal_date >= CURRENT_DATE - INTERVAL '5 days'
+                ORDER BY ticker, signal_date
+            """)
+            _dpt_rows = _dpt_cur.fetchall()
+        _dp_hist: dict = {}
+        for _dpt_t, _dpt_d, _dpt_v in _dpt_rows:
+            if _dpt_t not in _dp_hist:
+                _dp_hist[_dpt_t] = []
+            _dp_hist[_dpt_t].append(float(_dpt_v))
+        if _dp_hist:
+            active_sources.append("Dark Pool Trend")
+            for _dpt_t, _dpt_vals in _dp_hist.items():
+                if len(_dpt_vals) >= 2:
+                    _dp_today_v = _dpt_vals[-1]
+                    _dp_prior_v = sum(_dpt_vals[:-1]) / len(_dpt_vals[:-1])
+                    if _dp_today_v >= _dp_prior_v * 1.25:
+                        _dp_tag = "ACCELERATING"
+                    elif _dp_today_v <= _dp_prior_v * 0.75:
+                        _dp_tag = "FADING"
+                    else:
+                        _dp_tag = "STEADY"
+                    _add(_dpt_t, "dp_trend", _dp_tag)
+                    _add(_dpt_t, "dp_3d_avg_m", round(_dp_prior_v, 2))
+    except Exception:
+        pass
+
+    # 14d. Multi-day UC flow streak — same unusual call contract returning on 3+ distinct days
     try:
         with _psycopg2.connect(_DB_URL) as _uc_conn, _uc_conn.cursor() as _uc_cur:
             _uc_cur.execute("""
@@ -4483,6 +4555,53 @@ def _ai_trades_worker():
             win_rate_context = " | ".join(_wl_parts)
     except Exception:
         win_rate_context = ""
+
+    # 16b. Signal combination win rates — which signal tags predict wins from historical trade log
+    combo_win_context = ""
+    try:
+        with _psycopg2.connect(_DB_URL) as _cw_conn, _cw_conn.cursor() as _cw_cur:
+            _cw_cur.execute("""
+                SELECT signals_aligned, outcome
+                FROM ai_trade_log
+                WHERE outcome IN ('WIN','LOSS')
+                  AND signals_aligned IS NOT NULL
+                  AND jsonb_array_length(signals_aligned) > 0
+                ORDER BY trade_date DESC
+                LIMIT 300
+            """)
+            _cw_rows = _cw_cur.fetchall()
+        if len(_cw_rows) >= 5:
+            _combo_tags = [
+                ("persist3d+",  lambda ss: any("persist=" in s and s.split("persist=")[-1].split("d")[0].isdigit() and int(s.split("persist=")[-1].split("d")[0]) >= 3 for s in ss if "persist=" in s)),
+                ("MACD_CROSS",  lambda ss: any("BULLISH_CROSS" in s for s in ss)),
+                ("ABOVE_POC",   lambda ss: any("ABOVE_POC" in s for s in ss)),
+                ("ABOVE_VWAP",  lambda ss: any("ABOVE_VWAP" in s for s in ss)),
+                ("PC_BULLISH",  lambda ss: any("BULLISH_ROTATION" in s for s in ss)),
+                ("INST_LOADED", lambda ss: any("HIGH_CONVICTION" in s for s in ss)),
+                ("UC_STREAK",   lambda ss: any("uc_streak" in s for s in ss)),
+                ("SECTOR_CONF", lambda ss: any("SECTOR_CONFIRMED" in s or "sector_etf_flow" in s for s in ss)),
+                ("SHORTS_EXIT", lambda ss: any("SHORTS_COVERING" in s for s in ss)),
+            ]
+            _cstats = {k: [0, 0] for k, _ in _combo_tags}
+            for _sa, _oc in _cw_rows:
+                _sigs = [str(s) for s in (_sa if isinstance(_sa, list) else [])]
+                for _tag, _fn in _combo_tags:
+                    try:
+                        if _fn(_sigs):
+                            _cstats[_tag][1] += 1
+                            if _oc == "WIN":
+                                _cstats[_tag][0] += 1
+                    except Exception:
+                        pass
+            _cparts = []
+            for _tag, _ in _combo_tags:
+                _w, _tot = _cstats[_tag]
+                if _tot >= 3:
+                    _cparts.append(f"{_tag}:{round(_w / _tot * 100)}%({_w}/{_tot})")
+            if _cparts:
+                combo_win_context = "SIGNAL_COMBO_WIN_RATES: " + " | ".join(_cparts)
+    except Exception:
+        combo_win_context = ""
 
     # 17. Macro cross-asset signals (yield curve, DXY, credit spreads, crude, gold)
     macro_cross_asset = ""
@@ -4816,6 +4935,12 @@ def _ai_trades_worker():
             usc = v.get("uc_streak_contracts", 1)
             usd_tag = "PERSISTENT_WHALE(5d+)" if usd >= 5 else "MULTI_DAY_INSTITUTIONAL(3-5d)" if usd >= 3 else "RETURNING_BUYER(2-3d)"
             parts.append(f"uc_streak={usd:.0f}d({usd_tag}) contracts={usc}")
+        if v.get("sector_etf_flow"):
+            parts.append(f"sector_etf_flow={v['sector_etf_flow']}")
+        if v.get("dp_trend") and v["dp_trend"] != "STEADY":
+            dp3d = v.get("dp_3d_avg_m", "")
+            dp3d_str = f"(3d_avg=${dp3d}M)" if dp3d else ""
+            parts.append(f"dp_trend={v['dp_trend']}{dp3d_str}")
         if v.get("tech_macd"):
             m = v["tech_macd"]
             m_tag = ("BULLISH_CROSS(fresh_buy_signal)" if m == "BULLISH_CROSS" else
@@ -4844,8 +4969,9 @@ def _ai_trades_worker():
     index_line = f"INDICES: {index_context}" if index_context else ""
     regime_line = f"MARKET_REGIME: {market_regime}" if market_regime and market_regime != "UNKNOWN" else ""
     winrate_line = f"YOUR_HISTORICAL_WIN_RATES: {win_rate_context}" if win_rate_context else ""
+    combo_winrate_line = combo_win_context if combo_win_context else ""
     macro_cross_line = f"MACRO_CROSS_ASSET: {macro_cross_asset}" if macro_cross_asset else ""
-    context_block = "\n".join(x for x in [macro_line, sector_line, index_line, regime_line, winrate_line, macro_cross_line] if x)
+    context_block = "\n".join(x for x in [macro_line, sector_line, index_line, regime_line, winrate_line, combo_winrate_line, macro_cross_line] if x)
 
     system_msg = (
         "You are an elite institutional options trader operating at hedge-fund quant level. "
@@ -4890,6 +5016,9 @@ def _ai_trades_worker():
         "38. P/C RATIO MOMENTUM: pc_ratio_mom tracks the 5-day change in the put/call OI ratio. BULLISH_ROTATION (dropping >0.2) means institutions have been steadily closing puts and opening calls over the past week — this is the single most reliable leading indicator that smart money is shifting bullish BEFORE price moves. A single-day low pc_oi_ratio could be noise; a 5-day declining trend is institutional conviction. BEARISH_ROTATION (rising >0.2) means put positioning is building — confirm with other bearish signals before skipping a bullish setup, but treat it as a caution flag. Stable = no rotation in progress.\n"
         "39. INSTITUTIONAL OWNERSHIP: instit_own is the % of shares held by institutional investors (mutual funds, hedge funds, pension funds) per the latest 13F filings. HIGH_CONVICTION (≥70%) means professional money managers dominate the shareholder base — this stock is well-researched and institutionally validated; they will not sell easily on small dips, providing price support. LOW_INST_OWN (<40%) means retail dominates — higher volatility, less predictable behavior. When instit_own=HIGH_CONVICTION aligns with unusual call buying, the interpretation is: EXISTING INSTITUTIONAL OWNERS are adding to their already-large positions — the highest possible conviction signal for LONG CALL.\n"
         "40. MULTI-DAY UC STREAK: uc_streak tracks how many days the same unusual call contract (same strike + expiry) has been actively traded. PERSISTENT_WHALE (5d+) means a single institution has deployed capital into the same options position for 5+ consecutive trading days — this is the rarest and highest-conviction signal in the entire system; they are building a large directional position and cannot do it in one day without moving the market. MULTI_DAY_INSTITUTIONAL (3-5d) = strong conviction, institutional accumulation confirmed. RETURNING_BUYER (2-3d) = same buyer returning, early confirmation. A uc_streak of ANY length combined with uc_prem=WHALE is your absolute highest-conviction setup — override other hesitations when these two align.\n"
+        "41. SECTOR ETF FLOW CONFIRMATION: sector_etf_flow=CONFIRMED(XLK_bullish) means the sector ETF itself had $500K+ unusual call buying TODAY — the entire technology sector is seeing institutional inflows, not just this one stock. This is the most powerful confirmation signal in the system: when a sector-level ETF AND an individual stock both show unusual institutional call buying on the same day, the probability that the move is real (not noise or a hedge) is dramatically higher. A stock pick without sector_etf_flow is still valid; a pick WITH sector_etf_flow gets +1 conviction tier automatically. If two picks are otherwise equal, always prefer the one with sector_etf_flow=CONFIRMED.\n"
+        "42. DARK POOL TREND: dp_trend tracks whether dark pool premium is ACCELERATING (today's DP flow is 25%+ above 3-day average — institutional buying is intensifying, fresh capital entering), FADING (DP flow dropped 25%+ — institutions may be taking profits or reducing exposure), or STEADY (consistent ongoing accumulation). ACCELERATING combined with any bullish signal stack is a powerful confirmation — institutions are stepping up their buying pace. FADING on an otherwise bullish stock is a caution flag — the smart money that drove the setup may be lightening up. Treat dp_trend=ACCELERATING as equivalent to a +0.5 conviction boost.\n"
+        "43. SIGNAL COMBINATION WIN RATES: SIGNAL_COMBO_WIN_RATES shows your actual historical win rate when specific signal tags appeared in past winning vs losing trades. This is YOUR OWN PERFORMANCE DATA — the highest-weight signal in the system. When SIGNAL_COMBO_WIN_RATES shows persist3d+:84%(21/25), it means that out of your 25 past trades where signal had 3+ days persistence, 21 won. USE THIS TO OVERRIDE rule-based weights: if your data shows MACD_CROSS wins 75% of the time but ABOVE_POC wins only 52%, weight MACD_CROSS heavier in your conviction scoring for this session. This self-learning feedback loop means the AI gets smarter every day as more outcomes are logged.\n"
         "33. UNUSUAL CALL PREMIUM GATE (MANDATORY): Every recommended ticker MUST have a uc_prem signal present in its data AND uc_prem ≥ 0.50M ($500K). Tickers without a uc_prem field, or with uc_prem < 0.50M, must be SKIPPED entirely — no exceptions. This ensures every pick has documented institutional unusual call activity backing it. Prefer picks with uc_prem ≥ 1.0M (INSTITUTIONAL) or ≥ 5.0M (WHALE) when available — these represent the highest-conviction smart money flows. If fewer than 5 tickers meet the $500K threshold, fill remaining slots ONLY from the next-highest uc_prem tickers; do NOT recommend tickers with no unusual call flow.\n"
         "ABSOLUTE MANDATE — ALL 5 SETUPS MUST BE: direction=BULLISH, setup_type=LONG CALL only. No spreads. No puts. No iron condors. No straddles. No neutral. No bearish. Every single output must be a naked long call buy. If you cannot find 5 strong bullish setups, pick the 5 best available bullish signals regardless. Never output anything other than LONG CALL.\n"
         "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."

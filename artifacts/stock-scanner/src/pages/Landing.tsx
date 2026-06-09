@@ -228,12 +228,12 @@ export default function Landing() {
           </div>
 
           <h1 className="font-black leading-none mb-8" style={{ fontSize: "clamp(3.2rem,9vw,7.5rem)", letterSpacing: "-0.055em", lineHeight: 0.92 }}>
-            47 signals.<br />
+            49 signals.<br />
             <span style={{ color: "#4ade80", textShadow: "0 0 160px rgba(74,222,128,0.5)" }}>One AI thesis.</span>
           </h1>
 
           <p className="mx-auto mb-6 text-slate-300" style={{ fontSize: "clamp(1.1rem,2.5vw,1.4rem)", maxWidth: "660px", lineHeight: 1.75 }}>
-            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 47 signals into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, dealer gamma exposure, volatility surface, macro cross-asset context, institutional whale blocks, MACD momentum, support &amp; resistance levels, volume profile POC, VWAP, and more — and outputs 3 complete, written trade setups every day.
+            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 49 signals into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, dealer gamma exposure, volatility surface, macro cross-asset context, institutional whale blocks, MACD momentum, support &amp; resistance levels, volume profile POC, VWAP, and more — and outputs 3 complete, written trade setups every day.
           </p>
 
           <p className="mx-auto mb-12 font-bold" style={{ fontSize: "1.05rem", maxWidth: "580px", color: "#fbbf24" }}>
@@ -267,7 +267,7 @@ export default function Landing() {
         </p>
         <div className="grid sm:grid-cols-3 gap-4 text-left">
           {[
-            { before: "You open 6 different tabs trying to figure out if signals agree.", after: "One AI reads all 47 signals together and tells you exactly what they say — combined.", icon: "🗂️" },
+            { before: "You open 6 different tabs trying to figure out if signals agree.", after: "One AI reads all 49 signals together and tells you exactly what they say — combined.", icon: "🗂️" },
             { before: "You see heavy put volume and don't know if it's a hedge or a real bearish bet.", after: "Put Intent Decoder classifies every put: hedge vs directional bet. Nobody else does this.", icon: "🎯" },
             { before: "You get a signal score. No entry, no strike, no expiry, no thesis.", after: "You get: ticker, direction, entry strike, expiry, target, stop loss, and a written thesis. Ready to execute.", icon: "📋" },
           ].map(p => (
@@ -292,7 +292,7 @@ export default function Landing() {
               AI Trade Synthesis
             </h2>
             <p className="text-slate-300 mb-8" style={{ maxWidth: "620px", fontSize: "1.1rem", lineHeight: 1.75 }}>
-              Every day, our AI reads all 47 signals simultaneously — dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime (VIX + SPY trend), MACD momentum &amp; divergence, support &amp; resistance levels, volume profile POC, 20-day VWAP, RSI, momentum factors, OBV accumulation, revenue acceleration, analyst upgrades, earnings beat rate, VIX term structure, HYG credit health, and more. Then it outputs 3 complete trade setups, written in plain English, ranked from most bullish to most bearish.
+              Every day, our AI reads all 49 signals simultaneously — dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime (VIX + SPY trend), MACD momentum &amp; divergence, support &amp; resistance levels, volume profile POC, 20-day VWAP, RSI, momentum factors, OBV accumulation, revenue acceleration, analyst upgrades, earnings beat rate, VIX term structure, HYG credit health, and more. Then it outputs 3 complete trade setups, written in plain English, ranked from most bullish to most bearish.
             </p>
             <div className="grid sm:grid-cols-2 gap-6 mb-8">
               <div>
@@ -315,7 +315,7 @@ export default function Landing() {
                 <p className="text-xs uppercase tracking-widest font-bold mb-3" style={{ color: "#4ade80" }}>What you get from StockScanner AI</p>
                 <div className="space-y-2">
                   {[
-                    "All 47 signals → fed to AI together",
+                    "All 49 signals → fed to AI together",
                     "3 picks → sorted most bullish to bearish",
                     "Entry strike + expiry + target + stop",
                     "Written thesis: why these signals align",
