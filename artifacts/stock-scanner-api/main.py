@@ -6330,10 +6330,34 @@ def unusual_calls():
                 all_hits.extend(fut.result() or [])
 
         all_hits.sort(key=lambda x: x["vol_oi"], reverse=True)
+
+        # If live scan returned nothing (rate limited / cold start), fall back to DB
+        if not all_hits:
+            try:
+                with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
+                    _cur.execute("""
+                        SELECT ticker, price::float, strike::float, expiry, days_out,
+                               volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                               iv::float, urgency
+                        FROM unusual_calls_log
+                        WHERE last_seen >= CURRENT_DATE
+                          AND vol_oi >= 3
+                          AND prem >= 100000
+                        ORDER BY vol_oi DESC LIMIT 80
+                    """)
+                    _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency"]
+                    for _row in _cur.fetchall():
+                        _d = dict(zip(_cols, _row))
+                        _d["is_etf"] = _d["ticker"] in _ETF_SET
+                        all_hits.append(_d)
+            except Exception:
+                pass
+
         out = {"hits": all_hits[:80], "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
         app._unusual_calls_cache    = out
         app._unusual_calls_cache_ts = _dt.now()
-        _save_unusual_calls_to_db(all_hits)
+        if all_hits:
+            _save_unusual_calls_to_db(all_hits)
         return jsonify(out)
 
 
