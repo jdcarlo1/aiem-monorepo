@@ -27,6 +27,7 @@ import {
   fetchUnusualCallsLog, UnusualCallsLogEntry,
   saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
   fetchNetFlow, NetFlowRow, NetFlowMicrocapResult, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
+  fetchUnusualCallsMicrocap, MicroCapCall,
   NetFlowStreakRow, NetFlowStreakResult, NetFlowDayDot, fetchNetFlowMultiday,
   AISignal, AISignalResult, fetchAISignal,
   MorningRunnerRow, fetchMorningRunners,
@@ -8211,6 +8212,203 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 }
 
 
+// ---- High Conviction Micro/Small-Cap Calls Tab --------------------------
+
+function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [signals, setSignals] = useState<MicroCapCall[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [days,    setDays]    = useState(3);
+  const [lastRun, setLastRun] = useState<Date | null>(null);
+
+  const load = async (d = days) => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetchUnusualCallsMicrocap(d);
+      setSignals(res.signals ?? []);
+      setLastRun(new Date());
+    } catch (e: any) {
+      setError(e.message ?? "Scan failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const fmtPrem = (p: number) => {
+    if (p >= 1_000_000) return `$${(p / 1_000_000).toFixed(2)}M`;
+    if (p >= 1_000)     return `$${(p / 1_000).toFixed(0)}K`;
+    return `$${p}`;
+  };
+
+  const tierColor: Record<string, string> = {
+    nano:  "bg-red-900/50 text-red-300 border-red-700/50",
+    micro: "bg-violet-900/50 text-violet-300 border-violet-700/50",
+    small: "bg-blue-900/50 text-blue-300 border-blue-700/50",
+    mid:   "bg-slate-800 text-slate-300 border-slate-600",
+  };
+
+  const urgencyColor: Record<string, string> = {
+    EXPIRING: "text-red-400",
+    SHORT:    "text-orange-400",
+    NEAR:     "text-yellow-400",
+    MEDIUM:   "text-emerald-400",
+  };
+
+  return (
+    <div className="p-4 space-y-4 overflow-y-auto" style={{ maxHeight: "calc(100dvh - 110px)" }}>
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-white font-black text-xl">🎯 High Conviction Micro & Small Caps</h2>
+          <p className="text-slate-400 text-sm mt-0.5">
+            Unusual call option activity in micro/small-cap stocks — smart money positioning before big moves
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Days filter */}
+          {([1, 3, 7] as const).map(d => (
+            <button
+              key={d}
+              onClick={() => { setDays(d); load(d); }}
+              className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all ${
+                days === d
+                  ? "bg-violet-600 border-violet-500 text-white"
+                  : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500"
+              }`}
+            >
+              {d === 1 ? "Today" : `${d}d`}
+            </button>
+          ))}
+          <button
+            onClick={() => load()}
+            disabled={loading}
+            className="px-3 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 text-slate-300 hover:border-slate-500 disabled:opacity-50 transition-all"
+          >
+            {loading ? "Scanning…" : "↻ Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {/* Schedule note */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+        <span>⏰ Auto-scans daily at <span className="text-white font-bold">10:30 AM ET</span> (Mon–Fri) across 200+ micro &amp; small-cap tickers</span>
+        {lastRun && <span className="text-slate-500">· Last loaded {lastRun.toLocaleTimeString()}</span>}
+      </div>
+
+      {error && (
+        <div className="bg-red-950/30 border border-red-800/50 rounded-xl p-3 text-red-400 text-sm">{error}</div>
+      )}
+
+      {loading && (
+        <div className="flex items-center justify-center py-16 text-slate-500 text-sm gap-2">
+          <div className="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+          Loading signals…
+        </div>
+      )}
+
+      {!loading && !error && signals.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-500">
+          <span className="text-4xl">🔍</span>
+          <p className="text-sm text-center max-w-xs">
+            No unusual call activity found in the last {days} day{days > 1 ? "s" : ""}.<br />
+            The next auto-scan runs at 10:30 AM ET on the next trading day.
+          </p>
+        </div>
+      )}
+
+      {!loading && signals.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-slate-500 text-xs">{signals.length} signal{signals.length !== 1 ? "s" : ""} found</p>
+          {signals.map((s, i) => {
+            const isOtm   = s.otm_pct > 0;
+            const isHot   = s.vol_oi >= 5;
+            return (
+              <div
+                key={i}
+                onClick={() => onSelectTicker(s.ticker)}
+                className={`bg-slate-900 border rounded-xl p-4 cursor-pointer transition-all hover:border-violet-700/60 ${
+                  isHot ? "border-violet-800/70" : "border-slate-800"
+                }`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-white font-black text-lg">{s.ticker}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${tierColor[s.cap_tier] ?? tierColor.micro}`}>
+                      {s.cap_tier}
+                    </span>
+                    {isHot && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-orange-900/50 border border-orange-700/50 text-orange-300 font-bold">
+                        🔥 {s.vol_oi.toFixed(1)}x vol/OI
+                      </span>
+                    )}
+                    <span className={`text-xs font-bold ${urgencyColor[s.urgency] ?? "text-slate-400"}`}>
+                      {s.urgency}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-emerald-400 font-black text-lg">{fmtPrem(s.prem)}</div>
+                    <div className="text-slate-500 text-xs">premium</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs">
+                  <div>
+                    <span className="text-slate-500">Strike </span>
+                    <span className="text-white font-bold">${s.strike}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Expiry </span>
+                    <span className="text-white font-bold">{s.expiry}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Days out </span>
+                    <span className="text-white font-bold">{s.days_out}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Vol </span>
+                    <span className="text-white font-bold">{s.volume.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">OI </span>
+                    <span className="text-white font-bold">{s.oi.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">IV </span>
+                    <span className="text-white font-bold">{s.iv}%</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">OTM </span>
+                    <span className={`font-bold ${isOtm ? "text-yellow-400" : "text-slate-300"}`}>
+                      {isOtm ? `+${s.otm_pct}%` : `${s.otm_pct}%`}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Price </span>
+                    <span className="text-white font-bold">${s.price.toFixed(2)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Vol/OI </span>
+                    <span className={`font-bold ${s.vol_oi >= 3 ? "text-orange-400" : "text-slate-300"}`}>
+                      {s.vol_oi.toFixed(1)}x
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-2 text-slate-600 text-xs">
+                  First seen {new Date(s.first_seen).toLocaleString()} · Last seen {new Date(s.last_seen).toLocaleString()}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ---- Net Flow Mid-cap Tab -----------------------------------------------
 
 function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
@@ -9041,7 +9239,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -9172,6 +9370,7 @@ export default function Dashboard() {
     { id: "shortcallrecord", label: "📋 SHORT CALLS RECORD" },
     { id: "netflow",         label: "💰 NET FLOW" },
     { id: "micronetflow",    label: "🔬 MICRO NET FLOW" },
+    { id: "microcalls",      label: "🎯 HIGH CONVICTION" },
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
     { id: "streakflow",      label: "📈 FLOW STREAK" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
@@ -9768,7 +9967,8 @@ export default function Dashboard() {
         {tab === "aishortcalls"    && <AIShortCallsTab />}
         {tab === "shortcallrecord" && <ShortCallRecordTab />}
         {tab === "netflow"         && <NetFlowTab onSelectTicker={selectTicker} />}
-        {tab === "micronetflow"    && <NetFlowMicrocapTab onSelectTicker={selectTicker} />}
+        {tab === "micronetflow"    && <NetFlowMicrocapTab  onSelectTicker={selectTicker} />}
+        {tab === "microcalls"      && <MicroCapCallsTab    onSelectTicker={selectTicker} />}
         {tab === "midnetflow"      && <NetFlowMidcapTab  onSelectTicker={selectTicker} />}
         {tab === "streakflow"      && <NetFlowStreakTab  onSelectTicker={selectTicker} />}
         {tab === "morningrunners"  && <MorningRunnersTab onSelectTicker={selectTicker} />}

@@ -260,6 +260,20 @@ try:
         id="microcap_prewarm",
         replace_existing=True,
     )
+    # Micro-cap options scan: Mon-Fri 10:30 AM ET — after market data settles post-open
+    def _run_microcap_options_auto():
+        try:
+            hits = _run_microcap_options_scan()
+            _save_microcap_calls_to_db(hits)
+            print(f"[scheduler] micro-cap options scan → {len(hits)} unusual calls saved")
+        except Exception as e:
+            print(f"[scheduler] micro-cap options scan error: {e}")
+    _scheduler.add_job(
+        _run_microcap_options_auto,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=30, timezone=_ET),
+        id="microcap_options_auto",
+        replace_existing=True,
+    )
     # AI Trades auto-generation: Mon-Fri 10:00 AM ET — caches are warm after 9:45 AM morning scan
     def _run_ai_trades_auto():
         try:
@@ -600,6 +614,171 @@ def _save_unusual_calls_to_db(hits: list):
 
 
 _init_unusual_calls_log_table()
+
+
+# ── Micro-cap unusual call options scan ───────────────────────────────────────
+
+def _init_microcap_calls_table():
+    sql = """
+    CREATE TABLE IF NOT EXISTS unusual_calls_microcap_log (
+        id          SERIAL PRIMARY KEY,
+        ticker      TEXT NOT NULL,
+        price       NUMERIC NOT NULL,
+        strike      NUMERIC NOT NULL,
+        expiry      TEXT NOT NULL,
+        days_out    INTEGER,
+        volume      INTEGER,
+        oi          INTEGER,
+        vol_oi      NUMERIC,
+        prem        BIGINT,
+        otm_pct     NUMERIC,
+        iv          NUMERIC,
+        urgency     TEXT,
+        cap_tier    TEXT,
+        first_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (ticker, strike, expiry)
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    except Exception as e:
+        print(f"[microcap_calls] init table error: {e}")
+
+
+def _save_microcap_calls_to_db(hits: list):
+    if not hits:
+        return
+    sql = """
+    INSERT INTO unusual_calls_microcap_log (ticker, price, strike, expiry, days_out, volume, oi, vol_oi, prem, otm_pct, iv, urgency, cap_tier)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (ticker, strike, expiry) DO UPDATE
+        SET price     = EXCLUDED.price,
+            days_out  = EXCLUDED.days_out,
+            volume    = EXCLUDED.volume,
+            oi        = EXCLUDED.oi,
+            vol_oi    = EXCLUDED.vol_oi,
+            prem      = EXCLUDED.prem,
+            otm_pct   = EXCLUDED.otm_pct,
+            iv        = EXCLUDED.iv,
+            urgency   = EXCLUDED.urgency,
+            cap_tier  = EXCLUDED.cap_tier,
+            last_seen = NOW();
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            for h in hits:
+                cur.execute(sql, (
+                    h["ticker"], h["price"], h["strike"], h["expiry"],
+                    h["days_out"], h["volume"], h["oi"], h["vol_oi"],
+                    h["prem"], h["otm_pct"], h["iv"], h["urgency"],
+                    h.get("cap_tier", "micro"),
+                ))
+            conn.commit()
+        print(f"[microcap_calls] saved {len(hits)} signals to DB")
+    except Exception as e:
+        print(f"[microcap_calls] save error: {e}")
+
+
+def _run_microcap_options_scan() -> list:
+    """Scan micro/small-cap tickers for unusual call option activity.
+    Uses lower thresholds than large-cap to match the smaller size of these stocks.
+    Only processes tickers that actually have options data on Yahoo Finance.
+    """
+    import yfinance as yf
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _asc
+    from datetime import datetime as _dt2
+
+    tickers = _get_microcap_tickers()
+
+    def _scan_one(ticker):
+        hits = []
+        try:
+            tk    = yf.Ticker(ticker)
+            price = 0.0
+            try:
+                price = float(tk.fast_info.get("lastPrice") or tk.fast_info.get("regularMarketPrice") or 0)
+            except Exception:
+                pass
+            if price <= 0:
+                return hits
+
+            cap_tier = "micro"
+            try:
+                mc = tk.fast_info.market_cap
+                if mc:
+                    if mc < 50_000_000:      cap_tier = "nano"
+                    elif mc < 300_000_000:   cap_tier = "micro"
+                    elif mc < 2_000_000_000: cap_tier = "small"
+                    else:                    cap_tier = "mid"
+            except Exception:
+                pass
+
+            min_voi  = 2.0
+            min_prem = 20_000 if cap_tier in ("nano", "micro") else 60_000
+            min_vol  = 25
+            max_exp  = 90
+
+            opts = tk.options
+            if not opts:
+                return hits
+
+            for exp in opts:
+                days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
+                if not (1 <= days <= max_exp):
+                    continue
+                try:
+                    chain = tk.option_chain(exp).calls
+                    for _, row in chain.iterrows():
+                        try:
+                            vol = int(row.get("volume") or 0)
+                            oi  = int(row.get("openInterest") or 0)
+                            if oi < 5 or vol < min_vol:
+                                continue
+                            voi = vol / oi
+                            if voi < min_voi:
+                                continue
+                            strike  = float(row["strike"])
+                            otm_pct = round((strike - price) / price * 100, 2)
+                            if otm_pct < -10 or otm_pct > 50:
+                                continue
+                            bid  = float(row.get("bid") or 0)
+                            ask  = float(row.get("ask") or 0)
+                            mid  = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
+                            prem = int(mid * vol * 100)
+                            if prem < min_prem:
+                                continue
+                            iv      = round(float(row.get("impliedVolatility") or 0) * 100, 1)
+                            urgency = ("EXPIRING" if days <= 3 else
+                                       "SHORT"    if days <= 7 else
+                                       "NEAR"     if days <= 14 else "MEDIUM")
+                            hits.append({
+                                "ticker": ticker, "price": price, "strike": strike,
+                                "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
+                                "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
+                                "iv": iv, "urgency": urgency, "cap_tier": cap_tier,
+                            })
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return hits
+
+    all_hits = []
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futs = {ex.submit(_scan_one, t): t for t in tickers}
+        for fut in _asc(futs):
+            all_hits.extend(fut.result() or [])
+
+    all_hits.sort(key=lambda x: x["prem"], reverse=True)
+    return all_hits
+
+
+_init_microcap_calls_table()
 
 
 # ── My Trades — personal trade journal ───────────────────────────────────────
@@ -6087,6 +6266,33 @@ def unusual_calls():
         app._unusual_calls_cache_ts = _dt.now()
         _save_unusual_calls_to_db(all_hits)
         return jsonify(out)
+
+
+@app.route("/stock-api/unusual-calls/microcap", methods=["GET"])
+def unusual_calls_microcap():
+    """Return micro/small-cap unusual call options from DB, newest first."""
+    days_back = min(int(request.args.get("days", 3)), 30)
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, price::float, strike::float, expiry, days_out,
+                       volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                       iv::float, urgency, cap_tier,
+                       first_seen AT TIME ZONE 'UTC' AS first_seen,
+                       last_seen  AT TIME ZONE 'UTC' AS last_seen
+                FROM unusual_calls_microcap_log
+                WHERE last_seen >= NOW() - (%(days)s || ' days')::INTERVAL
+                ORDER BY prem DESC
+                LIMIT 200
+            """, {"days": days_back})
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for r in rows:
+                if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
+                if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
+        return jsonify({"signals": rows, "total": len(rows)})
+    except Exception as e:
+        return jsonify({"error": str(e), "signals": [], "total": 0}), 500
 
 
 @app.route("/stock-api/unusual-calls-log", methods=["GET"])

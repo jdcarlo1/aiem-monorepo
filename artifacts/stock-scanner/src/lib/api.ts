@@ -1234,6 +1234,33 @@ export function fetchNetFlowMicrocap() {
   );
 }
 
+export interface MicroCapCall {
+  ticker:     string;
+  price:      number;
+  strike:     number;
+  expiry:     string;
+  days_out:   number;
+  volume:     number;
+  oi:         number;
+  vol_oi:     number;
+  prem:       number;
+  otm_pct:    number;
+  iv:         number;
+  urgency:    string;
+  cap_tier:   string;
+  first_seen: string;
+  last_seen:  string;
+}
+
+export interface MicroCapCallsResult {
+  signals: MicroCapCall[];
+  total:   number;
+}
+
+export function fetchUnusualCallsMicrocap(days = 3) {
+  return fetchJson<MicroCapCallsResult>(`/unusual-calls/microcap?days=${days}`);
+}
+
 export interface NetFlowDayDot {
   date:     string;
   net_m:    number;
