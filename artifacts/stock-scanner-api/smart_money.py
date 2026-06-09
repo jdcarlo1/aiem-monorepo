@@ -217,6 +217,27 @@ DEFAULT_LEADERBOARD = [
     "VNET", "MESO", "LOB", "KMT", "EVLV", "IART", "MMED", "CCEC", "ELF",
     "ASO", "EYE", "BRAI", "BFLY", "HTZ", "REZI", "ULCC", "KC", "GHM",
     "TXG", "PDFS", "SA", "FLNC",
+    # From barchart top-gainers batch 2 (IMG_5818-5825)
+    "FCEL", "AIAI", "AVO", "SPTX", "PKE", "ZVRA", "VITL", "ODD", "ANRO", "SUPX",
+    "OPFI", "HBB", "ZSQR", "BALY", "BOT", "ESRT", "HOV", "CV", "ENHA", "AMRN",
+    "SHAZ", "HELE", "YSG", "JBI", "GMRS", "SUJA", "LMRI", "SWIM", "CMCO", "WEST",
+    "AUNA", "DCTH", "SANA", "CRCT", "MAGN", "ARHS", "BXC", "BLMN", "OABI", "OEC",
+    "SGHT", "APOG", "TRVG", "BFS", "VRRM", "AIRO", "DIN", "WEYS", "JOUT", "BUUU",
+    "PTLO", "DRUG", "PMT", "MLKN", "NUS", "MYE", "ETD", "PSTL", "UTL", "XFOR",
+    "BGS", "FDMT", "FRAF", "AMCX", "LOCO", "ILPT", "OLMA", "HPP", "JBSS", "LEGH",
+    "BOW", "FLXS", "HRTG", "LYTS", "CWH", "NRDS", "MBUU", "AMPH", "SUPV", "ACEL",
+    "STTK", "GOOD", "WNEB", "AGNT", "TCMD", "RMIX", "SENEA", "OBT", "ACRE", "NAVI",
+    "NX", "JCAP", "CHCT", "WGO", "RCKY", "MBI", "XNCR", "YORW", "MCFT", "FVR",
+    "BWMX", "BUR", "KURA", "FIP", "GCBC", "CYH", "UTZ", "SB", "CMTG", "HVT",
+    "SG", "FTK", "PCRX", "FPI", "NBN", "KREF", "TLRY", "SSII", "ZURA", "CMPX",
+    "VREX", "CSTL", "FUNC", "LRMR", "ADAM", "RJET", "IBCP", "QNST", "MBWM",
+    "MCBS", "ELA", "KLC", "JBGS", "SEG", "TREE", "ISBA", "ABX", "EVER", "THFF",
+    "BHB", "RHLD", "QUAD", "RM", "PSFE", "BVS", "WNC", "TWIN", "CPF", "AORT",
+    "VNDA", "GTN", "NPCE", "ONT", "CBLL", "SFST", "FRBA", "CRESY", "XNET", "VINP",
+    "TDUP", "ESQ", "RPC", "DNUT", "CARS", "ZUMZ", "FC", "PKOH", "MAX", "GBFH",
+    "YALA", "PRTH", "VRTS", "SWMR", "PLAY", "TASK", "MPTI", "ALTI", "OCS", "BRCB",
+    "ZIP", "ROMA", "FOXF", "ODTX", "MEC", "CLLS", "BBNX", "RDNW", "AIRS", "SENS",
+    "PAMT", "PAR", "ELMT", "PRE", "NL", "FNKO", "CD",
 ]
 
 # Deduplicate while preserving order
