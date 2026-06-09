@@ -6430,9 +6430,9 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   const [error, setError]     = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = async (force = false) => {
     setLoading(true); setError(null);
-    try { setData(await fetchConvictionCalls()); }
+    try { setData(await fetchConvictionCalls(force)); }
     catch (e: any) { setError(e.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
@@ -6464,7 +6464,7 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
             Stocks where calls DRAMATICALLY outpace puts · Multi-strike sweeps · ≤30d · Pure naked calls only
           </div>
         </div>
-        <button onClick={load} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
+        <button onClick={() => load(true)} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
           {loading ? "SCANNING…" : "↻ REFRESH"}
         </button>
       </div>
@@ -7060,6 +7060,16 @@ function TrackRecordTab() {
                           <div>
                             <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.08em" }}>BREAK-EVEN</div>
                             <div style={{ color: "#f97316", fontSize: 12, fontWeight: 900 }}>${t.breakeven_price.toFixed(2)}</div>
+                          </div>
+                        )}
+                        {t.total_premium_usd && t.total_premium_usd > 0 && (
+                          <div>
+                            <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.08em" }}>MKT FLOW</div>
+                            <div style={{ color: "#a78bfa", fontSize: 11, fontWeight: 700 }}>
+                              {t.total_premium_usd >= 1_000_000
+                                ? `$${(t.total_premium_usd / 1_000_000).toFixed(1)}M`
+                                : `$${(t.total_premium_usd / 1_000).toFixed(0)}K`}
+                            </div>
                           </div>
                         )}
                       </div>

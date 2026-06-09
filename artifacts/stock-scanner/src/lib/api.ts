@@ -743,8 +743,8 @@ export interface ConvictionCallSignal {
   max_vol_oi: number; avg_iv: number; urgency: string;
   strikes: ConvictionCallStrike[];
 }
-export function fetchConvictionCalls() {
-  return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string; error?: string }>("/conviction-calls");
+export function fetchConvictionCalls(force = false) {
+  return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string; error?: string }>(`/conviction-calls${force ? "?force=1" : ""}`);
 }
 
 export interface EodSweepStrike {
@@ -801,6 +801,7 @@ export interface AITradeLogEntry {
   stop_loss: number | null;
   option_premium: number | null;
   breakeven_price: number | null;
+  total_premium_usd: number | null;
   signals_aligned: string[];
   thesis: string;
   risk_level: string;

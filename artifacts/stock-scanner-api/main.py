@@ -944,8 +944,9 @@ def _init_ai_trade_log_table():
         "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_pct      FLOAT",
         "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS expiry_win      BOOL",
         "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS source          TEXT DEFAULT 'AI_TRADE'",
-        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS option_premium  FLOAT",
-        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS breakeven_price FLOAT",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS option_premium    FLOAT",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS breakeven_price  FLOAT",
+        "ALTER TABLE ai_trade_log ADD COLUMN IF NOT EXISTS total_premium_usd FLOAT",
     ]
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -960,6 +961,45 @@ def _init_ai_trade_log_table():
         print(f"[ai_trade_log] init table error: {e}")
 
 
+def _fetch_options_flow_usd(ticker: str, strike: float, expiry_str: str) -> float | None:
+    """Fetch real options market dollar flow for a given ticker/strike/expiry.
+    Returns volume * lastPrice * 100 (total $ spent today), or open_interest * lastPrice * 100
+    if volume is zero. Returns None on any error."""
+    import sys
+    try:
+        import yfinance as _yf
+        tk = _yf.Ticker(ticker)
+        available = tk.options  # tuple of expiry date strings
+        if not available:
+            print(f"[options_flow] {ticker}: no option dates available", file=sys.stderr)
+            return None
+        # Find nearest available expiry to the AI-generated date
+        from datetime import datetime as _dtt
+        target = _dtt.strptime(expiry_str, "%Y-%m-%d").date()
+        best = min(available, key=lambda d: abs((_dtt.strptime(d, "%Y-%m-%d").date() - target).days))
+        chain = tk.option_chain(best)
+        calls = chain.calls
+        if calls.empty:
+            print(f"[options_flow] {ticker}: empty calls chain for {best}", file=sys.stderr)
+            return None
+        # Find nearest strike
+        idx = (calls["strike"] - float(strike)).abs().argsort().iloc[0]
+        row = calls.iloc[idx]
+        last_price = float(row.get("lastPrice") or 0)
+        volume     = int(row.get("volume") or 0)
+        oi         = int(row.get("openInterest") or 0)
+        qty = volume if volume > 0 else oi
+        if qty <= 0 or last_price <= 0:
+            print(f"[options_flow] {ticker} strike={strike} {best}: vol={volume} oi={oi} last={last_price} — no flow", file=sys.stderr)
+            return None
+        result = round(qty * last_price * 100, 2)
+        print(f"[options_flow] {ticker} strike={strike} {best}: vol={volume} oi={oi} last={last_price} → ${result:,.0f}", file=sys.stderr)
+        return result
+    except Exception as e:
+        print(f"[options_flow] {ticker} error: {e}", file=sys.stderr)
+        return None
+
+
 def _save_ai_trades_to_log(trades: list, trade_date: str):
     """Persist today's AI trade picks. Skips if already logged for this date."""
     if not trades:
@@ -969,14 +1009,16 @@ def _save_ai_trades_to_log(trades: list, trade_date: str):
             for t in trades:
                 opt_prem   = t.get("option_premium")
                 strike     = t.get("entry_strike")
+                expiry     = t.get("expiry")
                 breakeven  = round(strike + opt_prem, 2) if (strike and opt_prem) else None
+                total_prem = _fetch_options_flow_usd(t.get("ticker",""), strike, expiry) if (strike and expiry) else None
                 cur.execute("""
                     INSERT INTO ai_trade_log
                         (trade_date, ticker, direction, setup_type, conviction,
                          price_at_signal, entry_strike, expiry, target_price, stop_loss,
                          signals_aligned, thesis, risk_level,
-                         option_premium, breakeven_price)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         option_premium, breakeven_price, total_premium_usd)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (trade_date, ticker, direction) DO NOTHING
                 """, (
                     trade_date,
@@ -986,7 +1028,7 @@ def _save_ai_trades_to_log(trades: list, trade_date: str):
                     t.get("conviction"),
                     t.get("price"),
                     strike,
-                    t.get("expiry"),
+                    expiry,
                     t.get("target_price"),
                     t.get("stop_loss"),
                     _json.dumps(t.get("signals_aligned", [])),
@@ -994,6 +1036,7 @@ def _save_ai_trades_to_log(trades: list, trade_date: str):
                     t.get("risk_level"),
                     opt_prem,
                     breakeven,
+                    total_prem,
                 ))
             conn.commit()
         print(f"[ai_trade_log] saved {len(trades)} trades for {trade_date}")
@@ -5519,6 +5562,32 @@ def ai_trades_regenerate():
     return jsonify({"status": "generating", "message": "AI generation started."})
 
 
+@app.route("/stock-api/ai-trades/backfill-flow", methods=["POST"])
+def ai_trades_backfill_flow():
+    """Backfill total_premium_usd for today's trades where it is NULL. Uses delays to avoid rate limits."""
+    import time as _time
+    from datetime import date as _d
+    today = str(_d.today())
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""SELECT id, ticker, entry_strike, expiry FROM ai_trade_log
+                           WHERE total_premium_usd IS NULL AND entry_strike IS NOT NULL
+                           AND expiry IS NOT NULL AND trade_date = %s""", (today,))
+            rows = cur.fetchall()
+        updated = 0
+        for (rid, ticker, strike, expiry) in rows:
+            _time.sleep(1.5)
+            val = _fetch_options_flow_usd(ticker, strike, expiry)
+            if val is not None:
+                with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                    cur.execute("UPDATE ai_trade_log SET total_premium_usd = %s WHERE id = %s", (val, rid))
+                    conn.commit()
+                updated += 1
+        return jsonify({"status": "ok", "checked": len(rows), "updated": updated})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 @app.route("/stock-api/signal-feed", methods=["GET"])
 def signal_feed():
     """Real-time notable signal events — dark pool, smart money, vol crush, max pain."""
@@ -5767,7 +5836,7 @@ def ai_trade_log():
                        expiry_price, expiry_pct, expiry_win,
                        outcome, created_at,
                        COALESCE(source, 'AI_TRADE') AS source,
-                       option_premium, breakeven_price
+                       option_premium, breakeven_price, total_premium_usd
                 FROM ai_trade_log
                 ORDER BY trade_date DESC, id DESC
             """)
@@ -5780,7 +5849,7 @@ def ai_trade_log():
                     "t1_win","t3_win","t5_win","t10_win",
                     "expiry_price","expiry_pct","expiry_win",
                     "outcome","created_at","source",
-                    "option_premium","breakeven_price"]
+                    "option_premium","breakeven_price","total_premium_usd"]
             trades = []
             for row in rows:
                 d = dict(zip(cols, row))
