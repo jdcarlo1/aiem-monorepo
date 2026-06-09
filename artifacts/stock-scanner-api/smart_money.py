@@ -159,7 +159,7 @@ DEFAULT_LEADERBOARD = [
     # International financials
     "EUFN",
     # User-added (original)
-    "ADUR", "ACLS", "ODC", "CECO", "UCTT", "ICHR", "VECO", "VSH",
+    "ADUR", "ACLS", "ODC", "CECO", "UCTT", "ICHR", "VECO", "VSH", "VPG",
     # From barchart top-losers batch 1 (IMG_5793-5801)
     "PRIM", "UEC", "AAOI", "COHR", "SAIL", "NVTS", "XE", "MXL", "AXTI", "LITE",
     "ONDS", "APP", "IREN", "BB", "TSEM", "STRL", "FLY", "GLW", "CBRS", "FN",
