@@ -9370,7 +9370,7 @@ export default function Dashboard() {
     { id: "shortcallrecord", label: "📋 SHORT CALLS RECORD" },
     { id: "netflow",         label: "💰 NET FLOW" },
     { id: "micronetflow",    label: "🔬 MICRO NET FLOW" },
-    { id: "microcalls",      label: "🎯 HIGH CONVICTION" },
+    { id: "microcalls",      label: "🎯 MICRO/SMALL CALLS" },
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
     { id: "streakflow",      label: "📈 FLOW STREAK" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
