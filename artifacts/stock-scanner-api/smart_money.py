@@ -158,6 +158,8 @@ DEFAULT_LEADERBOARD = [
     "PALL", "PLTM",
     # International financials
     "EUFN",
+    # User-added
+    "ADUR", "ACLS", "ODC", "CECO", "UCTT", "ICHR", "VECO", "VSH",
 ]
 
 # Deduplicate while preserving order
