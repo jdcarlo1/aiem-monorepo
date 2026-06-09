@@ -238,6 +238,7 @@ DEFAULT_LEADERBOARD = [
     "YALA", "PRTH", "VRTS", "SWMR", "PLAY", "TASK", "MPTI", "ALTI", "OCS", "BRCB",
     "ZIP", "ROMA", "FOXF", "ODTX", "MEC", "CLLS", "BBNX", "RDNW", "AIRS", "SENS",
     "PAMT", "PAR", "ELMT", "PRE", "NL", "FNKO", "CD",
+    "MRAM", "FEIM",
 ]
 
 # Deduplicate while preserving order
