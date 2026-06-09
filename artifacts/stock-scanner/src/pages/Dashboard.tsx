@@ -20,7 +20,7 @@ import {
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
   fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
   fetchConvictionCalls, ConvictionCallSignal, ConvictionCallStrike,
-  fetchEodSweeps, EodSweepSignal, EodSweepStrike,
+  fetchEodSweeps, EodSweepSignal, EodSweepStrike, fetchEodSweepTrackRecord,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
@@ -6264,6 +6264,228 @@ function WhaleLogTab() {
 }
 
 
+// ---- EOD Sweep Track Record Tab --------------------------------------------
+function EodSweepTrackTab() {
+  const [data, setData]       = useState<import("../lib/api").EodSweepTrackData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchEodSweepTrackRecord()
+      .then(setData)
+      .catch((e: any) => setError(e.message ?? "Failed to load"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const BB_BG = "#060c14", BB_PANEL = "#0b1320", BB_BORDER = "#1e3a5f", BB_LABEL = "#4a7fa5";
+  const winColor  = (r: number | null) => r == null ? BB_LABEL : r >= 60 ? "#22c55e" : r >= 50 ? "#fbbf24" : "#ef4444";
+  const retColor  = (r: number | null) => r == null ? BB_LABEL : r > 0 ? "#22c55e" : "#ef4444";
+  const gradeColor = (g: string) => g === "EXTREME" ? "#ff4444" : g === "HIGH" ? "#fbbf24" : g === "ELEVATED" ? "#22c55e" : BB_LABEL;
+  const sessionLabel = (s: string) =>
+    s === "eod" ? "🌙 EOD  (4–7 PM ET)" : s === "preclose" ? "⏰ Pre-Close (1–4 PM)" : "🌅 Morning (9–11 AM)";
+
+  const StatCell = ({ stat }: { stat: import("../lib/api").EodSweepStat }) => (
+    <div style={{ flex: 1, background: "#0d1b2e", border: `1px solid ${BB_BORDER}`, borderRadius: 6, padding: "8px 6px", textAlign: "center" }}>
+      {stat.n === 0 ? (
+        <div style={{ color: "#334155", fontSize: 9 }}>PENDING</div>
+      ) : (
+        <>
+          <div style={{ color: winColor(stat.win_rate), fontSize: 18, fontWeight: 700, fontFamily: "IBM Plex Mono, monospace", lineHeight: 1 }}>
+            {stat.win_rate != null ? `${stat.win_rate}%` : "—"}
+          </div>
+          <div style={{ color: BB_LABEL, fontSize: 7, marginTop: 2 }}>WIN  ·  {stat.n} signals</div>
+          {stat.avg_return != null && (
+            <div style={{ color: retColor(stat.avg_return), fontSize: 9, marginTop: 2 }}>
+              {stat.avg_return > 0 ? "+" : ""}{stat.avg_return}% avg
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  if (loading) return (
+    <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 40, fontFamily: "IBM Plex Mono, monospace" }}>
+      LOADING TRACK RECORD…
+    </div>
+  );
+  if (error) return <div style={{ color: "#ef4444", padding: 20, fontSize: 10 }}>ERROR: {error}</div>;
+
+  const noData = !data || data.total_signals === 0;
+
+  return (
+    <div style={{ padding: 12, background: BB_BG, minHeight: "100vh" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ color: "#fbbf24", fontFamily: "IBM Plex Mono, monospace", fontSize: 13, fontWeight: 700, letterSpacing: 1 }}>
+          📊 SWEEP CALL TRACK RECORD
+        </div>
+        <div style={{ color: BB_LABEL, fontSize: 9, marginTop: 3 }}>
+          Logs every institutional sweep signal at detection · tracks T+1 / T+3 / T+5 closing prices · compares EOD vs morning win rates
+        </div>
+      </div>
+
+      {noData ? (
+        <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 28, textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>📈</div>
+          <div style={{ color: "#fbbf24", fontFamily: "IBM Plex Mono, monospace", fontSize: 11, fontWeight: 700, marginBottom: 8 }}>
+            BUILDING TRACK RECORD
+          </div>
+          <div style={{ color: BB_LABEL, fontSize: 9, lineHeight: 1.8 }}>
+            Sweep signals are now being logged at capture time with their stock price.<br />
+            T+1 outcomes appear tomorrow · T+3 and T+5 fill in over the following week.<br />
+            Return in a few weeks to see statistically meaningful EOD vs morning win rates.
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Overall win rates */}
+          <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+            <div style={{ color: BB_LABEL, fontFamily: "IBM Plex Mono, monospace", fontSize: 8, letterSpacing: 1, marginBottom: 8 }}>
+              OVERALL — {data!.total_signals} SIGNALS LOGGED
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[
+                { label: "T+1  NEXT DAY",    stat: data!.overall.t1 },
+                { label: "T+3  THREE DAYS",  stat: data!.overall.t3 },
+                { label: "T+5  FIVE DAYS",   stat: data!.overall.t5 },
+              ].map(({ label, stat }) => (
+                <div key={label} style={{ flex: 1, textAlign: "center" }}>
+                  <div style={{ color: BB_LABEL, fontSize: 7, marginBottom: 4, fontFamily: "IBM Plex Mono, monospace" }}>{label}</div>
+                  <StatCell stat={stat} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* By Session — the core comparison */}
+          {data!.by_session.length > 0 && (
+            <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+              <div style={{ color: BB_LABEL, fontFamily: "IBM Plex Mono, monospace", fontSize: 8, letterSpacing: 1, marginBottom: 10 }}>
+                WIN RATE BY SESSION — EOD vs MORNING
+              </div>
+              <div style={{ display: "flex", marginBottom: 4 }}>
+                <div style={{ width: 170 }} />
+                {["T+1", "T+3", "T+5"].map(l => (
+                  <div key={l} style={{ flex: 1, textAlign: "center", color: BB_LABEL, fontSize: 7, fontFamily: "IBM Plex Mono, monospace" }}>{l}</div>
+                ))}
+              </div>
+              {data!.by_session.map(s => (
+                <div key={s.session} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <div style={{ width: 170, flexShrink: 0 }}>
+                    <div style={{ color: "#e2e8f0", fontSize: 9 }}>{sessionLabel(s.session)}</div>
+                    <div style={{ color: BB_LABEL, fontSize: 7 }}>{s.total} signals</div>
+                  </div>
+                  {[s.t1, s.t3, s.t5].map((stat, i) => (
+                    <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                      {stat.win_rate == null ? (
+                        <span style={{ color: "#334155", fontSize: 8 }}>—</span>
+                      ) : (
+                        <>
+                          <div style={{ color: winColor(stat.win_rate), fontSize: 13, fontWeight: 700, fontFamily: "IBM Plex Mono, monospace" }}>{stat.win_rate}%</div>
+                          {stat.avg_return != null && (
+                            <div style={{ color: retColor(stat.avg_return), fontSize: 7 }}>
+                              {stat.avg_return > 0 ? "+" : ""}{stat.avg_return}%
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* By Grade */}
+          {data!.by_grade.length > 0 && (
+            <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+              <div style={{ color: BB_LABEL, fontFamily: "IBM Plex Mono, monospace", fontSize: 8, letterSpacing: 1, marginBottom: 10 }}>
+                WIN RATE BY SCORE GRADE
+              </div>
+              <div style={{ display: "flex", marginBottom: 4 }}>
+                <div style={{ width: 120 }} />
+                {["T+1", "T+3", "T+5"].map(l => (
+                  <div key={l} style={{ flex: 1, textAlign: "center", color: BB_LABEL, fontSize: 7, fontFamily: "IBM Plex Mono, monospace" }}>{l}</div>
+                ))}
+              </div>
+              {data!.by_grade.map(g => (
+                <div key={g.grade} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <div style={{ width: 120, flexShrink: 0 }}>
+                    <div style={{ color: gradeColor(g.grade), fontSize: 10, fontWeight: 700 }}>{g.grade}</div>
+                    <div style={{ color: BB_LABEL, fontSize: 7 }}>{g.total} signals</div>
+                  </div>
+                  {[g.t1, g.t3, g.t5].map((stat, i) => (
+                    <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                      {stat.win_rate == null ? (
+                        <span style={{ color: "#334155", fontSize: 8 }}>—</span>
+                      ) : (
+                        <>
+                          <div style={{ color: winColor(stat.win_rate), fontSize: 13, fontWeight: 700, fontFamily: "IBM Plex Mono, monospace" }}>{stat.win_rate}%</div>
+                          {stat.avg_return != null && (
+                            <div style={{ color: retColor(stat.avg_return), fontSize: 7 }}>
+                              {stat.avg_return > 0 ? "+" : ""}{stat.avg_return}%
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Signal log */}
+          {data!.recent.length > 0 && (
+            <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ color: BB_LABEL, fontFamily: "IBM Plex Mono, monospace", fontSize: 8, letterSpacing: 1, marginBottom: 8 }}>
+                SIGNAL LOG — MOST RECENT FIRST
+              </div>
+              {/* Column headers */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 6, paddingBottom: 4, borderBottom: `1px solid ${BB_BORDER}` }}>
+                {["TICKER","DATE","SESSION","VOI×","PRICE","T+1","T+3","T+5"].map((h, i) => (
+                  <div key={h} style={{ color: BB_LABEL, fontSize: 7, fontFamily: "IBM Plex Mono, monospace",
+                    width: i === 0 ? 48 : i === 1 ? 60 : i === 2 ? 36 : i === 3 ? 34 : i === 4 ? 46 : undefined,
+                    flex: i >= 5 ? 1 : undefined, textAlign: i >= 5 ? "center" : undefined, flexShrink: 0 }}>
+                    {h}
+                  </div>
+                ))}
+              </div>
+              {data!.recent.map((r, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <div style={{ color: gradeColor(r.grade), fontSize: 9, fontWeight: 700, width: 48, flexShrink: 0 }}>{r.ticker}</div>
+                  <div style={{ color: "#94a3b8", fontSize: 8, width: 60, flexShrink: 0 }}>{r.signal_date}</div>
+                  <div style={{ color: r.session === "eod" ? "#818cf8" : r.session === "preclose" ? "#34d399" : "#fbbf24", fontSize: 7, width: 36, flexShrink: 0 }}>
+                    {r.session === "eod" ? "EOD" : r.session === "preclose" ? "PRE" : "AM"}
+                  </div>
+                  <div style={{ color: BB_LABEL, fontSize: 8, width: 34, flexShrink: 0 }}>{r.max_vol_oi?.toFixed(0)}×</div>
+                  <div style={{ color: "#e2e8f0", fontSize: 8, width: 46, flexShrink: 0 }}>
+                    {r.price_at_signal != null ? `$${r.price_at_signal.toFixed(2)}` : "—"}
+                  </div>
+                  {[r.return_t1, r.return_t3, r.return_t5].map((ret, j) => (
+                    <div key={j} style={{ flex: 1, textAlign: "center" }}>
+                      {ret == null ? (
+                        <span style={{ color: "#334155", fontSize: 7 }}>—</span>
+                      ) : (
+                        <span style={{ color: retColor(ret), fontSize: 8, fontWeight: 700 }}>
+                          {ret > 0 ? "+" : ""}{ret}%
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
 // ---- EOD Institutional Sweep Tab ------------------------------------------
 function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData]         = useState<{ signals: EodSweepSignal[]; generated_at: string; total: number; note?: string } | null>(null);
@@ -9249,7 +9471,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -9375,6 +9597,7 @@ export default function Dashboard() {
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
     { id: "convictioncalls", label: "🔥 HIGH CONVICTION" },
     { id: "eodsweep",        label: "🌙 EOD SWEEP" },
+    { id: "sweeptrack",      label: "📊 SWEEP TRACK RECORD" },
     { id: "mytrades",        label: "📈 MY TRADES" },
     { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
     { id: "shortcallrecord", label: "📋 SHORT CALLS RECORD" },
@@ -9973,6 +10196,7 @@ export default function Dashboard() {
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
         {tab === "convictioncalls" && <ConvictionCallsTab onSelectTicker={selectTicker} />}
         {tab === "eodsweep"        && <EodSweepTab       onSelectTicker={selectTicker} />}
+        {tab === "sweeptrack"      && <EodSweepTrackTab />}
         {tab === "mytrades"        && <MyTradesTab />}
         {tab === "aishortcalls"    && <AIShortCallsTab />}
         {tab === "shortcallrecord" && <ShortCallRecordTab />}

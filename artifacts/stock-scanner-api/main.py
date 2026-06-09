@@ -328,6 +328,18 @@ try:
         id="sc_outcomes_update",
         replace_existing=True,
     )
+    # EOD sweep outcomes: Mon-Fri 4:35 PM ET — fills T+1/T+3/T+5 closing prices
+    def _run_eod_sweep_outcomes():
+        try:
+            _update_eod_sweep_outcomes()
+        except Exception as e:
+            print(f"[scheduler] eod sweep outcomes error: {e}")
+    _scheduler.add_job(
+        _run_eod_sweep_outcomes,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=_ET),
+        id="eod_sweep_outcomes",
+        replace_existing=True,
+    )
     # Scan cache warmer — every 15 min during market hours so on-demand scans feel instant
     def _warm_sm_cache():
         try:
@@ -619,6 +631,120 @@ def _save_unusual_calls_to_db(hits: list):
 
 
 _init_unusual_calls_log_table()
+
+
+def _init_eod_sweep_log_table():
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS eod_sweep_log (
+                    id                  SERIAL PRIMARY KEY,
+                    ticker              TEXT        NOT NULL,
+                    signal_date         DATE        NOT NULL,
+                    session             TEXT        NOT NULL DEFAULT 'eod',
+                    score               NUMERIC,
+                    grade               TEXT,
+                    num_strikes         INTEGER,
+                    total_prem_m        NUMERIC,
+                    max_vol_oi          NUMERIC,
+                    avg_iv              NUMERIC,
+                    price_at_signal     NUMERIC,
+                    detected_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    close_t1            NUMERIC,
+                    close_t3            NUMERIC,
+                    close_t5            NUMERIC,
+                    return_t1           NUMERIC,
+                    return_t3           NUMERIC,
+                    return_t5           NUMERIC,
+                    outcome_updated_at  TIMESTAMPTZ,
+                    UNIQUE(ticker, signal_date, session)
+                );
+            """)
+            conn.commit()
+    except Exception as e:
+        print(f"[eod_sweep_log] table init error: {e}")
+_init_eod_sweep_log_table()
+
+
+def _log_eod_sweep_signals(signals: list, today_only: bool = True):
+    """Persist EOD sweep signals into eod_sweep_log for outcome tracking."""
+    if not signals or not today_only:
+        return
+    try:
+        from datetime import datetime as _dtl
+        today = _dtl.utcnow().date()
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            for s in signals:
+                try:
+                    from dateutil import parser as _dp
+                    hour = _dp.parse(str(s.get("latest_at", ""))).hour
+                    session = "morning" if hour < 17 else "preclose" if hour < 20 else "eod"
+                except Exception:
+                    session = "eod"
+                cur.execute("""
+                    INSERT INTO eod_sweep_log
+                        (ticker, signal_date, session, score, grade, num_strikes,
+                         total_prem_m, max_vol_oi, avg_iv, price_at_signal)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (ticker, signal_date, session) DO NOTHING
+                """, (
+                    s["ticker"], today, session,
+                    s.get("score"), s.get("grade"), s.get("num_strikes"),
+                    s.get("total_prem_m"), s.get("max_vol_oi"),
+                    s.get("avg_iv"), s.get("price"),
+                ))
+            conn.commit()
+        print(f"[eod_sweep_log] logged {len(signals)} signals for {today}")
+    except Exception as e:
+        print(f"[eod_sweep_log] save error: {e}")
+
+
+def _update_eod_sweep_outcomes():
+    """Fill in T+1/T+3/T+5 closing prices for past EOD sweep signals."""
+    try:
+        import yfinance as _yf
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ticker, signal_date, price_at_signal
+                FROM eod_sweep_log
+                WHERE (close_t1 IS NULL OR close_t3 IS NULL OR close_t5 IS NULL)
+                  AND signal_date < CURRENT_DATE
+                  AND price_at_signal IS NOT NULL
+                ORDER BY signal_date DESC LIMIT 80
+            """)
+            rows = cur.fetchall()
+            updated = 0
+            for row_id, ticker, sig_date, sig_price in rows:
+                try:
+                    hist = _yf.Ticker(ticker).history(period="15d", interval="1d")
+                    if hist.empty:
+                        continue
+                    hist.index = [d.date() if hasattr(d, 'date') else d for d in hist.index]
+                    dates = sorted(hist.index)
+                    try:
+                        idx = next(i for i, d in enumerate(dates) if d >= sig_date)
+                    except StopIteration:
+                        continue
+                    def gc(n, _dates=dates, _hist=hist):
+                        i = idx + n
+                        return float(_hist.iloc[i]['Close']) if i < len(_dates) else None
+                    t1, t3, t5 = gc(1), gc(3), gc(5)
+                    def ret(t, _sp=float(sig_price)):
+                        return round((t - _sp) / _sp * 100, 2) if t and _sp else None
+                    cur.execute("""
+                        UPDATE eod_sweep_log
+                        SET close_t1=%s, close_t3=%s, close_t5=%s,
+                            return_t1=%s, return_t3=%s, return_t5=%s,
+                            outcome_updated_at=NOW()
+                        WHERE id=%s
+                    """, (t1, t3, t5, ret(t1), ret(t3), ret(t5), row_id))
+                    updated += 1
+                except Exception:
+                    pass
+            conn.commit()
+        print(f"[eod_sweep_outcomes] updated {updated} signals")
+    except Exception as e:
+        print(f"[eod_sweep_outcomes] error: {e}")
 
 
 # ── Micro-cap unusual call options scan ───────────────────────────────────────
@@ -6468,6 +6594,7 @@ def eod_sweeps():
                 ORDER BY last_seen DESC, vol_oi DESC
             """)
             rows_today = cur.fetchall()
+            used_today = bool(rows_today)
 
             if rows_today:
                 rows_raw = rows_today
@@ -6574,6 +6701,7 @@ def eod_sweeps():
         for i, r in enumerate(results):
             r["rank"] = i + 1
 
+        _log_eod_sweep_signals(results, today_only=used_today)
         out = {"signals": results, "generated_at": _dt.now().isoformat(), "total": len(results)}
         app._eod_sweeps_cache    = out
         app._eod_sweeps_cache_ts = _dt.now()
@@ -6613,6 +6741,121 @@ def admin_run_eod_scan():
                    "Call /stock-api/eod-sweeps?bust=1 afterwards to see fresh data.",
         "tickers": len(DEFAULT_LEADERBOARD),
     })
+
+
+@app.route("/stock-api/eod-sweep-track-record", methods=["GET"])
+def eod_sweep_track_record():
+    """
+    EOD sweep track record — win rates by session (eod/morning/preclose) and
+    by grade (EXTREME/HIGH/ELEVATED) at T+1, T+3, T+5 trading days.
+    """
+    from datetime import datetime as _dt
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    COUNT(close_t1)                                        as n_t1,
+                    SUM(CASE WHEN return_t1 > 0 THEN 1 ELSE 0 END)        as wins_t1,
+                    AVG(CASE WHEN return_t1 IS NOT NULL THEN return_t1 END) as avg_r1,
+                    COUNT(close_t3)                                        as n_t3,
+                    SUM(CASE WHEN return_t3 > 0 THEN 1 ELSE 0 END)        as wins_t3,
+                    AVG(CASE WHEN return_t3 IS NOT NULL THEN return_t3 END) as avg_r3,
+                    COUNT(close_t5)                                        as n_t5,
+                    SUM(CASE WHEN return_t5 > 0 THEN 1 ELSE 0 END)        as wins_t5,
+                    AVG(CASE WHEN return_t5 IS NOT NULL THEN return_t5 END) as avg_r5
+                FROM eod_sweep_log
+            """)
+            overall = cur.fetchone()
+
+            cur.execute("""
+                SELECT session, COUNT(*) as total,
+                    COUNT(close_t1), SUM(CASE WHEN return_t1 > 0 THEN 1 ELSE 0 END), AVG(return_t1),
+                    COUNT(close_t3), SUM(CASE WHEN return_t3 > 0 THEN 1 ELSE 0 END), AVG(return_t3),
+                    COUNT(close_t5), SUM(CASE WHEN return_t5 > 0 THEN 1 ELSE 0 END), AVG(return_t5)
+                FROM eod_sweep_log
+                GROUP BY session ORDER BY
+                    CASE session WHEN 'eod' THEN 1 WHEN 'preclose' THEN 2 ELSE 3 END
+            """)
+            by_session = cur.fetchall()
+
+            cur.execute("""
+                SELECT grade, COUNT(*) as total,
+                    COUNT(close_t1), SUM(CASE WHEN return_t1 > 0 THEN 1 ELSE 0 END), AVG(return_t1),
+                    COUNT(close_t3), SUM(CASE WHEN return_t3 > 0 THEN 1 ELSE 0 END), AVG(return_t3),
+                    COUNT(close_t5), SUM(CASE WHEN return_t5 > 0 THEN 1 ELSE 0 END), AVG(return_t5)
+                FROM eod_sweep_log
+                GROUP BY grade ORDER BY
+                    CASE grade WHEN 'EXTREME' THEN 1 WHEN 'HIGH' THEN 2 ELSE 3 END
+            """)
+            by_grade = cur.fetchall()
+
+            cur.execute("""
+                SELECT ticker, signal_date, session, score, grade, num_strikes,
+                       total_prem_m, max_vol_oi, avg_iv, price_at_signal,
+                       close_t1, close_t3, close_t5, return_t1, return_t3, return_t5
+                FROM eod_sweep_log
+                ORDER BY signal_date DESC, score DESC
+                LIMIT 60
+            """)
+            recent = cur.fetchall()
+
+        def pct(wins, n):
+            return round(float(wins) / float(n) * 100, 1) if n and float(n) > 0 and wins is not None else None
+
+        def fmt_stat(n, wins, avg_r):
+            return {
+                "n": int(n or 0),
+                "win_rate": pct(wins, n),
+                "avg_return": round(float(avg_r), 2) if avg_r is not None else None,
+            }
+
+        o = overall or (0,)*10
+        result = {
+            "total_signals": int(o[0] or 0),
+            "overall": {
+                "t1": fmt_stat(o[1], o[2], o[3]),
+                "t3": fmt_stat(o[4], o[5], o[6]),
+                "t5": fmt_stat(o[7], o[8], o[9]),
+            },
+            "by_session": [
+                {
+                    "session": r[0], "total": int(r[1] or 0),
+                    "t1": fmt_stat(r[2], r[3], r[4]),
+                    "t3": fmt_stat(r[5], r[6], r[7]),
+                    "t5": fmt_stat(r[8], r[9], r[10]),
+                } for r in by_session
+            ],
+            "by_grade": [
+                {
+                    "grade": r[0], "total": int(r[1] or 0),
+                    "t1": fmt_stat(r[2], r[3], r[4]),
+                    "t3": fmt_stat(r[5], r[6], r[7]),
+                    "t5": fmt_stat(r[8], r[9], r[10]),
+                } for r in by_grade
+            ],
+            "recent": [
+                {
+                    "ticker": r[0], "signal_date": str(r[1]), "session": r[2],
+                    "score": float(r[3] or 0), "grade": r[4],
+                    "num_strikes": r[5], "total_prem_m": float(r[6] or 0),
+                    "max_vol_oi": float(r[7] or 0), "avg_iv": float(r[8] or 0),
+                    "price_at_signal": float(r[9]) if r[9] else None,
+                    "close_t1": float(r[10]) if r[10] else None,
+                    "close_t3": float(r[11]) if r[11] else None,
+                    "close_t5": float(r[12]) if r[12] else None,
+                    "return_t1": float(r[13]) if r[13] else None,
+                    "return_t3": float(r[14]) if r[14] else None,
+                    "return_t5": float(r[15]) if r[15] else None,
+                } for r in recent
+            ],
+            "generated_at": _dt.now().isoformat(),
+        }
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        print(f"[eod_sweep_track_record] error: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/stock-api/conviction-calls", methods=["GET"])

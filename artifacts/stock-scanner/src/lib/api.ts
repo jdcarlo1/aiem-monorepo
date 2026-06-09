@@ -763,6 +763,29 @@ export function fetchEodSweeps(bust = false) {
   return fetchJson<{ signals: EodSweepSignal[]; generated_at: string; total: number; note?: string }>(`/eod-sweeps${bust ? "?bust=1" : ""}`);
 }
 
+export interface EodSweepRecord {
+  ticker: string; signal_date: string; session: string;
+  score: number; grade: string; num_strikes: number;
+  total_prem_m: number; max_vol_oi: number; avg_iv: number;
+  price_at_signal: number | null;
+  close_t1: number | null; close_t3: number | null; close_t5: number | null;
+  return_t1: number | null; return_t3: number | null; return_t5: number | null;
+}
+export interface EodSweepStat {
+  n: number; win_rate: number | null; avg_return: number | null;
+}
+export interface EodSweepTrackData {
+  total_signals: number;
+  overall: { t1: EodSweepStat; t3: EodSweepStat; t5: EodSweepStat };
+  by_session: Array<{ session: string; total: number; t1: EodSweepStat; t3: EodSweepStat; t5: EodSweepStat }>;
+  by_grade: Array<{ grade: string; total: number; t1: EodSweepStat; t3: EodSweepStat; t5: EodSweepStat }>;
+  recent: EodSweepRecord[];
+  generated_at: string;
+}
+export function fetchEodSweepTrackRecord() {
+  return fetchJson<EodSweepTrackData>("/eod-sweep-track-record");
+}
+
 export interface SignalEvent {
   ticker: string; price: number; type: string;
   icon: string; color: string; msg: string;
