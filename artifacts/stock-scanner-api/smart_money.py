@@ -11,10 +11,10 @@ DEFAULT_LEADERBOARD = [
     # ── Semiconductors ────────────────────────────────────────────────────────
     "AVGO", "QCOM", "TXN", "INTC", "MU", "AMAT", "LRCX", "KLAC", "MRVL",
     "MPWR", "ON", "SWKS", "QRVO", "TER", "KEYS", "SMCI", "ARM", "ENTG",
-    "CREE", "WOLF", "MCHP", "STM", "INDI", "ACMR", "COHU", "FORM",
+    "WOLF", "MCHP", "STM", "INDI", "ACMR", "COHU", "FORM",
     # ── Software / Cloud ──────────────────────────────────────────────────────
     "ADBE", "CRM", "NOW", "INTU", "ORCL", "IBM", "CSCO", "ANET", "FICO",
-    "FISV", "CDNS", "ANSS", "ADSK", "TEAM", "WDAY", "HUBS", "VEEV", "MDB",
+    "FISV", "CDNS", "ADSK", "TEAM", "WDAY", "HUBS", "VEEV", "MDB",
     "DDOG", "NET", "SNOW", "ZS", "OKTA", "CRWD", "PANW", "FTNT", "CTSH",
     "EPAM", "GDDY", "GEN", "NTAP", "STX", "WDC", "PSTG", "ZBRA", "NTNX",
     "ZM", "DOCU", "TWLO", "AI", "SHOP", "PYPL", "SOFI", "HOOD", "COIN",
@@ -22,11 +22,11 @@ DEFAULT_LEADERBOARD = [
     "NFLX", "UBER", "ABNB", "BKNG", "EXPE", "DASH", "LYFT", "PINS", "SNAP",
     "RBLX", "TTWO", "EA", "ROKU", "PLTR", "MSTR", "SQ", "HOOD",
     # ── Hardware / Other Tech ─────────────────────────────────────────────────
-    "HPQ", "HPE", "DELL", "LOGI", "CDW", "ACN", "JNPR",
+    "HPQ", "HPE", "DELL", "LOGI", "CDW", "ACN",
     # ── Finance / Banks ───────────────────────────────────────────────────────
     "JPM", "GS", "MS", "BAC", "WFC", "C", "V", "MA", "AXP",
     "BLK", "SCHW", "MCO", "ICE", "CME", "SPGI", "MSCI", "CBOE", "NDAQ",
-    "USB", "PNC", "TFC", "COF", "DFS", "SYF", "ALLY", "RF", "CFG",
+    "USB", "PNC", "TFC", "COF", "SYF", "ALLY", "RF", "CFG",
     "KEY", "FITB", "HBAN", "MTB", "BK", "STT", "NTRS",
     "PGR", "AFL", "MET", "PRU", "AIG", "ALL", "TRV", "HIG", "CB",
     "MMC", "AON", "RJF", "BR", "BEN", "IVZ", "AMG",
@@ -38,7 +38,7 @@ DEFAULT_LEADERBOARD = [
     "HCA", "CI", "CVS", "ELV", "CNC", "MOH", "HUM", "DGX", "LH",
     # ── Consumer Staples ──────────────────────────────────────────────────────
     "PG", "KO", "PEP", "PM", "MO", "COST", "WMT", "TGT", "MDLZ",
-    "STZ", "KHC", "GIS", "K", "SJM", "CAG", "CPB", "HRL", "MKC",
+    "STZ", "KHC", "GIS", "SJM", "CAG", "CPB", "HRL", "MKC",
     "CLX", "EL", "CL", "CHD", "COTY",
     # ── Consumer Discretionary ────────────────────────────────────────────────
     "HD", "LOW", "MCD", "SBUX", "NKE", "YUM", "CMG", "DRI",
@@ -48,9 +48,9 @@ DEFAULT_LEADERBOARD = [
     "LULU", "DECK", "CROX", "SKX", "RL", "HAS", "MAT",
     "GRMN", "POOL", "SWK", "WHR", "MHK", "FBHS",
     # ── Automotive / EV ───────────────────────────────────────────────────────
-    "RIVN", "LCID", "NIO", "XPEV", "LI", "FSR",
+    "RIVN", "LCID", "NIO", "XPEV", "LI",
     # ── Energy ────────────────────────────────────────────────────────────────
-    "XOM", "CVX", "COP", "EOG", "PXD", "OXY", "HES", "DVN", "APA", "MRO",
+    "XOM", "CVX", "COP", "EOG", "OXY", "HES", "DVN", "APA", "MRO",
     "MPC", "PSX", "VLO", "HAL", "SLB", "BKR", "OIH",
     "KMI", "WMB", "OKE", "LNG", "FANG",
     # ── Industrials ───────────────────────────────────────────────────────────
