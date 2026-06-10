@@ -391,6 +391,14 @@ DEFAULT_LEADERBOARD = [
     "TKO", "ESLT",
     "NBIS", "VVX", "CLMB", "IX", "CPHC", "BNS", "TWI",
     "FLGT", "OLP", "DSGR", "AXIA", "ESP", "SAFRY", "UMH",
+    # Batch 10 — Yahoo Finance watchlist June 10 2026
+    "USEG", "PEYEF", "SDXEF", "SIM", "SHIP", "MPZZF", "VIV", "WSR",
+    "MCW", "PDEX", "AGH", "ALTS", "INFU", "GBTG", "SNCY", "CCRN", "GNSS",
+    "PHVS", "MAMO", "GRNQ", "NB", "SRFM", "BTM", "UHG", "ORN",
+    "PAM", "IAI", "INR", "EHAB", "MCY", "FLNG",
+    "BATRA", "SATS", "STNG", "IWMI",
+    "ARGX", "LQDA", "BRK-B", "CVNA", "DEO", "EBAY", "OUT", "UPST", "NAT", "WDS", "ASC", "ADI",
+    "ENGIY", "ESEA", "SILC", "FUTU", "KE", "AXR",
 ]
 
 # Deduplicate while preserving order
