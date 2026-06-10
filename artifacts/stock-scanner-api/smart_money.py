@@ -576,6 +576,8 @@ DEFAULT_LEADERBOARD = [
     "TRUST","TSC","UBSI","UCBI","WSFS",
     # Batch 19 — Industrial ETF holdings June 10 2026
     "JBL","ITT","MKSI","CW","R","GVA","SPXC","DRS","NVRI",
+    # Batch 20 — Financial ETF holdings June 10 2026
+    "BNY","VCTR","WT","SF","EVR",
 ]
 
 # Deduplicate while preserving order
