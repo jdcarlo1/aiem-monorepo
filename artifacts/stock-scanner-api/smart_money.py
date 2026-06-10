@@ -566,6 +566,14 @@ DEFAULT_LEADERBOARD = [
     "ALLR","ALOT","ALRM","ALRN","ALRS","ALSA","ALSN","ALTA","ALTR","ALTV",
     "ALX","AM","AMAL","AMBC","AMCR","AME","AMEH","AMKR","AMN","AMNB",
     "AMOT","AMP","AMPE","AMPN","AMPS","AMRC","AMRK","AMRS",
+    # Batch 18 — PSCF ETF holdings June 10 2026
+    "AMSF","AUB","AXS","BOCH","BOFI","CZNC","CZWI","EBC","EFC","EFSC",
+    "EGBN","ESSA","FBK","FBMS","FBNC","FCF","FCNCA","FFNW","FIBK","FISI",
+    "FNB","GABC","GBCI","HBNK","HFWA","HOMB","HOPE","HSTC","HTBI","HTH",
+    "HTLF","INDB","JXN","LBAI","LNC","MCB","MKTX","MSBI","NIC","OPBK",
+    "PEBO","PFCB","PFHD","PFIS","PIPR","PPBI","PROV","QCRH","RNST","SBSI",
+    "SIFI","SMBC","STBA","STEL","TBBK","TBK","TCBI","TCFC","TMP","TOWN",
+    "TRUST","TSC","UBSI","UCBI","WSFS",
 ]
 
 # Deduplicate while preserving order
