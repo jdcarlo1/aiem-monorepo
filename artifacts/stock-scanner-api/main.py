@@ -2123,6 +2123,47 @@ def bull_flow_top10():
     return jsonify(out)
 
 
+@app.route("/stock-api/bull-flow/history", methods=["GET"])
+def bull_flow_history():
+    """Return all stored bull-flow signals from the DB, newest first."""
+    if not DATABASE_URL:
+        return jsonify({"signals": [], "dates": [], "count": 0})
+    try:
+        import psycopg2
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ticker, signal_date, session, price_at_signal,
+                   call_put_ratio, premium_m, strike, expiry
+            FROM signal_outcomes
+            WHERE call_put_ratio >= 2
+            ORDER BY signal_date DESC, call_put_ratio DESC
+            LIMIT 500
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        signals = []
+        for ticker, sig_date, session, price, cpr, premium_m, strike, expiry in rows:
+            signals.append({
+                "ticker":          ticker,
+                "signal_date":     sig_date.isoformat(),
+                "session":         session,
+                "price_at_signal": round(float(price), 2) if price else None,
+                "call_put_ratio":  round(float(cpr), 2) if cpr else None,
+                "premium_m":       round(float(premium_m), 2) if premium_m else None,
+                "strike":          float(strike) if strike else None,
+                "expiry":          expiry,
+            })
+
+        dates = sorted(set(s["signal_date"] for s in signals), reverse=True)
+        return jsonify({"signals": signals, "dates": dates, "count": len(signals)})
+    except Exception as e:
+        print(f"[bull_flow_history] error: {e}")
+        return jsonify({"signals": [], "dates": [], "count": 0})
+
+
 # ── Net Equity Flow ──────────────────────────────────────────────────────────
 
 @app.route("/stock-api/net-flow", methods=["POST"])

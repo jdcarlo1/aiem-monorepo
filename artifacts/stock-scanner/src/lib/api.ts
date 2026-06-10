@@ -444,6 +444,24 @@ export function fetchBullFlow(tickers?: string[]) {
   );
 }
 
+export interface BullFlowHistorySignal {
+  ticker: string;
+  signal_date: string;
+  session: string;
+  price_at_signal: number | null;
+  call_put_ratio: number;
+  premium_m: number | null;
+  strike: number | null;
+  expiry: string | null;
+}
+
+export function fetchBullFlowHistory() {
+  return fetchJson<{ signals: BullFlowHistorySignal[]; dates: string[]; count: number }>(
+    "/bull-flow/history",
+    { method: "GET" }
+  );
+}
+
 export async function createStockScannerCheckout(email: string): Promise<{ url: string }> {
   const res = await fetch("/api/stock-scanner/checkout", {
     method: "POST",

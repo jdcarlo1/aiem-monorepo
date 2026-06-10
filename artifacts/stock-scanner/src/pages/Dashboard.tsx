@@ -6,7 +6,8 @@ import {
   propScan, propTrade, propReset, smartMoneyScan,
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
-  fetchBullFlow, fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
+  fetchBullFlow, fetchBullFlowHistory, BullFlowHistorySignal,
+  fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchPutIntent,
   fetchVolCrush, fetchCallIntent, fetchSmartVsRetail, fetchMaxPain, fetchGammaWall,
@@ -7500,6 +7501,21 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [loadThesis,   setLoadThesis]   = useState<Record<string, boolean>>({});
   const [expandThesis, setExpandThesis] = useState<Set<string>>(new Set());
   const [saved, setSaved]               = useState<Record<string, boolean>>({});
+  const [showHistory,    setShowHistory]    = useState(false);
+  const [historySignals, setHistorySignals] = useState<BullFlowHistorySignal[]>([]);
+  const [historyDates,   setHistoryDates]   = useState<string[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await fetchBullFlowHistory();
+      setHistorySignals(data.signals);
+      setHistoryDates(data.dates);
+    } catch { /* silent */ } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const handleSave = async (e: React.MouseEvent, row: BullFlowRow) => {
     e.stopPropagation();
@@ -7546,7 +7562,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
     }
   };
 
-  useEffect(() => { run(); }, []);
+  useEffect(() => { run(); loadHistory(); }, []);
 
   const rankLabel = (rank: number) =>
     rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
@@ -7591,13 +7607,21 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                 : "Puts dominating — smart money hedging or betting stocks drop."}
             </p>
           </div>
-          <button
-            onClick={run}
-            disabled={loading}
-            className="shrink-0 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
-          >
-            {loading ? <><Spinner /> Scanning…</> : "🔥 Run Scan"}
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => { setShowHistory(h => !h); if (!showHistory) loadHistory(); }}
+              className={`px-4 py-2.5 rounded-lg text-sm font-bold border transition-colors ${showHistory ? "bg-blue-600 border-blue-500 text-white" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}
+            >
+              📋 History
+            </button>
+            <button
+              onClick={() => { setShowHistory(false); run(); }}
+              disabled={loading}
+              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+            >
+              {loading ? <><Spinner /> Scanning…</> : "🔥 Run Scan"}
+            </button>
+          </div>
         </div>
 
         {/* Bullish / Strong / Bearish toggle */}
@@ -7630,6 +7654,73 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
       </div>
 
+      {/* History Panel */}
+      {showHistory && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-white font-semibold text-sm">📋 Bull Flow History</span>
+              <span className="text-slate-600 text-xs ml-2">
+                · {historySignals.length} signals saved · tap any ticker to analyze
+              </span>
+            </div>
+            {historyLoading && <Spinner />}
+          </div>
+          {historySignals.length === 0 && !historyLoading ? (
+            <div className="text-center py-10 text-slate-500 text-sm">
+              No history yet — run a scan first
+            </div>
+          ) : (
+            historyDates.map(date => {
+              const daySignals = historySignals.filter(s => s.signal_date === date);
+              const fmtDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+                weekday: "short", month: "short", day: "numeric",
+              });
+              return (
+                <div key={date}>
+                  <div className="px-5 py-2 bg-slate-800/40 border-b border-slate-800 flex items-center gap-3">
+                    <span className="text-slate-300 text-xs font-bold uppercase tracking-wider">{fmtDate}</span>
+                    <span className="text-slate-600 text-xs">{daySignals.length} signals</span>
+                  </div>
+                  <div className="divide-y divide-slate-800/40">
+                    {daySignals.map((sig, i) => (
+                      <button
+                        key={`${sig.ticker}-${date}-${i}`}
+                        onClick={() => { setShowHistory(false); onSelectTicker(sig.ticker); }}
+                        className="w-full text-left px-5 py-3 hover:bg-slate-800/30 transition-colors flex items-center justify-between gap-4"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="text-white font-black w-14 shrink-0">{sig.ticker}</span>
+                          {sig.price_at_signal != null && (
+                            <span className="text-slate-400 text-sm">${sig.price_at_signal.toFixed(2)}</span>
+                          )}
+                          <span className="text-emerald-400 text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-800/30 shrink-0">
+                            {sig.call_put_ratio.toFixed(1)}x C/P
+                          </span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {sig.premium_m != null && (
+                            <div className="text-emerald-400 font-bold text-sm">
+                              {sig.premium_m >= 1 ? `$${sig.premium_m.toFixed(1)}M` : `$${(sig.premium_m * 1000).toFixed(0)}K`}
+                            </div>
+                          )}
+                          {sig.strike && sig.expiry && (
+                            <div className="text-slate-600 text-xs">
+                              ${sig.strike}C · {new Date(sig.expiry + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {!showHistory && <>
       {/* Empty state — not yet run */}
       {!loading && results.length === 0 && !error && !lastRun && (
         <div className="text-center py-20 text-slate-500">
@@ -7792,6 +7883,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
           </p>
         </div>
       )}
+      </>}
     </div>
   );
 }
