@@ -2123,14 +2123,78 @@ def bull_flow_top10():
     return jsonify(out)
 
 
+@app.route("/stock-api/bull-flow/persistence", methods=["GET"])
+def bull_flow_persistence():
+    """Return stocks with bull-flow signals on 2+ distinct days — persistence signal."""
+    if not _DB_URL:
+        return jsonify({"signals": [], "count": 0})
+    try:
+        import psycopg2
+        from collections import defaultdict
+        conn = psycopg2.connect(_DB_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ticker, signal_date, price_at_signal,
+                   call_put_ratio, premium_m, strike, expiry
+            FROM signal_outcomes
+            WHERE call_put_ratio >= 2
+              AND signal_date >= CURRENT_DATE - INTERVAL '14 days'
+            ORDER BY ticker, signal_date DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        ticker_days = defaultdict(list)
+        for ticker, sig_date, price, cpr, premium_m, strike, expiry in rows:
+            ticker_days[ticker].append({
+                "date":           sig_date.isoformat(),
+                "price_at_signal": round(float(price), 2) if price else None,
+                "call_put_ratio":  round(float(cpr), 2) if cpr else None,
+                "premium_m":       round(float(premium_m), 2) if premium_m else None,
+                "strike":          float(strike) if strike else None,
+                "expiry":          expiry,
+            })
+
+        signals = []
+        for ticker, day_rows in ticker_days.items():
+            unique_dates = sorted(set(d["date"] for d in day_rows), reverse=True)
+            if len(unique_dates) < 2:
+                continue
+            # Best record per day (highest C/P ratio)
+            day_records = {}
+            for d in day_rows:
+                dt = d["date"]
+                if dt not in day_records or (d["call_put_ratio"] or 0) > (day_records[dt]["call_put_ratio"] or 0):
+                    day_records[dt] = d
+            day_list = [day_records[dt] for dt in unique_dates]
+            cprs   = [d["call_put_ratio"] for d in day_list if d["call_put_ratio"]]
+            prems  = [d["premium_m"]      for d in day_list if d["premium_m"]]
+            signals.append({
+                "ticker":           ticker,
+                "days_count":       len(unique_dates),
+                "first_seen":       unique_dates[-1],
+                "last_seen":        unique_dates[0],
+                "days":             day_list,
+                "max_call_put_ratio": round(max(cprs), 2) if cprs else None,
+                "max_premium_m":    round(max(prems), 2) if prems else None,
+            })
+
+        signals.sort(key=lambda x: (-x["days_count"], -(x["max_premium_m"] or 0)))
+        return jsonify({"signals": signals, "count": len(signals)})
+    except Exception as e:
+        print(f"[bull_flow_persistence] error: {e}")
+        return jsonify({"signals": [], "count": 0})
+
+
 @app.route("/stock-api/bull-flow/history", methods=["GET"])
 def bull_flow_history():
     """Return all stored bull-flow signals from the DB, newest first."""
-    if not DATABASE_URL:
+    if not _DB_URL:
         return jsonify({"signals": [], "dates": [], "count": 0})
     try:
         import psycopg2
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(_DB_URL)
         cur = conn.cursor()
         cur.execute("""
             SELECT ticker, signal_date, session, price_at_signal,

@@ -462,6 +462,32 @@ export function fetchBullFlowHistory() {
   );
 }
 
+export interface PersistenceDayRecord {
+  date: string;
+  price_at_signal: number | null;
+  call_put_ratio: number;
+  premium_m: number | null;
+  strike: number | null;
+  expiry: string | null;
+}
+
+export interface PersistenceSignal {
+  ticker: string;
+  days_count: number;
+  first_seen: string;
+  last_seen: string;
+  days: PersistenceDayRecord[];
+  max_call_put_ratio: number;
+  max_premium_m: number | null;
+}
+
+export function fetchBullFlowPersistence() {
+  return fetchJson<{ signals: PersistenceSignal[]; count: number }>(
+    "/bull-flow/persistence",
+    { method: "GET" }
+  );
+}
+
 export async function createStockScannerCheckout(email: string): Promise<{ url: string }> {
   const res = await fetch("/api/stock-scanner/checkout", {
     method: "POST",

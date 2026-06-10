@@ -7,6 +7,7 @@ import {
   fetchCongressTrades, subscribeEmail, fetchSubscriberCount,
   createStockScannerCheckout, manageStockScannerSubscription,
   fetchBullFlow, fetchBullFlowHistory, BullFlowHistorySignal,
+  fetchBullFlowPersistence, PersistenceSignal, PersistenceDayRecord,
   fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchPutIntent,
@@ -7888,6 +7889,165 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   );
 }
 
+// ---- Persistence Tab -------------------------------------------------------
+
+function PersistenceCard({ sig, onSelectTicker, fmtD }: {
+  sig: PersistenceSignal;
+  onSelectTicker: (t: string) => void;
+  fmtD: (d: string) => string;
+}) {
+  const hot = sig.days_count >= 3;
+  return (
+    <div
+      onClick={() => onSelectTicker(sig.ticker)}
+      className={`rounded-xl border p-4 cursor-pointer transition-all hover:border-emerald-600/50 ${hot ? "border-yellow-600/40 bg-yellow-950/10" : "border-slate-800 bg-slate-900"}`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-white font-black text-2xl">{sig.ticker}</span>
+          <span className={`text-xs font-black px-2.5 py-1 rounded-full border ${hot ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"}`}>
+            {sig.days_count} DAYS IN A ROW
+          </span>
+          {hot && <span className="text-yellow-400 text-xs font-bold">⚡ ACCUMULATION IN PROGRESS</span>}
+        </div>
+        <div className="text-right shrink-0">
+          {sig.max_premium_m != null && (
+            <div className={`font-black text-lg ${hot ? "text-yellow-400" : "text-emerald-400"}`}>
+              {sig.max_premium_m >= 1 ? `$${sig.max_premium_m.toFixed(1)}M` : `$${(sig.max_premium_m * 1000).toFixed(0)}K`}
+            </div>
+          )}
+          <div className="text-slate-500 text-xs">peak premium</div>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {sig.days.map((day: PersistenceDayRecord, i: number) => (
+          <div key={day.date} className="flex items-center gap-3 text-sm">
+            <span className={`w-2 h-2 rounded-full shrink-0 ${i === 0 ? "bg-emerald-400" : "bg-slate-600"}`} />
+            <span className="text-slate-400 text-xs w-28 shrink-0">{fmtD(day.date)}</span>
+            <span className="text-emerald-400 font-bold text-xs">{day.call_put_ratio.toFixed(1)}x C/P</span>
+            {day.premium_m != null && (
+              <span className="text-slate-300 text-xs">
+                {day.premium_m >= 1 ? `$${day.premium_m.toFixed(1)}M` : `$${(day.premium_m * 1000).toFixed(0)}K`}
+              </span>
+            )}
+            {day.price_at_signal != null && (
+              <span className="text-slate-500 text-xs ml-auto">@ ${day.price_at_signal.toFixed(2)}</span>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="text-slate-600 text-xs mt-3">Tap to analyze · {sig.first_seen} → {sig.last_seen}</p>
+    </div>
+  );
+}
+
+function PersistenceTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [data, setData]     = useState<{ signals: PersistenceSignal[]; count: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try { setData(await fetchBullFlowPersistence()); }
+    catch (e: any) { setError(e.message ?? "Failed to load"); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const fmtD = (d: string) =>
+    new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+
+  const three = data?.signals.filter(s => s.days_count >= 3) ?? [];
+  const two   = data?.signals.filter(s => s.days_count === 2) ?? [];
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-white font-bold text-lg flex items-center gap-2">
+              🔁 Persistence Signal
+            </h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Stocks with unusual call flow on 2+ consecutive days — institutions are still accumulating.
+              The longer the streak, the higher the conviction.
+            </p>
+          </div>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="shrink-0 bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+          >
+            {loading ? <><Spinner /> Loading…</> : "↻ Refresh"}
+          </button>
+        </div>
+
+        {data && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-800/60 rounded-lg p-3 text-center">
+              <div className="text-3xl font-black text-yellow-400">{three.length}</div>
+              <div className="text-slate-500 text-xs mt-1">3+ Day Streaks</div>
+              <div className="text-yellow-600 text-xs">Highest conviction</div>
+            </div>
+            <div className="bg-slate-800/60 rounded-lg p-3 text-center">
+              <div className="text-3xl font-black text-emerald-400">{two.length}</div>
+              <div className="text-slate-500 text-xs mt-1">2-Day Signals</div>
+              <div className="text-emerald-700 text-xs">Watch for day 3</div>
+            </div>
+            <div className="bg-slate-800/60 rounded-lg p-3 text-center">
+              <div className="text-3xl font-black text-white">{data.count}</div>
+              <div className="text-slate-500 text-xs mt-1">Total Persistent</div>
+              <div className="text-slate-600 text-xs">Last 14 days</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {loading && (
+        <div className="text-center py-16 text-slate-400 flex items-center justify-center gap-2">
+          <Spinner /> Checking persistence signals…
+        </div>
+      )}
+      {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+
+      {/* 3+ day streaks — highest conviction */}
+      {three.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 px-1">
+            <span className="text-yellow-400 font-black text-sm tracking-wide">🚨 HIGHEST CONVICTION — 3+ DAYS STRAIGHT</span>
+          </div>
+          {three.map(sig => (
+            <PersistenceCard key={sig.ticker} sig={sig} onSelectTicker={onSelectTicker} fmtD={fmtD} />
+          ))}
+        </div>
+      )}
+
+      {/* 2-day signals */}
+      {two.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 px-1 mt-2">
+            <span className="text-emerald-400 font-bold text-sm tracking-wide">📈 2-DAY PERSISTENCE — Watch for Day 3</span>
+          </div>
+          {two.map(sig => (
+            <PersistenceCard key={sig.ticker} sig={sig} onSelectTicker={onSelectTicker} fmtD={fmtD} />
+          ))}
+        </div>
+      )}
+
+      {!loading && data && data.count === 0 && (
+        <div className="text-center py-20 text-slate-500">
+          <div className="text-5xl mb-4">🔍</div>
+          <div className="font-semibold text-slate-400 mb-2">No persistence signals yet</div>
+          <div className="text-sm">Run the Bull Flow scan today and tomorrow — signals appear when the same stock shows unusual call activity on consecutive days.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Bloomberg Terminal Chrome -------------------------------------------
 
 const BB_ORANGE = "#22c55e";
@@ -9563,7 +9723,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -9669,6 +9829,7 @@ export default function Dashboard() {
     { id: "gammawall",    label: "🧲 GAMMA WALL" },
     { id: "premarket",    label: "PRE-MARKET" },
     { id: "bullflow",     label: "BULL FLOW" },
+    { id: "persistence",  label: "🔁 PERSISTENCE" },
     { id: "smartmoney",   label: "SMART MONEY" },
     { id: "congress",     label: "CONGRESS" },
     { id: "lookup",       label: "STOCK LOOKUP" },
@@ -10263,6 +10424,8 @@ export default function Dashboard() {
         {tab === "bullflow" && (
           <BullFlowTab onSelectTicker={selectTicker} />
         )}
+
+        {tab === "persistence" && <PersistenceTab onSelectTicker={selectTicker} />}
 
         {tab === "outcomes" && <OutcomesTab />}
 
