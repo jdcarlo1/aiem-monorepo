@@ -276,7 +276,7 @@ DEFAULT_LEADERBOARD = [
     # ── REITs — mortgage ─────────────────────────────────────────────────────
     "NLY", "AGNC", "RC", "BXMT", "LADR", "MFA", "TWO", "RITM", "NYMT",
     # ── REITs — specialty / other ────────────────────────────────────────────
-    "GNL", "RTL", "UNIT", "ALEX", "BRT", "APLE", "INN",
+    "GNL", "RTL", "UNIT", "ALEX", "BRT", "APLE", "INN", "CTO",
     # ── Building / Construction ───────────────────────────────────────────────
     "VMC", "MLM", "OC", "CRH", "BECN", "BLDR", "IBP", "BLD",
     "APG", "PWR", "EME", "ACM", "FLR", "WCC", "WSC",
@@ -297,7 +297,7 @@ DEFAULT_LEADERBOARD = [
     # ── Utilities — water ────────────────────────────────────────────────────
     "AWK", "WTRG", "AWR", "MSEX", "SJW", "ARTNA", "CWCO", "RGCO",
     # ── Transportation — airlines ─────────────────────────────────────────────
-    "AAL", "DAL", "UAL", "LUV", "MESA", "HA",
+    "AAL", "DAL", "UAL", "LUV", "JBLU", "MESA", "HA",
     # ── Transportation — cruise lines ─────────────────────────────────────────
     "RCL", "CCL", "NCLH",
     # ── Transportation — trucking / freight ───────────────────────────────────
