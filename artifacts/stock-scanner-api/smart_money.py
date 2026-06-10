@@ -375,6 +375,22 @@ DEFAULT_LEADERBOARD = [
     "ASML", "BABA", "CEG", "PBR",
     "ASTX", "MVLL", "MUU",
     "IONX", "RKLX",
+    # ── Watchlist batch 9 ────────────────────────────────────────────────────
+    "WLDN", "HUBB", "SNDK", "SLAB", "BSY", "ARKO", "TSM",
+    "BCS", "PACS", "SXI", "PAYC", "ZDGE",
+    "OPRX", "TZOO", "HGV", "BMO", "ENB", "WK",
+    "TD", "RWEOY", "AAMI",
+    "TNK", "UAN", "NTWK", "PLNT", "SE",
+    "IDCC", "CPS", "LAMR", "BWEL", "SGC", "GASS",
+    "LGN", "ASPS", "NATL", "RNMBY", "NBGRY",
+    "ACHC", "WRB", "OPEN", "FIGS", "UVSP", "BHM", "NEUP",
+    "SGRY", "PAC", "NPK", "NUTX", "PRDO", "TEN", "RVMD", "LOPE",
+    "DCBO", "CDNL", "DSWL", "LIF", "TDAY",
+    "ATS", "FOA", "PRMB", "USPH", "BWXT",
+    "SNXX", "CWD", "HIPO", "SPOK", "CCLD", "CHCI",
+    "TKO", "ESLT",
+    "NBIS", "VVX", "CLMB", "IX", "CPHC", "BNS", "TWI",
+    "FLGT", "OLP", "DSGR", "AXIA", "ESP", "SAFRY", "UMH",
 ]
 
 # Deduplicate while preserving order
