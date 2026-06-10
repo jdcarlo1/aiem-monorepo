@@ -9344,30 +9344,53 @@ def morning_inflows():
     if not bust and _cache and _cache_ts and (_dt_mi.datetime.now() - _cache_ts).total_seconds() < 900:
         return jsonify(_cache)
 
-    # 1. Yahoo Finance day-gainers screener (broad universe — catches anything moving today)
-    gainers = []
-    try:
-        resp = _req_mi.get(
-            "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
-            "?formatted=false&scrIds=day_gainers&count=50",
-            headers={"User-Agent": "Mozilla/5.0 (compatible)"}, timeout=8
-        )
-        if resp.ok:
-            quotes = resp.json().get("finance", {}).get("result", [{}])[0].get("quotes", [])
-            gainers = [q["symbol"] for q in quotes if q.get("symbol") and "." not in q["symbol"]]
-    except Exception as _ge:
-        print(f"[morning_inflows] screener: {_ge}")
+    _yf_headers = {"User-Agent": "Mozilla/5.0 (compatible)"}
 
-    # 2. Our tracked tickers (options flow universe)
+    def _fetch_screener(scr_id, count=100, start=0):
+        try:
+            r = _req_mi.get(
+                "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
+                f"?formatted=false&scrIds={scr_id}&count={count}&start={start}",
+                headers=_yf_headers, timeout=8
+            )
+            if r.ok:
+                quotes = r.json().get("finance", {}).get("result", [{}])[0].get("quotes", [])
+                return [q["symbol"] for q in quotes if q.get("symbol") and "." not in q["symbol"]]
+        except Exception as _e:
+            print(f"[morning_inflows] screener {scr_id}: {_e}")
+        return []
+
+    # 1. Multiple Yahoo Finance screeners — run in parallel
+    from concurrent.futures import ThreadPoolExecutor as _TPE_src
+    screener_tasks = [
+        ("day_gainers",          100, 0),   # top 100 by % gain today
+        ("day_gainers",          100, 50),  # page 2 of gainers (next 50-100)
+        ("most_actives",         100, 0),   # top 100 by volume today
+        ("aggressive_small_caps",100, 0),   # small caps with momentum (OCC territory)
+    ]
+    gainers = []
+    with _TPE_src(max_workers=4) as _src_ex:
+        for syms in _src_ex.map(lambda args: _fetch_screener(*args), screener_tasks):
+            gainers.extend(syms)
+
+    print(f"[morning_inflows] screeners pulled {len(gainers)} raw symbols")
+
+    # 2. Our tracked tickers — options flow universe (unusual calls + signal alerts)
     tracked = []
     try:
         with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
-            _cur.execute("SELECT DISTINCT ticker FROM unusual_calls_log WHERE first_seen >= NOW() - INTERVAL '90 days'")
+            _cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_log
+                WHERE first_seen >= NOW() - INTERVAL '90 days'
+            """)
             tracked = [r[0] for r in _cur.fetchall()]
     except Exception as _de:
         print(f"[morning_inflows] db: {_de}")
 
-    universe = list(dict.fromkeys(gainers + tracked))[:120]
+    # Deduplicate: gainers first (already moving today), then our tracked watchlist
+    universe = list(dict.fromkeys(gainers + tracked))
+    universe = [t for t in universe if t and len(t) <= 5]  # strip junk/long symbols
+    print(f"[morning_inflows] universe after dedup: {len(universe)} tickers")
 
     def _score_ticker(ticker):
         try:
@@ -9448,7 +9471,7 @@ def morning_inflows():
             return None
 
     results = []
-    with _TPE_mi(max_workers=15) as ex:
+    with _TPE_mi(max_workers=25) as ex:
         futures = {ex.submit(_score_ticker, t): t for t in universe}
         for fut in _ac_mi(futures):
             r = fut.result()
