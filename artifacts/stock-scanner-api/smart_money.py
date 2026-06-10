@@ -618,7 +618,9 @@ DEFAULT_LEADERBOARD = [
     "ARCT","GH","RXRX",
     # Batch 33 — Silver mining stocks (large, small, micro-cap) June 10 2026
     "AXU","GATO","GPL","MAG","PLG","SILX","SVBL",
-    # Batch 34 — Gold mining stocks (large, small, micro-cap) June 10 2026
+    # Batch 34 — Uranium, Copper, Platinum/Palladium stocks June 10 2026
+    "COPX","CU","ERO","ISO","LIFT","LMR","NAK","NAN","PGM","QCX","SPM","SPP","TECK","TGB","URE","URG",
+    # Batch 35 — Gold mining stocks (large, small, micro-cap) June 10 2026
     "AEM","AU","WPM","PAAS","FSM","IAG","NGD","ARIS","TFPM",
     "AAGC","AUST","CHNR","FTCO","GORO","GRML","PTGO","SGCP","THM","TMNG","USGO","VGZ",
 ]
