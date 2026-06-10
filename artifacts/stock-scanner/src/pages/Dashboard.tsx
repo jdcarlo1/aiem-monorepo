@@ -8809,7 +8809,7 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 
       {/* Schedule note */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-        <span>⏰ Auto-scans daily at <span className="text-white font-bold">10:30 AM ET</span> (Mon–Fri) across 350+ growth tickers · Tight bid/ask spreads only</span>
+        <span>⏰ Auto-scans daily at <span className="text-white font-bold">10:30 AM · 11:30 AM · 4:15 PM ET</span> (Mon–Fri) across 350+ growth tickers · Tight bid/ask spreads only</span>
         {lastRun && <span className="text-slate-500">· Last loaded {lastRun.toLocaleTimeString()}</span>}
       </div>
 

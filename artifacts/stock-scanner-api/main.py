@@ -388,8 +388,85 @@ try:
         replace_existing=True,
     )
 
+    # ── Helper: call a route function inside a test request context ──────────
+    def _call_route(label, url, method="GET", body=None):
+        _fn_map = {
+            "/stock-api/bull-flow/top10":   "bull_flow_top10",
+            "/stock-api/squeeze/detector":  "squeeze_detector",
+            "/stock-api/breakout/radar":    "breakout_radar",
+            "/stock-api/darkpool":          "darkpool",
+            "/stock-api/vol-crush":         "vol_crush",
+            "/stock-api/call-intent":       "call_intent",
+            "/stock-api/max-pain":          "max_pain",
+            "/stock-api/gamma-wall":        "gamma_wall",
+            "/stock-api/convergence":       "convergence",
+            "/stock-api/premarket":         "premarket",
+        }
+        try:
+            _kwargs = {"method": method}
+            if body is not None:
+                _kwargs["data"] = body
+                _kwargs["content_type"] = "application/json"
+            with app.test_request_context(url, **_kwargs):
+                globals()[_fn_map[url]]()
+            print(f"[warmer] ✓ {label}")
+        except Exception as _we:
+            print(f"[warmer] ✗ {label}: {_we}")
+
+    # Wave 1 — 8:00 AM ET: tabs that use prior-day / overnight data
+    # Pre-Market (4 AM pre-market prices), Dark Pool (FINRA data published overnight),
+    # Convergence (price/momentum — no live vol needed)
+    def _run_early_warmer():
+        import threading as _ethr
+        def _w():
+            _call_route("Pre-Market", "/stock-api/premarket")
+            _call_route("Dark Pool",  "/stock-api/darkpool")
+            _call_route("Convergence","/stock-api/convergence")
+        _ethr.Thread(target=_w, daemon=True).start()
+        print("[warmer] early wave started (Pre-Market, Dark Pool, Convergence)")
+
+    _scheduler.add_job(
+        _run_early_warmer,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=0, timezone=_ET),
+        id="early_warmer",
+        replace_existing=True,
+    )
+
+    # Wave 2 — 10:45 AM ET: options-based tabs (75 min of live market activity)
+    # Wave 3 — 11:30 AM ET: second pass with more mature intraday vol/OI
+    # Wave 4 — 4:18 PM ET:  EOD — freshest data of the day after close
+    def _run_options_warmer():
+        import threading as _othr
+        def _w():
+            _call_route("Bull Flow",      "/stock-api/bull-flow/top10",   "POST", b"{}")
+            _call_route("Squeeze",        "/stock-api/squeeze/detector",  "POST", b"{}")
+            _call_route("Vol Crush",      "/stock-api/vol-crush")
+            _call_route("Call Intent",    "/stock-api/call-intent")
+            _call_route("Max Pain",       "/stock-api/max-pain")
+            _call_route("Gamma Wall",     "/stock-api/gamma-wall")
+            _call_route("Breakout Radar", "/stock-api/breakout/radar",    "POST", b"{}")
+            _call_route("Convergence",    "/stock-api/convergence")
+            _call_route("Pre-Market",     "/stock-api/premarket")
+            _call_route("Dark Pool",      "/stock-api/darkpool")
+        _othr.Thread(target=_w, daemon=True).start()
+        print("[warmer] options wave started (all tabs)")
+
+    for _ow_hour, _ow_min in [(10, 45), (11, 30), (16, 18)]:
+        _scheduler.add_job(
+            _run_options_warmer,
+            CronTrigger(day_of_week="mon-fri", hour=_ow_hour, minute=_ow_min, timezone=_ET),
+            id=f"options_warmer_{_ow_hour}_{_ow_min}",
+            replace_existing=True,
+        )
+
     _scheduler.start()
-    print("[scheduler] APScheduler started — scans at 9:00 AM, 9:45 AM, 3:30 PM, 4:00 PM, 4:05 PM & 4:15 PM ET + EOD unusual-calls auto-scan at 3:30 PM, 4:00 PM, 4:15 PM ET + outcomes at 4:30 PM, Mon–Fri + micro-cap pre-warm every 30 min + AI trades at 10:00 AM + AI short calls at 10:15 AM + scan cache warmer every 15 min")
+    print("[scheduler] APScheduler started — "
+          "scans: 9:00/9:45 AM, 3:30/4:00/4:05/4:15 PM ET | "
+          "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
+          "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
+          "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
+          "options warmer (all tabs): 10:45 AM, 11:30 AM, 4:18 PM | "
+          "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
