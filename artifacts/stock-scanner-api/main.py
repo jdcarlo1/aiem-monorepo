@@ -184,11 +184,19 @@ try:
                             except Exception: pass
                 except Exception: pass
                 return hits
-            # Build augmented universe: today's movers first so earnings/catalyst
-            # stocks are always scanned, then fill with core leaderboard tickers.
-            _mv = _fetch_market_movers()
-            _mv_set = set(_mv)
-            _universe = _mv + [t for t in DEFAULT_LEADERBOARD[:500] if t not in _mv_set]
+            # Build augmented universe:
+            #  1. earnings stocks today (e.g. CBRL reporting Q3) — always first
+            #  2. today's top % gainers + most-active — catches catalyst moves early
+            #  3. core leaderboard top 500 — fills out coverage
+            _earnings = _fetch_earnings_today()
+            _movers   = _fetch_market_movers()
+            _seen: set = set()
+            _universe: list = []
+            for _t in (_earnings + _movers + list(DEFAULT_LEADERBOARD)[:500]):
+                if _t not in _seen:
+                    _seen.add(_t); _universe.append(_t)
+            print(f"[scheduler] {label} scan universe: {len(_earnings)} earnings + "
+                  f"{len(_movers)} movers + core = {len(_universe)} total")
             all_hits = []
             with ThreadPoolExecutor(max_workers=30) as ex:
                 futs = {ex.submit(_scan_one, t): t for t in _universe}
@@ -199,10 +207,29 @@ try:
                         pass
             _save_unusual_calls_to_db(all_hits)
             print(f"[scheduler] {label} unusual-calls scan → {len(all_hits)} hits saved")
+            # Send instant email alert for high-conviction hits (morning scan only)
+            if label in ("market-open", "morning"):
+                import threading as _alt
+                _alt.Thread(target=_send_unusual_calls_alert, args=(all_hits,), daemon=True).start()
         except Exception as e:
             import traceback
             print(f"[scheduler] {label} unusual-calls scan error: {e}\n{traceback.format_exc()}")
 
+    # 9:30 AM — right at market open: scan earnings stocks + movers first, then
+    # send an instant email alert if any hit Vol/OI >= 5x with prem >= $500K.
+    # This is the scan that would have caught CBRL call activity at open.
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("market-open"),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=30, timezone=_ET),
+        id="market_open_unusual_calls",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("morning"),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=_ET),
+        id="morning_unusual_calls",
+        replace_existing=True,
+    )
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("pre-close"),
         CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone=_ET),
@@ -502,6 +529,131 @@ try:
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
+
+
+def _fetch_earnings_today() -> list:
+    """
+    Return tickers that have earnings announced today (before/after market).
+    Uses the Yahoo Finance earnings calendar endpoint — no API key required.
+    These stocks get prepended to the scan queue so pre-earnings call activity
+    is never missed regardless of their position in DEFAULT_LEADERBOARD.
+    """
+    try:
+        import requests as _r
+        from datetime import date
+        today = date.today().strftime("%Y-%m-%d")
+        url = (
+            f"https://query1.finance.yahoo.com/v1/finance/earnings"
+            f"?day={today}&region=US&lang=en-US"
+        )
+        hdrs = {"User-Agent": "Mozilla/5.0 (compatible; StockScannerBot/1.0)"}
+        data = _r.get(url, headers=hdrs, timeout=8).json()
+        rows = (
+            data.get("finance", {})
+                .get("result", [{}])[0]
+                .get("earnings", {})
+                .get("rows", [])
+        )
+        tickers = []
+        for row in rows:
+            sym = row.get("ticker", "")
+            if sym and "^" not in sym and "/" not in sym:
+                tickers.append(sym)
+        if tickers:
+            print(f"[earnings] {len(tickers)} stocks reporting today: {tickers[:10]}")
+        return tickers
+    except Exception as _e:
+        print(f"[earnings] calendar fetch failed (non-fatal): {_e}")
+        return []
+
+
+def _send_unusual_calls_alert(hits: list) -> None:
+    """
+    Send an immediate email alert to all subscribers when the morning scan
+    finds high-conviction unusual call activity (Vol/OI >= 5x, prem >= $500K).
+    Called right after _run_unusual_calls_scan saves to DB.
+    """
+    try:
+        # Filter to high-conviction only
+        alerts = [
+            h for h in hits
+            if h.get("vol_oi", 0) >= 5.0 and h.get("prem", 0) >= 500_000
+        ]
+        if not alerts:
+            return
+
+        subs = get_active_subscribers()
+        if not subs:
+            return
+
+        alerts.sort(key=lambda x: x["prem"], reverse=True)
+        top = alerts[:10]
+
+        rows_html = ""
+        for h in top:
+            prem_str = f"${h['prem']:,.0f}"
+            voi_str  = f"{h['vol_oi']:.1f}×"
+            otm_str  = f"+{h['otm_pct']:.1f}%" if h.get('otm_pct', 0) >= 0 else f"{h['otm_pct']:.1f}%"
+            color    = "#f97316" if h["vol_oi"] >= 10 else "#22c55e"
+            rows_html += f"""
+            <tr>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
+                <span style="font-size:15px;font-weight:700;color:#f1f5f9;">{h['ticker']}</span>
+                <span style="font-size:11px;color:#64748b;margin-left:8px;">${h['price']:.2f}</span>
+              </td>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:{color};">{voi_str}</span>
+                <div style="font-size:10px;color:#64748b;">Vol/OI</div>
+              </td>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#f1f5f9;">${h['strike']:.0f} {otm_str}</span>
+                <div style="font-size:10px;color:#64748b;">Strike · OTM</div>
+              </td>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#a78bfa;">{prem_str}</span>
+                <div style="font-size:10px;color:#64748b;">Premium · {h['days_out']}d exp</div>
+              </td>
+            </tr>"""
+
+        base_url = os.getenv("PUBLIC_URL", "https://hello-world-2-joeldcarlo.replit.app")
+        dashboard_url = f"{base_url}/stock-scanner/"
+        from datetime import datetime as _dt
+        time_str = _dt.now().strftime("%-I:%M %p ET")
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:600px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🚨 Unusual Call Alert</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">
+              {len(alerts)} high-conviction signal{'s' if len(alerts) != 1 else ''} detected · {time_str}
+            </span>
+          </div>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #1e293b;margin-bottom:20px;">
+            <tr style="background:#0f172a;">
+              <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Ticker</th>
+              <th style="padding:8px 14px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Vol/OI</th>
+              <th style="padding:8px 14px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Strike</th>
+              <th style="padding:8px 14px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Premium</th>
+            </tr>
+            {rows_html}
+          </table>
+          <div style="text-align:center;margin-bottom:16px;">
+            <a href="{dashboard_url}" style="background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">
+              View Full Scanner →
+            </a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · <a href="{base_url}/stock-scanner/unsubscribe" style="color:#475569;">Unsubscribe</a>
+          </p>
+        </div>"""
+
+        sent = 0
+        for sub in subs:
+            if send_email_raw(sub["email"], f"🚨 {len(alerts)} Unusual Call Signal{'s' if len(alerts) != 1 else ''} Detected", html):
+                sent += 1
+        print(f"[unusual_alert] sent alert to {sent}/{len(subs)} subscribers — {len(alerts)} signals")
+    except Exception as _ae:
+        print(f"[unusual_alert] alert error (non-fatal): {_ae}")
 
 
 def _fetch_market_movers(count=75):
