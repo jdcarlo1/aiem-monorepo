@@ -581,6 +581,12 @@ DEFAULT_LEADERBOARD = [
     # Batch 21 — Materials/Chemicals/Metals ETF holdings June 10 2026
     "CRS","KALU","HWKN","WLK","HUN","IDR","IE","MTRN","CTVA","RGLD",
     "MGNR","ASH","KWR","RPM","STLD","RS",
+    # Batch 22 — ITA & XLI ETF holdings June 10 2026
+    "AMST","AOS","ARW","BLL","COPT","CYBE","DXC","EXPD","FMC","GI",
+    "GIW","HXL","IEX","IT","J","JCI","JLL","KBR","KEX","MANT",
+    "MAXR","MSM","OSK","PSN","RE","RHI","SPR","SRCL","TEX","TFX",
+    "THR","TKR","TRMB","TT","VFC","VNT","VST","WAB","WEX","WING",
+    "WST","WTW","XYL",
 ]
 
 # Deduplicate while preserving order
