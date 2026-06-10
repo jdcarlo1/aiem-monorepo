@@ -348,6 +348,19 @@ DEFAULT_LEADERBOARD = [
     "CRCL", "ALVOF", "BLNE", "VIA", "PSIX",
     # ── Watchlist batch 4 ────────────────────────────────────────────────────
     "ABM", "DCO", "AMLX",
+    # ── Watchlist batch 5 ────────────────────────────────────────────────────
+    "ROLR", "SMID", "BWEN", "ATLN", "OCC", "HPAI", "PTGX", "EGIEY",
+    "APH", "TMDE", "GLXY", "GAIA", "AAME", "MDLN", "BDL",
+    "BCH", "OPXS", "USAU", "WWD", "CIX", "KNF", "RSI", "PRM", "CRDO", "LINE", "BX",
+    "MEG", "INSM", "ZENA", "PMOIF", "KOD", "ATMU", "TPG", "BSAC", "HWH", "SGI",
+    "MRX", "HWM", "BOBS", "ABSI", "INKT",
+    "NSYS", "CSW", "VSEC", "APO", "SRZN", "ATI",
+    "WSO", "HGTY", "XPOF", "KPLT",
+    "SNEX", "TOST", "AMRZ", "DGNX", "HEINY",
+    "STG", "FRO", "DLO", "AMBP", "COKE", "ISSC", "MOGA",
+    "FOSL", "CRGO", "ULTA", "GRDN", "SNN", "GCT", "DVA",
+    "LAUR", "VICR", "ESE", "ZONE", "GRND", "ACA", "MLP", "PECO",
+    "EHC", "EVTC", "BTSG",
 ]
 
 # Deduplicate while preserving order
