@@ -104,6 +104,12 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - GEX uses numpy normal PDF — no scipy dependency
 - FREE_LIMIT on NCLEX is 10 — never change
 
+## Morning Watchlist (37 tickers as of 2026-06-10)
+['AXTI','AZI','BATL','BBGI','BULL','CASY','CBRL','CMCT','CRE','DSY','DWSN','FJET','FLL','FRMI','HCAI','HPK','INDP','JEM','LAKE','LICN','LMNR','LUCK','MAAS','OCC','OPTX','PLAY','PW','RETO','SCLX','SDOT','SPHL','STAK','STI','TGL','TTRX','VSME','WTI']
+- Watchlist checked at every scan (9:31/9:45/10:00/10:15/10:30) regardless of gap size
+- Keep under ~100 tickers — each requires individual yfinance call, 350+ would cause scan overlap
+- Grow by adding tickers user reports each evening that the scanner missed
+
 ## SMS / Twilio (PENDING)
 - User has not yet signed up for Twilio
 - User phone: +14013185787 (for testing)
