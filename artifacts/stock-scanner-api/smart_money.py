@@ -592,6 +592,12 @@ DEFAULT_LEADERBOARD = [
     # Batch 24 — XLY & XLP ETF holdings June 10 2026
     "AZO","BBWI","HSY","K","KMB","KSS","KVUE","LW","MCK","ORLY",
     "QSR","TPX","TSCO","TXRH","UA","UAA","WBA","WSM",
+    # Batch 25 — AIRR & IAK ETF holdings June 10 2026
+    "ANAT","APAM","ARGO","ASB","ASTR","AVNS","CXT","ENR","FAF","FNF",
+    "FRME","FSS","GBLI","GGG","GL","GNW","HALL","IFC","LECO","LFC",
+    "MGA","MHLD","MSC","MTG","MTW","NAVG","NGHC","ONDO","ORI","PFG",
+    "RGA","RLI","STFC","TGNA","THG","TMK","TPH","TPM","TUP","TW",
+    "TWFG","WTFC","XMTR",
 ]
 
 # Deduplicate while preserving order
