@@ -9565,22 +9565,31 @@ def morning_inflows():
             net_m          = (inflow - outflow) / 1_000_000
 
             # ── Fade Risk assessment ──────────────────────────────────────────
-            # Key finding from backtesting: market cap and momentum_at_open
-            # are the strongest predictors of whether a morning signal holds.
-            # If price at 9:31 is BELOW the gap level, sellers already flooded in.
+            # Signals used (in priority order):
+            #   1. Gap size + market cap  — extreme pre-market pumps
+            #   2. Pre-market exhaustion  — moderate gap where fuel is already burned
+            #   3. Momentum at open       — price direction the moment the bell rings
+            #   4. Market cap alone       — micro-cap structural risk
             momentum_open = price_chg - gap_pct        # >0 = still running; <0 = already fading
             mkt_cap_m_val = mkt_cap / 1_000_000 if mkt_cap else 0
 
-            # ── Refined fade risk (tuned from live data 2026-06-10) ──────────────
-            # Key lesson: micro-cap alone is NOT enough to flag HIGH.
-            # DSY (+308% gap) and VSME (+296% gap) → faded immediately ✓ HIGH correct.
-            # SDOT (+9.5% gap, +3.3% momentum) → ran +88% ✗ HIGH was wrong.
-            # PW (+1.5% gap), SPHL (-4.6% gap) → ran +21%/+23% ✗ HIGH was wrong.
-            # Rule: extreme gaps on tiny caps = pump. Small gaps = risky but can run.
+            # ── Pre-market exhaustion ratio ──────────────────────────────────
+            # What fraction of today's total move happened before 9:30 AM?
+            # If >85% of the gain was pre-market, early holders are waiting to dump
+            # into retail buyers the moment the bell rings.
+            # Real-data validation (2026-06-10):
+            #   DSY: 94% pre-mkt → faded -10% ✓   SDOT: 74% pre-mkt → ran +88% ✓
+            #   VSME: 68% pre-mkt → faded -54% ✓  PW:  100% pre-mkt (tiny gap 1.5%) → ran +21%
+            # Rule applies only when gap is meaningful (≥15%) — tiny gaps don't matter.
+            exhaustion_ratio = (gap_pct / price_chg) if price_chg > 0 else 0.0
+
+            # ── Refined fade risk (tuned from live data 2026-06-10) ──────────
             if gap_pct > 100 and mkt_cap_m_val < 200:
                 fade_risk = "HIGH"    # extreme pump (100%+ gap on small cap) — dump incoming
             elif gap_pct > 30 and mkt_cap_m_val < 100:
                 fade_risk = "HIGH"    # large pump on tiny cap — not enough real buyers
+            elif gap_pct >= 15 and exhaustion_ratio > 0.85:
+                fade_risk = "HIGH"    # moderate gap, 85%+ already happened pre-market — fuel burned
             elif momentum_open < -5:
                 fade_risk = "HIGH"    # already crashing at the open bell
             elif mkt_cap_m_val > 0 and mkt_cap_m_val < 50:
@@ -9596,8 +9605,9 @@ def morning_inflows():
                 "prev_close":      round(prev_close, 2),
                 "price_chg_pct":   round(price_chg, 2),
                 "gap_pct":         round(gap_pct, 2),
-                "gap_multiplier":  gap_multiplier,
+                "gap_multiplier":   gap_multiplier,
                 "momentum_open":   round(momentum_open, 2),
+                "exhaustion_ratio": round(exhaustion_ratio, 3),
                 "fade_risk":       fade_risk,
                 "rel_vol":         round(rel_vol, 1),       # projected ×, not raw ×
                 "rel_vol_raw":     round(cum_vol / avg_vol, 2),
