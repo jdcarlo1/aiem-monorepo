@@ -574,6 +574,8 @@ DEFAULT_LEADERBOARD = [
     "PEBO","PFCB","PFHD","PFIS","PIPR","PPBI","PROV","QCRH","RNST","SBSI",
     "SIFI","SMBC","STBA","STEL","TBBK","TBK","TCBI","TCFC","TMP","TOWN",
     "TRUST","TSC","UBSI","UCBI","WSFS",
+    # Batch 19 — Industrial ETF holdings June 10 2026
+    "JBL","ITT","MKSI","CW","R","GVA","SPXC","DRS","NVRI",
 ]
 
 # Deduplicate while preserving order
