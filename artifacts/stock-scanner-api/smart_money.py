@@ -324,6 +324,15 @@ DEFAULT_LEADERBOARD = [
     "SHOT", "NAKA", "ALMU", "FEAM", "PCFBY",
     "BDCO", "CRNC", "PDYN", "PCLA", "DFDV",
     "SOBR", "CPSH", "MFI", "HUBC", "ABAT", "DMCOF",
+    # ── Watchlist additions from screenshots (batch 2) ────────────────────────
+    "SUNC", "PWP", "AIRG", "IPCFF", "GWH", "SAIH", "BODI",
+    "KLRS", "VNOM", "WAR", "GLPEY", "BW", "TVRD", "FRHLF", "EPSN",
+    "ATEX", "EXPO", "ARQQ", "JFB", "KOSS", "MTPLF",
+    "CVV", "SRI", "AUGO", "AMPY", "KVYO",
+    "BLZE", "SIF", "LOCL", "SITIY", "FTEK",
+    "ZSPC", "SAPMY", "SKE", "SOS", "OROVY",
+    "WCPRF", "STIM", "DTI", "RFIL", "TAOX",
+    "CMCL", "SES", "NOG", "GEOS", "FPS", "AZLCZ",
 ]
 
 # Deduplicate while preserving order
