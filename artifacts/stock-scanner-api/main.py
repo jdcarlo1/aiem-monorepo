@@ -5291,6 +5291,30 @@ def _ai_trades_worker():
     uc_fallback    = [v for v in sorted_tickers if (v.get("uc_prem_m") or 0) < 0.5]
     candidate_pool = uc_qualified + uc_fallback  # AI sees premium tickers first
 
+    # LIVE PRICE REFRESH — always override stale cached prices with today's real market price
+    # This prevents trades being generated with months-old price data (wrong strikes/targets)
+    try:
+        import yfinance as _yf_pr
+        _refresh_tickers = [v["ticker"] for v in candidate_pool[:15]]
+        def _fetch_live_price(t):
+            try:
+                p = float(_yf_pr.Ticker(t).fast_info.last_price or 0)
+                return t, p if p > 0 else None
+            except Exception:
+                return t, None
+        with ThreadPoolExecutor(max_workers=10) as _pr_ex:
+            _pr_results = dict(_pr_ex.map(lambda t: _fetch_live_price(t), _refresh_tickers))
+        for v in candidate_pool:
+            t = v["ticker"]
+            live_p = _pr_results.get(t)
+            if live_p and live_p > 0:
+                v["price"] = round(live_p, 2)
+        import sys as _sys
+        print(f"[ai_trades_bg] live prices refreshed for {len(_refresh_tickers)} tickers", file=_sys.stderr)
+    except Exception as _pr_err:
+        import sys as _sys
+        print(f"[ai_trades_bg] live price refresh error: {_pr_err}", file=_sys.stderr)
+
     # Build compact signal block — top 15 tickers, one line each, key fields only
     sig_lines = []
     for v in candidate_pool[:15]:
