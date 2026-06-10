@@ -2010,7 +2010,7 @@ def bull_flow_top10():
     tickers = body.get("tickers", DEFAULT_LEADERBOARD)
     if not isinstance(tickers, list) or not tickers:
         tickers = DEFAULT_LEADERBOARD
-    tickers = [t.strip().upper() for t in tickers[:50]]
+    tickers = [t.strip().upper() for t in tickers[:150]]
 
     # 5-minute cache — prevents concurrent tab-open requests from hammering yfinance
     _bf_cache = getattr(app, "_bf_cache", None)
