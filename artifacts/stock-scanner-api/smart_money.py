@@ -581,7 +581,9 @@ DEFAULT_LEADERBOARD = [
     # Batch 21 — Materials/Chemicals/Metals ETF holdings June 10 2026
     "CRS","KALU","HWKN","WLK","HUN","IDR","IE","MTRN","CTVA","RGLD",
     "MGNR","ASH","KWR","RPM","STLD","RS",
-    # Batch 22 — ITA & XLI ETF holdings June 10 2026
+    # Batch 22 — ITA & XLI & XLE & XLU & XLB ETF holdings June 10 2026
+    "EQT","OA","PCP","RLY","SPAR","TGI","TNET","TRGP","TRP","TRU","VEC","WRK","XLA",
+    # Batch 23 — ITA & XLI ETF holdings June 10 2026
     "AMST","AOS","ARW","BLL","COPT","CYBE","DXC","EXPD","FMC","GI",
     "GIW","HXL","IEX","IT","J","JCI","JLL","KBR","KEX","MANT",
     "MAXR","MSM","OSK","PSN","RE","RHI","SPR","SRCL","TEX","TFX",
