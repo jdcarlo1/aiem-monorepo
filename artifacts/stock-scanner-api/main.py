@@ -6609,10 +6609,11 @@ def unusual_calls():
                            volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
                            iv::float, urgency
                     FROM unusual_calls_log
-                    WHERE last_seen >= NOW() - INTERVAL '2 hours'
+                    WHERE last_seen >= NOW() - INTERVAL '36 hours'
+                      AND expiry::date > CURRENT_DATE
                       AND vol_oi >= 3
                       AND prem >= 500000
-                    ORDER BY vol_oi DESC LIMIT 80
+                    ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                 """)
                 _today_rows = _pre_cur.fetchall()
             if len(_today_rows) >= 5:
@@ -7228,7 +7229,7 @@ def ai_short_calls():
 
 {signals_text}
 
-Select the 15 BEST short-term call trade opportunities from this list. Rank by conviction.
+Select the 20 BEST short-term call trade opportunities from this list. Rank by conviction.
 Criteria: highest Vol/OI (fresh institutional buying), reasonable OTM% (not too far), premium size (commitment), days_out (urgency), urgency tier.
 
 For each pick output a JSON object with ALL these fields:
@@ -7246,7 +7247,7 @@ For each pick output a JSON object with ALL these fields:
 - thesis (string — 2 sentences MAX: why this signal is high conviction, what the move scenario is)
 - why_it_stands_out (string — 1 sentence: the single most compelling data point)
 
-Return a JSON array of exactly 15 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
+Return a JSON array of exactly 20 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
 
     system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."
 
@@ -7255,7 +7256,7 @@ Return a JSON array of exactly 15 objects. Sort by conviction (HIGH first). JSON
         finish = "unknown"
         stream = oai.chat.completions.create(
             model="gpt-4o-mini",
-            max_completion_tokens=3000,
+            max_completion_tokens=4000,
             stream=True,
             messages=[
                 {"role": "system", "content": system_msg},
