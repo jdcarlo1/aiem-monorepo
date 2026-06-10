@@ -538,14 +538,14 @@ try:
         replace_existing=True,
     )
 
-    # Morning standout inflows: 9:45 AM + 10:30 AM ET — pre-warm cache
+    # Morning standout inflows: 9:31 AM (early-warning) + 9:45 AM + 10:30 AM ET
     def _run_morning_inflows():
         try:
             with app.test_request_context("/stock-api/morning-inflows"):
                 morning_inflows()
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
-    for _mi_h, _mi_m in [(9, 45), (10, 30)]:
+    for _mi_h, _mi_m in [(9, 31), (9, 45), (10, 30)]:
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -560,7 +560,7 @@ try:
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
           "options warmer (all tabs): 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
-          "morning inflows: 9:45 AM + 10:30 AM | "
+          "morning inflows: 9:31 AM (early-warning) + 9:45 AM + 10:30 AM | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
@@ -9371,23 +9371,48 @@ def morning_inflows():
 
     def _score_ticker(ticker):
         try:
+            import pytz as _pytz_mi
+            _et = _pytz_mi.timezone("America/New_York")
+
             tk = _yf_mi.Ticker(ticker)
             fi = tk.fast_info
-            price      = float(getattr(fi, "last_price",                0) or 0)
-            prev_close = float(getattr(fi, "previous_close",            0) or 0)
-            if price <= 0 or prev_close <= 0: return None
+            prev_close = float(getattr(fi, "previous_close", 0) or 0)
+            avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
+            mkt_cap    = float(getattr(fi, "market_cap", 0) or 0)
+            if prev_close <= 0 or avg_vol <= 0: return None
+
+            # Fetch 1-min bars — single network call used for price, volume, AND flow
+            hist = tk.history(period="1d", interval="1m")
+            if hist.empty or len(hist) < 2: return None
+
+            # Convert index to ET so we can measure minutes elapsed since 9:30 AM open
+            hist.index = hist.index.tz_convert(_et)
+            now_et      = _dt_mi.datetime.now(_et)
+            market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+
+            # Cumulative volume from all bars so far today
+            cum_vol = float(hist["Volume"].sum())
+            price   = float(hist["Close"].iloc[-1])
+            if price <= 0: return None
 
             price_chg = (price - prev_close) / prev_close * 100
-            if price_chg < 5.0: return None  # must be up ≥5%
+            if price_chg < 5.0: return None  # must be up ≥5% on the day
 
-            avg_vol   = float(getattr(fi, "three_month_average_volume", 1) or 1)
-            today_vol = float(getattr(fi, "last_volume",                0) or 0)
-            rel_vol   = today_vol / avg_vol if avg_vol > 0 else 0
-            if rel_vol < 3.0: return None  # must be ≥3× normal volume
+            # ── PROJECTED daily volume ──────────────────────────────────────────
+            # How many full 390-minute trading day minutes have elapsed since open?
+            # Cap at 390 so the projection never goes negative or weird at close.
+            mins_elapsed = max((now_et - market_open).total_seconds() / 60.0, 1.0)
+            mins_elapsed = min(mins_elapsed, 390.0)
+            day_fraction = mins_elapsed / 390.0
+            projected_vol = cum_vol / day_fraction          # what the full day would look like
+            rel_vol       = projected_vol / avg_vol
 
-            # Intraday money flow from 1-min bars
-            hist = tk.history(period="1d", interval="1m")
-            if hist.empty or len(hist) < 10: return None
+            # Early-session threshold:  ≥5× projected  (=75× raw for OCC at 9:31)
+            # After 30 min threshold rises to standard ≥3× (noise settles after open)
+            min_rel = 5.0 if mins_elapsed <= 30 else 3.0
+            if rel_vol < min_rel: return None
+
+            # ── Money flow from 1-min bars ──────────────────────────────────────
             inflow = outflow = 0.0
             for _, row in hist.iterrows():
                 if row["Volume"] <= 0: continue
@@ -9400,22 +9425,24 @@ def morning_inflows():
             if flow_ratio < 2.0: return None  # must be 2:1 buying vs selling
 
             standout_score = round(rel_vol * (price_chg / 10) * min(flow_ratio, 10), 2)
-            mkt_cap        = float(getattr(fi, "market_cap", 0) or 0)
             net_m          = (inflow - outflow) / 1_000_000
             return {
-                "ticker":         ticker,
-                "price":          round(price, 2),
-                "prev_close":     round(prev_close, 2),
-                "price_chg_pct":  round(price_chg, 2),
-                "rel_vol":        round(rel_vol, 1),
-                "today_vol":      int(today_vol),
-                "avg_vol":        int(avg_vol),
-                "inflow_m":       round(inflow   / 1_000_000, 2),
-                "outflow_m":      round(outflow  / 1_000_000, 2),
-                "net_m":          round(net_m, 2),
-                "flow_ratio":     round(min(flow_ratio, 99.0), 2),
-                "standout_score": standout_score,
-                "mkt_cap_m":      round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
+                "ticker":          ticker,
+                "price":           round(price, 2),
+                "prev_close":      round(prev_close, 2),
+                "price_chg_pct":   round(price_chg, 2),
+                "rel_vol":         round(rel_vol, 1),       # projected ×, not raw ×
+                "rel_vol_raw":     round(cum_vol / avg_vol, 2),
+                "today_vol":       int(cum_vol),
+                "projected_vol":   int(projected_vol),
+                "avg_vol":         int(avg_vol),
+                "mins_elapsed":    round(mins_elapsed, 0),
+                "inflow_m":        round(inflow   / 1_000_000, 2),
+                "outflow_m":       round(outflow  / 1_000_000, 2),
+                "net_m":           round(net_m, 2),
+                "flow_ratio":      round(min(flow_ratio, 99.0), 2),
+                "standout_score":  standout_score,
+                "mkt_cap_m":       round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
             }
         except Exception:
             return None

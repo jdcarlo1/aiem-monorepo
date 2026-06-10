@@ -6123,12 +6123,13 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
         borderRadius: 12, padding: "12px 18px", marginBottom: 20,
         fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
         <span style={{ color: "#f87171", fontWeight: 700 }}>📡 How this works: </span>
-        Every morning at <span style={{ color: "#e2e8f0" }}>9:45 AM ET</span> we scan Yahoo Finance's top-gainers list + all our tracked tickers.
-        To qualify, a stock must be up <span style={{ color: "#e2e8f0" }}>≥5% today</span>,
-        trading <span style={{ color: "#e2e8f0" }}>≥3× its normal volume</span>, and have
-        <span style={{ color: "#e2e8f0" }}> ≥2:1 buy-to-sell dollar flow</span> (calculated from 1-min bars).
-        Score = <span style={{ color: "#fbbf24" }}>rel-vol × (price-chg/10) × flow-ratio</span>.
-        OCC going +25% with 20× volume would score 50+.
+        First scan fires at <span style={{ color: "#fbbf24", fontWeight: 700 }}>9:31 AM ET</span> — after just one complete 1-min bar.
+        Rescans at 9:45 AM and 10:30 AM. Volume uses <span style={{ color: "#e2e8f0" }}>projected daily pace</span> (volume so far ÷ fraction of day elapsed)
+        so one hot minute at open reads correctly as 70× — not 1×. To qualify: up <span style={{ color: "#e2e8f0" }}>≥5%</span>,
+        projected pace <span style={{ color: "#e2e8f0" }}>≥5× avg</span> (first 30 min) or ≥3× after,
+        and <span style={{ color: "#e2e8f0" }}>≥2:1 buy:sell flow</span> from 1-min bars.
+        Score = <span style={{ color: "#fbbf24" }}>proj-vol × (price-chg/10) × flow-ratio</span>.
+        OCC today at 9:30 AM scored <span style={{ color: "#f87171", fontWeight: 700 }}>565</span>.
       </div>
 
       {/* Stats bar */}
@@ -6213,12 +6214,12 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
                       {[
-                        ["Rel Volume",  `${s.rel_vol}×`,                  s.rel_vol >= 10 ? "#f97316" : "#fbbf24"],
+                        ["Proj Vol",    `${s.rel_vol}×`,                  s.rel_vol >= 10 ? "#f97316" : "#fbbf24"],
                         ["Flow Ratio",  `${s.flow_ratio.toFixed(1)}:1`,    "#4ade80"],
                         ["Net Inflow",  `$${s.net_m.toFixed(1)}M`,        "#4ade80"],
                         ["Buy Flow",    `$${s.inflow_m.toFixed(1)}M`,     "#4ade80"],
                         ["Sell Flow",   `$${s.outflow_m.toFixed(1)}M`,    "#f87171"],
-                        ["Volume",      fmtVol(s.today_vol),               "#94a3b8"],
+                        ["Act Volume",  fmtVol(s.today_vol),               "#94a3b8"],
                       ].map(([lbl, val, clr]) => (
                         <div key={String(lbl)}>
                           <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>{lbl}</div>

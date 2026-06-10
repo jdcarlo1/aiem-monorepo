@@ -1288,8 +1288,11 @@ export interface MorningInflowResult {
   prev_close: number;
   price_chg_pct: number;
   rel_vol: number;
+  rel_vol_raw: number;
   today_vol: number;
+  projected_vol: number;
   avg_vol: number;
+  mins_elapsed: number;
   inflow_m: number;
   outflow_m: number;
   net_m: number;
