@@ -415,6 +415,10 @@ DEFAULT_LEADERBOARD = [
     "TKOMY", "CHWY", "AYI", "SMHI", "OMER", "FOUR", "TGS",
     "AGYS", "HOEGF", "HLLY", "LMND", "SBGI", "GENC", "GHRS",
     "CQP", "WANT", "JXI", "IBDRY", "COCO", "KMX", "MOD", "APEI",
+    # Batch 13 — Yahoo Finance watchlist June 10 2026
+    "UNHG", "UVIX", "KLAG", "AOMR", "ZWS", "OSIS", "GFL", "PLBY",
+    "FRGT", "SNMRY", "RH", "ADUS", "ULH", "NP", "COE",
+    "AMH", "AJG", "UGP", "MKTW", "DLX", "RDN",
 ]
 
 # Deduplicate while preserving order
