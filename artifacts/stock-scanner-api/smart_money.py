@@ -612,6 +612,8 @@ DEFAULT_LEADERBOARD = [
     "WRE","WRI",
     # Batch 30 — European bank ADRs June 10 2026
     "AEG","ING","LYG","NWG","UBS",
+    # Batch 31 — XLF ETF holdings June 10 2026
+    "FDS","LPLA","RIF","RKT","RYAN","TROW","ZB",
 ]
 
 # Deduplicate while preserving order
