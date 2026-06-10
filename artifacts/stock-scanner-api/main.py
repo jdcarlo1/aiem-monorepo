@@ -545,7 +545,7 @@ try:
                 morning_inflows()
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
-    for _mi_h, _mi_m in [(9, 31), (9, 45), (10, 30)]:
+    for _mi_h, _mi_m in [(9, 31), (9, 45), (10, 0), (10, 15), (10, 30)]:
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -560,7 +560,7 @@ try:
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
           "options warmer (all tabs): 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
-          "morning inflows: 9:31 AM (early-warning) + 9:45 AM + 10:30 AM | "
+          "morning inflows: 9:31 AM + 9:45 AM + 10:00 AM + 10:15 AM + 10:30 AM | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
