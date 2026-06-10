@@ -874,6 +874,25 @@ def _compute_daily_top10():
 _init_daily_top10_table()
 
 
+def _init_morning_inflows_table():
+    """Persist morning inflow scan results so they survive API restarts."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS morning_inflows_cache (
+                    scan_date  DATE PRIMARY KEY,
+                    payload    JSONB NOT NULL,
+                    saved_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+            conn.commit()
+    except Exception as e:
+        print(f"[morning_inflows_cache] init error: {e}")
+
+_init_morning_inflows_table()
+
+
+
 # ── Whale Blocks persistent table ─────────────────────────────────────────────
 def _init_whale_blocks_table():
     sql = """
@@ -9344,6 +9363,27 @@ def morning_inflows():
     if not bust and _cache and _cache_ts and (_dt_mi.datetime.now() - _cache_ts).total_seconds() < 900:
         return jsonify(_cache)
 
+    # ── DB fallback — survive API restarts all day ──────────────────────────
+    # If in-memory cache is cold (restart), load today's best scan from DB.
+    # This means the morning results stay visible all day even after a restart.
+    if not bust and _DB_URL:
+        try:
+            _today_mi = _dt_mi.date.today().isoformat()
+            with _psycopg2.connect(_DB_URL) as _c_mi, _c_mi.cursor() as _cu_mi:
+                _cu_mi.execute(
+                    "SELECT payload FROM morning_inflows_cache WHERE scan_date = %s",
+                    (_today_mi,)
+                )
+                _db_mi_row = _cu_mi.fetchone()
+            if _db_mi_row and _db_mi_row[0].get("standouts"):
+                _db_mi_payload = _db_mi_row[0]
+                app._mi_cache    = _db_mi_payload
+                app._mi_cache_ts = _dt_mi.datetime.now()
+                print(f"[morning_inflows] loaded {len(_db_mi_payload['standouts'])} standouts from DB (restart recovery)")
+                return jsonify(_db_mi_payload)
+        except Exception as _dbe_mi:
+            print(f"[morning_inflows] db load error: {_dbe_mi}")
+
     import pytz as _pytz_mi2
     _et2       = _pytz_mi2.timezone("America/New_York")
     _now_et    = _dt_mi.datetime.now(_et2)
@@ -9580,6 +9620,46 @@ def morning_inflows():
         "generated_at": _dt_mi.datetime.now().strftime("%I:%M %p ET"),
         "criteria":    "price ≥+5% · projected vol ≥5× avg (first 30 min) · flow ratio ≥2:1",
     }
+
+    # ── Persist to DB — only overwrite when this scan found MORE standouts ──
+    # Keeps the best morning scan result alive through all 5 scan windows.
+    # Each later scan may add new tickers; only replace when it's an improvement.
+    if results and _DB_URL:
+        try:
+            import json as _json_mi2
+            _today_mi2 = _dt_mi.date.today().isoformat()
+            with _psycopg2.connect(_DB_URL) as _c_mi2, _c_mi2.cursor() as _cu_mi2:
+                _cu_mi2.execute("""
+                    INSERT INTO morning_inflows_cache (scan_date, payload)
+                    VALUES (%s, %s::jsonb)
+                    ON CONFLICT (scan_date) DO UPDATE
+                        SET payload  = EXCLUDED.payload,
+                            saved_at = NOW()
+                    WHERE COALESCE(
+                              (morning_inflows_cache.payload->>'total_found')::int, 0
+                          ) <= (EXCLUDED.payload->>'total_found')::int
+                """, (_today_mi2, _json_mi2.dumps(out)))
+                _c_mi2.commit()
+            print(f"[morning_inflows] persisted {len(results)} standouts to DB for {_today_mi2}")
+        except Exception as _dbe_mi2:
+            print(f"[morning_inflows] db save error: {_dbe_mi2}")
+    elif bust and not results and _DB_URL:
+        # Bust/refresh after hours — don't replace good morning data with 0 results.
+        # Fall back to today's DB data if it exists.
+        try:
+            _today_mi3 = _dt_mi.date.today().isoformat()
+            with _psycopg2.connect(_DB_URL) as _c_mi3, _c_mi3.cursor() as _cu_mi3:
+                _cu_mi3.execute(
+                    "SELECT payload FROM morning_inflows_cache WHERE scan_date = %s",
+                    (_today_mi3,)
+                )
+                _db_mi3 = _cu_mi3.fetchone()
+            if _db_mi3 and _db_mi3[0].get("standouts"):
+                out = _db_mi3[0]
+                print(f"[morning_inflows] bust found 0 results (after hours) — serving {len(out['standouts'])} from DB")
+        except Exception as _dbe_mi3:
+            print(f"[morning_inflows] db bust-fallback error: {_dbe_mi3}")
+
     app._mi_cache    = out
     app._mi_cache_ts = _dt_mi.datetime.now()
     return jsonify(out)
