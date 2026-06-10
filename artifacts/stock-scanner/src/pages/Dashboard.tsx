@@ -36,6 +36,7 @@ import {
   NetFlowStreakRow, NetFlowStreakResult, NetFlowDayDot, fetchNetFlowMultiday,
   AISignal, AISignalResult, fetchAISignal,
   MorningRunnerRow, fetchMorningRunners,
+  MorningInflowResult, MorningInflowsData, fetchMorningInflows,
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
   BreakoutRow, fetch52WeekBreakout,
   SectorRow, fetchSectorRotation,
@@ -6075,6 +6076,182 @@ function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
 }
 
 // ---- Morning Runners Tab --------------------------------------------------
+function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]     = useState<MorningInflowsData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async (bust = false) => {
+    setLoading(true);
+    try { setData(await fetchMorningInflows(bust)); } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); const t = setInterval(() => load(), 900_000); return () => clearInterval(t); }, []);
+
+  const fmtVol = (v: number) => v >= 1_000_000 ? `${(v/1_000_000).toFixed(1)}M` : v >= 1_000 ? `${(v/1_000).toFixed(0)}K` : String(v);
+  const scoreColor = (s: number) => s >= 20 ? "#f87171" : s >= 10 ? "#fb923c" : s >= 5 ? "#fbbf24" : "#4ade80";
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+            <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0 }}>🔥 Standout Flow</h2>
+            <span style={{ fontFamily: BB_F, fontSize: 10, padding: "3px 10px", borderRadius: 99,
+              background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.3)", fontWeight: 700 }}>
+              EXTREME INFLOWS
+            </span>
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            Stocks with extreme net buying pressure today — pre/post ≥+5% price · ≥3× volume · ≥2:1 buy:sell ratio
+            {data && <span style={{ color: "#334155" }}> · {data.scanned} tickers scanned · updated {data.generated_at}</span>}
+          </p>
+        </div>
+        <button onClick={() => load(true)} disabled={loading} style={{
+          background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)",
+          color: "#f87171", borderRadius: 10, padding: "8px 18px",
+          fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
+        }}>
+          {loading ? "Scanning…" : "↻ Refresh"}
+        </button>
+      </div>
+
+      {/* How it works box */}
+      <div style={{ background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.1)",
+        borderRadius: 12, padding: "12px 18px", marginBottom: 20,
+        fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
+        <span style={{ color: "#f87171", fontWeight: 700 }}>📡 How this works: </span>
+        Every morning at <span style={{ color: "#e2e8f0" }}>9:45 AM ET</span> we scan Yahoo Finance's top-gainers list + all our tracked tickers.
+        To qualify, a stock must be up <span style={{ color: "#e2e8f0" }}>≥5% today</span>,
+        trading <span style={{ color: "#e2e8f0" }}>≥3× its normal volume</span>, and have
+        <span style={{ color: "#e2e8f0" }}> ≥2:1 buy-to-sell dollar flow</span> (calculated from 1-min bars).
+        Score = <span style={{ color: "#fbbf24" }}>rel-vol × (price-chg/10) × flow-ratio</span>.
+        OCC going +25% with 20× volume would score 50+.
+      </div>
+
+      {/* Stats bar */}
+      {data && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Standouts Found",  val: data.total_found,  color: "#f87171" },
+            { label: "Tickers Scanned",  val: data.scanned,      color: "#94a3b8" },
+            { label: "Extreme (≥20)",    val: data.standouts.filter(s => s.standout_score >= 20).length, color: "#fb923c" },
+            { label: "Avg Flow Ratio",   val: data.standouts.length ? (data.standouts.reduce((a,s) => a + s.flow_ratio, 0) / data.standouts.length).toFixed(1) + "×" : "—", color: "#4ade80" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, padding: "12px 18px", flex: 1, minWidth: 110 }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 24, color: s.color, letterSpacing: "-0.04em", marginBottom: 3 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+            {[0,1,2].map(i => (
+              <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#f87171",
+                display: "inline-block", animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />
+            ))}
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>Scanning top-gainers + tracked tickers for extreme inflows… ~20s</p>
+        </div>
+      )}
+
+      {/* Empty */}
+      {!loading && data && data.standouts.length === 0 && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 14 }}>No standout inflows right now.</p>
+          <p style={{ fontFamily: BB_F, color: "#334155", fontSize: 12 }}>Best window: 9:45 AM – 11:30 AM ET. Outside market hours, results will be limited.</p>
+        </div>
+      )}
+
+      {/* No data yet */}
+      {!loading && !data && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>Cache pre-warms at 9:45 AM ET. Click Refresh to scan now.</p>
+        </div>
+      )}
+
+      {/* Cards */}
+      {!loading && (data?.standouts ?? []).length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {(data!.standouts).map((s, i) => {
+            const col = scoreColor(s.standout_score);
+            const isSmall = s.mkt_cap_m !== null && s.mkt_cap_m < 500;
+            return (
+              <div key={i} onClick={() => onSelectTicker(s.ticker)}
+                style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${s.standout_score >= 15 ? "rgba(248,113,113,0.35)" : "rgba(255,255,255,0.07)"}`,
+                  borderRadius: 18, padding: "18px 20px", cursor: "pointer", transition: "background 0.15s" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}>
+
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                  {/* Left */}
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 22 }}>{s.ticker}</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#4ade80", fontSize: 16 }}>+{s.price_chg_pct.toFixed(1)}%</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 13 }}>${s.price.toFixed(2)}</span>
+                      {isSmall && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(167,139,250,0.1)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.3)" }}>
+                          SMALL CAP
+                        </span>
+                      )}
+                      {s.standout_score >= 20 && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.35)" }}>
+                          🔥 EXTREME
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
+                      {[
+                        ["Rel Volume",  `${s.rel_vol}×`,                  s.rel_vol >= 10 ? "#f97316" : "#fbbf24"],
+                        ["Flow Ratio",  `${s.flow_ratio.toFixed(1)}:1`,    "#4ade80"],
+                        ["Net Inflow",  `$${s.net_m.toFixed(1)}M`,        "#4ade80"],
+                        ["Buy Flow",    `$${s.inflow_m.toFixed(1)}M`,     "#4ade80"],
+                        ["Sell Flow",   `$${s.outflow_m.toFixed(1)}M`,    "#f87171"],
+                        ["Volume",      fmtVol(s.today_vol),               "#94a3b8"],
+                      ].map(([lbl, val, clr]) => (
+                        <div key={String(lbl)}>
+                          <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>{lbl}</div>
+                          <div style={{ fontFamily: BB_F, fontWeight: 700, color: String(clr), fontSize: 13 }}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Right: score */}
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>
+                      Standout Score
+                    </div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 42, color: col, letterSpacing: "-0.05em", lineHeight: 1 }}>
+                      {s.standout_score.toFixed(1)}
+                    </div>
+                    <div style={{ width: 80, height: 4, background: "rgba(255,255,255,0.07)", borderRadius: 99, margin: "6px 0 6px auto" }}>
+                      <div style={{ width: `${Math.min(s.standout_score / 30 * 100, 100)}%`, height: "100%", background: col, borderRadius: 99 }} />
+                    </div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>prev ${s.prev_close.toFixed(2)}</div>
+                    {s.mkt_cap_m && <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>mktcap ${s.mkt_cap_m >= 1000 ? `${(s.mkt_cap_m/1000).toFixed(1)}B` : `${s.mkt_cap_m.toFixed(0)}M`}</div>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MorningRunnersTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
   type FilterType = "ALL" | "GAPUP" | "GAPDOWN" | "HIGHVOL" | "SQUEEZE";
@@ -8530,6 +8707,53 @@ function bbScoreColor(s: number) {
   return BB_RED;
 }
 
+function MorningStandoutBanner({ onNavigate }: { onNavigate: () => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData] = useState<MorningInflowsData | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+    const etMin = h * 60 + m;
+    if (etMin < 9 * 60 + 30 || etMin > 14 * 60) return;
+    fetchMorningInflows().then(setData).catch(() => {});
+    const t = setInterval(() => fetchMorningInflows().then(setData).catch(() => {}), 900_000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (dismissed || !data || data.standouts.length === 0) return null;
+
+  const top = data.standouts[0];
+  const extreme = data.standouts.filter(s => s.standout_score >= 15);
+  return (
+    <div style={{
+      margin: "0 0 0 0", padding: "10px 16px",
+      background: "linear-gradient(90deg, rgba(248,113,113,0.08) 0%, rgba(251,146,60,0.06) 100%)",
+      borderBottom: "1px solid rgba(248,113,113,0.2)",
+      display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+    }}>
+      <span style={{ fontFamily: BB_F, fontSize: 11, color: "#f87171", fontWeight: 700, flexShrink: 0 }}>
+        🔥 STANDOUT FLOW
+      </span>
+      <span style={{ fontFamily: BB_F, fontSize: 11, color: "#e2e8f0" }}>
+        <span style={{ color: "#fbbf24", fontWeight: 700 }}>{top.ticker}</span>
+        {" "}+{top.price_chg_pct.toFixed(1)}% · {top.rel_vol}× vol · {top.flow_ratio.toFixed(1)}:1 buy:sell
+        {extreme.length > 1 && <span style={{ color: "#94a3b8" }}> · {extreme.length} extreme signals today</span>}
+      </span>
+      <button onClick={onNavigate} style={{
+        marginLeft: "auto", padding: "5px 14px", borderRadius: 8,
+        fontFamily: BB_F, fontSize: 11, fontWeight: 700, cursor: "pointer",
+        background: "rgba(248,113,113,0.15)", border: "1px solid rgba(248,113,113,0.4)", color: "#fca5a5",
+      }}>View All →</button>
+      <button onClick={() => setDismissed(true)} style={{
+        padding: "4px 8px", borderRadius: 6, fontFamily: BB_F, fontSize: 11,
+        cursor: "pointer", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "#475569",
+      }}>✕</button>
+    </div>
+  );
+}
+
 function OverviewTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const { data: top10Data } = useQuery({ queryKey: ["daily-top10"], queryFn: fetchDailyTop10, refetchInterval: 60000 });
   const { data: bullData }  = useQuery({ queryKey: ["bull-flow-overview"], queryFn: () => fetchBullFlow(), refetchInterval: 60000 });
@@ -10191,7 +10415,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -10328,6 +10552,7 @@ export default function Dashboard() {
     { id: "microcalls",      label: "🎯 MICRO/SMALL CALLS" },
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
     { id: "streakflow",      label: "📈 FLOW STREAK" },
+    { id: "standoutflow",    label: "🔥 STANDOUT FLOW" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
     { id: "squeezesetup",   label: "💥 SQUEEZE SETUP" },
     { id: "breakout52week", label: "🚀 52WK BREAKOUT" },
@@ -10420,6 +10645,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── MORNING STANDOUT BANNER ── auto-loads, visible from any tab ── */}
+      <MorningStandoutBanner onNavigate={() => setTab("standoutflow")} />
 
       {/* ── MAIN CONTENT ── */}
       {tab === "overview" ? (
@@ -10938,6 +11166,7 @@ export default function Dashboard() {
         {tab === "ivrank"         && <IVRankTab          onSelectTicker={selectTicker} />}
         {tab === "marketpress"    && <MarketPressTab />}
         {tab === "earningscal"    && <EarningsCalendarTab onSelectTicker={selectTicker} />}
+        {tab === "standoutflow"   && <StandoutFlowTab    onSelectTicker={selectTicker} />}
 
       </div>
       </main>

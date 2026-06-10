@@ -1282,6 +1282,32 @@ export function fetchInsiderOutcomes() {
   return fetchJson<InsiderOutcomesResult>(`/insider-outcomes`);
 }
 
+export interface MorningInflowResult {
+  ticker: string;
+  price: number;
+  prev_close: number;
+  price_chg_pct: number;
+  rel_vol: number;
+  today_vol: number;
+  avg_vol: number;
+  inflow_m: number;
+  outflow_m: number;
+  net_m: number;
+  flow_ratio: number;
+  standout_score: number;
+  mkt_cap_m: number | null;
+}
+export interface MorningInflowsData {
+  standouts: MorningInflowResult[];
+  total_found: number;
+  scanned: number;
+  generated_at: string;
+  criteria: string;
+}
+export function fetchMorningInflows(bust = false) {
+  return fetchJson<MorningInflowsData>(`/morning-inflows${bust ? "?bust=1" : ""}`);
+}
+
 export interface MyTrade {
   id: number;
   ticker: string;

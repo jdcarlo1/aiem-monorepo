@@ -538,6 +538,21 @@ try:
         replace_existing=True,
     )
 
+    # Morning standout inflows: 9:45 AM + 10:30 AM ET — pre-warm cache
+    def _run_morning_inflows():
+        try:
+            with app.test_request_context("/stock-api/morning-inflows"):
+                morning_inflows()
+        except Exception as e:
+            print(f"[scheduler] morning inflows error: {e}")
+    for _mi_h, _mi_m in [(9, 45), (10, 30)]:
+        _scheduler.add_job(
+            _run_morning_inflows,
+            CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
+            id=f"morning_inflows_{_mi_h}_{_mi_m}",
+            replace_existing=True,
+        )
+
     _scheduler.start()
     print("[scheduler] APScheduler started — "
           "scans: 9:00/9:45 AM, 3:30/4:00/4:05/4:15 PM ET | "
@@ -545,6 +560,7 @@ try:
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
           "options warmer (all tabs): 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
+          "morning inflows: 9:45 AM + 10:30 AM | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
@@ -9301,6 +9317,126 @@ def earnings_calendar():
            "as_of": _dt_ec2.date.today().isoformat(), "window_days": 30}
     with _ec_lock:
         _ec_cache, _ec_cache_ts = out, _dt_ec2.datetime.now()
+    return jsonify(out)
+
+
+@app.route("/stock-api/morning-inflows", methods=["GET"])
+def morning_inflows():
+    """
+    Morning Standout Inflows — catches extreme net buying pressure (like a +25% OCC-style move).
+    Scans Yahoo Finance top-gainers list + all tracked tickers.
+    Standout criteria: price ≥+5% intraday · relative volume ≥3× avg · flow ratio ≥2:1 buy:sell.
+    Score = rel_vol × (price_chg_pct/10) × flow_ratio — sorted highest first.
+    Pre-warmed by scheduler at 9:45 AM and 10:30 AM ET Mon–Fri.
+    """
+    import yfinance as _yf_mi
+    import datetime as _dt_mi
+    from concurrent.futures import ThreadPoolExecutor as _TPE_mi, as_completed as _ac_mi
+    import requests as _req_mi
+
+    try:
+        bust = request.args.get("bust", "0") == "1"
+    except RuntimeError:
+        bust = True  # called from scheduler — always fresh
+
+    _cache    = getattr(app, "_mi_cache", None)
+    _cache_ts = getattr(app, "_mi_cache_ts", None)
+    if not bust and _cache and _cache_ts and (_dt_mi.datetime.now() - _cache_ts).total_seconds() < 900:
+        return jsonify(_cache)
+
+    # 1. Yahoo Finance day-gainers screener (broad universe — catches anything moving today)
+    gainers = []
+    try:
+        resp = _req_mi.get(
+            "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
+            "?formatted=false&scrIds=day_gainers&count=50",
+            headers={"User-Agent": "Mozilla/5.0 (compatible)"}, timeout=8
+        )
+        if resp.ok:
+            quotes = resp.json().get("finance", {}).get("result", [{}])[0].get("quotes", [])
+            gainers = [q["symbol"] for q in quotes if q.get("symbol") and "." not in q["symbol"]]
+    except Exception as _ge:
+        print(f"[morning_inflows] screener: {_ge}")
+
+    # 2. Our tracked tickers (options flow universe)
+    tracked = []
+    try:
+        with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
+            _cur.execute("SELECT DISTINCT ticker FROM unusual_calls_log WHERE first_seen >= NOW() - INTERVAL '90 days'")
+            tracked = [r[0] for r in _cur.fetchall()]
+    except Exception as _de:
+        print(f"[morning_inflows] db: {_de}")
+
+    universe = list(dict.fromkeys(gainers + tracked))[:120]
+
+    def _score_ticker(ticker):
+        try:
+            tk = _yf_mi.Ticker(ticker)
+            fi = tk.fast_info
+            price      = float(getattr(fi, "last_price",                0) or 0)
+            prev_close = float(getattr(fi, "previous_close",            0) or 0)
+            if price <= 0 or prev_close <= 0: return None
+
+            price_chg = (price - prev_close) / prev_close * 100
+            if price_chg < 5.0: return None  # must be up ≥5%
+
+            avg_vol   = float(getattr(fi, "three_month_average_volume", 1) or 1)
+            today_vol = float(getattr(fi, "last_volume",                0) or 0)
+            rel_vol   = today_vol / avg_vol if avg_vol > 0 else 0
+            if rel_vol < 3.0: return None  # must be ≥3× normal volume
+
+            # Intraday money flow from 1-min bars
+            hist = tk.history(period="1d", interval="1m")
+            if hist.empty or len(hist) < 10: return None
+            inflow = outflow = 0.0
+            for _, row in hist.iterrows():
+                if row["Volume"] <= 0: continue
+                avg_p = (float(row["Open"]) + float(row["Close"])) / 2
+                dv    = avg_p * float(row["Volume"])
+                if float(row["Close"]) >= float(row["Open"]): inflow  += dv
+                else:                                          outflow += dv
+
+            flow_ratio = (inflow / outflow) if outflow > 0 else 99.0
+            if flow_ratio < 2.0: return None  # must be 2:1 buying vs selling
+
+            standout_score = round(rel_vol * (price_chg / 10) * min(flow_ratio, 10), 2)
+            mkt_cap        = float(getattr(fi, "market_cap", 0) or 0)
+            net_m          = (inflow - outflow) / 1_000_000
+            return {
+                "ticker":         ticker,
+                "price":          round(price, 2),
+                "prev_close":     round(prev_close, 2),
+                "price_chg_pct":  round(price_chg, 2),
+                "rel_vol":        round(rel_vol, 1),
+                "today_vol":      int(today_vol),
+                "avg_vol":        int(avg_vol),
+                "inflow_m":       round(inflow   / 1_000_000, 2),
+                "outflow_m":      round(outflow  / 1_000_000, 2),
+                "net_m":          round(net_m, 2),
+                "flow_ratio":     round(min(flow_ratio, 99.0), 2),
+                "standout_score": standout_score,
+                "mkt_cap_m":      round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
+            }
+        except Exception:
+            return None
+
+    results = []
+    with _TPE_mi(max_workers=15) as ex:
+        futures = {ex.submit(_score_ticker, t): t for t in universe}
+        for fut in _ac_mi(futures):
+            r = fut.result()
+            if r: results.append(r)
+
+    results.sort(key=lambda x: -x["standout_score"])
+    out = {
+        "standouts":   results[:25],
+        "total_found": len(results),
+        "scanned":     len(universe),
+        "generated_at": _dt_mi.datetime.now().strftime("%I:%M %p ET"),
+        "criteria":    "price ≥+5% · volume ≥3× avg · flow ratio ≥2:1",
+    }
+    app._mi_cache    = out
+    app._mi_cache_ts = _dt_mi.datetime.now()
     return jsonify(out)
 
 
