@@ -374,6 +374,7 @@ DEFAULT_LEADERBOARD = [
     # ── Watchlist batch 8 ────────────────────────────────────────────────────
     "ASML", "BABA", "CEG", "PBR",
     "ASTX", "MVLL", "MUU",
+    "IONX", "RKLX",
 ]
 
 # Deduplicate while preserving order
