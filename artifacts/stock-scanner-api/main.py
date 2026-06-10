@@ -184,10 +184,19 @@ try:
                             except Exception: pass
                 except Exception: pass
                 return hits
+            # Build augmented universe: today's movers first so earnings/catalyst
+            # stocks are always scanned, then fill with core leaderboard tickers.
+            _mv = _fetch_market_movers()
+            _mv_set = set(_mv)
+            _universe = _mv + [t for t in DEFAULT_LEADERBOARD[:500] if t not in _mv_set]
             all_hits = []
-            with ThreadPoolExecutor(max_workers=8) as ex:
-                for fut in _asc({ex.submit(_scan_one, t): t for t in DEFAULT_LEADERBOARD}):
-                    all_hits.extend(fut.result() or [])
+            with ThreadPoolExecutor(max_workers=30) as ex:
+                futs = {ex.submit(_scan_one, t): t for t in _universe}
+                for fut in _asc(futs, timeout=180):
+                    try:
+                        all_hits.extend(fut.result() or [])
+                    except Exception:
+                        pass
             _save_unusual_calls_to_db(all_hits)
             print(f"[scheduler] {label} unusual-calls scan → {len(all_hits)} hits saved")
         except Exception as e:
@@ -493,6 +502,46 @@ try:
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
+
+
+def _fetch_market_movers(count=75):
+    """
+    Pull today's top % gainers and most-active stocks from Yahoo Finance screener.
+    Returns a deduplicated list of tickers, movers first — these get prepended to
+    every unusual-calls scan so big-move stocks (like earnings beats) are always caught
+    even if they're buried deep in the DEFAULT_LEADERBOARD universe.
+    """
+    tickers = []
+    try:
+        import requests as _r
+        hdrs = {"User-Agent": "Mozilla/5.0 (compatible; StockScannerBot/1.0)"}
+        for scr in ("day_gainers", "most_actives"):
+            try:
+                url = (
+                    f"https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
+                    f"?formatted=false&lang=en-US&region=US&scrIds={scr}&count={count}"
+                )
+                resp = _r.get(url, headers=hdrs, timeout=8)
+                quotes = (
+                    resp.json()
+                    .get("finance", {})
+                    .get("result", [{}])[0]
+                    .get("quotes", [])
+                )
+                for q in quotes:
+                    sym = q.get("symbol", "")
+                    if sym and "^" not in sym and "/" not in sym:
+                        tickers.append(sym)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    seen: set = set()
+    out: list = []
+    for t in tickers:
+        if t not in seen:
+            seen.add(t); out.append(t)
+    return out
 
 
 def _safe(v):
@@ -6848,10 +6897,16 @@ def unusual_calls():
         except Exception:
             pass
 
-        # Live scan — focused on top 300 most liquid tickers (fastest to complete, highest signal quality)
+        # Live scan — movers first so earnings/catalyst stocks are always caught,
+        # then fill with the core leaderboard. Stocks up 5%+ (like CBRL +24%)
+        # appear in day_gainers and get scanned regardless of leaderboard position.
+        _movers = _fetch_market_movers()
+        _mover_set = set(_movers)
+        _scan_universe = _movers + [t for t in DEFAULT_LEADERBOARD[:400] if t not in _mover_set]
+
         all_hits = []
         with ThreadPoolExecutor(max_workers=20) as ex:
-            futures = {ex.submit(_scan_unusual, t): t for t in DEFAULT_LEADERBOARD[:300]}
+            futures = {ex.submit(_scan_unusual, t): t for t in _scan_universe}
             for fut in as_completed(futures):
                 all_hits.extend(fut.result() or [])
 
