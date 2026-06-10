@@ -598,6 +598,8 @@ DEFAULT_LEADERBOARD = [
     "MGA","MHLD","MSC","MTG","MTW","NAVG","NGHC","ONDO","ORI","PFG",
     "RGA","RLI","STFC","TGNA","THG","TMK","TPH","TPM","TUP","TW",
     "TWFG","WTFC","XMTR",
+    # Batch 26 — composite ETF list June 10 2026
+    "ATC","CBI","FLEX","HLI","HZNP",
 ]
 
 # Deduplicate while preserving order
