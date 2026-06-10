@@ -9186,6 +9186,196 @@ def earnings_calendar():
     return jsonify(out)
 
 
+@app.route("/stock-api/insider-radar", methods=["GET"])
+def insider_radar():
+    """
+    Insider Radar: SEC-style detection of unusual options activity.
+    Cross-references unusual call bets ($10K+, 90-day history) with
+    upcoming earnings (up to 90 days out) and ticker rarity scores.
+    Signals: rarity of ticker + premium size + vol/oi aggression + earnings proximity.
+    """
+    import datetime as _dt_ir
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    bust = request.args.get("bust", "0") == "1"
+    _cache    = getattr(app, "_insider_radar_cache", None)
+    _cache_ts = getattr(app, "_insider_radar_cache_ts", None)
+    if not bust and _cache and _cache_ts and (_dt_ir.datetime.now() - _cache_ts).total_seconds() < 2700:
+        return jsonify(_cache)
+
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            # All signals $10K+ from last 90 days, newest first
+            cur.execute("""
+                SELECT ticker, price::float, strike::float, expiry,
+                       days_out, volume, oi, vol_oi::float, prem::bigint,
+                       otm_pct::float, iv::float, urgency,
+                       first_seen AT TIME ZONE 'UTC' AS first_seen,
+                       last_seen  AT TIME ZONE 'UTC' AS last_seen
+                FROM unusual_calls_log
+                WHERE prem >= 10000
+                  AND first_seen >= NOW() - INTERVAL '90 days'
+                ORDER BY prem DESC
+                LIMIT 500
+            """)
+            cols    = [d[0] for d in cur.description]
+            signals = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for s in signals:
+                for k in ("first_seen", "last_seen"):
+                    if s.get(k): s[k] = s[k].isoformat()
+
+            # Ticker rarity: how many unique signals in 90 days (fewer = more suspicious)
+            cur.execute("""
+                SELECT ticker, COUNT(*) as signal_count, MAX(prem) as max_prem
+                FROM unusual_calls_log
+                WHERE first_seen >= NOW() - INTERVAL '90 days'
+                GROUP BY ticker
+            """)
+            ticker_stats = {r[0]: {"count": r[1], "max_prem": r[2]} for r in cur.fetchall()}
+
+        # Check earnings 90-day window for top tickers — limited to avoid rate limits
+        unique_by_prem = sorted(
+            {s["ticker"] for s in signals},
+            key=lambda t: -(ticker_stats.get(t, {}).get("max_prem", 0))
+        )[:60]
+
+        def _earn_90d(ticker):
+            import datetime as _d2
+            import yfinance as _yf2
+            today  = _d2.date.today()
+            cutoff = today + _d2.timedelta(days=90)
+            try:
+                tk  = _yf2.Ticker(ticker)
+                cal = tk.calendar
+                if cal is None: return None
+                earn_date = None
+                try:
+                    if hasattr(cal, "empty") and not cal.empty:
+                        if "Earnings Date" in cal.index:
+                            earn_date = cal.loc["Earnings Date"].iloc[0]
+                        elif "Earnings Date" in cal.columns:
+                            earn_date = cal.iloc[0]["Earnings Date"]
+                    elif isinstance(cal, dict):
+                        ed = cal.get("Earnings Date", [])
+                        earn_date = ed[0] if ed else None
+                except Exception: return None
+                if earn_date is None: return None
+                earn_dt = earn_date.date() if hasattr(earn_date, "date") else \
+                          _d2.datetime.strptime(str(earn_date)[:10], "%Y-%m-%d").date()
+                if earn_dt < today or earn_dt > cutoff: return None
+                return {"ticker": ticker,
+                        "earnings_date": earn_dt.isoformat(),
+                        "days_until":    (earn_dt - today).days}
+            except Exception: return None
+
+        earnings_map = {}
+        with _TPE(max_workers=6) as ex:
+            for r in ex.map(_earn_90d, unique_by_prem):
+                if r: earnings_map[r["ticker"]] = r
+
+        # Multi-factor suspicion score (0-100)
+        def _score(s):
+            prem  = s.get("prem",   0) or 0
+            voi   = s.get("vol_oi", 0) or 0
+            count = ticker_stats.get(s["ticker"], {}).get("count", 1)
+            earn  = earnings_map.get(s["ticker"])
+            sc    = 0
+            # 1. Ticker rarity — rarely seen = suspicious (0-30)
+            if   count == 1:  sc += 30
+            elif count <= 2:  sc += 25
+            elif count <= 4:  sc += 18
+            elif count <= 8:  sc += 12
+            elif count <= 15: sc += 6
+            else:             sc += 2
+            # 2. Premium size (0-25)
+            if   prem >= 500_000:  sc += 25
+            elif prem >= 200_000:  sc += 20
+            elif prem >= 100_000:  sc += 16
+            elif prem >= 50_000:   sc += 12
+            elif prem >= 20_000:   sc += 8
+            else:                  sc += 4
+            # 3. Vol/OI aggression (0-25)
+            if   voi >= 20: sc += 25
+            elif voi >= 10: sc += 22
+            elif voi >= 5:  sc += 18
+            elif voi >= 3:  sc += 14
+            elif voi >= 2:  sc += 10
+            else:           sc += 5
+            # 4. Earnings proximity (0-20)
+            if earn:
+                d = earn["days_until"]
+                if   d <= 7:  sc += 20
+                elif d <= 14: sc += 19
+                elif d <= 30: sc += 17
+                elif d <= 45: sc += 14
+                elif d <= 60: sc += 11
+                else:         sc += 7
+            return min(sc, 100)
+
+        def _verdict(score, s):
+            earn   = earnings_map.get(s["ticker"])
+            count  = ticker_stats.get(s["ticker"], {}).get("count", 1)
+            prem   = s.get("prem", 0) or 0
+            prem_s = f"${prem/1000:.0f}K" if prem < 1_000_000 else f"${prem/1_000_000:.1f}M"
+            ticker = s["ticker"]
+            if earn:
+                d = earn["days_until"]
+                if score >= 80:
+                    return f"🚨 SEC PATTERN — {prem_s} call bet on a quiet stock · Earnings in {d}d · Textbook pre-announcement insider positioning"
+                elif score >= 65:
+                    return f"⚠️ SUSPICIOUS — Abnormal call flow with earnings {d}d away · Possible informed trading or tip chain"
+                elif score >= 50:
+                    return f"👀 WATCH — Options activity on {ticker} · Earnings in {d}d · Monitor for OI accumulation"
+                else:
+                    return f"📡 NOTED — Call activity detected · Earnings approaching in {d}d"
+            else:
+                if score >= 75:
+                    return f"🔍 UNUSUAL — {ticker} rarely sees activity at this size · Possible quiet positioning"
+                elif score >= 55:
+                    return f"📊 ELEVATED — Above-normal options flow · Track OI over coming days for accumulation"
+                elif count <= 2:
+                    return f"📡 RARE — {ticker} has appeared only {count}x in 90 days · Worth monitoring"
+                else:
+                    return f"ℹ️ ACTIVE — Elevated flow on a stock with regular options activity"
+
+        # Assemble
+        results = []
+        for s in signals:
+            earn = earnings_map.get(s["ticker"])
+            s["suspicion_score"]    = _score(s)
+            s["ticker_appearances"] = ticker_stats.get(s["ticker"], {}).get("count", 1)
+            s["earnings_date"]      = earn["earnings_date"] if earn else None
+            s["days_to_earnings"]   = earn["days_until"]    if earn else None
+            s["verdict"]            = _verdict(s["suspicion_score"], s)
+            s["pre_positioned"]     = bool(
+                (s.get("oi") or 0) >= 100 and (s.get("volume") or 0) < (s.get("oi") or 0) * 0.5
+            )
+            results.append(s)
+
+        # Earnings-linked first, then by suspicion score desc, then by premium desc
+        results.sort(key=lambda x: (
+            0 if x["days_to_earnings"] is not None else 1,
+            -x["suspicion_score"],
+            -(x["prem"] or 0)
+        ))
+
+        out = {
+            "signals":         results,
+            "total":           len(results),
+            "earnings_linked": sum(1 for r in results if r["days_to_earnings"] is not None),
+            "high_suspicion":  sum(1 for r in results if r["suspicion_score"] >= 65),
+            "rare_tickers":    sum(1 for r in results if r["ticker_appearances"] <= 3),
+            "as_of":           _dt_ir.datetime.now().isoformat(),
+        }
+        app._insider_radar_cache    = out
+        app._insider_radar_cache_ts = _dt_ir.datetime.now()
+        return jsonify(out)
+
+    except Exception as e:
+        return jsonify({"error": str(e), "signals": [], "total": 0,
+                        "earnings_linked": 0, "high_suspicion": 0, "rare_tickers": 0}), 500
+
+
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

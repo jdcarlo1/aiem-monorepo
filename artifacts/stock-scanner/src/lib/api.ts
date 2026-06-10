@@ -1196,6 +1196,28 @@ export function fetchUnusualCallsLog(ticker?: string) {
   return fetchJson<UnusualCallsLogResult>(`/unusual-calls-log${q}`);
 }
 
+export interface InsiderRadarRow extends UnusualCallsLogEntry {
+  suspicion_score:    number;
+  ticker_appearances: number;
+  earnings_date:      string | null;
+  days_to_earnings:   number | null;
+  verdict:            string;
+  pre_positioned:     boolean;
+}
+
+export interface InsiderRadarResult {
+  signals:         InsiderRadarRow[];
+  total:           number;
+  earnings_linked: number;
+  high_suspicion:  number;
+  rare_tickers:    number;
+  as_of:           string;
+}
+
+export function fetchInsiderRadar(bust = false) {
+  return fetchJson<InsiderRadarResult>(`/insider-radar${bust ? "?bust=1" : ""}`);
+}
+
 export interface MyTrade {
   id: number;
   ticker: string;

@@ -27,6 +27,7 @@ import {
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
+  fetchInsiderRadar, InsiderRadarRow, InsiderRadarResult,
   saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
   fetchNetFlow, NetFlowRow, NetFlowMicrocapResult, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
   fetchUnusualCallsMicrocap, triggerMicrocapScan, MicroCapCall,
@@ -2189,6 +2190,236 @@ function InsidersTab() {
 }
 
 // ---- Unusual Calls Tab ---------------------------------------------------
+// ── Insider Radar Tab ──────────────────────────────────────────────────────
+function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]       = useState<InsiderRadarResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busting, setBusting] = useState(false);
+  const [filter, setFilter]   = useState<"ALL"|"EARNINGS"|"HIGH"|"QUIET">("ALL");
+
+  const load = (bust = false) => {
+    setLoading(true);
+    fetchInsiderRadar(bust)
+      .then(d => setData(d))
+      .catch(() => {})
+      .finally(() => { setLoading(false); setBusting(false); });
+  };
+  useEffect(() => { load(); }, []);
+
+  const filtered = (data?.signals ?? []).filter(s => {
+    if (filter === "EARNINGS") return s.days_to_earnings != null;
+    if (filter === "HIGH")     return s.suspicion_score >= 65;
+    if (filter === "QUIET")    return s.ticker_appearances <= 3;
+    return true;
+  });
+
+  const scoreColor = (n: number) =>
+    n >= 80 ? "#f87171" : n >= 65 ? "#fb923c" : n >= 50 ? "#facc15" : "#4ade80";
+
+  const earningsBadge = (days: number | null) => {
+    if (days == null) return null;
+    const col = days <= 14 ? "#f87171" : days <= 30 ? "#fb923c" : days <= 60 ? "#facc15" : "#a78bfa";
+    return (
+      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 9px", borderRadius: 99,
+        background: `${col}18`, color: col, border: `1px solid ${col}55` }}>
+        📅 Earnings in {days}d
+      </span>
+    );
+  };
+
+  const premStr = (p: number) =>
+    p >= 1_000_000 ? `$${(p/1_000_000).toFixed(1)}M` : `$${(p/1000).toFixed(0)}K`;
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6, flexWrap: "wrap" }}>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0 }}>
+            🕵️ Insider Radar
+          </h2>
+          <span style={{ fontFamily: BB_F, fontSize: 11, padding: "3px 10px", borderRadius: 99,
+            background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.3)",
+            fontWeight: 700 }}>SEC-STYLE DETECTION</span>
+        </div>
+        <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 12, margin: 0 }}>
+          Detecting suspicious call bets ($10K+) on quiet stocks · Cross-referenced with earnings up to 90 days out · Scored by rarity, size, timing
+        </p>
+      </div>
+
+      {/* Stats row */}
+      {data && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+          {[
+            { label: "Total Signals",      val: data.total,           color: "#94a3b8" },
+            { label: "Earnings Linked",    val: data.earnings_linked, color: "#f87171" },
+            { label: "High Suspicion",     val: data.high_suspicion,  color: "#fb923c" },
+            { label: "Rare Ticker Bets",   val: data.rare_tickers,    color: "#a78bfa" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px", textAlign: "center" }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, color: s.color, letterSpacing: "-0.04em", marginBottom: 3 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* How it works */}
+      <div style={{ background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.12)",
+        borderRadius: 12, padding: "12px 18px", marginBottom: 18,
+        fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
+        <span style={{ color: "#f87171", fontWeight: 700 }}>🕵️ How we detect it: </span>
+        We score every unusual call on 4 factors the SEC uses — (1) <span style={{ color: "#e2e8f0" }}>ticker rarity</span> (rarely seen in options = suspicious),
+        (2) <span style={{ color: "#e2e8f0" }}>premium size</span> relative to normal activity,
+        (3) <span style={{ color: "#e2e8f0" }}>Vol/OI aggression</span> (how hard they pushed),
+        (4) <span style={{ color: "#e2e8f0" }}>earnings proximity</span> (1-90 days before = classic insider window).
+        Insider, friend, broker tip, or piggybacker — the pattern is the same.
+      </div>
+
+      {/* Filters + refresh */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {([["ALL","All Signals"],["EARNINGS","📅 Near Earnings"],["HIGH","🚨 High Suspicion"],["QUIET","🔇 Quiet Stocks"]] as const).map(([f, lbl]) => (
+            <button key={f} onClick={() => setFilter(f)} style={{
+              padding: "6px 13px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
+              cursor: "pointer", transition: "all 0.15s",
+              background: filter === f ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${filter === f ? "rgba(248,113,113,0.4)" : "rgba(255,255,255,0.1)"}`,
+              color: filter === f ? "#f87171" : "#64748b",
+            }}>{lbl}</button>
+          ))}
+        </div>
+        <button onClick={() => { setBusting(true); load(true); }} disabled={busting || loading} style={{
+          padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
+          cursor: "pointer", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)",
+          color: "#818cf8", opacity: busting ? 0.5 : 1 }}>
+          {busting ? "Refreshing…" : "🔄 Refresh"}
+        </button>
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+            {[0,1,2].map(i => (
+              <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#f87171",
+                display: "inline-block", animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />
+            ))}
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>
+            Cross-referencing unusual call activity with earnings calendar… may take ~15s
+          </p>
+        </div>
+      )}
+
+      {/* Empty */}
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🕵️</div>
+          <p style={{ fontFamily: BB_F, color: "#475569" }}>No suspicious activity found matching this filter. Try "All Signals".</p>
+        </div>
+      )}
+
+      {/* Case file cards */}
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {filtered.map((s, i) => {
+            const sc  = s.suspicion_score;
+            const col = scoreColor(sc);
+            const pstr = premStr(s.prem);
+            const otmLabel = s.otm_pct > 0 ? `+${s.otm_pct}% OTM` : s.otm_pct < 0 ? `${Math.abs(s.otm_pct)}% ITM` : "ATM";
+            const isHigh = sc >= 65;
+            const borderCol = sc >= 80 ? "rgba(248,113,113,0.5)" : sc >= 65 ? "rgba(251,146,60,0.4)" : "rgba(255,255,255,0.07)";
+            const firstDate = s.first_seen ? s.first_seen.slice(0,10) : "—";
+            const lastDate  = s.last_seen  ? s.last_seen.slice(0,10)  : "—";
+
+            return (
+              <div key={i} onClick={() => onSelectTicker(s.ticker)}
+                style={{ background: isHigh ? "rgba(248,113,113,0.03)" : "rgba(255,255,255,0.02)",
+                  border: `1px solid ${borderCol}`, borderRadius: 18, padding: "18px 20px",
+                  cursor: "pointer", transition: "background 0.15s" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = isHigh ? "rgba(248,113,113,0.03)" : "rgba(255,255,255,0.02)")}>
+
+                {/* Top row */}
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                  {/* Left: ticker + badges */}
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 22 }}>{s.ticker}</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${s.price.toFixed(2)}</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                        background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>CALL</span>
+                      {s.pre_positioned && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(167,139,250,0.12)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.35)" }}>
+                          🔒 PRE-POSITIONED
+                        </span>
+                      )}
+                      {earningsBadge(s.days_to_earnings)}
+                      {s.ticker_appearances <= 2 && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(251,146,60,0.1)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.3)" }}>
+                          ⚡ RARE TICKER
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
+                      <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${s.strike} strike</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>exp {s.expiry}</span>
+                      <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11 }}>{otmLabel}</span>
+                      {s.iv > 0 && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>IV {s.iv}%</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
+                        First seen: <span style={{ color: "#64748b" }}>{firstDate}</span>
+                      </span>
+                      {lastDate !== firstDate && (
+                        <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
+                          Last seen: <span style={{ color: "#64748b" }}>{lastDate}</span>
+                        </span>
+                      )}
+                      <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
+                        Appeared: <span style={{ color: "#64748b" }}>{s.ticker_appearances}× in 90d</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Right: suspicion score + stats */}
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>
+                      Suspicion Score
+                    </div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 38, color: col, letterSpacing: "-0.05em", lineHeight: 1 }}>
+                      {sc}
+                    </div>
+                    <div style={{ width: 80, height: 4, background: "rgba(255,255,255,0.07)", borderRadius: 99, margin: "6px 0 6px auto" }}>
+                      <div style={{ width: `${sc}%`, height: "100%", background: col, borderRadius: 99 }} />
+                    </div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 18, color: "#e2e8f0", marginBottom: 2 }}>{pstr}</div>
+                    <div style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>{s.vol_oi.toFixed(1)}× Vol/OI</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{(s.volume||0).toLocaleString()} vol · {(s.oi||0).toLocaleString()} OI</div>
+                  </div>
+                </div>
+
+                {/* Verdict */}
+                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10,
+                  background: sc >= 65 ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${sc >= 65 ? "rgba(248,113,113,0.2)" : "rgba(255,255,255,0.05)"}` }}>
+                  <span style={{ fontFamily: BB_F, fontSize: 11, color: sc >= 65 ? "#fca5a5" : "#64748b", lineHeight: 1.6 }}>
+                    {s.verdict}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
   const [data, setData]       = useState<{ hits: UnusualCall[]; total: number; scanned: number } | null>(null);
@@ -9762,7 +9993,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -9885,6 +10116,7 @@ export default function Dashboard() {
     { id: "whale",        label: "🐋 WHALE ACTIVITY" },
     { id: "whalelog",    label: "📋 WHALE LOG" },
     { id: "watchlist",   label: "📌 MY WATCHLIST" },
+    { id: "insiderradar",    label: "🕵️ INSIDER RADAR" },
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
     { id: "convictioncalls", label: "🔥 HIGH CONVICTION" },
@@ -10486,6 +10718,7 @@ export default function Dashboard() {
         {tab === "whale"    && <WhaleActivityTab />}
         {tab === "whalelog" && <WhaleLogTab />}
         {tab === "watchlist" && <TradeWatchlistTab />}
+        {tab === "insiderradar"    && <InsiderRadarTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
         {tab === "convictioncalls" && <ConvictionCallsTab onSelectTicker={selectTicker} />}
