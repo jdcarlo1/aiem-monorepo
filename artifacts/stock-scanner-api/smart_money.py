@@ -578,6 +578,9 @@ DEFAULT_LEADERBOARD = [
     "JBL","ITT","MKSI","CW","R","GVA","SPXC","DRS","NVRI",
     # Batch 20 — Financial ETF holdings June 10 2026
     "BNY","VCTR","WT","SF","EVR",
+    # Batch 21 — Materials/Chemicals/Metals ETF holdings June 10 2026
+    "CRS","KALU","HWKN","WLK","HUN","IDR","IE","MTRN","CTVA","RGLD",
+    "MGNR","ASH","KWR","RPM","STLD","RS",
 ]
 
 # Deduplicate while preserving order
