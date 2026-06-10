@@ -602,7 +602,10 @@ DEFAULT_LEADERBOARD = [
     "ATC","CBI","FLEX","HLI","HZNP",
     # Batch 27 — IFRA ETF holdings June 10 2026
     "FNV","HOS","INFA","POM","SAFM","SIE",
-    # Batch 28 — GRID, DTCR, VNQ ETF holdings June 10 2026
+    # Batch 28 — KIE, ITB, XHB, HOMZ ETF holdings June 10 2026
+    "ARCH","ASFI","CHSP","EXP","FBIN","FBR","GRE","JBG","JELD","KNSM",
+    "L","LGI","LSI","MBC","MDV","MGP","NNJ","TMHC",
+    # Batch 29 — GRID, DTCR, VNQ ETF holdings June 10 2026
     "APLD","ARI","CONE","CTL","CXW","EQC","ESS","FCE","FSP","GDS",
     "HASI","HR","INXN","IRM","IVR","KRG","NPI","NRI","ORA","PSB",
     "QTS","RAC","RFI","RIT","RWT","SMU","SRC","SUN","VRE","WPG",
