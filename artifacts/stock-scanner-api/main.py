@@ -9425,12 +9425,23 @@ def morning_inflows():
         for _syms in _src_ex.map(lambda a: _fetch_screener(*a), _supp_tasks):
             _supp_syms.extend(_syms)
 
-    # ── PHASE 1c: Our tracked options tickers ────────────────────────────────
+    # ── PHASE 1c: Our tracked tickers (options signals + morning watchlist) ──
+    # morning_watchlist = hand-curated stocks that have shown big intraday moves
+    # even when they open flat/red — ensures they're always in the scan universe
+    # so if they cross 5%+ at the 9:45 or 10:30 AM scan they won't be missed.
     _tracked = []
     try:
         with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
-            _cur.execute("SELECT DISTINCT ticker FROM unusual_calls_log WHERE first_seen >= NOW() - INTERVAL '90 days'")
+            _cur.execute("""
+                SELECT ticker FROM (
+                    SELECT DISTINCT ticker FROM unusual_calls_log
+                     WHERE first_seen >= NOW() - INTERVAL '90 days'
+                    UNION
+                    SELECT ticker FROM morning_watchlist
+                ) combined
+            """)
             _tracked = [r[0] for r in _cur.fetchall()]
+        print(f"[morning_inflows] db tracked: {len(_tracked)} tickers (options + watchlist)")
     except Exception as _de:
         print(f"[morning_inflows] db: {_de}")
 
