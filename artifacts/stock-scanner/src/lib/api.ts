@@ -1326,7 +1326,15 @@ export interface MicroCapCallsResult {
 }
 
 export function fetchUnusualCallsMicrocap(days = 3) {
-  return fetchJson<MicroCapCallsResult>(`/unusual-calls/microcap?days=${days}`);
+  return fetchJson<MicroCapCallsResult & { scan_triggered?: boolean }>(`/unusual-calls/microcap?days=${days}`);
+}
+
+export function triggerMicrocapScan() {
+  return fetchJson<{ status: string; note: string }>("/unusual-calls/microcap/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
 }
 
 export interface NetFlowDayDot {

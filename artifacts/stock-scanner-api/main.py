@@ -2112,6 +2112,41 @@ def bull_flow_top10():
             if r:
                 rows.append(r)
 
+    # ── DB fallback: if yfinance rate-limited and returned nothing, pull from unusual_calls_log ──
+    if not rows:
+        try:
+            with _psycopg2.connect(_DB_URL) as _bfc, _bfc.cursor() as _bfcur:
+                _bfcur.execute("""
+                    SELECT DISTINCT ON (ticker)
+                        ticker, price::float, strike::float, expiry,
+                        volume, oi, vol_oi::float, prem::bigint
+                    FROM unusual_calls_log
+                    WHERE last_seen  >= NOW() - INTERVAL '36 hours'
+                      AND expiry::date > CURRENT_DATE
+                      AND prem >= 500000
+                    ORDER BY ticker, prem DESC
+                """)
+                db_hits = _bfcur.fetchall()
+            db_hits.sort(key=lambda x: x[7], reverse=True)
+            for idx, r in enumerate(db_hits[:40]):
+                _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
+                rows.append({
+                    "ticker":           _tk,
+                    "price":            round(float(_pr or 0), 2),
+                    "strike":           float(_st or 0),
+                    "expiry":           _ex,
+                    "premium_m":        round(float(_prem) / 1_000_000, 2),
+                    "premium_k":        round(float(_prem) / 1_000, 1),
+                    "call_put_ratio":   round(float(_voi or 1), 2),
+                    "call_vol_oi":      round(float(_voi or 0), 2),
+                    "total_call_vol":   int(_vol or 0),
+                    "days_to_earnings": None,
+                    "short_float_pct":  None,
+                    "source":           "db",
+                })
+        except Exception as _dbe:
+            print(f"[bull_flow] DB fallback error: {_dbe}")
+
     rows.sort(key=lambda x: x["premium_m"], reverse=True)
     top40 = rows[:40]
     for i, r in enumerate(top40):
@@ -6658,27 +6693,61 @@ def unusual_calls():
 
 @app.route("/stock-api/unusual-calls/microcap", methods=["GET"])
 def unusual_calls_microcap():
-    """Return micro/small-cap unusual call options from DB, newest first."""
+    """Return micro/small-cap unusual call options from DB, newest first.
+    If the requested window is empty, auto-extends to 7 days and kicks off
+    a background scan so future loads have fresh data.
+    """
     days_back = min(int(request.args.get("days", 3)), 30)
+
+    _SEL = """
+        SELECT ticker, price::float, strike::float, expiry, days_out,
+               volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+               iv::float, urgency, cap_tier,
+               first_seen AT TIME ZONE 'UTC' AS first_seen,
+               last_seen  AT TIME ZONE 'UTC' AS last_seen
+        FROM unusual_calls_microcap_log
+        WHERE last_seen >= NOW() - (%(days)s || ' days')::INTERVAL
+          AND expiry::date > CURRENT_DATE
+        ORDER BY prem DESC
+        LIMIT 200
+    """
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT ticker, price::float, strike::float, expiry, days_out,
-                       volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                       iv::float, urgency, cap_tier,
-                       first_seen AT TIME ZONE 'UTC' AS first_seen,
-                       last_seen  AT TIME ZONE 'UTC' AS last_seen
-                FROM unusual_calls_microcap_log
-                WHERE last_seen >= NOW() - (%(days)s || ' days')::INTERVAL
-                ORDER BY prem DESC
-                LIMIT 200
-            """, {"days": days_back})
+            cur.execute(_SEL, {"days": days_back})
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+            # If the requested window returned nothing, extend to 7 days so the
+            # tab always shows the most recently available data
+            if not rows and days_back < 7:
+                cur.execute(_SEL, {"days": 7})
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
             for r in rows:
                 if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
                 if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
-        return jsonify({"signals": rows, "total": len(rows)})
+
+        # If still empty, kick off a background scan so the next load has data
+        if not rows:
+            import threading as _thr
+            _mc_lock = getattr(app, "_mc_autoscan_lock", None)
+            if _mc_lock is None:
+                app._mc_autoscan_lock = _thr.Lock()
+                _mc_lock = app._mc_autoscan_lock
+            if _mc_lock.acquire(blocking=False):
+                def _bg_scan():
+                    try:
+                        hits = _run_microcap_options_scan()
+                        _save_microcap_calls_to_db(hits)
+                        print(f"[microcap_auto] background scan complete → {len(hits)} signals")
+                    except Exception as _e:
+                        print(f"[microcap_auto] scan error: {_e}")
+                    finally:
+                        _mc_lock.release()
+                _thr.Thread(target=_bg_scan, daemon=True).start()
+
+        return jsonify({"signals": rows, "total": len(rows),
+                        "scan_triggered": not rows})
     except Exception as e:
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
 

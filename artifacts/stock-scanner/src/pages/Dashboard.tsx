@@ -29,7 +29,7 @@ import {
   fetchUnusualCallsLog, UnusualCallsLogEntry,
   saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
   fetchNetFlow, NetFlowRow, NetFlowMicrocapResult, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
-  fetchUnusualCallsMicrocap, MicroCapCall,
+  fetchUnusualCallsMicrocap, triggerMicrocapScan, MicroCapCall,
   NetFlowStreakRow, NetFlowStreakResult, NetFlowDayDot, fetchNetFlowMultiday,
   AISignal, AISignalResult, fetchAISignal,
   MorningRunnerRow, fetchMorningRunners,
@@ -8699,26 +8699,56 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 // ---- High Conviction Micro/Small-Cap Calls Tab --------------------------
 
 function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-  const [signals, setSignals] = useState<MicroCapCall[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
-  const [days,    setDays]    = useState(3);
-  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [signals,     setSignals]     = useState<MicroCapCall[]>([]);
+  const [loading,     setLoading]     = useState(false);
+  const [scanning,    setScanning]    = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+  const [days,        setDays]        = useState(3);
+  const [lastRun,     setLastRun]     = useState<Date | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const load = async (d = days) => {
-    setLoading(true); setError(null);
+  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+
+  const load = async (d = days, quiet = false) => {
+    if (!quiet) setLoading(true);
+    setError(null);
     try {
       const res = await fetchUnusualCallsMicrocap(d);
-      setSignals(res.signals ?? []);
+      const sigs = res.signals ?? [];
+      setSignals(sigs);
       setLastRun(new Date());
+      // If we got data, stop polling
+      if (sigs.length > 0) { stopPoll(); setScanning(false); }
+      return sigs.length;
     } catch (e: any) {
       setError(e.message ?? "Scan failed");
+      return 0;
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
+  const runScan = async () => {
+    if (scanning) return;
+    setScanning(true);
+    try { await triggerMicrocapScan(); } catch { /* fire and forget */ }
+    // Poll every 12 seconds until data appears (scan takes ~60s)
+    stopPoll();
+    pollRef.current = setInterval(async () => {
+      const count = await load(days, true);
+      if (count > 0) stopPoll();
+    }, 12_000);
+    // Also stop polling after 3 minutes max
+    setTimeout(() => { stopPoll(); setScanning(false); }, 180_000);
+  };
+
+  useEffect(() => {
+    load().then(count => {
+      // If nothing in DB, auto-trigger a background scan
+      if (count === 0) runScan();
+    });
+    return stopPoll;
+  }, []);
 
   const fmtPrem = (p: number) => {
     if (p >= 1_000_000) return `$${(p / 1_000_000).toFixed(2)}M`;
@@ -8766,11 +8796,13 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
             </button>
           ))}
           <button
-            onClick={() => load()}
-            disabled={loading}
-            className="px-3 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 text-slate-300 hover:border-slate-500 disabled:opacity-50 transition-all"
+            onClick={() => runScan()}
+            disabled={loading || scanning}
+            className="px-3 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 text-slate-300 hover:border-slate-500 disabled:opacity-50 transition-all flex items-center gap-1.5"
           >
-            {loading ? "Scanning…" : "↻ Refresh"}
+            {scanning
+              ? <><span className="w-3 h-3 border border-violet-400 border-t-transparent rounded-full animate-spin inline-block" /> Scanning…</>
+              : "🔥 Scan Now"}
           </button>
         </div>
       </div>
@@ -8785,20 +8817,27 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         <div className="bg-red-950/30 border border-red-800/50 rounded-xl p-3 text-red-400 text-sm">{error}</div>
       )}
 
-      {loading && (
-        <div className="flex items-center justify-center py-16 text-slate-500 text-sm gap-2">
-          <div className="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-          Loading signals…
+      {(loading || (scanning && signals.length === 0)) && (
+        <div className="flex flex-col items-center justify-center py-16 text-slate-500 text-sm gap-3">
+          <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+          {scanning
+            ? <><p className="text-center">Scanning 350+ growth tickers for unusual call activity…</p><p className="text-xs text-slate-600">This takes about 60 seconds. Results will appear automatically.</p></>
+            : <p>Loading signals…</p>}
         </div>
       )}
 
-      {!loading && !error && signals.length === 0 && (
+      {!loading && !scanning && !error && signals.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-500">
           <span className="text-4xl">🔍</span>
           <p className="text-sm text-center max-w-xs">
-            No unusual call activity found in the last {days} day{days > 1 ? "s" : ""}.<br />
-            The next auto-scan runs at 10:30 AM ET on the next trading day.
+            No signals found. Hit <strong className="text-violet-400">Scan Now</strong> to run a live scan across 350+ growth tickers.
           </p>
+          <button
+            onClick={() => runScan()}
+            className="mt-2 px-4 py-2 rounded-lg text-sm font-bold bg-violet-700 border border-violet-600 text-white hover:bg-violet-600 transition-all"
+          >
+            🔥 Run Scan Now
+          </button>
         </div>
       )}
 
