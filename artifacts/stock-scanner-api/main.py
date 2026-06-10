@@ -7177,7 +7177,7 @@ def ai_short_calls():
             "picks": [], "generated_at": None
         })
 
-    hits = hits[:10]
+    hits = hits[:30]
 
     try:
         oai = OpenAI(
@@ -7199,7 +7199,7 @@ def ai_short_calls():
 
 {signals_text}
 
-Select the 5 BEST short-term call trade opportunities from this list. Rank by conviction.
+Select the 15 BEST short-term call trade opportunities from this list. Rank by conviction.
 Criteria: highest Vol/OI (fresh institutional buying), reasonable OTM% (not too far), premium size (commitment), days_out (urgency), urgency tier.
 
 For each pick output a JSON object with ALL these fields:
@@ -7217,7 +7217,7 @@ For each pick output a JSON object with ALL these fields:
 - thesis (string — 2 sentences MAX: why this signal is high conviction, what the move scenario is)
 - why_it_stands_out (string — 1 sentence: the single most compelling data point)
 
-Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
+Return a JSON array of exactly 15 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
 
     system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."
 
@@ -7226,7 +7226,7 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         finish = "unknown"
         stream = oai.chat.completions.create(
             model="gpt-4o-mini",
-            max_completion_tokens=1500,
+            max_completion_tokens=3000,
             stream=True,
             messages=[
                 {"role": "system", "content": system_msg},
