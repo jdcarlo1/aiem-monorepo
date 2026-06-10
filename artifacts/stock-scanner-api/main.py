@@ -9571,14 +9571,24 @@ def morning_inflows():
             momentum_open = price_chg - gap_pct        # >0 = still running; <0 = already fading
             mkt_cap_m_val = mkt_cap / 1_000_000 if mkt_cap else 0
 
-            if mkt_cap_m_val > 0 and mkt_cap_m_val < 50:
-                fade_risk = "HIGH"    # micro-cap pump — expect reversal
-            elif (mkt_cap_m_val < 200 and gap_pct > 15) or momentum_open < -5:
-                fade_risk = "HIGH"    # huge gap in tiny cap, or already selling at open
+            # ── Refined fade risk (tuned from live data 2026-06-10) ──────────────
+            # Key lesson: micro-cap alone is NOT enough to flag HIGH.
+            # DSY (+308% gap) and VSME (+296% gap) → faded immediately ✓ HIGH correct.
+            # SDOT (+9.5% gap, +3.3% momentum) → ran +88% ✗ HIGH was wrong.
+            # PW (+1.5% gap), SPHL (-4.6% gap) → ran +21%/+23% ✗ HIGH was wrong.
+            # Rule: extreme gaps on tiny caps = pump. Small gaps = risky but can run.
+            if gap_pct > 100 and mkt_cap_m_val < 200:
+                fade_risk = "HIGH"    # extreme pump (100%+ gap on small cap) — dump incoming
+            elif gap_pct > 30 and mkt_cap_m_val < 100:
+                fade_risk = "HIGH"    # large pump on tiny cap — not enough real buyers
+            elif momentum_open < -5:
+                fade_risk = "HIGH"    # already crashing at the open bell
+            elif mkt_cap_m_val > 0 and mkt_cap_m_val < 50:
+                fade_risk = "WATCH"   # micro-cap but modest gap — can run, stay alert
             elif (mkt_cap_m_val < 500 and gap_pct > 10) or momentum_open < -2:
-                fade_risk = "WATCH"   # take partial profits by noon
+                fade_risk = "WATCH"   # mid-cap large gap or slight negative momentum
             else:
-                fade_risk = "HOLD"    # sustained institutional buying, larger cap
+                fade_risk = "HOLD"    # larger cap, sustained buying, positive momentum
 
             return {
                 "ticker":          ticker,
