@@ -149,14 +149,14 @@ try:
                 hits = []
                 try:
                     is_etf  = ticker in _ETF_SET
-                    min_voi = 1.5 if is_etf else 3.0
-                    min_prem= 250_000 if is_etf else 500_000
-                    max_exp = 60 if is_etf else 30
+                    min_voi = 1.5 if is_etf else 2.0   # lowered: 3x was too strict
+                    min_prem= 75_000 if is_etf else 50_000  # lowered: catch $50K-$400K bets
+                    max_exp = 60 if is_etf else 45
+                    from datetime import datetime as _dt2
                     tk = yf.Ticker(ticker)
                     price = tk.fast_info.get("lastPrice") or tk.fast_info.get("regularMarketPrice") or 0
                     if not price: return hits
                     for exp in (tk.options or []):
-                        from datetime import datetime as _dt2
                         days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
                         if not (1 <= days <= max_exp): continue
                         chain = tk.option_chain(exp).calls
@@ -164,12 +164,12 @@ try:
                             try:
                                 vol = int(row.get("volume") or 0)
                                 oi  = int(row.get("openInterest") or 0)
-                                if oi < 10 or vol < 50: continue
+                                if oi < 10 or vol < 10: continue
                                 voi = vol / oi
                                 if voi < min_voi: continue
                                 strike = float(row["strike"])
                                 otm_pct = round((strike - price) / price * 100, 2)
-                                if otm_pct < -5 or otm_pct > 30: continue
+                                if otm_pct < -5 or otm_pct > 40: continue
                                 bid = float(row.get("bid") or 0)
                                 ask = float(row.get("ask") or 0)
                                 mid = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
@@ -177,10 +177,16 @@ try:
                                 if prem < min_prem: continue
                                 iv = round(float(row.get("impliedVolatility") or 0) * 100, 1)
                                 urgency = "EXPIRING" if days <= 3 else "SHORT" if days <= 7 else "NEAR"
+                                # pre_positioned: OI >> vol means position was accumulated BEFORE today
+                                pre_positioned = bool(oi > 0 and vol < oi * 0.5 and oi >= 100)
+                                ldt = row.get("lastTradeDate")
+                                last_trade = str(ldt)[:10] if ldt is not None else ""
                                 hits.append({"ticker": ticker, "price": price, "strike": strike,
                                              "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
                                              "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
-                                             "iv": iv, "urgency": urgency})
+                                             "iv": iv, "urgency": urgency,
+                                             "pre_positioned": pre_positioned,
+                                             "last_trade": last_trade})
                             except Exception: pass
                 except Exception: pass
                 return hits
@@ -570,14 +576,14 @@ def _fetch_earnings_today() -> list:
 def _send_unusual_calls_alert(hits: list) -> None:
     """
     Send an immediate email alert to all subscribers when the morning scan
-    finds high-conviction unusual call activity (Vol/OI >= 5x, prem >= $500K).
+    finds high-conviction unusual call activity (Vol/OI >= 2x, prem >= $50K).
     Called right after _run_unusual_calls_scan saves to DB.
     """
     try:
-        # Filter to high-conviction only
+        # Filter: Vol/OI >= 2x and prem >= $50K — catches insider-sized bets too
         alerts = [
             h for h in hits
-            if h.get("vol_oi", 0) >= 5.0 and h.get("prem", 0) >= 500_000
+            if h.get("vol_oi", 0) >= 2.0 and h.get("prem", 0) >= 50_000
         ]
         if not alerts:
             return
@@ -595,11 +601,18 @@ def _send_unusual_calls_alert(hits: list) -> None:
             voi_str  = f"{h['vol_oi']:.1f}×"
             otm_str  = f"+{h['otm_pct']:.1f}%" if h.get('otm_pct', 0) >= 0 else f"{h['otm_pct']:.1f}%"
             color    = "#f97316" if h["vol_oi"] >= 10 else "#22c55e"
+            pre_badge = (
+                '<span style="background:#7c3aed;color:#fff;font-size:9px;font-weight:700;'
+                'padding:1px 5px;border-radius:3px;margin-left:5px;">PRE-POSITIONED</span>'
+                if h.get("pre_positioned") else ""
+            )
+            last_trade_note = f'<div style="font-size:10px;color:#64748b;">last trade: {h["last_trade"]}</div>' if h.get("last_trade") else ""
             rows_html += f"""
             <tr>
               <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
                 <span style="font-size:15px;font-weight:700;color:#f1f5f9;">{h['ticker']}</span>
                 <span style="font-size:11px;color:#64748b;margin-left:8px;">${h['price']:.2f}</span>
+                {pre_badge}
               </td>
               <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
                 <span style="font-weight:700;color:{color};">{voi_str}</span>
@@ -612,6 +625,7 @@ def _send_unusual_calls_alert(hits: list) -> None:
               <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
                 <span style="font-weight:700;color:#a78bfa;">{prem_str}</span>
                 <div style="font-size:10px;color:#64748b;">Premium · {h['days_out']}d exp</div>
+                {last_trade_note}
               </td>
             </tr>"""
 
@@ -2355,7 +2369,7 @@ def bull_flow_top10():
                 hist  = tkr.history(period="1d")
                 price = float(hist["Close"].iloc[-1]) if not hist.empty else 0
             prem_k = float(opts.get("top_prem_value", 0))
-            if prem_k < 500:   # minimum $500K — institutional smart money only
+            if prem_k < 50:   # minimum $50K — catches smaller insider-sized bets too
                 return None
 
             # Days to earnings
@@ -6170,12 +6184,12 @@ JSON array only. No markdown. Start immediately with ["""
                 _p = _h.get("prem", 0)
                 if _p > _uc_prem_map.get(_t, 0):
                     _uc_prem_map[_t] = _p
-            _qualified = {t for t, p in _uc_prem_map.items() if p >= 500_000}
+            _qualified = {t for t, p in _uc_prem_map.items() if p >= 50_000}
             _filtered = [tr for tr in trades if tr.get("ticker") in _qualified]
             # Only apply filter if it leaves at least 2 picks; otherwise keep all (data may be stale)
             if len(_filtered) >= 2:
                 trades = _filtered
-                print(f"[ai_trades] premium filter: {len(trades)} picks kept (had {len(_uc_prem_map)} uc tickers, {len(_qualified)} ≥$500K)")
+                print(f"[ai_trades] premium filter: {len(trades)} picks kept (had {len(_uc_prem_map)} uc tickers, {len(_qualified)} ≥$50K)")
             else:
                 print(f"[ai_trades] premium filter skipped — only {len(_filtered)} qualified picks (keeping all {len(trades)})")
 
@@ -6970,10 +6984,10 @@ def unusual_calls():
         def _scan_unusual(ticker):
             hits    = []
             is_etf  = ticker in _ETF_SET
-            # ETFs: 1.5× vol/OI (vs 3× stocks), $250K premium (vs $500K), 1-60d expiry (vs 1-30d)
-            min_voi  = 1.5  if is_etf else 3.0
-            min_prem = 250_000 if is_etf else 500_000
-            max_days = 60   if is_etf else 30
+            # ETFs: lower thresholds for size; stocks: $50K min catches insider-sized bets
+            min_voi  = 1.5  if is_etf else 2.0
+            min_prem = 75_000 if is_etf else 50_000
+            max_days = 60   if is_etf else 45
             try:
                 tkr   = yf.Ticker(ticker)
                 price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
@@ -6991,7 +7005,7 @@ def unusual_calls():
                             oi     = int(row.get("openInterest", 0) or 0)
                             last   = float(row.get("lastPrice", 0) or 0)
                             iv     = float(row.get("impliedVolatility", 0) or 0)
-                            if strike <= 0 or last <= 0 or vol < 50: continue
+                            if strike <= 0 or last <= 0 or vol < 10: continue
                             if strike < price * 0.15: continue
                             pre_otm = (strike - price) / price * 100
                             if pre_otm < -15: continue   # skip deep ITM — hedges
@@ -7001,20 +7015,26 @@ def unusual_calls():
                             prem = round(vol * last * 100, 0)
                             if prem < min_prem: continue
                             urgency = "EXPIRING" if days_out <= 7 else "NEAR" if days_out <= 14 else "SHORT"
+                            # pre_positioned: OI >> vol = accumulated BEFORE today (quiet insider pattern)
+                            pre_positioned = bool(oi >= 100 and vol < oi * 0.5)
+                            ldt = row.get("lastTradeDate")
+                            last_trade = str(ldt)[:10] if ldt is not None else ""
                             hits.append({
-                                "ticker":   ticker,
-                                "price":    round(price, 2),
-                                "strike":   round(strike, 2),
-                                "expiry":   exp,
-                                "days_out": days_out,
-                                "volume":   vol,
-                                "oi":       oi,
-                                "vol_oi":   vol_oi,
-                                "prem":     int(prem),
-                                "otm_pct":  round(pre_otm, 1),
-                                "iv":       round(iv * 100, 1),
-                                "urgency":  urgency,
-                                "is_etf":   is_etf,
+                                "ticker":          ticker,
+                                "price":           round(price, 2),
+                                "strike":          round(strike, 2),
+                                "expiry":          exp,
+                                "days_out":        days_out,
+                                "volume":          vol,
+                                "oi":              oi,
+                                "vol_oi":          vol_oi,
+                                "prem":            int(prem),
+                                "otm_pct":         round(pre_otm, 1),
+                                "iv":              round(iv * 100, 1),
+                                "urgency":         urgency,
+                                "pre_positioned":  pre_positioned,
+                                "last_trade":      last_trade,
+                                "is_etf":          is_etf,
                             })
                     except Exception: continue
             except Exception: pass
