@@ -256,6 +256,46 @@ DEFAULT_LEADERBOARD = [
     "SD", "JBIO", "IPI", "REPX", "DRTS", "GRNT", "TATT", "HRZN", "CSHR", "EVO",
     "CABA", "CGNT", "SSP", "KRUS", "MPAA", "FET", "LUXE", "KNOP", "SGP", "PHR",
     "MNPR", "ROOT", "BGIN", "BNED", "TXO", "YB", "TIGR", "FNLC", "IVA", "DC",
+    # ── User watchlist additions ──────────────────────────────────────────────
+    "BCO", "BWAY", "ATRO", "DBD", "Q", "SOLS", "FRMI", "FIGR", "ENLT", "CNSWF",
+    # ── REITs — large cap (beyond what's above) ───────────────────────────────
+    "KIM", "REG", "FRT", "WPC", "SUI", "EXR", "CUBE", "NNN", "INVH", "CPT", "ELS",
+    # ── REITs — industrial / net lease ────────────────────────────────────────
+    "EGP", "STAG", "TRNO", "REXR", "FR", "COLD", "IIPR", "ADC", "EPRT",
+    "NTST", "BNL", "FCPT", "GTY", "PINE", "PLYM", "LAND",
+    # ── REITs — healthcare ────────────────────────────────────────────────────
+    "OHI", "CTRE", "MPW", "AHH", "GMRE",
+    # ── REITs — retail / diversified ─────────────────────────────────────────
+    "SITC", "BRX", "AKR", "ROIC", "MAC", "IVT",
+    # ── REITs — residential ───────────────────────────────────────────────────
+    "IRT", "AIV", "NXRT", "CLPR",
+    # ── REITs — office ────────────────────────────────────────────────────────
+    "VNO", "OFC", "CIO", "DEA", "PGRE", "BDN", "CUZ", "ONL",
+    # ── REITs — hotel / lodging ───────────────────────────────────────────────
+    "RHP", "PK", "SHO", "XHR", "CLDT", "DRH", "RLJ", "SVC",
+    # ── REITs — mortgage ─────────────────────────────────────────────────────
+    "NLY", "AGNC", "RC", "BXMT", "LADR", "MFA", "TWO", "RITM", "NYMT",
+    # ── REITs — specialty / other ────────────────────────────────────────────
+    "GNL", "RTL", "UNIT", "ALEX", "BRT", "APLE", "INN",
+    # ── Building / Construction ───────────────────────────────────────────────
+    "VMC", "MLM", "OC", "CRH", "BECN", "BLDR", "IBP", "BLD",
+    "APG", "PWR", "EME", "ACM", "FLR", "WCC", "WSC",
+    "GMS", "SSD", "ROCK", "AZEK", "DOOR", "AMWD", "WMS",
+    "AWI", "LII", "MDU", "BZH", "TILE",
+    # ── Consumer Staples — food & beverage ───────────────────────────────────
+    "WEN", "MNST", "TSN", "INGR", "LANC", "CALM", "POST", "FRPT",
+    "TAP", "KDP", "CELH", "NAPA", "DOLE", "MGPI", "EPC", "REYN",
+    # ── Consumer Staples — grocery / retail ──────────────────────────────────
+    "ARMK", "SYY", "USFD", "PFGC", "KR", "ACI", "SFM", "GO", "BJ",
+    "CASY", "OLLI", "JACK", "DINE", "SPTN",
+    # ── Utilities — electric ─────────────────────────────────────────────────
+    "CMS", "NI", "IDA", "PNW", "OGE", "EIX", "LNT", "EVRG",
+    "ALE", "BKH", "OTTR", "HE", "MGEE", "PNM",
+    # ── Utilities — gas ──────────────────────────────────────────────────────
+    "ATO", "CNP", "NFG", "UGI", "AGR", "NJR", "SR", "AVA",
+    "NWN", "SWX",
+    # ── Utilities — water ────────────────────────────────────────────────────
+    "AWK", "WTRG", "AWR", "MSEX", "SJW", "ARTNA", "CWCO", "RGCO",
 ]
 
 # Deduplicate while preserving order
