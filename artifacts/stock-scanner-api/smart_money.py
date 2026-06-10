@@ -361,6 +361,14 @@ DEFAULT_LEADERBOARD = [
     "FOSL", "CRGO", "ULTA", "GRDN", "SNN", "GCT", "DVA",
     "LAUR", "VICR", "ESE", "ZONE", "GRND", "ACA", "MLP", "PECO",
     "EHC", "EVTC", "BTSG",
+    # ── Watchlist batch 6 ────────────────────────────────────────────────────
+    "MWA", "RICK", "ARES", "ISPR", "CNCK",
+    "WILC", "KKR", "ESI", "AVNT",
+    "MIAX", "EZPW", "AIT", "APPF", "CING", "FLYE",
+    "FOXX", "RAVE", "DCI", "BAM",
+    "CTOS", "BLX", "IMAX", "CPAY", "DOMH", "BVN", "FCFS",
+    "BWLP", "LVMUY", "PUBM", "BE", "PLOW",
+    "PPIH", "ZEPP", "MENS", "SFTBY",
 ]
 
 # Deduplicate while preserving order
