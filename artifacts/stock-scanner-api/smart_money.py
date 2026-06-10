@@ -408,6 +408,13 @@ DEFAULT_LEADERBOARD = [
     "DXPE", "USLM", "DWSN", "USNA", "HDSN", "OBDC",
     "CTS", "CHE", "NEBX", "RSPN", "ULS", "UHT", "NBIG",
     "TNC", "TTEK", "BZFD", "ARQ",
+    # Batch 12 — Yahoo Finance watchlist June 10 2026
+    "ALH", "MSLOY", "RRX", "AISP", "IOR", "FTAI", "KNSL",
+    "SIGA", "ARCC", "MRP", "LAKE", "TLS", "CTMX", "TRC",
+    "FINMY", "OTLY", "BLBD", "RY", "NVMI", "NMFC",
+    "TKOMY", "CHWY", "AYI", "SMHI", "OMER", "FOUR", "TGS",
+    "AGYS", "HOEGF", "HLLY", "LMND", "SBGI", "GENC", "GHRS",
+    "CQP", "WANT", "JXI", "IBDRY", "COCO", "KMX", "MOD", "APEI",
 ]
 
 # Deduplicate while preserving order
