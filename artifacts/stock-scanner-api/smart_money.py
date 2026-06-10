@@ -315,6 +315,15 @@ DEFAULT_LEADERBOARD = [
     "MSGS", "MSGE", "SPOT", "SIRI", "FUBO", "SEAS", "FUN",
     # ── Hotels — branded operators ───────────────────────────────────────────
     "H", "WH", "IHG", "VAC", "TNL", "PLYA", "BHR",
+    # ── Watchlist additions from screenshots ─────────────────────────────────
+    "OMEX", "AMBQ", "IHRT", "UAVS", "ELLO",
+    "MIND", "NEPH", "DTST", "CESDF", "UCL",
+    "AIP", "AGM", "COCH", "OPTT", "WAVE",
+    "PHOE", "YHC", "FLUX", "VHC", "DUOT",
+    "RMSG", "DGXX", "AEHL", "WATT", "SPAI",
+    "SHOT", "NAKA", "ALMU", "FEAM", "PCFBY",
+    "BDCO", "CRNC", "PDYN", "PCLA", "DFDV",
+    "SOBR", "CPSH", "MFI", "HUBC", "ABAT", "DMCOF",
 ]
 
 # Deduplicate while preserving order
