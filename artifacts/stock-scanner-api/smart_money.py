@@ -455,6 +455,8 @@ DEFAULT_LEADERBOARD = [
     "TELA", "TERN", "THMO", "TLSA", "TLSI", "TLX", "TNXP", "TRIL", "TVTX", "TWST",
     "UBX", "UNITY", "UTHR", "VCYT", "VERA", "VIE", "VIRI", "VKTX", "VMD", "VRDN",
     "XBIT", "XENC", "XENE", "ZBIO", "ZEAL", "ZENTAL", "ZIOPH", "ZLAB", "ZYME",
+    # Batch 15 — Biotech lists June 10 2026
+    "ABIO", "NUAI",
 ]
 
 # Deduplicate while preserving order
