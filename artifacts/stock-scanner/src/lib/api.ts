@@ -1300,6 +1300,8 @@ export interface MorningInflowResult {
   standout_score: number;
   gap_pct: number;
   gap_multiplier: number;
+  momentum_open: number;
+  fade_risk: "HIGH" | "WATCH" | "HOLD";
   mkt_cap_m: number | null;
 }
 export interface MorningInflowsData {

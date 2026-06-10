@@ -9523,6 +9523,23 @@ def morning_inflows():
 
             standout_score = round(rel_vol * (price_chg / 10) * min(flow_ratio, 10) * gap_multiplier, 2)
             net_m          = (inflow - outflow) / 1_000_000
+
+            # ── Fade Risk assessment ──────────────────────────────────────────
+            # Key finding from backtesting: market cap and momentum_at_open
+            # are the strongest predictors of whether a morning signal holds.
+            # If price at 9:31 is BELOW the gap level, sellers already flooded in.
+            momentum_open = price_chg - gap_pct        # >0 = still running; <0 = already fading
+            mkt_cap_m_val = mkt_cap / 1_000_000 if mkt_cap else 0
+
+            if mkt_cap_m_val > 0 and mkt_cap_m_val < 50:
+                fade_risk = "HIGH"    # micro-cap pump — expect reversal
+            elif (mkt_cap_m_val < 200 and gap_pct > 15) or momentum_open < -5:
+                fade_risk = "HIGH"    # huge gap in tiny cap, or already selling at open
+            elif (mkt_cap_m_val < 500 and gap_pct > 10) or momentum_open < -2:
+                fade_risk = "WATCH"   # take partial profits by noon
+            else:
+                fade_risk = "HOLD"    # sustained institutional buying, larger cap
+
             return {
                 "ticker":          ticker,
                 "price":           round(price, 2),
@@ -9530,6 +9547,8 @@ def morning_inflows():
                 "price_chg_pct":   round(price_chg, 2),
                 "gap_pct":         round(gap_pct, 2),
                 "gap_multiplier":  gap_multiplier,
+                "momentum_open":   round(momentum_open, 2),
+                "fade_risk":       fade_risk,
                 "rel_vol":         round(rel_vol, 1),       # projected ×, not raw ×
                 "rel_vol_raw":     round(cum_vol / avg_vol, 2),
                 "today_vol":       int(cum_vol),

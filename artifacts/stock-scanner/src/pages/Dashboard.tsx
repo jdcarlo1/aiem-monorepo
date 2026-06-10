@@ -6223,15 +6223,37 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                           🔥 EXTREME
                         </span>
                       )}
+                      {s.fade_risk === "HIGH" && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.4)" }}
+                          title="Micro-cap or negative momentum at open — high probability of intraday reversal">
+                          🔴 FADE RISK
+                        </span>
+                      )}
+                      {s.fade_risk === "WATCH" && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(234,179,8,0.1)", color: "#eab308", border: "1px solid rgba(234,179,8,0.35)" }}
+                          title="Consider taking partial profits by noon — mid-cap with large gap">
+                          🟡 WATCH
+                        </span>
+                      )}
+                      {s.fade_risk === "HOLD" && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(34,197,94,0.08)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.25)" }}
+                          title="Larger cap with sustained buying — tends to hold gains through the day">
+                          🟢 STRONG HOLD
+                        </span>
+                      )}
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
                       {[
                         ["Proj Vol",    `${s.rel_vol}×`,                                    s.rel_vol >= 10 ? "#f97316" : "#fbbf24"],
                         ["Flow Ratio",  `${s.flow_ratio.toFixed(1)}:1`,                     "#4ade80"],
                         ["Gap Open",    s.gap_pct >= 2 ? `+${s.gap_pct.toFixed(1)}%` : "none",  s.gap_pct >= 5 ? "#fbbf24" : s.gap_pct >= 2 ? "#4ade80" : "#475569"],
+                        ["Momentum",    s.momentum_open != null ? `${s.momentum_open >= 0 ? "+" : ""}${s.momentum_open?.toFixed(1)}%` : "n/a",
+                                        s.momentum_open >= 0 ? "#4ade80" : "#ef4444"],
                         ["Net Inflow",  `$${s.net_m.toFixed(1)}M`,                         "#4ade80"],
                         ["Buy Flow",    `$${s.inflow_m.toFixed(1)}M`,                      "#4ade80"],
-                        ["Sell Flow",   `$${s.outflow_m.toFixed(1)}M`,                     "#f87171"],
                       ].map(([lbl, val, clr]) => (
                         <div key={String(lbl)}>
                           <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>{lbl}</div>
