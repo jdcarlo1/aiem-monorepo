@@ -346,6 +346,8 @@ DEFAULT_LEADERBOARD = [
     "BLSH", "MWH", "RDVT", "IESC", "REPYY", "CNX", "JAZZ",
     "NXPI", "ASX", "AIFU", "U", "MARUF", "IOT",
     "CRCL", "ALVOF", "BLNE", "VIA", "PSIX",
+    # ── Watchlist batch 4 ────────────────────────────────────────────────────
+    "ABM", "DCO", "AMLX",
 ]
 
 # Deduplicate while preserving order
