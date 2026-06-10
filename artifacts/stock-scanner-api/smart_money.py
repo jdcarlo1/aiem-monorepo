@@ -373,6 +373,7 @@ DEFAULT_LEADERBOARD = [
     "PXLW", "SQNS", "FTFT", "ATHR", "DPRO", "TGEN",
     # ── Watchlist batch 8 ────────────────────────────────────────────────────
     "ASML", "BABA", "CEG", "PBR",
+    "ASTX", "MVLL", "MUU",
 ]
 
 # Deduplicate while preserving order
