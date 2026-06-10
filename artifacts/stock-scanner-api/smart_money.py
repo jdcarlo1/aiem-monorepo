@@ -616,6 +616,9 @@ DEFAULT_LEADERBOARD = [
     "FDS","LPLA","RIF","RKT","RYAN","TROW","ZB",
     # Batch 32 — ARKG ETF holdings June 10 2026
     "ARCT","GH","RXRX",
+    # Batch 33 — Gold mining stocks (large, small, micro-cap) June 10 2026
+    "AEM","AU","WPM","PAAS","FSM","IAG","NGD","ARIS","TFPM",
+    "AAGC","AUST","CHNR","FTCO","GORO","GRML","PTGO","SGCP","THM","TMNG","USGO","VGZ",
 ]
 
 # Deduplicate while preserving order
