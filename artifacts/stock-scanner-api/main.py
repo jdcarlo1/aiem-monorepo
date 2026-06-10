@@ -150,7 +150,7 @@ try:
                 try:
                     is_etf  = ticker in _ETF_SET
                     min_voi = 1.5 if is_etf else 2.0   # lowered: 3x was too strict
-                    min_prem= 75_000 if is_etf else 50_000  # lowered: catch $50K-$400K bets
+                    min_prem= 50_000 if is_etf else 20_000  # small-cap: even $20K is meaningful
                     max_exp = 60 if is_etf else 45
                     from datetime import datetime as _dt2
                     tk = yf.Ticker(ticker)
@@ -583,7 +583,7 @@ def _send_unusual_calls_alert(hits: list) -> None:
         # Filter: Vol/OI >= 2x and prem >= $50K — catches insider-sized bets too
         alerts = [
             h for h in hits
-            if h.get("vol_oi", 0) >= 2.0 and h.get("prem", 0) >= 50_000
+            if h.get("vol_oi", 0) >= 2.0 and h.get("prem", 0) >= 20_000
         ]
         if not alerts:
             return
@@ -2369,7 +2369,7 @@ def bull_flow_top10():
                 hist  = tkr.history(period="1d")
                 price = float(hist["Close"].iloc[-1]) if not hist.empty else 0
             prem_k = float(opts.get("top_prem_value", 0))
-            if prem_k < 50:   # minimum $50K — catches smaller insider-sized bets too
+            if prem_k < 20:   # minimum $20K — catches small-cap insider-sized bets
                 return None
 
             # Days to earnings
@@ -6184,12 +6184,12 @@ JSON array only. No markdown. Start immediately with ["""
                 _p = _h.get("prem", 0)
                 if _p > _uc_prem_map.get(_t, 0):
                     _uc_prem_map[_t] = _p
-            _qualified = {t for t, p in _uc_prem_map.items() if p >= 50_000}
+            _qualified = {t for t, p in _uc_prem_map.items() if p >= 20_000}
             _filtered = [tr for tr in trades if tr.get("ticker") in _qualified]
             # Only apply filter if it leaves at least 2 picks; otherwise keep all (data may be stale)
             if len(_filtered) >= 2:
                 trades = _filtered
-                print(f"[ai_trades] premium filter: {len(trades)} picks kept (had {len(_uc_prem_map)} uc tickers, {len(_qualified)} ≥$50K)")
+                print(f"[ai_trades] premium filter: {len(trades)} picks kept (had {len(_uc_prem_map)} uc tickers, {len(_qualified)} ≥$20K)")
             else:
                 print(f"[ai_trades] premium filter skipped — only {len(_filtered)} qualified picks (keeping all {len(trades)})")
 
@@ -6984,9 +6984,9 @@ def unusual_calls():
         def _scan_unusual(ticker):
             hits    = []
             is_etf  = ticker in _ETF_SET
-            # ETFs: lower thresholds for size; stocks: $50K min catches insider-sized bets
+            # ETFs: $50K floor (high liquidity); stocks: $20K catches small-cap insider bets
             min_voi  = 1.5  if is_etf else 2.0
-            min_prem = 75_000 if is_etf else 50_000
+            min_prem = 50_000 if is_etf else 20_000
             max_days = 60   if is_etf else 45
             try:
                 tkr   = yf.Ticker(ticker)
