@@ -1218,6 +1218,70 @@ export function fetchInsiderRadar(bust = false) {
   return fetchJson<InsiderRadarResult>(`/insider-radar${bust ? "?bust=1" : ""}`);
 }
 
+export interface InsiderAlert {
+  id: number;
+  ticker: string;
+  detected_at: string;
+  suspicion_score: number;
+  prem: number | null;
+  strike: number | null;
+  expiry: string | null;
+  price_at_detection: number | null;
+  vol_oi: number | null;
+  earnings_date: string | null;
+  days_to_earnings: number | null;
+  ticker_appearances: number | null;
+  verdict: string | null;
+  pre_positioned: boolean;
+  outcome_checked: boolean;
+  outcome_verdict: string | null;
+  pct_move: number | null;
+  called_it: boolean | null;
+  price_at_earnings: number | null;
+  outcome_at: string | null;
+}
+
+export interface InsiderAlertsResult {
+  alerts: InsiderAlert[];
+  total: number;
+  resolved: number;
+  called_it: number;
+  misses: number;
+}
+
+export interface InsiderOutcome {
+  id: number;
+  ticker: string;
+  earnings_date: string | null;
+  price_at_detection: number | null;
+  price_at_earnings: number | null;
+  pct_move: number | null;
+  called_it: boolean | null;
+  outcome_verdict: string | null;
+  checked_at: string;
+  suspicion_score: number;
+  prem: number | null;
+  alert_verdict: string | null;
+  detected_at: string;
+}
+
+export interface InsiderOutcomesResult {
+  outcomes: InsiderOutcome[];
+  total: number;
+  called_it: number;
+  misses: number;
+  accuracy_pct: number;
+  avg_gain_pct: number;
+}
+
+export function fetchInsiderAlerts() {
+  return fetchJson<InsiderAlertsResult>(`/insider-alerts`);
+}
+
+export function fetchInsiderOutcomes() {
+  return fetchJson<InsiderOutcomesResult>(`/insider-outcomes`);
+}
+
 export interface MyTrade {
   id: number;
   ticker: string;

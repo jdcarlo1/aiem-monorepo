@@ -28,6 +28,8 @@ import {
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
   fetchInsiderRadar, InsiderRadarRow, InsiderRadarResult,
+  fetchInsiderAlerts, InsiderAlert, InsiderAlertsResult,
+  fetchInsiderOutcomes, InsiderOutcome, InsiderOutcomesResult,
   saveMyTrade, fetchMyTrades, updateMyTrade, deleteMyTrade, MyTrade,
   fetchNetFlow, NetFlowRow, NetFlowMicrocapResult, fetchNetFlowSingle, NetFlowSingleResult, fetchNetFlowMicrocap,
   fetchUnusualCallsMicrocap, triggerMicrocapScan, MicroCapCall,
@@ -2193,6 +2195,180 @@ function InsidersTab() {
 // ── Insider Radar Tab ──────────────────────────────────────────────────────
 function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
+  const [view, setView] = useState<"live"|"alerts"|"outcomes">("live");
+
+  // ── Alert Log sub-view ──
+  const InsiderAlertLog = () => {
+    const [data, setData]       = useState<InsiderAlertsResult | null>(null);
+    const [loading, setLoading] = useState(true);
+    useEffect(() => { fetchInsiderAlerts().then(setData).catch(() => {}).finally(() => setLoading(false)); }, []);
+    const premStr = (p: number | null) => !p ? "—" : p >= 1_000_000 ? `$${(p/1_000_000).toFixed(1)}M` : `$${(p/1000).toFixed(0)}K`;
+    const scoreCol = (n: number) => n >= 80 ? "#f87171" : n >= 65 ? "#fb923c" : "#facc15";
+    return (
+      <div>
+        {data && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+            {[
+              { label: "Total Flagged",  val: data.total,      col: "#94a3b8" },
+              { label: "Resolved",       val: data.resolved,   col: "#60a5fa" },
+              { label: "Called It ✅",   val: data.called_it,  col: "#4ade80" },
+              { label: "Misses ❌",      val: data.misses,     col: "#f87171" },
+            ].map(s => (
+              <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px", textAlign: "center" }}>
+                <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, color: s.col, letterSpacing: "-0.04em", marginBottom: 3 }}>{s.val}</div>
+                <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {loading && <div style={{ textAlign: "center", padding: 60, fontFamily: BB_F, color: "#475569" }}>Loading alert log…</div>}
+        {!loading && (!data || data.alerts.length === 0) && (
+          <div style={{ textAlign: "center", padding: 80 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🗂️</div>
+            <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>No alerts logged yet. Alerts are auto-saved when the Live Radar scores a signal ≥ 70. Hit Refresh on the Live Radar to populate this log.</p>
+          </div>
+        )}
+        {!loading && data && data.alerts.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {data.alerts.map((a, i) => {
+              const hasOutcome = a.outcome_verdict != null;
+              const called = a.called_it === true;
+              const miss   = a.called_it === false;
+              return (
+                <div key={i} onClick={() => onSelectTicker(a.ticker)}
+                  style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${hasOutcome ? (called ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.25)") : "rgba(255,255,255,0.07)"}`,
+                    borderRadius: 16, padding: "16px 20px", cursor: "pointer" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 18 }}>{a.ticker}</span>
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, color: scoreCol(a.suspicion_score),
+                          padding: "2px 8px", borderRadius: 99,
+                          background: `${scoreCol(a.suspicion_score)}18`, border: `1px solid ${scoreCol(a.suspicion_score)}44` }}>
+                          SCORE {a.suspicion_score}
+                        </span>
+                        {a.pre_positioned && <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99, background: "rgba(167,139,250,0.1)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.3)" }}>🔒 PRE-POS</span>}
+                        {hasOutcome && (
+                          <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 99,
+                            background: called ? "rgba(74,222,128,0.12)" : "rgba(248,113,113,0.12)",
+                            color: called ? "#4ade80" : "#f87171",
+                            border: `1px solid ${called ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}` }}>
+                            {a.outcome_verdict}
+                          </span>
+                        )}
+                        {!hasOutcome && a.earnings_date && (
+                          <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99, background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>
+                            📅 Earnings {a.earnings_date}
+                          </span>
+                        )}
+                        {!hasOutcome && !a.earnings_date && <span style={{ fontFamily: BB_F, fontSize: 10, color: "#334155" }}>⏳ Awaiting outcome</span>}
+                      </div>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11, lineHeight: 1.5 }}>
+                        {premStr(a.prem)} prem · ${a.strike} strike · exp {a.expiry} · {(a.vol_oi ?? 0).toFixed(1)}× V/OI
+                      </div>
+                      <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10, marginTop: 4 }}>
+                        Flagged: {a.detected_at ? a.detected_at.slice(0, 16).replace("T", " ") : "—"} UTC
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      {a.price_at_detection && <div style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>Entry: ${a.price_at_detection.toFixed(2)}</div>}
+                      {a.price_at_earnings && <div style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 12 }}>After: ${a.price_at_earnings.toFixed(2)}</div>}
+                    </div>
+                  </div>
+                  {a.verdict && (
+                    <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8,
+                      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                      <span style={{ fontFamily: BB_F, fontSize: 11, color: "#64748b" }}>{a.verdict}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── Outcomes sub-view ──
+  const InsiderOutcomesView = () => {
+    const [data, setData]       = useState<InsiderOutcomesResult | null>(null);
+    const [loading, setLoading] = useState(true);
+    useEffect(() => { fetchInsiderOutcomes().then(setData).catch(() => {}).finally(() => setLoading(false)); }, []);
+    return (
+      <div>
+        {data && data.total > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+            {[
+              { label: "Resolved",    val: data.total,        col: "#94a3b8" },
+              { label: "Called It ✅", val: data.called_it,   col: "#4ade80" },
+              { label: "Accuracy",    val: `${data.accuracy_pct}%`, col: data.accuracy_pct >= 60 ? "#4ade80" : "#fb923c" },
+              { label: "Avg Gain",    val: `+${data.avg_gain_pct}%`, col: "#a78bfa" },
+            ].map(s => (
+              <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px", textAlign: "center" }}>
+                <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, color: s.col, letterSpacing: "-0.04em", marginBottom: 3 }}>{s.val}</div>
+                <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {loading && <div style={{ textAlign: "center", padding: 60, fontFamily: BB_F, color: "#475569" }}>Loading outcomes…</div>}
+        {!loading && (!data || data.outcomes.length === 0) && (
+          <div style={{ textAlign: "center", padding: 80 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
+            <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>No outcomes yet. After a flagged ticker's earnings date passes, the system automatically checks the price and logs the result here every day at 4:37 PM ET.</p>
+          </div>
+        )}
+        {!loading && data && data.outcomes.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {data.outcomes.map((o, i) => {
+              const called = o.called_it === true;
+              const pct = o.pct_move ?? 0;
+              return (
+                <div key={i} onClick={() => onSelectTicker(o.ticker)}
+                  style={{ background: called ? "rgba(74,222,128,0.03)" : "rgba(248,113,113,0.03)",
+                    border: `1px solid ${called ? "rgba(74,222,128,0.25)" : "rgba(248,113,113,0.25)"}`,
+                    borderRadius: 16, padding: "16px 20px", cursor: "pointer" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = called ? "rgba(74,222,128,0.03)" : "rgba(248,113,113,0.03)")}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 18 }}>{o.ticker}</span>
+                        <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 14, padding: "4px 12px", borderRadius: 99,
+                          background: called ? "rgba(74,222,128,0.12)" : "rgba(248,113,113,0.12)",
+                          color: called ? "#4ade80" : "#f87171",
+                          border: `1px solid ${called ? "rgba(74,222,128,0.35)" : "rgba(248,113,113,0.35)"}` }}>
+                          {o.outcome_verdict}
+                        </span>
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, color: "#64748b", padding: "2px 8px", borderRadius: 99, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                          SCORE {o.suspicion_score}
+                        </span>
+                      </div>
+                      <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>
+                        Detection: ${o.price_at_detection?.toFixed(2) ?? "—"} → After earnings: ${o.price_at_earnings?.toFixed(2) ?? "—"}
+                        {o.earnings_date && <span style={{ marginLeft: 10, color: "#334155" }}>· Earnings: {o.earnings_date}</span>}
+                      </div>
+                      <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10, marginTop: 4 }}>
+                        Flagged: {o.detected_at?.slice(0,10) ?? "—"} · Resolved: {o.checked_at?.slice(0,10) ?? "—"}
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 28, color: pct >= 5 ? "#4ade80" : pct <= -5 ? "#f87171" : "#facc15", letterSpacing: "-0.04em" }}>
+                      {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── Live Radar state (original) ──
   const [data, setData]       = useState<InsiderRadarResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [busting, setBusting] = useState(false);
@@ -2234,7 +2410,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6, flexWrap: "wrap" }}>
           <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0 }}>
             🕵️ Insider Radar
@@ -2248,8 +2424,29 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
         </p>
       </div>
 
-      {/* Stats row */}
-      {data && (
+      {/* Sub-nav */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 22, borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: 14 }}>
+        {([
+          ["live",     "🔴 Live Radar",  "Real-time suspicious signals"],
+          ["alerts",   "🗂️ Alert Log",   "Permanent case file (score ≥ 70)"],
+          ["outcomes", "📊 Outcomes",    "What happened after earnings"],
+        ] as const).map(([v, lbl, tip]) => (
+          <button key={v} onClick={() => setView(v)} title={tip} style={{
+            padding: "8px 16px", borderRadius: 10, fontFamily: BB_F, fontSize: 12, fontWeight: 700,
+            cursor: "pointer", transition: "all 0.15s",
+            background: view === v ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.03)",
+            border: `1px solid ${view === v ? "rgba(248,113,113,0.45)" : "rgba(255,255,255,0.08)"}`,
+            color: view === v ? "#fca5a5" : "#475569",
+          }}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* Sub-views */}
+      {view === "alerts"   && <InsiderAlertLog />}
+      {view === "outcomes" && <InsiderOutcomesView />}
+
+      {/* Stats row — only shown on Live Radar */}
+      {view === "live" && data && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
           {[
             { label: "Total Signals",      val: data.total,           color: "#94a3b8" },
@@ -2264,67 +2461,67 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
           ))}
         </div>
       )}
-
-      {/* How it works */}
-      <div style={{ background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.12)",
-        borderRadius: 12, padding: "12px 18px", marginBottom: 18,
-        fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
-        <span style={{ color: "#f87171", fontWeight: 700 }}>🕵️ How we detect it: </span>
-        We score every unusual call on 4 factors the SEC uses — (1) <span style={{ color: "#e2e8f0" }}>ticker rarity</span> (rarely seen in options = suspicious),
-        (2) <span style={{ color: "#e2e8f0" }}>premium size</span> relative to normal activity,
-        (3) <span style={{ color: "#e2e8f0" }}>Vol/OI aggression</span> (how hard they pushed),
-        (4) <span style={{ color: "#e2e8f0" }}>earnings proximity</span> (1-90 days before = classic insider window).
-        Insider, friend, broker tip, or piggybacker — the pattern is the same.
-      </div>
-
-      {/* Filters + refresh */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {([["ALL","All Signals"],["EARNINGS","📅 Near Earnings"],["HIGH","🚨 High Suspicion"],["QUIET","🔇 Quiet Stocks"]] as const).map(([f, lbl]) => (
-            <button key={f} onClick={() => setFilter(f)} style={{
-              padding: "6px 13px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
-              cursor: "pointer", transition: "all 0.15s",
-              background: filter === f ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.04)",
-              border: `1px solid ${filter === f ? "rgba(248,113,113,0.4)" : "rgba(255,255,255,0.1)"}`,
-              color: filter === f ? "#f87171" : "#64748b",
-            }}>{lbl}</button>
-          ))}
+      {view === "live" && (<>
+        {/* How it works */}
+        <div style={{ background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.12)",
+          borderRadius: 12, padding: "12px 18px", marginBottom: 18,
+          fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
+          <span style={{ color: "#f87171", fontWeight: 700 }}>🕵️ How we detect it: </span>
+          We score every unusual call on 4 factors the SEC uses — (1) <span style={{ color: "#e2e8f0" }}>ticker rarity</span> (rarely seen = suspicious),
+          (2) <span style={{ color: "#e2e8f0" }}>premium size</span> relative to normal activity,
+          (3) <span style={{ color: "#e2e8f0" }}>Vol/OI aggression</span> (how hard they pushed),
+          (4) <span style={{ color: "#e2e8f0" }}>earnings proximity</span> (1–90 days before = classic insider window).
+          Score ≥ 70 is auto-saved to the Alert Log permanently.
         </div>
-        <button onClick={() => { setBusting(true); load(true); }} disabled={busting || loading} style={{
-          padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
-          cursor: "pointer", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)",
-          color: "#818cf8", opacity: busting ? 0.5 : 1 }}>
-          {busting ? "Refreshing…" : "🔄 Refresh"}
-        </button>
-      </div>
 
-      {/* Loading */}
-      {loading && (
-        <div style={{ textAlign: "center", padding: "80px 0" }}>
-          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
-            {[0,1,2].map(i => (
-              <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#f87171",
-                display: "inline-block", animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />
+        {/* Filters + refresh */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {([["ALL","All Signals"],["EARNINGS","📅 Near Earnings"],["HIGH","🚨 High Suspicion"],["QUIET","🔇 Quiet Stocks"]] as const).map(([f, lbl]) => (
+              <button key={f} onClick={() => setFilter(f)} style={{
+                padding: "6px 13px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
+                cursor: "pointer", transition: "all 0.15s",
+                background: filter === f ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${filter === f ? "rgba(248,113,113,0.4)" : "rgba(255,255,255,0.1)"}`,
+                color: filter === f ? "#f87171" : "#64748b",
+              }}>{lbl}</button>
             ))}
           </div>
-          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>
-            Cross-referencing unusual call activity with earnings calendar… may take ~15s
-          </p>
+          <button onClick={() => { setBusting(true); load(true); }} disabled={busting || loading} style={{
+            padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700,
+            cursor: "pointer", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)",
+            color: "#818cf8", opacity: busting ? 0.5 : 1 }}>
+            {busting ? "Refreshing…" : "🔄 Refresh"}
+          </button>
         </div>
-      )}
 
-      {/* Empty */}
-      {!loading && filtered.length === 0 && (
-        <div style={{ textAlign: "center", padding: "80px 0" }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🕵️</div>
-          <p style={{ fontFamily: BB_F, color: "#475569" }}>No suspicious activity found matching this filter. Try "All Signals".</p>
-        </div>
-      )}
+        {/* Loading */}
+        {loading && (
+          <div style={{ textAlign: "center", padding: "80px 0" }}>
+            <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+              {[0,1,2].map(i => (
+                <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#f87171",
+                  display: "inline-block", animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />
+              ))}
+            </div>
+            <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>
+              Cross-referencing unusual call activity with earnings calendar… ~15s
+            </p>
+          </div>
+        )}
 
-      {/* Case file cards */}
-      {!loading && filtered.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {filtered.map((s, i) => {
+        {/* Empty */}
+        {!loading && filtered.length === 0 && (
+          <div style={{ textAlign: "center", padding: "80px 0" }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🕵️</div>
+            <p style={{ fontFamily: BB_F, color: "#475569" }}>No suspicious activity found matching this filter.</p>
+          </div>
+        )}
+
+        {/* Case file cards */}
+        {!loading && filtered.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {filtered.map((s, i) => {
             const sc  = s.suspicion_score;
             const col = scoreColor(sc);
             const pstr = premStr(s.prem);
@@ -2416,6 +2613,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
           })}
         </div>
       )}
+      </>)}
     </div>
   );
 }

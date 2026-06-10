@@ -525,6 +525,19 @@ try:
             replace_existing=True,
         )
 
+    # Insider outcomes: Mon-Fri 4:37 PM ET — check post-earnings prices for flagged alerts
+    def _run_insider_outcomes():
+        try:
+            _check_insider_outcomes()
+        except Exception as e:
+            print(f"[scheduler] insider outcomes error: {e}")
+    _scheduler.add_job(
+        _run_insider_outcomes,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=37, timezone=_ET),
+        id="insider_outcomes_check",
+        replace_existing=True,
+    )
+
     _scheduler.start()
     print("[scheduler] APScheduler started — "
           "scans: 9:00/9:45 AM, 3:30/4:00/4:05/4:15 PM ET | "
@@ -6836,6 +6849,111 @@ def _init_trade_watchlist_table():
 _init_trade_watchlist_table()
 
 
+def _init_insider_tables():
+    sql = """
+    CREATE TABLE IF NOT EXISTS insider_alerts (
+        id                  SERIAL PRIMARY KEY,
+        ticker              TEXT NOT NULL,
+        detected_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        suspicion_score     INTEGER NOT NULL,
+        prem                BIGINT,
+        strike              FLOAT,
+        expiry              TEXT,
+        price_at_detection  FLOAT,
+        vol_oi              FLOAT,
+        earnings_date       DATE,
+        days_to_earnings    INTEGER,
+        ticker_appearances  INTEGER,
+        verdict             TEXT,
+        pre_positioned      BOOLEAN DEFAULT FALSE,
+        outcome_checked     BOOLEAN DEFAULT FALSE,
+        UNIQUE (ticker, strike, expiry)
+    );
+    CREATE TABLE IF NOT EXISTS insider_outcomes (
+        id                  SERIAL PRIMARY KEY,
+        alert_id            INTEGER REFERENCES insider_alerts(id),
+        ticker              TEXT NOT NULL,
+        earnings_date       DATE,
+        price_at_detection  FLOAT,
+        price_at_earnings   FLOAT,
+        pct_move            FLOAT,
+        called_it           BOOLEAN,
+        outcome_verdict     TEXT,
+        checked_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (alert_id)
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+        print("[insider_tables] ready")
+    except Exception as e:
+        print(f"[insider_tables] init error: {e}")
+
+_init_insider_tables()
+
+
+def _check_insider_outcomes():
+    """
+    After a flagged ticker's earnings date passes, fetch the post-earnings price,
+    compute % move from the detection price, and write the verdict to insider_outcomes.
+    Runs daily at 4:37 PM ET.
+    """
+    import datetime as _dto
+    import yfinance as _yfo
+    today = _dto.date.today()
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ticker, price_at_detection, earnings_date
+                FROM insider_alerts
+                WHERE earnings_date IS NOT NULL
+                  AND earnings_date <= %s
+                  AND outcome_checked = FALSE
+            """, (today,))
+            pending = cur.fetchall()
+            if not pending:
+                print("[insider_outcomes] No pending alerts today")
+                return
+            print(f"[insider_outcomes] Checking {len(pending)} alerts…")
+            for (alert_id, ticker, price_at_detection, earnings_date) in pending:
+                try:
+                    hist = _yfo.Ticker(ticker).history(period="10d")
+                    if hist.empty or not price_at_detection:
+                        continue
+                    current_price = float(hist["Close"].iloc[-1])
+                    pct = (current_price - price_at_detection) / price_at_detection * 100
+                    called = pct >= 5.0
+                    if called:
+                        v = f"CALLED IT ✅ +{pct:.1f}%"
+                    elif pct <= -5.0:
+                        v = f"MISS ❌ {pct:.1f}%"
+                    else:
+                        v = f"FLAT ➖ {pct:+.1f}%"
+                    cur.execute("""
+                        INSERT INTO insider_outcomes
+                            (alert_id, ticker, earnings_date, price_at_detection,
+                             price_at_earnings, pct_move, called_it, outcome_verdict)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (alert_id) DO UPDATE
+                            SET price_at_earnings = EXCLUDED.price_at_earnings,
+                                pct_move          = EXCLUDED.pct_move,
+                                called_it         = EXCLUDED.called_it,
+                                outcome_verdict   = EXCLUDED.outcome_verdict,
+                                checked_at        = NOW()
+                    """, (alert_id, ticker, earnings_date, price_at_detection,
+                          current_price, pct, called, v))
+                    cur.execute("UPDATE insider_alerts SET outcome_checked=TRUE WHERE id=%s", (alert_id,))
+                    print(f"[insider_outcomes] {ticker}: {v}")
+                except Exception as _oe:
+                    print(f"[insider_outcomes] {ticker} error: {_oe}")
+            conn.commit()
+            print(f"[insider_outcomes] Done — {len(pending)} resolved")
+    except Exception as e:
+        print(f"[insider_outcomes] DB error: {e}")
+
+
 @app.route("/stock-api/trade-watchlist", methods=["GET"])
 def get_trade_watchlist():
     try:
@@ -9368,11 +9486,112 @@ def insider_radar():
         }
         app._insider_radar_cache    = out
         app._insider_radar_cache_ts = _dt_ir.datetime.now()
+
+        # Auto-save high-suspicion signals (score >= 70) to the permanent alert log
+        try:
+            _high = [r for r in results if r["suspicion_score"] >= 70]
+            if _high:
+                with _psycopg2.connect(_DB_URL) as _ac, _ac.cursor() as _acur:
+                    for _s in _high:
+                        _acur.execute("""
+                            INSERT INTO insider_alerts
+                                (ticker, suspicion_score, prem, strike, expiry,
+                                 price_at_detection, vol_oi, earnings_date,
+                                 days_to_earnings, ticker_appearances, verdict, pre_positioned)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (ticker, strike, expiry) DO NOTHING
+                        """, (_s["ticker"], _s["suspicion_score"], _s.get("prem"),
+                              _s.get("strike"), _s.get("expiry"), _s.get("price"),
+                              _s.get("vol_oi"), _s.get("earnings_date"),
+                              _s.get("days_to_earnings"), _s.get("ticker_appearances"),
+                              _s.get("verdict"), _s.get("pre_positioned", False)))
+                    _ac.commit()
+                print(f"[insider_radar] Auto-saved {len(_high)} alerts (score≥70) to alert log")
+        except Exception as _ae:
+            print(f"[insider_radar] Alert auto-save error: {_ae}")
+
         return jsonify(out)
 
     except Exception as e:
         return jsonify({"error": str(e), "signals": [], "total": 0,
                         "earnings_linked": 0, "high_suspicion": 0, "rare_tickers": 0}), 500
+
+
+@app.route("/stock-api/insider-alerts", methods=["GET"])
+def insider_alerts_route():
+    """Return the permanent alert log — all signals (score≥70) ever flagged, newest first."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    ia.id, ia.ticker,
+                    ia.detected_at AT TIME ZONE 'UTC' AS detected_at,
+                    ia.suspicion_score, ia.prem, ia.strike, ia.expiry,
+                    ia.price_at_detection, ia.vol_oi,
+                    ia.earnings_date, ia.days_to_earnings,
+                    ia.ticker_appearances, ia.verdict, ia.pre_positioned,
+                    ia.outcome_checked,
+                    io.outcome_verdict, io.pct_move, io.called_it,
+                    io.price_at_earnings,
+                    io.checked_at AT TIME ZONE 'UTC' AS outcome_at
+                FROM insider_alerts ia
+                LEFT JOIN insider_outcomes io ON io.alert_id = ia.id
+                ORDER BY ia.detected_at DESC
+                LIMIT 500
+            """)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for r in rows:
+                for k in ("detected_at", "outcome_at"):
+                    if r.get(k): r[k] = r[k].isoformat()
+                if r.get("earnings_date"): r["earnings_date"] = r["earnings_date"].isoformat()
+        return jsonify({
+            "alerts":       rows,
+            "total":        len(rows),
+            "resolved":     sum(1 for r in rows if r.get("outcome_verdict")),
+            "called_it":    sum(1 for r in rows if r.get("called_it") is True),
+            "misses":       sum(1 for r in rows if r.get("called_it") is False),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "alerts": [], "total": 0}), 500
+
+
+@app.route("/stock-api/insider-outcomes", methods=["GET"])
+def insider_outcomes_route():
+    """Return all resolved outcomes — what actually happened after each flagged bet."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    io.id, io.ticker, io.earnings_date,
+                    io.price_at_detection, io.price_at_earnings,
+                    io.pct_move, io.called_it, io.outcome_verdict,
+                    io.checked_at AT TIME ZONE 'UTC' AS checked_at,
+                    ia.suspicion_score, ia.prem, ia.verdict AS alert_verdict,
+                    ia.detected_at AT TIME ZONE 'UTC' AS detected_at
+                FROM insider_outcomes io
+                JOIN insider_alerts ia ON ia.id = io.alert_id
+                ORDER BY io.checked_at DESC
+            """)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for r in rows:
+                for k in ("checked_at", "detected_at"):
+                    if r.get(k): r[k] = r[k].isoformat()
+                if r.get("earnings_date"): r["earnings_date"] = r["earnings_date"].isoformat()
+        called = [r for r in rows if r.get("called_it") is True]
+        misses = [r for r in rows if r.get("called_it") is False]
+        avg_gain = (sum(r["pct_move"] for r in called) / len(called)) if called else 0
+        return jsonify({
+            "outcomes":      rows,
+            "total":         len(rows),
+            "called_it":     len(called),
+            "misses":        len(misses),
+            "accuracy_pct":  round(len(called) / len(rows) * 100, 1) if rows else 0,
+            "avg_gain_pct":  round(avg_gain, 1),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "outcomes": [], "total": 0}), 500
 
 
 @app.route("/stock-api/healthz", methods=["GET"])
