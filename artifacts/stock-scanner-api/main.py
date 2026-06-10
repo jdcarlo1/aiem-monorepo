@@ -9344,7 +9344,60 @@ def morning_inflows():
     if not bust and _cache and _cache_ts and (_dt_mi.datetime.now() - _cache_ts).total_seconds() < 900:
         return jsonify(_cache)
 
+    import pytz as _pytz_mi2
+    _et2       = _pytz_mi2.timezone("America/New_York")
+    _now_et    = _dt_mi.datetime.now(_et2)
+    _mkt_open  = _now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    _mins_now  = max((_now_et - _mkt_open).total_seconds() / 60.0, 1.0)
+    _mins_now  = min(_mins_now, 390.0)
+    _day_frac  = _mins_now / 390.0
+
+    # ── PHASE 1: Comprehensive universe via yf.EquityQuery ────────────────────
+    # This queries Yahoo's full US stock database (not just a top-N list).
+    # Returns ALL US equities up ≥5% today, paginated until exhausted.
+    # Each page also carries regularMarketVolume + averageDailyVolume3Month,
+    # letting us pre-filter on projected volume before the expensive 1-min bars call.
+    _screen_quotes = {}   # symbol → {raw_vol, avg_vol, price_chg_pct}
+    try:
+        _eq = _yf_mi.EquityQuery("and", [
+            _yf_mi.EquityQuery("gt",  ["percentchange",    4.9]),
+            _yf_mi.EquityQuery("eq",  ["region",           "us"]),
+            _yf_mi.EquityQuery("gte", ["intradaymarketcap", 10_000_000]),  # ≥$10M mkt cap
+        ])
+        _offset = 0
+        while True:
+            _pg = _yf_mi.screen(
+                _eq, sortField="percentchange", sortAsc=False,
+                size=250, offset=_offset
+            )
+            _pg_quotes = _pg.get("quotes", [])
+            if not _pg_quotes:
+                break
+            for _q in _pg_quotes:
+                _sym = _q.get("symbol", "")
+                if not _sym or "." in _sym or len(_sym) > 5:
+                    continue
+                _raw_vol  = float(_q.get("regularMarketVolume",         0) or 0)
+                _avg_vol  = float(_q.get("averageDailyVolume3Month",     1) or 1)
+                _pct      = float(_q.get("regularMarketChangePercent",   0) or 0)
+                # Pre-filter: projected vol must be ≥3× for this time of day
+                # projected = raw_vol / day_frac; threshold = 3 * avg_vol
+                _proj = _raw_vol / _day_frac if _day_frac > 0 else 0
+                if _avg_vol > 0 and _proj >= 3.0 * _avg_vol:
+                    _screen_quotes[_sym] = {"raw_vol": _raw_vol, "avg_vol": _avg_vol, "pct": _pct}
+            # Stop if we've got all results
+            if len(_screen_quotes) >= _pg.get("total", 0) or len(_pg_quotes) < 250 or _offset >= 2000:
+                break
+            _offset += 250
+        print(f"[morning_inflows] yf.screen: {len(_screen_quotes)} pre-filtered US gainers (proj vol ≥3×)")
+    except Exception as _eq_err:
+        print(f"[morning_inflows] yf.screen fallback: {_eq_err}")
+
+    # ── PHASE 1b: Supplementary predefined screeners ──────────────────────────
+    # Catches high-volume names that may not yet be ≥5% (most_actives) and
+    # small-cap momentum names (aggressive_small_caps, small_cap_gainers).
     _yf_headers = {"User-Agent": "Mozilla/5.0 (compatible)"}
+    from concurrent.futures import ThreadPoolExecutor as _TPE_src
 
     def _fetch_screener(scr_id, count=100, start=0):
         try:
@@ -9355,42 +9408,39 @@ def morning_inflows():
             )
             if r.ok:
                 quotes = r.json().get("finance", {}).get("result", [{}])[0].get("quotes", [])
-                return [q["symbol"] for q in quotes if q.get("symbol") and "." not in q["symbol"]]
+                return [q["symbol"] for q in quotes
+                        if q.get("symbol") and "." not in q["symbol"] and len(q["symbol"]) <= 5]
         except Exception as _e:
             print(f"[morning_inflows] screener {scr_id}: {_e}")
         return []
 
-    # 1. Multiple Yahoo Finance screeners — run in parallel
-    from concurrent.futures import ThreadPoolExecutor as _TPE_src
-    screener_tasks = [
-        ("day_gainers",          100, 0),   # top 100 by % gain today
-        ("day_gainers",          100, 50),  # page 2 of gainers (next 50-100)
-        ("most_actives",         100, 0),   # top 100 by volume today
-        ("aggressive_small_caps",100, 0),   # small caps with momentum (OCC territory)
+    _supp_tasks = [
+        ("most_actives",          100, 0),
+        ("most_actives",          100, 50),
+        ("aggressive_small_caps", 100, 0),
+        ("small_cap_gainers",     100, 0),
     ]
-    gainers = []
+    _supp_syms = []
     with _TPE_src(max_workers=4) as _src_ex:
-        for syms in _src_ex.map(lambda args: _fetch_screener(*args), screener_tasks):
-            gainers.extend(syms)
+        for _syms in _src_ex.map(lambda a: _fetch_screener(*a), _supp_tasks):
+            _supp_syms.extend(_syms)
 
-    print(f"[morning_inflows] screeners pulled {len(gainers)} raw symbols")
-
-    # 2. Our tracked tickers — options flow universe (unusual calls + signal alerts)
-    tracked = []
+    # ── PHASE 1c: Our tracked options tickers ────────────────────────────────
+    _tracked = []
     try:
         with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
-            _cur.execute("""
-                SELECT DISTINCT ticker FROM unusual_calls_log
-                WHERE first_seen >= NOW() - INTERVAL '90 days'
-            """)
-            tracked = [r[0] for r in _cur.fetchall()]
+            _cur.execute("SELECT DISTINCT ticker FROM unusual_calls_log WHERE first_seen >= NOW() - INTERVAL '90 days'")
+            _tracked = [r[0] for r in _cur.fetchall()]
     except Exception as _de:
         print(f"[morning_inflows] db: {_de}")
 
-    # Deduplicate: gainers first (already moving today), then our tracked watchlist
-    universe = list(dict.fromkeys(gainers + tracked))
-    universe = [t for t in universe if t and len(t) <= 5]  # strip junk/long symbols
-    print(f"[morning_inflows] universe after dedup: {len(universe)} tickers")
+    # Merge all sources: pre-filtered screen results first (highest confidence),
+    # then supplementary screeners + our tracked tickers.
+    universe = list(dict.fromkeys(
+        list(_screen_quotes.keys()) + _supp_syms + _tracked
+    ))
+    universe = [t for t in universe if t and len(t) <= 5]
+    print(f"[morning_inflows] universe after merge: {len(universe)} tickers")
 
     def _score_ticker(ticker):
         try:
