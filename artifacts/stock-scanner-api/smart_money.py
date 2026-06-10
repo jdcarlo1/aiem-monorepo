@@ -399,6 +399,15 @@ DEFAULT_LEADERBOARD = [
     "BATRA", "SATS", "STNG", "IWMI",
     "ARGX", "LQDA", "BRK-B", "CVNA", "DEO", "EBAY", "OUT", "UPST", "NAT", "WDS", "ASC", "ADI",
     "ENGIY", "ESEA", "SILC", "FUTU", "KE", "AXR",
+    # Batch 11 — Yahoo Finance watchlist June 10 2026
+    "ROL", "MLR", "EVI", "BIO", "LHX", "CURB", "LIT", "CIG", "NBIL",
+    "MEDP", "TRS", "NATR", "STWD", "ERII", "SBS", "KRC", "ITIC",
+    "NMM", "RNA", "WAWIF", "MELI", "MLI", "HESAY",
+    "CSV", "TRDA", "DB", "SCGLY", "GTX", "NWPX", "MARPS",
+    "TRN", "KODK", "RCMT", "DHT", "CCEP",
+    "DXPE", "USLM", "DWSN", "USNA", "HDSN", "OBDC",
+    "CTS", "CHE", "NEBX", "RSPN", "ULS", "UHT", "NBIG",
+    "TNC", "TTEK", "BZFD", "ARQ",
 ]
 
 # Deduplicate while preserving order
