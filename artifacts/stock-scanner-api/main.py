@@ -26,6 +26,30 @@ import pnl
 app = Flask(__name__)
 CORS(app)
 
+# ── Global yfinance HTTP timeout patch ────────────────────────────────────────
+# yfinance creates requests.Session internally and never sets per-request
+# timeouts, so rate-limited calls hang forever and block Flask worker threads.
+# Patching Session.__init__ here ensures every Session (including yfinance's)
+# mounts an adapter that enforces an 8-second timeout on each HTTP call.
+try:
+    import requests as _req_patch
+    from requests.adapters import HTTPAdapter as _HTTPAdapter
+
+    class _TimeoutAdapter(_HTTPAdapter):
+        def send(self, *args, **kwargs):
+            kwargs.setdefault("timeout", 8)
+            return super().send(*args, **kwargs)
+
+    _orig_session_init = _req_patch.Session.__init__
+    def _patched_session_init(self, *args, **kwargs):
+        _orig_session_init(self, *args, **kwargs)
+        self.mount("https://", _TimeoutAdapter())
+        self.mount("http://",  _TimeoutAdapter())
+    _req_patch.Session.__init__ = _patched_session_init
+    print("[startup] global requests timeout adapter installed (8s per call)")
+except Exception as _tpe:
+    print(f"[startup] timeout adapter failed (non-fatal): {_tpe}")
+
 # ── Scan result cache (pre-warmed every 15 min during market hours) ───────────
 import threading as _threading
 app._sm_cache: dict = {}          # key = frozen sorted ticker tuple → {"result": ..., "ts": datetime}
@@ -451,7 +475,7 @@ try:
         _othr.Thread(target=_w, daemon=True).start()
         print("[warmer] options wave started (all tabs)")
 
-    for _ow_hour, _ow_min in [(10, 45), (11, 30), (16, 18)]:
+    for _ow_hour, _ow_min in [(9, 45), (10, 45), (11, 30), (16, 18)]:
         _scheduler.add_job(
             _run_options_warmer,
             CronTrigger(day_of_week="mon-fri", hour=_ow_hour, minute=_ow_min, timezone=_ET),
@@ -465,7 +489,7 @@ try:
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
-          "options warmer (all tabs): 10:45 AM, 11:30 AM, 4:18 PM | "
+          "options warmer (all tabs): 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
@@ -3347,6 +3371,12 @@ def convergence():
     """Stocks with BOTH unusual volume AND unusual call flow — smart money convergence signal."""
     import yfinance as yf
     from smart_money import fetch_options_data
+    from datetime import datetime as _cvdt
+
+    _cache = getattr(app, "_conv_cache", None)
+    _ts    = getattr(app, "_conv_cache_ts", None)
+    if _cache and _ts and (_cvdt.now() - _ts).total_seconds() < 43200:
+        return jsonify(_cache)
 
     try:
         yf.utils.get_crumb(reuse_session=False)
@@ -3392,17 +3422,28 @@ def convergence():
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_check, t): t for t in tickers}
-        for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                results.append(r)
+    _ex_cv = ThreadPoolExecutor(max_workers=8)
+    futures = {_ex_cv.submit(_check, t): t for t in tickers}
+    try:
+        for fut in as_completed(futures, timeout=22):
+            try:
+                r = fut.result()
+                if r:
+                    results.append(r)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        _ex_cv.shutdown(wait=False, cancel_futures=True)
 
     results.sort(key=lambda x: x["convergence_score"], reverse=True)
     for i, r in enumerate(results[:15]):
         r["rank"] = i + 1
-    return jsonify({"results": results[:15], "scanned": len(tickers)})
+    out = {"results": results[:15], "scanned": len(tickers)}
+    if results:
+        app._conv_cache = out; app._conv_cache_ts = _cvdt.now()
+    return jsonify(out)
 
 
 @app.route("/stock-api/premarket", methods=["GET"])
@@ -3644,7 +3685,7 @@ def options_intent():
 
     _cache = getattr(app, "_oi_cache", None)
     _ts    = getattr(app, "_oi_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
     now = _dt.now()
@@ -3708,14 +3749,27 @@ def options_intent():
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    _ex_oi = ThreadPoolExecutor(max_workers=8)
+    futures = {_ex_oi.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+    rows = []
+    try:
+        for fut in as_completed(futures, timeout=22):
+            try:
+                r = fut.result()
+                if r is not None:
+                    rows.append(r)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        _ex_oi.shutdown(wait=False, cancel_futures=True)
 
     rows.sort(key=lambda x: x["bear_prem_m"], reverse=True)
     out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    app._oi_cache = out
-    app._oi_cache_ts = _dt.now()
+    if rows:
+        app._oi_cache = out
+        app._oi_cache_ts = _dt.now()
     return jsonify(out)
 
 
@@ -3727,7 +3781,7 @@ def vol_crush():
 
     _cache = getattr(app, "_vc_cache", None)
     _ts    = getattr(app, "_vc_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
     def _analyze(ticker):
@@ -4259,9 +4313,21 @@ def vol_crush():
     except Exception:
         pass
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    _ex_vc = ThreadPoolExecutor(max_workers=8)
+    futures = {_ex_vc.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+    rows = []
+    try:
+        for fut in as_completed(futures, timeout=22):
+            try:
+                r = fut.result()
+                if r is not None:
+                    rows.append(r)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        _ex_vc.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda x: x["iv_rank"], reverse=True)
 
     # Enrich with IV skew percentile + short float trend from daily_vol_snapshots history
@@ -4298,7 +4364,8 @@ def vol_crush():
         pass
 
     out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    app._vc_cache = out; app._vc_cache_ts = _dt.now()
+    if rows:
+        app._vc_cache = out; app._vc_cache_ts = _dt.now()
     return jsonify(out)
 
 
@@ -4310,7 +4377,7 @@ def call_intent():
 
     _cache = getattr(app, "_ci_cache", None)
     _ts    = getattr(app, "_ci_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
     now = _dt.now()
@@ -4399,12 +4466,25 @@ def call_intent():
                     "leaps_whale": leaps_whale if leaps_whale["strike"] else None}
         except Exception: return None
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    _ex_ci = ThreadPoolExecutor(max_workers=8)
+    futures = {_ex_ci.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+    rows = []
+    try:
+        for fut in as_completed(futures, timeout=22):
+            try:
+                r = fut.result()
+                if r is not None:
+                    rows.append(r)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        _ex_ci.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda x: x["accum_prem_m"], reverse=True)
     out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    app._ci_cache = out; app._ci_cache_ts = _dt.now()
+    if rows:
+        app._ci_cache = out; app._ci_cache_ts = _dt.now()
     return jsonify(out)
 
 
@@ -4416,7 +4496,7 @@ def smart_vs_retail():
 
     _cache = getattr(app, "_svr_cache", None)
     _ts    = getattr(app, "_svr_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
     def _analyze(ticker):
@@ -4461,12 +4541,25 @@ def smart_vs_retail():
                     "smart_cp": s_cp, "retail_cp": r_cp, "divergence": div, "signal_strength": strength}
         except Exception: return None
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    _ex_svr = ThreadPoolExecutor(max_workers=8)
+    futures = {_ex_svr.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+    rows = []
+    try:
+        for fut in as_completed(futures, timeout=22):
+            try:
+                r = fut.result()
+                if r is not None:
+                    rows.append(r)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        _ex_svr.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda x: (x["signal_strength"] == "STRONG", x["smart_prem_m"]), reverse=True)
     out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    app._svr_cache = out; app._svr_cache_ts = _dt.now()
+    if rows:
+        app._svr_cache = out; app._svr_cache_ts = _dt.now()
     return jsonify(out)
 
 
@@ -4478,7 +4571,7 @@ def max_pain():
 
     _cache = getattr(app, "_mp_cache", None)
     _ts    = getattr(app, "_mp_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
     now = _dt.now()
@@ -4513,12 +4606,25 @@ def max_pain():
                     "nearest_expiry": exp, "days_to_exp": days}
         except Exception: return None
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    _ex_mp = ThreadPoolExecutor(max_workers=8)
+    futures = {_ex_mp.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+    rows = []
+    try:
+        for fut in as_completed(futures, timeout=22):
+            try:
+                r = fut.result()
+                if r is not None:
+                    rows.append(r)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        _ex_mp.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda x: abs(x["distance_pct"]), reverse=True)
     out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    app._mp_cache = out; app._mp_cache_ts = _dt.now()
+    if rows:
+        app._mp_cache = out; app._mp_cache_ts = _dt.now()
     return jsonify(out)
 
 
@@ -4530,7 +4636,7 @@ def gamma_wall():
 
     _cache = getattr(app, "_gw_cache", None)
     _ts    = getattr(app, "_gw_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
+    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
     TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "NVDA", "TSLA", "META", "AMZN", "MSFT", "GOOGL"]
@@ -4566,12 +4672,25 @@ def gamma_wall():
                     "expiry": exp, "strikes": strike_data, "flip_strike": flip}
         except Exception: return None
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_analyze, t): t for t in TICKERS}
-        rows = [r for fut in as_completed(futures) if (r := fut.result()) is not None]
+    _ex_gw = ThreadPoolExecutor(max_workers=8)
+    futures = {_ex_gw.submit(_analyze, t): t for t in TICKERS}
+    rows = []
+    try:
+        for fut in as_completed(futures, timeout=22):
+            try:
+                r = fut.result()
+                if r is not None:
+                    rows.append(r)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        _ex_gw.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda x: x["ticker"])
     out = {"results": rows}
-    app._gw_cache = out; app._gw_cache_ts = _dt.now()
+    if rows:
+        app._gw_cache = out; app._gw_cache_ts = _dt.now()
     return jsonify(out)
 
 
