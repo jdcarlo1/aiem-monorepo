@@ -6199,6 +6199,18 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                       <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 22 }}>{s.ticker}</span>
                       <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#4ade80", fontSize: 16 }}>+{s.price_chg_pct.toFixed(1)}%</span>
                       <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 13 }}>${s.price.toFixed(2)}</span>
+                      {s.gap_pct >= 10 && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.4)" }}>
+                          ⚡ GAP +{s.gap_pct.toFixed(1)}%
+                        </span>
+                      )}
+                      {s.gap_pct >= 5 && s.gap_pct < 10 && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(74,222,128,0.08)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.25)" }}>
+                          ↑ GAP +{s.gap_pct.toFixed(1)}%
+                        </span>
+                      )}
                       {isSmall && (
                         <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
                           background: "rgba(167,139,250,0.1)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.3)" }}>
@@ -6214,12 +6226,12 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
                       {[
-                        ["Proj Vol",    `${s.rel_vol}×`,                  s.rel_vol >= 10 ? "#f97316" : "#fbbf24"],
-                        ["Flow Ratio",  `${s.flow_ratio.toFixed(1)}:1`,    "#4ade80"],
-                        ["Net Inflow",  `$${s.net_m.toFixed(1)}M`,        "#4ade80"],
-                        ["Buy Flow",    `$${s.inflow_m.toFixed(1)}M`,     "#4ade80"],
-                        ["Sell Flow",   `$${s.outflow_m.toFixed(1)}M`,    "#f87171"],
-                        ["Act Volume",  fmtVol(s.today_vol),               "#94a3b8"],
+                        ["Proj Vol",    `${s.rel_vol}×`,                                    s.rel_vol >= 10 ? "#f97316" : "#fbbf24"],
+                        ["Flow Ratio",  `${s.flow_ratio.toFixed(1)}:1`,                     "#4ade80"],
+                        ["Gap Open",    s.gap_pct >= 2 ? `+${s.gap_pct.toFixed(1)}%` : "none",  s.gap_pct >= 5 ? "#fbbf24" : s.gap_pct >= 2 ? "#4ade80" : "#475569"],
+                        ["Net Inflow",  `$${s.net_m.toFixed(1)}M`,                         "#4ade80"],
+                        ["Buy Flow",    `$${s.inflow_m.toFixed(1)}M`,                      "#4ade80"],
+                        ["Sell Flow",   `$${s.outflow_m.toFixed(1)}M`,                     "#f87171"],
                       ].map(([lbl, val, clr]) => (
                         <div key={String(lbl)}>
                           <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>{lbl}</div>

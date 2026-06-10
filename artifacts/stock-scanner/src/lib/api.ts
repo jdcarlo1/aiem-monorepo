@@ -1298,6 +1298,8 @@ export interface MorningInflowResult {
   net_m: number;
   flow_ratio: number;
   standout_score: number;
+  gap_pct: number;
+  gap_multiplier: number;
   mkt_cap_m: number | null;
 }
 export interface MorningInflowsData {
