@@ -614,6 +614,8 @@ DEFAULT_LEADERBOARD = [
     "AEG","ING","LYG","NWG","UBS",
     # Batch 31 — XLF ETF holdings June 10 2026
     "FDS","LPLA","RIF","RKT","RYAN","TROW","ZB",
+    # Batch 32 — ARKG ETF holdings June 10 2026
+    "ARCT","GH","RXRX",
 ]
 
 # Deduplicate while preserving order
