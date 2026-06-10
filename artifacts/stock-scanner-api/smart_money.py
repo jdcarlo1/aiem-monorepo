@@ -589,6 +589,9 @@ DEFAULT_LEADERBOARD = [
     "MAXR","MSM","OSK","PSN","RE","RHI","SPR","SRCL","TEX","TFX",
     "THR","TKR","TRMB","TT","VFC","VNT","VST","WAB","WEX","WING",
     "WST","WTW","XYL",
+    # Batch 24 — XLY & XLP ETF holdings June 10 2026
+    "AZO","BBWI","HSY","K","KMB","KSS","KVUE","LW","MCK","ORLY",
+    "QSR","TPX","TSCO","TXRH","UA","UAA","WBA","WSM",
 ]
 
 # Deduplicate while preserving order
