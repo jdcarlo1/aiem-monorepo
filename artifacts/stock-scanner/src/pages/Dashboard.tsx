@@ -8745,9 +8745,9 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-white font-black text-xl">🎯 High Conviction Micro & Small Caps</h2>
+          <h2 className="text-white font-black text-xl">🎯 Small & Growth Stock Options Flow</h2>
           <p className="text-slate-400 text-sm mt-0.5">
-            Unusual call option activity in micro/small-cap stocks — smart money positioning before big moves
+            Unusual call activity with tight bid/ask spreads — liquid, tradeable signals across growth stocks
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -8777,7 +8777,7 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 
       {/* Schedule note */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-        <span>⏰ Auto-scans daily at <span className="text-white font-bold">10:30 AM ET</span> (Mon–Fri) across 200+ micro &amp; small-cap tickers</span>
+        <span>⏰ Auto-scans daily at <span className="text-white font-bold">10:30 AM ET</span> (Mon–Fri) across 350+ growth tickers · Tight bid/ask spreads only</span>
         {lastRun && <span className="text-slate-500">· Last loaded {lastRun.toLocaleTimeString()}</span>}
       </div>
 

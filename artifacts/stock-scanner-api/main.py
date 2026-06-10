@@ -260,7 +260,8 @@ try:
         id="microcap_prewarm",
         replace_existing=True,
     )
-    # Micro-cap options scan: Mon-Fri 10:30 AM ET — after market data settles post-open
+    # Micro-cap options scan: Mon-Fri at 10:30 AM, 3:30 PM, 4:00 PM, 4:15 PM ET
+    # EOD runs are the richest — rate limits relax after close, full day's volume captured
     def _run_microcap_options_auto():
         try:
             hits = _run_microcap_options_scan()
@@ -268,12 +269,13 @@ try:
             print(f"[scheduler] micro-cap options scan → {len(hits)} unusual calls saved")
         except Exception as e:
             print(f"[scheduler] micro-cap options scan error: {e}")
-    _scheduler.add_job(
-        _run_microcap_options_auto,
-        CronTrigger(day_of_week="mon-fri", hour=10, minute=30, timezone=_ET),
-        id="microcap_options_auto",
-        replace_existing=True,
-    )
+    for _mc_hour, _mc_min in [(10, 30), (15, 30), (16, 0), (16, 15)]:
+        _scheduler.add_job(
+            _run_microcap_options_auto,
+            CronTrigger(day_of_week="mon-fri", hour=_mc_hour, minute=_mc_min, timezone=_ET),
+            id=f"microcap_options_auto_{_mc_hour}_{_mc_min}",
+            replace_existing=True,
+        )
     # AI Trades auto-generation: Mon-Fri 10:00 AM ET — caches are warm after 9:45 AM morning scan
     def _run_ai_trades_auto():
         try:
@@ -865,10 +867,10 @@ def _run_microcap_options_scan() -> list:
             except Exception:
                 pass
 
-            min_voi  = 2.0
-            min_prem = 20_000 if cap_tier in ("nano", "micro") else 60_000
-            min_vol  = 25
-            max_exp  = 90
+            min_voi  = 1.5
+            min_prem = 5_000 if cap_tier in ("nano", "micro") else 15_000
+            min_vol  = 10
+            max_exp  = 45
 
             opts = tk.options
             if not opts:
@@ -895,7 +897,12 @@ def _run_microcap_options_scan() -> list:
                                 continue
                             bid  = float(row.get("bid") or 0)
                             ask  = float(row.get("ask") or 0)
-                            mid  = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
+                            if bid <= 0 or ask <= 0:
+                                continue
+                            spread_pct = (ask - bid) / ask
+                            if spread_pct > 0.25:
+                                continue
+                            mid  = (bid + ask) / 2
                             prem = int(mid * vol * 100)
                             if prem < min_prem:
                                 continue
@@ -2358,78 +2365,58 @@ def net_flow_single():
 # Curated for liquidity and trading interest — covers NASDAQ, NYSE, AMEX.
 # On small floats even $1-5M net inflow is a strong accumulation signal.
 _MICRO_CAP_UNIVERSE = sorted(set([
-    # ── EV / Clean Energy ──────────────────────────────────────────────────
-    "EVGO","BLNK","CHPT","FCEL","PLUG","NKLA","WKHS","ZEV","PTRA",
-    "GOEV","RIDE","HYLN","MULN","SOLO","MVST","HLBZ","LCID","FFIE",
-    "SOLO","KNDI","AYRO","SHPW","CBAT","CENN","IDAI","TEVN",
-    # ── Space / Defense small-cap ──────────────────────────────────────────
-    "RCAT","LUNR","BBAI","AEVA","SPIR","LIDR","ASTS","MNTS",
-    "VORB","KULR","ATRO","RKLB","SATL","SFET","BWXT","CPI","CODA",
-    "KTOS","LOAR","SLDP","ACHR","JOBY",
-    # ── Biotech / Gene therapy / RNA ───────────────────────────────────────
-    "RCKT","FOLD","DNLI","ARQT","VERA","KYMR","MGNX","SNDX",
-    "PRLD","AXNX","BLUE","NTLA","GOSS","ARVN","IMVT","EDIT",
-    "CRSP","BEAM","FIXX","FATE","ALDX","AGEN","ADAP","AKRO",
-    "APLT","AVXL","BHVN","BLCM","BOLT","BTAI","BXRX","CGEM",
-    "CHRS","CLBS","CMPS","CNCE","CPRX","CRBP","CRIS","CRNX",
-    "CTMX","ENTA","FGEN","FHTX","FLXN","FMTX","FREQ","GBIO",
-    "GERN","GLYC","GRTS","GRTX","HOOK","HRTX","IDRA","IMAB",
-    "IMCR","IMGN","IMTX","INAB","INBX","IOVA","JANX","JNCE",
-    "KALA","KNSA","KPTI","KRTX","KURA","LQDA","MIRM","MNKD",
-    "NVAX","OCGN","ONCT","PACB","PALI","PRAX","SAGE","SAVA",
-    "SGMO","STTK","SYRS","TGTX","TTOO","TYRA","VCNX","VERV",
-    "VSTM","XNCR","RAPT","RXST","TRIL","RCUS","RVMD","SMMT",
-    "VRNA","VYGR","KDNY","ALVO","CELC","NRIX","PLRX","PMVP",
-    "RLMD","SCPH","SURF","SVRA","TDUP","TIRX","UROS","VACC",
-    "VGVS","ZLAB","OMER","ORPH","PTGX","PULM","RIGL","RPRX",
-    "SABS","SILK","SNSE","SPPI","SSTI","TOCA","TRDA","TYME",
-    "XOMA","ZNTH","ACRS","ALEC","AMRX","ANTE","ARMO","AUTL",
-    "BDTX","BFLY","BHAT","BIOR","BJRI","BLPH","CALA","CGEN",
-    "CCCC","CLPT","CODA","COHU","CORT","CSIQ","CTSO","CYCN",
-    "DERM","EPZM","ETNB","FDMT","FBIO","GCBC","GLDD","HARP",
-    "HGEN","HLTH","HMHC","HSKA","IDEX","INFI","INSM","IRWD",
-    "ITCI","ITOS","PCVX","PERL","PHAT","PIRS","PRME","PSTV",
-    "PTCT","QGEN","RCEL","RGLS","RMTI","SEER","SENS","SLNO",
-    "SRNE","STVN","TCDA","TPIC","TRVN","VTVT","ZAFG","AKBA",
-    # ── Growth tech / SaaS small-cap ───────────────────────────────────────
-    "HIMS","OPEN","BYND","LMND","ROOT","COUR","SKIN","PSFE",
-    "BARK","TIGR","ACMR","VNET","WOLF","XPOF","LAUR","PRGO",
-    "GETY","OPAD","ATIP","CERE","JMIA","NOVA","CLOV","PAYO",
-    "DAVE","RELY","MAPS","PRPL","GNUS","MVIS","CELH","SOUN",
-    "CXAI","SMAR","DOMO","PAGS","SPRK","AMPL","BIGC","BRZE",
-    "CFLT","DOCN","DUOL","FROG","GLBE","GTLB","JAMF","LSPD",
-    "MNTV","NCNO","NEWR","OMER","OSPN","PLTR","PSTG","RSKD",
-    "RELY","SDGR","SMAR","SOUN","SPSC","SWAG","TASK","TOST",
-    "TSPX","TTWO","TUYA","UPLD","VRNS","XMTR","YEXT","ZETA",
-    # ── Fintech / Consumer finance ─────────────────────────────────────────
-    "UPST","LC","EEFT","GDOT","INBK","MFIN","NRDS","PRAA",
-    "QFIN","RPAY","SOFI","TREE","CURO","ATLC","EVRI","FLYW",
-    "FUTU","HOOD","JFIN","KATX","LPLA","MGNI","MKTW","NRDS",
-    "OPEN","OPK","PAYSIGN","PFSI","PRAA","RDFN","RDVT","RIOT",
-    "STER","STRS","UWMC","VLTA","WRLD",
-    # ── Consumer / Lifestyle ───────────────────────────────────────────────
-    "SFIX","ACMR","COOK","XPER","PRPL","GNUS","CELH","CENT",
-    "LOVE","LAZR","FLWS","GOED","JILL","LESL","LOVE","MGRX",
-    "MNST","NKLA","OPAD","PAYA","PETZ","PRPL","PUBM","PTON",
-    "RDFN","RENT","RVLV","SAMG","SFIX","SSYS","SWIM","TLRY",
-    "TORRID","TPVG","TPIC","TRTN","TSRI","TTGT","TWST","TYRA",
-    "VLCN","VVOS","WETG","WKME","XELA","XPOF","ZVIA","ZYME",
-    # ── Mining / Rare earths / Commodities ─────────────────────────────────
-    "MP","GATO","MAG","TMST","AEYE","AZEK","CATO","CEIX","CLNE",
-    "CLF","CMP","CORE","CTRA","DUNE","ELEV","FANG","GATO","GFI",
-    "GOLD","HL","HLIO","KORE","MTAL","NOVAGOLD","PAAS","RIO",
-    "SAND","SILV","SVM","TECK","TRQ","UEC","UUUU","WDFC","WFG",
-    # ── Healthcare / Medical devices ───────────────────────────────────────
-    "SILK","INMD","OSUR","AXNX","HSKA","SEER","FLXN","PACB",
-    "ATEC","AMED","AMWL","AXDX","BEAT","CHNG","CLFD","CNMD",
-    "CSTL","DXCM","EHTH","EMED","FRHC","HAIN","HAYW","HMSY",
-    "HOLX","INSP","IPAR","ISEE","KIDS","LHCG","LNTH","MASI",
-    "MCRB","MDCO","MDGL","MDVX","MELI","MGNX","MMSI","MNMD",
-    "NTRA","NVCR","OFIX","OMCL","OPCH","ORGO","OSUR","PDCO",
-    "PETS","PFGC","PGNY","PINC","PRCT","PRTK","QDEL","RGEN",
-    "RLMD","RMBS","RNST","RPAY","RRTS","RXDX","SANA","SDGR",
-    "SEAS","SEER","SENS","SILK","SOLY","SPNE","SRNE","SRTX",
-    "SSYS","STAA","STEP","STGW","SWAV","SXCL","SYBX","SYNH",
+    # ── EV / Mobility / Clean Energy ──────────────────────────────────────
+    "RIVN","LCID","CHPT","BLNK","EVGO","JOBY","ACHR","WKHS","PLUG",
+    "FCEL","BE","STEM","SPWR","NOVA","ARRY","SHLS","HYZN","NKLA",
+    "PTRA","MVST","SLDP","FREYR","KULR","ACMR","CBAT","CENN",
+    # ── Space / Drones / Defense Tech ─────────────────────────────────────
+    "RKLB","ASTS","LUNR","BBAI","KTOS","LOAR","RCAT","MNTS",
+    "SPIR","AEVA","VORB","BWXT","KARO","SATL","SFET","ATRO",
+    # ── AI / Quantum / Small Semis ────────────────────────────────────────
+    "IONQ","QUBT","RGTI","SOUN","QBTS","ARQQ","CRDO","AMBA",
+    "FORM","SITM","NVTS","INDI","LAZR","MVIS","CXAI","AIOT",
+    "OAI","MKFG","MARA","RIOT","CLSK","HUT","BTBT","CIFR",
+    # ── Biotech / Gene Therapy / RNA ──────────────────────────────────────
+    "RXRX","KRYS","VKTX","VERA","ARQT","INSM","IMVT","JANX",
+    "KYMR","RVMD","RCKT","FOLD","DNLI","BLUE","NTLA","CRSP",
+    "BEAM","EDIT","FATE","MNKD","OCGN","NVAX","ARDX","APLT",
+    "AVXL","BHVN","BOLT","CRNX","ENTA","FGEN","FMTX","GBIO",
+    "GERN","HOOK","IMCR","IOVA","KRTX","KURA","MIRM","PACB",
+    "PRAX","SAGE","SAVA","SGMO","STTK","TGTX","TYRA","VERV",
+    "VRNA","CELC","NRIX","RLMD","SURF","ZLAB","SMMT","RVMD",
+    "ALDX","AGEN","ADAP","AKRO","BLCM","CGEM","CNCE","CPRX",
+    "CRNX","GBIO","GLYC","GRTS","HRTX","IDRA","IMGN","INBX",
+    "JNCE","KNSA","KPTI","LQDA","OCGN","ONCT","PALI","RCUS",
+    "ALVO","SVRA","VACC","OMER","PTGX","PULM","RIGL","XNCR",
+    "ACRS","CORT","IRWD","ITCI","PCVX","SEER","SENS","SRNE",
+    "STAA","ZYME","AKBA","AXNX","RPRX","FLXN","ALDX","CYCN",
+    # ── Fintech / Crypto / Trading ────────────────────────────────────────
+    "SOFI","HOOD","UPST","LC","FUTU","AFRM","DAVE","LMND",
+    "ROOT","MGNI","PUBM","EVRI","RELY","OPEN","PFSI","UWMC",
+    "TREE","RPAY","STER","QFIN","JFIN","ATLC","CURO","GDOT",
+    # ── SaaS / Growth Tech ────────────────────────────────────────────────
+    "DUOL","CFLT","GTLB","BRZE","DOCN","DOMO","JAMF","TOST",
+    "YEXT","ZETA","AMPL","NCNO","VRNS","FROG","GLBE","LSPD",
+    "SDGR","BIGC","MNTV","NEWR","OSPN","UPLD","TUYA","SPSC",
+    "TASK","XMTR","SMAR","RSKD","TTWO","PAGS","BARK",
+    # ── Consumer / Lifestyle / Health ─────────────────────────────────────
+    "HIMS","BYND","RVLV","SFIX","LOVE","LESL","XPOF","CLOV",
+    "PRGO","RENT","JMIA","LAUR","COUR","SKIN","PSFE","PTON",
+    "TLRY","CELH","MNST","OPAD","PETZ","RVLV","SWIM","WKME",
+    "GETY","COOK","ATIP","CERE","NOVA","PAYO","GNUS","PRPL",
+    # ── Mining / Commodities / Rare Earths ────────────────────────────────
+    "MP","UUUU","UEC","PAAS","SILV","HL","CLF","TMST","CEIX",
+    "ARCH","AMR","LAC","SLI","LITM","NOVAGOLD","GATO","MAG",
+    "SAND","GFI","TECK","GOLD","CMP","CLNE","AZEK",
+    # ── Healthcare Devices / Diagnostics ──────────────────────────────────
+    "SILK","INMD","OSUR","ATEC","HSKA","FLXN","NTRA","NVCR",
+    "QDEL","RGEN","SWAV","MMSI","INSP","OFIX","OMCL","HAYW",
+    "BEAT","CLFD","CNMD","AXNX","PDCO","PGNY","PRCT","RMBS",
+    "SEAS","SENS","SPNE","SSYS","STEP","HOLX","LNTH","MASI",
+    # ── Momentum / High-Beta Growth ───────────────────────────────────────
+    "WOLF","ACMR","VNET","TIGR","BFLY","NVTS","INDI","SKLZ",
+    "RBLX","SSYS","MVIS","LAZR","SOUN","CXAI","KULR","RCAT",
+    "ASTS","RKLB","LUNR","BBAI","KTOS","ACHR","JOBY","IONQ",
 ]))
 
 
@@ -6694,6 +6681,21 @@ def unusual_calls_microcap():
         return jsonify({"signals": rows, "total": len(rows)})
     except Exception as e:
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
+
+
+@app.route("/stock-api/unusual-calls/microcap/scan", methods=["POST"])
+def unusual_calls_microcap_scan():
+    """Manually trigger a fresh micro/small-cap options scan and save results to DB."""
+    import threading
+    def _bg():
+        try:
+            hits = _run_microcap_options_scan()
+            _save_microcap_calls_to_db(hits)
+            print(f"[microcap_scan] manual trigger → {len(hits)} signals saved")
+        except Exception as e:
+            print(f"[microcap_scan] manual trigger error: {e}")
+    threading.Thread(target=_bg, daemon=True).start()
+    return jsonify({"status": "scan started", "note": "Results will appear in ~60s"})
 
 
 @app.route("/stock-api/unusual-calls-log", methods=["GET"])
