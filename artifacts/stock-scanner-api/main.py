@@ -9216,7 +9216,6 @@ def insider_radar():
                 WHERE prem >= 10000
                   AND first_seen >= NOW() - INTERVAL '90 days'
                 ORDER BY prem DESC
-                LIMIT 500
             """)
             cols    = [d[0] for d in cur.description]
             signals = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -9233,11 +9232,11 @@ def insider_radar():
             """)
             ticker_stats = {r[0]: {"count": r[1], "max_prem": r[2]} for r in cur.fetchall()}
 
-        # Check earnings 90-day window for top tickers — limited to avoid rate limits
+        # Check earnings 90-day window for ALL unique tickers in the DB
         unique_by_prem = sorted(
             {s["ticker"] for s in signals},
             key=lambda t: -(ticker_stats.get(t, {}).get("max_prem", 0))
-        )[:60]
+        )
 
         def _earn_90d(ticker):
             import datetime as _d2
@@ -9269,7 +9268,7 @@ def insider_radar():
             except Exception: return None
 
         earnings_map = {}
-        with _TPE(max_workers=6) as ex:
+        with _TPE(max_workers=12) as ex:
             for r in ex.map(_earn_90d, unique_by_prem):
                 if r: earnings_map[r["ticker"]] = r
 
