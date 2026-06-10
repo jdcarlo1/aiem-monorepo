@@ -555,6 +555,17 @@ DEFAULT_LEADERBOARD = [
     "VLY","VMEO","VMI","VMW","VNE","VNRX","VNTR","VOLT","VONG","VONV",
     "VOYA","VRA","VRAI","VRCA",
     "Z","ZEUS","ZGNX","ZION","ZIXI",
+    # Batch 17 — Alphabetical master list A-section June 10 2026
+    "AAMC","AAT","AAWW","ABCB","ABMD","ABO","ACC","ACCD","ACCO","ACGL",
+    "ACIW","ACNB","ACOR","ACRS","ACRX","ACVA","ADCT","ADES","ADIL","ADM",
+    "ADMP","ADMS","ADNT","ADOM","ADRO","ADS","ADVX","AE","AEE","AEGN",
+    "AEHR","AEIS","AEL","AEMD","AEO","AEY","AEYE","AEZS","AFG","AFIB",
+    "AFNT","AFYA","AGE","AGFS","AGLE","AGO","AGRO","AGRX","AGS","AHCO",
+    "AHL","AHR","AHT","AIN","AIR","AIRC","AIZ","AJRD","AJX","AKTS",
+    "AL","ALC","ALCC","ALCO","ALG","ALIT","ALKS","ALLE","ALLK","ALLO",
+    "ALLR","ALOT","ALRM","ALRN","ALRS","ALSA","ALSN","ALTA","ALTR","ALTV",
+    "ALX","AM","AMAL","AMBC","AMCR","AME","AMEH","AMKR","AMN","AMNB",
+    "AMOT","AMP","AMPE","AMPN","AMPS","AMRC","AMRK","AMRS",
 ]
 
 # Deduplicate while preserving order
