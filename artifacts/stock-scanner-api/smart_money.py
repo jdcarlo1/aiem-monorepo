@@ -371,6 +371,8 @@ DEFAULT_LEADERBOARD = [
     "PPIH", "ZEPP", "MENS", "SFTBY",
     # ── Watchlist batch 7 ────────────────────────────────────────────────────
     "PXLW", "SQNS", "FTFT", "ATHR", "DPRO", "TGEN",
+    # ── Watchlist batch 8 ────────────────────────────────────────────────────
+    "ASML", "BABA", "CEG", "PBR",
 ]
 
 # Deduplicate while preserving order
