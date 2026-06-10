@@ -600,6 +600,8 @@ DEFAULT_LEADERBOARD = [
     "TWFG","WTFC","XMTR",
     # Batch 26 — composite ETF list June 10 2026
     "ATC","CBI","FLEX","HLI","HZNP",
+    # Batch 27 — IFRA ETF holdings June 10 2026
+    "FNV","HOS","INFA","POM","SAFM","SIE",
 ]
 
 # Deduplicate while preserving order
