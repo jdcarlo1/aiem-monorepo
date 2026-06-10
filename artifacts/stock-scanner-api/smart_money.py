@@ -333,6 +333,19 @@ DEFAULT_LEADERBOARD = [
     "ZSPC", "SAPMY", "SKE", "SOS", "OROVY",
     "WCPRF", "STIM", "DTI", "RFIL", "TAOX",
     "CMCL", "SES", "NOG", "GEOS", "FPS", "AZLCZ",
+    # ── Watchlist additions from screenshots (batch 3) ────────────────────────
+    "ZOOZ", "LPTH", "FLYX", "UPXI", "IH", "ASPI",
+    "NEGG", "VWAV", "BZAI", "TDTH", "BGL", "AXIL", "BTDR",
+    "DFSC", "DEFT", "OPAD", "ABTC", "HMR", "CTGO",
+    "GROY", "BELFA", "KWHIY", "SMWB", "ENSG", "SCOR", "SEB",
+    "FNGR", "IPX", "REI", "FLOC", "IIIV",
+    "KGS", "HBRIY", "PRLB", "AETUF", "IMA",
+    "VTSI", "RYCEY", "BNC", "WTM", "RERE", "WTTR",
+    "ACFN", "STEM", "BEEP", "VEOEY", "NCSM", "BSM",
+    "CSPI", "GFI", "PPTA", "CGAU", "DIOD",
+    "BLSH", "MWH", "RDVT", "IESC", "REPYY", "CNX", "JAZZ",
+    "NXPI", "ASX", "AIFU", "U", "MARUF", "IOT",
+    "CRCL", "ALVOF", "BLNE", "VIA", "PSIX",
 ]
 
 # Deduplicate while preserving order
