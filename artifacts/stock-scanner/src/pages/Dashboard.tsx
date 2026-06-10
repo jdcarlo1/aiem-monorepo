@@ -8714,9 +8714,9 @@ function MorningStandoutBanner({ onNavigate }: { onNavigate: () => void }) {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    const now = new Date();
-    const h = now.getHours(), m = now.getMinutes();
-    const etMin = h * 60 + m;
+    // Use ET timezone regardless of user's local clock
+    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const etMin = etNow.getHours() * 60 + etNow.getMinutes();
     if (etMin < 9 * 60 + 30 || etMin > 14 * 60) return;
     fetchMorningInflows().then(setData).catch(() => {});
     const t = setInterval(() => fetchMorningInflows().then(setData).catch(() => {}), 900_000);

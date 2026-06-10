@@ -9460,7 +9460,7 @@ def morning_inflows():
         "total_found": len(results),
         "scanned":     len(universe),
         "generated_at": _dt_mi.datetime.now().strftime("%I:%M %p ET"),
-        "criteria":    "price ≥+5% · volume ≥3× avg · flow ratio ≥2:1",
+        "criteria":    "price ≥+5% · projected vol ≥5× avg (first 30 min) · flow ratio ≥2:1",
     }
     app._mi_cache    = out
     app._mi_cache_ts = _dt_mi.datetime.now()
