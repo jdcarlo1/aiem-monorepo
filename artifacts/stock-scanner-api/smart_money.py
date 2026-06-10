@@ -296,6 +296,25 @@ DEFAULT_LEADERBOARD = [
     "NWN", "SWX",
     # ── Utilities — water ────────────────────────────────────────────────────
     "AWK", "WTRG", "AWR", "MSEX", "SJW", "ARTNA", "CWCO", "RGCO",
+    # ── Transportation — airlines ─────────────────────────────────────────────
+    "AAL", "DAL", "UAL", "LUV", "MESA", "HA",
+    # ── Transportation — cruise lines ─────────────────────────────────────────
+    "RCL", "CCL", "NCLH",
+    # ── Transportation — trucking / freight ───────────────────────────────────
+    "SAIA", "KNX", "MRTN", "HTLD", "ARCB", "TFII", "GXO",
+    # ── Transportation — rail (non-US) ────────────────────────────────────────
+    "CNI", "CP",
+    # ── Transportation — car rental ───────────────────────────────────────────
+    "CAR",
+    # ── Transportation — maritime / shipping ──────────────────────────────────
+    "MATX", "SBLK", "GOGL", "EGLE", "ZIM", "DAC", "CMRE", "TRMD", "HAFN",
+    # ── Entertainment — gaming / casinos ─────────────────────────────────────
+    "BYD", "RRR", "CHDN", "DKNG", "SRAD",
+    "GLPI", "EPR",
+    # ── Entertainment — sports / events / media ───────────────────────────────
+    "MSGS", "MSGE", "SPOT", "SIRI", "FUBO", "SEAS", "FUN",
+    # ── Hotels — branded operators ───────────────────────────────────────────
+    "H", "WH", "IHG", "VAC", "TNL", "PLYA", "BHR",
 ]
 
 # Deduplicate while preserving order
