@@ -369,6 +369,8 @@ DEFAULT_LEADERBOARD = [
     "CTOS", "BLX", "IMAX", "CPAY", "DOMH", "BVN", "FCFS",
     "BWLP", "LVMUY", "PUBM", "BE", "PLOW",
     "PPIH", "ZEPP", "MENS", "SFTBY",
+    # ── Watchlist batch 7 ────────────────────────────────────────────────────
+    "PXLW", "SQNS", "FTFT", "ATHR", "DPRO", "TGEN",
 ]
 
 # Deduplicate while preserving order
