@@ -610,6 +610,8 @@ DEFAULT_LEADERBOARD = [
     "HASI","HR","INXN","IRM","IVR","KRG","NPI","NRI","ORA","PSB",
     "QTS","RAC","RFI","RIT","RWT","SMU","SRC","SUN","VRE","WPG",
     "WRE","WRI",
+    # Batch 30 — European bank ADRs June 10 2026
+    "AEG","ING","LYG","NWG","UBS",
 ]
 
 # Deduplicate while preserving order
