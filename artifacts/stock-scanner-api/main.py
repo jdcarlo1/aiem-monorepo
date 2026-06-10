@@ -6601,9 +6601,38 @@ def unusual_calls():
             except Exception: pass
             return hits
 
+        # Check DB for today's data first — avoids a slow live scan if we already have results
+        try:
+            with _psycopg2.connect(_DB_URL) as _pre_conn, _pre_conn.cursor() as _pre_cur:
+                _pre_cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry, days_out,
+                           volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                           iv::float, urgency
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL '2 hours'
+                      AND vol_oi >= 3
+                      AND prem >= 500000
+                    ORDER BY vol_oi DESC LIMIT 80
+                """)
+                _today_rows = _pre_cur.fetchall()
+            if len(_today_rows) >= 5:
+                _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency"]
+                all_hits = []
+                for _row in _today_rows:
+                    _d = dict(zip(_cols, _row))
+                    _d["is_etf"] = _d["ticker"] in _ETF_SET
+                    all_hits.append(_d)
+                out = {"hits": all_hits, "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
+                app._unusual_calls_cache    = out
+                app._unusual_calls_cache_ts = _dt.now()
+                return jsonify(out)
+        except Exception:
+            pass
+
+        # Live scan — focused on top 300 most liquid tickers (fastest to complete, highest signal quality)
         all_hits = []
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            futures = {ex.submit(_scan_unusual, t): t for t in DEFAULT_LEADERBOARD}
+        with ThreadPoolExecutor(max_workers=20) as ex:
+            futures = {ex.submit(_scan_unusual, t): t for t in DEFAULT_LEADERBOARD[:300]}
             for fut in as_completed(futures):
                 all_hits.extend(fut.result() or [])
 
