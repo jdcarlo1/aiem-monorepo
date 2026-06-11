@@ -553,6 +553,83 @@ try:
             replace_existing=True,
         )
 
+    def _run_eod_outcomes():
+        """
+        Runs at 4:15 PM ET Mon-Fri.
+        Fetches final OHLC for every ticker flagged in today's scan_history,
+        then writes to eod_outcomes so we can analyze signal accuracy over time.
+        """
+        try:
+            import datetime as _dt_eod
+            import yfinance as _yf_eod
+            import psycopg2 as _pg_eod
+            _today = _dt_eod.date.today().isoformat()
+            with _pg_eod.connect(_DB_URL) as _c, _c.cursor() as _cu:
+                # Get unique tickers flagged today with their best standout_score + fade_risk
+                _cu.execute("""
+                    SELECT DISTINCT ON (ticker)
+                        ticker, fade_risk, standout_score, price AS open_price
+                    FROM scan_history
+                    WHERE scan_date = %s
+                    ORDER BY ticker, rank_in_scan ASC
+                """, (_today,))
+                _rows = _cu.fetchall()
+            if not _rows:
+                print(f"[eod_outcomes] no scan_history rows for {_today}, skipping")
+                return
+            _tickers = [r[0] for r in _rows]
+            _meta = {r[0]: {"fade_risk": r[1], "standout_score": float(r[2] or 0), "open_price": float(r[3] or 0)} for r in _rows}
+            # Fetch EOD data from yfinance
+            _dl = _yf_eod.download(
+                " ".join(_tickers), period="1d", interval="1d",
+                auto_adjust=True, progress=False
+            )
+            with _pg_eod.connect(_DB_URL) as _c2, _c2.cursor() as _cu2:
+                _saved = 0
+                for _tk in _tickers:
+                    try:
+                        if len(_tickers) == 1:
+                            _o = float(_dl["Open"].iloc[-1])
+                            _c_px = float(_dl["Close"].iloc[-1])
+                            _h = float(_dl["High"].iloc[-1])
+                            _l = float(_dl["Low"].iloc[-1])
+                        else:
+                            _o = float(_dl["Open"][_tk].iloc[-1])
+                            _c_px = float(_dl["Close"][_tk].iloc[-1])
+                            _h = float(_dl["High"][_tk].iloc[-1])
+                            _l = float(_dl["Low"][_tk].iloc[-1])
+                        _open_ref = _meta[_tk]["open_price"] or _o
+                        _o2c = round((_c_px - _open_ref) / _open_ref * 100, 2) if _open_ref else None
+                        _o2h = round((_h - _open_ref) / _open_ref * 100, 2) if _open_ref else None
+                        _cu2.execute("""
+                            INSERT INTO eod_outcomes
+                                (trade_date, ticker, open_price, close_price, high_price, low_price,
+                                 open_to_close_pct, open_to_high_pct, fade_risk_signal, standout_score)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (trade_date, ticker) DO UPDATE
+                                SET close_price=EXCLUDED.close_price,
+                                    high_price=EXCLUDED.high_price,
+                                    low_price=EXCLUDED.low_price,
+                                    open_to_close_pct=EXCLUDED.open_to_close_pct,
+                                    open_to_high_pct=EXCLUDED.open_to_high_pct,
+                                    fetched_at=NOW()
+                        """, (_today, _tk, _open_ref, _c_px, _h, _l, _o2c, _o2h,
+                              _meta[_tk]["fade_risk"], _meta[_tk]["standout_score"]))
+                        _saved += 1
+                    except Exception as _te:
+                        print(f"[eod_outcomes] {_tk}: {_te}")
+                _c2.commit()
+            print(f"[eod_outcomes] saved {_saved}/{len(_tickers)} outcomes for {_today}")
+        except Exception as _e_eod:
+            print(f"[eod_outcomes] error: {_e_eod}")
+
+    _scheduler.add_job(
+        _run_eod_outcomes,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
+        id="eod_outcomes_fetcher",
+        replace_existing=True,
+    )
+
     _scheduler.start()
     print("[scheduler] APScheduler started — "
           "scans: 9:00/9:45 AM, 3:30/4:00/4:05/4:15 PM ET | "
@@ -9663,6 +9740,39 @@ def morning_inflows():
             print(f"[morning_inflows] persisted {len(results)} standouts to DB for {_today_mi2}")
         except Exception as _dbe_mi2:
             print(f"[morning_inflows] db save error: {_dbe_mi2}")
+
+    # ── Save individual ticker rows to scan_history for analysis ────────────
+    if results and _DB_URL:
+        try:
+            import json as _json_sh
+            _scan_ts = _dt_mi.datetime.now()
+            _scan_date = _scan_ts.date().isoformat()
+            with _psycopg2.connect(_DB_URL) as _c_sh, _c_sh.cursor() as _cu_sh:
+                for _rank, _r in enumerate(results, 1):
+                    _cu_sh.execute("""
+                        INSERT INTO scan_history
+                            (scan_time, scan_date, ticker, price, prev_close,
+                             price_chg_pct, gap_pct, momentum_open, exhaustion_ratio,
+                             fade_risk, rel_vol, today_vol, avg_vol,
+                             inflow_m, outflow_m, net_m, flow_ratio,
+                             standout_score, mkt_cap_m, rank_in_scan)
+                        VALUES
+                            (%s, %s, %s, %s, %s,
+                             %s, %s, %s, %s,
+                             %s, %s, %s, %s,
+                             %s, %s, %s, %s,
+                             %s, %s, %s)
+                    """, (
+                        _scan_ts, _scan_date, _r["ticker"], _r.get("price"), _r.get("prev_close"),
+                        _r.get("price_chg_pct"), _r.get("gap_pct"), _r.get("momentum_open"), _r.get("exhaustion_ratio"),
+                        _r.get("fade_risk"), _r.get("rel_vol"), _r.get("today_vol"), _r.get("avg_vol"),
+                        _r.get("inflow_m"), _r.get("outflow_m"), _r.get("net_m"), _r.get("flow_ratio"),
+                        _r.get("standout_score"), _r.get("mkt_cap_m"), _rank
+                    ))
+                _c_sh.commit()
+            print(f"[scan_history] saved {len(results)} ticker rows for {_scan_date}")
+        except Exception as _e_sh:
+            print(f"[scan_history] save error: {_e_sh}")
     elif bust and not results and _DB_URL:
         # Bust/refresh after hours — don't replace good morning data with 0 results.
         # Fall back to today's DB data if it exists.
