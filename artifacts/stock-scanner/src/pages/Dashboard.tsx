@@ -11671,6 +11671,54 @@ function ShortSqueezeTab() {
                   </div>
 
                 </div>
+
+                {/* Pre-ignition historical squeeze signals */}
+                <div style={{ padding: "10px 16px", borderTop: "1px solid rgba(51,65,85,0.4)",
+                  background: "rgba(10,15,30,0.6)" }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: "#334155",
+                    letterSpacing: 1, marginBottom: 7 }}>
+                    ⚡ PRE-IGNITION SIGNALS
+                    <span style={{ marginLeft: 8, fontWeight: 400,
+                      color: c.pre_ignition_count >= 4 ? "#ef4444"
+                           : c.pre_ignition_count >= 3 ? "#f97316"
+                           : c.pre_ignition_count >= 2 ? "#fbbf24" : "#475569" }}>
+                      {c.pre_ignition_count}/5 firing
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {([
+                      [c.obv_divergence,          "OBV DIVERGING",          "big $ accumulating in silence"],
+                      [c.macd_bullish,             "MACD CROSSING UP",       "momentum shifting to buyers"],
+                      [c.bb_squeeze_releasing,     "BB SQUEEZE RELEASING",   "volatility coil exploding"],
+                      [c.buyers_dominant,          "BUYERS OWN THE VOLUME",  `${c.up_vol_ratio != null ? (c.up_vol_ratio * 100).toFixed(0) : "—"}% of vol on up-days`],
+                      [c.above_sma20 && c.sma20_rising, "SMA-20 FLOOR HOLDS", `${c.sma20_val != null ? "$" + c.sma20_val.toFixed(2) : ""} rising`],
+                    ] as [boolean, string, string][]).map(([active, label, sub]) => (
+                      <div key={label} title={sub} style={{
+                        display: "flex", alignItems: "center", gap: 4,
+                        padding: "4px 9px",
+                        borderRadius: 99,
+                        border: `1px solid ${active ? "rgba(74,222,128,0.4)" : "rgba(51,65,85,0.3)"}`,
+                        background: active ? "rgba(74,222,128,0.08)" : "rgba(15,23,42,0.4)",
+                        opacity: active ? 1 : 0.4,
+                      }}>
+                        <span style={{ fontSize: 8, color: active ? "#22c55e" : "#64748b" }}>
+                          {active ? "●" : "○"}
+                        </span>
+                        <span style={{ fontSize: 9, fontWeight: active ? 700 : 400,
+                          color: active ? "#4ade80" : "#475569" }}>
+                          {label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {c.pre_ignition_count >= 4 && (
+                    <div style={{ marginTop: 8, fontSize: 10, fontWeight: 700,
+                      color: "#ef4444", letterSpacing: 0.5 }}>
+                      🚀 {c.pre_ignition_count === 5 ? "ALL 5" : "4"} PRE-IGNITION SIGNALS FIRING — historically the highest-probability squeeze setup
+                    </div>
+                  )}
+                </div>
+
               </div>
             );
           })}

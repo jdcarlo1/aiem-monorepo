@@ -10002,8 +10002,8 @@ def _get_short_data(ticker):
         _sf_sd  = _fi_sd.get("shortPercentOfFloat")
         _dtc_sd = _fi_sd.get("shortRatio")
 
-        # 35 days of daily OHLCV — enough for 20d avg vol + 15d range + RSI-14
-        _h = _tk_sd.history(period="35d", interval="1d")
+        # 60 days of daily OHLCV — enough for MACD(26), OBV(10), BB(20), SMA(20), RSI(14)
+        _h = _tk_sd.history(period="60d", interval="1d")
         if _h is None or len(_h) < 5:
             return {"short_float": None, "days_to_cover": None, "avwap_5d": None,
                     "above_avwap": None, "current_price": None, "price_chg_pct": None,
@@ -10075,28 +10075,155 @@ def _get_short_data(ticker):
             _al = sum(_l[-14:]) / 14.0
             _rsi = round(100.0 if _al == 0 else 100.0 - 100.0 / (1.0 + _ag / _al), 1)
 
+        # ── Helper: Exponential Moving Average ───────────────────────────────
+        def _ema_calc(prices, period):
+            k = 2.0 / (period + 1)
+            e = float(prices[0])
+            for p in prices[1:]:
+                e = float(p) * k + e * (1 - k)
+            return e
+
+        # ── MACD (12/26/9) — momentum shift signal ───────────────────────────
+        # Historically: MACD histogram turning positive after flat/negative base
+        # = trend changing hands from sellers to buyers right before the explosion
+        _macd_histogram = None
+        _macd_bullish    = False
+        if len(_closes) >= 30:
+            _macd_line_series = []
+            for _mi in range(9, len(_closes)):
+                _e12 = _ema_calc(_closes[max(0, _mi - 26):_mi + 1], 12)
+                _e26 = _ema_calc(_closes[max(0, _mi - 26):_mi + 1], 26)
+                _macd_line_series.append(_e12 - _e26)
+            if len(_macd_line_series) >= 9:
+                _sig = _ema_calc(_macd_line_series[-9:], 9)
+                _macd_histogram = round(_macd_line_series[-1] - _sig, 4)
+                _prev_hist = (_ema_calc(_macd_line_series[-10:-1], 9)
+                              if len(_macd_line_series) >= 10 else _sig)
+                _macd_bullish = bool(
+                    _macd_histogram > 0
+                    and (_macd_histogram > (_macd_line_series[-2] - _prev_hist))
+                )
+
+        # ── OBV Divergence — silent accumulation pre-squeeze ─────────────────
+        # Price going sideways while OBV climbs = big money quietly accumulating
+        # while shorts think nothing is happening. Classic pre-GME / pre-AMC signal.
+        _obv_divergence  = False
+        _obv_trend_score = 0.0  # positive = accumulation, negative = distribution
+        if len(_closes) >= 11:
+            _obv = 0.0
+            _obv_series = [0.0]
+            for _oi in range(1, len(_closes)):
+                if _closes[_oi] > _closes[_oi - 1]:
+                    _obv += _vols[_oi]
+                elif _closes[_oi] < _closes[_oi - 1]:
+                    _obv -= _vols[_oi]
+                _obv_series.append(_obv)
+            # 10-day OBV change vs price change — divergence = pre-squeeze signal
+            _obv_chg10  = (_obv_series[-1] - _obv_series[-11]) / (abs(_obv_series[-11]) + 1)
+            _px_chg10   = (_closes[-1] - _closes[-11]) / (_closes[-11] + 1e-9)
+            _obv_trend_score = round(float(_obv_chg10 - _px_chg10), 4)
+            _obv_divergence  = bool(_obv_trend_score > 0.05 and _px_chg10 < 0.15)
+
+        # ── Bollinger Band Squeeze releasing ─────────────────────────────────
+        # Volatility compresses for days/weeks (BB narrows), then starts expanding.
+        # The moment BB starts widening after a tight squeeze = explosion incoming.
+        # This is John Carter's TTM Squeeze core concept applied to pre-squeeze detection.
+        _bb_squeeze_was_on   = False
+        _bb_squeeze_releasing = False
+        if len(_closes) >= 25:
+            # Current BB width
+            _sma20_now = float(_closes[-20:].mean())
+            _std20_now = float(_closes[-20:].std())
+            _bb_w_now  = 4 * _std20_now  # 2× band = 4σ total width
+            # BB width 7 trading days ago
+            _sma20_7d  = float(_closes[-27:-7].mean()) if len(_closes) >= 27 else _sma20_now
+            _std20_7d  = float(_closes[-27:-7].std())  if len(_closes) >= 27 else _std20_now
+            _bb_w_7d   = 4 * _std20_7d
+            # Squeeze was on = BB was unusually narrow
+            _bb_norm   = _bb_w_now / (_sma20_now + 1e-9)  # relative width
+            _bb_squeeze_was_on = bool(_bb_norm < 0.12)  # <12% of price = compressed
+            # Now releasing = BB is expanding vs recent narrow period
+            _bb_squeeze_releasing = bool(
+                _bb_w_now > _bb_w_7d * 1.08  # expanding >8% from recent tight period
+                and _bb_norm < 0.20           # still within a squeeze-like context
+            )
+
+        # ── Up-day volume dominance ───────────────────────────────────────────
+        # Over last 10 sessions: compare total volume on up-days vs down-days.
+        # When buyers command >60% of volume for multiple days while price is flat,
+        # shorts are losing the battle — classic pre-squeeze exhaustion signal.
+        _up_vol_ratio = None
+        _buyers_dominant = False
+        if len(_closes) >= 11:
+            _up_v = sum(_vols[-10:][_i] for _i in range(10) if _closes[-10 + _i] > _closes[-11 + _i])
+            _dn_v = sum(_vols[-10:][_i] for _i in range(10) if _closes[-10 + _i] < _closes[-11 + _i])
+            _tv = _up_v + _dn_v
+            if _tv > 0:
+                _up_vol_ratio = round(_up_v / _tv, 3)
+                _buyers_dominant = bool(_up_vol_ratio > 0.60)
+
+        # ── SMA-20 as floor (shorts can't break it down) ─────────────────────
+        # Price tested the 20-day SMA multiple times but keeps bouncing.
+        # SMA20 also sloping up = trend intact, shorts are trapped at higher levels.
+        _above_sma20  = False
+        _sma20_rising = False
+        _sma20_val    = None
+        if len(_closes) >= 25:
+            _sma20_val    = round(float(_closes[-20:].mean()), 2)
+            _sma20_5d_ago = float(_closes[-25:-5].mean())
+            _above_sma20  = bool(_cpx > _sma20_val)
+            _sma20_rising = bool(_sma20_val > _sma20_5d_ago)
+
+        # ── Count pre-ignition signals firing ────────────────────────────────
+        _pre_ignition_count = sum([
+            _obv_divergence,
+            _macd_bullish,
+            _bb_squeeze_releasing,
+            _buyers_dominant,
+            bool(_above_sma20 and _sma20_rising),
+        ])
+
         return {
-            "short_float":         round(float(_sf_sd) * 100, 1) if _sf_sd else None,
-            "days_to_cover":       round(float(_dtc_sd), 1) if _dtc_sd else None,
-            "current_price":       round(_cpx, 2),
-            "price_chg_pct":       _chg,
-            "closing_range_today": _cr,
-            "vol_ratio_20d":       _vol_ratio,
-            "new_high_15d":        _new_high_15d,
-            "range_pct_15d":       _range_pct_15d,
-            "was_consolidating":   _was_coiling,
-            "avwap_5d":            round(_avwap5, 2) if _avwap5 else None,
-            "above_avwap":         _above5,
-            "avwap_20d":           round(_avwap20, 2) if _avwap20 else None,
-            "above_avwap_20d":     _above20,
-            "rsi_14":              _rsi,
+            "short_float":              round(float(_sf_sd) * 100, 1) if _sf_sd else None,
+            "days_to_cover":            round(float(_dtc_sd), 1) if _dtc_sd else None,
+            "current_price":            round(_cpx, 2),
+            "price_chg_pct":            _chg,
+            "closing_range_today":      _cr,
+            "vol_ratio_20d":            _vol_ratio,
+            "new_high_15d":             _new_high_15d,
+            "range_pct_15d":            _range_pct_15d,
+            "was_consolidating":        _was_coiling,
+            "avwap_5d":                 round(_avwap5, 2) if _avwap5 else None,
+            "above_avwap":              _above5,
+            "avwap_20d":               round(_avwap20, 2) if _avwap20 else None,
+            "above_avwap_20d":          _above20,
+            "rsi_14":                   _rsi,
+            # ── Pre-ignition historical squeeze signals ───────────────────────
+            "obv_divergence":           _obv_divergence,
+            "obv_trend_score":          _obv_trend_score,
+            "macd_histogram":           _macd_histogram,
+            "macd_bullish":             _macd_bullish,
+            "bb_squeeze_was_on":        _bb_squeeze_was_on,
+            "bb_squeeze_releasing":     _bb_squeeze_releasing,
+            "up_vol_ratio":             _up_vol_ratio,
+            "buyers_dominant":          _buyers_dominant,
+            "above_sma20":              _above_sma20,
+            "sma20_rising":             _sma20_rising,
+            "sma20_val":                _sma20_val,
+            "pre_ignition_count":       _pre_ignition_count,
         }
     except Exception:
         return {"short_float": None, "days_to_cover": None, "avwap_5d": None,
                 "above_avwap": None, "current_price": None, "price_chg_pct": None,
                 "vol_ratio_20d": None, "new_high_15d": False, "range_pct_15d": None,
                 "was_consolidating": False, "closing_range_today": None,
-                "avwap_20d": None, "above_avwap_20d": None, "rsi_14": None}
+                "avwap_20d": None, "above_avwap_20d": None, "rsi_14": None,
+                "obv_divergence": False, "obv_trend_score": 0.0,
+                "macd_histogram": None, "macd_bullish": False,
+                "bb_squeeze_was_on": False, "bb_squeeze_releasing": False,
+                "up_vol_ratio": None, "buyers_dominant": False,
+                "above_sma20": False, "sma20_rising": False,
+                "sma20_val": None, "pre_ignition_count": 0}
 
 
 @app.route("/stock-api/eod-accumulation", methods=["GET"])
@@ -10597,40 +10724,62 @@ def short_squeeze_radar():
             # Gate 5: reclaiming the 5-day anchored VWAP (institutional level)
             if not sd.get("above_avwap"):          return None
 
-            dtc  = sd.get("days_to_cover") or 0
-            coil = sd.get("was_consolidating") or False
-            cr   = sd.get("closing_range_today") or 0
-            a20  = sd.get("above_avwap_20d") or False
-            rsi  = sd.get("rsi_14") or 50
+            dtc   = sd.get("days_to_cover") or 0
+            coil  = sd.get("was_consolidating") or False
+            cr    = sd.get("closing_range_today") or 0
+            a20   = sd.get("above_avwap_20d") or False
+            rsi   = sd.get("rsi_14") or 50
+            obv_d = sd.get("obv_divergence") or False
+            macd_b = sd.get("macd_bullish") or False
+            bb_r  = sd.get("bb_squeeze_releasing") or False
+            buy_d = sd.get("buyers_dominant") or False
+            sma_f = bool(sd.get("above_sma20") and sd.get("sma20_rising"))
+            pre_n = sd.get("pre_ignition_count") or 0
 
-            # ── Active Squeeze Score — reflects HOW HOT this squeeze is ─────
+            # ── Active Squeeze Score ─────────────────────────────────────────
+            # Core gates score (max 75):
+            #   short fuel (20) + vol explosion (25) + price momentum (20) + coil (10)
+            # Pre-ignition bonus (max 25):
+            #   OBV divergence (6) + MACD crossover (6) + BB squeeze (6) + buyers winning (4) + SMA floor (3)
             squeeze_score = round(
-                min(sf * 0.4, 20)             # short fuel         (max 20)
-                + min((vol - 2.0) * 10, 25)   # vol explosion      (max 25)
-                + min(chg * 2.0, 20)          # price momentum     (max 20)
-                + (15 if coil else 0)          # coil breakout      (+15)
-                + (10 if a20 else 0)           # above 20d AVWAP    (+10)
-                + min(cr * 8, 8)              # holding near HOD   (max 8)
-                + min(dtc * 0.4, 2),          # DTC pressure       (max 2)
+                min(sf * 0.4, 20)             # short fuel              (max 20)
+                + min((vol - 2.0) * 10, 25)   # volume explosion        (max 25)
+                + min(chg * 2.0, 20)          # price momentum          (max 20)
+                + (10 if coil else 0)          # was coiling pre-break   (+10)
+                + (6  if obv_d else 0)         # OBV accumulation        (+6)
+                + (6  if macd_b else 0)        # MACD histogram positive (+6)
+                + (6  if bb_r else 0)          # BB squeeze releasing    (+6)
+                + (4  if buy_d else 0)         # buyers dominating vol   (+4)
+                + (3  if sma_f else 0),        # holding above SMA-20    (+3)
                 1
             )
             return {
-                "ticker":              ticker,
-                "short_float":         sf,
-                "days_to_cover":       sd.get("days_to_cover"),
-                "above_avwap":         sd.get("above_avwap"),
-                "above_avwap_20d":     a20,
-                "avwap_5d":            sd.get("avwap_5d"),
-                "avwap_20d":           sd.get("avwap_20d"),
-                "current_price":       sd.get("current_price"),
-                "price_chg_pct":       chg,
-                "vol_ratio_20d":       vol,
-                "new_high_15d":        True,
-                "range_pct_15d":       sd.get("range_pct_15d"),
-                "was_consolidating":   coil,
-                "closing_range_today": cr,
-                "rsi_14":              rsi,
-                "squeeze_score":       squeeze_score,
+                "ticker":                ticker,
+                "short_float":           sf,
+                "days_to_cover":         sd.get("days_to_cover"),
+                "above_avwap":           sd.get("above_avwap"),
+                "above_avwap_20d":       a20,
+                "avwap_5d":              sd.get("avwap_5d"),
+                "avwap_20d":             sd.get("avwap_20d"),
+                "current_price":         sd.get("current_price"),
+                "price_chg_pct":         chg,
+                "vol_ratio_20d":         vol,
+                "new_high_15d":          True,
+                "range_pct_15d":         sd.get("range_pct_15d"),
+                "was_consolidating":     coil,
+                "closing_range_today":   cr,
+                "rsi_14":                rsi,
+                "obv_divergence":        obv_d,
+                "macd_bullish":          macd_b,
+                "macd_histogram":        sd.get("macd_histogram"),
+                "bb_squeeze_releasing":  bb_r,
+                "up_vol_ratio":          sd.get("up_vol_ratio"),
+                "buyers_dominant":       buy_d,
+                "above_sma20":           sd.get("above_sma20"),
+                "sma20_rising":          sd.get("sma20_rising"),
+                "sma20_val":             sd.get("sma20_val"),
+                "pre_ignition_count":    pre_n,
+                "squeeze_score":         squeeze_score,
             }
 
         _cands_sq: list = []

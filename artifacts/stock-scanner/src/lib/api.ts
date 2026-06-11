@@ -1704,6 +1704,16 @@ export interface ShortSqueezeResult {
   was_consolidating: boolean;
   closing_range_today: number | null;
   rsi_14: number | null;
+  obv_divergence: boolean;
+  macd_bullish: boolean;
+  macd_histogram: number | null;
+  bb_squeeze_releasing: boolean;
+  up_vol_ratio: number | null;
+  buyers_dominant: boolean;
+  above_sma20: boolean;
+  sma20_rising: boolean;
+  sma20_val: number | null;
+  pre_ignition_count: number;
   squeeze_score: number;
 }
 export interface ShortSqueezeData {
