@@ -9920,54 +9920,76 @@ def morning_inflows():
     # Fewer results at 9:45 means stocks faded — that IS the correct picture.
     # Always write the most recent scan so the DB never shows stale winners.
     if results and _DB_URL:
-        try:
-            import json as _json_mi2
-            _today_mi2 = _dt_mi.date.today().isoformat()
-            with _psycopg2.connect(_DB_URL) as _c_mi2, _c_mi2.cursor() as _cu_mi2:
-                _cu_mi2.execute("""
-                    INSERT INTO morning_inflows_cache (scan_date, payload)
-                    VALUES (%s, %s::jsonb)
-                    ON CONFLICT (scan_date) DO UPDATE
-                        SET payload  = EXCLUDED.payload,
-                            saved_at = NOW()
-                """, (_today_mi2, _json_mi2.dumps(out)))
-                _c_mi2.commit()
-            print(f"[morning_inflows] persisted {len(results)} standouts to DB for {_today_mi2}")
-        except Exception as _dbe_mi2:
-            print(f"[morning_inflows] db save error: {_dbe_mi2}")
+        import json as _json_mi2
+        import time as _time_mi2
+        _today_mi2 = _dt_mi.date.today().isoformat()
+        for _attempt_mi2 in range(3):
+            try:
+                with _psycopg2.connect(_DB_URL) as _c_mi2, _c_mi2.cursor() as _cu_mi2:
+                    _cu_mi2.execute("""
+                        INSERT INTO morning_inflows_cache (scan_date, payload)
+                        VALUES (%s, %s::jsonb)
+                        ON CONFLICT (scan_date) DO UPDATE
+                            SET payload  = EXCLUDED.payload,
+                                saved_at = NOW()
+                    """, (_today_mi2, _json_mi2.dumps(out)))
+                    _c_mi2.commit()
+                print(f"[morning_inflows] persisted {len(results)} standouts to DB for {_today_mi2}")
+                break
+            except Exception as _dbe_mi2:
+                if _attempt_mi2 < 2:
+                    _time_mi2.sleep(0.5 * (_attempt_mi2 + 1))
+                else:
+                    print(f"[morning_inflows] CACHE SAVE FAILED after 3 attempts: {_dbe_mi2}")
 
     # ── Save individual ticker rows to scan_history for analysis ────────────
+    # Each ticker is saved in its own transaction so one bad row never silently
+    # drops the rest (previously a single commit meant VELO+INDP could vanish).
     if results and _DB_URL:
-        try:
-            import json as _json_sh
-            _scan_ts = _dt_mi.datetime.now()
-            _scan_date = _scan_ts.date().isoformat()
-            with _psycopg2.connect(_DB_URL) as _c_sh, _c_sh.cursor() as _cu_sh:
-                for _rank, _r in enumerate(results, 1):
-                    _cu_sh.execute("""
-                        INSERT INTO scan_history
-                            (scan_time, scan_date, ticker, price, prev_close,
-                             price_chg_pct, gap_pct, momentum_open, exhaustion_ratio,
-                             fade_risk, rel_vol, today_vol, avg_vol,
-                             inflow_m, outflow_m, net_m, flow_ratio,
-                             standout_score, mkt_cap_m, rank_in_scan)
-                        VALUES
-                            (%s, %s, %s, %s, %s,
-                             %s, %s, %s, %s,
-                             %s, %s, %s, %s,
-                             %s, %s, %s, %s,
-                             %s, %s, %s)
-                    """, (
-                        _scan_ts, _scan_date, _r["ticker"], _r.get("price"), _r.get("prev_close"),
-                        _r.get("price_chg_pct"), _r.get("gap_pct"), _r.get("momentum_open"), _r.get("exhaustion_ratio"),
-                        _r.get("fade_risk"), _r.get("rel_vol"), _r.get("today_vol"), _r.get("avg_vol"),
-                        _r.get("inflow_m"), _r.get("outflow_m"), _r.get("net_m"), _r.get("flow_ratio"),
-                        _r.get("standout_score"), _r.get("mkt_cap_m"), _rank
-                    ))
-                _c_sh.commit()
-            print(f"[scan_history] saved {len(results)} ticker rows for {_scan_date}")
-        except Exception as _e_sh:
-            print(f"[scan_history] save error: {_e_sh}")
+        import time as _time_sh
+        _scan_ts   = _dt_mi.datetime.now()
+        _scan_date = _scan_ts.date().isoformat()
+        _saved_sh  = 0
+        _failed_sh = []
+        for _rank, _r in enumerate(results, 1):
+            _saved = False
+            for _attempt in range(3):
+                try:
+                    with _psycopg2.connect(_DB_URL) as _c_sh, _c_sh.cursor() as _cu_sh:
+                        _cu_sh.execute("""
+                            INSERT INTO scan_history
+                                (scan_time, scan_date, ticker, price, prev_close,
+                                 price_chg_pct, gap_pct, momentum_open, exhaustion_ratio,
+                                 fade_risk, rel_vol, today_vol, avg_vol,
+                                 inflow_m, outflow_m, net_m, flow_ratio,
+                                 standout_score, mkt_cap_m, rank_in_scan)
+                            VALUES
+                                (%s, %s, %s, %s, %s,
+                                 %s, %s, %s, %s,
+                                 %s, %s, %s, %s,
+                                 %s, %s, %s, %s,
+                                 %s, %s, %s)
+                            ON CONFLICT DO NOTHING
+                        """, (
+                            _scan_ts, _scan_date, _r["ticker"], _r.get("price"), _r.get("prev_close"),
+                            _r.get("price_chg_pct"), _r.get("gap_pct"), _r.get("momentum_open"), _r.get("exhaustion_ratio"),
+                            _r.get("fade_risk"), _r.get("rel_vol"), _r.get("today_vol"), _r.get("avg_vol"),
+                            _r.get("inflow_m"), _r.get("outflow_m"), _r.get("net_m"), _r.get("flow_ratio"),
+                            _r.get("standout_score"), _r.get("mkt_cap_m"), _rank
+                        ))
+                        _c_sh.commit()
+                    _saved_sh += 1
+                    _saved = True
+                    break
+                except Exception as _e_sh_row:
+                    if _attempt < 2:
+                        _time_sh.sleep(0.3 * (_attempt + 1))
+                    else:
+                        _failed_sh.append(f"{_r['ticker']}({_e_sh_row})")
+        if _saved_sh:
+            print(f"[scan_history] saved {_saved_sh}/{len(results)} ticker rows for {_scan_date}")
+        if _failed_sh:
+            print(f"[scan_history] SAVE FAILED for: {', '.join(_failed_sh)}")
     elif bust and not results and _DB_URL:
         # Bust/refresh after hours — don't replace good morning data with 0 results.
         # Fall back to today's DB data if it exists.
