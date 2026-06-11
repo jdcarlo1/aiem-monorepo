@@ -136,6 +136,14 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - Keep under ~100 tickers — each requires individual yfinance call, 350+ would cause scan overlap
 - Grow by adding tickers user reports each evening that the scanner missed
 
+## June 11 EOD Watchlist → Check June 12 at 9:45 AM
+User asked to be reminded about these 3 EOD accumulation picks at 9:45 AM June 12:
+- **MMYT** $41.63 close — Score 72, CR 99%, EODvol 9.2×, flow 5.3:1 — PRIMARY (strongest signal)
+- **CPSH** $8.97 close — Score 25, CR 92%, EODvol 6.7×, flow 2.6:1, already up +31.3% that day
+- **ACB** $3.06 close — Score 13, CR 88%, EODvol 3.9×, flow 2.5:1 — weakest, was down -6.8% that day
+At 9:45 AM June 12: pull live prices, check open vs close, tell user whether to hold/sell/cut.
+Accum rule: sell into 9:31 AM open gap. If gapped >5% before entry — edge is gone, skip.
+
 ## SMS / Twilio (PENDING)
 - User has not yet signed up for Twilio
 - User phone: +14013185787 (for testing)
