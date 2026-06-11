@@ -6616,6 +6616,14 @@ function EodAccumulationTab() {
     },
   };
 
+  const piB: React.CSSProperties = {
+    fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+    padding: "2px 7px", borderRadius: 99,
+    background: "rgba(251,191,36,0.08)",
+    color: "#fbbf24",
+    border: "1px solid rgba(251,191,36,0.3)",
+  };
+
   return (
     <div style={{ padding: "24px 20px", maxWidth: 860, margin: "0 auto" }}>
       {/* Header */}
@@ -6836,6 +6844,36 @@ function EodAccumulationTab() {
                   </div>
                 </div>
               </div>
+              {/* ── Pre-ignition signals ──────────────────────────────── */}
+              {(c.pre_ignition_count != null && c.pre_ignition_count > 0) && (
+                <div style={{ marginTop: 12, paddingTop: 10,
+                  borderTop: "1px solid rgba(255,255,255,0.05)",
+                  display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 10,
+                    color: "#f97316", letterSpacing: "0.06em", marginRight: 2 }}>
+                    ⚡ {c.pre_ignition_count}/5
+                  </span>
+                  {c.obv_divergence    && <span style={piB}>📊 OBV ACCUM</span>}
+                  {c.macd_bullish      && <span style={piB}>↑ MACD+</span>}
+                  {c.bb_squeeze_releasing && <span style={piB}>💥 BB COIL</span>}
+                  {c.buyers_dominant   && <span style={piB}>💪 BUY DOM</span>}
+                  {(c.above_sma20 && c.sma20_rising) && <span style={piB}>📈 SMA20↑</span>}
+                  {c.rsi_14 != null && (
+                    <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+                      padding: "2px 7px", borderRadius: 99,
+                      background: c.rsi_14 > 70 ? "rgba(239,68,68,0.12)"
+                               : c.rsi_14 < 35 ? "rgba(74,222,128,0.1)"
+                               : "rgba(71,85,105,0.25)",
+                      color: c.rsi_14 > 70 ? "#f87171"
+                           : c.rsi_14 < 35 ? "#4ade80" : "#64748b",
+                      border: "1px solid rgba(71,85,105,0.3)" }}>
+                      RSI {c.rsi_14}
+                    </span>
+                  )}
+                  {c.new_high_15d       && <span style={piB}>🚀 15D HIGH</span>}
+                  {c.was_consolidating  && <span style={piB}>🔄 COILING</span>}
+                </div>
+              )}
             </div>
           );
         })}
@@ -6964,6 +7002,36 @@ function EodAccumulationTab() {
                     </div>
                   </div>
                 </div>
+                {/* ── Pre-ignition signals (squeeze card) ─────────────── */}
+                {(c.pre_ignition_count != null && c.pre_ignition_count > 0) && (
+                  <div style={{ marginTop: 12, paddingTop: 10,
+                    borderTop: "1px solid rgba(239,68,68,0.12)",
+                    display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 10,
+                      color: "#ef4444", letterSpacing: "0.06em", marginRight: 2 }}>
+                      ⚡ {c.pre_ignition_count}/5
+                    </span>
+                    {c.obv_divergence       && <span style={piB}>📊 OBV ACCUM</span>}
+                    {c.macd_bullish         && <span style={piB}>↑ MACD+</span>}
+                    {c.bb_squeeze_releasing && <span style={piB}>💥 BB COIL</span>}
+                    {c.buyers_dominant      && <span style={piB}>💪 BUY DOM</span>}
+                    {(c.above_sma20 && c.sma20_rising) && <span style={piB}>📈 SMA20↑</span>}
+                    {c.rsi_14 != null && (
+                      <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+                        padding: "2px 7px", borderRadius: 99,
+                        background: c.rsi_14 > 70 ? "rgba(239,68,68,0.12)"
+                                 : c.rsi_14 < 35 ? "rgba(74,222,128,0.1)"
+                                 : "rgba(71,85,105,0.25)",
+                        color: c.rsi_14 > 70 ? "#f87171"
+                             : c.rsi_14 < 35 ? "#4ade80" : "#64748b",
+                        border: "1px solid rgba(71,85,105,0.3)" }}>
+                        RSI {c.rsi_14}
+                      </span>
+                    )}
+                    {c.new_high_15d      && <span style={piB}>🚀 15D HIGH</span>}
+                    {c.was_consolidating && <span style={piB}>🔄 COILING</span>}
+                  </div>
+                )}
               </div>
             ))}
           </div>

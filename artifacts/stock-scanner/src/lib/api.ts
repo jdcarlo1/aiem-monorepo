@@ -1582,6 +1582,19 @@ export interface EodAccumResult {
   days_to_cover?: number | null;
   above_avwap?: boolean | null;
   avwap_5d?: number | null;
+  above_avwap_20d?: boolean | null;
+  avwap_20d?: number | null;
+  rsi_14?: number | null;
+  vol_ratio_20d?: number | null;
+  new_high_15d?: boolean;
+  was_consolidating?: boolean;
+  obv_divergence?: boolean;
+  macd_bullish?: boolean;
+  bb_squeeze_releasing?: boolean;
+  buyers_dominant?: boolean;
+  above_sma20?: boolean;
+  sma20_rising?: boolean;
+  pre_ignition_count?: number;
 }
 export interface EodAccumData {
   candidates: EodAccumResult[];
