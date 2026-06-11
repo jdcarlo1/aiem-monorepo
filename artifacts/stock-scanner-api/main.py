@@ -630,6 +630,22 @@ try:
         replace_existing=True,
     )
 
+    # EOD Accumulation scanner: 3:45 PM and 3:55 PM ET — detects late-day pump accumulation
+    # so users can buy before the close and sell into the next-morning gap.
+    def _run_eod_accum():
+        try:
+            with app.test_request_context("/stock-api/eod-accumulation?bust=1"):
+                eod_accumulation()
+        except Exception as _e_ea:
+            print(f"[scheduler] eod_accum error: {_e_ea}")
+    for _ea_h, _ea_m in [(15, 45), (15, 55)]:
+        _scheduler.add_job(
+            _run_eod_accum,
+            CronTrigger(day_of_week="mon-fri", hour=_ea_h, minute=_ea_m, timezone=_ET),
+            id=f"eod_accum_{_ea_h}_{_ea_m}",
+            replace_existing=True,
+        )
+
     _scheduler.start()
     print("[scheduler] APScheduler started — "
           "scans: 9:00/9:45 AM, 3:30/4:00/4:05/4:15 PM ET | "
@@ -9848,6 +9864,159 @@ def morning_inflows():
     app._mi_cache    = out
     app._mi_cache_ts = _dt_mi.datetime.now()
     return jsonify(out)
+
+
+@app.route("/stock-api/eod-accumulation", methods=["GET"])
+def eod_accumulation():
+    """
+    EOD Accumulation Scanner — detects late-day pump-group buying patterns.
+
+    What we look for (3:30-4:00 PM ET window):
+      1. EOD volume burst — last-30-min volume vs the stock's typical EOD volume
+      2. Late money flow — inflow:outflow ratio in that window only (not the full day)
+      3. Closing range — stock closes near the day high (>0.7 = top 30% of range)
+      4. Quiet-then-surge — stock was calm all day then suddenly active into close
+      5. Small/micro cap bias — pump groups target low-float stocks
+
+    If the scanner flags a stock at 3:45 PM you can buy before the close.
+    Pump groups blast socials after hours → retail FOMO creates the morning gap.
+    You're positioned BEFORE retail sees it at 9:31 AM.
+    """
+    import datetime as _dt_ea
+    import yfinance as _yf_ea
+    import psycopg2 as _pg_ea
+    from concurrent.futures import ThreadPoolExecutor as _TPE_ea, as_completed as _ac_ea
+    import pytz as _pytz_ea
+
+    bust = request.args.get("bust", "0") == "1"
+    _cache    = getattr(app, "_eod_accum_cache", None)
+    _cache_ts = getattr(app, "_eod_accum_cache_ts", None)
+    if not bust and _cache and _cache_ts and (_dt_ea.datetime.now() - _cache_ts).total_seconds() < 600:
+        return jsonify(_cache)
+
+    _et = _pytz_ea.timezone("America/New_York")
+
+    # Pull the full watchlist from DB
+    _tickers = []
+    try:
+        with _pg_ea.connect(_DB_URL) as _c_ea, _c_ea.cursor() as _cu_ea:
+            _cu_ea.execute("SELECT ticker FROM morning_watchlist ORDER BY ticker")
+            _tickers = [r[0] for r in _cu_ea.fetchall()]
+    except Exception as _e_ea:
+        print(f"[eod_accum] db error: {_e_ea}")
+
+    if not _tickers:
+        return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
+                        "generated_at": _dt_ea.datetime.now().strftime("%I:%M %p ET")})
+
+    def _score_eod_ticker(ticker):
+        try:
+            tk = _yf_ea.Ticker(ticker)
+            fi = tk.fast_info
+            prev_close = float(getattr(fi, "previous_close", 0) or 0)
+            avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
+            mkt_cap    = float(getattr(fi, "market_cap", 0) or 0)
+            if prev_close <= 0 or avg_vol <= 0: return None
+
+            hist = tk.history(period="1d", interval="1m")
+            if hist.empty or len(hist) < 10: return None
+            hist.index = hist.index.tz_convert(_et)
+
+            close_px  = float(hist["Close"].iloc[-1])
+            open_px   = float(hist["Open"].iloc[0])
+            day_high  = float(hist["High"].max())
+            day_low   = float(hist["Low"].min())
+            if close_px <= 0 or day_high <= day_low: return None
+
+            price_chg = (close_px - prev_close) / prev_close * 100
+            if price_chg < 1.0: return None  # must be up on the day
+
+            # ── Closing range: 1.0 = at the high, 0.0 = at the low ──────────
+            closing_range = (close_px - day_low) / (day_high - day_low)
+            if closing_range < 0.65: return None  # weak close = no accumulation
+
+            # ── Last 30-min window (3:30–4:00 PM ET) ─────────────────────────
+            eod_bars = hist[hist.index.time >= _dt_ea.time(15, 30)]
+            if eod_bars.empty: return None
+
+            eod_vol = float(eod_bars["Volume"].sum())
+
+            # Avg last-30-min volume: last 30 min ≈ 7.7% of a 390-min day.
+            # Use 0.08 (slightly conservative) to avoid false positives.
+            avg_eod_vol = avg_vol * 0.08
+            if avg_eod_vol <= 0: return None
+            eod_rel_vol = eod_vol / avg_eod_vol
+            if eod_rel_vol < 2.5: return None  # need clear late-day volume surge
+
+            # ── Late money flow (3:30–4:00 PM only) ──────────────────────────
+            late_inflow = late_outflow = 0.0
+            for _, row in eod_bars.iterrows():
+                if row["Volume"] <= 0: continue
+                avg_p = (float(row["Open"]) + float(row["Close"])) / 2
+                dv    = avg_p * float(row["Volume"])
+                if float(row["Close"]) >= float(row["Open"]): late_inflow  += dv
+                else:                                          late_outflow += dv
+            late_flow = (late_inflow / late_outflow) if late_outflow > 0 else 99.0
+            if late_flow < 2.0: return None  # sellers can't outweigh buyers in EOD window
+
+            # ── Late price surge (how much did it move in last 30 min) ───────
+            pre_330 = hist[hist.index.time < _dt_ea.time(15, 30)]
+            price_330 = float(pre_330["Close"].iloc[-1]) if not pre_330.empty else open_px
+            late_surge = (close_px - price_330) / price_330 * 100
+
+            # ── "Quiet then surge" signal ─────────────────────────────────────
+            # Midday volume (11 AM–2:30 PM) should be lower than the EOD burst.
+            mid_bars  = hist[(hist.index.time >= _dt_ea.time(11, 0)) &
+                             (hist.index.time <= _dt_ea.time(14, 30))]
+            mid_vol   = float(mid_bars["Volume"].sum()) if not mid_bars.empty else 1.0
+            mid_bars_count = len(mid_bars) or 1
+            mid_vol_per_min  = mid_vol / mid_bars_count
+            eod_bars_count   = len(eod_bars) or 1
+            eod_vol_per_min  = eod_vol / eod_bars_count
+            # EOD should be at least 2× busier per minute than midday
+            quiet_surge = eod_vol_per_min / mid_vol_per_min if mid_vol_per_min > 0 else 1.0
+
+            # ── Accumulation score ────────────────────────────────────────────
+            # Weights: EOD rel-vol (main driver) × late flow conviction × closing strength
+            accum_score = round(eod_rel_vol * min(late_flow, 10.0) * (0.5 + closing_range), 1)
+
+            return {
+                "ticker":        ticker,
+                "close":         round(close_px, 2),
+                "prev_close":    round(prev_close, 2),
+                "price_chg_pct": round(price_chg, 2),
+                "day_high":      round(day_high, 2),
+                "day_low":       round(day_low, 2),
+                "closing_range": round(closing_range, 3),
+                "eod_vol":       int(eod_vol),
+                "eod_rel_vol":   round(eod_rel_vol, 1),
+                "late_flow":     round(min(late_flow, 99.0), 1),
+                "late_surge_pct": round(late_surge, 2),
+                "quiet_surge":   round(quiet_surge, 1),
+                "accum_score":   accum_score,
+                "mkt_cap_m":     round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
+            }
+        except Exception:
+            return None
+
+    _results_ea = []
+    with _TPE_ea(max_workers=25) as _ex_ea:
+        _futs_ea = {_ex_ea.submit(_score_eod_ticker, t): t for t in _tickers}
+        for _fut_ea in _ac_ea(_futs_ea):
+            _r_ea = _fut_ea.result()
+            if _r_ea: _results_ea.append(_r_ea)
+
+    _results_ea.sort(key=lambda x: -x["accum_score"])
+
+    _out_ea = {
+        "candidates":  _results_ea[:20],
+        "total_found": len(_results_ea),
+        "scanned":     len(_tickers),
+        "generated_at": _dt_ea.datetime.now().strftime("%I:%M %p ET"),
+    }
+    app._eod_accum_cache    = _out_ea
+    app._eod_accum_cache_ts = _dt_ea.datetime.now()
+    return jsonify(_out_ea)
 
 
 @app.route("/stock-api/insider-radar", methods=["GET"])

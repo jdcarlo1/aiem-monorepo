@@ -1555,3 +1555,29 @@ export interface EarningsCalendarResult {
 export function fetchEarningsCalendar() {
   return fetchJson<EarningsCalendarResult>("/earnings-calendar");
 }
+
+export interface EodAccumResult {
+  ticker: string;
+  close: number;
+  prev_close: number;
+  price_chg_pct: number;
+  day_high: number;
+  day_low: number;
+  closing_range: number;
+  eod_vol: number;
+  eod_rel_vol: number;
+  late_flow: number;
+  late_surge_pct: number;
+  quiet_surge: number;
+  accum_score: number;
+  mkt_cap_m: number | null;
+}
+export interface EodAccumData {
+  candidates: EodAccumResult[];
+  total_found: number;
+  scanned: number;
+  generated_at: string;
+}
+export function fetchEodAccumulation(bust = false) {
+  return fetchJson<EodAccumData>(`/eod-accumulation${bust ? "?bust=1" : ""}`);
+}

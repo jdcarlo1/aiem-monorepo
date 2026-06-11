@@ -37,6 +37,7 @@ import {
   AISignal, AISignalResult, fetchAISignal,
   MorningRunnerRow, fetchMorningRunners,
   MorningInflowResult, MorningInflowsData, fetchMorningInflows,
+  EodAccumResult, EodAccumData, fetchEodAccumulation,
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
   BreakoutRow, fetch52WeekBreakout,
   SectorRow, fetchSectorRotation,
@@ -6521,6 +6522,173 @@ function MorningRunnersTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
   );
 }
 
+function EodAccumulationTab() {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]     = useState<EodAccumData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async (bust = false) => {
+    setLoading(true);
+    try { setData(await fetchEodAccumulation(bust)); } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const scoreColor = (s: number) =>
+    s >= 60 ? "#f97316" : s >= 30 ? "#fbbf24" : "#4ade80";
+
+  return (
+    <div style={{ padding: "24px 20px", maxWidth: 860, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 18, color: "#f1f5f9" }}>
+            🌙 EOD ACCUMULATION SCANNER
+          </span>
+          <span style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700,
+            padding: "2px 8px", borderRadius: 99, border: "1px solid #1e293b" }}>
+            {data ? `${data.scanned} tickers scanned` : "loading…"}
+          </span>
+          <button onClick={() => load(true)} disabled={loading}
+            style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "3px 10px",
+              borderRadius: 6, border: "1px solid #334155", background: "transparent",
+              color: loading ? "#475569" : "#94a3b8", cursor: loading ? "default" : "pointer" }}>
+            {loading ? "SCANNING…" : "↺ REFRESH"}
+          </button>
+        </div>
+        <p style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", lineHeight: 1.6, margin: 0 }}>
+          Detects unusual buying pressure in the final 30 minutes of trading (3:30–4:00 PM ET).
+          Pump groups accumulate here and blast socials after hours → retail FOMO creates the morning gap.
+          Buy before the close. Sell into the 9:31 AM gap.
+        </p>
+        <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
+          {[
+            ["EOD Rel-Vol", "Volume in last 30 min vs stock's typical last-30-min vol"],
+            ["Late Flow",   "Buy:sell ratio specifically in the 3:30-4:00 PM window"],
+            ["Close Str",   "How close to the day's high the stock finished (1.0 = at high)"],
+            ["Late Surge",  "How much price moved in the last 30 min vs earlier in the day"],
+          ].map(([k, v]) => (
+            <div key={k} style={{ fontFamily: BB_F, fontSize: 10 }}>
+              <span style={{ color: "#fbbf24", fontWeight: 700 }}>{k}</span>
+              <span style={{ color: "#334155" }}> — {v}</span>
+            </div>
+          ))}
+        </div>
+        {data && <div style={{ fontFamily: BB_F, fontSize: 10, color: "#334155", marginTop: 6 }}>
+          As of {data.generated_at} · {data.total_found} candidate{data.total_found !== 1 ? "s" : ""} found
+        </div>}
+      </div>
+
+      {/* Divider */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <div style={{ flex: 1, height: 1, background: "rgba(251,191,36,0.2)" }} />
+        <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 10, color: "#fbbf24",
+          textTransform: "uppercase", letterSpacing: "0.1em", whiteSpace: "nowrap" }}>
+          ⚡ TOMORROW'S CANDIDATES
+        </span>
+        <div style={{ flex: 1, height: 1, background: "rgba(251,191,36,0.2)" }} />
+      </div>
+
+      {loading && !data && (
+        <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 12, textAlign: "center", padding: 40 }}>
+          Scanning {689} watchlist tickers for EOD accumulation patterns…
+        </div>
+      )}
+
+      {!loading && data && data.candidates.length === 0 && (
+        <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 12, textAlign: "center", padding: 40 }}>
+          No accumulation patterns detected yet. Scan runs at 3:45 PM and 3:55 PM ET Mon–Fri.<br />
+          During market hours, click ↺ REFRESH after 3:30 PM.
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {(data?.candidates ?? []).map((c, i) => {
+          const col = scoreColor(c.accum_score);
+          return (
+            <div key={c.ticker} style={{
+              background: "rgba(255,255,255,0.02)",
+              border: `1px solid ${c.accum_score >= 60 ? "rgba(249,115,22,0.3)" : "rgba(255,255,255,0.07)"}`,
+              borderRadius: 16, padding: "16px 18px",
+            }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                {/* Left */}
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>
+                      {i + 1}. {c.ticker}
+                    </span>
+                    <span style={{ fontFamily: BB_F, fontWeight: 700, color: "#4ade80", fontSize: 14 }}>
+                      +{c.price_chg_pct.toFixed(1)}%
+                    </span>
+                    <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${c.close.toFixed(2)}</span>
+                    {c.eod_rel_vol >= 5 && (
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                        background: "rgba(249,115,22,0.12)", color: "#f97316", border: "1px solid rgba(249,115,22,0.4)" }}>
+                        🔥 {c.eod_rel_vol.toFixed(0)}× EOD SURGE
+                      </span>
+                    )}
+                    {c.closing_range >= 0.9 && (
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                        background: "rgba(74,222,128,0.08)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.25)" }}>
+                        📈 CLOSED AT HIGH
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
+                    {([
+                      ["EOD Rel-Vol",  `${c.eod_rel_vol.toFixed(1)}×`,                           c.eod_rel_vol >= 5 ? "#f97316" : "#fbbf24"],
+                      ["Late Flow",    `${c.late_flow.toFixed(1)}:1`,                             "#4ade80"],
+                      ["Close Str",    `${Math.round(c.closing_range * 100)}%`,                   c.closing_range >= 0.85 ? "#4ade80" : "#fbbf24"],
+                      ["Late Surge",   `${c.late_surge_pct >= 0 ? "+" : ""}${c.late_surge_pct.toFixed(1)}%`, c.late_surge_pct > 0 ? "#4ade80" : "#ef4444"],
+                      ["Quiet→Surge",  `${c.quiet_surge.toFixed(1)}×`,                           c.quiet_surge >= 3 ? "#f97316" : "#94a3b8"],
+                      ["Mkt Cap",      c.mkt_cap_m ? (c.mkt_cap_m >= 1000 ? `$${(c.mkt_cap_m/1000).toFixed(1)}B` : `$${c.mkt_cap_m.toFixed(0)}M`) : "n/a",
+                                       (c.mkt_cap_m ?? 9999) < 500 ? "#a78bfa" : "#475569"],
+                    ] as [string, string, string][]).map(([lbl, val, clr]) => (
+                      <div key={lbl}>
+                        <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>{lbl}</div>
+                        <div style={{ fontFamily: BB_F, fontWeight: 700, color: clr, fontSize: 13 }}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right — score */}
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700,
+                    textTransform: "uppercase", marginBottom: 2 }}>Accum Score</div>
+                  <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 40, color: col,
+                    letterSpacing: "-0.05em", lineHeight: 1 }}>{c.accum_score.toFixed(0)}</div>
+                  <div style={{ width: 72, height: 4, background: "rgba(255,255,255,0.07)",
+                    borderRadius: 99, margin: "6px 0 4px auto" }}>
+                    <div style={{ width: `${Math.min(c.accum_score / 100 * 100, 100)}%`,
+                      height: "100%", background: col, borderRadius: 99 }} />
+                  </div>
+                  <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>
+                    prev ${c.prev_close.toFixed(2)}
+                  </div>
+                  <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
+                    H ${c.day_high.toFixed(2)} · L ${c.day_low.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {(data?.candidates ?? []).length > 0 && (
+        <div style={{ fontFamily: BB_F, fontSize: 10, color: "#334155", textAlign: "center",
+          marginTop: 16, lineHeight: 1.7 }}>
+          ⚠️ For informational purposes only. Always set a stop-loss. Past patterns are not a guarantee of future results.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData] = useState<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -10489,7 +10657,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"eodaccum">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -10628,6 +10796,7 @@ export default function Dashboard() {
     { id: "streakflow",      label: "📈 FLOW STREAK" },
     { id: "standoutflow",    label: "🔥 STANDOUT FLOW" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
+    { id: "eodaccum",        label: "🌙 EOD ACCUM" },
     { id: "squeezesetup",   label: "💥 SQUEEZE SETUP" },
     { id: "breakout52week", label: "🚀 52WK BREAKOUT" },
     { id: "sectorrotation", label: "🌀 SECTOR ROTATION" },
@@ -11233,6 +11402,7 @@ export default function Dashboard() {
         {tab === "midnetflow"      && <NetFlowMidcapTab  onSelectTicker={selectTicker} />}
         {tab === "streakflow"      && <NetFlowStreakTab  onSelectTicker={selectTicker} />}
         {tab === "morningrunners"  && <MorningRunnersTab onSelectTicker={selectTicker} />}
+        {tab === "eodaccum"        && <EodAccumulationTab />}
         {tab === "squeezesetup"   && <SqueezeSetupTab   onSelectTicker={selectTicker} />}
         {tab === "breakout52week" && <Breakout52WeekTab  onSelectTicker={selectTicker} />}
         {tab === "sectorrotation" && <SectorRotationTab />}
