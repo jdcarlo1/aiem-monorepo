@@ -10295,15 +10295,36 @@ def eod_accumulation():
 
     _et = _pytz_ea.timezone("America/New_York")
 
-    # Pull the full watchlist from DB
-    _tickers = []
+    # Build universe: watchlist + unusual calls today + Yahoo top-movers screener
+    _ticker_set = set()
     try:
         with _pg_ea.connect(_DB_URL) as _c_ea, _c_ea.cursor() as _cu_ea:
             _cu_ea.execute("SELECT ticker FROM morning_watchlist ORDER BY ticker")
-            _tickers = [r[0] for r in _cu_ea.fetchall()]
+            for _r in _cu_ea.fetchall(): _ticker_set.add(_r[0])
+            _cu_ea.execute(
+                "SELECT DISTINCT ticker FROM unusual_calls_log WHERE DATE(first_seen) = CURRENT_DATE"
+            )
+            for _r in _cu_ea.fetchall(): _ticker_set.add(_r[0])
     except Exception as _e_ea:
         print(f"[eod_accum] db error: {_e_ea}")
 
+    # Add Yahoo screener: any US stock up ≥1% with ≥$10M mkt cap (catches names not on watchlist)
+    try:
+        _eq_eod = _yf_ea.EquityQuery("and", [
+            _yf_ea.EquityQuery("gte", ["percentchange",    1.0]),
+            _yf_ea.EquityQuery("eq",  ["region",           "us"]),
+            _yf_ea.EquityQuery("gte", ["intradaymarketcap", 10_000_000]),
+        ])
+        _pg_scr = _yf_ea.screen(_eq_eod, sortField="percentchange", sortAsc=False, size=250, offset=0)
+        for _q in (_pg_scr.get("quotes") or []):
+            _sym = _q.get("symbol", "")
+            if _sym and "." not in _sym and len(_sym) <= 5:
+                _ticker_set.add(_sym)
+        print(f"[eod_accum] universe after screener: {len(_ticker_set)} tickers")
+    except Exception as _e_scr:
+        print(f"[eod_accum] screener error: {_e_scr}")
+
+    _tickers = list(_ticker_set)
     if not _tickers:
         return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
                         "generated_at": _dt_ea.datetime.now().strftime("%I:%M %p ET")})
@@ -10328,11 +10349,11 @@ def eod_accumulation():
             if close_px <= 0 or day_high <= day_low: return None
 
             price_chg = (close_px - prev_close) / prev_close * 100
-            if price_chg < 1.0: return None  # must be up on the day
+            if price_chg < -20.0: return None  # exclude crashes; accumulation can happen on down/flat days
 
             # ── Closing range: 1.0 = at the high, 0.0 = at the low ──────────
             closing_range = (close_px - day_low) / (day_high - day_low)
-            if closing_range < 0.65: return None  # weak close = no accumulation
+            if closing_range < 0.50: return None  # close above midpoint = net accumulation
 
             # ── Last 30-min window (3:30–4:00 PM ET) ─────────────────────────
             eod_bars = hist[hist.index.time >= _dt_ea.time(15, 30)]
@@ -10372,8 +10393,9 @@ def eod_accumulation():
             mid_vol_per_min  = mid_vol / mid_bars_count
             eod_bars_count   = len(eod_bars) or 1
             eod_vol_per_min  = eod_vol / eod_bars_count
-            # EOD should be at least 2× busier per minute than midday
+            # EOD should be at least 1.5× busier per minute than midday
             quiet_surge = eod_vol_per_min / mid_vol_per_min if mid_vol_per_min > 0 else 1.0
+            if quiet_surge < 1.5: return None  # no "quiet then surge" pattern = likely just noise
 
             # ── Accumulation score ────────────────────────────────────────────
             # Weights: EOD rel-vol (main driver) × late flow conviction × closing strength

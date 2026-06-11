@@ -112,6 +112,15 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - GEX uses numpy normal PDF — no scipy dependency
 - FREE_LIMIT on NCLEX is 10 — never change
 
+## EOD Accumulation Scanner — Key Design Decisions (June 2026)
+- Gate 1: `price_chg >= -20%` (NOT "up on day") — accumulation happens on flat/down days too
+- Gate 2: `closing_range >= 0.50` (NOT 0.65) — close above midpoint = net accumulation
+- Gate 3: `eod_rel_vol >= 2.5×` — last-30-min vol vs normal EOD vol
+- Gate 4: `late_flow >= 2.0×` — buy:sell ratio in the 3:30-4:00 PM window only
+- Gate 5: `quiet_surge >= 1.5×` (HARD GATE) — EOD vol/min must be 1.5× busier than midday
+- Universe: watchlist + unusual_calls_log (DATE(first_seen)=today) + Yahoo screener (up ≥1%, ≥$10M)
+- **Why**: FTRK was -2% on the day with 8.8× EOD vol, 13.6× late flow → ran +25% next morning; old gate blocked it
+
 ## Morning Watchlist (37 tickers as of 2026-06-10)
 ['AXTI','AZI','BATL','BBGI','BULL','CASY','CBRL','CMCT','CRE','DSY','DWSN','FJET','FLL','FRMI','HCAI','HPK','INDP','JEM','LAKE','LICN','LMNR','LUCK','MAAS','OCC','OPTX','PLAY','PW','RETO','SCLX','SDOT','SPHL','STAK','STI','TGL','TTRX','VSME','WTI']
 - Watchlist checked at every scan (9:31/9:45/10:00/10:15/10:30) regardless of gap size
