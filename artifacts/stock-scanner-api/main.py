@@ -10612,14 +10612,19 @@ def cross_scanner():
 
     try:
         _today = _dt_cs.date.today()
-        _prev  = _today - _dt_cs.timedelta(days=1)
-        while _prev.weekday() >= 5:
-            _prev -= _dt_cs.timedelta(days=1)
+        # Build last 3 trading days as valid EOD-accum lookback dates
+        _prev_days = []
+        _d = _today - _dt_cs.timedelta(days=1)
+        while len(_prev_days) < 3:
+            if _d.weekday() < 5:
+                _prev_days.append(_d)
+            _d -= _dt_cs.timedelta(days=1)
         _today_s = _today.isoformat()
-        _prev_s  = _prev.isoformat()
+        _prev_s  = _prev_days[0].isoformat()   # most recent trading day (kept for compat)
+        _lookback3_s = _prev_days[-1].isoformat()  # 3 trading days ago
 
         with _pg_cs.connect(_DB_URL) as _c, _c.cursor(cursor_factory=_ext_cs.RealDictCursor) as _cu:
-            # ── TODAY's double signals ─────────────────────────────────────
+            # ── TODAY's double signals (EOD accum from last 3 trading days) ──
             _cu.execute("""
                 SELECT
                     sh.ticker,
@@ -10638,10 +10643,10 @@ def cross_scanner():
                     %s                    AS signal_date
                 FROM scan_history sh
                 JOIN eod_accum_picks ea
-                    ON ea.scan_date = %s AND ea.ticker = sh.ticker
+                    ON ea.scan_date >= %s AND ea.scan_date < %s AND ea.ticker = sh.ticker
                 WHERE sh.scan_date = %s AND sh.standout_score >= 5
                 ORDER BY sh.standout_score DESC
-            """, (_today_s, _prev_s, _today_s))
+            """, (_today_s, _lookback3_s, _today_s, _today_s))
             _today_signals = [dict(r) for r in _cu.fetchall()]
 
             # ── HISTORICAL cross-signals (last 60 trading days) ───────────
@@ -10737,8 +10742,10 @@ def short_squeeze_radar():
                     SELECT ticker FROM eod_accum_picks  WHERE scan_date >= %s
                     UNION
                     SELECT ticker FROM scan_history     WHERE scan_date >= %s AND standout_score >= 4
+                    UNION
+                    SELECT ticker FROM unusual_calls_log WHERE first_seen >= %s
                 ) _combined
-            """, (_lookback_sq, _lookback_sq))
+            """, (_lookback_sq, _lookback_sq, _lookback_sq))
             _tickers_sq = [r[0] for r in _cu_sq.fetchall()]
 
         if not _tickers_sq:
