@@ -553,6 +553,130 @@ try:
             replace_existing=True,
         )
 
+    # ── EOD Accumulation picks + outcomes tables ──────────────────────────
+    try:
+        import psycopg2 as _pg_eat, os as _os_eat
+        _eat_db = _os_eat.getenv("DATABASE_URL", "")
+        with _pg_eat.connect(_eat_db) as _c_eat, _c_eat.cursor() as _cu_eat:
+            _cu_eat.execute("""
+                CREATE TABLE IF NOT EXISTS eod_accum_picks (
+                    id          SERIAL PRIMARY KEY,
+                    scan_date   DATE NOT NULL,
+                    ticker      TEXT NOT NULL,
+                    close_price NUMERIC,
+                    accum_score NUMERIC,
+                    news_type   TEXT DEFAULT 'none',
+                    news_headline TEXT,
+                    eod_rel_vol NUMERIC,
+                    late_flow   NUMERIC,
+                    closing_range NUMERIC,
+                    price_chg_pct NUMERIC,
+                    mkt_cap_m   NUMERIC,
+                    scanned_at  TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(scan_date, ticker)
+                )
+            """)
+            _cu_eat.execute("""
+                CREATE TABLE IF NOT EXISTS eod_accum_outcomes (
+                    id          SERIAL PRIMARY KEY,
+                    pick_date   DATE NOT NULL,
+                    ticker      TEXT NOT NULL,
+                    entry_price NUMERIC,
+                    next_open   NUMERIC,
+                    next_open_chg_pct   NUMERIC,
+                    morning_high        NUMERIC,
+                    morning_high_chg_pct NUMERIC,
+                    gapped_up   BOOLEAN,
+                    news_type   TEXT DEFAULT 'none',
+                    accum_score NUMERIC,
+                    fetched_at  TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(pick_date, ticker)
+                )
+            """)
+            _c_eat.commit()
+        print("[eod_accum_tables] ready")
+    except Exception as _e_eat:
+        print(f"[eod_accum_tables] error: {_e_eat}")
+
+    # ── EOD Accumulation outcome fetcher: 10:00 AM ET ─────────────────────
+    def _run_eod_accum_outcomes():
+        """
+        Runs at 10:00 AM ET Mon-Fri.
+        Checks what happened to yesterday's EOD accum picks:
+          - Did they gap up at the open?
+          - What was the max gain in the first 30 minutes?
+        Writes results to eod_accum_outcomes for track-record comparison.
+        """
+        try:
+            import datetime as _dt_eao
+            import yfinance as _yf_eao
+            import psycopg2 as _pg_eao
+            import pytz as _pytz_eao
+            _et_eao = _pytz_eao.timezone("America/New_York")
+            _today  = _dt_eao.date.today()
+            # Most recent prior trading day
+            _pick_day = _today - _dt_eao.timedelta(days=1)
+            while _pick_day.weekday() >= 5:
+                _pick_day -= _dt_eao.timedelta(days=1)
+            _pick_date = _pick_day.isoformat()
+
+            with _pg_eao.connect(_DB_URL) as _c_r, _c_r.cursor() as _cu_r:
+                _cu_r.execute("""
+                    SELECT ticker, close_price, accum_score, news_type
+                    FROM eod_accum_picks WHERE scan_date = %s
+                """, (_pick_date,))
+                _picks = _cu_r.fetchall()
+
+            if not _picks:
+                print(f"[eod_accum_outcomes] no picks for {_pick_date}, skipping")
+                return
+
+            _saved = 0
+            with _pg_eao.connect(_DB_URL) as _c_w, _c_w.cursor() as _cu_w:
+                for _sym, _entry, _score, _ntype in _picks:
+                    try:
+                        _hist = _yf_eao.Ticker(_sym).history(period="1d", interval="1m")
+                        if _hist.empty or len(_hist) < 3: continue
+                        _hist.index = _hist.index.tz_convert(_et_eao)
+                        # Next open: very first bar
+                        _next_open = float(_hist["Open"].iloc[0])
+                        # Morning high: max of 9:30-10:00 AM bars
+                        _am_bars   = _hist[(_hist.index.time >= _dt_eao.time(9, 30)) &
+                                           (_hist.index.time <  _dt_eao.time(10, 0))]
+                        _morn_high = float(_am_bars["High"].max()) if not _am_bars.empty else _next_open
+                        _ef = float(_entry or 0)
+                        if _ef <= 0: continue
+                        _open_chg = round((_next_open - _ef) / _ef * 100, 2)
+                        _high_chg = round((_morn_high - _ef) / _ef * 100, 2)
+                        _cu_w.execute("""
+                            INSERT INTO eod_accum_outcomes
+                                (pick_date, ticker, entry_price, next_open, next_open_chg_pct,
+                                 morning_high, morning_high_chg_pct, gapped_up, news_type, accum_score)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (pick_date, ticker) DO UPDATE SET
+                                next_open=EXCLUDED.next_open,
+                                next_open_chg_pct=EXCLUDED.next_open_chg_pct,
+                                morning_high=EXCLUDED.morning_high,
+                                morning_high_chg_pct=EXCLUDED.morning_high_chg_pct,
+                                gapped_up=EXCLUDED.gapped_up,
+                                fetched_at=NOW()
+                        """, (_pick_date, _sym, _ef, _next_open, _open_chg,
+                              _morn_high, _high_chg, _next_open > _ef, _ntype, float(_score or 0)))
+                        _saved += 1
+                    except Exception as _te:
+                        print(f"[eod_accum_outcomes] {_sym}: {_te}")
+                _c_w.commit()
+            print(f"[eod_accum_outcomes] saved {_saved}/{len(_picks)} for {_pick_date}")
+        except Exception as _e_eao:
+            print(f"[eod_accum_outcomes] error: {_e_eao}")
+
+    _scheduler.add_job(
+        _run_eod_accum_outcomes,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=_ET),
+        id="eod_accum_outcomes_fetcher",
+        replace_existing=True,
+    )
+
     def _run_eod_outcomes():
         """
         Runs at 4:15 PM ET Mon-Fri.
@@ -10079,6 +10203,30 @@ def eod_accumulation():
 
     _results_ea.sort(key=lambda x: -x["accum_score"])
 
+    # ── Persist today's top-20 to DB ──────────────────────────────────────
+    _scan_date_ea = _dt_ea.date.today().isoformat()
+    try:
+        with _pg_ea.connect(_DB_URL) as _c_sv, _c_sv.cursor() as _cu_sv:
+            for _r in _results_ea[:20]:
+                _cu_sv.execute("""
+                    INSERT INTO eod_accum_picks
+                        (scan_date, ticker, close_price, accum_score, news_type, news_headline,
+                         eod_rel_vol, late_flow, closing_range, price_chg_pct, mkt_cap_m)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (scan_date, ticker) DO UPDATE SET
+                        close_price=EXCLUDED.close_price, accum_score=EXCLUDED.accum_score,
+                        news_type=EXCLUDED.news_type, news_headline=EXCLUDED.news_headline,
+                        eod_rel_vol=EXCLUDED.eod_rel_vol, late_flow=EXCLUDED.late_flow,
+                        closing_range=EXCLUDED.closing_range, price_chg_pct=EXCLUDED.price_chg_pct,
+                        mkt_cap_m=EXCLUDED.mkt_cap_m, scanned_at=NOW()
+                """, (_scan_date_ea, _r["ticker"], _r["close"], _r["accum_score"],
+                      _r["news_type"], _r["news_headline"], _r["eod_rel_vol"],
+                      _r["late_flow"], _r["closing_range"], _r["price_chg_pct"],
+                      _r["mkt_cap_m"]))
+            _c_sv.commit()
+    except Exception as _e_sv:
+        print(f"[eod_accum] db save error: {_e_sv}")
+
     _out_ea = {
         "candidates":  _results_ea[:20],
         "total_found": len(_results_ea),
@@ -10088,6 +10236,85 @@ def eod_accumulation():
     app._eod_accum_cache    = _out_ea
     app._eod_accum_cache_ts = _dt_ea.datetime.now()
     return jsonify(_out_ea)
+
+
+@app.route("/stock-api/eod-accum-track", methods=["GET"])
+def eod_accum_track():
+    """
+    EOD Accumulation Track Record.
+    Returns all historical picks joined with next-morning outcomes, plus summary stats
+    broken down by news_type (none/soft/hard) so users can compare strategy performance.
+    """
+    import datetime as _dt_tr
+    import psycopg2 as _pg_tr
+    import psycopg2.extras as _ext_tr
+
+    try:
+        with _pg_tr.connect(_DB_URL) as _c, _c.cursor(cursor_factory=_ext_tr.RealDictCursor) as _cu:
+            # All picks with outcomes joined (left join so pending picks still show)
+            _cu.execute("""
+                SELECT
+                    p.scan_date,
+                    p.ticker,
+                    p.close_price   AS entry_price,
+                    p.accum_score,
+                    p.news_type,
+                    p.news_headline,
+                    p.eod_rel_vol,
+                    p.late_flow,
+                    p.closing_range,
+                    p.price_chg_pct,
+                    o.next_open,
+                    o.next_open_chg_pct,
+                    o.morning_high,
+                    o.morning_high_chg_pct,
+                    o.gapped_up
+                FROM eod_accum_picks p
+                LEFT JOIN eod_accum_outcomes o
+                    ON o.pick_date = p.scan_date AND o.ticker = p.ticker
+                ORDER BY p.scan_date DESC, p.accum_score DESC
+                LIMIT 200
+            """)
+            _rows = [dict(r) for r in _cu.fetchall()]
+
+        # Convert date objects to strings
+        for _r in _rows:
+            if hasattr(_r.get("scan_date"), "isoformat"):
+                _r["scan_date"] = _r["scan_date"].isoformat()
+            for _k in _r:
+                if _r[_k] is not None:
+                    try: _r[_k] = float(_r[_k]) if isinstance(_r[_k], __import__("decimal").Decimal) else _r[_k]
+                    except Exception: pass
+
+        # Summary stats overall + by news_type
+        def _stats(rows):
+            graded = [r for r in rows if r.get("gapped_up") is not None]
+            if not graded: return {"picks": len(rows), "graded": 0}
+            gap_ups  = [r for r in graded if r["gapped_up"]]
+            gaps     = [r["next_open_chg_pct"] for r in graded if r.get("next_open_chg_pct") is not None]
+            highs    = [r["morning_high_chg_pct"] for r in graded if r.get("morning_high_chg_pct") is not None]
+            return {
+                "picks":        len(rows),
+                "graded":       len(graded),
+                "hit_rate_pct": round(len(gap_ups) / len(graded) * 100, 1) if graded else None,
+                "avg_gap_pct":  round(sum(gaps) / len(gaps), 2) if gaps else None,
+                "avg_high_pct": round(sum(highs) / len(highs), 2) if highs else None,
+                "best_gap_pct": round(max(gaps), 2) if gaps else None,
+            }
+
+        _summary = {
+            "all":  _stats(_rows),
+            "pure": _stats([r for r in _rows if r.get("news_type") == "none"]),
+            "soft": _stats([r for r in _rows if r.get("news_type") == "soft"]),
+            "hard": _stats([r for r in _rows if r.get("news_type") == "hard"]),
+        }
+
+        return jsonify({"picks": _rows, "summary": _summary,
+                        "as_of": _dt_tr.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")})
+
+    except Exception as _e_tr:
+        print(f"[eod_accum_track] error: {_e_tr}")
+        return jsonify({"picks": [], "summary": {}, "as_of": "", "error": str(_e_tr)})
 
 
 @app.route("/stock-api/insider-radar", methods=["GET"])

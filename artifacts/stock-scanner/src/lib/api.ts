@@ -1585,3 +1585,42 @@ export interface EodAccumData {
 export function fetchEodAccumulation(bust = false) {
   return fetchJson<EodAccumData>(`/eod-accumulation${bust ? "?bust=1" : ""}`);
 }
+
+export interface EodAccumPickRow {
+  scan_date: string;
+  ticker: string;
+  entry_price: number;
+  accum_score: number;
+  news_type: "hard" | "soft" | "none";
+  news_headline: string | null;
+  eod_rel_vol: number;
+  late_flow: number;
+  closing_range: number;
+  price_chg_pct: number;
+  next_open: number | null;
+  next_open_chg_pct: number | null;
+  morning_high: number | null;
+  morning_high_chg_pct: number | null;
+  gapped_up: boolean | null;
+}
+export interface EodAccumStats {
+  picks: number;
+  graded: number;
+  hit_rate_pct: number | null;
+  avg_gap_pct: number | null;
+  avg_high_pct: number | null;
+  best_gap_pct: number | null;
+}
+export interface EodAccumTrackData {
+  picks: EodAccumPickRow[];
+  summary: {
+    all: EodAccumStats;
+    pure: EodAccumStats;
+    soft: EodAccumStats;
+    hard: EodAccumStats;
+  };
+  as_of: string;
+}
+export function fetchEodAccumTrack() {
+  return fetchJson<EodAccumTrackData>("/eod-accum-track");
+}

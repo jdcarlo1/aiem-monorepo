@@ -38,6 +38,7 @@ import {
   MorningRunnerRow, fetchMorningRunners,
   MorningInflowResult, MorningInflowsData, fetchMorningInflows,
   EodAccumResult, EodAccumData, fetchEodAccumulation,
+  EodAccumPickRow, EodAccumStats, EodAccumTrackData, fetchEodAccumTrack,
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
   BreakoutRow, fetch52WeekBreakout,
   SectorRow, fetchSectorRotation,
@@ -6775,6 +6776,190 @@ function EodAccumulationTab() {
   );
 }
 
+function EodAccumTrackTab() {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]     = useState<EodAccumTrackData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<"all" | "none" | "soft" | "hard">("all");
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetchEodAccumTrack()); } catch {}
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const fmtPct = (v: number | null | undefined, decimals = 2) =>
+    v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(decimals)}%`;
+  const pctColor = (v: number | null | undefined) =>
+    v == null ? "#64748b" : v >= 0 ? "#4ade80" : "#f87171";
+
+  const visiblePicks = (data?.picks ?? []).filter(r =>
+    typeFilter === "all" ? true : r.news_type === typeFilter
+  );
+
+  const StatCard = ({ label, stat }: { label: string; stat: EodAccumStats | undefined }) => {
+    if (!stat) return null;
+    return (
+      <div style={{ background: "rgba(15,23,42,0.9)", border: "1px solid rgba(51,65,85,0.6)",
+        borderRadius: 10, padding: "14px 18px", minWidth: 160 }}>
+        <div style={{ fontFamily: BB_F, fontSize: 11, color: "#64748b", fontWeight: 700,
+          letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>{label}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
+          {[
+            ["Picks", stat.picks != null ? String(stat.picks) : "—", "#94a3b8"],
+            ["Graded", stat.graded != null ? String(stat.graded) : "—", "#94a3b8"],
+            ["Hit Rate", stat.hit_rate_pct != null ? `${stat.hit_rate_pct}%` : "—",
+              stat.hit_rate_pct != null ? (stat.hit_rate_pct >= 60 ? "#4ade80" : stat.hit_rate_pct >= 40 ? "#fbbf24" : "#f87171") : "#64748b"],
+            ["Avg Gap", fmtPct(stat.avg_gap_pct), pctColor(stat.avg_gap_pct)],
+            ["Avg 30m High", fmtPct(stat.avg_high_pct), pctColor(stat.avg_high_pct)],
+            ["Best Gap", fmtPct(stat.best_gap_pct), pctColor(stat.best_gap_pct)],
+          ].map(([k, v, col]) => (
+            <div key={k as string}>
+              <div style={{ fontFamily: BB_F, fontSize: 9, color: "#475569", marginBottom: 2 }}>{k as string}</div>
+              <div style={{ fontFamily: BB_F, fontSize: 13, fontWeight: 700, color: col as string }}>{v as string}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: "24px 16px", maxWidth: 1100, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+        <span style={{ fontSize: 22 }}>📊</span>
+        <div>
+          <div style={{ fontFamily: BB_F, fontSize: 16, fontWeight: 700, color: "#f1f5f9",
+            letterSpacing: 1 }}>EOD ACCUMULATION TRACK RECORD</div>
+          <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginTop: 2 }}>
+            Next-morning gap performance for every EOD accum pick · auto-graded at 10 AM ET
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {loading && <span style={{ fontFamily: BB_F, fontSize: 10, color: "#64748b" }}>loading…</span>}
+          <button onClick={load} style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+            background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.4)",
+            borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>↻ REFRESH</button>
+        </div>
+      </div>
+
+      {data && (
+        <>
+          {/* Summary stat cards */}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+            <StatCard label="All Picks" stat={data.summary.all} />
+            <StatCard label="🎯 Pure Setup" stat={data.summary.pure} />
+            <StatCard label="📄 Soft News" stat={data.summary.soft} />
+            <StatCard label="⚡ Hard Catalyst" stat={data.summary.hard} />
+          </div>
+
+          {/* Filter buttons */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            {(["all", "none", "soft", "hard"] as const).map(f => (
+              <button key={f} onClick={() => setTypeFilter(f)}
+                style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, cursor: "pointer",
+                  padding: "5px 14px", borderRadius: 99, transition: "all 0.15s",
+                  background: typeFilter === f ? "rgba(99,102,241,0.25)" : "rgba(15,23,42,0.7)",
+                  color: typeFilter === f ? "#818cf8" : "#64748b",
+                  border: typeFilter === f ? "1px solid rgba(99,102,241,0.6)" : "1px solid rgba(51,65,85,0.5)" }}>
+                {f === "all" ? "ALL" : f === "none" ? "🎯 PURE" : f === "soft" ? "📄 SOFT" : "⚡ HARD"}
+              </button>
+            ))}
+          </div>
+
+          {visiblePicks.length === 0 ? (
+            <div style={{ fontFamily: BB_F, fontSize: 13, color: "#475569", textAlign: "center",
+              padding: "40px 0" }}>
+              No picks yet — data populates each trading day after the 3:45 PM ET scan fires.
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: BB_F, fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid rgba(51,65,85,0.8)" }}>
+                    {["Date","Ticker","Score","Type","Entry","Next Open","Gap%","30m High","Max Gain%","Gapped?"].map(h => (
+                      <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontWeight: 700,
+                        fontSize: 10, color: "#475569", letterSpacing: 0.5, whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visiblePicks.map((r, i) => {
+                    const isPending = r.gapped_up === null;
+                    const rowBg = i % 2 === 0 ? "rgba(15,23,42,0.4)" : "transparent";
+                    const newsLabel = r.news_type === "hard" ? "⚡ HARD"
+                                    : r.news_type === "soft" ? "📄 SOFT" : "🎯 PURE";
+                    const newsCol   = r.news_type === "hard" ? "#f59e0b"
+                                    : r.news_type === "soft" ? "#94a3b8" : "#4ade80";
+                    return (
+                      <tr key={`${r.scan_date}-${r.ticker}`}
+                        style={{ background: rowBg, borderBottom: "1px solid rgba(30,41,59,0.5)" }}>
+                        <td style={{ padding: "8px 10px", color: "#64748b", whiteSpace: "nowrap" }}>{r.scan_date}</td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: "#f1f5f9" }}>{r.ticker}</td>
+                        <td style={{ padding: "8px 10px", color: r.accum_score >= 60 ? "#f97316"
+                          : r.accum_score >= 30 ? "#fbbf24" : "#4ade80" }}>{r.accum_score}</td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <span style={{ fontWeight: 700, fontSize: 10, color: newsCol,
+                            background: `${newsCol}15`, border: `1px solid ${newsCol}40`,
+                            padding: "2px 8px", borderRadius: 99 }}>{newsLabel}</span>
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#94a3b8" }}>
+                          ${r.entry_price != null ? r.entry_price.toFixed(2) : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#94a3b8" }}>
+                          {r.next_open != null ? `$${r.next_open.toFixed(2)}` : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700,
+                          color: pctColor(r.next_open_chg_pct) }}>
+                          {fmtPct(r.next_open_chg_pct)}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#94a3b8" }}>
+                          {r.morning_high != null ? `$${r.morning_high.toFixed(2)}` : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700,
+                          color: pctColor(r.morning_high_chg_pct) }}>
+                          {fmtPct(r.morning_high_chg_pct)}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          {isPending
+                            ? <span style={{ fontFamily: BB_F, fontSize: 10, color: "#475569",
+                                background: "rgba(71,85,105,0.15)", border: "1px solid rgba(71,85,105,0.4)",
+                                padding: "2px 8px", borderRadius: 99 }}>⏳ PENDING</span>
+                            : r.gapped_up
+                              ? <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, color: "#4ade80",
+                                  background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.35)",
+                                  padding: "2px 8px", borderRadius: 99 }}>✓ YES</span>
+                              : <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, color: "#f87171",
+                                  background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.35)",
+                                  padding: "2px 8px", borderRadius: 99 }}>✗ NO</span>
+                          }
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{ fontFamily: BB_F, fontSize: 10, color: "#334155", textAlign: "center",
+            marginTop: 20, lineHeight: 1.7 }}>
+            Entry = previous day's closing price · Gap% = (next open − entry) / entry · 30m High graded vs entry
+          </div>
+        </>
+      )}
+
+      {!data && !loading && (
+        <div style={{ fontFamily: BB_F, fontSize: 13, color: "#475569", textAlign: "center", padding: "60px 0" }}>
+          Click REFRESH to load track record data.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData] = useState<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -10743,7 +10928,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"eodaccum">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"eodaccum"|"eodaccumtrack">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -10883,6 +11068,7 @@ export default function Dashboard() {
     { id: "standoutflow",    label: "🔥 STANDOUT FLOW" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
     { id: "eodaccum",        label: "🌙 EOD ACCUM" },
+    { id: "eodaccumtrack",   label: "📊 EOD TRACK" },
     { id: "squeezesetup",   label: "💥 SQUEEZE SETUP" },
     { id: "breakout52week", label: "🚀 52WK BREAKOUT" },
     { id: "sectorrotation", label: "🌀 SECTOR ROTATION" },
@@ -11489,6 +11675,7 @@ export default function Dashboard() {
         {tab === "streakflow"      && <NetFlowStreakTab  onSelectTicker={selectTicker} />}
         {tab === "morningrunners"  && <MorningRunnersTab onSelectTicker={selectTicker} />}
         {tab === "eodaccum"        && <EodAccumulationTab />}
+        {tab === "eodaccumtrack"   && <EodAccumTrackTab />}
         {tab === "squeezesetup"   && <SqueezeSetupTab   onSelectTicker={selectTicker} />}
         {tab === "breakout52week" && <Breakout52WeekTab  onSelectTicker={selectTicker} />}
         {tab === "sectorrotation" && <SectorRotationTab />}
