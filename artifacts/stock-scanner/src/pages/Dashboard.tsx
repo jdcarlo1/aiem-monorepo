@@ -6293,6 +6293,46 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
         </div>
       )}
 
+      {/* Micro-Pumps — Warning section */}
+      {!loading && (data?.micro_pumps ?? []).length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <div style={{ flex: 1, height: 1, background: "rgba(251,146,60,0.25)" }} />
+            <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 11, color: "#fb923c", textTransform: "uppercase", letterSpacing: "0.1em", whiteSpace: "nowrap" }}>
+              ⚠️ Micro-Pumps — Sub-$5 · High Vol · Trade With Caution
+            </span>
+            <div style={{ flex: 1, height: 1, background: "rgba(251,146,60,0.25)" }} />
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11, marginBottom: 12, textAlign: "center" }}>
+            Price &lt;$5 · Rel Vol &gt;50× · Often fade — use tight stops
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(data!.micro_pumps!).map((s, i) => (
+              <div key={i} style={{
+                background: "rgba(251,146,60,0.05)", border: "1px solid rgba(251,146,60,0.25)",
+                borderRadius: 12, padding: "12px 16px",
+                display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#e2e8f0", fontSize: 16 }}>{s.ticker}</span>
+                  <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                    background: "rgba(251,146,60,0.15)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.4)" }}>
+                    ⚠️ MICRO-PUMP
+                  </span>
+                  <span style={{ fontFamily: BB_F, fontWeight: 700, color: "#22c55e", fontSize: 13 }}>+{s.price_chg_pct.toFixed(1)}%</span>
+                  <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 12 }}>${s.price.toFixed(2)}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>{s.rel_vol.toFixed(0)}× vol</span>
+                  <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>{s.flow_ratio.toFixed(1)}:1 flow</span>
+                  <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>Score {s.standout_score.toFixed(1)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Extreme Pumps — Avoid section */}
       {!loading && (data?.extreme_pumps ?? []).length > 0 && (
         <div style={{ marginTop: 28 }}>

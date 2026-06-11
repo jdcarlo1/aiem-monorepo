@@ -9753,11 +9753,11 @@ def morning_inflows():
             min_rel = 5.0 if mins_elapsed <= 30 else 3.0
             if rel_vol < min_rel: return None
 
-            # ── Micro-pump rejection ─────────────────────────────────────────────
+            # ── Micro-pump detection ─────────────────────────────────────────────
             # Data (2026-06-10): LUD $5.06 rel-vol 184× → -20.8%, CHNR $4.52 rel-vol 85× → -16.8%
             # Extremely high volume on a sub-$5 stock = coordinated micro-pump, not organic buying.
-            # Real institutional buying doesn't produce 50-200× relative volume on penny stocks.
-            if price < 5.0 and rel_vol > 50: return None
+            # Shown with a ⚠️ MICRO-PUMP warning label instead of silently dropped.
+            _is_micro_pump = price < 5.0 and rel_vol > 50
 
             # ── Money flow from 1-min bars ──────────────────────────────────────
             inflow = outflow = 0.0
@@ -9769,9 +9769,9 @@ def morning_inflows():
                 else:                                          outflow += dv
 
             flow_ratio = (inflow / outflow) if outflow > 0 else 99.0
-            # Raised from 2.0 → 2.5: data showed 2.0-2.4 flow ratios produced weak setups
-            # (AIIR, CLLS both faded with borderline flow conviction on 2026-06-10)
-            if flow_ratio < 2.5: return None
+            # Lowered from 2.5 → 2.0: catches more legitimate movers in the watchlist.
+            # Micro-pumps skip the flow ratio gate — they're shown with a warning regardless.
+            if not _is_micro_pump and flow_ratio < 2.0: return None
 
             # ── Gap-up multiplier ────────────────────────────────────────────
             # Stocks that gap up hard at the open (pre-market catalyst) are higher
@@ -9875,7 +9875,7 @@ def morning_inflows():
                 "first_bar_pct":   round(first_bar_pct, 2),
                 "first_bar_green": first_bar_green,
                 "has_first_bar":   has_first_bar,
-                "rel_vol":         round(rel_vol, 1),       # projected ×, not raw ×
+                "rel_vol":         round(rel_vol, 1),
                 "rel_vol_raw":     round(cum_vol / avg_vol, 2),
                 "today_vol":       int(cum_vol),
                 "projected_vol":   int(projected_vol),
@@ -9887,6 +9887,7 @@ def morning_inflows():
                 "flow_ratio":      round(min(flow_ratio, 99.0), 2),
                 "standout_score":  standout_score,
                 "mkt_cap_m":       round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
+                "micro_pump":      _is_micro_pump,
             }
         except Exception:
             return None
@@ -9900,14 +9901,17 @@ def morning_inflows():
 
     results.sort(key=lambda x: -x["standout_score"])
 
-    # ── Separate extreme pumps (gap >100%) from actionable standouts ─────────
-    # Data-confirmed (2026-06-10): DSY +416% gap → -24%, VSME +350% gap → -44%.
-    # Extreme gappers fade 100% of the time — keep visible but clearly warn away.
-    _extreme_pumps = [r for r in results if r.get("gap_pct", 0) > 100]
-    _actionable    = [r for r in results if r.get("gap_pct", 0) <= 100]
+    # ── Separate micro-pumps, extreme pumps, and actionable standouts ────────
+    # micro_pumps:    sub-$5 at open with >50× rel vol — shown with ⚠️ warning
+    # extreme_pumps:  gap >100% — shown with 🔴 warning (100% fade rate confirmed)
+    # standouts:      everything else — actionable signals
+    _micro_pumps   = [r for r in results if r.get("micro_pump")]
+    _extreme_pumps = [r for r in results if not r.get("micro_pump") and r.get("gap_pct", 0) > 100]
+    _actionable    = [r for r in results if not r.get("micro_pump") and r.get("gap_pct", 0) <= 100]
 
     out = {
         "standouts":     _actionable[:25],
+        "micro_pumps":   _micro_pumps[:10],
         "extreme_pumps": _extreme_pumps[:10],
         "total_found":   len(results),
         "scanned":       len(universe),

@@ -1307,9 +1307,11 @@ export interface MorningInflowResult {
   first_bar_green?: boolean;
   has_first_bar?: boolean;
   mkt_cap_m: number | null;
+  micro_pump?: boolean;
 }
 export interface MorningInflowsData {
   standouts: MorningInflowResult[];
+  micro_pumps?: MorningInflowResult[];
   extreme_pumps?: MorningInflowResult[];
   total_found: number;
   scanned: number;
