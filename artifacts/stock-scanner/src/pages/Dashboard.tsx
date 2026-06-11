@@ -39,6 +39,7 @@ import {
   MorningInflowResult, MorningInflowsData, fetchMorningInflows,
   EodAccumResult, EodAccumData, fetchEodAccumulation,
   EodAccumPickRow, EodAccumStats, EodAccumTrackData, fetchEodAccumTrack,
+  StandoutPickRow, StandoutStats, StandoutTrackData, fetchStandoutTrack,
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
   BreakoutRow, fetch52WeekBreakout,
   SectorRow, fetchSectorRotation,
@@ -6960,6 +6961,206 @@ function EodAccumTrackTab() {
   );
 }
 
+function StandoutTrackTab() {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]     = useState<StandoutTrackData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [tierFilter, setTierFilter] = useState<"all" | "extreme" | "high" | "standard">("all");
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetchStandoutTrack()); } catch {}
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const fmtPct = (v: number | null | undefined, d = 2) =>
+    v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
+  const pctColor = (v: number | null | undefined) =>
+    v == null ? "#64748b" : v >= 0 ? "#4ade80" : "#f87171";
+
+  const visiblePicks = (data?.picks ?? []).filter(r => {
+    const s = r.standout_score;
+    if (tierFilter === "extreme")  return s >= 20;
+    if (tierFilter === "high")     return s >= 10 && s < 20;
+    if (tierFilter === "standard") return s >= 5 && s < 10;
+    return true;
+  });
+
+  const StatCard = ({ label, stat, accentColor }: { label: string; stat: StandoutStats | undefined; accentColor: string }) => {
+    if (!stat) return null;
+    return (
+      <div style={{ background: "rgba(15,23,42,0.9)", border: `1px solid ${accentColor}30`,
+        borderRadius: 10, padding: "14px 18px", minWidth: 160 }}>
+        <div style={{ fontFamily: BB_F, fontSize: 11, color: accentColor, fontWeight: 700,
+          letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>{label}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
+          {[
+            ["Picks",      stat.picks  != null ? String(stat.picks)  : "—", "#94a3b8"],
+            ["Graded",     stat.graded != null ? String(stat.graded) : "—", "#94a3b8"],
+            ["Hit Rate",   stat.hit_rate_pct  != null ? `${stat.hit_rate_pct}%` : "—",
+              stat.hit_rate_pct != null ? (stat.hit_rate_pct >= 60 ? "#4ade80" : stat.hit_rate_pct >= 40 ? "#fbbf24" : "#f87171") : "#64748b"],
+            ["Avg Close",  fmtPct(stat.avg_close_pct), pctColor(stat.avg_close_pct)],
+            ["Avg Day Hi", fmtPct(stat.avg_high_pct),  pctColor(stat.avg_high_pct)],
+            ["Best Day Hi",fmtPct(stat.best_high_pct), pctColor(stat.best_high_pct)],
+          ].map(([k, v, col]) => (
+            <div key={k as string}>
+              <div style={{ fontFamily: BB_F, fontSize: 9, color: "#475569", marginBottom: 2 }}>{k as string}</div>
+              <div style={{ fontFamily: BB_F, fontSize: 13, fontWeight: 700, color: col as string }}>{v as string}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: "24px 16px", maxWidth: 1100, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <span style={{ fontSize: 22 }}>📈</span>
+        <div>
+          <div style={{ fontFamily: BB_F, fontSize: 16, fontWeight: 700, color: "#f1f5f9",
+            letterSpacing: 1 }}>STANDOUT FLOW TRACK RECORD</div>
+          <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginTop: 2 }}>
+            Morning entry (9:31–10:30 AM) · graded by same-day close &amp; intraday high
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {loading && <span style={{ fontFamily: BB_F, fontSize: 10, color: "#64748b" }}>loading…</span>}
+          <button onClick={load} style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+            background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.4)",
+            borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>↻ REFRESH</button>
+        </div>
+      </div>
+
+      {/* Strategy note */}
+      <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginBottom: 20, lineHeight: 1.6,
+        background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.1)",
+        borderRadius: 8, padding: "10px 14px" }}>
+        <span style={{ color: "#f87171", fontWeight: 700 }}>Compare vs EOD TRACK: </span>
+        Standout Flow = buy at the 9:31 AM signal, hold into close.
+        EOD Accum = buy at 3:55 PM close, sell into the next-morning gap.
+        Hit rate here = % of picks that closed higher than entry.
+      </div>
+
+      {data && (
+        <>
+          {/* Summary stat cards */}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+            <StatCard label="All Standouts" stat={data.summary.all}      accentColor="#f87171" />
+            <StatCard label="🔴 Extreme ≥20" stat={data.summary.extreme} accentColor="#fb923c" />
+            <StatCard label="🟠 High 10–19"  stat={data.summary.high}    accentColor="#fbbf24" />
+            <StatCard label="🟡 Standard 5–9" stat={data.summary.standard} accentColor="#4ade80" />
+          </div>
+
+          {/* Tier filter */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            {([
+              ["all",      "ALL",         "#64748b"],
+              ["extreme",  "🔴 EXTREME",  "#fb923c"],
+              ["high",     "🟠 HIGH",     "#fbbf24"],
+              ["standard", "🟡 STANDARD", "#4ade80"],
+            ] as const).map(([f, label, col]) => (
+              <button key={f} onClick={() => setTierFilter(f)}
+                style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, cursor: "pointer",
+                  padding: "5px 14px", borderRadius: 99, transition: "all 0.15s",
+                  background: tierFilter === f ? `${col}25` : "rgba(15,23,42,0.7)",
+                  color: tierFilter === f ? col : "#64748b",
+                  border: tierFilter === f ? `1px solid ${col}60` : "1px solid rgba(51,65,85,0.5)" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {visiblePicks.length === 0 ? (
+            <div style={{ fontFamily: BB_F, fontSize: 13, color: "#475569", textAlign: "center", padding: "40px 0" }}>
+              No standout picks yet — data accumulates each trading day from the 9:31 AM scan.
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: BB_F, fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid rgba(51,65,85,0.8)" }}>
+                    {["Date","Ticker","Score","Entry","Chg%","Rel-Vol","Flow Ratio","Close","Day High","Open→Close","Open→High","Fade Risk"].map(h => (
+                      <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontWeight: 700,
+                        fontSize: 10, color: "#475569", letterSpacing: 0.5, whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visiblePicks.map((r, i) => {
+                    const s = r.standout_score;
+                    const scoreCol = s >= 20 ? "#fb923c" : s >= 10 ? "#fbbf24" : "#4ade80";
+                    const isPending = r.open_to_close_pct == null;
+                    return (
+                      <tr key={`${r.scan_date}-${r.ticker}`}
+                        style={{ background: i % 2 === 0 ? "rgba(15,23,42,0.4)" : "transparent",
+                          borderBottom: "1px solid rgba(30,41,59,0.5)" }}>
+                        <td style={{ padding: "8px 10px", color: "#64748b", whiteSpace: "nowrap" }}>{r.scan_date}</td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: "#f1f5f9" }}>{r.ticker}</td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: scoreCol }}>{s.toFixed(1)}</td>
+                        <td style={{ padding: "8px 10px", color: "#94a3b8" }}>
+                          ${r.entry_price != null ? r.entry_price.toFixed(2) : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: pctColor(r.price_chg_pct) }}>
+                          {fmtPct(r.price_chg_pct)}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#94a3b8" }}>
+                          {r.rel_vol != null ? `${r.rel_vol.toFixed(1)}×` : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#94a3b8" }}>
+                          {r.flow_ratio != null ? `${r.flow_ratio.toFixed(1)}×` : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#94a3b8" }}>
+                          {r.close_price != null ? `$${r.close_price.toFixed(2)}` : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#94a3b8" }}>
+                          {r.high_price != null ? `$${r.high_price.toFixed(2)}` : "—"}
+                        </td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700,
+                          color: isPending ? "#475569" : pctColor(r.open_to_close_pct) }}>
+                          {isPending
+                            ? <span style={{ fontFamily: BB_F, fontSize: 10, color: "#475569",
+                                background: "rgba(71,85,105,0.15)", border: "1px solid rgba(71,85,105,0.4)",
+                                padding: "2px 8px", borderRadius: 99 }}>⏳</span>
+                            : fmtPct(r.open_to_close_pct)}
+                        </td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: pctColor(r.open_to_high_pct) }}>
+                          {fmtPct(r.open_to_high_pct)}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          {r.fade_risk_signal == null ? <span style={{ color: "#475569" }}>—</span>
+                            : <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+                                color: r.fade_risk_signal === "HIGH" ? "#f87171" : "#fbbf24",
+                                background: r.fade_risk_signal === "HIGH" ? "rgba(248,113,113,0.1)" : "rgba(251,191,36,0.1)",
+                                border: `1px solid ${r.fade_risk_signal === "HIGH" ? "rgba(248,113,113,0.3)" : "rgba(251,191,36,0.3)"}`,
+                                padding: "2px 8px", borderRadius: 99 }}>{r.fade_risk_signal}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{ fontFamily: BB_F, fontSize: 10, color: "#334155", textAlign: "center",
+            marginTop: 20, lineHeight: 1.7 }}>
+            Entry = price at scan time (9:31–10:30 AM) · Open→Close graded vs same-day open · Day High = intraday max
+          </div>
+        </>
+      )}
+
+      {!data && !loading && (
+        <div style={{ fontFamily: BB_F, fontSize: 13, color: "#475569", textAlign: "center", padding: "60px 0" }}>
+          Click REFRESH to load standout flow history.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData] = useState<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -10928,7 +11129,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"eodaccum"|"eodaccumtrack">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -11066,6 +11267,7 @@ export default function Dashboard() {
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
     { id: "streakflow",      label: "📈 FLOW STREAK" },
     { id: "standoutflow",    label: "🔥 STANDOUT FLOW" },
+    { id: "standouttrack",   label: "📈 STANDOUT TRACK" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
     { id: "eodaccum",        label: "🌙 EOD ACCUM" },
     { id: "eodaccumtrack",   label: "📊 EOD TRACK" },
@@ -11684,6 +11886,7 @@ export default function Dashboard() {
         {tab === "marketpress"    && <MarketPressTab />}
         {tab === "earningscal"    && <EarningsCalendarTab onSelectTicker={selectTicker} />}
         {tab === "standoutflow"   && <StandoutFlowTab    onSelectTicker={selectTicker} />}
+        {tab === "standouttrack"  && <StandoutTrackTab />}
 
       </div>
       </main>

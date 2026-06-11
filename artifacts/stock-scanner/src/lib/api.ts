@@ -1624,3 +1624,40 @@ export interface EodAccumTrackData {
 export function fetchEodAccumTrack() {
   return fetchJson<EodAccumTrackData>("/eod-accum-track");
 }
+
+export interface StandoutPickRow {
+  scan_date: string;
+  ticker: string;
+  entry_price: number;
+  price_chg_pct: number;
+  rel_vol: number;
+  flow_ratio: number;
+  standout_score: number;
+  mkt_cap_m: number | null;
+  close_price: number | null;
+  high_price: number | null;
+  open_to_close_pct: number | null;
+  open_to_high_pct: number | null;
+  fade_risk_signal: string | null;
+}
+export interface StandoutStats {
+  picks: number;
+  graded: number;
+  hit_rate_pct: number | null;
+  avg_close_pct: number | null;
+  avg_high_pct: number | null;
+  best_high_pct: number | null;
+}
+export interface StandoutTrackData {
+  picks: StandoutPickRow[];
+  summary: {
+    all: StandoutStats;
+    extreme: StandoutStats;
+    high: StandoutStats;
+    standard: StandoutStats;
+  };
+  as_of: string;
+}
+export function fetchStandoutTrack() {
+  return fetchJson<StandoutTrackData>("/standout-track");
+}

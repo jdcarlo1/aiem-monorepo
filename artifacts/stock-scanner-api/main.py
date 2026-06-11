@@ -10317,6 +10317,84 @@ def eod_accum_track():
         return jsonify({"picks": [], "summary": {}, "as_of": "", "error": str(_e_tr)})
 
 
+@app.route("/stock-api/standout-track", methods=["GET"])
+def standout_track():
+    """
+    Standout Flow Track Record.
+    Returns historical standout-score morning picks (score >= 5) joined with their
+    same-day eod_outcomes, segmented by score tier. Used to compare morning-entry
+    performance vs EOD accumulation entry performance.
+    """
+    import datetime as _dt_st
+    import psycopg2 as _pg_st
+    import psycopg2.extras as _ext_st
+
+    try:
+        with _pg_st.connect(_DB_URL) as _c, _c.cursor(cursor_factory=_ext_st.RealDictCursor) as _cu:
+            _cu.execute("""
+                SELECT DISTINCT ON (s.scan_date, s.ticker)
+                    s.scan_date,
+                    s.ticker,
+                    s.price              AS entry_price,
+                    s.price_chg_pct,
+                    s.rel_vol,
+                    s.flow_ratio,
+                    s.standout_score,
+                    s.mkt_cap_m,
+                    o.close_price,
+                    o.high_price,
+                    o.open_to_close_pct,
+                    o.open_to_high_pct,
+                    o.fade_risk_signal
+                FROM scan_history s
+                LEFT JOIN eod_outcomes o
+                    ON o.trade_date = s.scan_date AND o.ticker = s.ticker
+                WHERE s.standout_score >= 5
+                ORDER BY s.scan_date DESC, s.ticker, s.rank_in_scan ASC
+                LIMIT 300
+            """)
+            _rows = [dict(r) for r in _cu.fetchall()]
+
+        for _r in _rows:
+            if hasattr(_r.get("scan_date"), "isoformat"):
+                _r["scan_date"] = _r["scan_date"].isoformat()
+            for _k in list(_r.keys()):
+                if _r[_k] is not None:
+                    try: _r[_k] = float(_r[_k]) if isinstance(_r[_k], __import__("decimal").Decimal) else _r[_k]
+                    except Exception: pass
+
+        def _st_stats(rows):
+            graded = [r for r in rows if r.get("open_to_close_pct") is not None]
+            if not graded:
+                return {"picks": len(rows), "graded": 0, "hit_rate_pct": None,
+                        "avg_close_pct": None, "avg_high_pct": None, "best_high_pct": None}
+            winners = [r for r in graded if (r.get("open_to_close_pct") or 0) > 0]
+            o2c = [r["open_to_close_pct"] for r in graded if r.get("open_to_close_pct") is not None]
+            o2h = [r["open_to_high_pct"]  for r in graded if r.get("open_to_high_pct")  is not None]
+            return {
+                "picks":         len(rows),
+                "graded":        len(graded),
+                "hit_rate_pct":  round(len(winners) / len(graded) * 100, 1),
+                "avg_close_pct": round(sum(o2c) / len(o2c), 2) if o2c else None,
+                "avg_high_pct":  round(sum(o2h) / len(o2h), 2) if o2h else None,
+                "best_high_pct": round(max(o2h), 2) if o2h else None,
+            }
+
+        _summary = {
+            "all":      _st_stats(_rows),
+            "extreme":  _st_stats([r for r in _rows if (r.get("standout_score") or 0) >= 20]),
+            "high":     _st_stats([r for r in _rows if 10 <= (r.get("standout_score") or 0) < 20]),
+            "standard": _st_stats([r for r in _rows if 5 <= (r.get("standout_score") or 0) < 10]),
+        }
+
+        return jsonify({"picks": _rows, "summary": _summary,
+                        "as_of": _dt_st.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")})
+
+    except Exception as _e_st:
+        print(f"[standout_track] error: {_e_st}")
+        return jsonify({"picks": [], "summary": {}, "as_of": "", "error": str(_e_st)})
+
+
 @app.route("/stock-api/insider-radar", methods=["GET"])
 def insider_radar():
     """
