@@ -2982,11 +2982,11 @@ function AIShortCallsTab() {
     } catch { /* silent */ }
   };
 
-  const run = async () => {
+  const run = async (force = false) => {
     setLoading(true);
     setError(null);
     try {
-      const d = await fetchAIShortCalls();
+      const d = await fetchAIShortCalls(force);
       if (d.error) { setError(d.error); setPicks([]); }
       else { setPicks(d.picks || []); setGeneratedAt(d.generated_at); setSignalsEvaluated(d.signals_evaluated || 0); }
     } catch (e: any) {
@@ -2996,7 +2996,7 @@ function AIShortCallsTab() {
     }
   };
 
-  useEffect(() => { run(); }, []);
+  useEffect(() => { run(false); }, []);
 
   const urgencyColor = (u: string) => {
     if (!u) return BB_DIM;
@@ -3023,7 +3023,7 @@ function AIShortCallsTab() {
           )}
         </div>
         <button
-          onClick={run}
+          onClick={() => run(true)}
           disabled={loading}
           style={{ fontSize: 10, fontFamily: BB_FONT, background: loading ? "#111" : BB_ORANGE, color: loading ? BB_DIM : "#000", border: "none", borderRadius: 3, padding: "5px 12px", cursor: loading ? "default" : "pointer", fontWeight: 700 }}
         >

@@ -738,8 +738,8 @@ export interface AIShortCall {
   thesis: string;
   why_it_stands_out: string;
 }
-export function fetchAIShortCalls() {
-  return fetchJson<{ picks: AIShortCall[]; generated_at: string | null; signals_evaluated: number; error?: string }>("/ai-short-calls");
+export function fetchAIShortCalls(force = false) {
+  return fetchJson<{ picks: AIShortCall[]; generated_at: string | null; signals_evaluated: number; error?: string }>(`/ai-short-calls${force ? "?force=1" : ""}`);
 }
 
 export interface AIShortCallLogEntry {

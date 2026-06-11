@@ -8031,31 +8031,36 @@ def ai_short_calls():
     from datetime import datetime as _dt
     from openai import OpenAI
 
+    force  = request.args.get("force") == "1"
     _cache = getattr(app, "_aisc_cache", None)
     _ts    = getattr(app, "_aisc_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
+    if not force and _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
         return jsonify(_cache)
 
     # 1. Try in-memory live cache first
     uc   = getattr(app, "_unusual_calls_cache", None)
     hits = (uc.get("hits") or []) if uc else []
 
-    # 2. Fall back to DB if live cache is empty (e.g. weekend / after restart)
+    # 2. Fall back to DB if live cache is empty — prefer TODAY's signals, then 24h
     if not hits:
         try:
+            _db_sql = """
+                SELECT ticker, strike, expiry, days_out, vol_oi, prem, otm_pct, iv, urgency, price
+                FROM unusual_calls_log
+                WHERE last_seen >= {interval}
+                  AND days_out BETWEEN 1 AND 30
+                  AND prem >= 500000
+                  AND otm_pct BETWEEN -2 AND 30
+                  AND strike >= price * 0.97
+                ORDER BY last_seen DESC, vol_oi DESC
+                LIMIT 25
+            """
             with _psycopg2.connect(_DB_URL) as conn_fb, conn_fb.cursor() as cur_fb:
-                cur_fb.execute("""
-                    SELECT ticker, strike, expiry, days_out, vol_oi, prem, otm_pct, iv, urgency, price
-                    FROM unusual_calls_log
-                    WHERE last_seen >= NOW() - INTERVAL '5 days'
-                      AND days_out BETWEEN 1 AND 30
-                      AND prem >= 500000
-                      AND otm_pct BETWEEN -2 AND 30
-                      AND strike >= price * 0.97
-                    ORDER BY last_seen DESC, vol_oi DESC
-                    LIMIT 25
-                """)
+                cur_fb.execute(_db_sql.format(interval="CURRENT_DATE"))
                 rows = cur_fb.fetchall()
+                if not rows:
+                    cur_fb.execute(_db_sql.format(interval="NOW() - INTERVAL '1 day'"))
+                    rows = cur_fb.fetchall()
             hits = [
                 {"ticker": r[0], "strike": r[1], "expiry": str(r[2]), "days_out": r[3],
                  "vol_oi": float(r[4]), "prem": int(r[5]), "otm_pct": float(r[6]),
