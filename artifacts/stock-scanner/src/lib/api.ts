@@ -1572,6 +1572,7 @@ export interface EodAccumResult {
   late_surge_pct: number;
   quiet_surge: number;
   accum_score: number;
+  signal_type: "accum" | "squeeze";
   mkt_cap_m: number | null;
   has_news: boolean;
   news_headline: string | null;
@@ -1584,6 +1585,7 @@ export interface EodAccumResult {
 }
 export interface EodAccumData {
   candidates: EodAccumResult[];
+  squeeze_setups: EodAccumResult[];
   total_found: number;
   scanned: number;
   generated_at: string;

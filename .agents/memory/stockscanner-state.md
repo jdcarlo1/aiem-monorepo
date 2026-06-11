@@ -121,6 +121,15 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - Universe: watchlist + unusual_calls_log (DATE(first_seen)=today) + Yahoo screener (up ≥1%, ≥$10M)
 - **Why**: FTRK was -2% on the day with 8.8× EOD vol, 13.6× late flow → ran +25% next morning; old gate blocked it
 
+## EOD Short Squeeze Setup Signal (added June 2026)
+- **Pattern**: eod_rel_vol ≥ 50×, late_flow < 2.0× (sellers winning), closing_range < 0.50, price ≥ $1, mkt_cap ≥ $20M
+- **Opposite of accumulation** — shorts loading in at close on massive volume, weak close
+- **Forensic proof**: June 10→11 backtest: MNTS -9.4%→+45%, VELO +15%→+37%, ASTI→+30%, SPCE→+28%, LUNR→+16%, FLY→+17%
+- All showed 100-800× EOD vol with sellers winning and weak close — zero showed unusual calls the day before
+- `signal_type = "squeeze"` in response; `squeeze_setups` is a separate array in the API response
+- Displayed as 🩳 SHORT SQUEEZE SETUPS section (red cards) below the accumulation section
+- Squeeze score = raw eod_rel_vol (higher = more shorts loaded)
+
 ## Morning Watchlist (37 tickers as of 2026-06-10)
 ['AXTI','AZI','BATL','BBGI','BULL','CASY','CBRL','CMCT','CRE','DSY','DWSN','FJET','FLL','FRMI','HCAI','HPK','INDP','JEM','LAKE','LICN','LMNR','LUCK','MAAS','OCC','OPTX','PLAY','PW','RETO','SCLX','SDOT','SPHL','STAK','STI','TGL','TTRX','VSME','WTI']
 - Watchlist checked at every scan (9:31/9:45/10:00/10:15/10:30) regardless of gap size

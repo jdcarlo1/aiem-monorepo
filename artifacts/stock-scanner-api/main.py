@@ -10349,11 +10349,10 @@ def eod_accumulation():
             if close_px <= 0 or day_high <= day_low: return None
 
             price_chg = (close_px - prev_close) / prev_close * 100
-            if price_chg < -20.0: return None  # exclude crashes; accumulation can happen on down/flat days
+            if price_chg < -30.0: return None  # only exclude real crashes
 
             # ── Closing range: 1.0 = at the high, 0.0 = at the low ──────────
             closing_range = (close_px - day_low) / (day_high - day_low)
-            if closing_range < 0.50: return None  # close above midpoint = net accumulation
 
             # ── Last 30-min window (3:30–4:00 PM ET) ─────────────────────────
             eod_bars = hist[hist.index.time >= _dt_ea.time(15, 30)]
@@ -10362,11 +10361,10 @@ def eod_accumulation():
             eod_vol = float(eod_bars["Volume"].sum())
 
             # Avg last-30-min volume: last 30 min ≈ 7.7% of a 390-min day.
-            # Use 0.08 (slightly conservative) to avoid false positives.
             avg_eod_vol = avg_vol * 0.08
             if avg_eod_vol <= 0: return None
             eod_rel_vol = eod_vol / avg_eod_vol
-            if eod_rel_vol < 2.5: return None  # need clear late-day volume surge
+            if eod_rel_vol < 2.5: return None  # need at least some late-day surge
 
             # ── Late money flow (3:30–4:00 PM only) ──────────────────────────
             late_inflow = late_outflow = 0.0
@@ -10377,7 +10375,6 @@ def eod_accumulation():
                 if float(row["Close"]) >= float(row["Open"]): late_inflow  += dv
                 else:                                          late_outflow += dv
             late_flow = (late_inflow / late_outflow) if late_outflow > 0 else 99.0
-            if late_flow < 2.0: return None  # sellers can't outweigh buyers in EOD window
 
             # ── Late price surge (how much did it move in last 30 min) ───────
             pre_330 = hist[hist.index.time < _dt_ea.time(15, 30)]
@@ -10385,7 +10382,6 @@ def eod_accumulation():
             late_surge = (close_px - price_330) / price_330 * 100
 
             # ── "Quiet then surge" signal ─────────────────────────────────────
-            # Midday volume (11 AM–2:30 PM) should be lower than the EOD burst.
             mid_bars  = hist[(hist.index.time >= _dt_ea.time(11, 0)) &
                              (hist.index.time <= _dt_ea.time(14, 30))]
             mid_vol   = float(mid_bars["Volume"].sum()) if not mid_bars.empty else 1.0
@@ -10393,13 +10389,38 @@ def eod_accumulation():
             mid_vol_per_min  = mid_vol / mid_bars_count
             eod_bars_count   = len(eod_bars) or 1
             eod_vol_per_min  = eod_vol / eod_bars_count
-            # EOD should be at least 1.5× busier per minute than midday
             quiet_surge = eod_vol_per_min / mid_vol_per_min if mid_vol_per_min > 0 else 1.0
-            if quiet_surge < 1.5: return None  # no "quiet then surge" pattern = likely just noise
+
+            # ── Determine signal type ─────────────────────────────────────────
+            # ACCUM: buyers winning, good close, quiet-then-surge → +5-15% next day
+            is_accum = (
+                late_flow >= 2.0 and
+                closing_range >= 0.50 and
+                quiet_surge >= 1.5 and
+                price_chg >= -20.0
+            )
+            # SQUEEZE: MASSIVE EOD vol (50×+) + sellers winning + weak close
+            # → shorts loading in at close, get squeezed next morning → +15-50%
+            is_squeeze = (
+                eod_rel_vol >= 50.0 and
+                late_flow < 2.0 and
+                closing_range < 0.50 and
+                close_px >= 1.0 and
+                (mkt_cap or 0) >= 20_000_000
+            )
+
+            if not (is_accum or is_squeeze):
+                return None
+
+            signal_type = "squeeze" if (is_squeeze and not is_accum) else "accum"
 
             # ── Accumulation score ────────────────────────────────────────────
-            # Weights: EOD rel-vol (main driver) × late flow conviction × closing strength
-            accum_score = round(eod_rel_vol * min(late_flow, 10.0) * (0.5 + closing_range), 1)
+            if signal_type == "accum":
+                # Weights: EOD rel-vol × late flow conviction × closing strength
+                accum_score = round(eod_rel_vol * min(late_flow, 10.0) * (0.5 + closing_range), 1)
+            else:
+                # Squeeze score: pure volume anomaly (the bigger the surge, the more shorts loaded)
+                accum_score = round(eod_rel_vol, 1)
 
             # ── News catalyst check ───────────────────────────────────────────
             # If the stock had news today it's likely a news-driven move, not a pump setup.
@@ -10482,6 +10503,7 @@ def eod_accumulation():
                 "late_surge_pct":  round(late_surge, 2),
                 "quiet_surge":     round(quiet_surge, 1),
                 "accum_score":     accum_score,
+                "signal_type":     signal_type,
                 "mkt_cap_m":       round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
                 "has_news":        has_news,
                 "news_headline":   news_headline,
@@ -10498,19 +10520,25 @@ def eod_accumulation():
             _r_ea = _fut_ea.result()
             if _r_ea: _results_ea.append(_r_ea)
 
-    _results_ea.sort(key=lambda x: -x["accum_score"])
+    # ── Split into accumulation vs squeeze setups ─────────────────────────
+    _accum_ea   = [r for r in _results_ea if r.get("signal_type") != "squeeze"]
+    _squeeze_ea = [r for r in _results_ea if r.get("signal_type") == "squeeze"]
+    _accum_ea.sort(  key=lambda x: -x["accum_score"])
+    _squeeze_ea.sort(key=lambda x: -x["accum_score"])  # squeeze score = eod_rel_vol
 
-    # ── Enrich top 20 with short interest + anchored VWAP ─────────────────
+    # ── Enrich top picks with short interest + anchored VWAP ──────────────
+    _enrich_pool = (_accum_ea[:15] + _squeeze_ea[:15])
     def _enrich_ea(_r):
         _r.update(_get_short_data(_r["ticker"]))
     with _TPE_ea(max_workers=10) as _ex_short:
-        list(_ex_short.map(_enrich_ea, _results_ea[:20]))
+        list(_ex_short.map(_enrich_ea, _enrich_pool))
 
-    # ── Persist today's top-20 to DB ──────────────────────────────────────
+    # ── Persist today's top picks to DB ────────────────────────────────────
     _scan_date_ea = _dt_ea.date.today().isoformat()
+    _persist_ea = (_accum_ea[:15] + _squeeze_ea[:10])
     try:
         with _pg_ea.connect(_DB_URL) as _c_sv, _c_sv.cursor() as _cu_sv:
-            for _r in _results_ea[:20]:
+            for _r in _persist_ea:
                 _cu_sv.execute("""
                     INSERT INTO eod_accum_picks
                         (scan_date, ticker, close_price, accum_score, news_type, news_headline,
@@ -10531,10 +10559,11 @@ def eod_accumulation():
         print(f"[eod_accum] db save error: {_e_sv}")
 
     _out_ea = {
-        "candidates":  _results_ea[:20],
-        "total_found": len(_results_ea),
-        "scanned":     len(_tickers),
-        "generated_at": _dt_ea.datetime.now().strftime("%I:%M %p ET"),
+        "candidates":     _accum_ea[:15],
+        "squeeze_setups": _squeeze_ea[:10],
+        "total_found":    len(_results_ea),
+        "scanned":        len(_tickers),
+        "generated_at":   _dt_ea.datetime.now().strftime("%I:%M %p ET"),
     }
     app._eod_accum_cache    = _out_ea
     app._eod_accum_cache_ts = _dt_ea.datetime.now()

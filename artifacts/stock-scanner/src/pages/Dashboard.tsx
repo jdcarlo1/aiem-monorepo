@@ -6846,6 +6846,132 @@ function EodAccumulationTab() {
           ⚠️ For informational purposes only. Always set a stop-loss. Past patterns are not a guarantee of future results.
         </div>
       )}
+
+      {/* ── SHORT SQUEEZE SETUPS ─────────────────────────────────────────── */}
+      {data && (data.squeeze_setups ?? []).length > 0 && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "28px 0 12px" }}>
+            <div style={{ flex: 1, height: 1, background: "rgba(239,68,68,0.25)" }} />
+            <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 10, color: "#ef4444",
+              textTransform: "uppercase", letterSpacing: "0.1em", whiteSpace: "nowrap" }}>
+              🩳 SHORT SQUEEZE SETUPS
+            </span>
+            <div style={{ flex: 1, height: 1, background: "rgba(239,68,68,0.25)" }} />
+          </div>
+          <p style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", lineHeight: 1.6,
+            margin: "0 0 14px" }}>
+            MASSIVE EOD volume (50–1000×) with sellers winning and a weak close — shorts loaded in at close.
+            Any positive catalyst or flat open tomorrow triggers a squeeze. Historically +15–50% the next day.
+            Higher risk than accumulation plays — use tight stops.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {(data.squeeze_setups ?? []).map((c, i) => (
+              <div key={c.ticker} style={{
+                background: "rgba(239,68,68,0.04)",
+                border: `1px solid ${c.eod_rel_vol >= 200 ? "rgba(239,68,68,0.35)" : "rgba(239,68,68,0.18)"}`,
+                borderRadius: 16, padding: "16px 18px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 10,
+                    color: "#ef4444", letterSpacing: "0.08em" }}>🩳 SHORT PRESSURE</span>
+                  <span style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", lineHeight: 1.5 }}>
+                    Shorts loaded at close → squeeze candidate
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+                  gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>
+                        {i + 1}. {c.ticker}
+                      </span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 700,
+                        color: c.price_chg_pct >= 0 ? "#4ade80" : "#f87171", fontSize: 14 }}>
+                        {c.price_chg_pct >= 0 ? "+" : ""}{c.price_chg_pct.toFixed(1)}%
+                      </span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${c.close.toFixed(2)}</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px",
+                        borderRadius: 99, background: "rgba(239,68,68,0.12)", color: "#ef4444",
+                        border: "1px solid rgba(239,68,68,0.4)" }}>
+                        🔥 {c.eod_rel_vol.toFixed(0)}× EOD SURGE
+                      </span>
+                      {c.closing_range <= 0.15 && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px",
+                          borderRadius: 99, background: "rgba(239,68,68,0.08)", color: "#f87171",
+                          border: "1px solid rgba(239,68,68,0.25)" }}>
+                          📉 CLOSED AT LOW
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
+                      {([
+                        ["EOD Surge",   `${c.eod_rel_vol.toFixed(0)}×`,
+                          c.eod_rel_vol >= 200 ? "#ef4444" : "#f97316"],
+                        ["Sell Flow",   `${c.late_flow.toFixed(1)}:1 sell`,
+                          c.late_flow <= 0.5 ? "#ef4444" : "#f87171"],
+                        ["Close Str",   `${Math.round(c.closing_range * 100)}%`,
+                          c.closing_range <= 0.20 ? "#ef4444" : "#f87171"],
+                        ["Day Chg",     `${c.price_chg_pct >= 0 ? "+" : ""}${c.price_chg_pct.toFixed(1)}%`,
+                          c.price_chg_pct >= 0 ? "#4ade80" : "#f87171"],
+                        ["QS",          `${c.quiet_surge.toFixed(1)}×`,
+                          c.quiet_surge >= 3 ? "#f97316" : "#94a3b8"],
+                        ["Mkt Cap",     c.mkt_cap_m ? (c.mkt_cap_m >= 1000 ? `$${(c.mkt_cap_m/1000).toFixed(1)}B` : `$${c.mkt_cap_m.toFixed(0)}M`) : "n/a",
+                          (c.mkt_cap_m ?? 9999) < 500 ? "#a78bfa" : "#475569"],
+                      ] as [string, string, string][]).map(([lbl, val, clr]) => (
+                        <div key={lbl}>
+                          <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>{lbl}</div>
+                          <div style={{ fontFamily: BB_F, fontWeight: 700, color: clr, fontSize: 13 }}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {(c.short_float != null || c.above_avwap != null) && (
+                      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                        {c.short_float != null && (
+                          <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+                            padding: "2px 8px", borderRadius: 99,
+                            background: c.short_float >= 20 ? "rgba(239,68,68,0.18)" : "rgba(71,85,105,0.3)",
+                            color: c.short_float >= 20 ? "#f87171" : "#94a3b8",
+                            border: `1px solid ${c.short_float >= 20 ? "rgba(239,68,68,0.4)" : "rgba(71,85,105,0.4)"}` }}>
+                            🩳 {c.short_float.toFixed(1)}% short{c.days_to_cover ? ` · ${c.days_to_cover.toFixed(1)}d DTC` : ""}
+                          </span>
+                        )}
+                        {c.above_avwap != null && (
+                          <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+                            padding: "2px 8px", borderRadius: 99,
+                            background: c.above_avwap ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.08)",
+                            color: c.above_avwap ? "#4ade80" : "#ef4444",
+                            border: `1px solid ${c.above_avwap ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.2)"}` }}>
+                            {c.above_avwap ? "↑ Above AVWAP" : "↓ Below AVWAP"}{c.avwap_5d ? ` $${c.avwap_5d.toFixed(2)}` : ""}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700,
+                      textTransform: "uppercase", marginBottom: 2 }}>Squeeze Score</div>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 34, color: "#ef4444",
+                      letterSpacing: "-0.05em", lineHeight: 1 }}>{c.accum_score.toFixed(0)}</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 9, marginTop: 4 }}>
+                      = EOD rel-vol
+                    </div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginTop: 6 }}>
+                      prev ${c.prev_close.toFixed(2)}
+                    </div>
+                    <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
+                      H ${c.day_high.toFixed(2)} · L ${c.day_low.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontFamily: BB_F, fontSize: 10, color: "#334155", textAlign: "center",
+            marginTop: 14, lineHeight: 1.7 }}>
+            ⚠️ Squeeze setups are higher-risk than accumulation plays. Confirm flat/up open before entering. Hard stop below the day's low.
+          </div>
+        </>
+      )}
     </div>
   );
 }
