@@ -6526,7 +6526,7 @@ function EodAccumulationTab() {
   const BB_F = "JetBrains Mono, monospace";
   const [data, setData]     = useState<EodAccumData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [hideNews, setHideNews] = useState(false);
+  const [newsFilter, setNewsFilter] = useState<"all" | "no-hard" | "pure">("all");
 
   const load = async (bust = false) => {
     setLoading(true);
@@ -6539,8 +6539,31 @@ function EodAccumulationTab() {
   const scoreColor = (s: number) =>
     s >= 60 ? "#f97316" : s >= 30 ? "#fbbf24" : "#4ade80";
 
-  const newsCount = data?.candidates.filter(c => c.has_news).length ?? 0;
-  const visibleCandidates = (data?.candidates ?? []).filter(c => !hideNews || !c.has_news);
+  const hardCount = data?.candidates.filter(c => c.news_type === "hard").length ?? 0;
+  const softCount = data?.candidates.filter(c => c.news_type === "soft").length ?? 0;
+  const visibleCandidates = (data?.candidates ?? []).filter(c =>
+    newsFilter === "all"     ? true :
+    newsFilter === "no-hard" ? c.news_type !== "hard" :
+                               c.news_type === "none"
+  );
+
+  const STRATEGY: Record<"hard"|"soft"|"none", { label: string; note: string; col: string }> = {
+    none: {
+      label: "🎯 PUMP SETUP",
+      note:  "No news today — this is a pure accumulation setup. Play: buy before close, sell into the 9:31 AM gap if it opens up. Tight stop below day low.",
+      col:   "#4ade80",
+    },
+    soft: {
+      label: "📄 SOFT MENTION",
+      note:  "General analysis or comparison article — not a company-specific event. Treat like a pure pump setup but with slightly lower conviction. Same entry/exit rules.",
+      col:   "#94a3b8",
+    },
+    hard: {
+      label: "⚡ HARD CATALYST",
+      note:  "Earnings, deal, or major announcement today. Edge here is institutional follow-through + analyst upgrades overnight. Can hold past 9:45 AM if volume stays strong. Watch for gap-and-crap if already up >10% on the day.",
+      col:   "#f59e0b",
+    },
+  };
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 860, margin: "0 auto" }}>
@@ -6560,18 +6583,27 @@ function EodAccumulationTab() {
               color: loading ? "#475569" : "#94a3b8", cursor: loading ? "default" : "pointer" }}>
             {loading ? "SCANNING…" : "↺ REFRESH"}
           </button>
-          {/* News filter toggle */}
-          <button
-            onClick={() => setHideNews(h => !h)}
-            style={{
-              fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "3px 10px",
-              borderRadius: 6, cursor: "pointer",
-              border: hideNews ? "1px solid rgba(249,115,22,0.6)" : "1px solid #334155",
-              background: hideNews ? "rgba(249,115,22,0.1)" : "transparent",
-              color: hideNews ? "#f97316" : "#64748b",
-            }}>
-            {hideNews ? `📰 SHOWING PURE SETUPS (${newsCount} hidden)` : `📰 HIDE NEWS CATALYSTS${newsCount > 0 ? ` (${newsCount})` : ""}`}
-          </button>
+          {/* 3-state news filter */}
+          {(["all", "no-hard", "pure"] as const).map(f => {
+            const active = newsFilter === f;
+            const labels: Record<string, string> = {
+              all:      "ALL",
+              "no-hard": `NO HARD NEWS${hardCount > 0 ? ` (−${hardCount})` : ""}`,
+              pure:     `PURE SETUPS${(hardCount + softCount) > 0 ? ` (−${hardCount + softCount})` : ""}`,
+            };
+            return (
+              <button key={f} onClick={() => setNewsFilter(f)}
+                style={{
+                  fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "3px 10px",
+                  borderRadius: 6, cursor: "pointer",
+                  border: active ? "1px solid rgba(251,191,36,0.5)" : "1px solid #1e293b",
+                  background: active ? "rgba(251,191,36,0.08)" : "transparent",
+                  color: active ? "#fbbf24" : "#475569",
+                }}>
+                {labels[f]}
+              </button>
+            );
+          })}
         </div>
         <p style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", lineHeight: 1.6, margin: 0 }}>
           Detects unusual buying pressure in the final 30 minutes of trading (3:30–4:00 PM ET).
@@ -6622,13 +6654,31 @@ function EodAccumulationTab() {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {visibleCandidates.map((c, i) => {
-          const col = scoreColor(c.accum_score);
+          const col     = scoreColor(c.accum_score);
+          const strat   = STRATEGY[c.news_type];
+          const cardBg  = c.news_type === "hard" ? "rgba(245,158,11,0.04)"
+                        : c.news_type === "soft" ? "rgba(148,163,184,0.03)"
+                        : "rgba(255,255,255,0.02)";
+          const cardBdr = c.news_type === "hard" ? "rgba(245,158,11,0.25)"
+                        : c.news_type === "soft" ? "rgba(148,163,184,0.15)"
+                        : c.accum_score >= 60    ? "rgba(249,115,22,0.3)"
+                        : "rgba(255,255,255,0.07)";
           return (
             <div key={c.ticker} style={{
-              background: c.has_news ? "rgba(99,102,241,0.04)" : "rgba(255,255,255,0.02)",
-              border: `1px solid ${c.has_news ? "rgba(99,102,241,0.2)" : c.accum_score >= 60 ? "rgba(249,115,22,0.3)" : "rgba(255,255,255,0.07)"}`,
+              background: cardBg, border: `1px solid ${cardBdr}`,
               borderRadius: 16, padding: "16px 18px",
             }}>
+              {/* Strategy strip */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 10,
+                  color: strat.col, letterSpacing: "0.08em" }}>
+                  {strat.label}
+                </span>
+                <span style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", lineHeight: 1.5 }}>
+                  {strat.note}
+                </span>
+              </div>
+
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 {/* Left */}
                 <div style={{ flex: 1, minWidth: 220 }}>
@@ -6652,16 +6702,23 @@ function EodAccumulationTab() {
                         📈 CLOSED AT HIGH
                       </span>
                     )}
-                    {c.has_news && (
+                    {c.news_type === "hard" && (
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
-                        background: "rgba(99,102,241,0.12)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.35)" }}>
-                        📰 NEWS TODAY
+                        background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.4)" }}>
+                        ⚡ HARD CATALYST
+                      </span>
+                    )}
+                    {c.news_type === "soft" && (
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                        background: "rgba(148,163,184,0.08)", color: "#94a3b8", border: "1px solid rgba(148,163,184,0.25)" }}>
+                        📄 SOFT NEWS
                       </span>
                     )}
                   </div>
-                  {c.has_news && c.news_headline && (
-                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#6366f1", marginBottom: 8,
-                      lineHeight: 1.4, fontStyle: "italic", opacity: 0.85 }}>
+                  {c.news_headline && c.news_type !== "none" && (
+                    <div style={{ fontFamily: BB_F, fontSize: 10,
+                      color: c.news_type === "hard" ? "#d97706" : "#64748b",
+                      marginBottom: 8, lineHeight: 1.4, fontStyle: "italic", opacity: 0.9 }}>
                       "{c.news_headline}"
                     </div>
                   )}

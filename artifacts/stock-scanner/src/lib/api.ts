@@ -1574,6 +1574,7 @@ export interface EodAccumResult {
   has_news: boolean;
   news_headline: string | null;
   news_today_cnt: number;
+  news_type: "hard" | "soft" | "none";
 }
 export interface EodAccumData {
   candidates: EodAccumResult[];

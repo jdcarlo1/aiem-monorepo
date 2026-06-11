@@ -9985,29 +9985,65 @@ def eod_accumulation():
             has_news       = False
             news_headline  = None
             news_today_cnt = 0
+            news_type      = "none"   # "hard" | "soft" | "none"
+            # Hard-news keywords: company-specific events that explain the price move.
+            _HARD_KW = {
+                "earnings","results","revenue","guidance","beats","beat","miss","misses",
+                "q1","q2","q3","q4","fiscal","quarterly","annual",
+                "merger","acquisition","acquires","buyout","takeover","deal","offer",
+                "fda","approval","approved","clearance","trial","phase",
+                "dividend","buyback","secondary","offering","ipo","spinoff",
+                "sec","lawsuit","settlement","restatement","bankruptcy","default",
+                "press release","reports","announces","raised","lowers","cuts","raises",
+                "record","outlook","forecast","reaffirm",
+            }
+            # Soft-news keywords: general analysis/comparison articles, not company events.
+            _SOFT_KW = {
+                " vs "," versus ","best stocks","top stocks","should you buy","is it a buy",
+                "watchlist","watch list","radar","analysis","analyst","target price",
+                "keep off","small-cap","mid-cap","large-cap","sector","industry",
+                "here's why","here is why","worth watching",
+            }
             try:
-                _today_et = _dt_ea.datetime.now(_et).date()
+                import re as _re_ea
+                _now_et   = _dt_ea.datetime.now(_et)
+                # 36-hour window: catches after-hours articles from yesterday evening
+                # (e.g., earnings transcript posted at 8 PM the night before).
+                _cutoff   = _now_et - _dt_ea.timedelta(hours=36)
+
                 for _ni in (tk.news or [])[:8]:
-                    # yfinance returns either a flat dict (providerPublishTime) or
-                    # a nested dict (content.pubDate ISO string) depending on version.
                     _pub = _ni.get("providerPublishTime") or \
                            (_ni.get("content") or {}).get("pubDate")
-                    _pub_date = None
+                    _pub_ts = None
                     if isinstance(_pub, (int, float)):
-                        _pub_date = _dt_ea.datetime.fromtimestamp(_pub, tz=_et).date()
+                        _pub_ts = _dt_ea.datetime.fromtimestamp(_pub, tz=_et)
                     elif isinstance(_pub, str):
                         try:
-                            import re as _re_ea
-                            _m = _re_ea.match(r"(\d{4}-\d{2}-\d{2})", _pub)
-                            if _m: _pub_date = _dt_ea.date.fromisoformat(_m.group(1))
+                            _m = _re_ea.match(
+                                r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})", _pub)
+                            if _m:
+                                _pub_ts = _dt_ea.datetime(
+                                    int(_m.group(1)), int(_m.group(2)), int(_m.group(3)),
+                                    int(_m.group(4)), int(_m.group(5)),
+                                    tzinfo=_pytz_ea.utc,
+                                ).astimezone(_et)
                         except Exception: pass
-                    if _pub_date == _today_et:
+
+                    if _pub_ts and _pub_ts >= _cutoff:
                         news_today_cnt += 1
+                        _ht = (_ni.get("title") or
+                               ((_ni.get("content") or {}).get("title") or ""))
                         if not news_headline:
-                            _ht = _ni.get("title") or \
-                                  ((_ni.get("content") or {}).get("title") or "")
                             news_headline = (_ht[:90]) if _ht else None
+                        _ht_l = _ht.lower()
+                        if any(kw in _ht_l for kw in _HARD_KW):
+                            news_type = "hard"
+                        elif news_type != "hard":
+                            news_type = "soft"
+
                 has_news = news_today_cnt > 0
+                if not has_news:
+                    news_type = "none"
             except Exception:
                 pass
 
@@ -10029,6 +10065,7 @@ def eod_accumulation():
                 "has_news":        has_news,
                 "news_headline":   news_headline,
                 "news_today_cnt":  news_today_cnt,
+                "news_type":       news_type,
             }
         except Exception:
             return None
