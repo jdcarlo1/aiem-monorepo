@@ -9695,16 +9695,17 @@ def morning_inflows():
             # Rule applies only when gap is meaningful (≥15%) — tiny gaps don't matter.
             exhaustion_ratio = (gap_pct / price_chg) if price_chg > 0 else 0.0
 
+            # ── First-bar hard rejection (2026-06-11) ────────────────────────
+            # If the first 5-min bar closes >2% red, sellers are dumping into buyers at
+            # the bell — do not show this stock at all.
+            # Validated: CHNR first bar -7.3% → lost -16.8%; LUD -11.3% → lost -20.8%
+            if has_first_bar and first_bar_pct < -2.0:
+                return None
+
             # ── Refined fade risk (priority order) ───────────────────────────
             # Change 1: Extreme gappers (>100%) always HIGH — confirmed faded 100% on 6/10
             # Change 2: Momentum threshold tightened: -3 triggers HIGH (was -5), -1 triggers WATCH (was -2)
-            # Change 3 (2026-06-11): First 5-min bar direction added as top-priority signal.
-            #   Strongest direct evidence of supply/demand at the bell. Red bar = sellers dumping.
-            #   Validated: CHNR first bar -7.3% → lost -16.8%; LUD -11.3% → lost -20.8%;
-            #              HCAI first bar +6.6% → gained +17.4%.
-            if has_first_bar and first_bar_pct < -2.0:
-                fade_risk = "HIGH"    # opening bar red — sellers overwhelming buyers at the bell
-            elif gap_pct > 100:
+            if gap_pct > 100:
                 fade_risk = "HIGH"    # extreme pump — DSY/VSME both faded 24-44% confirmed
             elif gap_pct > 30 and mkt_cap_m_val < 100:
                 fade_risk = "HIGH"    # large pump on tiny cap — not enough real buyers
