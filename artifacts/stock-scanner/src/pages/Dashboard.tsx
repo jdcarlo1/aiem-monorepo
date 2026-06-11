@@ -40,6 +40,7 @@ import {
   EodAccumResult, EodAccumData, fetchEodAccumulation,
   EodAccumPickRow, EodAccumStats, EodAccumTrackData, fetchEodAccumTrack,
   StandoutPickRow, StandoutStats, StandoutTrackData, fetchStandoutTrack,
+  CrossScannerRow, CrossScannerData, fetchCrossScanner,
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
   BreakoutRow, fetch52WeekBreakout,
   SectorRow, fetchSectorRotation,
@@ -9421,6 +9422,259 @@ function bbScoreColor(s: number) {
   return BB_RED;
 }
 
+function CrossScannerBanner({ onNavigate }: { onNavigate: () => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData] = useState<CrossScannerData | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const etMin = etNow.getHours() * 60 + etNow.getMinutes();
+    if (etMin < 9 * 60 + 30 || etMin > 16 * 60) return;
+    fetchCrossScanner().then(setData).catch(() => {});
+    const t = setInterval(() => fetchCrossScanner().then(setData).catch(() => {}), 5 * 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (dismissed || !data || data.today_signals.length === 0) return null;
+
+  const top = data.today_signals[0];
+  const count = data.today_signals.length;
+  return (
+    <div style={{
+      margin: 0, padding: "10px 16px",
+      background: "linear-gradient(90deg, rgba(239,68,68,0.14) 0%, rgba(251,191,36,0.08) 100%)",
+      borderBottom: "2px solid rgba(239,68,68,0.5)",
+      display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+    }}>
+      <span style={{ fontFamily: BB_F, fontSize: 11, color: "#ef4444", fontWeight: 900,
+        letterSpacing: 1, flexShrink: 0, animation: "pulse 1.5s infinite" }}>
+        🚨 DOUBLE SIGNAL
+      </span>
+      <span style={{ fontFamily: BB_F, fontSize: 11, color: "#e2e8f0" }}>
+        <span style={{ color: "#fbbf24", fontWeight: 700 }}>{top.ticker}</span>
+        {" "}was in EOD accum yesterday (score {top.accum_score}) + standout flow this morning
+        {" "}(score {top.standout_score.toFixed(1)} · {top.flow_ratio.toFixed(1)}×)
+        {count > 1 && <span style={{ color: "#94a3b8" }}> · {count} double signals today</span>}
+      </span>
+      <button onClick={onNavigate} style={{
+        marginLeft: "auto", padding: "5px 14px", borderRadius: 8,
+        fontFamily: BB_F, fontSize: 11, fontWeight: 700, cursor: "pointer",
+        background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.5)", color: "#fca5a5",
+      }}>View All →</button>
+      <button onClick={() => setDismissed(true)} style={{
+        padding: "4px 8px", borderRadius: 6, fontFamily: BB_F, fontSize: 11,
+        cursor: "pointer", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "#475569",
+      }}>✕</button>
+    </div>
+  );
+}
+
+function CrossScannerTab() {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]     = useState<CrossScannerData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try { setData(await fetchCrossScanner()); } catch {}
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const fmtPct = (v: number | null | undefined) =>
+    v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+  const pctColor = (v: number | null | undefined) =>
+    v == null ? "#64748b" : v >= 0 ? "#4ade80" : "#f87171";
+
+  const newsLabel = (t: string) =>
+    t === "hard" ? "⚡ HARD" : t === "soft" ? "📄 SOFT" : "🎯 PURE";
+  const newsColor = (t: string) =>
+    t === "hard" ? "#f59e0b" : t === "soft" ? "#94a3b8" : "#4ade80";
+
+  return (
+    <div style={{ padding: "24px 16px", maxWidth: 1100, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <span style={{ fontSize: 24 }}>🚨</span>
+        <div>
+          <div style={{ fontFamily: BB_F, fontSize: 16, fontWeight: 700, color: "#f1f5f9",
+            letterSpacing: 1 }}>DOUBLE SIGNAL ALERT</div>
+          <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginTop: 2 }}>
+            Tickers with EOD accumulation yesterday + standout flow this morning — highest conviction setups
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {loading && <span style={{ fontFamily: BB_F, fontSize: 10, color: "#64748b" }}>loading…</span>}
+          <button onClick={load} style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+            background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)",
+            borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>↻ REFRESH</button>
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginBottom: 20, lineHeight: 1.7,
+        background: "linear-gradient(90deg, rgba(239,68,68,0.06) 0%, rgba(251,191,36,0.04) 100%)",
+        border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, padding: "12px 16px" }}>
+        <span style={{ color: "#ef4444", fontWeight: 700 }}>Why this matters: </span>
+        Smart money accumulates quietly at end of day (low-key, closing near the high).
+        The next morning, retail buying triggers a standout flow signal.
+        A ticker appearing in BOTH is the double confirmation — institutions loaded it, then momentum hit.
+        <span style={{ color: "#fbbf24" }}> This is the highest-conviction cross-signal in the system.</span>
+      </div>
+
+      {data && (
+        <>
+          {/* ── TODAY'S SIGNALS ── */}
+          <div style={{ fontFamily: BB_F, fontSize: 12, fontWeight: 700, color: "#ef4444",
+            letterSpacing: 1, marginBottom: 12, display: "flex", alignItems: "center", gap: 10 }}>
+            🚨 TODAY'S DOUBLE SIGNALS
+            <span style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 400,
+              letterSpacing: 0 }}>— EOD accum picks from yesterday that showed standout flow this morning</span>
+          </div>
+
+          {data.today_signals.length === 0 ? (
+            <div style={{ fontFamily: BB_F, fontSize: 13, color: "#475569",
+              background: "rgba(15,23,42,0.6)", border: "1px solid rgba(51,65,85,0.5)",
+              borderRadius: 10, padding: "24px", textAlign: "center", marginBottom: 24 }}>
+              No double signals today.{" "}
+              <span style={{ color: "#334155" }}>
+                EOD accum saves picks from 3:45 PM ET onward — builds daily.
+              </span>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+              {data.today_signals.map((r, i) => (
+                <div key={i} style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.07) 0%, rgba(251,191,36,0.04) 100%)",
+                  border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: "16px 20px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+                    <span style={{ fontFamily: BB_F, fontSize: 18, fontWeight: 900, color: "#fbbf24" }}>{r.ticker}</span>
+                    <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "3px 10px",
+                      background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)",
+                      borderRadius: 99 }}>🚨 DOUBLE SIGNAL</span>
+                    <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                      background: `${newsColor(r.news_type)}15`, color: newsColor(r.news_type),
+                      border: `1px solid ${newsColor(r.news_type)}40`, borderRadius: 99 }}>
+                      {newsLabel(r.news_type)}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "8px 20px" }}>
+                    {([
+                      ["Morning Score",    r.standout_score.toFixed(1), "#fb923c"],
+                      ["Morning Flow",     `${r.flow_ratio.toFixed(1)}×`, "#fbbf24"],
+                      ["Morning Chg",      fmtPct(r.morning_chg_pct), pctColor(r.morning_chg_pct)],
+                      ["EOD Accum Score",  String(r.accum_score), "#4ade80"],
+                      ["EOD Close",        r.eod_close != null ? `$${r.eod_close.toFixed(2)}` : "—", "#94a3b8"],
+                      ["EOD Rel-Vol",      r.eod_rel_vol != null ? `${r.eod_rel_vol.toFixed(1)}×` : "—", "#94a3b8"],
+                      ["Closing Range",    r.closing_range != null ? r.closing_range.toFixed(2) : "—",
+                        r.closing_range != null && r.closing_range >= 0.8 ? "#4ade80" : "#94a3b8"],
+                      ["Late Flow",        r.late_flow != null ? `${r.late_flow.toFixed(0)}%` : "—", "#94a3b8"],
+                    ] as [string, string, string][]).map(([k, v, col]) => (
+                      <div key={k}>
+                        <div style={{ fontFamily: BB_F, fontSize: 9, color: "#475569", marginBottom: 2 }}>{k}</div>
+                        <div style={{ fontFamily: BB_F, fontSize: 13, fontWeight: 700, color: col }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {r.news_headline && (
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#64748b", marginTop: 10,
+                      fontStyle: "italic" }}>"{r.news_headline}"</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── HISTORICAL STATS ── */}
+          {data.hist_stats.total_signals > 0 && (
+            <>
+              <div style={{ fontFamily: BB_F, fontSize: 12, fontWeight: 700, color: "#94a3b8",
+                letterSpacing: 1, marginBottom: 12 }}>📊 HISTORICAL PERFORMANCE</div>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+                {([
+                  ["Total Signals", String(data.hist_stats.total_signals), "#94a3b8"],
+                  ["Graded",        String(data.hist_stats.graded), "#94a3b8"],
+                  ["Hit Rate",      data.hist_stats.hit_rate_pct != null ? `${data.hist_stats.hit_rate_pct}%` : "—",
+                    data.hist_stats.hit_rate_pct != null ? (data.hist_stats.hit_rate_pct >= 60 ? "#4ade80" : "#fbbf24") : "#64748b"],
+                  ["Avg Close",     fmtPct(data.hist_stats.avg_close_pct), pctColor(data.hist_stats.avg_close_pct)],
+                  ["Avg Day Hi",    fmtPct(data.hist_stats.avg_high_pct),  pctColor(data.hist_stats.avg_high_pct)],
+                ] as [string, string, string][]).map(([k, v, col]) => (
+                  <div key={k} style={{ background: "rgba(15,23,42,0.8)", border: "1px solid rgba(51,65,85,0.5)",
+                    borderRadius: 8, padding: "10px 16px", minWidth: 110 }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 9, color: "#475569", marginBottom: 4 }}>{k}</div>
+                    <div style={{ fontFamily: BB_F, fontSize: 16, fontWeight: 700, color: col }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* History table */}
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: BB_F, fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid rgba(51,65,85,0.8)" }}>
+                      {["Date","Ticker","Score","EOD Accum","Type","Morning Chg","Same-Day Close","Day High","Outcome"].map(h => (
+                        <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontWeight: 700,
+                          fontSize: 10, color: "#475569", letterSpacing: 0.5, whiteSpace: "nowrap" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.history.map((r, i) => {
+                      const isPending = r.same_day_close_pct == null;
+                      return (
+                        <tr key={i} style={{ background: i % 2 === 0 ? "rgba(15,23,42,0.4)" : "transparent",
+                          borderBottom: "1px solid rgba(30,41,59,0.5)" }}>
+                          <td style={{ padding: "8px 10px", color: "#64748b", whiteSpace: "nowrap" }}>{r.signal_date}</td>
+                          <td style={{ padding: "8px 10px", fontWeight: 700, color: "#fbbf24" }}>{r.ticker}</td>
+                          <td style={{ padding: "8px 10px", color: "#fb923c" }}>{r.standout_score.toFixed(1)}</td>
+                          <td style={{ padding: "8px 10px", color: "#4ade80" }}>{r.accum_score}</td>
+                          <td style={{ padding: "8px 10px" }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: newsColor(r.news_type),
+                              background: `${newsColor(r.news_type)}15`, border: `1px solid ${newsColor(r.news_type)}40`,
+                              padding: "2px 8px", borderRadius: 99 }}>{newsLabel(r.news_type)}</span>
+                          </td>
+                          <td style={{ padding: "8px 10px", color: pctColor(r.morning_chg_pct) }}>
+                            {fmtPct(r.morning_chg_pct)}
+                          </td>
+                          <td style={{ padding: "8px 10px", fontWeight: 700, color: pctColor(r.same_day_close_pct) }}>
+                            {fmtPct(r.same_day_close_pct)}
+                          </td>
+                          <td style={{ padding: "8px 10px", color: pctColor(r.same_day_high_pct) }}>
+                            {fmtPct(r.same_day_high_pct)}
+                          </td>
+                          <td style={{ padding: "8px 10px" }}>
+                            {isPending
+                              ? <span style={{ fontSize: 10, color: "#475569", background: "rgba(71,85,105,0.15)",
+                                  border: "1px solid rgba(71,85,105,0.4)", padding: "2px 8px", borderRadius: 99 }}>⏳</span>
+                              : (r.same_day_close_pct ?? 0) > 0
+                                ? <span style={{ fontSize: 10, fontWeight: 700, color: "#4ade80",
+                                    background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.35)",
+                                    padding: "2px 8px", borderRadius: 99 }}>✓ WIN</span>
+                                : <span style={{ fontSize: 10, fontWeight: 700, color: "#f87171",
+                                    background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.35)",
+                                    padding: "2px 8px", borderRadius: 99 }}>✗ FADE</span>
+                            }
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {data.hist_stats.total_signals === 0 && data.today_signals.length === 0 && (
+            <div style={{ fontFamily: BB_F, fontSize: 12, color: "#334155", textAlign: "center", padding: "32px 0" }}>
+              History builds automatically — first cross-signals appear once EOD accum picks start accumulating (from 3:45 PM ET today onward).
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function MorningStandoutBanner({ onNavigate }: { onNavigate: () => void }) {
   const BB_F = "JetBrains Mono, monospace";
   const [data, setData] = useState<MorningInflowsData | null>(null);
@@ -11129,7 +11383,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -11266,6 +11520,7 @@ export default function Dashboard() {
     { id: "microcalls",      label: "🎯 MICRO/SMALL CALLS" },
     { id: "midnetflow",      label: "🏢 MID NET FLOW" },
     { id: "streakflow",      label: "📈 FLOW STREAK" },
+    { id: "crossscanner",    label: "🚨 DOUBLE SIGNAL" },
     { id: "standoutflow",    label: "🔥 STANDOUT FLOW" },
     { id: "standouttrack",   label: "📈 STANDOUT TRACK" },
     { id: "morningrunners",  label: "🌅 MORNING RUNNERS" },
@@ -11365,6 +11620,8 @@ export default function Dashboard() {
 
       {/* ── MORNING STANDOUT BANNER ── auto-loads, visible from any tab ── */}
       <MorningStandoutBanner onNavigate={() => setTab("standoutflow")} />
+      {/* ── DOUBLE SIGNAL BANNER ── shows when EOD accum + standout flow overlap ── */}
+      <CrossScannerBanner onNavigate={() => setTab("crossscanner")} />
 
       {/* ── MAIN CONTENT ── */}
       {tab === "overview" ? (
@@ -11885,6 +12142,7 @@ export default function Dashboard() {
         {tab === "ivrank"         && <IVRankTab          onSelectTicker={selectTicker} />}
         {tab === "marketpress"    && <MarketPressTab />}
         {tab === "earningscal"    && <EarningsCalendarTab onSelectTicker={selectTicker} />}
+        {tab === "crossscanner"   && <CrossScannerTab />}
         {tab === "standoutflow"   && <StandoutFlowTab    onSelectTicker={selectTicker} />}
         {tab === "standouttrack"  && <StandoutTrackTab />}
 

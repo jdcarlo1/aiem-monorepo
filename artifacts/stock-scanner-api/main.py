@@ -10317,6 +10317,115 @@ def eod_accum_track():
         return jsonify({"picks": [], "summary": {}, "as_of": "", "error": str(_e_tr)})
 
 
+@app.route("/stock-api/cross-scanner", methods=["GET"])
+def cross_scanner():
+    """
+    Cross-Scanner Double Signal Alert.
+    Returns tickers that appear in BOTH today's standout flow (scan_history)
+    AND yesterday's EOD accumulation (eod_accum_picks).
+    Also returns the last 60 days of historical cross-signals for the track-record view.
+    """
+    import datetime as _dt_cs
+    import psycopg2 as _pg_cs
+    import psycopg2.extras as _ext_cs
+
+    try:
+        _today = _dt_cs.date.today()
+        _prev  = _today - _dt_cs.timedelta(days=1)
+        while _prev.weekday() >= 5:
+            _prev -= _dt_cs.timedelta(days=1)
+        _today_s = _today.isoformat()
+        _prev_s  = _prev.isoformat()
+
+        with _pg_cs.connect(_DB_URL) as _c, _c.cursor(cursor_factory=_ext_cs.RealDictCursor) as _cu:
+            # ── TODAY's double signals ─────────────────────────────────────
+            _cu.execute("""
+                SELECT
+                    sh.ticker,
+                    sh.price              AS morning_price,
+                    sh.price_chg_pct      AS morning_chg_pct,
+                    sh.standout_score,
+                    sh.flow_ratio,
+                    sh.rel_vol            AS morning_rel_vol,
+                    ea.close_price        AS eod_close,
+                    ea.accum_score,
+                    ea.news_type,
+                    ea.news_headline,
+                    ea.eod_rel_vol,
+                    ea.closing_range,
+                    ea.late_flow,
+                    %s                    AS signal_date
+                FROM scan_history sh
+                JOIN eod_accum_picks ea
+                    ON ea.scan_date = %s AND ea.ticker = sh.ticker
+                WHERE sh.scan_date = %s AND sh.standout_score >= 5
+                ORDER BY sh.standout_score DESC
+            """, (_today_s, _prev_s, _today_s))
+            _today_signals = [dict(r) for r in _cu.fetchall()]
+
+            # ── HISTORICAL cross-signals (last 60 trading days) ───────────
+            _cu.execute("""
+                SELECT
+                    sh.scan_date          AS signal_date,
+                    sh.ticker,
+                    sh.price              AS morning_price,
+                    sh.price_chg_pct      AS morning_chg_pct,
+                    sh.standout_score,
+                    sh.flow_ratio,
+                    ea.close_price        AS eod_close,
+                    ea.accum_score,
+                    ea.news_type,
+                    o.open_to_close_pct   AS same_day_close_pct,
+                    o.open_to_high_pct    AS same_day_high_pct
+                FROM scan_history sh
+                JOIN eod_accum_picks ea
+                    ON ea.scan_date = (sh.scan_date - INTERVAL '1 day')::date
+                    AND ea.ticker = sh.ticker
+                LEFT JOIN eod_outcomes o
+                    ON o.trade_date = sh.scan_date AND o.ticker = sh.ticker
+                WHERE sh.scan_date >= CURRENT_DATE - INTERVAL '60 days'
+                    AND sh.standout_score >= 5
+                ORDER BY sh.scan_date DESC, sh.standout_score DESC
+                LIMIT 100
+            """)
+            _history = [dict(r) for r in _cu.fetchall()]
+
+        def _clean(rows):
+            for _r in rows:
+                for _k in list(_r.keys()):
+                    if hasattr(_r[_k], "isoformat"): _r[_k] = _r[_k].isoformat()
+                    elif _r[_k] is not None:
+                        try: _r[_k] = float(_r[_k]) if isinstance(_r[_k], __import__("decimal").Decimal) else _r[_k]
+                        except Exception: pass
+            return rows
+
+        _today_signals = _clean(_today_signals)
+        _history       = _clean(_history)
+
+        # Summary stats on historical hits
+        _graded = [r for r in _history if r.get("same_day_close_pct") is not None]
+        _winners = [r for r in _graded if (r.get("same_day_close_pct") or 0) > 0]
+        _hist_stats = {
+            "total_signals": len(_history),
+            "graded": len(_graded),
+            "hit_rate_pct": round(len(_winners) / len(_graded) * 100, 1) if _graded else None,
+            "avg_close_pct": round(sum(r["same_day_close_pct"] for r in _graded) / len(_graded), 2) if _graded else None,
+            "avg_high_pct":  round(sum(r["same_day_high_pct"]  for r in _graded if r.get("same_day_high_pct") is not None)
+                                   / max(1, len([r for r in _graded if r.get("same_day_high_pct") is not None])), 2) if _graded else None,
+        }
+
+        return jsonify({
+            "today_signals": _today_signals,
+            "history": _history,
+            "hist_stats": _hist_stats,
+            "as_of": _dt_cs.datetime.now().strftime("%Y-%m-%d %I:%M %p ET"),
+        })
+
+    except Exception as _e_cs:
+        print(f"[cross_scanner] error: {_e_cs}")
+        return jsonify({"today_signals": [], "history": [], "hist_stats": {}, "as_of": "", "error": str(_e_cs)})
+
+
 @app.route("/stock-api/standout-track", methods=["GET"])
 def standout_track():
     """

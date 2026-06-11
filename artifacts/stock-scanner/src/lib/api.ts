@@ -1661,3 +1661,37 @@ export interface StandoutTrackData {
 export function fetchStandoutTrack() {
   return fetchJson<StandoutTrackData>("/standout-track");
 }
+
+export interface CrossScannerRow {
+  signal_date: string;
+  ticker: string;
+  morning_price: number;
+  morning_chg_pct: number;
+  standout_score: number;
+  flow_ratio: number;
+  morning_rel_vol?: number;
+  eod_close: number;
+  accum_score: number;
+  news_type: "hard" | "soft" | "none";
+  news_headline: string | null;
+  eod_rel_vol?: number;
+  closing_range?: number;
+  late_flow?: number;
+  same_day_close_pct?: number | null;
+  same_day_high_pct?: number | null;
+}
+export interface CrossScannerData {
+  today_signals: CrossScannerRow[];
+  history: CrossScannerRow[];
+  hist_stats: {
+    total_signals: number;
+    graded: number;
+    hit_rate_pct: number | null;
+    avg_close_pct: number | null;
+    avg_high_pct: number | null;
+  };
+  as_of: string;
+}
+export function fetchCrossScanner() {
+  return fetchJson<CrossScannerData>("/cross-scanner");
+}
