@@ -6737,10 +6737,11 @@ function EodAccumulationTab() {
                     <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>
                       {i + 1}. {c.ticker}
                     </span>
-                    <span style={{ fontFamily: BB_F, fontWeight: 700, color: "#4ade80", fontSize: 14 }}>
-                      +{c.price_chg_pct.toFixed(1)}%
+                    <span style={{ fontFamily: BB_F, fontWeight: 700,
+                      color: (c.price_chg_pct ?? 0) >= 0 ? "#4ade80" : "#f87171", fontSize: 14 }}>
+                      {(c.price_chg_pct ?? 0) >= 0 ? "+" : ""}{(c.price_chg_pct ?? 0).toFixed(1)}%
                     </span>
-                    <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${c.close.toFixed(2)}</span>
+                    <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${(c.close ?? 0).toFixed(2)}</span>
                     {c.eod_rel_vol >= 5 && (
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
                         background: "rgba(249,115,22,0.12)", color: "#f97316", border: "1px solid rgba(249,115,22,0.4)" }}>
@@ -6776,11 +6777,11 @@ function EodAccumulationTab() {
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
                     {([
-                      ["EOD Rel-Vol",  `${c.eod_rel_vol.toFixed(1)}×`,                           c.eod_rel_vol >= 5 ? "#f97316" : "#fbbf24"],
-                      ["Late Flow",    `${c.late_flow.toFixed(1)}:1`,                             "#4ade80"],
-                      ["Close Str",    `${Math.round(c.closing_range * 100)}%`,                   c.closing_range >= 0.85 ? "#4ade80" : "#fbbf24"],
-                      ["Late Surge",   `${c.late_surge_pct >= 0 ? "+" : ""}${c.late_surge_pct.toFixed(1)}%`, c.late_surge_pct > 0 ? "#4ade80" : "#ef4444"],
-                      ["Quiet→Surge",  `${c.quiet_surge.toFixed(1)}×`,                           c.quiet_surge >= 3 ? "#f97316" : "#94a3b8"],
+                      ["EOD Rel-Vol",  `${(c.eod_rel_vol ?? 0).toFixed(1)}×`,                           (c.eod_rel_vol ?? 0) >= 5 ? "#f97316" : "#fbbf24"],
+                      ["Late Flow",    `${(c.late_flow ?? 0).toFixed(1)}:1`,                             "#4ade80"],
+                      ["Close Str",    `${Math.round((c.closing_range ?? 0) * 100)}%`,                   (c.closing_range ?? 0) >= 0.85 ? "#4ade80" : "#fbbf24"],
+                      ["Late Surge",   `${(c.late_surge_pct ?? 0) >= 0 ? "+" : ""}${(c.late_surge_pct ?? 0).toFixed(1)}%`, (c.late_surge_pct ?? 0) > 0 ? "#4ade80" : "#ef4444"],
+                      ["Quiet→Surge",  `${(c.quiet_surge ?? 0).toFixed(1)}×`,                           (c.quiet_surge ?? 0) >= 3 ? "#f97316" : "#94a3b8"],
                       ["Mkt Cap",      c.mkt_cap_m ? (c.mkt_cap_m >= 1000 ? `$${(c.mkt_cap_m/1000).toFixed(1)}B` : `$${c.mkt_cap_m.toFixed(0)}M`) : "n/a",
                                        (c.mkt_cap_m ?? 9999) < 500 ? "#a78bfa" : "#475569"],
                     ] as [string, string, string][]).map(([lbl, val, clr]) => (
@@ -6821,17 +6822,17 @@ function EodAccumulationTab() {
                   <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700,
                     textTransform: "uppercase", marginBottom: 2 }}>Accum Score</div>
                   <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 40, color: col,
-                    letterSpacing: "-0.05em", lineHeight: 1 }}>{c.accum_score.toFixed(0)}</div>
+                    letterSpacing: "-0.05em", lineHeight: 1 }}>{(c.accum_score ?? 0).toFixed(0)}</div>
                   <div style={{ width: 72, height: 4, background: "rgba(255,255,255,0.07)",
                     borderRadius: 99, margin: "6px 0 4px auto" }}>
-                    <div style={{ width: `${Math.min(c.accum_score / 100 * 100, 100)}%`,
+                    <div style={{ width: `${Math.min((c.accum_score ?? 0) / 100 * 100, 100)}%`,
                       height: "100%", background: col, borderRadius: 99 }} />
                   </div>
                   <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>
-                    prev ${c.prev_close.toFixed(2)}
+                    prev ${(c.prev_close ?? 0).toFixed(2)}
                   </div>
                   <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
-                    H ${c.day_high.toFixed(2)} · L ${c.day_low.toFixed(2)}
+                    H ${(c.day_high ?? 0).toFixed(2)} · L ${(c.day_low ?? 0).toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -6886,14 +6887,14 @@ function EodAccumulationTab() {
                         {i + 1}. {c.ticker}
                       </span>
                       <span style={{ fontFamily: BB_F, fontWeight: 700,
-                        color: c.price_chg_pct >= 0 ? "#4ade80" : "#f87171", fontSize: 14 }}>
-                        {c.price_chg_pct >= 0 ? "+" : ""}{c.price_chg_pct.toFixed(1)}%
+                        color: (c.price_chg_pct ?? 0) >= 0 ? "#4ade80" : "#f87171", fontSize: 14 }}>
+                        {(c.price_chg_pct ?? 0) >= 0 ? "+" : ""}{(c.price_chg_pct ?? 0).toFixed(1)}%
                       </span>
-                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${c.close.toFixed(2)}</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${(c.close ?? 0).toFixed(2)}</span>
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px",
                         borderRadius: 99, background: "rgba(239,68,68,0.12)", color: "#ef4444",
                         border: "1px solid rgba(239,68,68,0.4)" }}>
-                        🔥 {c.eod_rel_vol.toFixed(0)}× EOD SURGE
+                        🔥 {(c.eod_rel_vol ?? 0).toFixed(0)}× EOD SURGE
                       </span>
                       {c.closing_range <= 0.15 && (
                         <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px",
@@ -6905,16 +6906,16 @@ function EodAccumulationTab() {
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
                       {([
-                        ["EOD Surge",   `${c.eod_rel_vol.toFixed(0)}×`,
-                          c.eod_rel_vol >= 200 ? "#ef4444" : "#f97316"],
-                        ["Sell Flow",   `${c.late_flow.toFixed(1)}:1 sell`,
-                          c.late_flow <= 0.5 ? "#ef4444" : "#f87171"],
-                        ["Close Str",   `${Math.round(c.closing_range * 100)}%`,
-                          c.closing_range <= 0.20 ? "#ef4444" : "#f87171"],
-                        ["Day Chg",     `${c.price_chg_pct >= 0 ? "+" : ""}${c.price_chg_pct.toFixed(1)}%`,
-                          c.price_chg_pct >= 0 ? "#4ade80" : "#f87171"],
-                        ["QS",          `${c.quiet_surge.toFixed(1)}×`,
-                          c.quiet_surge >= 3 ? "#f97316" : "#94a3b8"],
+                        ["EOD Surge",   `${(c.eod_rel_vol ?? 0).toFixed(0)}×`,
+                          (c.eod_rel_vol ?? 0) >= 200 ? "#ef4444" : "#f97316"],
+                        ["Sell Flow",   `${(c.late_flow ?? 0).toFixed(1)}:1 sell`,
+                          (c.late_flow ?? 1) <= 0.5 ? "#ef4444" : "#f87171"],
+                        ["Close Str",   `${Math.round((c.closing_range ?? 0) * 100)}%`,
+                          (c.closing_range ?? 1) <= 0.20 ? "#ef4444" : "#f87171"],
+                        ["Day Chg",     `${(c.price_chg_pct ?? 0) >= 0 ? "+" : ""}${(c.price_chg_pct ?? 0).toFixed(1)}%`,
+                          (c.price_chg_pct ?? 0) >= 0 ? "#4ade80" : "#f87171"],
+                        ["QS",          `${(c.quiet_surge ?? 0).toFixed(1)}×`,
+                          (c.quiet_surge ?? 0) >= 3 ? "#f97316" : "#94a3b8"],
                         ["Mkt Cap",     c.mkt_cap_m ? (c.mkt_cap_m >= 1000 ? `$${(c.mkt_cap_m/1000).toFixed(1)}B` : `$${c.mkt_cap_m.toFixed(0)}M`) : "n/a",
                           (c.mkt_cap_m ?? 9999) < 500 ? "#a78bfa" : "#475569"],
                       ] as [string, string, string][]).map(([lbl, val, clr]) => (
@@ -6951,15 +6952,15 @@ function EodAccumulationTab() {
                     <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700,
                       textTransform: "uppercase", marginBottom: 2 }}>Squeeze Score</div>
                     <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 34, color: "#ef4444",
-                      letterSpacing: "-0.05em", lineHeight: 1 }}>{c.accum_score.toFixed(0)}</div>
+                      letterSpacing: "-0.05em", lineHeight: 1 }}>{(c.accum_score ?? 0).toFixed(0)}</div>
                     <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 9, marginTop: 4 }}>
                       = EOD rel-vol
                     </div>
                     <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginTop: 6 }}>
-                      prev ${c.prev_close.toFixed(2)}
+                      prev ${(c.prev_close ?? 0).toFixed(2)}
                     </div>
                     <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
-                      H ${c.day_high.toFixed(2)} · L ${c.day_low.toFixed(2)}
+                      H ${(c.day_high ?? 0).toFixed(2)} · L ${(c.day_low ?? 0).toFixed(2)}
                     </div>
                   </div>
                 </div>

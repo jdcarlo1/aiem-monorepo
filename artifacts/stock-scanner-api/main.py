@@ -10540,7 +10540,9 @@ def eod_accumulation():
     # ── Enrich top picks with short interest + anchored VWAP ──────────────
     _enrich_pool = (_accum_ea[:15] + _squeeze_ea[:15])
     def _enrich_ea(_r):
-        _r.update(_get_short_data(_r["ticker"]))
+        for _k, _v in _get_short_data(_r["ticker"]).items():
+            if _r.get(_k) is None:   # never overwrite an already-computed value
+                _r[_k] = _v
     with _TPE_ea(max_workers=10) as _ex_short:
         list(_ex_short.map(_enrich_ea, _enrich_pool))
 
