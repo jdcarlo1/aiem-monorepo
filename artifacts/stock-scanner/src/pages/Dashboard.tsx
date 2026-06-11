@@ -6129,7 +6129,7 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
         fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
         <span style={{ color: "#f87171", fontWeight: 700 }}>📡 How this works: </span>
         First scan fires at <span style={{ color: "#fbbf24", fontWeight: 700 }}>9:31 AM ET</span> — after just one complete 1-min bar.
-        Rescans at 9:45 AM and 10:30 AM. Volume uses <span style={{ color: "#e2e8f0" }}>projected daily pace</span> (volume so far ÷ fraction of day elapsed)
+        Rescans at 9:45 AM, 10:30 AM, and <span style={{ color: "#fbbf24", fontWeight: 700 }}>12:00 PM</span>. Volume uses <span style={{ color: "#e2e8f0" }}>projected daily pace</span> (volume so far ÷ fraction of day elapsed)
         so one hot minute at open reads correctly as 70× — not 1×. To qualify: up <span style={{ color: "#e2e8f0" }}>≥5%</span>,
         projected pace <span style={{ color: "#e2e8f0" }}>≥5× avg</span> (first 30 min) or ≥3× after,
         and <span style={{ color: "#e2e8f0" }}>≥2:1 buy:sell flow</span> from 1-min bars.
