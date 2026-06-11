@@ -9775,9 +9775,10 @@ def morning_inflows():
         "criteria":      "price ≥+5% · projected vol ≥5× avg (first 30 min) · flow ratio ≥2:1",
     }
 
-    # ── Persist to DB — only overwrite when this scan found MORE standouts ──
-    # Keeps the best morning scan result alive through all 5 scan windows.
-    # Each later scan may add new tickers; only replace when it's an improvement.
+    # ── Persist to DB — always overwrite with the latest scan ───────────────
+    # Each scan window (9:31, 9:45, 10:00, 10:15, 10:30) is a fresh filter pass.
+    # Fewer results at 9:45 means stocks faded — that IS the correct picture.
+    # Always write the most recent scan so the DB never shows stale winners.
     if results and _DB_URL:
         try:
             import json as _json_mi2
@@ -9789,9 +9790,6 @@ def morning_inflows():
                     ON CONFLICT (scan_date) DO UPDATE
                         SET payload  = EXCLUDED.payload,
                             saved_at = NOW()
-                    WHERE COALESCE(
-                              (morning_inflows_cache.payload->>'total_found')::int, 0
-                          ) <= (EXCLUDED.payload->>'total_found')::int
                 """, (_today_mi2, _json_mi2.dumps(out)))
                 _c_mi2.commit()
             print(f"[morning_inflows] persisted {len(results)} standouts to DB for {_today_mi2}")
