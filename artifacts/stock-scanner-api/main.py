@@ -541,7 +541,7 @@ try:
     # Morning standout inflows: 9:31 AM (early-warning) + 9:45 AM + 10:30 AM ET
     def _run_morning_inflows():
         try:
-            with app.test_request_context("/stock-api/morning-inflows"):
+            with app.test_request_context("/stock-api/morning-inflows?bust=1"):
                 morning_inflows()
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
