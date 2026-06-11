@@ -9980,21 +9980,55 @@ def eod_accumulation():
             # Weights: EOD rel-vol (main driver) × late flow conviction × closing strength
             accum_score = round(eod_rel_vol * min(late_flow, 10.0) * (0.5 + closing_range), 1)
 
+            # ── News catalyst check ───────────────────────────────────────────
+            # If the stock had news today it's likely a news-driven move, not a pump setup.
+            has_news       = False
+            news_headline  = None
+            news_today_cnt = 0
+            try:
+                _today_et = _dt_ea.datetime.now(_et).date()
+                for _ni in (tk.news or [])[:8]:
+                    # yfinance returns either a flat dict (providerPublishTime) or
+                    # a nested dict (content.pubDate ISO string) depending on version.
+                    _pub = _ni.get("providerPublishTime") or \
+                           (_ni.get("content") or {}).get("pubDate")
+                    _pub_date = None
+                    if isinstance(_pub, (int, float)):
+                        _pub_date = _dt_ea.datetime.fromtimestamp(_pub, tz=_et).date()
+                    elif isinstance(_pub, str):
+                        try:
+                            import re as _re_ea
+                            _m = _re_ea.match(r"(\d{4}-\d{2}-\d{2})", _pub)
+                            if _m: _pub_date = _dt_ea.date.fromisoformat(_m.group(1))
+                        except Exception: pass
+                    if _pub_date == _today_et:
+                        news_today_cnt += 1
+                        if not news_headline:
+                            _ht = _ni.get("title") or \
+                                  ((_ni.get("content") or {}).get("title") or "")
+                            news_headline = (_ht[:90]) if _ht else None
+                has_news = news_today_cnt > 0
+            except Exception:
+                pass
+
             return {
-                "ticker":        ticker,
-                "close":         round(close_px, 2),
-                "prev_close":    round(prev_close, 2),
-                "price_chg_pct": round(price_chg, 2),
-                "day_high":      round(day_high, 2),
-                "day_low":       round(day_low, 2),
-                "closing_range": round(closing_range, 3),
-                "eod_vol":       int(eod_vol),
-                "eod_rel_vol":   round(eod_rel_vol, 1),
-                "late_flow":     round(min(late_flow, 99.0), 1),
-                "late_surge_pct": round(late_surge, 2),
-                "quiet_surge":   round(quiet_surge, 1),
-                "accum_score":   accum_score,
-                "mkt_cap_m":     round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
+                "ticker":          ticker,
+                "close":           round(close_px, 2),
+                "prev_close":      round(prev_close, 2),
+                "price_chg_pct":   round(price_chg, 2),
+                "day_high":        round(day_high, 2),
+                "day_low":         round(day_low, 2),
+                "closing_range":   round(closing_range, 3),
+                "eod_vol":         int(eod_vol),
+                "eod_rel_vol":     round(eod_rel_vol, 1),
+                "late_flow":       round(min(late_flow, 99.0), 1),
+                "late_surge_pct":  round(late_surge, 2),
+                "quiet_surge":     round(quiet_surge, 1),
+                "accum_score":     accum_score,
+                "mkt_cap_m":       round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
+                "has_news":        has_news,
+                "news_headline":   news_headline,
+                "news_today_cnt":  news_today_cnt,
             }
         except Exception:
             return None

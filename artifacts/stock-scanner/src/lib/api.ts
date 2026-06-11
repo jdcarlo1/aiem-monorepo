@@ -1571,6 +1571,9 @@ export interface EodAccumResult {
   quiet_surge: number;
   accum_score: number;
   mkt_cap_m: number | null;
+  has_news: boolean;
+  news_headline: string | null;
+  news_today_cnt: number;
 }
 export interface EodAccumData {
   candidates: EodAccumResult[];

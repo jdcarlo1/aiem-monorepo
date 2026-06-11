@@ -6526,6 +6526,7 @@ function EodAccumulationTab() {
   const BB_F = "JetBrains Mono, monospace";
   const [data, setData]     = useState<EodAccumData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hideNews, setHideNews] = useState(false);
 
   const load = async (bust = false) => {
     setLoading(true);
@@ -6537,6 +6538,9 @@ function EodAccumulationTab() {
 
   const scoreColor = (s: number) =>
     s >= 60 ? "#f97316" : s >= 30 ? "#fbbf24" : "#4ade80";
+
+  const newsCount = data?.candidates.filter(c => c.has_news).length ?? 0;
+  const visibleCandidates = (data?.candidates ?? []).filter(c => !hideNews || !c.has_news);
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 860, margin: "0 auto" }}>
@@ -6555,6 +6559,18 @@ function EodAccumulationTab() {
               borderRadius: 6, border: "1px solid #334155", background: "transparent",
               color: loading ? "#475569" : "#94a3b8", cursor: loading ? "default" : "pointer" }}>
             {loading ? "SCANNING…" : "↺ REFRESH"}
+          </button>
+          {/* News filter toggle */}
+          <button
+            onClick={() => setHideNews(h => !h)}
+            style={{
+              fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "3px 10px",
+              borderRadius: 6, cursor: "pointer",
+              border: hideNews ? "1px solid rgba(249,115,22,0.6)" : "1px solid #334155",
+              background: hideNews ? "rgba(249,115,22,0.1)" : "transparent",
+              color: hideNews ? "#f97316" : "#64748b",
+            }}>
+            {hideNews ? `📰 SHOWING PURE SETUPS (${newsCount} hidden)` : `📰 HIDE NEWS CATALYSTS${newsCount > 0 ? ` (${newsCount})` : ""}`}
           </button>
         </div>
         <p style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", lineHeight: 1.6, margin: 0 }}>
@@ -6596,20 +6612,21 @@ function EodAccumulationTab() {
         </div>
       )}
 
-      {!loading && data && data.candidates.length === 0 && (
+      {!loading && data && visibleCandidates.length === 0 && (
         <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 12, textAlign: "center", padding: 40 }}>
-          No accumulation patterns detected yet. Scan runs at 3:45 PM and 3:55 PM ET Mon–Fri.<br />
-          During market hours, click ↺ REFRESH after 3:30 PM.
+          {data.candidates.length === 0
+            ? <>No accumulation patterns detected yet. Scan runs at 3:45 PM and 3:55 PM ET Mon–Fri.<br />During market hours, click ↺ REFRESH after 3:30 PM.</>
+            : <>All {data.candidates.length} candidate{data.candidates.length !== 1 ? "s" : ""} had news catalysts today — click the filter button to show them.</>}
         </div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {(data?.candidates ?? []).map((c, i) => {
+        {visibleCandidates.map((c, i) => {
           const col = scoreColor(c.accum_score);
           return (
             <div key={c.ticker} style={{
-              background: "rgba(255,255,255,0.02)",
-              border: `1px solid ${c.accum_score >= 60 ? "rgba(249,115,22,0.3)" : "rgba(255,255,255,0.07)"}`,
+              background: c.has_news ? "rgba(99,102,241,0.04)" : "rgba(255,255,255,0.02)",
+              border: `1px solid ${c.has_news ? "rgba(99,102,241,0.2)" : c.accum_score >= 60 ? "rgba(249,115,22,0.3)" : "rgba(255,255,255,0.07)"}`,
               borderRadius: 16, padding: "16px 18px",
             }}>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -6635,7 +6652,19 @@ function EodAccumulationTab() {
                         📈 CLOSED AT HIGH
                       </span>
                     )}
+                    {c.has_news && (
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                        background: "rgba(99,102,241,0.12)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.35)" }}>
+                        📰 NEWS TODAY
+                      </span>
+                    )}
                   </div>
+                  {c.has_news && c.news_headline && (
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#6366f1", marginBottom: 8,
+                      lineHeight: 1.4, fontStyle: "italic", opacity: 0.85 }}>
+                      "{c.news_headline}"
+                    </div>
+                  )}
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "6px 20px" }}>
                     {([
@@ -6679,7 +6708,7 @@ function EodAccumulationTab() {
         })}
       </div>
 
-      {(data?.candidates ?? []).length > 0 && (
+      {visibleCandidates.length > 0 && (
         <div style={{ fontFamily: BB_F, fontSize: 10, color: "#334155", textAlign: "center",
           marginTop: 16, lineHeight: 1.7 }}>
           ⚠️ For informational purposes only. Always set a stop-loss. Past patterns are not a guarantee of future results.
