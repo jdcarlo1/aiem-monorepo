@@ -9991,39 +9991,112 @@ def morning_inflows():
 
 
 def _get_short_data(ticker):
-    """Fetch short interest + 5-day anchored VWAP for a single ticker (best-effort)."""
+    """
+    Fetch short interest + full technical squeeze indicators for a single ticker.
+    Used by both the Active Squeeze Radar (hard-gate detection) and the EOD accum
+    / cross-scanner card enrichment (short float + AVWAP badges).
+    """
     try:
-        _tk_sd = yf.Ticker(ticker)
-        _fi_sd = _tk_sd.info
+        _tk_sd  = yf.Ticker(ticker)
+        _fi_sd  = _tk_sd.info
         _sf_sd  = _fi_sd.get("shortPercentOfFloat")
         _dtc_sd = _fi_sd.get("shortRatio")
-        _hist_sd = _tk_sd.history(period="10d", interval="1d")
-        _avwap_sd = None
-        _above_sd = None
-        _cpx_sd   = None
-        _chg_sd   = None
-        if _hist_sd is not None and len(_hist_sd) >= 2:
-            _cpx_sd = float(_hist_sd["Close"].iloc[-1])
-            _prev_sd = float(_hist_sd["Close"].iloc[-2])
-            _chg_sd = round((_cpx_sd - _prev_sd) / _prev_sd * 100, 2) if _prev_sd else None
-            if len(_hist_sd) >= 5:
-                _l5 = _hist_sd.tail(5)
-                _vols = _l5["Volume"].values
-                if _vols.sum() > 0:
-                    _typ = ((_l5["High"] + _l5["Low"] + _l5["Close"]) / 3).values
-                    _avwap_sd = float((_typ * _vols).sum() / _vols.sum())
-                    _above_sd = _cpx_sd > _avwap_sd
+
+        # 35 days of daily OHLCV — enough for 20d avg vol + 15d range + RSI-14
+        _h = _tk_sd.history(period="35d", interval="1d")
+        if _h is None or len(_h) < 5:
+            return {"short_float": None, "days_to_cover": None, "avwap_5d": None,
+                    "above_avwap": None, "current_price": None, "price_chg_pct": None,
+                    "vol_ratio_20d": None, "new_high_15d": False, "range_pct_15d": None,
+                    "was_consolidating": False, "closing_range_today": None,
+                    "avwap_20d": None, "above_avwap_20d": None, "rsi_14": None}
+
+        _closes = _h["Close"].values.astype(float)
+        _highs  = _h["High"].values.astype(float)
+        _lows   = _h["Low"].values.astype(float)
+        _vols   = _h["Volume"].values.astype(float)
+
+        _cpx  = _closes[-1]
+        _prev = _closes[-2] if len(_closes) >= 2 else _cpx
+        _chg  = round((_cpx - _prev) / _prev * 100, 2) if _prev else None
+
+        # ── Closing range today (1.0 = held at HOD, 0.0 = at LOD) ──────────
+        _cr = None
+        if _highs[-1] > _lows[-1]:
+            _cr = round((_cpx - _lows[-1]) / (_highs[-1] - _lows[-1]), 3)
+
+        # ── Volume explosion vs 20-day average ──────────────────────────────
+        _vol_ratio = None
+        if len(_vols) >= 21 and _vols[-21:-1].mean() > 0:
+            _vol_ratio = round(float(_vols[-1]) / float(_vols[-21:-1].mean()), 2)
+
+        # ── 15-day range breakout ────────────────────────────────────────────
+        _new_high_15d = False
+        _range_pct_15d = None
+        _was_coiling = False
+        if len(_closes) >= 16:
+            _p15 = _closes[-16:-1]
+            _mx, _mn = float(_p15.max()), float(_p15.min())
+            _new_high_15d = bool(_cpx > _mx)
+            if _mn > 0:
+                _range_pct_15d = round((_mx - _mn) / _mn * 100, 1)
+                _was_coiling = _range_pct_15d < 20.0  # <20% move over 15d = coiling
+
+        # ── 5-day anchored VWAP ──────────────────────────────────────────────
+        _avwap5 = None
+        _above5 = None
+        if len(_h) >= 6:
+            _l5 = _h.tail(5)
+            _v5 = _l5["Volume"].values.astype(float)
+            if _v5.sum() > 0:
+                _t5 = ((_l5["High"] + _l5["Low"] + _l5["Close"]) / 3).values.astype(float)
+                _avwap5 = float((_t5 * _v5).sum() / _v5.sum())
+                _above5 = bool(_cpx > _avwap5)
+
+        # ── 20-day anchored VWAP ─────────────────────────────────────────────
+        _avwap20 = None
+        _above20 = None
+        if len(_h) >= 21:
+            _l20 = _h.tail(20)
+            _v20 = _l20["Volume"].values.astype(float)
+            if _v20.sum() > 0:
+                _t20 = ((_l20["High"] + _l20["Low"] + _l20["Close"]) / 3).values.astype(float)
+                _avwap20 = float((_t20 * _v20).sum() / _v20.sum())
+                _above20 = bool(_cpx > _avwap20)
+
+        # ── RSI-14 ────────────────────────────────────────────────────────────
+        _rsi = None
+        if len(_closes) >= 16:
+            _g, _l = [], []
+            for _i in range(1, len(_closes)):
+                _d = _closes[_i] - _closes[_i - 1]
+                _g.append(max(_d, 0.0)); _l.append(max(-_d, 0.0))
+            _ag = sum(_g[-14:]) / 14.0
+            _al = sum(_l[-14:]) / 14.0
+            _rsi = round(100.0 if _al == 0 else 100.0 - 100.0 / (1.0 + _ag / _al), 1)
+
         return {
-            "short_float":   round(float(_sf_sd) * 100, 1) if _sf_sd else None,
-            "days_to_cover": round(float(_dtc_sd), 1) if _dtc_sd else None,
-            "avwap_5d":      round(_avwap_sd, 2) if _avwap_sd else None,
-            "above_avwap":   _above_sd,
-            "current_price": round(_cpx_sd, 2) if _cpx_sd else None,
-            "price_chg_pct": _chg_sd,
+            "short_float":         round(float(_sf_sd) * 100, 1) if _sf_sd else None,
+            "days_to_cover":       round(float(_dtc_sd), 1) if _dtc_sd else None,
+            "current_price":       round(_cpx, 2),
+            "price_chg_pct":       _chg,
+            "closing_range_today": _cr,
+            "vol_ratio_20d":       _vol_ratio,
+            "new_high_15d":        _new_high_15d,
+            "range_pct_15d":       _range_pct_15d,
+            "was_consolidating":   _was_coiling,
+            "avwap_5d":            round(_avwap5, 2) if _avwap5 else None,
+            "above_avwap":         _above5,
+            "avwap_20d":           round(_avwap20, 2) if _avwap20 else None,
+            "above_avwap_20d":     _above20,
+            "rsi_14":              _rsi,
         }
     except Exception:
         return {"short_float": None, "days_to_cover": None, "avwap_5d": None,
-                "above_avwap": None, "current_price": None, "price_chg_pct": None}
+                "above_avwap": None, "current_price": None, "price_chg_pct": None,
+                "vol_ratio_20d": None, "new_high_15d": False, "range_pct_15d": None,
+                "was_consolidating": False, "closing_range_today": None,
+                "avwap_20d": None, "above_avwap_20d": None, "rsi_14": None}
 
 
 @app.route("/stock-api/eod-accumulation", methods=["GET"])
@@ -10507,27 +10580,57 @@ def short_squeeze_radar():
                             "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET")})
 
         def _score_sq(ticker):
-            sd = _get_short_data(ticker)
-            sf = sd.get("short_float")
-            if not sf or sf < 10.0:
-                return None
-            dtc   = sd.get("days_to_cover") or 0
-            above = sd.get("above_avwap") or False
+            sd  = _get_short_data(ticker)
+            sf  = sd.get("short_float")
+            chg = sd.get("price_chg_pct")
+            vol = sd.get("vol_ratio_20d")
+
+            # ── 5 HARD GATES — all must pass or stock is excluded ────────────
+            # Gate 1: meaningful short fuel
+            if not sf or sf < 15.0:                return None
+            # Gate 2: actually moving up TODAY (not just potential)
+            if not chg or chg < 3.0:               return None
+            # Gate 3: volume explosion (shorts being forced to cover)
+            if not vol or vol < 2.0:               return None
+            # Gate 4: breaking OUT of the trading range (new multi-week high)
+            if not sd.get("new_high_15d"):         return None
+            # Gate 5: reclaiming the 5-day anchored VWAP (institutional level)
+            if not sd.get("above_avwap"):          return None
+
+            dtc  = sd.get("days_to_cover") or 0
+            coil = sd.get("was_consolidating") or False
+            cr   = sd.get("closing_range_today") or 0
+            a20  = sd.get("above_avwap_20d") or False
+            rsi  = sd.get("rsi_14") or 50
+
+            # ── Active Squeeze Score — reflects HOW HOT this squeeze is ─────
             squeeze_score = round(
-                min(sf * 0.6, 50)       # short float component  (max 50)
-                + min(dtc * 3.0, 20)    # days-to-cover squeeze  (max 20)
-                + (30 if above else 0), # AVWAP reclaim bonus    (+30)
+                min(sf * 0.4, 20)             # short fuel         (max 20)
+                + min((vol - 2.0) * 10, 25)   # vol explosion      (max 25)
+                + min(chg * 2.0, 20)          # price momentum     (max 20)
+                + (15 if coil else 0)          # coil breakout      (+15)
+                + (10 if a20 else 0)           # above 20d AVWAP    (+10)
+                + min(cr * 8, 8)              # holding near HOD   (max 8)
+                + min(dtc * 0.4, 2),          # DTC pressure       (max 2)
                 1
             )
             return {
-                "ticker":        ticker,
-                "short_float":   sf,
-                "days_to_cover": sd.get("days_to_cover"),
-                "above_avwap":   above,
-                "avwap_5d":      sd.get("avwap_5d"),
-                "current_price": sd.get("current_price"),
-                "price_chg_pct": sd.get("price_chg_pct"),
-                "squeeze_score": squeeze_score,
+                "ticker":              ticker,
+                "short_float":         sf,
+                "days_to_cover":       sd.get("days_to_cover"),
+                "above_avwap":         sd.get("above_avwap"),
+                "above_avwap_20d":     a20,
+                "avwap_5d":            sd.get("avwap_5d"),
+                "avwap_20d":           sd.get("avwap_20d"),
+                "current_price":       sd.get("current_price"),
+                "price_chg_pct":       chg,
+                "vol_ratio_20d":       vol,
+                "new_high_15d":        True,
+                "range_pct_15d":       sd.get("range_pct_15d"),
+                "was_consolidating":   coil,
+                "closing_range_today": cr,
+                "rsi_14":              rsi,
+                "squeeze_score":       squeeze_score,
             }
 
         _cands_sq: list = []

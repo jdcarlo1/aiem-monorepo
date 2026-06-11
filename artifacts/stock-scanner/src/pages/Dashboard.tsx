@@ -11437,121 +11437,239 @@ function ShortSqueezeTab() {
   useEffect(() => { load(); }, []);
 
   const sqColor = (score: number) =>
-    score >= 70 ? "#ef4444" : score >= 50 ? "#f97316" : score >= 35 ? "#fbbf24" : "#94a3b8";
+    score >= 75 ? "#ef4444" : score >= 55 ? "#f97316" : score >= 40 ? "#fbbf24" : "#a3e635";
 
-  const pctCol = (v: number | null) =>
-    v == null ? "#475569" : v >= 5 ? "#4ade80" : v >= 0 ? "#a3e635" : "#f87171";
+  const rsiColor = (rsi: number | null) => {
+    if (rsi == null) return "#475569";
+    if (rsi >= 70)   return "#ef4444";
+    if (rsi >= 60)   return "#f97316";
+    if (rsi >= 50)   return "#fbbf24";
+    return "#94a3b8";
+  };
 
   return (
     <div style={{ fontFamily: BB_F }}>
+
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <span style={{ fontSize: 24 }}>🩳</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <span style={{ fontSize: 22 }}>🔥</span>
         <div>
-          <div style={{ fontFamily: BB_F, fontSize: 16, fontWeight: 700, color: "#f1f5f9", letterSpacing: 1 }}>
-            SHORT SQUEEZE RADAR
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9", letterSpacing: 1 }}>
+            ACTIVE SQUEEZE RADAR
           </div>
-          <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginTop: 2 }}>
-            High short-interest stocks with EOD accumulation + AVWAP reclaim — triple confirmation squeeze setup
+          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+            Only stocks squeezing RIGHT NOW — all 5 gates must confirm simultaneously
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          {loading && <span style={{ fontFamily: BB_F, fontSize: 10, color: "#64748b" }}>scanning…</span>}
+          {loading && <span style={{ fontSize: 10, color: "#64748b" }}>scanning…</span>}
           <button onClick={load} style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
             background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)",
             borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>↻ REFRESH</button>
         </div>
       </div>
 
-      {/* How it works */}
-      <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginBottom: 20, lineHeight: 1.7,
-        background: "linear-gradient(90deg, rgba(239,68,68,0.06) 0%, rgba(251,191,36,0.04) 100%)",
-        border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, padding: "12px 16px" }}>
-        <span style={{ color: "#ef4444", fontWeight: 700 }}>Squeeze Score explained: </span>
-        Short float % (up to 50 pts) + days-to-cover (up to 20 pts) + AVWAP reclaim bonus (+30 pts).
-        A score above 70 means high short fuel, enough time pressure to force covering, AND institutions reclaiming
-        a key price level — the trifecta that triggers violent short squeezes.
-        <span style={{ color: "#fbbf24" }}> Universe = last 5 days of EOD accum picks + standout flow.</span>
+      {/* 5 hard gates */}
+      <div style={{ marginBottom: 18, background: "rgba(15,23,42,0.7)",
+        border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10, padding: "12px 16px" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", marginBottom: 8, letterSpacing: 1 }}>
+          5 HARD GATES — ALL MUST PASS OR STOCK IS EXCLUDED
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px 24px" }}>
+          {([
+            ["🩳", "Short float ≥ 15%",       "real squeeze fuel present"],
+            ["📈", "New 15-day high TODAY",     "actually breaking out of range"],
+            ["💥", "Volume ≥ 2× average",       "shorts being forced to cover"],
+            ["⬆",  "+3% price move today",      "confirmed momentum, not a tease"],
+            ["⚓", "Above 5-day AVWAP",          "reclaiming institutional price level"],
+          ] as [string, string, string][]).map(([icon, gate, sub]) => (
+            <div key={gate} style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+              <span style={{ fontSize: 11, marginTop: 1 }}>{icon}</span>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1" }}>{gate}</div>
+                <div style={{ fontSize: 9, color: "#475569" }}>{sub}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {error && (
-        <div style={{ fontFamily: BB_F, fontSize: 12, color: "#f87171", background: "rgba(239,68,68,0.08)",
+        <div style={{ fontSize: 12, color: "#f87171", background: "rgba(239,68,68,0.08)",
           border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
           {error}
         </div>
       )}
 
-      {data && data.candidates.length === 0 && (
-        <div style={{ fontFamily: BB_F, fontSize: 13, color: "#475569",
-          background: "rgba(15,23,42,0.6)", border: "1px solid rgba(51,65,85,0.5)",
-          borderRadius: 10, padding: "28px", textAlign: "center" }}>
-          No squeeze setups found.{" "}
-          <span style={{ color: "#334155" }}>
-            Universe builds from EOD accum picks and standout flow tickers over the past 5 days.
-          </span>
+      {/* Empty state */}
+      {data && data.candidates.length === 0 && !loading && (
+        <div style={{ background: "rgba(15,23,42,0.6)", border: "1px solid rgba(51,65,85,0.4)",
+          borderRadius: 12, padding: "36px 24px", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 6 }}>
+            No active squeezes right now
+          </div>
+          <div style={{ fontSize: 11, color: "#334155", lineHeight: 1.8, maxWidth: 400, margin: "0 auto" }}>
+            When a heavily shorted stock breaks above its 15-day range with 2×+ volume
+            and 3%+ price move all on the same day — it appears here automatically.
+            <br/>
+            <span style={{ color: "#1e3a5f" }}>
+              Scanned {data.scanned} ticker{data.scanned !== 1 ? "s" : ""} from recent EOD accum + standout flow.
+            </span>
+          </div>
         </div>
       )}
 
+      {/* Candidate cards */}
       {data && data.candidates.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {data.candidates.map((c, i) => {
             const col = sqColor(c.squeeze_score);
+            const borderCol = c.squeeze_score >= 75
+              ? "rgba(239,68,68,0.55)" : c.squeeze_score >= 55
+              ? "rgba(249,115,22,0.45)" : "rgba(251,191,36,0.35)";
             return (
               <div key={i} style={{
-                background: "linear-gradient(135deg, rgba(15,23,42,0.9) 0%, rgba(30,41,59,0.7) 100%)",
-                border: `1px solid ${c.squeeze_score >= 70 ? "rgba(239,68,68,0.4)" : c.squeeze_score >= 50 ? "rgba(249,115,22,0.35)" : "rgba(51,65,85,0.5)"}`,
-                borderRadius: 12, padding: "16px 20px",
-                display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap"
+                background: "linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.8) 100%)",
+                border: `1px solid ${borderCol}`, borderRadius: 14, overflow: "hidden",
               }}>
-                {/* Ticker + badges */}
-                <div style={{ flex: 1, minWidth: 140 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                    <span style={{ fontFamily: BB_F, fontSize: 20, fontWeight: 900, color: "#fbbf24" }}>{c.ticker}</span>
-                    {c.squeeze_score >= 70 && (
-                      <span style={{ fontFamily: BB_F, fontSize: 9, fontWeight: 700, padding: "2px 7px",
+                {/* Top bar */}
+                <div style={{ display: "flex", alignItems: "center", gap: 16,
+                  padding: "14px 18px", borderBottom: "1px solid rgba(51,65,85,0.4)" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24", letterSpacing: 0.5 }}>
+                        {c.ticker}
+                      </span>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px",
                         background: "rgba(239,68,68,0.2)", color: "#f87171",
-                        border: "1px solid rgba(239,68,68,0.5)", borderRadius: 99 }}>🔥 HIGH SQUEEZE</span>
-                    )}
-                    <span style={{
-                      fontFamily: BB_F, fontSize: 9, fontWeight: 700, padding: "2px 7px",
-                      background: c.above_avwap ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.08)",
-                      color: c.above_avwap ? "#4ade80" : "#ef4444",
-                      border: `1px solid ${c.above_avwap ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.2)"}`,
-                      borderRadius: 99 }}>
-                      {c.above_avwap ? "↑ Above AVWAP" : "↓ Below AVWAP"}
-                    </span>
+                        border: "1px solid rgba(239,68,68,0.5)", borderRadius: 99 }}>
+                        🔥 LIVE SQUEEZE
+                      </span>
+                      {c.was_consolidating && (
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px",
+                          background: "rgba(139,92,246,0.15)", color: "#a78bfa",
+                          border: "1px solid rgba(139,92,246,0.35)", borderRadius: 99 }}>
+                          💤→🚀 COIL BREAK
+                        </span>
+                      )}
+                      {c.above_avwap_20d && (
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px",
+                          background: "rgba(34,197,94,0.12)", color: "#4ade80",
+                          border: "1px solid rgba(34,197,94,0.3)", borderRadius: 99 }}>
+                          ✓ ABOVE 20d AVWAP
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                      <span style={{ fontSize: 20, fontWeight: 700, color: "#f1f5f9" }}>
+                        ${c.current_price != null ? c.current_price.toFixed(2) : "—"}
+                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 700,
+                        color: c.price_chg_pct >= 8 ? "#ef4444" : c.price_chg_pct >= 5 ? "#f97316" : "#4ade80" }}>
+                        +{c.price_chg_pct.toFixed(2)}%
+                      </span>
+                      <span style={{ fontSize: 10, color: "#475569" }}>today</span>
+                    </div>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "5px 18px" }}>
-                    {([
-                      ["Short Float",   `${c.short_float.toFixed(1)}%`,
-                        c.short_float >= 30 ? "#ef4444" : c.short_float >= 20 ? "#f97316" : "#fbbf24"],
-                      ["Days to Cover", c.days_to_cover != null ? `${c.days_to_cover.toFixed(1)}d` : "—",
-                        (c.days_to_cover ?? 0) >= 5 ? "#f97316" : "#94a3b8"],
-                      ["AVWAP (5d)",    c.avwap_5d != null ? `$${c.avwap_5d.toFixed(2)}` : "—", "#475569"],
-                      ["Price",         c.current_price != null ? `$${c.current_price.toFixed(2)}` : "—", "#f1f5f9"],
-                      ["Day Chg",       c.price_chg_pct != null ? `${c.price_chg_pct >= 0 ? "+" : ""}${c.price_chg_pct.toFixed(2)}%` : "—",
-                        pctCol(c.price_chg_pct)],
-                    ] as [string, string, string][]).map(([lbl, val, clr]) => (
-                      <div key={lbl}>
-                        <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 9 }}>{lbl}</div>
-                        <div style={{ fontFamily: BB_F, fontWeight: 700, color: clr, fontSize: 12 }}>{val}</div>
-                      </div>
-                    ))}
+                  {/* Score */}
+                  <div style={{ textAlign: "center", flexShrink: 0 }}>
+                    <div style={{ fontSize: 8, color: "#475569", fontWeight: 700,
+                      textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>SQUEEZE</div>
+                    <div style={{ fontSize: 36, fontWeight: 900, color: col,
+                      letterSpacing: "-0.05em", lineHeight: 1 }}>{c.squeeze_score.toFixed(0)}</div>
+                    <div style={{ width: 52, height: 3, background: "rgba(255,255,255,0.07)",
+                      borderRadius: 99, margin: "4px auto 0" }}>
+                      <div style={{ width: `${Math.min(c.squeeze_score, 100)}%`, height: "100%",
+                        background: col, borderRadius: 99 }} />
+                    </div>
+                    <div style={{ fontSize: 8, color: "#334155", marginTop: 3 }}>/ 100</div>
                   </div>
                 </div>
 
-                {/* Squeeze Score */}
-                <div style={{ textAlign: "center", flexShrink: 0 }}>
-                  <div style={{ fontFamily: BB_F, fontSize: 9, color: "#475569", fontWeight: 700,
-                    textTransform: "uppercase", marginBottom: 2 }}>Squeeze Score</div>
-                  <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 38, color: col,
-                    letterSpacing: "-0.05em", lineHeight: 1 }}>{c.squeeze_score.toFixed(0)}</div>
-                  <div style={{ width: 60, height: 4, background: "rgba(255,255,255,0.07)",
-                    borderRadius: 99, margin: "5px auto 0" }}>
-                    <div style={{ width: `${Math.min(c.squeeze_score, 100)}%`, height: "100%",
-                      background: col, borderRadius: 99 }} />
+                {/* 6-cell indicator grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: "1px", background: "rgba(51,65,85,0.25)" }}>
+
+                  {/* Volume explosion */}
+                  <div style={{ background: "rgba(15,23,42,0.85)", padding: "10px 14px" }}>
+                    <div style={{ fontSize: 9, color: "#475569", marginBottom: 3 }}>💥 VOLUME EXPLOSION</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1,
+                      color: c.vol_ratio_20d >= 5 ? "#ef4444" : c.vol_ratio_20d >= 3 ? "#f97316" : "#fbbf24" }}>
+                      {c.vol_ratio_20d.toFixed(1)}×
+                    </div>
+                    <div style={{ fontSize: 9, color: "#475569", marginTop: 2 }}>vs 20-day avg</div>
                   </div>
-                  <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 9, marginTop: 4 }}>/ 100</div>
+
+                  {/* Short fuel */}
+                  <div style={{ background: "rgba(15,23,42,0.85)", padding: "10px 14px" }}>
+                    <div style={{ fontSize: 9, color: "#475569", marginBottom: 3 }}>🩳 SHORT FUEL</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1,
+                      color: c.short_float >= 35 ? "#ef4444" : c.short_float >= 25 ? "#f97316" : "#fbbf24" }}>
+                      {c.short_float.toFixed(1)}%
+                    </div>
+                    <div style={{ fontSize: 9, color: "#475569", marginTop: 2 }}>
+                      {c.days_to_cover != null ? `${c.days_to_cover.toFixed(1)}d to cover` : "short float"}
+                    </div>
+                  </div>
+
+                  {/* RSI */}
+                  <div style={{ background: "rgba(15,23,42,0.85)", padding: "10px 14px" }}>
+                    <div style={{ fontSize: 9, color: "#475569", marginBottom: 3 }}>📊 RSI-14</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1, color: rsiColor(c.rsi_14) }}>
+                      {c.rsi_14 != null ? c.rsi_14.toFixed(0) : "—"}
+                    </div>
+                    <div style={{ fontSize: 9, color: "#475569", marginTop: 2 }}>
+                      {c.rsi_14 == null ? "" :
+                        c.rsi_14 >= 70 ? "overbought · still squeezing" :
+                        c.rsi_14 >= 60 ? "strong momentum" :
+                        c.rsi_14 >= 50 ? "breaking out" : "early move"}
+                    </div>
+                  </div>
+
+                  {/* Range breakout */}
+                  <div style={{ background: "rgba(15,23,42,0.85)", padding: "10px 14px" }}>
+                    <div style={{ fontSize: 9, color: "#475569", marginBottom: 3 }}>📈 RANGE BREAKOUT</div>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: "#4ade80", lineHeight: 1.2 }}>
+                      NEW 15-DAY HIGH
+                    </div>
+                    <div style={{ fontSize: 9, color: "#475569", marginTop: 2 }}>
+                      {c.range_pct_15d != null
+                        ? c.was_consolidating
+                          ? `coiled ${c.range_pct_15d.toFixed(0)}% range → broke out`
+                          : `broke above ${c.range_pct_15d.toFixed(0)}% range`
+                        : "price breakout confirmed"}
+                    </div>
+                  </div>
+
+                  {/* AVWAP levels */}
+                  <div style={{ background: "rgba(15,23,42,0.85)", padding: "10px 14px" }}>
+                    <div style={{ fontSize: 9, color: "#475569", marginBottom: 3 }}>⚓ AVWAP LEVELS</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: "#4ade80", marginBottom: 2 }}>
+                      ↑ 5d ${c.avwap_5d != null ? c.avwap_5d.toFixed(2) : "—"}
+                    </div>
+                    <div style={{ fontSize: 9, fontWeight: 700,
+                      color: c.above_avwap_20d ? "#4ade80" : "#475569" }}>
+                      {c.above_avwap_20d ? "↑" : "·"} 20d ${c.avwap_20d != null ? c.avwap_20d.toFixed(2) : "—"}
+                    </div>
+                  </div>
+
+                  {/* Closing range (holding near HOD) */}
+                  <div style={{ background: "rgba(15,23,42,0.85)", padding: "10px 14px" }}>
+                    <div style={{ fontSize: 9, color: "#475569", marginBottom: 3 }}>📍 CLOSING RANGE</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1,
+                      color: (c.closing_range_today ?? 0) >= 0.8 ? "#4ade80"
+                           : (c.closing_range_today ?? 0) >= 0.6 ? "#a3e635" : "#fbbf24" }}>
+                      {c.closing_range_today != null
+                        ? `${(c.closing_range_today * 100).toFixed(0)}%`
+                        : "—"}
+                    </div>
+                    <div style={{ fontSize: 9, color: "#475569", marginTop: 2 }}>
+                      {(c.closing_range_today ?? 0) >= 0.8 ? "holding near HOD" :
+                       (c.closing_range_today ?? 0) >= 0.6 ? "mid-high range" : "of daily range"}
+                    </div>
+                  </div>
+
                 </div>
               </div>
             );
@@ -11560,8 +11678,8 @@ function ShortSqueezeTab() {
       )}
 
       {data && (
-        <div style={{ fontFamily: BB_F, fontSize: 10, color: "#334155", marginTop: 16, textAlign: "right" }}>
-          {data.total_found} setup{data.total_found !== 1 ? "s" : ""} found · scanned {data.scanned} tickers · {data.as_of}
+        <div style={{ fontSize: 10, color: "#334155", marginTop: 16, textAlign: "right" }}>
+          {data.total_found} active squeeze{data.total_found !== 1 ? "s" : ""} · {data.scanned} tickers scanned · {data.as_of}
         </div>
       )}
     </div>

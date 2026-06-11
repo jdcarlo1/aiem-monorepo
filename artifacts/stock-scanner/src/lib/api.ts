@@ -1693,9 +1693,17 @@ export interface ShortSqueezeResult {
   short_float: number;
   days_to_cover: number | null;
   above_avwap: boolean;
+  above_avwap_20d: boolean;
   avwap_5d: number | null;
+  avwap_20d: number | null;
   current_price: number | null;
-  price_chg_pct: number | null;
+  price_chg_pct: number;
+  vol_ratio_20d: number;
+  new_high_15d: boolean;
+  range_pct_15d: number | null;
+  was_consolidating: boolean;
+  closing_range_today: number | null;
+  rsi_14: number | null;
   squeeze_score: number;
 }
 export interface ShortSqueezeData {
