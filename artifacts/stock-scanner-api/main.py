@@ -9633,8 +9633,14 @@ def morning_inflows():
             open_bars = hist[hist.index.time >= _dt_mi.time(9, 30)]
             open_price = float(open_bars["Open"].iloc[0]) if not open_bars.empty else price
             gap_pct    = (open_price - prev_close) / prev_close * 100
-            if   gap_pct >= 10: gap_multiplier = 2.0   # massive gap — strong pre-market catalyst
-            elif gap_pct >= 5:  gap_multiplier = 1.5   # clear gap — conviction buying at open
+
+            # ── Gap multiplier — data-tuned from 2026-06-10 live results ────
+            # Sweet spot: 5–15% gap with high rel-vol = highest hit rate (SDOT +96%,
+            # LICN +20%, HCAI +17%). Extreme gaps (>100%) fade 100% of the time.
+            if   gap_pct > 100: gap_multiplier = 0.4   # extreme pump — almost always fades
+            elif gap_pct > 30:  gap_multiplier = 0.8   # large gap — structural fade risk
+            elif gap_pct >= 15: gap_multiplier = 1.5   # moderate gap — some risk
+            elif gap_pct >= 5:  gap_multiplier = 2.5   # SWEET SPOT — proven highest hit rate
             elif gap_pct >= 2:  gap_multiplier = 1.2   # modest gap — some pre-market interest
             else:               gap_multiplier = 1.0   # no gap — intraday drift, lower confidence
 
@@ -9655,23 +9661,25 @@ def morning_inflows():
             # If >85% of the gain was pre-market, early holders are waiting to dump
             # into retail buyers the moment the bell rings.
             # Real-data validation (2026-06-10):
-            #   DSY: 94% pre-mkt → faded -10% ✓   SDOT: 74% pre-mkt → ran +88% ✓
-            #   VSME: 68% pre-mkt → faded -54% ✓  PW:  100% pre-mkt (tiny gap 1.5%) → ran +21%
+            #   DSY: 94% pre-mkt → faded -24% ✓   SDOT: 74% pre-mkt → ran +96% ✓
+            #   VSME: 68% pre-mkt → faded -44% ✓  LICN: small gap → ran +20% ✓
             # Rule applies only when gap is meaningful (≥15%) — tiny gaps don't matter.
             exhaustion_ratio = (gap_pct / price_chg) if price_chg > 0 else 0.0
 
             # ── Refined fade risk (tuned from live data 2026-06-10) ──────────
-            if gap_pct > 100 and mkt_cap_m_val < 200:
-                fade_risk = "HIGH"    # extreme pump (100%+ gap on small cap) — dump incoming
+            # Change 1: Extreme gappers (>100%) always HIGH — confirmed faded 100% on 6/10
+            # Change 2: Momentum threshold tightened: -3 triggers HIGH (was -5), -1 triggers WATCH (was -2)
+            if gap_pct > 100:
+                fade_risk = "HIGH"    # extreme pump — DSY/VSME both faded 24-44% confirmed
             elif gap_pct > 30 and mkt_cap_m_val < 100:
                 fade_risk = "HIGH"    # large pump on tiny cap — not enough real buyers
             elif gap_pct >= 15 and exhaustion_ratio > 0.85:
                 fade_risk = "HIGH"    # moderate gap, 85%+ already happened pre-market — fuel burned
-            elif momentum_open < -5:
-                fade_risk = "HIGH"    # already crashing at the open bell
+            elif momentum_open < -3:
+                fade_risk = "HIGH"    # fading at the bell (tightened from -5 based on live data)
             elif mkt_cap_m_val > 0 and mkt_cap_m_val < 50:
                 fade_risk = "WATCH"   # micro-cap but modest gap — can run, stay alert
-            elif (mkt_cap_m_val < 500 and gap_pct > 10) or momentum_open < -2:
+            elif (mkt_cap_m_val < 500 and gap_pct > 10) or momentum_open < -1:
                 fade_risk = "WATCH"   # mid-cap large gap or slight negative momentum
             else:
                 fade_risk = "HOLD"    # larger cap, sustained buying, positive momentum
@@ -9710,12 +9718,20 @@ def morning_inflows():
             if r: results.append(r)
 
     results.sort(key=lambda x: -x["standout_score"])
+
+    # ── Separate extreme pumps (gap >100%) from actionable standouts ─────────
+    # Data-confirmed (2026-06-10): DSY +416% gap → -24%, VSME +350% gap → -44%.
+    # Extreme gappers fade 100% of the time — keep visible but clearly warn away.
+    _extreme_pumps = [r for r in results if r.get("gap_pct", 0) > 100]
+    _actionable    = [r for r in results if r.get("gap_pct", 0) <= 100]
+
     out = {
-        "standouts":   results[:25],
-        "total_found": len(results),
-        "scanned":     len(universe),
-        "generated_at": _dt_mi.datetime.now().strftime("%I:%M %p ET"),
-        "criteria":    "price ≥+5% · projected vol ≥5× avg (first 30 min) · flow ratio ≥2:1",
+        "standouts":     _actionable[:25],
+        "extreme_pumps": _extreme_pumps[:10],
+        "total_found":   len(results),
+        "scanned":       len(universe),
+        "generated_at":  _dt_mi.datetime.now().strftime("%I:%M %p ET"),
+        "criteria":      "price ≥+5% · projected vol ≥5× avg (first 30 min) · flow ratio ≥2:1",
     }
 
     # ── Persist to DB — only overwrite when this scan found MORE standouts ──

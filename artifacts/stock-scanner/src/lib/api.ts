@@ -1307,6 +1307,7 @@ export interface MorningInflowResult {
 }
 export interface MorningInflowsData {
   standouts: MorningInflowResult[];
+  extreme_pumps?: MorningInflowResult[];
   total_found: number;
   scanned: number;
   generated_at: string;

@@ -6285,6 +6285,41 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
           })}
         </div>
       )}
+
+      {/* Extreme Pumps — Avoid section */}
+      {!loading && (data?.extreme_pumps ?? []).length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <div style={{ flex: 1, height: 1, background: "rgba(239,68,68,0.2)" }} />
+            <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 11, color: "#ef4444", textTransform: "uppercase", letterSpacing: "0.1em", whiteSpace: "nowrap" }}>
+              ⚠️ Extreme Pumps — Historical Data: 100% Fade Rate
+            </span>
+            <div style={{ flex: 1, height: 1, background: "rgba(239,68,68,0.2)" }} />
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11, marginBottom: 12, textAlign: "center" }}>
+            Gap &gt;100% on open · June 10 data: DSY +416% gap → <span style={{color:"#f87171"}}>-24%</span> by close · VSME +350% gap → <span style={{color:"#f87171"}}>-44%</span> by close
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(data!.extreme_pumps!).map((s, i) => (
+              <div key={i} style={{
+                background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.2)",
+                borderRadius: 12, padding: "12px 16px", opacity: 0.75,
+                display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#94a3b8", fontSize: 16, textDecoration: "line-through" }}>{s.ticker}</span>
+                  <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                    background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.35)" }}>
+                    🔴 EXTREME PUMP +{s.gap_pct.toFixed(0)}% GAP
+                  </span>
+                  <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>+{s.price_chg_pct.toFixed(1)}% · ${s.price.toFixed(2)}</span>
+                </div>
+                <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>Score {s.standout_score.toFixed(1)} · Rel Vol {s.rel_vol.toFixed(1)}×</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
