@@ -593,6 +593,13 @@ try:
                     UNIQUE(pick_date, ticker)
                 )
             """)
+            _cu_eat.execute("""
+                CREATE TABLE IF NOT EXISTS morning_watchlist (
+                    id     SERIAL PRIMARY KEY,
+                    ticker TEXT NOT NULL UNIQUE,
+                    added_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
             _c_eat.commit()
         print("[eod_accum_tables] ready")
     except Exception as _e_eat:
@@ -10301,12 +10308,16 @@ def eod_accumulation():
         with _pg_ea.connect(_DB_URL) as _c_ea, _c_ea.cursor() as _cu_ea:
             _cu_ea.execute("SELECT ticker FROM morning_watchlist ORDER BY ticker")
             for _r in _cu_ea.fetchall(): _ticker_set.add(_r[0])
-            _cu_ea.execute(
+    except Exception as _e_ea:
+        print(f"[eod_accum] watchlist db error: {_e_ea}")
+    try:
+        with _pg_ea.connect(_DB_URL) as _c_ea2, _c_ea2.cursor() as _cu_ea2:
+            _cu_ea2.execute(
                 "SELECT DISTINCT ticker FROM unusual_calls_log WHERE DATE(first_seen) = CURRENT_DATE"
             )
-            for _r in _cu_ea.fetchall(): _ticker_set.add(_r[0])
-    except Exception as _e_ea:
-        print(f"[eod_accum] db error: {_e_ea}")
+            for _r in _cu_ea2.fetchall(): _ticker_set.add(_r[0])
+    except Exception as _e_ea2:
+        print(f"[eod_accum] calls db error: {_e_ea2}")
 
     # Add Yahoo screener: any US stock up ≥1% with ≥$10M mkt cap (catches names not on watchlist)
     try:
