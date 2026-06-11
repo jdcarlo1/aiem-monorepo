@@ -6226,7 +6226,7 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                       {s.fade_risk === "HIGH" && (
                         <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
                           background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.4)" }}
-                          title="Micro-cap or negative momentum at open — high probability of intraday reversal">
+                          title="Red opening bar, micro-cap, or fading momentum — sellers overwhelming buyers at the bell">
                           🔴 FADE RISK
                         </span>
                       )}
