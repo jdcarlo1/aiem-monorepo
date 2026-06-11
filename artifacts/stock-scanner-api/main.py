@@ -9902,12 +9902,15 @@ def morning_inflows():
     results.sort(key=lambda x: -x["standout_score"])
 
     # ── Separate micro-pumps, extreme pumps, and actionable standouts ────────
-    # micro_pumps:    sub-$5 at open with >50× rel vol — shown with ⚠️ warning
+    # micro_pumps:    sub-$5 at open + >50× rel vol + WEAK flow (<2.0) → ⚠️ warning
     # extreme_pumps:  gap >100% — shown with 🔴 warning (100% fade rate confirmed)
-    # standouts:      everything else — actionable signals
-    _micro_pumps   = [r for r in results if r.get("micro_pump")]
+    # standouts:      everything else, including sub-$5 stocks with STRONG flow (≥2.0)
+    #                 so genuine micro-cap movers aren't buried in warnings
+    _micro_pumps   = [r for r in results if r.get("micro_pump") and r.get("flow_ratio", 0) < 2.0]
     _extreme_pumps = [r for r in results if not r.get("micro_pump") and r.get("gap_pct", 0) > 100]
-    _actionable    = [r for r in results if not r.get("micro_pump") and r.get("gap_pct", 0) <= 100]
+    _actionable    = [r for r in results if
+                      (r.get("micro_pump") and r.get("flow_ratio", 0) >= 2.0)   # micro-cap but legit flow
+                      or (not r.get("micro_pump") and r.get("gap_pct", 0) <= 100)]  # normal standout
 
     out = {
         "standouts":     _actionable[:25],

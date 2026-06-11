@@ -6222,6 +6222,13 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                           SMALL CAP
                         </span>
                       )}
+                      {s.micro_pump && (
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(251,146,60,0.12)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.4)" }}
+                          title="Sub-$5 micro-cap with strong buy flow — use tighter stops than normal">
+                          ⚡ MICRO-CAP
+                        </span>
+                      )}
                       {s.standout_score >= 20 && (
                         <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
                           background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.35)" }}>
