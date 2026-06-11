@@ -9613,6 +9613,12 @@ def morning_inflows():
             min_rel = 5.0 if mins_elapsed <= 30 else 3.0
             if rel_vol < min_rel: return None
 
+            # ── Micro-pump rejection ─────────────────────────────────────────────
+            # Data (2026-06-10): LUD $5.06 rel-vol 184× → -20.8%, CHNR $4.52 rel-vol 85× → -16.8%
+            # Extremely high volume on a sub-$5 stock = coordinated micro-pump, not organic buying.
+            # Real institutional buying doesn't produce 50-200× relative volume on penny stocks.
+            if price < 5.0 and rel_vol > 50: return None
+
             # ── Money flow from 1-min bars ──────────────────────────────────────
             inflow = outflow = 0.0
             for _, row in hist.iterrows():
@@ -9623,7 +9629,9 @@ def morning_inflows():
                 else:                                          outflow += dv
 
             flow_ratio = (inflow / outflow) if outflow > 0 else 99.0
-            if flow_ratio < 2.0: return None  # must be 2:1 buying vs selling
+            # Raised from 2.0 → 2.5: data showed 2.0-2.4 flow ratios produced weak setups
+            # (AIIR, CLLS both faded with borderline flow conviction on 2026-06-10)
+            if flow_ratio < 2.5: return None
 
             # ── Gap-up multiplier ────────────────────────────────────────────
             # Stocks that gap up hard at the open (pre-market catalyst) are higher
