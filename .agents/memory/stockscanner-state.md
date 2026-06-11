@@ -8,8 +8,10 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - Python Flask API: `artifacts/stock-scanner-api/main.py` — port 5050, workflow: "artifacts/stock-scanner: stock-api"
 - Node.js API server: `artifacts/api-server/` — port 8080, handles Stripe checkout + webhooks
 - APScheduler: 9:00, 9:05, 9:45, 3:30, 4:00, 4:05, 4:15, 4:30 ET every trading day
+- Morning inflows scans: 9:31, 9:45, 10:00, 10:15, 10:30, 12:00 PM ET (noon scan added June 2026)
 - Signal snapshot job at 4:00 PM ET (saves to signal_history table)
 - Daily vol snapshot job at 4:05 PM ET (saves to daily_vol_snapshots table — builds IV skew + short float percentile history)
+- EOD accum scans: 3:45 PM and 3:55 PM ET — saves to eod_accum_picks table
 - SPY cache refresh at 9:05 AM ET (module-level _spy_1y_cache dict)
 - Outcome tracker at 4:30 PM ET (T+3/5/10 day price outcomes)
 
@@ -57,11 +59,17 @@ All computed in vol-crush `_analyze()` (Q1-Q18):
 
 ## DB Tables (PostgreSQL)
 - `ai_trade_log` — every GPT trade pick stored for track record
-- `signal_history` — daily signal snapshots (ticker, signal_date, comp_score, smart_cp, call_verdict, dp_prem_m, iv_rank)
+- `signal_history` — daily signal snapshots; has `scan_time` (timestamptz, UTC); ticker, scan_date, price_chg_pct, rel_vol, flow_ratio, standout_score
 - `signal_outcomes` — T+3/5/10 price outcomes for win rate tracking
 - `daily_vol_snapshots` — daily iv_skew, short_float, pc_oi_ratio, pc_prem_ratio, rs_vs_spy per ticker
 - `daily_top10`, `answers`, `questions`, `score_history`, `sessions`, `sm_subscribers`
-- `unusual_calls_log` — per-tick options flow; populated by scheduled scans at 3:30/4:00/4:15 PM ET
+- `unusual_calls_log` — per-tick options flow; date column is `first_seen` (NOT `log_date`); populated by scheduled scans
+- `morning_inflows_cache` — columns: scan_date, payload (JSON), saved_at; ONE row per day, overwritten each scan; payload has scanned/standouts/criteria/generated_at
+- `eod_accum_picks` — columns: scan_date, ticker, close_price, accum_score, eod_rel_vol, closing_range, late_flow, news_headline; started June 11, 2026
+- `eod_accum_outcomes` — tracks next-day outcomes of EOD accum picks
+
+## Scan time → UTC conversion (EDT = UTC-4)
+- 9:31 AM ET = 13:31 UTC | 9:45 AM = 13:45 | 10:00 = 14:00 | 10:15 = 14:15 | 10:30 = 14:30 | 12:00 PM = 16:00 | 3:45 PM = 19:45 | 4:00 PM = 20:00
 
 ## ⚠️ CRITICAL: Dev DB ≠ Production DB
 Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted via dev server (manual scans, curl to localhost) does NOT appear in production.
