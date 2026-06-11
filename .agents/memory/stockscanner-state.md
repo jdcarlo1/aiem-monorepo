@@ -136,13 +136,38 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - Keep under ~100 tickers — each requires individual yfinance call, 350+ would cause scan overlap
 - Grow by adding tickers user reports each evening that the scanner missed
 
-## June 11 EOD Watchlist → Check June 12 at 9:45 AM
-User asked to be reminded about these 3 EOD accumulation picks at 9:45 AM June 12:
-- **MMYT** $41.63 close — Score 72, CR 99%, EODvol 9.2×, flow 5.3:1 — PRIMARY (strongest signal)
-- **CPSH** $8.97 close — Score 25, CR 92%, EODvol 6.7×, flow 2.6:1, already up +31.3% that day
-- **ACB** $3.06 close — Score 13, CR 88%, EODvol 3.9×, flow 2.5:1 — weakest, was down -6.8% that day
-At 9:45 AM June 12: pull live prices, check open vs close, tell user whether to hold/sell/cut.
-Accum rule: sell into 9:31 AM open gap. If gapped >5% before entry — edge is gone, skip.
+## June 11 EOD Watchlist → Check June 12 at 9:40 AM — RANK ALL 15
+User wants ALL 15 picks ranked at 9:40 AM June 12. Pull live prices, grade each signal.
+
+### Accumulation picks (scan saved ~10 PM ET June 11):
+| Ticker | Close   | Chg%   | Score | CR  | EODvol | Flow   |
+|--------|---------|--------|-------|-----|--------|--------|
+| ANGH   | $4.97   | +14.8% | 209   | 99% | 14.1×  | 99:1   |
+| ESGLF  | $0.19   | +30.8% | 138   | 88% | 10.0×  | 99:1   |
+| RNAC   | $8.06   | +9.1%  | 45    | 75% | 7.6×   | 4.8:1  |
+| MMYT   | $41.75  | +5.9%  | 44    | 99% | 8.7×   | 3.4:1  |
+| RDNW   | $7.78   | +0.2%  | 35    | 64% | 4.2×   | 7.3:1  |
+| TWST   | $74.07  | +10.4% | 26    | 96% | 6.1×   | 2.9:1  |
+| RXST   | $4.79   | +2.1%  | 24    | 74% | 6.2×   | 3.2:1  |
+| ICHR   | $84.03  | +19.8% | 24    | 95% | 5.6×   | 2.9:1  |
+| MATV   | $7.91   | -1.5%  | 23    | 84% | 5.0×   | 3.5:1  |
+| ALM    | $17.07  | +12.1% | 21    | 97% | 2.9×   | 5.0:1  |
+| GLIBA  | $21.11  | -0.4%  | 20    | 53% | 4.3×   | 4.6:1  |
+| ACLS   | $173.62 | +12.0% | 20    | 99% | 3.0×   | 4.5:1  |
+| ENTA   | $11.52  | -1.5%  | 20    | 60% | 3.8×   | 4.7:1  |
+| MNRO   | $16.08  | +13.2% | 20    | 99% | 4.0×   | 3.3:1  |
+| ELMD   | $37.81  | +3.7%  | 19    | 88% | 4.6×   | 2.9:1  |
+
+No squeeze setups tonight.
+
+### Morning ranking rules (9:40 AM June 12):
+- Pull live price for each ticker via yfinance
+- Compute gap% = (live - close) / close × 100
+- **Skip** if gap > +5% before entry — edge already captured, too risky to chase
+- **Strong** = gap ≤5% AND volume already running above average
+- **Weak** = gap > +5% OR volume thin OR reversed from open
+- Rank by: score × (1 if gap≤5% else 0.3) — punish chasers
+- Also flag: ESGLF is a penny stock ($0.19) — skip if spread is wide
 
 ## SMS / Twilio (PENDING)
 - User has not yet signed up for Twilio
