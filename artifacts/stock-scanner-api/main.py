@@ -7930,7 +7930,7 @@ def conviction_calls():
                 ORDER BY last_seen DESC, vol_oi DESC
             """
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-            # Try today first, fall back to 24 hours if no results
+            # Try today first, fall back to 24 hours, then 7 days
             cur.execute(_base_sql.format(interval="CURRENT_DATE"))
             rows_today = cur.fetchall()
             if rows_today:
@@ -7940,6 +7940,11 @@ def conviction_calls():
                 cur.execute(_base_sql.format(interval="NOW() - INTERVAL '1 day'"))
                 rows_raw = cur.fetchall()
                 window_label = "24h"
+                if not rows_raw:
+                    cur.execute(_base_sql.format(interval="NOW() - INTERVAL '7 days'"))
+                    rows_raw = cur.fetchall()
+                    window_label = "7d"
+        print(f"[conviction_calls] today={len(rows_today)}, window={window_label}, total={len(rows_raw)}")
 
         cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
         rows = [dict(zip(cols, r)) for r in rows_raw]
@@ -11207,6 +11212,28 @@ def insider_outcomes_route():
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+
+def _startup_scan_if_needed():
+    """On startup, if today's unusual_calls_log is empty, trigger a background scan immediately."""
+    import threading as _sthr
+    try:
+        with _psycopg2.connect(_DB_URL) as _sc, _sc.cursor() as _scur:
+            _scur.execute("SELECT COUNT(*) FROM unusual_calls_log WHERE last_seen >= CURRENT_DATE")
+            _count = _scur.fetchone()[0]
+        if _count == 0:
+            print("[startup] unusual_calls_log has 0 rows for today — triggering immediate background scan")
+            _scan_fn = globals().get("_run_unusual_calls_scan")
+            if _scan_fn:
+                _sthr.Thread(target=lambda: _scan_fn("startup"), daemon=True).start()
+            else:
+                print("[startup] _run_unusual_calls_scan not available — skipping auto-scan")
+        else:
+            print(f"[startup] unusual_calls_log has {_count} rows for today — no startup scan needed")
+    except Exception as _se:
+        print(f"[startup] scan check error: {_se}")
+
+_startup_scan_if_needed()
 
 
 if __name__ == "__main__":
