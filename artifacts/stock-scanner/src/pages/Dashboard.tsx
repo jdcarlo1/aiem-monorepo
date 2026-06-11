@@ -11423,6 +11423,7 @@ function EarningsCalendarTab({ onSelectTicker }: { onSelectTicker: (t: string) =
 }
 
 function ShortSqueezeTab() {
+  const BB_F = "JetBrains Mono, monospace";
   const [data, setData]       = useState<ShortSqueezeData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
