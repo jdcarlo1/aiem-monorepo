@@ -1303,6 +1303,9 @@ export interface MorningInflowResult {
   momentum_open: number;
   exhaustion_ratio: number;
   fade_risk: "HIGH" | "WATCH" | "HOLD";
+  first_bar_pct?: number;
+  first_bar_green?: boolean;
+  has_first_bar?: boolean;
   mkt_cap_m: number | null;
 }
 export interface MorningInflowsData {

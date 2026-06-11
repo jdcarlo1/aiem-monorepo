@@ -6252,6 +6252,8 @@ function StandoutFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                         ["Gap Open",    s.gap_pct >= 2 ? `+${s.gap_pct.toFixed(1)}%` : "none",  s.gap_pct >= 5 ? "#fbbf24" : s.gap_pct >= 2 ? "#4ade80" : "#475569"],
                         ["Momentum",    s.momentum_open != null ? `${s.momentum_open >= 0 ? "+" : ""}${s.momentum_open?.toFixed(1)}%` : "n/a",
                                         s.momentum_open >= 0 ? "#4ade80" : "#ef4444"],
+                        ...(s.has_first_bar ? [["1st Bar", `${(s.first_bar_pct ?? 0) >= 0 ? "+" : ""}${(s.first_bar_pct ?? 0).toFixed(1)}%`,
+                                        (s.first_bar_green ?? true) ? "#4ade80" : "#ef4444"] as [string, string, string]] : []),
                         ["Pre-Mkt",     s.exhaustion_ratio != null ? `${Math.round((s.exhaustion_ratio ?? 0) * 100)}%` : "n/a",
                                         (s.exhaustion_ratio ?? 0) > 0.85 ? "#ef4444" : (s.exhaustion_ratio ?? 0) > 0.6 ? "#eab308" : "#4ade80"],
                         ["Net Inflow",  `$${s.net_m.toFixed(1)}M`,                         "#4ade80"],

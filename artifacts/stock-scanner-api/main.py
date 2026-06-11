@@ -9642,6 +9642,27 @@ def morning_inflows():
             open_price = float(open_bars["Open"].iloc[0]) if not open_bars.empty else price
             gap_pct    = (open_price - prev_close) / prev_close * 100
 
+            # ── First 5-minute bar direction (9:30–9:34 AM) ──────────────────
+            # The most direct evidence of supply vs demand at the open.
+            # If the first bar closes RED, sellers are overwhelming buyers at the
+            # bell — structural dump into retail buyers who saw the gap and jumped in.
+            # Validated 2026-06-10:
+            #   HCAI: first bar +6.6% 🟢 → day closed +17.4% ✓ (winner)
+            #   CHNR: first bar -7.3% 🔴 → day closed -16.8% ✓ (loser)
+            #   LUD:  first bar -11.3% 🔴 → day closed -20.8% ✓ (loser)
+            _first_5 = hist[(hist.index.time >= _dt_mi.time(9, 30)) &
+                            (hist.index.time <= _dt_mi.time(9, 34))]
+            if not _first_5.empty:
+                _fb_open        = float(_first_5["Open"].iloc[0])
+                _fb_close       = float(_first_5["Close"].iloc[-1])
+                first_bar_pct   = (_fb_close - _fb_open) / _fb_open * 100 if _fb_open > 0 else 0.0
+                first_bar_green = _fb_close >= _fb_open
+                has_first_bar   = True
+            else:
+                first_bar_pct   = 0.0
+                first_bar_green = True   # pre-market scan: no bar yet — don't penalise
+                has_first_bar   = False
+
             # ── Gap multiplier — data-tuned from 2026-06-10 live results ────
             # Sweet spot: 5–15% gap with high rel-vol = highest hit rate (SDOT +96%,
             # LICN +20%, HCAI +17%). Extreme gaps (>100%) fade 100% of the time.
@@ -9674,10 +9695,16 @@ def morning_inflows():
             # Rule applies only when gap is meaningful (≥15%) — tiny gaps don't matter.
             exhaustion_ratio = (gap_pct / price_chg) if price_chg > 0 else 0.0
 
-            # ── Refined fade risk (tuned from live data 2026-06-10) ──────────
+            # ── Refined fade risk (priority order) ───────────────────────────
             # Change 1: Extreme gappers (>100%) always HIGH — confirmed faded 100% on 6/10
             # Change 2: Momentum threshold tightened: -3 triggers HIGH (was -5), -1 triggers WATCH (was -2)
-            if gap_pct > 100:
+            # Change 3 (2026-06-11): First 5-min bar direction added as top-priority signal.
+            #   Strongest direct evidence of supply/demand at the bell. Red bar = sellers dumping.
+            #   Validated: CHNR first bar -7.3% → lost -16.8%; LUD -11.3% → lost -20.8%;
+            #              HCAI first bar +6.6% → gained +17.4%.
+            if has_first_bar and first_bar_pct < -2.0:
+                fade_risk = "HIGH"    # opening bar red — sellers overwhelming buyers at the bell
+            elif gap_pct > 100:
                 fade_risk = "HIGH"    # extreme pump — DSY/VSME both faded 24-44% confirmed
             elif gap_pct > 30 and mkt_cap_m_val < 100:
                 fade_risk = "HIGH"    # large pump on tiny cap — not enough real buyers
@@ -9689,6 +9716,8 @@ def morning_inflows():
                 fade_risk = "WATCH"   # micro-cap but modest gap — can run, stay alert
             elif (mkt_cap_m_val < 500 and gap_pct > 10) or momentum_open < -1:
                 fade_risk = "WATCH"   # mid-cap large gap or slight negative momentum
+            elif has_first_bar and first_bar_pct < 0.0:
+                fade_risk = "WATCH"   # slightly red first bar — some selling pressure at open
             else:
                 fade_risk = "HOLD"    # larger cap, sustained buying, positive momentum
 
@@ -9702,6 +9731,9 @@ def morning_inflows():
                 "momentum_open":   round(momentum_open, 2),
                 "exhaustion_ratio": round(exhaustion_ratio, 3),
                 "fade_risk":       fade_risk,
+                "first_bar_pct":   round(first_bar_pct, 2),
+                "first_bar_green": first_bar_green,
+                "has_first_bar":   has_first_bar,
                 "rel_vol":         round(rel_vol, 1),       # projected ×, not raw ×
                 "rel_vol_raw":     round(cum_vol / avg_vol, 2),
                 "today_vol":       int(cum_vol),
