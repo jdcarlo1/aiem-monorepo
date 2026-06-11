@@ -41,6 +41,7 @@ import {
   EodAccumPickRow, EodAccumStats, EodAccumTrackData, fetchEodAccumTrack,
   StandoutPickRow, StandoutStats, StandoutTrackData, fetchStandoutTrack,
   CrossScannerRow, CrossScannerData, fetchCrossScanner,
+  ShortSqueezeResult, ShortSqueezeData, fetchShortSqueeze,
   SqueezeSetupRow, fetchSqueezeSetup, fetchSqueezeSetupAI,
   BreakoutRow, fetch52WeekBreakout,
   SectorRow, fetchSectorRotation,
@@ -6742,6 +6743,30 @@ function EodAccumulationTab() {
                       </div>
                     ))}
                   </div>
+                {(c.short_float != null || c.above_avwap != null) && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                    {c.short_float != null && (
+                      <span style={{
+                        fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                        background: c.short_float >= 25 ? "rgba(239,68,68,0.15)" : c.short_float >= 15 ? "rgba(251,191,36,0.12)" : "rgba(71,85,105,0.3)",
+                        color: c.short_float >= 25 ? "#f87171" : c.short_float >= 15 ? "#fbbf24" : "#94a3b8",
+                        border: `1px solid ${c.short_float >= 25 ? "rgba(239,68,68,0.4)" : c.short_float >= 15 ? "rgba(251,191,36,0.3)" : "rgba(71,85,105,0.4)"}`,
+                        borderRadius: 99 }}>
+                        🩳 {c.short_float.toFixed(1)}% short{c.days_to_cover ? ` · ${c.days_to_cover.toFixed(1)}d DTC` : ""}
+                      </span>
+                    )}
+                    {c.above_avwap != null && (
+                      <span style={{
+                        fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                        background: c.above_avwap ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.08)",
+                        color: c.above_avwap ? "#4ade80" : "#ef4444",
+                        border: `1px solid ${c.above_avwap ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.2)"}`,
+                        borderRadius: 99 }}>
+                        {c.above_avwap ? "↑ Above AVWAP" : "↓ Below AVWAP"}{c.avwap_5d ? ` $${c.avwap_5d.toFixed(2)}` : ""}
+                      </span>
+                    )}
+                  </div>
+                )}
                 </div>
 
                 {/* Right — score */}
@@ -9557,6 +9582,24 @@ function CrossScannerTab() {
                       border: `1px solid ${newsColor(r.news_type)}40`, borderRadius: 99 }}>
                       {newsLabel(r.news_type)}
                     </span>
+                    {r.short_float != null && (
+                      <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                        background: r.short_float >= 20 ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.12)",
+                        color: r.short_float >= 20 ? "#f87171" : "#fbbf24",
+                        border: `1px solid ${r.short_float >= 20 ? "rgba(239,68,68,0.4)" : "rgba(251,191,36,0.3)"}`,
+                        borderRadius: 99 }}>
+                        🩳 {r.short_float.toFixed(1)}% short{r.days_to_cover ? ` · ${r.days_to_cover.toFixed(1)}d` : ""}
+                      </span>
+                    )}
+                    {r.above_avwap != null && (
+                      <span style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                        background: r.above_avwap ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.08)",
+                        color: r.above_avwap ? "#4ade80" : "#ef4444",
+                        border: `1px solid ${r.above_avwap ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.2)"}`,
+                        borderRadius: 99 }}>
+                        {r.above_avwap ? "↑ AVWAP" : "↓ AVWAP"}
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "8px 20px" }}>
                     {([
@@ -11379,11 +11422,156 @@ function EarningsCalendarTab({ onSelectTicker }: { onSelectTicker: (t: string) =
   );
 }
 
+function ShortSqueezeTab() {
+  const [data, setData]       = useState<ShortSqueezeData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try { setData(await fetchShortSqueeze()); }
+    catch (e: any) { setError(e.message ?? "Failed to load squeeze radar"); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const sqColor = (score: number) =>
+    score >= 70 ? "#ef4444" : score >= 50 ? "#f97316" : score >= 35 ? "#fbbf24" : "#94a3b8";
+
+  const pctCol = (v: number | null) =>
+    v == null ? "#475569" : v >= 5 ? "#4ade80" : v >= 0 ? "#a3e635" : "#f87171";
+
+  return (
+    <div style={{ fontFamily: BB_F }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <span style={{ fontSize: 24 }}>🩳</span>
+        <div>
+          <div style={{ fontFamily: BB_F, fontSize: 16, fontWeight: 700, color: "#f1f5f9", letterSpacing: 1 }}>
+            SHORT SQUEEZE RADAR
+          </div>
+          <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginTop: 2 }}>
+            High short-interest stocks with EOD accumulation + AVWAP reclaim — triple confirmation squeeze setup
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {loading && <span style={{ fontFamily: BB_F, fontSize: 10, color: "#64748b" }}>scanning…</span>}
+          <button onClick={load} style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700,
+            background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)",
+            borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>↻ REFRESH</button>
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginBottom: 20, lineHeight: 1.7,
+        background: "linear-gradient(90deg, rgba(239,68,68,0.06) 0%, rgba(251,191,36,0.04) 100%)",
+        border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, padding: "12px 16px" }}>
+        <span style={{ color: "#ef4444", fontWeight: 700 }}>Squeeze Score explained: </span>
+        Short float % (up to 50 pts) + days-to-cover (up to 20 pts) + AVWAP reclaim bonus (+30 pts).
+        A score above 70 means high short fuel, enough time pressure to force covering, AND institutions reclaiming
+        a key price level — the trifecta that triggers violent short squeezes.
+        <span style={{ color: "#fbbf24" }}> Universe = last 5 days of EOD accum picks + standout flow.</span>
+      </div>
+
+      {error && (
+        <div style={{ fontFamily: BB_F, fontSize: 12, color: "#f87171", background: "rgba(239,68,68,0.08)",
+          border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {data && data.candidates.length === 0 && (
+        <div style={{ fontFamily: BB_F, fontSize: 13, color: "#475569",
+          background: "rgba(15,23,42,0.6)", border: "1px solid rgba(51,65,85,0.5)",
+          borderRadius: 10, padding: "28px", textAlign: "center" }}>
+          No squeeze setups found.{" "}
+          <span style={{ color: "#334155" }}>
+            Universe builds from EOD accum picks and standout flow tickers over the past 5 days.
+          </span>
+        </div>
+      )}
+
+      {data && data.candidates.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {data.candidates.map((c, i) => {
+            const col = sqColor(c.squeeze_score);
+            return (
+              <div key={i} style={{
+                background: "linear-gradient(135deg, rgba(15,23,42,0.9) 0%, rgba(30,41,59,0.7) 100%)",
+                border: `1px solid ${c.squeeze_score >= 70 ? "rgba(239,68,68,0.4)" : c.squeeze_score >= 50 ? "rgba(249,115,22,0.35)" : "rgba(51,65,85,0.5)"}`,
+                borderRadius: 12, padding: "16px 20px",
+                display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap"
+              }}>
+                {/* Ticker + badges */}
+                <div style={{ flex: 1, minWidth: 140 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                    <span style={{ fontFamily: BB_F, fontSize: 20, fontWeight: 900, color: "#fbbf24" }}>{c.ticker}</span>
+                    {c.squeeze_score >= 70 && (
+                      <span style={{ fontFamily: BB_F, fontSize: 9, fontWeight: 700, padding: "2px 7px",
+                        background: "rgba(239,68,68,0.2)", color: "#f87171",
+                        border: "1px solid rgba(239,68,68,0.5)", borderRadius: 99 }}>🔥 HIGH SQUEEZE</span>
+                    )}
+                    <span style={{
+                      fontFamily: BB_F, fontSize: 9, fontWeight: 700, padding: "2px 7px",
+                      background: c.above_avwap ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.08)",
+                      color: c.above_avwap ? "#4ade80" : "#ef4444",
+                      border: `1px solid ${c.above_avwap ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.2)"}`,
+                      borderRadius: 99 }}>
+                      {c.above_avwap ? "↑ Above AVWAP" : "↓ Below AVWAP"}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: "5px 18px" }}>
+                    {([
+                      ["Short Float",   `${c.short_float.toFixed(1)}%`,
+                        c.short_float >= 30 ? "#ef4444" : c.short_float >= 20 ? "#f97316" : "#fbbf24"],
+                      ["Days to Cover", c.days_to_cover != null ? `${c.days_to_cover.toFixed(1)}d` : "—",
+                        (c.days_to_cover ?? 0) >= 5 ? "#f97316" : "#94a3b8"],
+                      ["AVWAP (5d)",    c.avwap_5d != null ? `$${c.avwap_5d.toFixed(2)}` : "—", "#475569"],
+                      ["Price",         c.current_price != null ? `$${c.current_price.toFixed(2)}` : "—", "#f1f5f9"],
+                      ["Day Chg",       c.price_chg_pct != null ? `${c.price_chg_pct >= 0 ? "+" : ""}${c.price_chg_pct.toFixed(2)}%` : "—",
+                        pctCol(c.price_chg_pct)],
+                    ] as [string, string, string][]).map(([lbl, val, clr]) => (
+                      <div key={lbl}>
+                        <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 9 }}>{lbl}</div>
+                        <div style={{ fontFamily: BB_F, fontWeight: 700, color: clr, fontSize: 12 }}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Squeeze Score */}
+                <div style={{ textAlign: "center", flexShrink: 0 }}>
+                  <div style={{ fontFamily: BB_F, fontSize: 9, color: "#475569", fontWeight: 700,
+                    textTransform: "uppercase", marginBottom: 2 }}>Squeeze Score</div>
+                  <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 38, color: col,
+                    letterSpacing: "-0.05em", lineHeight: 1 }}>{c.squeeze_score.toFixed(0)}</div>
+                  <div style={{ width: 60, height: 4, background: "rgba(255,255,255,0.07)",
+                    borderRadius: 99, margin: "5px auto 0" }}>
+                    <div style={{ width: `${Math.min(c.squeeze_score, 100)}%`, height: "100%",
+                      background: col, borderRadius: 99 }} />
+                  </div>
+                  <div style={{ fontFamily: BB_F, color: "#334155", fontSize: 9, marginTop: 4 }}>/ 100</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {data && (
+        <div style={{ fontFamily: BB_F, fontSize: 10, color: "#334155", marginTop: 16, textAlign: "right" }}>
+          {data.total_found} setup{data.total_found !== 1 ? "s" : ""} found · scanned {data.scanned} tickers · {data.as_of}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -11533,6 +11721,7 @@ export default function Dashboard() {
     { id: "ivrank",         label: "📊 IV RANK" },
     { id: "marketpress",    label: "📰 MARKET PRESS" },
     { id: "earningscal",    label: "📅 EARNINGS CALENDAR" },
+    { id: "squeezeradar",   label: "🩳 SQUEEZE RADAR" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -12143,6 +12332,7 @@ export default function Dashboard() {
         {tab === "marketpress"    && <MarketPressTab />}
         {tab === "earningscal"    && <EarningsCalendarTab onSelectTicker={selectTicker} />}
         {tab === "crossscanner"   && <CrossScannerTab />}
+        {tab === "squeezeradar"   && <ShortSqueezeTab />}
         {tab === "standoutflow"   && <StandoutFlowTab    onSelectTicker={selectTicker} />}
         {tab === "standouttrack"  && <StandoutTrackTab />}
 

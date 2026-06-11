@@ -1575,6 +1575,10 @@ export interface EodAccumResult {
   news_headline: string | null;
   news_today_cnt: number;
   news_type: "hard" | "soft" | "none";
+  short_float?: number | null;
+  days_to_cover?: number | null;
+  above_avwap?: boolean | null;
+  avwap_5d?: number | null;
 }
 export interface EodAccumData {
   candidates: EodAccumResult[];
@@ -1679,6 +1683,29 @@ export interface CrossScannerRow {
   late_flow?: number;
   same_day_close_pct?: number | null;
   same_day_high_pct?: number | null;
+  short_float?: number | null;
+  days_to_cover?: number | null;
+  above_avwap?: boolean | null;
+}
+
+export interface ShortSqueezeResult {
+  ticker: string;
+  short_float: number;
+  days_to_cover: number | null;
+  above_avwap: boolean;
+  avwap_5d: number | null;
+  current_price: number | null;
+  price_chg_pct: number | null;
+  squeeze_score: number;
+}
+export interface ShortSqueezeData {
+  candidates: ShortSqueezeResult[];
+  total_found: number;
+  scanned: number;
+  as_of: string;
+}
+export function fetchShortSqueeze() {
+  return fetchJson<ShortSqueezeData>("/short-squeeze");
 }
 export interface CrossScannerData {
   today_signals: CrossScannerRow[];

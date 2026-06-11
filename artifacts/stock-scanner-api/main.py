@@ -9990,6 +9990,42 @@ def morning_inflows():
     return jsonify(out)
 
 
+def _get_short_data(ticker):
+    """Fetch short interest + 5-day anchored VWAP for a single ticker (best-effort)."""
+    try:
+        _tk_sd = yf.Ticker(ticker)
+        _fi_sd = _tk_sd.info
+        _sf_sd  = _fi_sd.get("shortPercentOfFloat")
+        _dtc_sd = _fi_sd.get("shortRatio")
+        _hist_sd = _tk_sd.history(period="10d", interval="1d")
+        _avwap_sd = None
+        _above_sd = None
+        _cpx_sd   = None
+        _chg_sd   = None
+        if _hist_sd is not None and len(_hist_sd) >= 2:
+            _cpx_sd = float(_hist_sd["Close"].iloc[-1])
+            _prev_sd = float(_hist_sd["Close"].iloc[-2])
+            _chg_sd = round((_cpx_sd - _prev_sd) / _prev_sd * 100, 2) if _prev_sd else None
+            if len(_hist_sd) >= 5:
+                _l5 = _hist_sd.tail(5)
+                _vols = _l5["Volume"].values
+                if _vols.sum() > 0:
+                    _typ = ((_l5["High"] + _l5["Low"] + _l5["Close"]) / 3).values
+                    _avwap_sd = float((_typ * _vols).sum() / _vols.sum())
+                    _above_sd = _cpx_sd > _avwap_sd
+        return {
+            "short_float":   round(float(_sf_sd) * 100, 1) if _sf_sd else None,
+            "days_to_cover": round(float(_dtc_sd), 1) if _dtc_sd else None,
+            "avwap_5d":      round(_avwap_sd, 2) if _avwap_sd else None,
+            "above_avwap":   _above_sd,
+            "current_price": round(_cpx_sd, 2) if _cpx_sd else None,
+            "price_chg_pct": _chg_sd,
+        }
+    except Exception:
+        return {"short_float": None, "days_to_cover": None, "avwap_5d": None,
+                "above_avwap": None, "current_price": None, "price_chg_pct": None}
+
+
 @app.route("/stock-api/eod-accumulation", methods=["GET"])
 def eod_accumulation():
     """
@@ -10203,6 +10239,12 @@ def eod_accumulation():
 
     _results_ea.sort(key=lambda x: -x["accum_score"])
 
+    # ── Enrich top 20 with short interest + anchored VWAP ─────────────────
+    def _enrich_ea(_r):
+        _r.update(_get_short_data(_r["ticker"]))
+    with _TPE_ea(max_workers=10) as _ex_short:
+        list(_ex_short.map(_enrich_ea, _results_ea[:20]))
+
     # ── Persist today's top-20 to DB ──────────────────────────────────────
     _scan_date_ea = _dt_ea.date.today().isoformat()
     try:
@@ -10402,6 +10444,14 @@ def cross_scanner():
         _today_signals = _clean(_today_signals)
         _history       = _clean(_history)
 
+        # Enrich today_signals with short interest + anchored VWAP
+        if _today_signals:
+            import concurrent.futures as _cf_cs_si
+            def _enrich_cs(_r):
+                _r.update(_get_short_data(_r["ticker"]))
+            with _cf_cs_si.ThreadPoolExecutor(max_workers=min(len(_today_signals), 8)) as _ex_cs_si:
+                list(_ex_cs_si.map(_enrich_cs, _today_signals))
+
         # Summary stats on historical hits
         _graded = [r for r in _history if r.get("same_day_close_pct") is not None]
         _winners = [r for r in _graded if (r.get("same_day_close_pct") or 0) > 0]
@@ -10424,6 +10474,80 @@ def cross_scanner():
     except Exception as _e_cs:
         print(f"[cross_scanner] error: {_e_cs}")
         return jsonify({"today_signals": [], "history": [], "hist_stats": {}, "as_of": "", "error": str(_e_cs)})
+
+
+@app.route("/stock-api/short-squeeze", methods=["GET"])
+def short_squeeze_radar():
+    """
+    Short Squeeze Radar.
+    Pulls the union of recent EOD accum picks + standout flow tickers (last 5 days),
+    enriches each with short interest + anchored VWAP, filters short_float >= 10%,
+    ranks by composite squeeze_score.
+    """
+    import datetime as _dt_sq
+    import psycopg2 as _pg_sq
+    import concurrent.futures as _cf_sq
+
+    try:
+        _today_sq    = _dt_sq.date.today()
+        _lookback_sq = (_today_sq - _dt_sq.timedelta(days=5)).isoformat()
+
+        with _pg_sq.connect(_DB_URL) as _c_sq, _c_sq.cursor() as _cu_sq:
+            _cu_sq.execute("""
+                SELECT DISTINCT ticker FROM (
+                    SELECT ticker FROM eod_accum_picks  WHERE scan_date >= %s
+                    UNION
+                    SELECT ticker FROM scan_history     WHERE scan_date >= %s AND standout_score >= 4
+                ) _combined
+            """, (_lookback_sq, _lookback_sq))
+            _tickers_sq = [r[0] for r in _cu_sq.fetchall()]
+
+        if not _tickers_sq:
+            return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
+                            "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET")})
+
+        def _score_sq(ticker):
+            sd = _get_short_data(ticker)
+            sf = sd.get("short_float")
+            if not sf or sf < 10.0:
+                return None
+            dtc   = sd.get("days_to_cover") or 0
+            above = sd.get("above_avwap") or False
+            squeeze_score = round(
+                min(sf * 0.6, 50)       # short float component  (max 50)
+                + min(dtc * 3.0, 20)    # days-to-cover squeeze  (max 20)
+                + (30 if above else 0), # AVWAP reclaim bonus    (+30)
+                1
+            )
+            return {
+                "ticker":        ticker,
+                "short_float":   sf,
+                "days_to_cover": sd.get("days_to_cover"),
+                "above_avwap":   above,
+                "avwap_5d":      sd.get("avwap_5d"),
+                "current_price": sd.get("current_price"),
+                "price_chg_pct": sd.get("price_chg_pct"),
+                "squeeze_score": squeeze_score,
+            }
+
+        _cands_sq: list = []
+        with _cf_sq.ThreadPoolExecutor(max_workers=15) as _ex_sq:
+            for _r_sq in _ex_sq.map(_score_sq, _tickers_sq):
+                if _r_sq:
+                    _cands_sq.append(_r_sq)
+
+        _cands_sq.sort(key=lambda x: -x["squeeze_score"])
+
+        return jsonify({
+            "candidates":  _cands_sq[:20],
+            "total_found": len(_cands_sq),
+            "scanned":     len(_tickers_sq),
+            "as_of":       _dt_sq.datetime.now().strftime("%I:%M %p ET"),
+        })
+
+    except Exception as _e_sq:
+        print(f"[short_squeeze] error: {_e_sq}")
+        return jsonify({"candidates": [], "total_found": 0, "scanned": 0, "as_of": "", "error": str(_e_sq)})
 
 
 @app.route("/stock-api/standout-track", methods=["GET"])
