@@ -1328,7 +1328,7 @@ def _send_morning_inflows_email() -> None:
 
 
 def _send_ai_trades_email(trades: list) -> None:
-    """Email today's AI-generated trade picks after generation completes (~10:15 AM)."""
+    """Email today's AI-generated trade picks with full options details."""
     try:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
         if not smtp_configured() or not trades:
@@ -1342,50 +1342,110 @@ def _send_ai_trades_email(trades: list) -> None:
         date_str = _dt.now().strftime("%B %d, %Y")
         base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
 
-        rows_html = ""
+        cards_html = ""
         for i, tr in enumerate(trades[:5]):
             ticker    = tr.get("ticker", "")
-            setup     = tr.get("setup_type", "")
-            thesis    = tr.get("thesis", "")[:120] + ("…" if len(tr.get("thesis","")) > 120 else "")
-            price     = tr.get("price", 0) or 0
-            target    = tr.get("target", 0) or 0
-            stop      = tr.get("stop", 0) or 0
-            conf      = tr.get("conviction", "").upper()
-            bias      = tr.get("bias", "BULLISH")
-            bias_color = "#22c55e" if "BULL" in bias else "#ef4444" if "BEAR" in bias else "#94a3b8"
-            conf_color = "#22c55e" if "HIGH" in conf else "#f59e0b" if "MED" in conf else "#64748b"
-            medal     = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
+            setup     = tr.get("setup_type", "LONG CALL")
+            thesis    = tr.get("thesis", "")
+            thesis    = thesis[:140] + ("…" if len(thesis) > 140 else "")
+            price     = float(tr.get("price", 0) or 0)
+            strike    = float(tr.get("entry_strike", 0) or 0)
+            expiry    = tr.get("expiry", "")
+            target    = float(tr.get("target_price", 0) or 0)
+            stop      = float(tr.get("stop_loss", 0) or 0)
+            premium   = float(tr.get("option_premium", 0) or 0)
+            conv      = tr.get("conviction", "").upper()
+            direction = tr.get("direction", "BULLISH").upper()
+            risk      = tr.get("risk_level", "").upper()
+            signals   = tr.get("signals_aligned", [])
+
+            medal      = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
+            conv_color = "#22c55e" if "HIGH" in conv else "#f59e0b" if "MED" in conv else "#64748b"
+            risk_color = "#ef4444" if "HIGH" in risk else "#f59e0b" if "MED" in risk else "#22c55e"
+            strike_str = f"${strike:.2f}" if strike else "—"
             target_str = f"${target:.2f}" if target else "—"
             stop_str   = f"${stop:.2f}"   if stop   else "—"
-            rows_html += f"""
-            <tr>
-              <td style="padding:12px 14px;border-bottom:1px solid #1e293b;">
-                <span style="font-size:15px;font-weight:800;color:#f1f5f9;">{medal} {ticker}</span>
-                <span style="display:block;font-size:10px;color:#64748b;margin-top:1px;">${price:.2f} · {setup}</span>
-                <span style="display:block;font-size:11px;color:#94a3b8;margin-top:4px;line-height:1.4;">{thesis}</span>
-              </td>
-              <td style="padding:12px 10px;border-bottom:1px solid #1e293b;text-align:center;white-space:nowrap;vertical-align:top;">
-                <span style="font-weight:700;color:{bias_color};font-size:11px;">{bias}</span><br>
-                <span style="font-weight:700;color:{conf_color};font-size:10px;">{conf}</span><br>
-                <span style="font-size:10px;color:#22c55e;">T: {target_str}</span><br>
-                <span style="font-size:10px;color:#ef4444;">S: {stop_str}</span>
-              </td>
-            </tr>"""
+            prem_str   = f"${premium:.2f}/sh · ~${premium*100:.0f}/contract" if premium else "—"
+            # Format expiry as human-readable: 2026-07-18 → Jul 18
+            expiry_str = expiry
+            if expiry:
+                try:
+                    from datetime import datetime as _dtx
+                    expiry_str = _dtx.strptime(expiry, "%Y-%m-%d").strftime("%b %d, %Y")
+                except Exception:
+                    pass
+            signals_html = "".join(
+                f'<span style="display:inline-block;background:#1e293b;color:#94a3b8;font-size:9px;padding:2px 6px;border-radius:4px;margin:2px 2px 0 0;">{s}</span>'
+                for s in (signals[:4] if signals else [])
+            )
+
+            cards_html += f"""
+            <div style="background:#111827;border:1px solid #1e293b;border-radius:10px;margin-bottom:14px;overflow:hidden;">
+              <!-- Header -->
+              <div style="background:#0f172a;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:17px;font-weight:900;color:#f1f5f9;">{medal} {ticker}
+                  <span style="font-size:11px;font-weight:500;color:#6366f1;margin-left:6px;">{setup}</span>
+                </span>
+                <span>
+                  <span style="font-size:10px;font-weight:700;color:{conv_color};background:{conv_color}22;padding:2px 7px;border-radius:4px;">{conv}</span>
+                  <span style="font-size:10px;font-weight:700;color:{risk_color};background:{risk_color}22;padding:2px 7px;border-radius:4px;margin-left:4px;">RISK: {risk}</span>
+                </span>
+              </div>
+              <!-- Options contract row -->
+              <div style="padding:10px 16px;border-bottom:1px solid #1e293b;background:#0d1525;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="text-align:center;padding:4px 8px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Stock Price</div>
+                      <div style="font-size:14px;font-weight:800;color:#f1f5f9;">${price:.2f}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 8px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Strike</div>
+                      <div style="font-size:14px;font-weight:800;color:#6366f1;">{strike_str}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 8px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Expiry</div>
+                      <div style="font-size:13px;font-weight:800;color:#a78bfa;">{expiry_str}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 8px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Est. Premium</div>
+                      <div style="font-size:12px;font-weight:700;color:#f59e0b;">{prem_str.split("·")[0].strip()}</div>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+              <!-- Target / Stop -->
+              <div style="padding:10px 16px;border-bottom:1px solid #1e293b;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="width:50%;padding:0 8px 0 0;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Target Price</div>
+                      <div style="font-size:14px;font-weight:800;color:#22c55e;">{target_str}</div>
+                    </td>
+                    <td style="width:50%;padding:0 0 0 8px;border-left:1px solid #1e293b;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Stop Loss</div>
+                      <div style="font-size:14px;font-weight:800;color:#ef4444;">{stop_str}</div>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+              <!-- Thesis -->
+              <div style="padding:10px 16px;border-bottom:1px solid #1e293b;">
+                <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:4px;">Thesis</div>
+                <div style="font-size:12px;color:#cbd5e1;line-height:1.5;">{thesis}</div>
+              </div>
+              <!-- Signals -->
+              {f'<div style="padding:8px 16px;">{signals_html}</div>' if signals_html else ''}
+            </div>"""
 
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:20px;">
             <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🤖 AI Trade Setups</span>
-            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(trades)} setup{'s' if len(trades)!=1 else ''} generated · {date_str}</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(trades)} LONG CALL setup{'s' if len(trades)!=1 else ''} · {date_str}</span>
           </div>
-          <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #1e293b;margin-bottom:16px;">
-            <tr style="background:#0f172a;">
-              <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;text-transform:uppercase;">Setup</th>
-              <th style="padding:8px 10px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Bias / Target</th>
-            </tr>
-            {rows_html}
-          </table>
-          <div style="text-align:center;margin-bottom:16px;">
+          {cards_html}
+          <div style="text-align:center;margin:8px 0 16px;">
             <a href="{base_url}/stock-scanner/" style="background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">View AI Trades →</a>
           </div>
           <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
@@ -1394,7 +1454,7 @@ def _send_ai_trades_email(trades: list) -> None:
         </div>"""
 
         sent = 0
-        subject = f"🤖 AI Trade Setups: {len(trades)} Pick{'s' if len(trades)!=1 else ''} · {date_str}"
+        subject = f"🤖 AI Trades: {len(trades)} LONG CALL Setup{'s' if len(trades)!=1 else ''} · {date_str}"
         for sub in subs:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
