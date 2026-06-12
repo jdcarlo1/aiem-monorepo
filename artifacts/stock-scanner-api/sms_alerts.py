@@ -148,8 +148,8 @@ def run_sms_alert_scan():
                 rv     = float(s.get("rel_vol") or 0)
                 score  = float(s.get("score") or 0)
                 price  = float(s.get("price") or 0)
-                min_rv_cache = 1.5 if chg >= 20 else 2.0 if chg >= 10 else 3.0
-                if chg >= 3 and rv >= min_rv_cache:
+                min_rv_cache = 1.5 if chg >= 20 else 2.0 if chg >= 10 else 3.0 if chg >= 7 else 4.0 if chg >= 3 else 5.0
+                if chg >= 1 and rv >= min_rv_cache:
                     candidates[t] = {"price": price, "chg_pct": chg, "rel_vol": rv, "score": score, "reason": "standout"}
     except Exception as e:
         print(f"[sms_alerts] cache read error: {e}")
@@ -181,7 +181,7 @@ def run_sms_alert_scan():
                     for row in r.json().get("data", []):
                         sym = (row.get("symbol") or "").strip().upper()
                         pct = float(row.get("percentChange") or 0)
-                        if sym and len(sym) <= 5 and "." not in sym and pct >= 3:
+                        if sym and len(sym) <= 5 and "." not in sym and pct >= 1:
                             bc_syms.append(sym)
             except Exception:
                 pass
@@ -206,12 +206,12 @@ def run_sms_alert_scan():
                 if price <= 0:
                     return None
                 chg_pct   = (price - prev) / prev * 100
-                if chg_pct < 3:
+                if chg_pct < 1:
                     return None
                 proj_vol  = cum_vol / day_frac
                 rel_vol   = proj_vol / avg
-                # Volume bar scales with move size — early accumulation needs more vol
-                min_rv    = 1.5 if chg_pct >= 20 else 2.0 if chg_pct >= 10 else 3.0
+                # Volume bar scales inversely with move — tiny move needs huge vol to confirm
+                min_rv    = 1.5 if chg_pct >= 20 else 2.0 if chg_pct >= 10 else 3.0 if chg_pct >= 7 else 4.0 if chg_pct >= 3 else 5.0
                 if rel_vol < min_rv:
                     return None
                 score     = rel_vol * (chg_pct / 10)
