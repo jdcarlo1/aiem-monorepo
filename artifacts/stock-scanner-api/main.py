@@ -357,6 +357,32 @@ try:
         id="ai_trades_auto",
         replace_existing=True,
     )
+    # Morning inflows email: 10:05 AM ET — after the 10:00 AM standout scan completes
+    def _run_morning_inflows_email():
+        try:
+            import threading as _thr_mi
+            _thr_mi.Thread(target=_send_morning_inflows_email, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] morning inflows email error: {e}")
+    _scheduler.add_job(
+        _run_morning_inflows_email,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=_ET),
+        id="morning_inflows_email",
+        replace_existing=True,
+    )
+    # EOD accum picks email: 4:10 PM ET — after 3:45/3:55 PM scans have saved all picks
+    def _run_eod_accum_email_job():
+        try:
+            import threading as _thr_ea
+            _thr_ea.Thread(target=_send_eod_accum_email, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] EOD accum email error: {e}")
+    _scheduler.add_job(
+        _run_eod_accum_email_job,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=_ET),
+        id="eod_accum_email",
+        replace_existing=True,
+    )
     # AI Short Calls auto-generation: Mon-Fri 10:15 AM ET — after scanner caches warm
     def _run_ai_short_calls_auto():
         try:
@@ -921,6 +947,321 @@ def _send_unusual_calls_alert(hits: list) -> None:
         print(f"[unusual_alert] sent alert to {sent}/{len(subs)} subscribers — {len(alerts)} signals")
     except Exception as _ae:
         print(f"[unusual_alert] alert error (non-fatal): {_ae}")
+
+
+def _send_eod_accum_email() -> None:
+    """
+    Send the EOD accumulation picks to all subscribers after the 3:45 PM scan.
+    Reads today's picks from eod_accum_picks table and formats a clean digest.
+    """
+    try:
+        from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
+        if not smtp_configured():
+            print("[eod_accum_email] SMTP not configured — skipping")
+            return
+        subs = get_active_subscribers()
+        if not subs:
+            print("[eod_accum_email] no subscribers — skipping")
+            return
+
+        import psycopg2, os as _os
+        from datetime import datetime as _dt
+        con = psycopg2.connect(_os.environ["DATABASE_URL"])
+        cur = con.cursor()
+        cur.execute("""
+            SELECT ticker, accum_score, close_price, price_chg_pct,
+                   eod_rel_vol, late_flow, closing_range, mkt_cap_m, signal_type
+            FROM eod_accum_picks
+            WHERE scan_date = CURRENT_DATE
+            ORDER BY accum_score DESC
+            LIMIT 25
+        """)
+        rows = cur.fetchall()
+        cur.close(); con.close()
+
+        if not rows:
+            print("[eod_accum_email] no picks for today — skipping")
+            return
+
+        accum = [r for r in rows if (r[8] or "accum") == "accum"]
+        squeeze = [r for r in rows if r[8] == "squeeze"]
+
+        date_str = _dt.now().strftime("%B %d, %Y")
+        base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
+
+        def _row_html(r, rank):
+            ticker, score, close, chg, vol, lf, cr, cap, sig = r
+            chg_str   = f"+{chg:.1f}%" if chg and chg >= 0 else f"{chg:.1f}%"
+            chg_color = "#22c55e" if chg and chg >= 0 else "#ef4444"
+            cr_pct    = f"{(cr or 0)*100:.0f}%"
+            lf_str    = "MAX" if lf and lf >= 99 else f"{lf:.1f}×" if lf else "—"
+            vol_str   = f"{vol:.1f}×" if vol else "—"
+            score_str = f"{score:.0f}" if score else "—"
+            medal     = {1:"🥇",2:"🥈",3:"🥉"}.get(rank, f"#{rank}")
+            cap_str   = f"${cap/1000:.1f}B" if cap and cap >= 1000 else (f"${cap:.0f}M" if cap else "—")
+            score_color = "#22c55e" if score and score >= 100 else "#06b6d4" if score and score >= 30 else "#f59e0b"
+            return f"""
+            <tr>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
+                <span style="font-size:15px;font-weight:800;color:#f1f5f9;">{medal} {ticker}</span>
+                <span style="display:block;font-size:10px;color:#64748b;margin-top:2px;">${close:.2f} · {cap_str}</span>
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:{score_color};font-size:16px;">{score_str}</span>
+                <div style="font-size:10px;color:#64748b;">score</div>
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:{chg_color};">{chg_str}</span>
+                <div style="font-size:10px;color:#64748b;">day chg</div>
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#a78bfa;">{vol_str}</span>
+                <div style="font-size:10px;color:#64748b;">EOD vol</div>
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#f59e0b;">{lf_str}</span>
+                <div style="font-size:10px;color:#64748b;">late flow</div>
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#38bdf8;">{cr_pct}</span>
+                <div style="font-size:10px;color:#64748b;">close rng</div>
+              </td>
+            </tr>"""
+
+        accum_rows   = "".join(_row_html(r, i+1) for i, r in enumerate(accum))
+        squeeze_rows = "".join(_row_html(r, i+1) for i, r in enumerate(squeeze))
+        squeeze_section = ""
+        if squeeze_rows:
+            squeeze_section = f"""
+            <div style="margin-top:24px;">
+              <div style="font-size:13px;font-weight:700;color:#ef4444;margin-bottom:8px;">🩳 SHORT SQUEEZE SETUPS</div>
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #1e293b;">
+                <tr style="background:#0f172a;">
+                  <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;">Ticker</th>
+                  <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;">Score</th>
+                  <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;">Day %</th>
+                  <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;">EOD Vol</th>
+                  <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;">Late Flow</th>
+                  <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;">Close Rng</th>
+                </tr>
+                {squeeze_rows}
+              </table>
+            </div>"""
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">📈 EOD Accumulation Picks</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">
+              {len(accum)} accumulation · {len(squeeze)} squeeze setup{'s' if len(squeeze)!=1 else ''} · {date_str}
+            </span>
+          </div>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #1e293b;margin-bottom:8px;">
+            <tr style="background:#0f172a;">
+              <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Ticker</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Score</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Day %</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">EOD Vol</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Late Flow</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Close Rng</th>
+            </tr>
+            {accum_rows}
+          </table>
+          {squeeze_section}
+          <div style="text-align:center;margin:20px 0 16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">
+              View Full Scanner →
+            </a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · <a href="{base_url}/stock-scanner/unsubscribe" style="color:#475569;">Unsubscribe</a>
+          </p>
+        </div>"""
+
+        sent = 0
+        subject = f"📈 EOD Picks: {len(accum)} Accumulation Signal{'s' if len(accum)!=1 else ''} · {date_str}"
+        for sub in subs:
+            if send_email_raw(sub["email"], subject, html):
+                sent += 1
+        print(f"[eod_accum_email] sent to {sent}/{len(subs)} subscribers — {len(accum)} picks")
+    except Exception as _e:
+        import traceback
+        print(f"[eod_accum_email] error: {_e}\n{traceback.format_exc()}")
+
+
+def _send_morning_inflows_email() -> None:
+    """Email today's morning standout flow picks at 10:05 AM ET."""
+    try:
+        from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
+        if not smtp_configured():
+            return
+        subs = get_active_subscribers()
+        if not subs:
+            return
+
+        import psycopg2, os as _os, json
+        from datetime import datetime as _dt
+        con = psycopg2.connect(_os.environ["DATABASE_URL"])
+        cur = con.cursor()
+        cur.execute("SELECT payload FROM morning_inflows_cache WHERE scan_date = CURRENT_DATE ORDER BY saved_at DESC LIMIT 1")
+        row = cur.fetchone()
+        cur.close(); con.close()
+
+        if not row or not row[0]:
+            print("[morning_email] no inflows data for today — skipping")
+            return
+
+        payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        standouts = (payload.get("standouts") or [])[:15]
+        if not standouts:
+            print("[morning_email] no standouts — skipping")
+            return
+
+        date_str  = _dt.now().strftime("%B %d, %Y")
+        base_url  = _os.getenv("PUBLIC_URL", "https://nclexai.org")
+        rows_html = ""
+        for i, s in enumerate(standouts):
+            rank   = i + 1
+            ticker = s.get("ticker", "")
+            score  = s.get("standout_score", 0)
+            chg    = s.get("price_chg_pct", 0) or 0
+            vol    = s.get("rel_vol", 0) or 0
+            price  = s.get("price", 0) or 0
+            flow   = s.get("flow_ratio", 0) or 0
+            medal  = {1:"🥇",2:"🥈",3:"🥉"}.get(rank, f"#{rank}")
+            chg_color = "#22c55e" if chg >= 0 else "#ef4444"
+            chg_str   = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
+            score_color = "#22c55e" if score >= 50 else "#06b6d4" if score >= 20 else "#f59e0b"
+            rows_html += f"""
+            <tr>
+              <td style="padding:9px 14px;border-bottom:1px solid #1e293b;">
+                <span style="font-size:14px;font-weight:800;color:#f1f5f9;">{medal} {ticker}</span>
+                <span style="display:block;font-size:10px;color:#64748b;">${price:.2f}</span>
+              </td>
+              <td style="padding:9px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:{score_color};">{score:.0f}</span>
+              </td>
+              <td style="padding:9px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:{chg_color};">{chg_str}</span>
+              </td>
+              <td style="padding:9px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#a78bfa;">{vol:.1f}×</span>
+              </td>
+              <td style="padding:9px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#f59e0b;">{flow:.1f}:1</span>
+              </td>
+            </tr>"""
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 Morning Standout Flow</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(standouts)} picks · {date_str}</span>
+          </div>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #1e293b;margin-bottom:16px;">
+            <tr style="background:#0f172a;">
+              <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;text-transform:uppercase;">Ticker</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Score</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Chg%</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Rel Vol</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Flow</th>
+            </tr>
+            {rows_html}
+          </table>
+          <div style="text-align:center;margin-bottom:16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Open Scanner →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · <a href="{base_url}/stock-scanner/unsubscribe" style="color:#475569;">Unsubscribe</a>
+          </p>
+        </div>"""
+
+        sent = 0
+        subject = f"🔥 Morning Flow: {len(standouts)} Standout{'s' if len(standouts)!=1 else ''} · {date_str}"
+        for sub in subs:
+            if send_email_raw(sub["email"], subject, html):
+                sent += 1
+        print(f"[morning_email] sent to {sent}/{len(subs)} subscribers — {len(standouts)} standouts")
+    except Exception as _e:
+        import traceback
+        print(f"[morning_email] error: {_e}\n{traceback.format_exc()}")
+
+
+def _send_ai_trades_email(trades: list) -> None:
+    """Email today's AI-generated trade picks after generation completes (~10:15 AM)."""
+    try:
+        from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
+        if not smtp_configured() or not trades:
+            return
+        subs = get_active_subscribers()
+        if not subs:
+            return
+
+        from datetime import datetime as _dt
+        import os as _os
+        date_str = _dt.now().strftime("%B %d, %Y")
+        base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
+
+        rows_html = ""
+        for i, tr in enumerate(trades[:5]):
+            ticker    = tr.get("ticker", "")
+            setup     = tr.get("setup_type", "")
+            thesis    = tr.get("thesis", "")[:120] + ("…" if len(tr.get("thesis","")) > 120 else "")
+            price     = tr.get("price", 0) or 0
+            target    = tr.get("target", 0) or 0
+            stop      = tr.get("stop", 0) or 0
+            conf      = tr.get("conviction", "").upper()
+            bias      = tr.get("bias", "BULLISH")
+            bias_color = "#22c55e" if "BULL" in bias else "#ef4444" if "BEAR" in bias else "#94a3b8"
+            conf_color = "#22c55e" if "HIGH" in conf else "#f59e0b" if "MED" in conf else "#64748b"
+            medal     = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
+            target_str = f"${target:.2f}" if target else "—"
+            stop_str   = f"${stop:.2f}"   if stop   else "—"
+            rows_html += f"""
+            <tr>
+              <td style="padding:12px 14px;border-bottom:1px solid #1e293b;">
+                <span style="font-size:15px;font-weight:800;color:#f1f5f9;">{medal} {ticker}</span>
+                <span style="display:block;font-size:10px;color:#64748b;margin-top:1px;">${price:.2f} · {setup}</span>
+                <span style="display:block;font-size:11px;color:#94a3b8;margin-top:4px;line-height:1.4;">{thesis}</span>
+              </td>
+              <td style="padding:12px 10px;border-bottom:1px solid #1e293b;text-align:center;white-space:nowrap;vertical-align:top;">
+                <span style="font-weight:700;color:{bias_color};font-size:11px;">{bias}</span><br>
+                <span style="font-weight:700;color:{conf_color};font-size:10px;">{conf}</span><br>
+                <span style="font-size:10px;color:#22c55e;">T: {target_str}</span><br>
+                <span style="font-size:10px;color:#ef4444;">S: {stop_str}</span>
+              </td>
+            </tr>"""
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🤖 AI Trade Setups</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(trades)} setup{'s' if len(trades)!=1 else ''} generated · {date_str}</span>
+          </div>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #1e293b;margin-bottom:16px;">
+            <tr style="background:#0f172a;">
+              <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;text-transform:uppercase;">Setup</th>
+              <th style="padding:8px 10px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Bias / Target</th>
+            </tr>
+            {rows_html}
+          </table>
+          <div style="text-align:center;margin-bottom:16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">View AI Trades →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · <a href="{base_url}/stock-scanner/unsubscribe" style="color:#475569;">Unsubscribe</a>
+          </p>
+        </div>"""
+
+        sent = 0
+        subject = f"🤖 AI Trade Setups: {len(trades)} Pick{'s' if len(trades)!=1 else ''} · {date_str}"
+        for sub in subs:
+            if send_email_raw(sub["email"], subject, html):
+                sent += 1
+        print(f"[ai_trades_email] sent to {sent}/{len(subs)} subscribers — {len(trades)} trades")
+    except Exception as _e:
+        import traceback
+        print(f"[ai_trades_email] error: {_e}\n{traceback.format_exc()}")
 
 
 def _fetch_market_movers(count=75):
@@ -6481,6 +6822,12 @@ JSON array only. No markdown. Start immediately with ["""
             _save_ai_trades_to_log(trades, str(_date_now.today()))
         except Exception as _se:
             print(f"[ai_trade_log] background save error: {_se}")
+        # Email AI picks to subscribers
+        try:
+            import threading as _thr_ait
+            _thr_ait.Thread(target=_send_ai_trades_email, args=(trades,), daemon=True).start()
+        except Exception as _ae:
+            print(f"[ai_trades_email] trigger error: {_ae}")
     except Exception as e:
         import sys
         print(f"[ai_trades_bg] exception: {e}", file=sys.stderr, flush=True)
@@ -7759,6 +8106,39 @@ def eod_sweeps():
         import traceback
         print(f"[eod_sweeps] error: {e}\n{traceback.format_exc()}", file=__import__("sys").stderr)
         return jsonify({"error": str(e), "signals": []}), 500
+
+
+@app.route("/stock-api/admin/test-emails", methods=["POST"])
+def admin_test_emails():
+    """Admin: fire all three daily emails right now using today's cached data."""
+    import threading as _thr
+    results = {}
+
+    def _fire(name, fn, *args):
+        try:
+            fn(*args)
+            results[name] = "sent"
+        except Exception as e:
+            results[name] = f"error: {e}"
+
+    # Morning inflows email (uses DB)
+    t1 = _thr.Thread(target=_fire, args=("morning_inflows", _send_morning_inflows_email), daemon=True)
+    t1.start(); t1.join(timeout=30)
+
+    # EOD accum email (uses DB)
+    t2 = _thr.Thread(target=_fire, args=("eod_accum", _send_eod_accum_email), daemon=True)
+    t2.start(); t2.join(timeout=30)
+
+    # AI trades email (uses in-memory cache)
+    _ait = getattr(app, "_ait_cache", None)
+    trades = (_ait or {}).get("trades", [])
+    if trades:
+        t3 = _thr.Thread(target=_fire, args=("ai_trades", _send_ai_trades_email, trades), daemon=True)
+        t3.start(); t3.join(timeout=30)
+    else:
+        results["ai_trades"] = "skipped — no cache (run /stock-api/ai-trades?bust=1 first)"
+
+    return jsonify({"status": "done", "results": results})
 
 
 @app.route("/stock-api/admin/run-eod-scan", methods=["POST"])
