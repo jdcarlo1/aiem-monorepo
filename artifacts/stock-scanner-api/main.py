@@ -2431,15 +2431,52 @@ def _monitor_open_positions() -> None:
             )
 
             if score >= 3:
-                _send_exit_alert_email(pos, signals, score)
-                with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-                    cur.execute("""
-                        UPDATE position_monitor
-                        SET exit_alerted_at = NOW(),
-                            exit_reason = %s
-                        WHERE id = %s
-                    """, ("; ".join(signals[:2]), pos["id"]))
-                    conn.commit()
+                # ── Shakeout filter ──────────────────────────────────────────
+                # Before alerting, check if price already recovered strongly
+                # from today's intraday low. A >7% bounce = shakeout, not reversal.
+                # Only suppress if the recovery happened within the same session.
+                _suppressed = False
+                try:
+                    import yfinance as _yf2
+                    _intra = _yf2.Ticker(ticker).history(period="1d", interval="5m")
+                    if len(_intra) >= 3:
+                        _intra_low     = float(_intra["Low"].min())
+                        _intra_current = float(_intra["Close"].iloc[-1])
+                        _intra_high    = float(_intra["High"].max())
+                        _recovery_pct  = (_intra_current - _intra_low) / _intra_low * 100
+                        # Also check if we're near the intraday high (strong continuation)
+                        _from_high_pct = (_intra_high - _intra_current) / _intra_high * 100
+                        if _recovery_pct >= 7.0:
+                            print(
+                                f"[position_monitor] {ticker} SHAKEOUT suppressed — "
+                                f"recovered {_recovery_pct:.1f}% from intraday low "
+                                f"(low={_intra_low:.2f} → now={_intra_current:.2f})"
+                            )
+                            _suppressed = True
+                        elif _from_high_pct < 3.0 and _intra_current > _intra_low * 1.04:
+                            # Price is within 3% of intraday high AND up >4% from low
+                            # — trend still intact, don't panic-sell
+                            print(
+                                f"[position_monitor] {ticker} near intraday high — "
+                                f"suppressing exit (price {_intra_current:.2f}, "
+                                f"high {_intra_high:.2f}, low {_intra_low:.2f})"
+                            )
+                            _suppressed = True
+                except Exception:
+                    pass
+
+                if not _suppressed:
+                    _send_exit_alert_email(pos, signals, score)
+                    with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE position_monitor
+                            SET exit_alerted_at = NOW(),
+                                exit_reason = %s
+                            WHERE id = %s
+                        """, ("; ".join(signals[:2]), pos["id"]))
+                        conn.commit()
+                else:
+                    print(f"[position_monitor] {ticker} alert suppressed — shakeout filter")
 
         print(f"[position_monitor] checked {len(positions)} position(s)")
     except Exception as e:
