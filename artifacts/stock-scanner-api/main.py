@@ -1228,10 +1228,32 @@ def _send_morning_inflows_email() -> None:
                 "accum_score":  float(r[2] or 0),
             }
 
-        # Annotate each EOD pick with morning action if available
+        # ── Fetch premarket prices for all EOD picks concurrently ────────────
+        def _get_premarket(ticker):
+            try:
+                import yfinance as _yf3
+                fi = _yf3.Ticker(ticker).fast_info
+                pre   = fi.get("preMarketPrice") or fi.get("postMarketPrice")
+                prev  = fi.get("regularMarketPreviousClose") or fi.get("previousClose")
+                if pre and prev and prev > 0:
+                    return ticker, float(pre), round((float(pre) - float(prev)) / float(prev) * 100, 2)
+            except Exception:
+                pass
+            return ticker, None, None
+
+        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _asc2
+        _pm_data = {}
+        with _TPE(max_workers=8) as _ex:
+            _futs = {_ex.submit(_get_premarket, t): t for t in eod_picks}
+            for _f in _asc2(_futs):
+                t, price, chg = _f.result()
+                _pm_data[t] = {"pm_price": price, "pm_chg": chg}
+
+        # Annotate each EOD pick with morning action + premarket data
         eod_annotated = []
         for ticker, ep in eod_picks.items():
-            mi = morning_by_ticker.get(ticker)
+            mi  = morning_by_ticker.get(ticker)
+            pm  = _pm_data.get(ticker, {})
             eod_annotated.append({
                 **ep,
                 "price":          float((mi or {}).get("price", 0) or 0),
@@ -1240,6 +1262,8 @@ def _send_morning_inflows_email() -> None:
                 "flow_ratio":     float((mi or {}).get("flow_ratio", 0) or 0),
                 "standout_score": float((mi or {}).get("standout_score", 0) or 0),
                 "confirming":     mi is not None,
+                "pm_price":       pm.get("pm_price"),
+                "pm_chg":         pm.get("pm_chg"),
             })
 
         # Sort: confirming picks first (by standout_score), then quiet ones (by accum_score)
@@ -1265,6 +1289,8 @@ def _send_morning_inflows_email() -> None:
             price    = ep["price"] or ep["close_price"]
             score    = ep["accum_score"]
             conf     = ep["confirming"]
+            pm_chg   = ep.get("pm_chg")
+            pm_price = ep.get("pm_price")
 
             chg_color  = "#22c55e" if chg > 0 else "#ef4444" if chg < 0 else "#94a3b8"
             chg_str    = f"+{chg:.1f}%" if chg > 0 else f"{chg:.1f}%" if chg < 0 else "flat"
@@ -1274,12 +1300,47 @@ def _send_morning_inflows_email() -> None:
             flow_str   = f"{flow:.1f}:1" if flow else "—"
             price_str  = f"${price:.2f}" if price else "—"
 
+            # Premarket badge — prominent warning if gapping down hard
+            pm_html = ""
+            if pm_chg is not None:
+                pm_str = f"{pm_chg:+.1f}%"
+                if pm_chg <= -10:
+                    pm_html = (
+                        f'<span style="display:inline-block;margin-top:4px;'
+                        f'background:#ef444433;border:1px solid #ef4444;color:#ef4444;'
+                        f'font-size:10px;font-weight:800;padding:2px 7px;border-radius:4px;">'
+                        f'⚠️ PREMARKET {pm_str} — SKIP TODAY</span>'
+                    )
+                elif pm_chg <= -5:
+                    pm_html = (
+                        f'<span style="display:inline-block;margin-top:4px;'
+                        f'background:#f59e0b22;border:1px solid #f59e0b;color:#f59e0b;'
+                        f'font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;">'
+                        f'⚠️ PM {pm_str} — wait for open</span>'
+                    )
+                elif pm_chg >= 5:
+                    pm_html = (
+                        f'<span style="display:inline-block;margin-top:4px;'
+                        f'background:#22c55e22;border:1px solid #22c55e;color:#22c55e;'
+                        f'font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;">'
+                        f'🟢 PM {pm_str} — gapping up</span>'
+                    )
+                else:
+                    pm_html = (
+                        f'<span style="display:inline-block;margin-top:4px;'
+                        f'font-size:10px;color:#64748b;">PM {pm_str}</span>'
+                    )
+
+            # Dim entire row if gapping down hard — visual skip signal
+            row_bg = "background:#1a0a0a;" if (pm_chg is not None and pm_chg <= -10) else ""
+
             eod_rows_html += f"""
-            <tr>
+            <tr style="{row_bg}">
               <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
                 <span style="font-size:14px;font-weight:800;color:#f1f5f9;">{status_dot} {ticker}</span>
                 <span style="display:block;font-size:10px;color:#64748b;margin-top:1px;">{price_str} · EOD score {score:.0f}</span>
                 <span style="display:block;margin-top:2px;">{status_lbl}</span>
+                {pm_html}
               </td>
               <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;white-space:nowrap;">
                 <span style="font-weight:700;color:{chg_color};">{chg_str if conf else "—"}</span>
