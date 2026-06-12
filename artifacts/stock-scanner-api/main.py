@@ -11573,6 +11573,7 @@ def morning_inflows():
 
     # Merge all sources: pre-filtered screen results first (highest confidence),
     # then Barchart movers, supplementary screeners + our tracked tickers.
+    _barchart_set = set(_barchart_syms)   # fast lookup for threshold relaxation
     universe = list(dict.fromkeys(
         list(_screen_quotes.keys()) + _barchart_syms + _supp_syms + _tracked
     ))
@@ -11619,7 +11620,14 @@ def morning_inflows():
 
             # Early-session threshold:  ≥5× projected  (=75× raw for OCC at 9:31)
             # After 30 min threshold rises to standard ≥3× (noise settles after open)
-            min_rel = 5.0 if mins_elapsed <= 30 else 3.0
+            # Barchart-sourced stocks already pre-screened as top movers — lower bar
+            # if up ≥20% so we don't miss EDHL-type runners with thinner avg volume
+            if ticker in _barchart_set and price_chg >= 20.0:
+                min_rel = 1.5
+            elif mins_elapsed <= 30:
+                min_rel = 5.0
+            else:
+                min_rel = 3.0
             if rel_vol < min_rel: return None
 
             # ── Micro-pump detection ─────────────────────────────────────────────
