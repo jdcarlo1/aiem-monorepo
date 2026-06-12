@@ -392,7 +392,7 @@ try:
             _thr_uc.Thread(target=_send_unusual_calls_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] unusual calls email error: {e}")
-    for _uc_h, _uc_m in [(9, 47), (16, 20)]:
+    for _uc_h, _uc_m in [(9, 47), (15, 15)]:
         _scheduler.add_job(
             _run_unusual_calls_email,
             CronTrigger(day_of_week="mon-fri", hour=_uc_h, minute=_uc_m, timezone=_ET),
@@ -406,7 +406,7 @@ try:
             _thr_mc.Thread(target=_send_microcap_calls_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] microcap calls email error: {e}")
-    for _mc_h, _mc_m in [(10, 32), (16, 17)]:
+    for _mc_h, _mc_m in [(10, 32), (15, 16)]:
         _scheduler.add_job(
             _run_microcap_calls_email,
             CronTrigger(day_of_week="mon-fri", hour=_mc_h, minute=_mc_m, timezone=_ET),
@@ -420,7 +420,7 @@ try:
             _thr_hc.Thread(target=_send_high_conviction_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] high conviction calls email error: {e}")
-    for _hc_h, _hc_m in [(9, 48), (16, 22)]:
+    for _hc_h, _hc_m in [(9, 48), (15, 17)]:
         _scheduler.add_job(
             _run_hc_calls_email,
             CronTrigger(day_of_week="mon-fri", hour=_hc_h, minute=_hc_m, timezone=_ET),
