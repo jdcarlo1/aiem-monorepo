@@ -10302,6 +10302,82 @@ def eod_accumulation():
 
     _et = _pytz_ea.timezone("America/New_York")
 
+    # ── After market close: serve locked-in results from DB, not a fresh live scan ──
+    # Live yfinance intraday data degrades after ~4 PM ET — re-scanning returns fewer
+    # picks because the 3:30-4:00 PM bars become unavailable.  The 3:45 PM scheduled
+    # scan already saved the correct results; just return those.
+    _now_et_ea = _dt_ea.datetime.now(_et)
+    _h_ea = _now_et_ea.hour
+    _m_ea = _now_et_ea.minute
+    # Market is open 9:30 AM – 4:00 PM ET. Outside that window, serve from DB.
+    _after_close = (
+        (_h_ea == 16 and _m_ea >= 5) or   # 4:05 – 4:59 PM
+        _h_ea >= 17 or                     # 5 PM – midnight
+        _h_ea < 9 or                       # midnight – 8:59 AM
+        (_h_ea == 9 and _m_ea < 30)        # 9:00 – 9:29 AM
+    )
+    if _after_close:  # after market close, DB is authoritative — bust only clears in-memory cache
+        try:
+            with _pg_ea.connect(_DB_URL) as _c_db, _c_db.cursor() as _cu_db:
+                # Ensure signal_type column exists (one-time migration)
+                _cu_db.execute(
+                    "ALTER TABLE eod_accum_picks ADD COLUMN IF NOT EXISTS signal_type TEXT DEFAULT 'accum'"
+                )
+                _c_db.commit()
+                _cu_db.execute("""
+                    SELECT ticker, close_price, accum_score, eod_rel_vol, late_flow,
+                           closing_range, price_chg_pct, mkt_cap_m, news_type, news_headline,
+                           COALESCE(signal_type, 'accum') AS signal_type, scanned_at
+                    FROM eod_accum_picks
+                    WHERE scan_date = CURRENT_DATE
+                    ORDER BY accum_score DESC
+                    LIMIT 30
+                """)
+                _db_rows_ea = _cu_db.fetchall()
+                _db_cols_ea = [d[0] for d in _cu_db.description]
+        except Exception as _edb:
+            _db_rows_ea = []
+            print(f"[eod_accum] db-first read error: {_edb}")
+
+        if _db_rows_ea:
+            _db_picks_ea = []
+            for _row_ea in _db_rows_ea:
+                _d = dict(zip(_db_cols_ea, _row_ea))
+                _db_picks_ea.append({
+                    "ticker":             _d["ticker"],
+                    "close":              float(_d["close_price"] or 0),
+                    "prev_close":         None,
+                    "day_high":           None,
+                    "day_low":            None,
+                    "accum_score":        float(_d["accum_score"] or 0),
+                    "eod_rel_vol":        float(_d["eod_rel_vol"] or 0),
+                    "late_flow":          float(_d["late_flow"] or 0),
+                    "closing_range":      float(_d["closing_range"] or 0),
+                    "price_chg_pct":      float(_d["price_chg_pct"] or 0),
+                    "mkt_cap_m":          float(_d.get("mkt_cap_m") or 0),
+                    "news_type":          _d.get("news_type", "none"),
+                    "news_headline":      _d.get("news_headline"),
+                    "signal_type":        _d.get("signal_type", "accum"),
+                    "pre_ignition_count": 0,
+                })
+            _accum_db_ea   = [r for r in _db_picks_ea if r["signal_type"] != "squeeze"]
+            _squeeze_db_ea = [r for r in _db_picks_ea if r["signal_type"] == "squeeze"]
+            try:
+                _sat_ea = _db_rows_ea[0][_db_cols_ea.index("scanned_at")]
+                _gen_ea = _sat_ea.astimezone(_et).strftime("%-I:%M %p ET") if _sat_ea else "Stored (after close)"
+            except Exception:
+                _gen_ea = "Stored (after close)"
+            _out_db_ea = {
+                "candidates":     _accum_db_ea[:15],
+                "squeeze_setups": _squeeze_db_ea[:10],
+                "total_found":    len(_db_picks_ea),
+                "scanned":        len(_db_picks_ea),
+                "generated_at":   _gen_ea,
+            }
+            app._eod_accum_cache    = _out_db_ea
+            app._eod_accum_cache_ts = _dt_ea.datetime.now()
+            return jsonify(_out_db_ea)
+
     # Build universe: watchlist + unusual calls today + Yahoo top-movers screener
     _ticker_set = set()
     try:
@@ -10555,18 +10631,18 @@ def eod_accumulation():
                 _cu_sv.execute("""
                     INSERT INTO eod_accum_picks
                         (scan_date, ticker, close_price, accum_score, news_type, news_headline,
-                         eod_rel_vol, late_flow, closing_range, price_chg_pct, mkt_cap_m)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         eod_rel_vol, late_flow, closing_range, price_chg_pct, mkt_cap_m, signal_type)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (scan_date, ticker) DO UPDATE SET
                         close_price=EXCLUDED.close_price, accum_score=EXCLUDED.accum_score,
                         news_type=EXCLUDED.news_type, news_headline=EXCLUDED.news_headline,
                         eod_rel_vol=EXCLUDED.eod_rel_vol, late_flow=EXCLUDED.late_flow,
                         closing_range=EXCLUDED.closing_range, price_chg_pct=EXCLUDED.price_chg_pct,
-                        mkt_cap_m=EXCLUDED.mkt_cap_m, scanned_at=NOW()
+                        mkt_cap_m=EXCLUDED.mkt_cap_m, signal_type=EXCLUDED.signal_type, scanned_at=NOW()
                 """, (_scan_date_ea, _r["ticker"], _r["close"], _r["accum_score"],
                       _r["news_type"], _r["news_headline"], _r["eod_rel_vol"],
                       _r["late_flow"], _r["closing_range"], _r["price_chg_pct"],
-                      _r["mkt_cap_m"]))
+                      _r["mkt_cap_m"], _r.get("signal_type", "accum")))
             _c_sv.commit()
     except Exception as _e_sv:
         print(f"[eod_accum] db save error: {_e_sv}")
