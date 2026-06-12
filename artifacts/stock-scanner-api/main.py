@@ -1092,7 +1092,11 @@ def _send_eod_accum_email() -> None:
 
 
 def _send_morning_inflows_email() -> None:
-    """Email today's morning standout flow picks at 10:05 AM ET."""
+    """
+    Morning email with two sections:
+      1. Last night's EOD picks — how they are opening today (confirmed vs quiet)
+      2. Fresh morning finds — new standouts NOT in last night's EOD list
+    """
     try:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
         if not smtp_configured():
@@ -1103,41 +1107,133 @@ def _send_morning_inflows_email() -> None:
 
         import psycopg2, os as _os, json
         from datetime import datetime as _dt
+
         con = psycopg2.connect(_os.environ["DATABASE_URL"])
         cur = con.cursor()
-        cur.execute("SELECT payload FROM morning_inflows_cache WHERE scan_date = CURRENT_DATE ORDER BY saved_at DESC LIMIT 1")
-        row = cur.fetchone()
+
+        # ── 1. Last night's EOD picks (most recent scan_date) ────────────────
+        cur.execute("""
+            SELECT ticker, close_price, accum_score
+            FROM eod_accum_picks
+            WHERE scan_date = (SELECT MAX(scan_date) FROM eod_accum_picks)
+            ORDER BY accum_score DESC
+            LIMIT 15
+        """)
+        eod_rows = cur.fetchall()
+        eod_date_row = None
+        if eod_rows:
+            cur.execute("SELECT MAX(scan_date) FROM eod_accum_picks")
+            eod_date_row = cur.fetchone()
+
+        # ── 2. Today's morning standouts ─────────────────────────────────────
+        cur.execute("""
+            SELECT payload FROM morning_inflows_cache
+            WHERE scan_date = CURRENT_DATE
+            ORDER BY saved_at DESC LIMIT 1
+        """)
+        mi_row = cur.fetchone()
         cur.close(); con.close()
 
-        if not row or not row[0]:
-            print("[morning_email] no inflows data for today — skipping")
-            return
+        # Parse morning standouts
+        morning_standouts = []
+        if mi_row and mi_row[0]:
+            payload = mi_row[0] if isinstance(mi_row[0], dict) else json.loads(mi_row[0])
+            morning_standouts = payload.get("standouts") or []
 
-        payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
-        standouts = (payload.get("standouts") or [])[:15]
-        if not standouts:
-            print("[morning_email] no standouts — skipping")
-            return
+        morning_by_ticker = {s["ticker"]: s for s in morning_standouts}
+
+        # Build EOD follow-up list
+        eod_picks = {}
+        for r in eod_rows:
+            ticker = r[0]
+            eod_picks[ticker] = {
+                "ticker":       ticker,
+                "close_price":  float(r[1] or 0),
+                "accum_score":  float(r[2] or 0),
+            }
+
+        # Annotate each EOD pick with morning action if available
+        eod_annotated = []
+        for ticker, ep in eod_picks.items():
+            mi = morning_by_ticker.get(ticker)
+            eod_annotated.append({
+                **ep,
+                "price":          float((mi or {}).get("price", 0) or 0),
+                "price_chg_pct":  float((mi or {}).get("price_chg_pct", 0) or 0),
+                "rel_vol":        float((mi or {}).get("rel_vol", 0) or 0),
+                "flow_ratio":     float((mi or {}).get("flow_ratio", 0) or 0),
+                "standout_score": float((mi or {}).get("standout_score", 0) or 0),
+                "confirming":     mi is not None,
+            })
+
+        # Sort: confirming picks first (by standout_score), then quiet ones (by accum_score)
+        eod_annotated.sort(key=lambda x: (
+            0 if x["confirming"] else 1,
+            -x["standout_score"] if x["confirming"] else -x["accum_score"]
+        ))
+
+        # Fresh finds: morning standouts NOT in last night's EOD list
+        fresh = [s for s in morning_standouts if s["ticker"] not in eod_picks][:8]
 
         date_str  = _dt.now().strftime("%B %d, %Y")
+        eod_label = eod_date_row[0].strftime("%b %d") if eod_date_row and eod_date_row[0] else "Last Night"
         base_url  = _os.getenv("PUBLIC_URL", "https://nclexai.org")
-        rows_html = ""
-        for i, s in enumerate(standouts):
-            rank   = i + 1
+
+        # ── Build Section 1: EOD picks follow-up ─────────────────────────────
+        eod_rows_html = ""
+        for ep in eod_annotated:
+            ticker   = ep["ticker"]
+            chg      = ep["price_chg_pct"]
+            vol      = ep["rel_vol"]
+            flow     = ep["flow_ratio"]
+            price    = ep["price"] or ep["close_price"]
+            score    = ep["accum_score"]
+            conf     = ep["confirming"]
+
+            chg_color  = "#22c55e" if chg > 0 else "#ef4444" if chg < 0 else "#94a3b8"
+            chg_str    = f"+{chg:.1f}%" if chg > 0 else f"{chg:.1f}%" if chg < 0 else "flat"
+            status_dot = '<span style="color:#22c55e;font-weight:900;">●</span>' if conf else '<span style="color:#475569;">○</span>'
+            status_lbl = '<span style="font-size:9px;color:#22c55e;">CONFIRMING</span>' if conf else '<span style="font-size:9px;color:#475569;">QUIET</span>'
+            vol_str    = f"{vol:.1f}×" if vol else "—"
+            flow_str   = f"{flow:.1f}:1" if flow else "—"
+            price_str  = f"${price:.2f}" if price else "—"
+
+            eod_rows_html += f"""
+            <tr>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
+                <span style="font-size:14px;font-weight:800;color:#f1f5f9;">{status_dot} {ticker}</span>
+                <span style="display:block;font-size:10px;color:#64748b;margin-top:1px;">{price_str} · EOD score {score:.0f}</span>
+                <span style="display:block;margin-top:2px;">{status_lbl}</span>
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;white-space:nowrap;">
+                <span style="font-weight:700;color:{chg_color};">{chg_str if conf else "—"}</span>
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#a78bfa;">{vol_str}</span>
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#f59e0b;">{flow_str}</span>
+              </td>
+            </tr>"""
+
+        # ── Build Section 2: Fresh morning finds ─────────────────────────────
+        fresh_rows_html = ""
+        for i, s in enumerate(fresh):
             ticker = s.get("ticker", "")
             score  = s.get("standout_score", 0)
             chg    = s.get("price_chg_pct", 0) or 0
             vol    = s.get("rel_vol", 0) or 0
             price  = s.get("price", 0) or 0
             flow   = s.get("flow_ratio", 0) or 0
-            medal  = {1:"🥇",2:"🥈",3:"🥉"}.get(rank, f"#{rank}")
-            chg_color = "#22c55e" if chg >= 0 else "#ef4444"
-            chg_str   = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
+            medal  = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
+            chg_color  = "#22c55e" if chg >= 0 else "#ef4444"
+            chg_str    = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
             score_color = "#22c55e" if score >= 50 else "#06b6d4" if score >= 20 else "#f59e0b"
-            rows_html += f"""
+
+            fresh_rows_html += f"""
             <tr>
               <td style="padding:9px 14px;border-bottom:1px solid #1e293b;">
-                <span style="font-size:14px;font-weight:800;color:#f1f5f9;">{medal} {ticker}</span>
+                <span style="font-size:13px;font-weight:800;color:#f1f5f9;">{medal} {ticker}</span>
                 <span style="display:block;font-size:10px;color:#64748b;">${price:.2f}</span>
               </td>
               <td style="padding:9px 8px;border-bottom:1px solid #1e293b;text-align:center;">
@@ -1154,11 +1250,14 @@ def _send_morning_inflows_email() -> None:
               </td>
             </tr>"""
 
-        html = f"""
-        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
-          <div style="margin-bottom:20px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 Morning Standout Flow</span>
-            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(standouts)} picks · {date_str}</span>
+        confirmed_count = sum(1 for e in eod_annotated if e["confirming"])
+
+        fresh_section_html = ""
+        if fresh_rows_html:
+            fresh_section_html = f"""
+          <div style="margin-top:24px;margin-bottom:8px;">
+            <span style="font-size:16px;font-weight:800;color:#f1f5f9;">✨ Fresh Morning Finds</span>
+            <span style="display:block;font-size:11px;color:#64748b;margin-top:2px;">New signals not on last night's list</span>
           </div>
           <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #1e293b;margin-bottom:16px;">
             <tr style="background:#0f172a;">
@@ -1168,9 +1267,44 @@ def _send_morning_inflows_email() -> None:
               <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Rel Vol</th>
               <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Flow</th>
             </tr>
-            {rows_html}
+            {fresh_rows_html}
+          </table>"""
+
+        no_eod_msg = ""
+        if not eod_annotated:
+            no_eod_msg = '<p style="color:#64748b;font-size:12px;text-align:center;padding:16px 0;">No EOD picks from last night — market may have been closed.</p>'
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">☀️ Morning Scan · {date_str}</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">
+              {confirmed_count} of {len(eod_annotated)} {eod_label} picks confirming
+              {f'· {len(fresh)} fresh find{"s" if len(fresh)!=1 else ""}' if fresh else ''}
+            </span>
+          </div>
+
+          <div style="margin-bottom:8px;">
+            <span style="font-size:16px;font-weight:800;color:#f1f5f9;">📋 {eod_label} EOD Picks — Opening Action</span>
+            <span style="display:block;font-size:11px;color:#64748b;margin-top:2px;">
+              <span style="color:#22c55e;">●</span> Confirming = showing in morning scanner &nbsp;
+              <span style="color:#475569;">○</span> Quiet = no signal yet
+            </span>
+          </div>
+          {no_eod_msg}
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #1e293b;margin-bottom:4px;">
+            <tr style="background:#0f172a;">
+              <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;text-transform:uppercase;">Ticker</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Chg%</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Rel Vol</th>
+              <th style="padding:8px 8px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Flow</th>
+            </tr>
+            {eod_rows_html}
           </table>
-          <div style="text-align:center;margin-bottom:16px;">
+
+          {fresh_section_html}
+
+          <div style="text-align:center;margin:20px 0 16px;">
             <a href="{base_url}/stock-scanner/" style="background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Open Scanner →</a>
           </div>
           <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
@@ -1179,11 +1313,15 @@ def _send_morning_inflows_email() -> None:
         </div>"""
 
         sent = 0
-        subject = f"🔥 Morning Flow: {len(standouts)} Standout{'s' if len(standouts)!=1 else ''} · {date_str}"
+        subject = (
+            f"☀️ Morning: {confirmed_count}/{len(eod_annotated)} EOD picks confirming"
+            + (f" · {len(fresh)} fresh find{'s' if len(fresh)!=1 else ''}" if fresh else "")
+            + f" · {date_str}"
+        )
         for sub in subs:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
-        print(f"[morning_email] sent to {sent}/{len(subs)} subscribers — {len(standouts)} standouts")
+        print(f"[morning_email] sent to {sent}/{len(subs)} — {confirmed_count}/{len(eod_annotated)} EOD confirming, {len(fresh)} fresh finds")
     except Exception as _e:
         import traceback
         print(f"[morning_email] error: {_e}\n{traceback.format_exc()}")
