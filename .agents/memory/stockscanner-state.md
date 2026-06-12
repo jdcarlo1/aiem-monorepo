@@ -136,38 +136,50 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - Keep under ~100 tickers — each requires individual yfinance call, 350+ would cause scan overlap
 - Grow by adding tickers user reports each evening that the scanner missed
 
-## June 11 EOD Watchlist → Check June 12 at 9:40 AM — RANK ALL 15
-User wants ALL 15 picks ranked at 9:40 AM June 12. Pull live prices, grade each signal.
+## June 11 EOD Production Picks — My June 12 Morning Predictions (LOCKED IN)
+Production scan (3:45 PM ET, June 11) found these 15 names. User will report actuals June 12.
 
-### Accumulation picks (scan saved ~10 PM ET June 11):
-| Ticker | Close   | Chg%   | Score | CR  | EODvol | Flow   |
-|--------|---------|--------|-------|-----|--------|--------|
-| ANGH   | $4.97   | +14.8% | 209   | 99% | 14.1×  | 99:1   |
-| ESGLF  | $0.19   | +30.8% | 138   | 88% | 10.0×  | 99:1   |
-| RNAC   | $8.06   | +9.1%  | 45    | 75% | 7.6×   | 4.8:1  |
-| MMYT   | $41.75  | +5.9%  | 44    | 99% | 8.7×   | 3.4:1  |
-| RDNW   | $7.78   | +0.2%  | 35    | 64% | 4.2×   | 7.3:1  |
-| TWST   | $74.07  | +10.4% | 26    | 96% | 6.1×   | 2.9:1  |
-| RXST   | $4.79   | +2.1%  | 24    | 74% | 6.2×   | 3.2:1  |
-| ICHR   | $84.03  | +19.8% | 24    | 95% | 5.6×   | 2.9:1  |
-| MATV   | $7.91   | -1.5%  | 23    | 84% | 5.0×   | 3.5:1  |
-| ALM    | $17.07  | +12.1% | 21    | 97% | 2.9×   | 5.0:1  |
-| GLIBA  | $21.11  | -0.4%  | 20    | 53% | 4.3×   | 4.6:1  |
-| ACLS   | $173.62 | +12.0% | 20    | 99% | 3.0×   | 4.5:1  |
-| ENTA   | $11.52  | -1.5%  | 20    | 60% | 3.8×   | 4.7:1  |
-| MNRO   | $16.08  | +13.2% | 20    | 99% | 4.0×   | 3.3:1  |
-| ELMD   | $37.81  | +3.7%  | 19    | 88% | 4.6×   | 2.9:1  |
+### Raw production data:
+| Ticker | Close    | Chg%   | EODvol | LateFlow | CR    | Cap($M)  |
+|--------|----------|--------|--------|----------|-------|----------|
+| SMSI   | $4.17    | +18.9% | 28.5×  | 6.3      | 1.000 | $23M     |
+| TUYA   | $2.20    | +15.8% | 27.7×  | 6.4      | 0.926 | $1,349M  |
+| UTSI   | $3.29    | +9.1%  | 15.1×  | MAX(99)  | 0.905 | $31M     |
+| ANGH   | $4.97    | +14.8% | 14.1×  | MAX(99)  | 0.988 | $45M     |
+| MHH    | $7.84    | +18.8% | 15.6×  | 4.4      | 0.929 | $95M     |
+| MBX    | $37.26   | +20.8% | 12.1×  | 3.5      | 1.000 | $1,773M  |
+| ICHR   | $84.03   | +19.8% | 5.6×   | 2.9      | 0.952 | $2,930M  |
+| PICS   | $10.83   | +15.8% | 7.2×   | 2.1      | 0.988 | $1,402M  |
+| ALM    | $17.07   | +12.1% | 2.9×   | 5.0      | 0.969 | $4,844M  |
+| ONTO   | $303.61  | +16.2% | 4.3×   | 3.1      | 0.993 | $15,099M |
+| NUAI   | $5.47    | +24.2% | 2.6×   | 3.6      | 0.995 | $553M    |
+| IMOS   | $63.69   | +15.6% | 3.4×   | 2.6      | 0.988 | $2,217M  |
+| AIP    | $37.31   | +12.2% | 4.3×   | 2.0      | 0.946 | $1,723M  |
+| PGEN   | $4.53    | +15.6% | 3.7×   | 2.3      | 0.936 | $1,615M  |
+| W      | $77.71   | +12.6% | 3.8×   | 2.1      | 0.992 | $10,254M |
 
-No squeeze setups tonight.
+### MY PREDICTED RANKING (biggest % gain June 12 morning, best→worst):
+1. SMSI  — $23M micro, 28.5× vol, closed AT HOD, tiny float
+2. ANGH  — $45M, late flow MAXED, 14× vol, 0.988 close
+3. UTSI  — $31M micro, late flow MAXED, 15× vol (weaker close 0.905)
+4. MHH   — $95M, 15.6× vol, +18.8%, solid across all metrics
+5. TUYA  — 27.7× vol extraordinary for $1.35B; Chinese ADR risk
+6. MBX   — closed AT HOD (1.0), 12× vol, +20.8%; limited by $1.77B cap
+7. NUAI  — +24% already but only 2.6× vol; news-driven, more fade risk
+8. ICHR  — semi sector play, 5.6× vol, strong close; $2.93B limits % ceiling
+9. PICS  — solid signals, $1.4B cap
+10. IMOS  — clean close, $2.2B cap
+11. ONTO  — large cap $15B, ceiling limited
+12. ALM   — $4.84B, lower vol
+13. W     — $10.25B Wayfair, too big for big %
+14. PGEN  — weaker close 0.936
+15. AIP   — weakest late flow (2.0), weakest close (0.946)
 
-### Morning ranking rules (9:40 AM June 12):
-- Pull live price for each ticker via yfinance
-- Compute gap% = (live - close) / close × 100
-- **Skip** if gap > +5% before entry — edge already captured, too risky to chase
-- **Strong** = gap ≤5% AND volume already running above average
-- **Weak** = gap > +5% OR volume thin OR reversed from open
-- Rank by: score × (1 if gap≤5% else 0.3) — punish chasers
-- Also flag: ESGLF is a penny stock ($0.19) — skip if spread is wide
+### Key reasoning:
+- Top 3 are all micro/small cap ($23M–$95M) with MAXED or near-maxed late flow — these produce 15-40% morning gaps
+- TUYA drops to #5 despite huge volume because Chinese ADR = noisy/unreliable continuation
+- Large caps (ONTO, W, ALM) physically can't make big % moves on accumulation alone
+- Post-mortem goal: find which metric was most predictive of actual performance
 
 ## SMS / Twilio (PENDING)
 - User has not yet signed up for Twilio
