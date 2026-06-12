@@ -357,15 +357,16 @@ try:
         id="ai_trades_auto",
         replace_existing=True,
     )
-    # Morning inflows emails: 1 min after each scan wave so DB is fully written
-    # Waves: 9:45, 10:00, 10:15, 10:30 → emails at 9:46, 10:01, 10:16, 10:31
+    # Morning inflows emails: fired after each scan wave so DB is fully written
+    # First wave: 9:35 AM (4 min after 9:31 early scan) — early entry window
+    # Subsequent: 10:01, 10:16, 10:31 AM for updated confirmation waves
     def _run_morning_inflows_email():
         try:
             import threading as _thr_mi
             _thr_mi.Thread(target=_send_morning_inflows_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] morning inflows email error: {e}")
-    for _mi_eh, _mi_em in [(9, 46), (10, 1), (10, 16), (10, 31)]:
+    for _mi_eh, _mi_em in [(9, 35), (10, 1), (10, 16), (10, 31)]:
         _scheduler.add_job(
             _run_morning_inflows_email,
             CronTrigger(day_of_week="mon-fri", hour=_mi_eh, minute=_mi_em, timezone=_ET),
