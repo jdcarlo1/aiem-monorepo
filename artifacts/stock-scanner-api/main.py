@@ -357,20 +357,22 @@ try:
         id="ai_trades_auto",
         replace_existing=True,
     )
-    # Morning inflows email: 10:05 AM ET — after the 10:00 AM standout scan completes
+    # Morning inflows emails: 1 min after each scan wave so DB is fully written
+    # Waves: 9:45, 10:00, 10:15, 10:30 → emails at 9:46, 10:01, 10:16, 10:31
     def _run_morning_inflows_email():
         try:
             import threading as _thr_mi
             _thr_mi.Thread(target=_send_morning_inflows_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] morning inflows email error: {e}")
-    _scheduler.add_job(
-        _run_morning_inflows_email,
-        CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=_ET),
-        id="morning_inflows_email",
-        replace_existing=True,
-    )
-    # EOD accum picks email: 4:10 PM ET — after 3:45/3:55 PM scans have saved all picks
+    for _mi_eh, _mi_em in [(9, 46), (10, 1), (10, 16), (10, 31)]:
+        _scheduler.add_job(
+            _run_morning_inflows_email,
+            CronTrigger(day_of_week="mon-fri", hour=_mi_eh, minute=_mi_em, timezone=_ET),
+            id=f"morning_inflows_email_{_mi_eh}_{_mi_em}",
+            replace_existing=True,
+        )
+    # EOD accum picks email: 3:46 PM ET — 1 min after the 3:45 PM scan saves picks
     def _run_eod_accum_email_job():
         try:
             import threading as _thr_ea
@@ -379,7 +381,7 @@ try:
             print(f"[scheduler] EOD accum email error: {e}")
     _scheduler.add_job(
         _run_eod_accum_email_job,
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=46, timezone=_ET),
         id="eod_accum_email",
         replace_existing=True,
     )
