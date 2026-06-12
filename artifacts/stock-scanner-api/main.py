@@ -2709,7 +2709,7 @@ def _fetch_market_movers(count=75):
             "Accept": "application/json",
             "Referer": "https://www.barchart.com/stocks/advances",
         }
-        for _bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us"):
+        for _bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us", "stocks.advances.midcap.us", "stocks.advances.largecap.us"):
             try:
                 _bc_url = (
                     "https://www.barchart.com/proxies/core-api/v1/quotes/get"
@@ -11551,7 +11551,7 @@ def morning_inflows():
             "Accept": "application/json",
             "Referer": "https://www.barchart.com/stocks/advances",
         }
-        for _bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us"):
+        for _bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us", "stocks.advances.midcap.us", "stocks.advances.largecap.us"):
             try:
                 _bc_url = (
                     "https://www.barchart.com/proxies/core-api/v1/quotes/get"
