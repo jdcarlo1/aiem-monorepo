@@ -148,7 +148,7 @@ def run_sms_alert_scan():
                 rv     = float(s.get("rel_vol") or 0)
                 score  = float(s.get("score") or 0)
                 price  = float(s.get("price") or 0)
-                if chg >= 10 and rv >= 2:
+                if chg >= 7.5 and rv >= 2:
                     candidates[t] = {"price": price, "chg_pct": chg, "rel_vol": rv, "score": score, "reason": "standout"}
     except Exception as e:
         print(f"[sms_alerts] cache read error: {e}")
@@ -180,7 +180,7 @@ def run_sms_alert_scan():
                     for row in r.json().get("data", []):
                         sym = (row.get("symbol") or "").strip().upper()
                         pct = float(row.get("percentChange") or 0)
-                        if sym and len(sym) <= 5 and "." not in sym and pct >= 10:
+                        if sym and len(sym) <= 5 and "." not in sym and pct >= 7.5:
                             bc_syms.append(sym)
             except Exception:
                 pass
@@ -205,7 +205,7 @@ def run_sms_alert_scan():
                 if price <= 0:
                     return None
                 chg_pct   = (price - prev) / prev * 100
-                if chg_pct < 10:
+                if chg_pct < 7.5:
                     return None
                 proj_vol  = cum_vol / day_frac
                 rel_vol   = proj_vol / avg
