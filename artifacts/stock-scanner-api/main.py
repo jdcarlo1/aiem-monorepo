@@ -466,6 +466,40 @@ try:
         id="sc_outcomes_update",
         replace_existing=True,
     )
+    # Position monitor: poll Gmail for TRADE: emails every 15 min (market hours)
+    def _run_poll_trade_emails():
+        try:
+            import threading as _thr_pt
+            _thr_pt.Thread(target=_poll_trade_emails, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] poll_trade_emails error: {e}")
+    for _pm_h in range(9, 17):
+        for _pm_m in [0, 15, 30, 45]:
+            if _pm_h == 9 and _pm_m < 30:
+                continue
+            _scheduler.add_job(
+                _run_poll_trade_emails,
+                CronTrigger(day_of_week="mon-fri", hour=_pm_h, minute=_pm_m, timezone=_ET),
+                id=f"poll_trade_emails_{_pm_h}_{_pm_m}",
+                replace_existing=True,
+            )
+    # Position monitor: check exit signals every 30 min (market hours)
+    def _run_monitor_positions():
+        try:
+            import threading as _thr_mp
+            _thr_mp.Thread(target=_monitor_open_positions, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] monitor_positions error: {e}")
+    for _mo_h in range(9, 17):
+        for _mo_m in [0, 30]:
+            if _mo_h == 9 and _mo_m < 30:
+                continue
+            _scheduler.add_job(
+                _run_monitor_positions,
+                CronTrigger(day_of_week="mon-fri", hour=_mo_h, minute=_mo_m, timezone=_ET),
+                id=f"monitor_positions_{_mo_h}_{_mo_m}",
+                replace_existing=True,
+            )
     # EOD sweep outcomes: Mon-Fri 4:35 PM ET — fills T+1/T+3/T+5 closing prices
     def _run_eod_sweep_outcomes():
         try:
@@ -1993,6 +2027,424 @@ def _send_high_conviction_email() -> None:
     except Exception as _e:
         import traceback
         print(f"[hc_calls_email] error: {_e}\n{traceback.format_exc()}")
+
+
+# ─── Position Monitor: email-in trade logging + exit signal system ─────────────
+
+def _init_position_monitor_table():
+    try:
+        import psycopg2 as _pg2, os as _os2
+        db = _os2.environ["DATABASE_URL"]
+        with _pg2.connect(db) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS position_monitor (
+                    id              SERIAL PRIMARY KEY,
+                    ticker          TEXT NOT NULL,
+                    direction       TEXT NOT NULL DEFAULT 'LONG',
+                    entry_price     NUMERIC,
+                    strike          NUMERIC,
+                    expiry          TEXT,
+                    email_source    TEXT,
+                    logged_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    status          TEXT NOT NULL DEFAULT 'OPEN',
+                    exit_alerted_at TIMESTAMPTZ,
+                    exit_reason     TEXT
+                );
+            """)
+            conn.commit()
+        print("[position_monitor] table ready")
+    except Exception as e:
+        print(f"[position_monitor] init error: {e}")
+
+_init_position_monitor_table()
+
+
+def _parse_trade_command(subject: str) -> dict | None:
+    """Parse 'TRADE: BUY MSFT', 'TRADE: BUY MSFT 420c 6/20', 'TRADE: SELL AAPL'."""
+    import re
+    m = re.match(
+        r"TRADE:\s*(BUY|SELL|CLOSE)\s+([A-Z]+)"
+        r"(?:\s+([\d.]+)[cC](?:\s+(\d{1,2}/\d{1,2}(?:/\d{2,4})?))?)??"
+        r"(?:\s+([\d.]+))?",
+        subject.strip().upper()
+    )
+    if not m:
+        return None
+    direction  = m.group(1)
+    ticker     = m.group(2)
+    strike     = float(m.group(3)) if m.group(3) else None
+    raw_exp    = m.group(4)
+    entry      = float(m.group(5)) if m.group(5) else None
+
+    expiry = None
+    if raw_exp:
+        from datetime import datetime as _dt
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%m/%d"):
+            try:
+                parsed = _dt.strptime(raw_exp, fmt)
+                if fmt == "%m/%d":
+                    parsed = parsed.replace(year=_dt.now().year)
+                expiry = parsed.strftime("%Y-%m-%d")
+                break
+            except ValueError:
+                continue
+
+    return {"ticker": ticker, "direction": direction,
+            "strike": strike, "expiry": expiry, "entry_price": entry}
+
+
+def _poll_trade_emails() -> None:
+    """Poll Gmail IMAP for TRADE: emails and log positions to position_monitor."""
+    import imaplib, email as _email_lib, os as _os
+    from email.header import decode_header as _dh
+    from datetime import datetime as _dt
+
+    user = _os.environ.get("SMTP_USER", "")
+    pwd  = _os.environ.get("SMTP_PASS", "")
+    if not user or not pwd:
+        return
+
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        mail.login(user, pwd)
+        mail.select("INBOX")
+
+        _, data = mail.search(None, 'UNSEEN SUBJECT "TRADE:"')
+        uids = data[0].split()
+        if not uids:
+            mail.logout()
+            return
+
+        from email_alerts import send_email_raw
+        processed = 0
+        for uid in uids:
+            try:
+                _, msg_data = mail.fetch(uid, "(RFC822)")
+                msg = _email_lib.message_from_bytes(msg_data[0][1])
+
+                raw_subj = msg.get("Subject", "")
+                decoded_parts = _dh(raw_subj)
+                subject = "".join(
+                    part.decode(enc or "utf-8") if isinstance(part, bytes) else part
+                    for part, enc in decoded_parts
+                )
+
+                trade = _parse_trade_command(subject)
+                if not trade:
+                    continue
+
+                ticker    = trade["ticker"]
+                direction = trade["direction"]
+
+                if direction in ("SELL", "CLOSE"):
+                    with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE position_monitor
+                            SET status='CLOSED', exit_reason='Manual close via email'
+                            WHERE ticker=%s AND status='OPEN'
+                        """, (ticker,))
+                        conn.commit()
+                    send_email_raw(user,
+                        f"✅ Position Closed: {ticker}",
+                        f"""<div style="background:#0a0f1a;font-family:Arial,sans-serif;padding:20px;color:#f1f5f9;border-radius:8px;">
+                        <b>✅ {ticker} position closed.</b><br><br>
+                        The system will no longer monitor {ticker} for exit signals.
+                        </div>""")
+                    mail.store(uid, "+FLAGS", "\\Seen")
+                    processed += 1
+                    continue
+
+                with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO position_monitor (ticker, direction, entry_price, strike, expiry, email_source)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT DO NOTHING
+                    """, (ticker, "LONG", trade["entry_price"],
+                          trade["strike"], trade["expiry"], subject))
+                    conn.commit()
+
+                parts = [f"<b>{ticker}</b>"]
+                if trade["strike"]: parts.append(f"${trade['strike']:.0f}c")
+                if trade["expiry"]:
+                    try:
+                        from datetime import datetime as _dx
+                        parts.append(_dx.strptime(trade["expiry"], "%Y-%m-%d").strftime("exp %b %d"))
+                    except Exception:
+                        parts.append(trade["expiry"])
+                if trade["entry_price"]: parts.append(f"@ ${trade['entry_price']:.2f}")
+                pos_str = " ".join(parts)
+
+                send_email_raw(user,
+                    f"✅ Position Logged: {ticker} — monitoring for exit signals",
+                    f"""<div style="background:#0a0f1a;font-family:Arial,sans-serif;padding:20px;color:#f1f5f9;border-radius:8px;">
+                    <p style="font-size:16px;font-weight:700;color:#22c55e;">✅ Position logged: {pos_str}</p>
+                    <p style="color:#94a3b8;font-size:13px;">The scanner is now watching this position and will email you when exit signals converge (score ≥ 3).</p>
+                    <p style="color:#64748b;font-size:11px;margin-top:12px;">To close manually, send: <code>TRADE: CLOSE {ticker}</code></p>
+                    </div>""")
+
+                mail.store(uid, "+FLAGS", "\\Seen")
+                processed += 1
+            except Exception as _e:
+                print(f"[poll_trade_emails] uid {uid} error: {_e}")
+
+        mail.logout()
+        if processed:
+            print(f"[poll_trade_emails] processed {processed} trade email(s)")
+    except Exception as e:
+        import traceback
+        print(f"[poll_trade_emails] error: {e}\n{traceback.format_exc()}")
+
+
+def _ema_list(values: list, period: int) -> list:
+    k = 2.0 / (period + 1)
+    ema = [values[0]]
+    for v in values[1:]:
+        ema.append(v * k + ema[-1] * (1 - k))
+    return ema
+
+
+def _rsi14(closes: list) -> float:
+    if len(closes) < 15:
+        return 50.0
+    deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
+    gains  = [max(d, 0.0) for d in deltas]
+    losses = [abs(min(d, 0.0)) for d in deltas]
+    ag = sum(gains[:14]) / 14
+    al = sum(losses[:14]) / 14
+    for i in range(14, len(deltas)):
+        ag = (ag * 13 + gains[i]) / 14
+        al = (al * 13 + losses[i]) / 14
+    return round(100 - 100 / (1 + ag / al), 1) if al > 0 else 100.0
+
+
+def _check_exit_signals(ticker: str, entry_price: float | None,
+                        strike: float | None, expiry: str | None) -> tuple[int, list]:
+    """
+    Returns (score, signal_list). Fire exit alert when score >= 3.
+    Conservative — requires multiple confirming signals for ~90% accuracy.
+    """
+    import yfinance as yf
+    score   = 0
+    signals = []
+
+    # ── 1. Unusual PUT flow on this ticker (+2 pts) ──────────────────────────
+    try:
+        tk   = yf.Ticker(ticker)
+        opts = tk.options
+        if opts:
+            for exp in opts[:3]:
+                try:
+                    puts = tk.option_chain(exp).puts
+                    for _, row in puts.iterrows():
+                        vol = int(row.get("volume") or 0)
+                        oi  = int(row.get("openInterest") or 0)
+                        if oi < 10 or vol < 20:
+                            continue
+                        voi = vol / oi
+                        bid = float(row.get("bid") or 0)
+                        ask = float(row.get("ask") or 0)
+                        if bid <= 0 or ask <= 0:
+                            continue
+                        mid  = (bid + ask) / 2
+                        prem = int(mid * vol * 100)
+                        if voi >= 3.0 and prem >= 50_000:
+                            strike_p = float(row["strike"])
+                            signals.append(
+                                f"🔴 PUT flow spike on {ticker}: ${strike_p:.0f} put, "
+                                f"Vol/OI {voi:.1f}×, ${prem/1000:.0f}K premium — smart money hedging/shorting"
+                            )
+                            score += 2
+                            raise StopIteration
+                except StopIteration:
+                    break
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # ── 2. Call flow disappeared from unusual_calls_log (+2 pts) ─────────────
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                  COUNT(*) FILTER (WHERE last_seen >= CURRENT_DATE)            AS today,
+                  COUNT(*) FILTER (WHERE last_seen >= CURRENT_DATE - INTERVAL '2 days'
+                                   AND last_seen <  CURRENT_DATE)              AS yesterday
+                FROM unusual_calls_log WHERE ticker = %s
+            """, (ticker,))
+            today_cnt, yest_cnt = cur.fetchone()
+        if yest_cnt and yest_cnt > 0 and today_cnt == 0:
+            signals.append(
+                f"📉 Call flow gone: {ticker} had {yest_cnt} call signal(s) yesterday but 0 today — "
+                f"institutional interest evaporated"
+            )
+            score += 2
+    except Exception:
+        pass
+
+    # ── 3 & 4. MACD bearish cross + RSI overbought ───────────────────────────
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(ticker).history(period="60d", interval="1d")
+        if len(hist) >= 30:
+            closes = hist["Close"].tolist()
+            lows   = hist["Low"].tolist()
+            highs  = hist["High"].tolist()
+
+            ema12  = _ema_list(closes, 12)
+            ema26  = _ema_list(closes, 26)
+            macd   = [e12 - e26 for e12, e26 in zip(ema12, ema26)]
+            sig    = _ema_list(macd[25:], 9)
+            macd_r = macd[25:]
+            if len(sig) >= 2:
+                if macd_r[-2] > sig[-2] and macd_r[-1] < sig[-1]:
+                    signals.append(
+                        f"⚡ MACD bearish cross on {ticker} (daily) — momentum just flipped down"
+                    )
+                    score += 1
+
+            rsi = _rsi14(closes)
+            if rsi >= 75:
+                signals.append(
+                    f"📊 RSI overbought: {ticker} RSI={rsi:.0f} — extended, money rotating out"
+                )
+                score += 1
+
+            # ── 5. Weak close yesterday (closing range < 25%) ─────────────
+            if len(closes) >= 2:
+                day_range = highs[-1] - lows[-1]
+                if day_range > 0:
+                    close_range_pct = (closes[-1] - lows[-1]) / day_range
+                    if close_range_pct < 0.25:
+                        signals.append(
+                            f"🕯️ Weak close: {ticker} closed in bottom {close_range_pct*100:.0f}% "
+                            f"of yesterday's range — sellers controlled the close (distribution)"
+                        )
+                        score += 1
+    except Exception:
+        pass
+
+    return score, signals
+
+
+def _send_exit_alert_email(position: dict, signals: list, score: int) -> None:
+    """Send a formatted exit signal alert for a monitored position."""
+    from email_alerts import send_email_raw, smtp_configured
+    import os as _os
+    from datetime import datetime as _dt
+
+    if not smtp_configured():
+        return
+
+    ticker  = position.get("ticker", "")
+    strike  = position.get("strike")
+    expiry  = position.get("expiry", "")
+    entry   = position.get("entry_price")
+    user    = _os.environ.get("SMTP_USER", "")
+    if not user:
+        return
+
+    pos_parts = [f"<b>{ticker}</b>"]
+    if strike:  pos_parts.append(f"${strike:.0f}c")
+    if expiry:
+        try:
+            from datetime import datetime as _dx
+            pos_parts.append(_dx.strptime(expiry, "%Y-%m-%d").strftime("exp %b %d"))
+        except Exception:
+            pos_parts.append(expiry)
+    if entry:   pos_parts.append(f"@ ${entry:.2f}")
+    pos_str = " ".join(pos_parts)
+
+    sig_rows = "".join(
+        f'<div style="background:#0f172a;border-left:3px solid #ef4444;padding:10px 14px;margin-bottom:8px;border-radius:4px;">'
+        f'<span style="font-size:13px;color:#f1f5f9;">{s}</span></div>'
+        for s in signals
+    )
+
+    conviction = "STRONG EXIT" if score >= 5 else "HIGH EXIT" if score >= 4 else "EXIT"
+    conv_color = "#ef4444" if score >= 5 else "#f59e0b" if score >= 4 else "#22c55e"
+    date_str   = _dt.now().strftime("%B %d, %Y %I:%M %p ET")
+
+    html = f"""
+    <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+      <div style="margin-bottom:16px;">
+        <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🚨 Exit Signal: {ticker}</span>
+        <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{date_str}</span>
+      </div>
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:14px;color:#94a3b8;">Position: {pos_str}</span>
+        <span style="font-size:12px;font-weight:700;color:{conv_color};background:{conv_color}22;padding:3px 10px;border-radius:4px;">{conviction} · Score {score}/7</span>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:11px;color:#475569;text-transform:uppercase;margin-bottom:8px;">Signals firing ({len(signals)} of 5)</div>
+        {sig_rows}
+      </div>
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+        <p style="font-size:13px;color:#94a3b8;margin:0;">
+          <b style="color:#f1f5f9;">Recommended action:</b>
+          {'Consider exiting the full position — multiple strong signals confirming.' if score >= 4
+           else 'Consider tightening your stop or taking partial profits — signals building.'}
+        </p>
+      </div>
+      <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+        StockScanner AI position monitor · Reply <code>TRADE: CLOSE {ticker}</code> to stop monitoring
+      </p>
+    </div>"""
+
+    send_email_raw(user, f"🚨 Exit Signal: {ticker} — {conviction} (score {score}/7)", html)
+    print(f"[exit_alert] sent for {ticker} score={score} signals={len(signals)}")
+
+
+def _monitor_open_positions() -> None:
+    """Check all OPEN positions for exit signals. Alert when score >= 3."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ticker, direction, entry_price::float,
+                       strike::float, expiry, logged_at, exit_alerted_at
+                FROM position_monitor
+                WHERE status = 'OPEN'
+            """)
+            cols = ["id","ticker","direction","entry_price","strike","expiry","logged_at","exit_alerted_at"]
+            positions = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+        if not positions:
+            return
+
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc)
+
+        for pos in positions:
+            ticker = pos["ticker"]
+            last_alert = pos.get("exit_alerted_at")
+
+            if last_alert:
+                if hasattr(last_alert, "tzinfo") and last_alert.tzinfo:
+                    since = (now - last_alert).total_seconds()
+                else:
+                    since = (now - last_alert.replace(tzinfo=_tz.utc)).total_seconds()
+                if since < 14400:
+                    continue
+
+            score, signals = _check_exit_signals(
+                ticker, pos["entry_price"], pos["strike"], pos["expiry"]
+            )
+
+            if score >= 3:
+                _send_exit_alert_email(pos, signals, score)
+                with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE position_monitor
+                        SET exit_alerted_at = NOW(),
+                            exit_reason = %s
+                        WHERE id = %s
+                    """, ("; ".join(signals[:2]), pos["id"]))
+                    conn.commit()
+
+        print(f"[position_monitor] checked {len(positions)} position(s)")
+    except Exception as e:
+        import traceback
+        print(f"[position_monitor] error: {e}\n{traceback.format_exc()}")
 
 
 def _fetch_market_movers(count=75):
