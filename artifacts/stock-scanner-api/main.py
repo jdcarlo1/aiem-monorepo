@@ -2628,16 +2628,17 @@ def _monitor_open_positions() -> None:
 
 def _fetch_market_movers(count=75):
     """
-    Pull today's top % gainers and most-active stocks from Yahoo Finance screener.
+    Pull today's top % gainers and most-active stocks from Yahoo Finance screener
+    plus Barchart micro-cap + small-cap advances.
     Returns a deduplicated list of tickers, movers first — these get prepended to
-    every unusual-calls scan so big-move stocks (like earnings beats) are always caught
-    even if they're buried deep in the DEFAULT_LEADERBOARD universe.
+    every unusual-calls scan so big-move stocks are always caught.
     """
     tickers = []
     try:
         import requests as _r
         hdrs = {"User-Agent": "Mozilla/5.0 (compatible; StockScannerBot/1.0)"}
-        for scr in ("day_gainers", "most_actives"):
+        # Yahoo predefined screeners
+        for scr in ("day_gainers", "most_actives", "small_cap_gainers", "aggressive_small_caps"):
             try:
                 url = (
                     f"https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
@@ -2652,8 +2653,29 @@ def _fetch_market_movers(count=75):
                 )
                 for q in quotes:
                     sym = q.get("symbol", "")
-                    if sym and "^" not in sym and "/" not in sym:
+                    if sym and "^" not in sym and "/" not in sym and "." not in sym:
                         tickers.append(sym)
+            except Exception:
+                pass
+        # Barchart micro-cap + small-cap advances (catches tiny movers Yahoo lags on)
+        _bc_hdrs = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://www.barchart.com/stocks/advances",
+        }
+        for _bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us"):
+            try:
+                _bc_url = (
+                    "https://www.barchart.com/proxies/core-api/v1/quotes/get"
+                    f"?fields=symbol%2CpercentChange%2Cvolume&"
+                    f"list={_bc_list}&orderBy=percentChange&orderDir=desc&raw=1&limit=100"
+                )
+                _bc_r = _r.get(_bc_url, headers=_bc_hdrs, timeout=8)
+                if _bc_r.ok:
+                    for _row in _bc_r.json().get("data", []):
+                        sym = (_row.get("symbol") or "").strip().upper()
+                        if sym and len(sym) <= 5 and "." not in sym:
+                            tickers.append(sym)
             except Exception:
                 pass
     except Exception:
@@ -11390,7 +11412,7 @@ def morning_inflows():
         _eq = _yf_mi.EquityQuery("and", [
             _yf_mi.EquityQuery("gt",  ["percentchange",    4.9]),
             _yf_mi.EquityQuery("eq",  ["region",           "us"]),
-            _yf_mi.EquityQuery("gte", ["intradaymarketcap", 10_000_000]),  # ≥$10M mkt cap
+            _yf_mi.EquityQuery("gte", ["intradaymarketcap", 500_000]),  # ≥$500K — catches tiny micro-caps
         ])
         _offset = 0
         while True:
@@ -11473,10 +11495,40 @@ def morning_inflows():
     except Exception as _de:
         print(f"[morning_inflows] db: {_de}")
 
+    # ── PHASE 1d: Barchart micro-cap + small-cap top movers ───────────────────
+    # Barchart's screener catches movers that Yahoo may lag on or filter out.
+    # We pull their public advances list for micro-cap and small-cap stocks.
+    _barchart_syms = []
+    try:
+        _bc_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://www.barchart.com/stocks/advances",
+        }
+        for _bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us"):
+            try:
+                _bc_url = (
+                    "https://www.barchart.com/proxies/core-api/v1/quotes/get"
+                    f"?fields=symbol%2CpercentChange%2Cvolume%2CaverageVolume&"
+                    f"list={_bc_list}&orderBy=percentChange&orderDir=desc&raw=1&limit=100"
+                )
+                _bc_r = _req_mi.get(_bc_url, headers=_bc_headers, timeout=8)
+                if _bc_r.ok:
+                    _bc_data = _bc_r.json().get("data", [])
+                    for _row in _bc_data:
+                        _sym = (_row.get("symbol") or "").strip().upper()
+                        if _sym and len(_sym) <= 5 and "." not in _sym:
+                            _barchart_syms.append(_sym)
+            except Exception as _bc_e:
+                print(f"[morning_inflows] barchart {_bc_list}: {_bc_e}")
+        print(f"[morning_inflows] barchart: {len(_barchart_syms)} micro+small-cap movers")
+    except Exception as _bce:
+        print(f"[morning_inflows] barchart feed error: {_bce}")
+
     # Merge all sources: pre-filtered screen results first (highest confidence),
-    # then supplementary screeners + our tracked tickers.
+    # then Barchart movers, supplementary screeners + our tracked tickers.
     universe = list(dict.fromkeys(
-        list(_screen_quotes.keys()) + _supp_syms + _tracked
+        list(_screen_quotes.keys()) + _barchart_syms + _supp_syms + _tracked
     ))
     universe = [t for t in universe if t and len(t) <= 5]
     print(f"[morning_inflows] universe after merge: {len(universe)} tickers")
