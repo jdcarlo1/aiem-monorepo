@@ -358,7 +358,7 @@ try:
         replace_existing=True,
     )
     # Morning inflows emails: fired after each scan wave so DB is fully written
-    # First wave: 9:35 AM (4 min after 9:31 early scan) — early entry window
+    # 9:36 AM = 1 min after the 9:35 double-pass scan — double-confirmed early entry
     # Subsequent: 10:01, 10:16, 10:31 AM for updated confirmation waves
     def _run_morning_inflows_email():
         try:
@@ -366,7 +366,7 @@ try:
             _thr_mi.Thread(target=_send_morning_inflows_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] morning inflows email error: {e}")
-    for _mi_eh, _mi_em in [(9, 35), (10, 1), (10, 16), (10, 31)]:
+    for _mi_eh, _mi_em in [(9, 36), (10, 1), (10, 16), (10, 31)]:
         _scheduler.add_job(
             _run_morning_inflows_email,
             CronTrigger(day_of_week="mon-fri", hour=_mi_eh, minute=_mi_em, timezone=_ET),
@@ -643,14 +643,15 @@ try:
         replace_existing=True,
     )
 
-    # Morning standout inflows: 9:31 AM (early-warning) + 9:45 AM + 10:30 AM ET
+    # Morning standout inflows: 9:31 AM (pass 1) + 9:35 AM (pass 2) + 9:45 AM + later waves
+    # Double-pass: 9:31 catches early movers; 9:35 re-scores with 5 min real data → email at 9:36
     def _run_morning_inflows():
         try:
             with app.test_request_context("/stock-api/morning-inflows?bust=1"):
                 morning_inflows()
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
-    for _mi_h, _mi_m in [(9, 31), (9, 45), (10, 0), (10, 15), (10, 30), (12, 0)]:
+    for _mi_h, _mi_m in [(9, 31), (9, 35), (9, 45), (10, 0), (10, 15), (10, 30), (12, 0)]:
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
