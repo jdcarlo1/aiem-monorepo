@@ -2431,37 +2431,105 @@ def _monitor_open_positions() -> None:
             )
 
             if score >= 3:
-                # ── Shakeout filter ──────────────────────────────────────────
-                # Before alerting, check if price already recovered strongly
-                # from today's intraday low. A >7% bounce = shakeout, not reversal.
-                # Only suppress if the recovery happened within the same session.
-                _suppressed = False
+                # ── Shakeout vs Real Reversal filter ─────────────────────────
+                # Checks 5 intraday fingerprints before firing any alert.
+                # Shakeout = low-volume dip that price has already recovered from.
+                # Real reversal = high-volume break, VWAP rejected, lower lows forming.
+                _suppressed   = False
+                _suppress_why = []
+                _reversal_pts = 0   # accumulate real-reversal evidence
                 try:
                     import yfinance as _yf2
                     _intra = _yf2.Ticker(ticker).history(period="1d", interval="5m")
-                    if len(_intra) >= 3:
-                        _intra_low     = float(_intra["Low"].min())
-                        _intra_current = float(_intra["Close"].iloc[-1])
-                        _intra_high    = float(_intra["High"].max())
-                        _recovery_pct  = (_intra_current - _intra_low) / _intra_low * 100
-                        # Also check if we're near the intraday high (strong continuation)
-                        _from_high_pct = (_intra_high - _intra_current) / _intra_high * 100
+                    if len(_intra) >= 6:
+                        _closes  = _intra["Close"].tolist()
+                        _vols    = _intra["Volume"].tolist()
+                        _highs   = _intra["High"].tolist()
+                        _lows    = _intra["Low"].tolist()
+                        _current = _closes[-1]
+                        _intraday_high = max(_highs)
+                        _intraday_low  = min(_lows)
+
+                        # ── 1. Price recovery from intraday low ───────────────
+                        _recovery_pct = (_current - _intraday_low) / _intraday_low * 100
                         if _recovery_pct >= 7.0:
-                            print(
-                                f"[position_monitor] {ticker} SHAKEOUT suppressed — "
-                                f"recovered {_recovery_pct:.1f}% from intraday low "
-                                f"(low={_intra_low:.2f} → now={_intra_current:.2f})"
+                            _suppress_why.append(
+                                f"price recovered {_recovery_pct:.1f}% from intraday low"
                             )
                             _suppressed = True
-                        elif _from_high_pct < 3.0 and _intra_current > _intra_low * 1.04:
-                            # Price is within 3% of intraday high AND up >4% from low
-                            # — trend still intact, don't panic-sell
-                            print(
-                                f"[position_monitor] {ticker} near intraday high — "
-                                f"suppressing exit (price {_intra_current:.2f}, "
-                                f"high {_intra_high:.2f}, low {_intra_low:.2f})"
+
+                        # ── 2. Near intraday high (trend intact) ──────────────
+                        _from_high_pct = (_intraday_high - _current) / _intraday_high * 100
+                        if _from_high_pct < 3.0 and _recovery_pct > 4.0:
+                            _suppress_why.append(
+                                f"within {_from_high_pct:.1f}% of intraday high"
                             )
                             _suppressed = True
+
+                        # ── 3. VWAP check (price × volume weighted average) ───
+                        _tp   = [(h + l + c) / 3 for h, l, c in zip(_highs, _lows, _closes)]
+                        _cv   = sum(t * v for t, v in zip(_tp, _vols))
+                        _sv   = sum(_vols) or 1
+                        _vwap = _cv / _sv
+                        _above_vwap = _current > _vwap
+                        if _above_vwap:
+                            _suppress_why.append(
+                                f"price ${_current:.2f} above VWAP ${_vwap:.2f} — trend intact"
+                            )
+                            _suppressed = True
+                        else:
+                            # Below VWAP and can't reclaim = real reversal evidence
+                            _vwap_reject_count = sum(
+                                1 for c in _closes[-4:] if c < _vwap
+                            )
+                            if _vwap_reject_count >= 3:
+                                _reversal_pts += 1
+
+                        # ── 4. Volume on down candles vs session average ───────
+                        # Find the 3 biggest down candles (close < open) today
+                        _avg_vol = sum(_vols) / len(_vols) if _vols else 1
+                        _down_candle_vols = [
+                            _vols[i] for i in range(len(_closes))
+                            if i > 0 and _closes[i] < _closes[i-1]
+                        ]
+                        if _down_candle_vols:
+                            _peak_sell_vol = max(_down_candle_vols)
+                            _vol_ratio     = _peak_sell_vol / _avg_vol
+                            if _vol_ratio < 1.5:
+                                # Selling volume was BELOW 1.5× average — weak hands only
+                                _suppress_why.append(
+                                    f"peak sell volume only {_vol_ratio:.1f}× avg "
+                                    f"(low-conviction selling = shakeout)"
+                                )
+                                _suppressed = True
+                            elif _vol_ratio >= 3.0:
+                                # 3× average volume on selling = real distribution
+                                _reversal_pts += 1
+
+                        # ── 5. Successive lower lows (reversal structure) ──────
+                        # Check last 6 candle lows for downtrend structure
+                        _recent_lows = _lows[-6:]
+                        _lower_low_count = sum(
+                            1 for i in range(1, len(_recent_lows))
+                            if _recent_lows[i] < _recent_lows[i-1]
+                        )
+                        if _lower_low_count >= 4:
+                            # 4 of last 5 candles made lower lows = downtrend forming
+                            _reversal_pts += 1
+
+                        # ── Override suppression if multiple reversal signals ──
+                        # Even if price recovered a bit, if 2+ reversal signals
+                        # are firing it's a dead-cat bounce, not a real recovery
+                        if _suppressed and _reversal_pts >= 2:
+                            _suppressed = False
+                            _suppress_why = []
+
+                        if _suppressed:
+                            print(
+                                f"[position_monitor] {ticker} SHAKEOUT — "
+                                + "; ".join(_suppress_why)
+                            )
+
                 except Exception:
                     pass
 
