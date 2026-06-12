@@ -10402,11 +10402,12 @@ def eod_accumulation():
             _yf_ea.EquityQuery("eq",  ["region",           "us"]),
             _yf_ea.EquityQuery("gte", ["intradaymarketcap", 10_000_000]),
         ])
-        _pg_scr = _yf_ea.screen(_eq_eod, sortField="percentchange", sortAsc=False, size=250, offset=0)
-        for _q in (_pg_scr.get("quotes") or []):
-            _sym = _q.get("symbol", "")
-            if _sym and "." not in _sym and len(_sym) <= 5:
-                _ticker_set.add(_sym)
+        for _offset in (0, 250):   # two pages = top 500 gainers
+            _pg_scr = _yf_ea.screen(_eq_eod, sortField="percentchange", sortAsc=False, size=250, offset=_offset)
+            for _q in (_pg_scr.get("quotes") or []):
+                _sym = _q.get("symbol", "")
+                if _sym and "." not in _sym and len(_sym) <= 5:
+                    _ticker_set.add(_sym)
         print(f"[eod_accum] universe after screener: {len(_ticker_set)} tickers")
     except Exception as _e_scr:
         print(f"[eod_accum] screener error: {_e_scr}")
