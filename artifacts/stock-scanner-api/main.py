@@ -1069,7 +1069,42 @@ def _send_eod_accum_email() -> None:
         date_str = _dt.now().strftime("%B %d, %Y")
         base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
 
-        def _row_html(r, rank):
+        # --- Fetch earnings dates concurrently for all picks ---
+        import concurrent.futures as _cf
+        from datetime import timedelta as _td
+        import yfinance as _yf_earn
+
+        def _get_earnings_flag(ticker):
+            try:
+                info = _yf_earn.Ticker(ticker).info
+                ts = info.get("earningsTimestamp") or info.get("earningsDate")
+                if not ts:
+                    return ticker, None
+                import datetime as _dtt
+                ed = _dtt.datetime.fromtimestamp(ts).date()
+                today = _dtt.date.today()
+                days = (ed - today).days
+                if days == 0:
+                    return ticker, "TODAY"
+                elif days == 1:
+                    return ticker, "TOMORROW"
+                elif days == 2:
+                    return ticker, "IN 2 DAYS"
+                return ticker, None
+            except Exception:
+                return ticker, None
+
+        all_tickers = [r[0] for r in rows]
+        earnings_map = {}
+        try:
+            with _cf.ThreadPoolExecutor(max_workers=8) as _pool:
+                for _tkr, _flag in _pool.map(_get_earnings_flag, all_tickers):
+                    if _flag:
+                        earnings_map[_tkr] = _flag
+        except Exception:
+            pass
+
+        def _row_html(r, rank, earnings_flag=None):
             ticker, score, close, chg, vol, lf, cr, cap, sig = r
             chg_str   = f"+{chg:.1f}%" if chg and chg >= 0 else f"{chg:.1f}%"
             chg_color = "#22c55e" if chg and chg >= 0 else "#ef4444"
@@ -1080,11 +1115,20 @@ def _send_eod_accum_email() -> None:
             medal     = {1:"🥇",2:"🥈",3:"🥉"}.get(rank, f"#{rank}")
             cap_str   = f"${cap/1000:.1f}B" if cap and cap >= 1000 else (f"${cap:.0f}M" if cap else "—")
             score_color = "#22c55e" if score and score >= 100 else "#06b6d4" if score and score >= 30 else "#f59e0b"
+            if earnings_flag == "TODAY":
+                earn_badge = '<span style="display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#dc2626;border-radius:3px;padding:1px 5px;margin-top:3px;">⚠️ EARNINGS TODAY — HIGH RISK</span>'
+            elif earnings_flag == "TOMORROW":
+                earn_badge = '<span style="display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#b45309;border-radius:3px;padding:1px 5px;margin-top:3px;">⚠️ EARNINGS TOMORROW</span>'
+            elif earnings_flag == "IN 2 DAYS":
+                earn_badge = '<span style="display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#1d4ed8;border-radius:3px;padding:1px 5px;margin-top:3px;">📅 EARNINGS IN 2 DAYS</span>'
+            else:
+                earn_badge = ""
             return f"""
             <tr>
               <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
                 <span style="font-size:15px;font-weight:800;color:#f1f5f9;">{medal} {ticker}</span>
                 <span style="display:block;font-size:10px;color:#64748b;margin-top:2px;">${close:.2f} · {cap_str}</span>
+                {"<span style='display:block;margin-top:3px;'>" + earn_badge + "</span>" if earn_badge else ""}
               </td>
               <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
                 <span style="font-weight:700;color:{score_color};font-size:16px;">{score_str}</span>
@@ -1108,8 +1152,8 @@ def _send_eod_accum_email() -> None:
               </td>
             </tr>"""
 
-        accum_rows   = "".join(_row_html(r, i+1) for i, r in enumerate(accum))
-        squeeze_rows = "".join(_row_html(r, i+1) for i, r in enumerate(squeeze))
+        accum_rows   = "".join(_row_html(r, i+1, earnings_map.get(r[0])) for i, r in enumerate(accum))
+        squeeze_rows = "".join(_row_html(r, i+1, earnings_map.get(r[0])) for i, r in enumerate(squeeze))
         squeeze_section = ""
         if squeeze_rows:
             squeeze_section = f"""
