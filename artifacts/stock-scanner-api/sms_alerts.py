@@ -181,7 +181,7 @@ def run_sms_alert_scan():
                     for row in r.json().get("data", []):
                         sym = (row.get("symbol") or "").strip().upper()
                         pct = float(row.get("percentChange") or 0)
-                        if sym and len(sym) <= 5 and "." not in sym and pct >= 7.5:
+                        if sym and len(sym) <= 5 and "." not in sym and pct >= 3:
                             bc_syms.append(sym)
             except Exception:
                 pass
@@ -206,12 +206,12 @@ def run_sms_alert_scan():
                 if price <= 0:
                     return None
                 chg_pct   = (price - prev) / prev * 100
-                if chg_pct < 7.5:
+                if chg_pct < 3:
                     return None
                 proj_vol  = cum_vol / day_frac
                 rel_vol   = proj_vol / avg
-                # Lower threshold for Barchart (already pre-screened)
-                min_rv    = 1.5 if chg_pct >= 20 else 2.5
+                # Volume bar scales with move size — early accumulation needs more vol
+                min_rv    = 1.5 if chg_pct >= 20 else 2.0 if chg_pct >= 10 else 3.0
                 if rel_vol < min_rv:
                     return None
                 score     = rel_vol * (chg_pct / 10)
