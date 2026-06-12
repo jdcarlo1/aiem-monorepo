@@ -1232,22 +1232,31 @@ def _send_morning_inflows_email() -> None:
         def _get_premarket(ticker):
             try:
                 import yfinance as _yf3
-                fi = _yf3.Ticker(ticker).fast_info
-                pre   = fi.get("preMarketPrice") or fi.get("postMarketPrice")
-                prev  = fi.get("regularMarketPreviousClose") or fi.get("previousClose")
+                tk_obj = _yf3.Ticker(ticker)
+                fi     = tk_obj.fast_info
+                pre    = fi.get("preMarketPrice") or fi.get("postMarketPrice")
+                prev   = fi.get("regularMarketPreviousClose") or fi.get("previousClose")
+                chg    = None
                 if pre and prev and prev > 0:
-                    return ticker, float(pre), round((float(pre) - float(prev)) / float(prev) * 100, 2)
+                    chg = round((float(pre) - float(prev)) / float(prev) * 100, 2)
+                name = None
+                try:
+                    info = tk_obj.info
+                    name = info.get("shortName") or info.get("longName")
+                except Exception:
+                    pass
+                return ticker, (float(pre) if pre else None), chg, name
             except Exception:
                 pass
-            return ticker, None, None
+            return ticker, None, None, None
 
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _asc2
         _pm_data = {}
         with _TPE(max_workers=8) as _ex:
             _futs = {_ex.submit(_get_premarket, t): t for t in eod_picks}
             for _f in _asc2(_futs):
-                t, price, chg = _f.result()
-                _pm_data[t] = {"pm_price": price, "pm_chg": chg}
+                t, price, chg, name = _f.result()
+                _pm_data[t] = {"pm_price": price, "pm_chg": chg, "name": name}
 
         # Annotate each EOD pick with morning action + premarket data
         eod_annotated = []
@@ -1264,6 +1273,7 @@ def _send_morning_inflows_email() -> None:
                 "confirming":     mi is not None,
                 "pm_price":       pm.get("pm_price"),
                 "pm_chg":         pm.get("pm_chg"),
+                "name":           pm.get("name"),
             })
 
         # Sort: confirming picks first (by standout_score), then quiet ones (by accum_score)
@@ -1292,6 +1302,7 @@ def _send_morning_inflows_email() -> None:
             pm_chg   = ep.get("pm_chg")
             pm_price = ep.get("pm_price")
 
+            co_name    = ep.get("name") or ""
             chg_color  = "#22c55e" if chg > 0 else "#ef4444" if chg < 0 else "#94a3b8"
             chg_str    = f"+{chg:.1f}%" if chg > 0 else f"{chg:.1f}%" if chg < 0 else "flat"
             status_dot = '<span style="color:#22c55e;font-weight:900;">●</span>' if conf else '<span style="color:#475569;">○</span>'
@@ -1299,6 +1310,7 @@ def _send_morning_inflows_email() -> None:
             vol_str    = f"{vol:.1f}×" if vol else "—"
             flow_str   = f"{flow:.1f}:1" if flow else "—"
             price_str  = f"${price:.2f}" if price else "—"
+            name_html  = f'<span style="display:block;font-size:10px;color:#94a3b8;margin-top:1px;">{co_name}</span>' if co_name else ""
 
             # Premarket badge — prominent warning if gapping down hard
             pm_html = ""
@@ -1338,6 +1350,7 @@ def _send_morning_inflows_email() -> None:
             <tr style="{row_bg}">
               <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
                 <span style="font-size:14px;font-weight:800;color:#f1f5f9;">{status_dot} {ticker}</span>
+                {name_html}
                 <span style="display:block;font-size:10px;color:#64748b;margin-top:1px;">{price_str} · EOD score {score:.0f}</span>
                 <span style="display:block;margin-top:2px;">{status_lbl}</span>
                 {pm_html}
