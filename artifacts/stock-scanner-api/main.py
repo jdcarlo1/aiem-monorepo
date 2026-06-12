@@ -385,6 +385,48 @@ try:
         id="eod_accum_email",
         replace_existing=True,
     )
+    # Unusual Calls email: 9:47 AM (after options warmer at 9:45) + 4:20 PM EOD
+    def _run_unusual_calls_email():
+        try:
+            import threading as _thr_uc
+            _thr_uc.Thread(target=_send_unusual_calls_email, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] unusual calls email error: {e}")
+    for _uc_h, _uc_m in [(9, 47), (16, 20)]:
+        _scheduler.add_job(
+            _run_unusual_calls_email,
+            CronTrigger(day_of_week="mon-fri", hour=_uc_h, minute=_uc_m, timezone=_ET),
+            id=f"unusual_calls_email_{_uc_h}_{_uc_m}",
+            replace_existing=True,
+        )
+    # Small & Growth (Microcap) Calls email: 10:32 AM + 4:17 PM (after scans)
+    def _run_microcap_calls_email():
+        try:
+            import threading as _thr_mc
+            _thr_mc.Thread(target=_send_microcap_calls_email, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] microcap calls email error: {e}")
+    for _mc_h, _mc_m in [(10, 32), (16, 17)]:
+        _scheduler.add_job(
+            _run_microcap_calls_email,
+            CronTrigger(day_of_week="mon-fri", hour=_mc_h, minute=_mc_m, timezone=_ET),
+            id=f"microcap_calls_email_{_mc_h}_{_mc_m}",
+            replace_existing=True,
+        )
+    # High Conviction Calls email: 9:48 AM (after unusual calls scan) + 4:22 PM EOD
+    def _run_hc_calls_email():
+        try:
+            import threading as _thr_hc
+            _thr_hc.Thread(target=_send_high_conviction_email, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] high conviction calls email error: {e}")
+    for _hc_h, _hc_m in [(9, 48), (16, 22)]:
+        _scheduler.add_job(
+            _run_hc_calls_email,
+            CronTrigger(day_of_week="mon-fri", hour=_hc_h, minute=_hc_m, timezone=_ET),
+            id=f"hc_calls_email_{_hc_h}_{_hc_m}",
+            replace_existing=True,
+        )
     # AI Short Calls auto-generation: Mon-Fri 10:15 AM ET — after scanner caches warm
     def _run_ai_short_calls_auto():
         try:
@@ -1462,6 +1504,495 @@ def _send_ai_trades_email(trades: list) -> None:
     except Exception as _e:
         import traceback
         print(f"[ai_trades_email] error: {_e}\n{traceback.format_exc()}")
+
+
+def _send_unusual_calls_email() -> None:
+    """Email top 5 unusual calls ranked by conviction score (prem × vol_oi × urgency)."""
+    try:
+        from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
+        if not smtp_configured():
+            return
+        subs = get_active_subscribers()
+        if not subs:
+            return
+
+        from datetime import datetime as _dt
+        import os as _os
+
+        cache = getattr(app, "_unusual_calls_cache", None)
+        hits  = (cache or {}).get("hits", [])
+
+        if not hits:
+            # Fall back to DB if no cache
+            try:
+                import psycopg2, os as _os2
+                con = psycopg2.connect(_os2.environ["DATABASE_URL"])
+                cur = con.cursor()
+                cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry, days_out,
+                           volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                           iv::float, urgency
+                    FROM unusual_calls_log
+                    WHERE last_seen >= CURRENT_DATE
+                      AND expiry::date > CURRENT_DATE
+                      AND vol_oi >= 3 AND prem >= 100000
+                    ORDER BY prem DESC LIMIT 80
+                """)
+                cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency"]
+                hits = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cur.close(); con.close()
+            except Exception:
+                pass
+
+        if not hits:
+            print("[unusual_calls_email] no data — skipping")
+            return
+
+        _ETF_SET_LOCAL = {"SPY","QQQ","IWM","DIA","XLF","XLE","XLK","XLV","TQQQ","SQQQ","UVXY","VIX"}
+        urgency_mult   = {"EXPIRING": 2.0, "SHORT": 1.5, "NEAR": 1.2, "MEDIUM": 1.0}
+
+        scored = []
+        for h in hits:
+            if h.get("is_etf") or h.get("ticker") in _ETF_SET_LOCAL:
+                continue
+            urg    = h.get("urgency", "MEDIUM")
+            um     = urgency_mult.get(urg, 1.0)
+            score  = float(h.get("prem", 0)) * float(h.get("vol_oi", 0)) * um
+            scored.append({**h, "_score": score})
+
+        scored.sort(key=lambda x: -x["_score"])
+        top5 = scored[:5]
+
+        if not top5:
+            print("[unusual_calls_email] no qualifying picks — skipping")
+            return
+
+        date_str = _dt.now().strftime("%B %d, %Y")
+        base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
+        total    = (cache or {}).get("total", len(hits))
+
+        cards_html = ""
+        for i, h in enumerate(top5):
+            ticker  = h.get("ticker", "")
+            price   = float(h.get("price", 0) or 0)
+            strike  = float(h.get("strike", 0) or 0)
+            expiry  = h.get("expiry", "")
+            days    = int(h.get("days_out", 0) or 0)
+            vol     = int(h.get("volume", 0) or 0)
+            oi      = int(h.get("oi", 0) or 0)
+            voi     = float(h.get("vol_oi", 0) or 0)
+            prem    = int(h.get("prem", 0) or 0)
+            otm     = float(h.get("otm_pct", 0) or 0)
+            iv      = float(h.get("iv", 0) or 0)
+            urg     = h.get("urgency", "MEDIUM")
+            medal   = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
+
+            prem_str   = f"${prem/1000:.0f}K" if prem < 1_000_000 else f"${prem/1_000_000:.1f}M"
+            otm_str    = f"+{otm:.1f}% OTM" if otm >= 0 else f"{otm:.1f}% ITM"
+            voi_color  = "#22c55e" if voi >= 10 else "#f59e0b" if voi >= 5 else "#94a3b8"
+            urg_color  = "#ef4444" if urg == "EXPIRING" else "#f59e0b" if urg == "SHORT" else "#06b6d4" if urg == "NEAR" else "#475569"
+            otm_color  = "#22c55e" if 0 <= otm <= 10 else "#f59e0b" if otm <= 20 else "#94a3b8"
+            expiry_fmt = expiry
+            try:
+                from datetime import datetime as _dx
+                expiry_fmt = _dx.strptime(expiry, "%Y-%m-%d").strftime("%b %d")
+            except Exception:
+                pass
+
+            cards_html += f"""
+            <div style="background:#111827;border:1px solid #1e293b;border-radius:10px;margin-bottom:12px;overflow:hidden;">
+              <div style="background:#0f172a;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{medal} {ticker}
+                  <span style="font-size:11px;font-weight:500;color:#64748b;margin-left:6px;">${price:.2f}</span>
+                </span>
+                <span style="font-size:10px;font-weight:700;color:{urg_color};background:{urg_color}22;padding:2px 7px;border-radius:4px;">{urg} ≤{days}d</span>
+              </div>
+              <div style="padding:10px 16px;border-bottom:1px solid #1e293b;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Strike</div>
+                      <div style="font-size:15px;font-weight:800;color:#6366f1;">${strike:.0f}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Expiry</div>
+                      <div style="font-size:13px;font-weight:800;color:#a78bfa;">{expiry_fmt}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">OTM</div>
+                      <div style="font-size:13px;font-weight:800;color:{otm_color};">{otm_str}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Vol/OI</div>
+                      <div style="font-size:13px;font-weight:800;color:{voi_color};">{voi:.1f}×</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Premium</div>
+                      <div style="font-size:13px;font-weight:800;color:#f59e0b;">{prem_str}</div>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+              <div style="padding:7px 16px;display:flex;justify-content:space-between;">
+                <span style="font-size:10px;color:#475569;">Vol {vol:,} · OI {oi:,} · IV {iv:.0f}%</span>
+              </div>
+            </div>"""
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🚨 Unusual Calls — Top 5</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{total} signals found · ranked by conviction · {date_str}</span>
+          </div>
+          {cards_html}
+          <div style="text-align:center;margin:8px 0 16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">View All Unusual Calls →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · <a href="{base_url}/stock-scanner/unsubscribe" style="color:#475569;">Unsubscribe</a>
+          </p>
+        </div>"""
+
+        sent = 0
+        subject = f"🚨 Unusual Calls: Top 5 Picks · {date_str}"
+        for sub in subs:
+            if send_email_raw(sub["email"], subject, html):
+                sent += 1
+        print(f"[unusual_calls_email] sent to {sent}/{len(subs)} — {len(top5)} picks")
+    except Exception as _e:
+        import traceback
+        print(f"[unusual_calls_email] error: {_e}\n{traceback.format_exc()}")
+
+
+def _send_microcap_calls_email() -> None:
+    """Email top 5 Small & Growth options flow picks ranked by conviction score."""
+    try:
+        from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
+        if not smtp_configured():
+            return
+        subs = get_active_subscribers()
+        if not subs:
+            return
+
+        import psycopg2, os as _os, json
+        from datetime import datetime as _dt
+
+        con = psycopg2.connect(_os.environ["DATABASE_URL"])
+        cur = con.cursor()
+        cur.execute("""
+            SELECT ticker, price::float, strike::float, expiry, days_out,
+                   volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                   iv::float, urgency, cap_tier
+            FROM unusual_calls_microcap_log
+            WHERE last_seen >= CURRENT_DATE
+              AND expiry::date > CURRENT_DATE
+              AND vol_oi >= 1.5
+            ORDER BY prem DESC
+            LIMIT 150
+        """)
+        cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","cap_tier"]
+        hits = [dict(zip(cols, r)) for r in cur.fetchall()]
+        cur.close(); con.close()
+
+        if not hits:
+            print("[microcap_calls_email] no data — skipping")
+            return
+
+        urgency_mult = {"EXPIRING": 2.0, "SHORT": 1.5, "NEAR": 1.2, "MEDIUM": 1.0}
+
+        scored = []
+        for h in hits:
+            urg   = h.get("urgency", "MEDIUM")
+            um    = urgency_mult.get(urg, 1.0)
+            score = float(h.get("prem", 0)) * float(h.get("vol_oi", 0)) * um
+            scored.append({**h, "_score": score})
+
+        scored.sort(key=lambda x: -x["_score"])
+        top5 = scored[:5]
+
+        if not top5:
+            print("[microcap_calls_email] no qualifying picks — skipping")
+            return
+
+        date_str = _dt.now().strftime("%B %d, %Y")
+        base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
+
+        cap_label = {"nano": "NANO", "micro": "MICRO", "small": "SMALL", "mid": "MID"}
+        cap_color = {"nano": "#f59e0b", "micro": "#06b6d4", "small": "#22c55e", "mid": "#a78bfa"}
+
+        cards_html = ""
+        for i, h in enumerate(top5):
+            ticker  = h.get("ticker", "")
+            price   = float(h.get("price", 0) or 0)
+            strike  = float(h.get("strike", 0) or 0)
+            expiry  = h.get("expiry", "")
+            days    = int(h.get("days_out", 0) or 0)
+            vol     = int(h.get("volume", 0) or 0)
+            oi      = int(h.get("oi", 0) or 0)
+            voi     = float(h.get("vol_oi", 0) or 0)
+            prem    = int(h.get("prem", 0) or 0)
+            otm     = float(h.get("otm_pct", 0) or 0)
+            iv      = float(h.get("iv", 0) or 0)
+            urg     = h.get("urgency", "MEDIUM")
+            cap     = h.get("cap_tier", "micro")
+            medal   = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
+
+            prem_str   = f"${prem/1000:.1f}K" if prem < 1_000_000 else f"${prem/1_000_000:.1f}M"
+            otm_str    = f"+{otm:.1f}% OTM" if otm >= 0 else f"{otm:.1f}% ITM"
+            voi_color  = "#22c55e" if voi >= 10 else "#f59e0b" if voi >= 5 else "#94a3b8"
+            urg_color  = "#ef4444" if urg == "EXPIRING" else "#f59e0b" if urg == "SHORT" else "#06b6d4" if urg == "NEAR" else "#475569"
+            otm_color  = "#22c55e" if 0 <= otm <= 15 else "#f59e0b" if otm <= 30 else "#94a3b8"
+            clbl       = cap_label.get(cap, cap.upper())
+            cclr       = cap_color.get(cap, "#94a3b8")
+            expiry_fmt = expiry
+            try:
+                from datetime import datetime as _dx
+                expiry_fmt = _dx.strptime(expiry, "%Y-%m-%d").strftime("%b %d")
+            except Exception:
+                pass
+
+            cards_html += f"""
+            <div style="background:#111827;border:1px solid #1e293b;border-radius:10px;margin-bottom:12px;overflow:hidden;">
+              <div style="background:#0f172a;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{medal} {ticker}
+                  <span style="font-size:11px;font-weight:500;color:#64748b;margin-left:6px;">${price:.2f}</span>
+                  <span style="font-size:10px;font-weight:700;color:{cclr};background:{cclr}22;padding:1px 5px;border-radius:3px;margin-left:4px;">{clbl}</span>
+                </span>
+                <span style="font-size:10px;font-weight:700;color:{urg_color};background:{urg_color}22;padding:2px 7px;border-radius:4px;">{urg} ≤{days}d</span>
+              </div>
+              <div style="padding:10px 16px;border-bottom:1px solid #1e293b;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Strike</div>
+                      <div style="font-size:15px;font-weight:800;color:#6366f1;">${strike:.2f}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Expiry</div>
+                      <div style="font-size:13px;font-weight:800;color:#a78bfa;">{expiry_fmt}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">OTM</div>
+                      <div style="font-size:13px;font-weight:800;color:{otm_color};">{otm_str}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Vol/OI</div>
+                      <div style="font-size:13px;font-weight:800;color:{voi_color};">{voi:.1f}×</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Premium</div>
+                      <div style="font-size:13px;font-weight:800;color:#f59e0b;">{prem_str}</div>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+              <div style="padding:7px 16px;">
+                <span style="font-size:10px;color:#475569;">Vol {vol:,} · OI {oi:,} · IV {iv:.0f}%</span>
+              </div>
+            </div>"""
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🎯 Small &amp; Growth Options Flow — Top 5</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Unusual call activity · tight spreads · ranked by conviction · {date_str}</span>
+          </div>
+          {cards_html}
+          <div style="text-align:center;margin:8px 0 16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">View Full Scanner →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · <a href="{base_url}/stock-scanner/unsubscribe" style="color:#475569;">Unsubscribe</a>
+          </p>
+        </div>"""
+
+        sent = 0
+        subject = f"🎯 Small & Growth Calls: Top 5 Picks · {date_str}"
+        for sub in subs:
+            if send_email_raw(sub["email"], subject, html):
+                sent += 1
+        print(f"[microcap_calls_email] sent to {sent}/{len(subs)} — {len(top5)} picks")
+    except Exception as _e:
+        import traceback
+        print(f"[microcap_calls_email] error: {_e}\n{traceback.format_exc()}")
+
+
+def _send_high_conviction_email() -> None:
+    """Email top 5 High Conviction Calls ranked by composite conviction score."""
+    try:
+        from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
+        if not smtp_configured():
+            return
+        subs = get_active_subscribers()
+        if not subs:
+            return
+
+        import math as _math, psycopg2, os as _os
+        from datetime import datetime as _dt
+        from collections import defaultdict as _dd
+
+        # Use in-memory cache if fresh (< 6h old)
+        cache = getattr(app, "_conv_calls_cache", None)
+        cache_ts = getattr(app, "_conv_calls_cache_ts", None)
+        signals = []
+        if cache and cache_ts and (_dt.now() - cache_ts).total_seconds() < 21600:
+            signals = (cache or {}).get("signals", [])
+
+        if not signals:
+            # Rebuild from DB
+            con = psycopg2.connect(_os.environ["DATABASE_URL"])
+            cur = con.cursor()
+            cur.execute("""
+                SELECT ticker, price::float, strike::float, expiry, days_out,
+                       vol_oi::float, prem::bigint, otm_pct::float, iv::float,
+                       urgency, last_seen
+                FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '24 hours'
+                  AND expiry::date > CURRENT_DATE
+                  AND vol_oi >= 3 AND prem >= 100000
+                ORDER BY vol_oi DESC LIMIT 300
+            """)
+            cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            cur.close(); con.close()
+
+            by_ticker = _dd(list)
+            for r in rows:
+                by_ticker[r["ticker"]].append(r)
+
+            for ticker, strikes in by_ticker.items():
+                num_strikes  = len(strikes)
+                total_prem   = sum(s["prem"] for s in strikes)
+                max_vol_oi   = max(s["vol_oi"] for s in strikes)
+                avg_iv       = sum(s["iv"] or 0 for s in strikes) / num_strikes
+                best_strike  = max(strikes, key=lambda s: s["vol_oi"])
+                price        = strikes[-1]["price"]
+                urgency_rank = {"EXPIRING": 3, "SHORT": 2, "NEAR": 1}.get(best_strike["urgency"], 1)
+                iv_bonus     = 1.8 if avg_iv >= 90 else 1.5 if avg_iv >= 70 else 1.2 if avg_iv >= 50 else 1.0
+                sweep_mult   = 1.0 + 0.4 * (num_strikes - 1)
+                prem_factor  = _math.log(total_prem / 1_000_000 + 1) + 1
+                voi_factor   = _math.log(max_vol_oi + 1)
+                score        = round(voi_factor * prem_factor * iv_bonus * sweep_mult * urgency_rank, 2)
+                if score < 4:
+                    continue
+                conviction = "EXTREME" if score >= 12 else "HIGH" if score >= 7 else "ELEVATED"
+                days_out_min = min(s["days_out"] for s in strikes if s["days_out"])
+                urgency_label = "EXPIRING" if days_out_min <= 5 else f"{days_out_min}D"
+                signals.append({
+                    "ticker": ticker, "price": price, "score": score,
+                    "conviction": conviction, "num_strikes": num_strikes,
+                    "total_prem_m": round(total_prem / 1_000_000, 2),
+                    "max_vol_oi": round(max_vol_oi, 1),
+                    "avg_iv": round(avg_iv, 1),
+                    "urgency": urgency_label,
+                })
+            signals.sort(key=lambda x: x["score"], reverse=True)
+
+        if not signals:
+            print("[hc_calls_email] no data — skipping")
+            return
+
+        top5 = signals[:5]
+        date_str = _dt.now().strftime("%B %d, %Y")
+        base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
+
+        conv_color  = {"EXTREME": "#ef4444", "HIGH": "#f59e0b", "ELEVATED": "#22c55e"}
+        conv_icon   = {"EXTREME": "🔥", "HIGH": "⚡", "ELEVATED": "✅"}
+        conv_thresh = {"EXTREME": "≥12", "HIGH": "≥7", "ELEVATED": "≥4"}
+
+        cards_html = ""
+        for i, sig in enumerate(top5):
+            ticker    = sig.get("ticker", "")
+            price     = float(sig.get("price", 0) or 0)
+            score     = float(sig.get("score", 0) or 0)
+            conv      = sig.get("conviction", "ELEVATED")
+            n_strikes = int(sig.get("num_strikes", 1) or 1)
+            total_pm  = float(sig.get("total_prem_m", 0) or 0)
+            max_voi   = float(sig.get("max_vol_oi", 0) or 0)
+            avg_iv    = float(sig.get("avg_iv", 0) or 0)
+            urg       = sig.get("urgency", "")
+            medal     = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
+            cc        = conv_color.get(conv, "#94a3b8")
+            ci        = conv_icon.get(conv, "")
+
+            prem_str  = f"${total_pm:.1f}M"
+            voi_color = "#22c55e" if max_voi >= 20 else "#f59e0b" if max_voi >= 10 else "#94a3b8"
+
+            cards_html += f"""
+            <div style="background:#111827;border:1px solid {cc}44;border-left:3px solid {cc};border-radius:10px;margin-bottom:12px;overflow:hidden;">
+              <div style="background:#0f172a;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{medal} {ticker}
+                  <span style="font-size:11px;font-weight:500;color:#64748b;margin-left:6px;">${price:.2f}</span>
+                </span>
+                <span style="display:flex;gap:6px;align-items:center;">
+                  <span style="font-size:10px;font-weight:700;color:{cc};background:{cc}22;padding:2px 7px;border-radius:4px;">{ci} {conv}</span>
+                  <span style="font-size:10px;color:#64748b;">{urg}</span>
+                </span>
+              </div>
+              <div style="padding:10px 16px;border-bottom:1px solid #1e293b;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Score</div>
+                      <div style="font-size:18px;font-weight:900;color:{cc};">{score:.1f}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Strikes</div>
+                      <div style="font-size:15px;font-weight:800;color:#f1f5f9;">{n_strikes} sweeping</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Total Prem</div>
+                      <div style="font-size:14px;font-weight:800;color:#f59e0b;">{prem_str}</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Max Vol/OI</div>
+                      <div style="font-size:14px;font-weight:800;color:{voi_color};">{max_voi:.0f}×</div>
+                    </td>
+                    <td style="text-align:center;padding:4px 6px;">
+                      <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:2px;">Avg IV</div>
+                      <div style="font-size:14px;font-weight:800;color:#a78bfa;">{avg_iv:.0f}%</div>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+              <div style="padding:7px 16px;">
+                <span style="font-size:10px;color:#475569;">Score = Vol/OI × Premium × IV × Sweep multiplier</span>
+              </div>
+            </div>"""
+
+        legend_html = "".join([
+            f'<span style="margin-right:12px;font-size:10px;color:{conv_color[c]};">'
+            f'{conv_icon[c]} <b>{c}</b> {conv_thresh[c]}</span>'
+            for c in ["EXTREME","HIGH","ELEVATED"]
+        ])
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 High Conviction Calls — Top 5</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Multi-strike sweeps · calls dramatically outpacing puts · {date_str}</span>
+          </div>
+          <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px 14px;margin-bottom:16px;">
+            {legend_html}
+          </div>
+          {cards_html}
+          <div style="text-align:center;margin:8px 0 16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#ef4444;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">View High Conviction Tab →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · <a href="{base_url}/stock-scanner/unsubscribe" style="color:#475569;">Unsubscribe</a>
+          </p>
+        </div>"""
+
+        sent = 0
+        subject = f"🔥 High Conviction Calls: Top 5 · {date_str}"
+        for sub in subs:
+            if send_email_raw(sub["email"], subject, html):
+                sent += 1
+        print(f"[hc_calls_email] sent to {sent}/{len(subs)} — {len(top5)} signals")
+    except Exception as _e:
+        import traceback
+        print(f"[hc_calls_email] error: {_e}\n{traceback.format_exc()}")
 
 
 def _fetch_market_movers(count=75):
@@ -8310,7 +8841,7 @@ def eod_sweeps():
 
 @app.route("/stock-api/admin/test-emails", methods=["POST"])
 def admin_test_emails():
-    """Admin: fire all three daily emails right now using today's cached data."""
+    """Admin: fire all six daily emails right now using today's cached/DB data."""
     import threading as _thr
     results = {}
 
@@ -8337,6 +8868,18 @@ def admin_test_emails():
         t3.start(); t3.join(timeout=30)
     else:
         results["ai_trades"] = "skipped — no cache (run /stock-api/ai-trades?bust=1 first)"
+
+    # Unusual Calls email (cache + DB fallback)
+    t4 = _thr.Thread(target=_fire, args=("unusual_calls", _send_unusual_calls_email), daemon=True)
+    t4.start(); t4.join(timeout=30)
+
+    # Small & Growth (Microcap) Calls email (DB)
+    t5 = _thr.Thread(target=_fire, args=("microcap_calls", _send_microcap_calls_email), daemon=True)
+    t5.start(); t5.join(timeout=30)
+
+    # High Conviction Calls email (cache + DB fallback)
+    t6 = _thr.Thread(target=_fire, args=("high_conviction", _send_high_conviction_email), daemon=True)
+    t6.start(); t6.join(timeout=30)
 
     return jsonify({"status": "done", "results": results})
 
