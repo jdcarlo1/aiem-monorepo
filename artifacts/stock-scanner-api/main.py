@@ -20,6 +20,7 @@ from email_alerts import (
 )
 from historical_performance import init_score_history_table, save_scan_scores
 from signal_outcomes import init_signal_outcomes_table, store_bull_flow_signals, get_signal_outcomes
+from sms_alerts import init_sms_log_table, run_sms_alert_scan, send_sms, sms_configured
 import execution
 import pnl
 
@@ -60,6 +61,7 @@ _SM_CACHE_TTL_SECS = 1200        # 20 minutes
 init_db()
 init_score_history_table()
 init_signal_outcomes_table()
+init_sms_log_table()
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -373,6 +375,22 @@ try:
             id=f"morning_inflows_email_{_mi_eh}_{_mi_em}",
             replace_existing=True,
         )
+    # SMS alert scan: every 15 min Mon-Fri 9:30 AM – 3:45 PM ET
+    # Fires a text the instant any stock crosses your indicators — no email needed
+    def _run_sms_alert_scan():
+        try:
+            import threading as _thr_sms
+            _thr_sms.Thread(target=run_sms_alert_scan, daemon=True).start()
+        except Exception as _e_sms:
+            print(f"[scheduler] sms alert scan error: {_e_sms}")
+    _scheduler.add_job(
+        _run_sms_alert_scan,
+        "interval",
+        minutes=15,
+        id="sms_alert_scan",
+        replace_existing=True,
+    )
+
     # EOD accum picks email: 3:46 PM ET — 1 min after the 3:45 PM scan saves picks
     def _run_eod_accum_email_job():
         try:
