@@ -183,10 +183,18 @@ Production scan (3:45 PM ET, June 11) found these 15 names. User will report act
 - Large caps (ONTO, W, ALM) physically can't make big % moves on accumulation alone
 - Post-mortem goal: find which metric was most predictive of actual performance
 
-## SMS / Twilio (PENDING)
-- User has not yet signed up for Twilio
-- User phone: +14013185787 (for testing)
-- `email_alerts.py` has SMS stub ready — just needs credentials
+## SMS / Twilio (PENDING — user setting up tomorrow June 13 2026)
+- `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
+- Scheduler: every 15 min, Mon-Fri 9:30 AM–3:45 PM ET
+- Threshold: chg >= 1% with tiered relative volume (see sms-threshold-lessons.md)
+  - +1–3%: 5× vol | +3–7%: 4× vol | +7–10%: 3× vol | +10–20%: 2× vol | +20%+: 1.5× vol
+- One text per ticker per day (deduped via sms_alerts_log table UNIQUE constraint on ticker+date)
+- DB table: `sms_alerts_log` (ticker, price, chg_pct, rel_vol, score, reason, sent_at)
+- init_sms_log_table() called at startup in main.py
+- Text format: "🔥 SIGNAL: TICKER +X% | Yx vol | $price\nScore Z | HH:MM ET\nnclexai.org/stock-scanner/"
+- User phone: +14013185787 (TO number)
+- Needs 4 secrets: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, TWILIO_TO_NUMBER
+- To activate: user adds 4 Twilio secrets → texts fire automatically next market open
 
 ## Email alerts
 - `artifacts/stock-scanner-api/email_alerts.py` — full email digest
