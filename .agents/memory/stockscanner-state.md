@@ -9,6 +9,7 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - Node.js API server: `artifacts/api-server/` — port 8080, handles Stripe checkout + webhooks
 - APScheduler: 9:00, 9:05, 9:45, 3:30, 4:00, 4:05, 4:15, 4:30 ET every trading day
 - Morning inflows scans: 9:31, 9:45, 10:00, 10:15, 10:30, 12:00 PM ET (noon scan added June 2026)
+- Email schedule (Mon-Fri ET): morning_inflows 9:46/10:01/10:16/10:31 AM | eod_accum 3:46 PM | ai_trades 10:00 AM | unusual_calls 9:47 AM + 4:20 PM | microcap_calls 10:32 AM + 4:17 PM | high_conviction 9:48 AM + 4:22 PM
 - Signal snapshot job at 4:00 PM ET (saves to signal_history table)
 - Daily vol snapshot job at 4:05 PM ET (saves to daily_vol_snapshots table — builds IV skew + short float percentile history)
 - EOD accum scans: 3:45 PM and 3:55 PM ET — saves to eod_accum_picks table
