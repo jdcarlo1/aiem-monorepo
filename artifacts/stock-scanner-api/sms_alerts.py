@@ -148,7 +148,8 @@ def run_sms_alert_scan():
                 rv     = float(s.get("rel_vol") or 0)
                 score  = float(s.get("score") or 0)
                 price  = float(s.get("price") or 0)
-                if chg >= 7.5 and rv >= 2:
+                min_rv_cache = 1.5 if chg >= 20 else 2.0 if chg >= 10 else 3.0
+                if chg >= 3 and rv >= min_rv_cache:
                     candidates[t] = {"price": price, "chg_pct": chg, "rel_vol": rv, "score": score, "reason": "standout"}
     except Exception as e:
         print(f"[sms_alerts] cache read error: {e}")
