@@ -343,6 +343,8 @@ def run_sms_alert_scan():
 
 # ── Exit alert system ─────────────────────────────────────────────────────────
 
+_PROFIT_TARGET_PCT = 10.0  # fire a "take profit" alert when gain hits this % from entry
+
 def init_exit_log_table():
     try:
         with _conn() as con:
@@ -360,7 +362,19 @@ def init_exit_log_table():
                         UNIQUE (ticker, exit_date)
                     )
                 """)
-        print("[sms_alerts] exit log table ready")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS sms_profit_log (
+                        id          SERIAL PRIMARY KEY,
+                        ticker      TEXT NOT NULL,
+                        profit_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                        price       NUMERIC,
+                        gain_pct    NUMERIC,
+                        entry_price NUMERIC,
+                        sent_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        UNIQUE (ticker, profit_date)
+                    )
+                """)
+        print("[sms_alerts] exit + profit log tables ready")
     except Exception as e:
         print(f"[sms_alerts] exit table init error: {e}")
 
@@ -376,6 +390,32 @@ def _already_exit_alerted(ticker: str) -> bool:
                 return cur.fetchone() is not None
     except Exception:
         return False
+
+
+def _already_profit_alerted(ticker: str) -> bool:
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    SELECT 1 FROM sms_profit_log
+                    WHERE ticker=%s AND profit_date=CURRENT_DATE LIMIT 1
+                """, (ticker,))
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def _log_profit_alert(ticker, price, gain_pct, entry_price):
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO sms_profit_log (ticker, price, gain_pct, entry_price)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (ticker, profit_date) DO NOTHING
+                """, (ticker, price, gain_pct, entry_price))
+    except Exception as e:
+        print(f"[sms_alerts] profit log error {ticker}: {e}")
 
 
 def _log_exit_alert(ticker, price, chg_pct, vwap, entry_price):
@@ -452,12 +492,27 @@ def run_exit_alert_scan():
             vwap        = tp_vol_sum / vol
             chg_pct     = (price - prev) / prev * 100
 
-            # Only fire exit if price is now below VWAP
+            # Calculate gain from entry price
+            entry_gain = ((price - float(entry_price or prev)) / float(entry_price or prev) * 100) if entry_price else chg_pct
+
+            # ── Profit target alert (+10% from entry) ────────────────────────
+            if entry_gain >= _PROFIT_TARGET_PCT and not _already_profit_alerted(ticker):
+                vwap_status = "✅ still above VWAP" if price >= vwap else "⚠️ approaching VWAP"
+                profit_msg = (
+                    f"🎯 PROFIT TARGET: {ticker} +{entry_gain:.1f}%!\n"
+                    f"Price ${price:.2f} (entry ${float(entry_price):.2f})\n"
+                    f"VWAP ${vwap:.2f} — {vwap_status}\n"
+                    f"Consider selling | {now_et.strftime('%I:%M %p ET')}"
+                )
+                if send_sms(profit_msg):
+                    _log_profit_alert(ticker, price, entry_gain, entry_price)
+                    sent += 1
+
+            # ── VWAP break exit alert ─────────────────────────────────────────
             if price >= vwap:
                 continue
-
-            # Calculate gain from entry
-            entry_gain = ((price - float(entry_price or prev)) / float(entry_price or prev) * 100) if entry_price else chg_pct
+            if _already_exit_alerted(ticker):
+                continue
 
             gain_str = f"+{entry_gain:.1f}% from entry" if entry_gain > 0 else f"{entry_gain:.1f}% from entry"
             status   = "🟡 still profitable" if entry_gain > 0 else "🔴 at a loss"
