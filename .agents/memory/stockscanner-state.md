@@ -180,6 +180,14 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - Keep under ~100 tickers — each requires individual yfinance call, 350+ would cause scan overlap
 - Grow by adding tickers user reports each evening that the scanner missed
 
+## SMS Alert Scoring & Routing (updated June 13 2026)
+- Options-based routing (NOT market cap): `has options → _with_options_score (threshold 50)`, `no options → _no_options_score (threshold 60)`
+- Cap label in SMS (display only): MICRO/SMALL/MID/LARGE CAP + "has options" / "no options"
+- Morning Burst (9:31–9:45 AM): fires on any size move, no % cap
+- Midday scanner filters: max +5% from prev close, must be 2%+ below HOD, momentum_15m ≥ 2%, min +2% from open, RVOL ≥ 2x
+- Gap Recovery: momentum_15m ≥ 1.5%, pullback ≥ 3%, VWAP reclaim required
+- Scoring: `_with_options_score` (RVOL 30pts, chg 25pts, VWAP 20pts, ORB 10pts, gap 8pts, ATR 7pts), `_no_options_score` (RVOL 25pts, float_turnover 20pts, VWAP 15pts, gap 10pts, ORB 10pts, chg 8pts, ATR 7pts, short 5pts)
+
 ## SMS / Twilio
 - `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
 - Scheduler: every 15 min, Mon-Fri 9:30 AM–3:45 PM ET
