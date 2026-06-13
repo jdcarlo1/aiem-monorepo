@@ -248,6 +248,59 @@ def _no_options_score(rv: float, chg: float, above_vwap: bool,
     return min(pts, 100)
 
 
+def _large_cap_score(rv: float, chg: float, above_vwap: bool,
+                     gap_pct: float, orb_break: bool = False,
+                     atr_multiple: float = 0.0) -> int:
+    """
+    Institutional momentum score for mid/large-cap stocks ($500M+ market cap).
+    Replaces float rotation (meaningless on large floats) with sustained RVOL
+    and price momentum signals. Max 100 pts, fire threshold 55.
+
+    Scoring categories (total 100):
+      RVOL             30 pts  — institutional conviction; 3x+ on large-cap = real money
+      Price change     25 pts  — large-caps rarely move 10%+; reward it heavily
+      Above VWAP       20 pts  — institutions watch VWAP; close above = trend confirmed
+      ORB Breakout     10 pts  — systematic entry signal
+      Gap/catalyst      8 pts  — news-driven gap = catalyst confirmation
+      ATR expansion     7 pts  — today's range vs 14-day ATR
+    """
+    pts = 0
+
+    # RVOL (30) — 3x+ on a large-cap is genuine institutional activity
+    if   rv >= 10: pts += 30
+    elif rv >= 7:  pts += 25
+    elif rv >= 5:  pts += 20
+    elif rv >= 3:  pts += 15
+    elif rv >= 2:  pts += 8
+    elif rv >= 1.5: pts += 4
+
+    # Price change (25) — must move meaningfully to justify alerting on large-cap
+    if   chg >= 15: pts += 25
+    elif chg >= 10: pts += 20
+    elif chg >= 7:  pts += 15
+    elif chg >= 5:  pts += 10
+    elif chg >= 3:  pts += 5
+
+    # Above VWAP (20) — heavier than micro-cap; VWAP is the primary institutional benchmark
+    if above_vwap: pts += 20
+
+    # ORB break (10) — broke the 5-min opening range high
+    if orb_break: pts += 10
+
+    # Gap/catalyst (8)
+    if   gap_pct >= 10: pts += 8
+    elif gap_pct >= 5:  pts += 6
+    elif gap_pct >= 1:  pts += 3
+
+    # ATR expansion (7) — range expansion vs 14-day average
+    if   1.0 <= atr_multiple < 2.0: pts += 7
+    elif 2.0 <= atr_multiple < 3.0: pts += 5
+    elif atr_multiple >= 3.0:       pts += 3
+    elif atr_multiple >= 0.5:       pts += 2
+
+    return min(pts, 100)
+
+
 def _quality_prefix(score: int) -> str:
     """
     SMS quality label based on no-options score.
@@ -378,15 +431,17 @@ def run_sms_alert_scan():
                 orb_high  = float(hist.head(5)["High"].max()) if len(hist) >= 5 else price
                 orb_break = price > orb_high
 
-                # Float turnover + short float from tk.info (graceful fallback)
+                # Float turnover + short float + market cap from tk.info (graceful fallback)
                 float_turnover = 0.0
                 short_float    = 0.0
+                mkt_cap        = 0.0
                 try:
                     info         = tk.info
                     float_shares = float(info.get("floatShares") or 0)
                     if float_shares > 0:
                         float_turnover = cum_vol / float_shares
                     short_float = float(info.get("shortPercentOfFloat") or 0)
+                    mkt_cap     = float(info.get("marketCap") or 0)
                 except Exception:
                     pass
 
@@ -415,7 +470,7 @@ def run_sms_alert_scan():
                         "above_vwap": above_vwap, "gap_pct": gap_pct,
                         "orb_break": orb_break, "orb_high": orb_high,
                         "float_turnover": float_turnover, "short_float": short_float,
-                        "atr": atr, "atr_multiple": atr_multiple,
+                        "atr": atr, "atr_multiple": atr_multiple, "mkt_cap": mkt_cap,
                         "reason": "barchart_live"}
             except Exception:
                 return None
@@ -451,13 +506,24 @@ def run_sms_alert_scan():
         short_fl_val    = d.get("short_float", 0.0)
         atr_mult_val    = d.get("atr_multiple", 0.0)
         atr_val         = d.get("atr", 0.0)
+        mkt_cap_val     = d.get("mkt_cap", 0.0)
 
         early_flag  = (now_et.hour == 9 or (now_et.hour == 10 and now_et.minute <= 30))
-        nopt_score  = _no_options_score(rv, chg, above_vwap, gap_pct_val, early_flag,
-                                        float_turnover=float_turn_val,
-                                        orb_break=orb_break_val,
-                                        atr_multiple=atr_mult_val,
-                                        short_float=short_fl_val)
+        is_large_cap = mkt_cap_val > 500_000_000
+        if is_large_cap:
+            nopt_score = _large_cap_score(rv, chg, above_vwap, gap_pct_val,
+                                          orb_break=orb_break_val,
+                                          atr_multiple=atr_mult_val)
+            threshold = 55
+        else:
+            nopt_score = _no_options_score(rv, chg, above_vwap, gap_pct_val, early_flag,
+                                           float_turnover=float_turn_val,
+                                           orb_break=orb_break_val,
+                                           atr_multiple=atr_mult_val,
+                                           short_float=short_fl_val)
+            threshold = 60
+        if nopt_score < threshold:
+            continue
         quality     = _quality_prefix(nopt_score)
 
         vwap_line = ""
@@ -473,9 +539,12 @@ def run_sms_alert_scan():
             t2 = round(price + 2 * atr_val, 2)
             atr_line = f"ATR targets: ${t1:.2f} (1x) / ${t2:.2f} (2x)\n"
 
-        # Float rotation line — only show when meaningful
+        # Float rotation line — micro-cap only; large-cap shows institutional tag
         float_line = ""
-        if float_turn_val >= 0.2:
+        if is_large_cap:
+            mkt_b = mkt_cap_val / 1e9
+            float_line = f"Institutional momentum | ${mkt_b:.1f}B cap\n"
+        elif float_turn_val >= 0.2:
             ft_pct = float_turn_val * 100
             ft_str = f"Float rotation {ft_pct:.0f}%"
             if short_fl_val >= 0.15:
@@ -829,11 +898,21 @@ def run_midday_breakout_scan():
                 if momentum_15m < 1.0:
                     return None  # no momentum
                 gap_pct = (open_p - prev) / prev * 100 if prev > 0 else 0.0
-                score   = _no_options_score(rel_vol, chg_from_prev, True, gap_pct, early_morning=False)
+                # Market cap for large-cap routing
+                mkt_cap = 0.0
+                try:
+                    mkt_cap = float(tk.info.get("marketCap") or 0)
+                except Exception:
+                    pass
+                if mkt_cap > 500_000_000:
+                    score = _large_cap_score(rel_vol, chg_from_prev, True, gap_pct)
+                else:
+                    score = _no_options_score(rel_vol, chg_from_prev, True, gap_pct, early_morning=False)
                 return {
                     "ticker": ticker, "price": price, "chg_from_open": chg_from_open,
                     "chg_pct": chg_from_prev, "rel_vol": rel_vol, "vwap": vwap,
                     "momentum_15m": momentum_15m, "gap_pct": gap_pct, "score": score,
+                    "mkt_cap": mkt_cap,
                 }
             except Exception:
                 return None
@@ -858,10 +937,15 @@ def run_midday_breakout_scan():
             m15     = d["momentum_15m"]
             score   = d["score"]
             chg_open = d["chg_from_open"]
+            is_lc   = d.get("mkt_cap", 0) > 500_000_000
+            threshold = 55 if is_lc else 60
+            if score < threshold:
+                continue
             quality = _quality_prefix(score)
             stop_p  = round(vwap * 0.995, 2)
+            cap_tag = f" | ${d.get('mkt_cap',0)/1e9:.1f}B cap" if is_lc else ""
             msg = (
-                f"{quality} MIDDAY BREAKOUT: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}\n"
+                f"{quality} MIDDAY BREAKOUT: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}{cap_tag}\n"
                 f"Above VWAP ${vwap:.2f} ✅  stop ${stop_p:.2f}\n"
                 f"+{m15:.1f}% last 15 min  |  +{chg_open:.1f}% from open\n"
                 f"Score {score}/100 | {now_et.strftime('%I:%M %p ET')}\n"
@@ -968,7 +1052,16 @@ def run_gap_recovery_scan():
                 pullback_pct = (open_p - intraday_low) / open_p * 100 if open_p > 0 else 0
                 if pullback_pct < 3.0:
                     return None  # no real shakeout = not a recovery pattern
-                score = _no_options_score(rel_vol, chg_pct_prev, True, gap_pct, early_morning=False)
+                # Market cap for large-cap routing
+                mkt_cap = 0.0
+                try:
+                    mkt_cap = float(tk.info.get("marketCap") or 0)
+                except Exception:
+                    pass
+                if mkt_cap > 500_000_000:
+                    score = _large_cap_score(rel_vol, chg_pct_prev, True, gap_pct)
+                else:
+                    score = _no_options_score(rel_vol, chg_pct_prev, True, gap_pct, early_morning=False)
                 # Gap recovery bonus — big pullback + reclaim = higher conviction
                 if pullback_pct >= 10:
                     score = min(score + 10, 100)
@@ -978,7 +1071,7 @@ def run_gap_recovery_scan():
                     "ticker": ticker, "price": price, "chg_pct": chg_pct_prev,
                     "rel_vol": rel_vol, "vwap": vwap, "gap_pct": gap_pct,
                     "momentum_15m": momentum_15m, "pullback_pct": pullback_pct,
-                    "score": score,
+                    "score": score, "mkt_cap": mkt_cap,
                 }
             except Exception:
                 return None
@@ -1004,6 +1097,10 @@ def run_gap_recovery_scan():
             m15     = d["momentum_15m"]
             pb      = d["pullback_pct"]
             score   = d["score"]
+            is_lc   = d.get("mkt_cap", 0) > 500_000_000
+            threshold = 55 if is_lc else 60
+            if score < threshold:
+                continue
             quality = _quality_prefix(score)
             stop_p  = round(vwap * 0.995, 2)
             msg = (
