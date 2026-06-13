@@ -895,6 +895,8 @@ def run_midday_breakout_scan():
                     return None
                 chg_from_open  = (price - open_p) / open_p * 100
                 chg_from_prev  = (price - prev) / prev * 100
+                if chg_from_prev > 5.0:
+                    return None  # already up >5% — move is too extended for midday entry
                 if chg_from_open < 2.0:
                     return None
                 proj_vol   = cum_vol / day_frac
@@ -907,12 +909,17 @@ def run_midday_breakout_scan():
                 vwap         = tp_vol_sum / cum_vol if cum_vol > 0 else price
                 if price < vwap:
                     return None  # must be above VWAP
+                # Distance from high of day — skip if price is at/near HOD (exhausted move)
+                high_of_day   = float(hist["High"].max())
+                pct_from_high = (high_of_day - price) / high_of_day * 100
+                if pct_from_high < 2.0:
+                    return None  # at or within 2% of HOD = no upside room left
                 # 15-min momentum: compare last 15 bars vs 15 bars before that
                 last_15      = hist.tail(15)
                 prev_15      = hist.iloc[-30:-15] if len(hist) >= 30 else hist.head(15)
                 momentum_15m = (float(last_15["Close"].iloc[-1]) - float(prev_15["Close"].iloc[-1])) / float(prev_15["Close"].iloc[-1]) * 100
-                if momentum_15m < 1.0:
-                    return None  # no momentum
+                if momentum_15m < 2.0:
+                    return None  # require meaningful current momentum, not a fading move
                 gap_pct = (open_p - prev) / prev * 100 if prev > 0 else 0.0
                 # Market cap + options flag for routing
                 mkt_cap  = 0.0
