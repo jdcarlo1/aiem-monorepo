@@ -23,6 +23,7 @@ from signal_outcomes import init_signal_outcomes_table, store_bull_flow_signals,
 from sms_alerts import (init_sms_log_table, init_exit_log_table,
                         run_sms_alert_scan, run_exit_alert_scan,
                         send_sms, sms_configured)
+from options_sweep import init_call_sweep_log_table, run_call_sweep_scan
 import execution
 import pnl
 
@@ -65,6 +66,7 @@ init_score_history_table()
 init_signal_outcomes_table()
 init_sms_log_table()
 init_exit_log_table()
+init_call_sweep_log_table()
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -405,6 +407,20 @@ try:
         "interval",
         minutes=15,
         id="exit_alert_scan",
+        replace_existing=True,
+    )
+    # Call sweep scan: every 15 min — watches alerted tickers for bullish options sweeps above VWAP
+    def _run_call_sweep_scan():
+        try:
+            import threading as _thr_cs
+            _thr_cs.Thread(target=run_call_sweep_scan, daemon=True).start()
+        except Exception as _e_cs:
+            print(f"[scheduler] call sweep scan error: {_e_cs}")
+    _scheduler.add_job(
+        _run_call_sweep_scan,
+        "interval",
+        minutes=15,
+        id="call_sweep_scan",
         replace_existing=True,
     )
 
