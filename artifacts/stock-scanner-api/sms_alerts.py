@@ -528,7 +528,7 @@ def run_sms_alert_scan():
             nopt_score = _with_options_score(rv, chg, above_vwap, gap_pct_val,
                                           orb_break=orb_break_val,
                                           atr_multiple=atr_mult_val)
-            threshold = 55
+            threshold = 50
         else:
             nopt_score = _no_options_score(rv, chg, above_vwap, gap_pct_val, early_flag,
                                            float_turnover=float_turn_val,
@@ -960,7 +960,7 @@ def run_midday_breakout_scan():
             chg_open = d["chg_from_open"]
             has_opts = d.get("has_options", False)
             mkt_cap  = d.get("mkt_cap", 0)
-            threshold = 55 if has_opts else 60
+            threshold = 50 if has_opts else 60
             if score < threshold:
                 continue
             quality  = _quality_prefix(score)
@@ -1127,7 +1127,7 @@ def run_gap_recovery_scan():
             score   = d["score"]
             has_opts  = d.get("has_options", False)
             mkt_cap   = d.get("mkt_cap", 0)
-            threshold = 55 if has_opts else 60
+            threshold = 50 if has_opts else 60
             if score < threshold:
                 continue
             quality  = _quality_prefix(score)
