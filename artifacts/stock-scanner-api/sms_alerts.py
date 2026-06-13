@@ -115,17 +115,25 @@ def _log_alert(ticker, price, chg_pct, rel_vol, score, reason):
 # ── SMS via email-to-text gateway (primary) ───────────────────────────────────
 
 _SMS_EMAIL_GATEWAY = "4013185787@tmomail.net"  # T-Mobile gateway for +14013185787
+_BACKUP_EMAIL      = "joeldcarlo@gmail.com"    # Gmail backup in case SMS gateway drops it
 
 def _send_sms_via_email(message: str) -> bool:
-    """Send SMS via T-Mobile email-to-text gateway using existing SMTP setup."""
+    """Send SMS via T-Mobile email-to-text gateway + backup to Gmail."""
     try:
         from email_alerts import send_email_raw, smtp_configured
         if not smtp_configured():
             print("[sms_alerts] SMTP not configured — skipping email-to-SMS")
             return False
+        # Fire SMS gateway
         ok = send_email_raw(to=_SMS_EMAIL_GATEWAY, subject="", html=f"<pre>{message}</pre>")
         if ok:
             print(f"[sms_alerts] SMS via email gateway sent: {message[:60]}…")
+        # Always send backup email to Gmail regardless of SMS result
+        try:
+            send_email_raw(to=_BACKUP_EMAIL, subject=f"📈 StockScanner Alert", html=f"<pre style='font-size:16px'>{message}</pre>")
+            print(f"[sms_alerts] Backup email sent to {_BACKUP_EMAIL}")
+        except Exception as be:
+            print(f"[sms_alerts] Backup email error: {be}")
         return ok
     except Exception as e:
         print(f"[sms_alerts] email-to-SMS error: {e}")
