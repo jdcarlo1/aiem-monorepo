@@ -43,7 +43,7 @@ _GAMMA_MIN_OI     = 500    # minimum OI at that strike to matter
 # Weights mirror the manual Institutional Conviction Score tool (total = 120).
 # Signals not automatable (oiSpike=4, quietTicker=3, darkPool=3, preCatalyst=3)
 # never fire but stay in denominator so scores are comparable with the manual tool.
-_ICS_TOTAL_WEIGHT  = 120
+_ICS_TOTAL_WEIGHT  = 200  # 120 original + 80 new holy grail signals
 _ICS_SMS_THRESHOLD = 80   # only send SMS when automated score reaches this (65-70% win rate zone)
 
 
@@ -252,6 +252,22 @@ def _compute_ics_score(h: dict, now_et: datetime) -> tuple[int, list[str]]:
         pts += 3
         labels.append("🌅 Early morning print (informed money)")
 
+    # Signal 5: Bid/ask spread tightening (7 pts) — options spread < 3% of mid
+    spread_pct = h.get("spread_pct", 100.0)
+    if 0 < spread_pct < 3.0:
+        pts += 7
+        labels.append(f"📐 Tight options spread {spread_pct:.1f}% — market maker direction confidence")
+
+    # Holy Grail signals (up to 73 pts) — delta flow, tape, VWAP bands, MFI,
+    # price acceleration, consecutive green, pre-market vol, VWAP reclaim, minute RVOL
+    try:
+        from holy_grail import compute_holy_grail_signals
+        hg = compute_holy_grail_signals(h["ticker"], h["price"], h["vwap"])
+        pts += hg["pts"]
+        labels.extend(hg["labels"])
+    except Exception as _hg_err:
+        print(f"[options_sweep] holy_grail error {h['ticker']}: {_hg_err}")
+
     score = min(round(pts / _ICS_TOTAL_WEIGHT * 100), 100)
     return score, labels
 
@@ -339,6 +355,9 @@ def _scan_ticker_for_sweeps(ticker: str) -> list[dict]:
 
                 iv = float(row.get("impliedVolatility") or 0) * 100
 
+                # Bid/ask spread as % of mid (signal 5 proxy)
+                spread_pct = round((ask - bid) / mid * 100, 2) if mid > 0 and ask > bid else 100.0
+
                 # ── Legacy 6-signal conviction (kept for DB logging) ──────────
                 signals = ["sweep"]
                 if days_out <= _SHORT_DATED_DAYS and otm_pct > 0:
@@ -366,6 +385,7 @@ def _scan_ticker_for_sweeps(ticker: str) -> list[dict]:
                     "premium":     premium,
                     "otm_pct":     round(otm_pct, 1),
                     "iv":          round(iv, 1),
+                    "spread_pct":  spread_pct,
                     "pc_ratio":    pc_ratio,
                     "repeat_days": repeat_days,
                     "red_day":     red_day,

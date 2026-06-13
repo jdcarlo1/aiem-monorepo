@@ -409,6 +409,22 @@ try:
         id="exit_alert_scan",
         replace_existing=True,
     )
+    # VWAP Reclaim scan: every 5 min — immediate SMS when alerted stock reclaims VWAP
+    def _run_vwap_reclaim_scan():
+        try:
+            import threading as _thr_vr
+            from holy_grail import run_vwap_reclaim_scan
+            _thr_vr.Thread(target=run_vwap_reclaim_scan, daemon=True).start()
+        except Exception as _e_vr:
+            print(f"[scheduler] vwap reclaim scan error: {_e_vr}")
+    _scheduler.add_job(
+        _run_vwap_reclaim_scan,
+        "interval",
+        minutes=5,
+        id="vwap_reclaim_scan",
+        replace_existing=True,
+    )
+
     # Call sweep scan: every 15 min — watches alerted tickers for bullish options sweeps above VWAP
     def _run_call_sweep_scan():
         try:
