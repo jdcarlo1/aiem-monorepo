@@ -92,8 +92,8 @@ def _should_skip_alert(ticker: str, current_chg: float) -> bool:
         if last_sent.tzinfo is None:
             last_sent = pytz.utc.localize(last_sent)
         hours_since = (now_et - last_sent.astimezone(_ET)).total_seconds() / 3600
-        # Re-alert if 2+ hours passed AND gain grew 1.5x since last alert
-        if hours_since >= 2 and current_chg >= last_chg * 1.5:
+        # Re-alert if 30+ min passed AND gain grew 1.5x since last alert
+        if hours_since >= 0.5 and current_chg >= last_chg * 1.5:
             return False  # Allow re-alert
         return True  # Skip
     except Exception:
