@@ -5396,6 +5396,48 @@ Write 3–4 sentences covering: (1) technical setup & momentum, (2) risk/reward,
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/stock-api/ics-thesis", methods=["POST"])
+def ics_thesis():
+    body    = request.get_json(silent=True) or {}
+    ticker  = str(body.get("ticker", "this ticker")).upper()
+    score   = int(body.get("score", 0))
+    label   = str(body.get("label", ""))
+    signals = body.get("signals", [])
+    if not signals:
+        return jsonify({"error": "No signals provided"}), 400
+
+    signal_list = "\n".join(f"• {s.get('label','')}: {s.get('description','')}" for s in signals)
+    prompt = f"""You are a professional options flow analyst at a top hedge fund.
+Analyze the following institutional conviction signals detected for {ticker}.
+
+CONVICTION SCORE: {score}/100 — {label}
+
+ACTIVE SIGNALS:
+{signal_list}
+
+Provide a sharp, professional trade thesis in 3 parts:
+1. SIGNAL INTERPRETATION (2-3 sentences on what the smart money is likely doing)
+2. RISK FACTORS (1-2 sentences on what could invalidate this thesis)
+3. TRADE SETUP (specific actionable idea: entry, expiration, strike type)
+
+Be direct and specific. No fluff. Write like a desk analyst briefing a PM."""
+
+    try:
+        import anthropic as _anthropic
+        base_url = os.getenv("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+        api_key  = os.getenv("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "placeholder")
+        client   = _anthropic.Anthropic(base_url=base_url, api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text if msg.content else "Analysis unavailable."
+        return jsonify({"thesis": text, "ticker": ticker, "score": score})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/stock-api/squeeze/detector", methods=["POST"])
 def squeeze_detector():
     import yfinance as yf
