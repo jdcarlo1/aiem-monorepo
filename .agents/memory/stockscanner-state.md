@@ -8,7 +8,8 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - Python Flask API: `artifacts/stock-scanner-api/main.py` — port 5050, workflow: "artifacts/stock-scanner: stock-api"
 - Node.js API server: `artifacts/api-server/` — port 8080, handles Stripe checkout + webhooks
 - APScheduler: 9:00, 9:05, 9:45, 3:30, 4:00, 4:05, 4:15, 4:30 ET every trading day
-- Morning inflows scans: 9:31, 9:45, 10:00, 10:15, 10:30, 12:00 PM ET (noon scan added June 2026)
+- Morning inflows scans: 9:31, 9:33, 9:35, 9:38, 9:41, 9:45, 10:00, 10:15, 10:30 AM ET (tightened June 2026 for hedge-fund timing)
+- News Catalyst scans: same tight window 9:31–10:30 AM ET (parallel track, separate SMS label)
 - Email schedule (Mon-Fri ET): morning_inflows 9:46/10:01/10:16/10:31 AM | eod_accum 3:46 PM | ai_trades 10:00 AM | unusual_calls 9:47 AM + 3:15 PM | microcap_calls 10:32 AM + 3:16 PM | high_conviction 9:48 AM + 3:17 PM
 - Position monitor: `position_monitor` DB table; email TRADE: BUY MSFT 420c 6/20 to yourself to log; IMAP poller every 15 min; exit signal checker every 30 min; fires at score ≥3 (put flow +2, call disappear +2, MACD cross +1, RSI≥75 +1, weak close +1)
 - Signal snapshot job at 4:00 PM ET (saves to signal_history table)
@@ -16,6 +17,44 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - EOD accum scans: 3:45 PM and 3:55 PM ET — saves to eod_accum_picks table
 - SPY cache refresh at 9:05 AM ET (module-level _spy_1y_cache dict)
 - Outcome tracker at 4:30 PM ET (T+3/5/10 day price outcomes)
+
+## ICS Scoring System (as of June 2026)
+- Total weight: 200 pts (120 original + 80 holy grail)
+- SMS threshold: 80+ → text fires
+- Score = pts/200 * 100. Labels: 80+=EXTREME🔥🔥🔥, 70+=HIGH⭐⭐⭐
+- **Original signals (120 pts)**: RVOL 3x+(10), Above VWAP(8), Price chg 1%+(8), Gap up(7), Bid/Ask Spread Tightening(7), + 6 others from options_sweep.py
+- **Holy Grail signals (80 pts)** in `holy_grail.py`: Delta Flow(10), Tape Reading(8), VWAP 2nd StdDev(8), MFI>70(8), Price Acceleration(7), Consecutive Green(6), Pre-Mkt Vol 5x(8), VWAP Reclaim(8), Minute RVOL 3x(10), Bid/Ask Spread(7)
+- VWAP Reclaim also runs standalone every 5 min — texts immediately on any previously-alerted ticker
+
+## News Catalyst Scanner (NEW — June 2026)
+- File: `artifacts/stock-scanner-api/news_catalyst.py`
+- Parallel to ICS, completely independent, does NOT change ICS logic
+- 4 signals (100 pts total): Blowout RVOL >15x(30), News keyword(20), Recovery confirmation(25), Sustained volume 3x+(25)
+- SMS threshold: 75+. Text labeled "📰 NEWS CATALYST" so user knows which scanner fired
+- Targets stocks like ELVN: massive opening volume, news catalyst, choppy open then recovers
+- DB table: `news_catalyst_log` (ticker, alert_date unique constraint, price, score, catalyst)
+- Runs 9:31–10:30 AM ET only (same window as ICS)
+
+## SMS Alert Flow (Monday morning)
+1. 🔥 ICS Entry text (9:31-9:33 AM) → buy
+2. 📰 News Catalyst text (if news gap fires) → different setup type
+3. 🎯 +10% profit target text → set trailing stop, let it run
+4. ⚠️ VWAP break exit text → tighten stop or exit
+- SMS: primary via 4013185787@tmomail.net (T-Mobile email-to-SMS), backup joeldcarlo@gmail.com
+- User phone: +14013185787 (T-Mobile)
+
+## Backtest Findings (June 2026)
+- **Catches** (ICS 80+): ZDGE (+25.68%, score 86), TXMD (+20.88%, score 91) — gap-up institutional burst at 9:31
+- **Correctly ignores**: ALMS, ARM, TBN — slow all-day grinders, no opening volume signature
+- **News catalyst track catches**: ELVN (+14.3%, 35x RVOL) — blowout open volume with news, choppy recovery
+- **Key insight**: ICS requires CLEAN one-directional buying at open. Biotech news gaps have two-sided action → scored low on ICS but caught by news catalyst scanner
+- **TBN**: 0 shares at 9:30 AM, move started 11:10 AM → neither scanner catches, by design
+
+## Scanner Pattern Dictionary
+- Gap-up institutional burst (ZDGE/TXMD type): ICS 80+ at 9:31
+- Biotech news catalyst (ELVN type): News Catalyst 75+ at 9:35-9:45
+- Slow all-day grinder (ALMS/ARM/TBN type): Neither scanner fires — correct behavior
+- Bounce/recovery from gap-down (RFL type): Neither scanner fires — different setup
 
 ## AI Trades — 60+ Data Points, 32 Rules, 5 Setups
 The `/stock-api/ai-trades` route aggregates all scanners into a GPT-5-mini prompt.
@@ -69,6 +108,9 @@ All computed in vol-crush `_analyze()` (Q1-Q18):
 - `morning_inflows_cache` — columns: scan_date, payload (JSON), saved_at; ONE row per day, overwritten each scan; payload has scanned/standouts/criteria/generated_at
 - `eod_accum_picks` — columns: scan_date, ticker, close_price, accum_score, eod_rel_vol, closing_range, late_flow, news_headline; started June 11, 2026
 - `eod_accum_outcomes` — tracks next-day outcomes of EOD accum picks
+- `sms_alerts_log` — ICS SMS alerts (ticker+date unique)
+- `sms_profit_log` — +10% profit target alerts (ticker+date unique)
+- `news_catalyst_log` — news catalyst SMS alerts (ticker+date unique)
 
 ## Scan time → UTC conversion (EDT = UTC-4)
 - 9:31 AM ET = 13:31 UTC | 9:45 AM = 13:45 | 10:00 = 14:00 | 10:15 = 14:15 | 10:30 = 14:30 | 12:00 PM = 16:00 | 3:45 PM = 19:45 | 4:00 PM = 20:00
@@ -138,63 +180,11 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - Keep under ~100 tickers — each requires individual yfinance call, 350+ would cause scan overlap
 - Grow by adding tickers user reports each evening that the scanner missed
 
-## June 11 EOD Production Picks — My June 12 Morning Predictions (LOCKED IN)
-Production scan (3:45 PM ET, June 11) found these 15 names. User will report actuals June 12.
-
-### Raw production data:
-| Ticker | Close    | Chg%   | EODvol | LateFlow | CR    | Cap($M)  |
-|--------|----------|--------|--------|----------|-------|----------|
-| SMSI   | $4.17    | +18.9% | 28.5×  | 6.3      | 1.000 | $23M     |
-| TUYA   | $2.20    | +15.8% | 27.7×  | 6.4      | 0.926 | $1,349M  |
-| UTSI   | $3.29    | +9.1%  | 15.1×  | MAX(99)  | 0.905 | $31M     |
-| ANGH   | $4.97    | +14.8% | 14.1×  | MAX(99)  | 0.988 | $45M     |
-| MHH    | $7.84    | +18.8% | 15.6×  | 4.4      | 0.929 | $95M     |
-| MBX    | $37.26   | +20.8% | 12.1×  | 3.5      | 1.000 | $1,773M  |
-| ICHR   | $84.03   | +19.8% | 5.6×   | 2.9      | 0.952 | $2,930M  |
-| PICS   | $10.83   | +15.8% | 7.2×   | 2.1      | 0.988 | $1,402M  |
-| ALM    | $17.07   | +12.1% | 2.9×   | 5.0      | 0.969 | $4,844M  |
-| ONTO   | $303.61  | +16.2% | 4.3×   | 3.1      | 0.993 | $15,099M |
-| NUAI   | $5.47    | +24.2% | 2.6×   | 3.6      | 0.995 | $553M    |
-| IMOS   | $63.69   | +15.6% | 3.4×   | 2.6      | 0.988 | $2,217M  |
-| AIP    | $37.31   | +12.2% | 4.3×   | 2.0      | 0.946 | $1,723M  |
-| PGEN   | $4.53    | +15.6% | 3.7×   | 2.3      | 0.936 | $1,615M  |
-| W      | $77.71   | +12.6% | 3.8×   | 2.1      | 0.992 | $10,254M |
-
-### MY PREDICTED RANKING (biggest % gain June 12 morning, best→worst):
-1. SMSI  — $23M micro, 28.5× vol, closed AT HOD, tiny float
-2. ANGH  — $45M, late flow MAXED, 14× vol, 0.988 close
-3. UTSI  — $31M micro, late flow MAXED, 15× vol (weaker close 0.905)
-4. MHH   — $95M, 15.6× vol, +18.8%, solid across all metrics
-5. TUYA  — 27.7× vol extraordinary for $1.35B; Chinese ADR risk
-6. MBX   — closed AT HOD (1.0), 12× vol, +20.8%; limited by $1.77B cap
-7. NUAI  — +24% already but only 2.6× vol; news-driven, more fade risk
-8. ICHR  — semi sector play, 5.6× vol, strong close; $2.93B limits % ceiling
-9. PICS  — solid signals, $1.4B cap
-10. IMOS  — clean close, $2.2B cap
-11. ONTO  — large cap $15B, ceiling limited
-12. ALM   — $4.84B, lower vol
-13. W     — $10.25B Wayfair, too big for big %
-14. PGEN  — weaker close 0.936
-15. AIP   — weakest late flow (2.0), weakest close (0.946)
-
-### Key reasoning:
-- Top 3 are all micro/small cap ($23M–$95M) with MAXED or near-maxed late flow — these produce 15-40% morning gaps
-- TUYA drops to #5 despite huge volume because Chinese ADR = noisy/unreliable continuation
-- Large caps (ONTO, W, ALM) physically can't make big % moves on accumulation alone
-- Post-mortem goal: find which metric was most predictive of actual performance
-
-## SMS / Twilio (PENDING — user setting up tomorrow June 13 2026)
+## SMS / Twilio
 - `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
 - Scheduler: every 15 min, Mon-Fri 9:30 AM–3:45 PM ET
-- Threshold: chg >= 1% with tiered relative volume (see sms-threshold-lessons.md)
-  - +1–3%: 5× vol | +3–7%: 4× vol | +7–10%: 3× vol | +10–20%: 2× vol | +20%+: 1.5× vol
 - One text per ticker per day (deduped via sms_alerts_log table UNIQUE constraint on ticker+date)
-- DB table: `sms_alerts_log` (ticker, price, chg_pct, rel_vol, score, reason, sent_at)
-- init_sms_log_table() called at startup in main.py
-- Text format: "🔥 SIGNAL: TICKER +X% | Yx vol | $price\nScore Z | HH:MM ET\nnclexai.org/stock-scanner/"
-- User phone: +14013185787 (TO number)
-- Needs 4 secrets: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, TWILIO_TO_NUMBER
-- To activate: user adds 4 Twilio secrets → texts fire automatically next market open
+- User phone: +14013185787 (T-Mobile), gateway: 4013185787@tmomail.net
 
 ## Email alerts
 - `artifacts/stock-scanner-api/email_alerts.py` — full email digest
