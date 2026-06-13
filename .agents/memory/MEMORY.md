@@ -1,4 +1,5 @@
 - [NCLEX Prep project state](nclex-prep-state.md) — question bank counts, categories, next question number, stack, and key constraints
 - [Payment flow fixes](payment-flow-fixes.md) — three critical bugs fixed: webhook URL, success/cancel URL, webhook handler crash
-- [StockScanner AI state](stockscanner-state.md) — full product state: landing page design, Stripe setup, pending Twilio SMS, key files, scheduler times
+- [StockScanner AI state](stockscanner-state.md) — full product state: landing page design, Stripe setup, SMS live via email gateway, key files, scheduler times
+- [SMS delivery solution](sms-delivery-solution.md) — email-to-SMS gateway bypasses Twilio A2P 10DLC blocking; T-Mobile gateway confirmed working
 - [SMS threshold lessons](sms-threshold-lessons.md) — why 1%+tiered-vol beats 10% flat; 10 missed movers June 12 2026 all opened below 3%
