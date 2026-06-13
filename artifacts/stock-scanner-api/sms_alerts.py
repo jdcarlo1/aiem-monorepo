@@ -339,3 +339,139 @@ def run_sms_alert_scan():
             sent += 1
 
     print(f"[sms_alerts] scan complete — {len(candidates)} candidates, {sent} texts sent")
+
+
+# ── Exit alert system ─────────────────────────────────────────────────────────
+
+def init_exit_log_table():
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS sms_exit_log (
+                        id          SERIAL PRIMARY KEY,
+                        ticker      TEXT NOT NULL,
+                        exit_date   DATE NOT NULL DEFAULT CURRENT_DATE,
+                        price       NUMERIC,
+                        chg_pct     NUMERIC,
+                        vwap        NUMERIC,
+                        entry_price NUMERIC,
+                        sent_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        UNIQUE (ticker, exit_date)
+                    )
+                """)
+        print("[sms_alerts] exit log table ready")
+    except Exception as e:
+        print(f"[sms_alerts] exit table init error: {e}")
+
+
+def _already_exit_alerted(ticker: str) -> bool:
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    SELECT 1 FROM sms_exit_log
+                    WHERE ticker=%s AND exit_date=CURRENT_DATE LIMIT 1
+                """, (ticker,))
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def _log_exit_alert(ticker, price, chg_pct, vwap, entry_price):
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO sms_exit_log (ticker, price, chg_pct, vwap, entry_price)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (ticker, exit_date) DO NOTHING
+                """, (ticker, price, chg_pct, vwap, entry_price))
+    except Exception as e:
+        print(f"[sms_alerts] exit log error {ticker}: {e}")
+
+
+def _get_today_alerted_tickers() -> list:
+    """Return list of (ticker, entry_price, entry_chg) alerted today."""
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ON (ticker) ticker, price, chg_pct
+                    FROM sms_alerts_log
+                    WHERE alert_date = CURRENT_DATE
+                    ORDER BY ticker, sent_at ASC
+                """)
+                return cur.fetchall()
+    except Exception:
+        return []
+
+
+def run_exit_alert_scan():
+    """
+    Runs every 15 min during market hours alongside run_sms_alert_scan.
+    Checks stocks alerted today — if any break below VWAP, fires an exit text.
+    Only one exit alert per ticker per day.
+    """
+    if not sms_configured():
+        return
+
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+    market_open  = now_et.replace(hour=9,  minute=30, second=0, microsecond=0)
+    market_close = now_et.replace(hour=15, minute=45, second=0, microsecond=0)
+    if now_et < market_open or now_et > market_close:
+        return
+
+    alerted = _get_today_alerted_tickers()
+    if not alerted:
+        return
+
+    import yfinance as _yf
+    sent = 0
+
+    for ticker, entry_price, entry_chg in alerted:
+        if _already_exit_alerted(ticker):
+            continue
+        try:
+            tk   = _yf.Ticker(ticker)
+            fi   = tk.fast_info
+            prev = float(getattr(fi, "previous_close", 0) or 0)
+            hist = tk.history(period="1d", interval="1m")
+            if hist.empty or prev <= 0:
+                continue
+            hist.index = hist.index.tz_convert(_ET)
+            price = float(hist["Close"].iloc[-1])
+            vol   = float(hist["Volume"].sum())
+            if vol <= 0:
+                continue
+            # Calculate current VWAP
+            hist["_tp"] = (hist["High"] + hist["Low"] + hist["Close"]) / 3
+            tp_vol_sum  = float((hist["_tp"] * hist["Volume"]).sum())
+            vwap        = tp_vol_sum / vol
+            chg_pct     = (price - prev) / prev * 100
+
+            # Only fire exit if price is now below VWAP
+            if price >= vwap:
+                continue
+
+            # Calculate gain from entry
+            entry_gain = ((price - float(entry_price or prev)) / float(entry_price or prev) * 100) if entry_price else chg_pct
+
+            gain_str = f"+{entry_gain:.1f}% from entry" if entry_gain > 0 else f"{entry_gain:.1f}% from entry"
+            status   = "🟡 still profitable" if entry_gain > 0 else "🔴 at a loss"
+
+            msg = (
+                f"🚪 EXIT: {ticker} broke below VWAP\n"
+                f"Price ${price:.2f} ({gain_str}) {status}\n"
+                f"VWAP ${vwap:.2f} — momentum fading\n"
+                f"Consider locking in | {now_et.strftime('%I:%M %p ET')}"
+            )
+            if send_sms(msg):
+                _log_exit_alert(ticker, price, chg_pct, vwap, entry_price)
+                sent += 1
+        except Exception as e:
+            print(f"[sms_alerts] exit check error {ticker}: {e}")
+
+    print(f"[sms_alerts] exit scan complete — {len(alerted)} watched, {sent} exit alerts sent")

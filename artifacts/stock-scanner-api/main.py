@@ -20,7 +20,9 @@ from email_alerts import (
 )
 from historical_performance import init_score_history_table, save_scan_scores
 from signal_outcomes import init_signal_outcomes_table, store_bull_flow_signals, get_signal_outcomes
-from sms_alerts import init_sms_log_table, run_sms_alert_scan, send_sms, sms_configured
+from sms_alerts import (init_sms_log_table, init_exit_log_table,
+                        run_sms_alert_scan, run_exit_alert_scan,
+                        send_sms, sms_configured)
 import execution
 import pnl
 
@@ -62,6 +64,7 @@ init_db()
 init_score_history_table()
 init_signal_outcomes_table()
 init_sms_log_table()
+init_exit_log_table()
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -388,6 +391,20 @@ try:
         "interval",
         minutes=15,
         id="sms_alert_scan",
+        replace_existing=True,
+    )
+    # Exit alert scan: every 15 min — watches stocks alerted today for VWAP breaks
+    def _run_exit_alert_scan():
+        try:
+            import threading as _thr_exit
+            _thr_exit.Thread(target=run_exit_alert_scan, daemon=True).start()
+        except Exception as _e_exit:
+            print(f"[scheduler] exit alert scan error: {_e_exit}")
+    _scheduler.add_job(
+        _run_exit_alert_scan,
+        "interval",
+        minutes=15,
+        id="exit_alert_scan",
         replace_existing=True,
     )
 
