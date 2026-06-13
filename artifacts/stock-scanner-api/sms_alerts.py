@@ -248,13 +248,13 @@ def _no_options_score(rv: float, chg: float, above_vwap: bool,
     return min(pts, 100)
 
 
-def _large_cap_score(rv: float, chg: float, above_vwap: bool,
-                     gap_pct: float, orb_break: bool = False,
-                     atr_multiple: float = 0.0) -> int:
+def _with_options_score(rv: float, chg: float, above_vwap: bool,
+                        gap_pct: float, orb_break: bool = False,
+                        atr_multiple: float = 0.0) -> int:
     """
-    Institutional momentum score for mid/large-cap stocks ($500M+ market cap).
-    Replaces float rotation (meaningless on large floats) with sustained RVOL
-    and price momentum signals. Max 100 pts, fire threshold 55.
+    Institutional momentum score for stocks that have options (any cap size).
+    Replaces float rotation with RVOL + VWAP + price momentum signals.
+    Max 100 pts, fire threshold 55.
 
     Scoring categories (total 100):
       RVOL             30 pts  — institutional conviction; 3x+ on large-cap = real money
@@ -525,7 +525,7 @@ def run_sms_alert_scan():
 
         early_flag  = (now_et.hour == 9 or (now_et.hour == 10 and now_et.minute <= 30))
         if has_options_val:
-            nopt_score = _large_cap_score(rv, chg, above_vwap, gap_pct_val,
+            nopt_score = _with_options_score(rv, chg, above_vwap, gap_pct_val,
                                           orb_break=orb_break_val,
                                           atr_multiple=atr_mult_val)
             threshold = 55
@@ -926,7 +926,7 @@ def run_midday_breakout_scan():
                 except Exception:
                     pass
                 if has_opts:
-                    score = _large_cap_score(rel_vol, chg_from_prev, True, gap_pct)
+                    score = _with_options_score(rel_vol, chg_from_prev, True, gap_pct)
                 else:
                     score = _no_options_score(rel_vol, chg_from_prev, True, gap_pct, early_morning=False)
                 return {
@@ -1087,7 +1087,7 @@ def run_gap_recovery_scan():
                 except Exception:
                     pass
                 if has_opts:
-                    score = _large_cap_score(rel_vol, chg_pct_prev, True, gap_pct)
+                    score = _with_options_score(rel_vol, chg_pct_prev, True, gap_pct)
                 else:
                     score = _no_options_score(rel_vol, chg_pct_prev, True, gap_pct, early_morning=False)
                 # Gap recovery bonus — big pullback + reclaim = higher conviction
