@@ -44,7 +44,7 @@ _GAMMA_MIN_OI     = 500    # minimum OI at that strike to matter
 # Signals not automatable (oiSpike=4, quietTicker=3, darkPool=3, preCatalyst=3)
 # never fire but stay in denominator so scores are comparable with the manual tool.
 _ICS_TOTAL_WEIGHT  = 120
-_ICS_SMS_THRESHOLD = 70   # only send SMS when automated score reaches this
+_ICS_SMS_THRESHOLD = 80   # only send SMS when automated score reaches this (65-70% win rate zone)
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
