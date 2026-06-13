@@ -385,7 +385,7 @@ try:
             id=f"morning_inflows_email_{_mi_eh}_{_mi_em}",
             replace_existing=True,
         )
-    # SMS alert scan: every 15 min Mon-Fri 9:30 AM – 3:45 PM ET
+    # SMS alert scan: every 5 min Mon-Fri 9:30 AM – 3:45 PM ET
     # Fires a text the instant any stock crosses your indicators — no email needed
     def _run_sms_alert_scan():
         try:
@@ -396,7 +396,7 @@ try:
     _scheduler.add_job(
         _run_sms_alert_scan,
         "interval",
-        minutes=15,
+        minutes=5,
         id="sms_alert_scan",
         replace_existing=True,
     )
@@ -426,7 +426,7 @@ try:
         id="exit_alert_scan",
         replace_existing=True,
     )
-    # Mid-Day Breakout scan: every 15 min 10:30 AM – 3:30 PM ET
+    # Mid-Day Breakout scan: every 5 min 10:30 AM – 3:30 PM ET
     # Confirmed trend + above VWAP + 15-min momentum — lower risk than morning entry
     def _run_midday_breakout_scan():
         try:
@@ -437,11 +437,11 @@ try:
     _scheduler.add_job(
         _run_midday_breakout_scan,
         "interval",
-        minutes=15,
+        minutes=5,
         id="midday_breakout_scan",
         replace_existing=True,
     )
-    # Gap Recovery scan: every 15 min 10:30 AM – 1:00 PM ET
+    # Gap Recovery scan: every 5 min 10:30 AM – 1:00 PM ET
     # Big gapper (20%+) that sold off then reclaimed VWAP with momentum
     def _run_gap_recovery_scan():
         try:
@@ -452,7 +452,7 @@ try:
     _scheduler.add_job(
         _run_gap_recovery_scan,
         "interval",
-        minutes=15,
+        minutes=5,
         id="gap_recovery_scan",
         replace_existing=True,
     )
