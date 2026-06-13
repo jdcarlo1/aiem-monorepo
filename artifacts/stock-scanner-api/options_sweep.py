@@ -39,6 +39,13 @@ _LOW_IV_THRESHOLD = 50.0   # IV% below this = cheap options = real conviction bu
 _GAMMA_ROUND_PCT  = 0.5    # strike within 0.5% of a round $5 number = gamma zone
 _GAMMA_MIN_OI     = 500    # minimum OI at that strike to matter
 
+# ── ICS auto-scoring ──────────────────────────────────────────────────────────
+# Weights mirror the manual Institutional Conviction Score tool (total = 120).
+# Signals not automatable (oiSpike=4, quietTicker=3, darkPool=3, preCatalyst=3)
+# never fire but stay in denominator so scores are comparable with the manual tool.
+_ICS_TOTAL_WEIGHT  = 120
+_ICS_SMS_THRESHOLD = 70   # only send SMS when automated score reaches this
+
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
@@ -163,6 +170,92 @@ def _check_gamma_squeeze(strike: float, oi: int, price: float) -> bool:
     return proximity_pct <= _GAMMA_ROUND_PCT
 
 
+# ── ICS auto-scoring function ─────────────────────────────────────────────────
+
+def _compute_ics_score(h: dict, now_et: datetime) -> tuple[int, list[str]]:
+    """
+    Compute an automated ICS score (0-100) using the same weights as the manual tool.
+    Returns (score, list_of_label_strings).
+    Signals checked automatically:
+      nakedCall(20)      — pc_ratio < 0.5 (directional, more calls than puts 2:1)
+      askSide(15)        — vol_oi >= 3x  (aggressive market-order buying = urgency)
+      multiLegSweep(15)  — same ticker has >= 2 qualifying strikes this scan
+      premiumSize(12)    — premium >= $500K
+      shortDatedOTM(10)  — days_out <= 7 AND strike > price
+      aboveVWAP(8)       — price >= vwap
+      heavyVolume(8)     — vol >= 500 contracts (high absolute activity)
+      repeatActivity(6)  — repeat_days >= 1
+      redDayBuy(5)       — stock price down from prev close (buying on weakness)
+      lowIVR(5)          — IV < 50%
+      earlyMorning(3)    — 9:30–10:00 AM ET (most informed institutional prints)
+    Not automatable (13 pts total): oiSpike, quietTicker, darkPool, preCatalyst
+    """
+    pts = 0
+    labels = []
+
+    # nakedCall (20) — P/C < 0.5 means 2:1 more call vol than put = directional conviction
+    pc = h.get("pc_ratio")
+    if pc is not None and pc < 0.5:
+        pts += 20
+        labels.append(f"📣 Directional (P/C {pc}) — naked conviction")
+
+    # askSide (15) — vol/OI >= 3x = someone is paying up, not limit-fishing
+    if h["vol_oi"] >= 3.0:
+        pts += 15
+        labels.append(f"⚡ Ask-side urgency ({h['vol_oi']}x ratio)")
+
+    # multiLegSweep (15) — multiple qualifying strikes this scan cycle
+    if h.get("multi_strike", False):
+        pts += 15
+        labels.append("🔀 Multi-strike sweep (coordinated)")
+
+    # premiumSize (12)
+    if h["premium"] >= 500_000:
+        pts += 12
+        labels.append(f"💰 Premium ${h['premium']//1000}K (institutional size)")
+
+    # shortDatedOTM (10)
+    if h["days_out"] <= 7 and h["otm_pct"] > 0:
+        pts += 10
+        labels.append(f"📅 Weekly OTM +{h['otm_pct']}% ({h['days_out']}d) — speculative")
+
+    # aboveVWAP (8)
+    if h["above_vwap"]:
+        pts += 8
+        labels.append(f"✅ Above VWAP (${h['vwap']:.2f})")
+
+    # heavyVolume (8) — absolute options volume >= 500 contracts
+    if h["vol"] >= 500:
+        pts += 8
+        labels.append(f"📊 Heavy vol {h['vol']:,} contracts")
+
+    # repeatActivity (6)
+    if h["repeat_days"] >= 1:
+        pts += 6
+        labels.append(f"🔁 Repeat sweep {h['repeat_days']}d in a row")
+
+    # redDayBuy (5) — buying calls while stock is down = conviction
+    if h.get("red_day", False):
+        pts += 5
+        labels.append("🔴 Buying on red day — strong conviction")
+
+    # lowIVR (5)
+    if 0 < h["iv"] < _LOW_IV_THRESHOLD:
+        pts += 5
+        labels.append(f"📉 Low IV {h['iv']:.0f}% (cheap, expects big move)")
+
+    # earlyMorning (3) — 9:30–10:00 AM ET
+    if now_et.hour == 9 and now_et.minute >= 30:
+        pts += 3
+        labels.append("🌅 Early morning print (informed money)")
+    elif now_et.hour == 10 and now_et.minute == 0:
+        pts += 3
+        labels.append("🌅 Early morning print (informed money)")
+
+    score = min(round(pts / _ICS_TOTAL_WEIGHT * 100), 100)
+    return score, labels
+
+
 # ── Core VWAP calc ────────────────────────────────────────────────────────────
 
 def _get_vwap(ticker: str) -> tuple[float, float]:
@@ -184,19 +277,33 @@ def _get_vwap(ticker: str) -> tuple[float, float]:
 
 # ── Full sweep scan for one ticker ────────────────────────────────────────────
 
+def _get_prev_close(ticker: str) -> float:
+    """Returns yesterday's closing price for red-day detection."""
+    try:
+        tk   = yf.Ticker(ticker)
+        hist = tk.history(period="2d", interval="1d")
+        if len(hist) >= 2:
+            return float(hist["Close"].iloc[-2])
+        return 0.0
+    except Exception:
+        return 0.0
+
+
 def _scan_ticker_for_sweeps(ticker: str) -> list[dict]:
     price, vwap = _get_vwap(ticker)
     if price <= 0 or vwap <= 0:
         return []
 
-    tk   = yf.Ticker(ticker)
-    now  = datetime.now(_ET).date()
+    tk         = yf.Ticker(ticker)
+    now        = datetime.now(_ET).date()
+    prev_close = _get_prev_close(ticker)
+    red_day    = (prev_close > 0 and price < prev_close)
 
     # Pre-compute confluence signals that apply to the whole ticker (not per-strike)
     repeat_days = _get_repeat_sweep_days(ticker)
     pc_ratio    = _get_pc_ratio(ticker, tk)
 
-    hits = []
+    raw_hits = []
     for expiry in (tk.options or []):
         exp_date = datetime.strptime(expiry, "%Y-%m-%d").date()
         days_out = (exp_date - now).days + 1
@@ -232,106 +339,79 @@ def _scan_ticker_for_sweeps(ticker: str) -> list[dict]:
 
                 iv = float(row.get("impliedVolatility") or 0) * 100
 
-                # ── Score confluence signals ──────────────────────────────────
-                signals = []
-
-                # Signal 1 always true (base sweep requirement already met)
-                signals.append("sweep")
-
-                # Signal 2: short-dated OTM weekly
+                # ── Legacy 6-signal conviction (kept for DB logging) ──────────
+                signals = ["sweep"]
                 if days_out <= _SHORT_DATED_DAYS and otm_pct > 0:
                     signals.append("short_dated_otm")
-
-                # Signal 3: repeat sweep
                 if repeat_days >= 1:
                     signals.append(f"repeat_{repeat_days}d")
-
-                # Signal 4: P/C divergence (elevated put buying = contrarian fuel)
                 if pc_ratio is not None and pc_ratio > 1.0:
                     signals.append(f"pc_div_{pc_ratio}")
-
-                # Signal 5: low IV rank (cheap options = buyer expects real move)
                 if 0 < iv < _LOW_IV_THRESHOLD:
                     signals.append(f"low_iv_{iv:.0f}")
-
-                # Signal 6: gamma squeeze setup
                 if _check_gamma_squeeze(strike, oi, price):
                     signals.append("gamma_squeeze")
 
-                hits.append({
-                    "ticker":     ticker,
-                    "price":      price,
-                    "vwap":       vwap,
-                    "above_vwap": price >= vwap,
-                    "strike":     strike,
-                    "expiry":     expiry,
-                    "days_out":   days_out,
-                    "vol":        vol,
-                    "oi":         oi,
-                    "vol_oi":     round(vol_oi, 1),
-                    "premium":    premium,
-                    "otm_pct":    round(otm_pct, 1),
-                    "iv":         round(iv, 1),
-                    "pc_ratio":   pc_ratio,
+                raw_hits.append({
+                    "ticker":      ticker,
+                    "price":       price,
+                    "vwap":        vwap,
+                    "above_vwap":  price >= vwap,
+                    "strike":      strike,
+                    "expiry":      expiry,
+                    "days_out":    days_out,
+                    "vol":         vol,
+                    "oi":          oi,
+                    "vol_oi":      round(vol_oi, 1),
+                    "premium":     premium,
+                    "otm_pct":     round(otm_pct, 1),
+                    "iv":          round(iv, 1),
+                    "pc_ratio":    pc_ratio,
                     "repeat_days": repeat_days,
-                    "signals":    signals,
-                    "conviction": len(signals),
+                    "red_day":     red_day,
+                    "signals":     signals,
+                    "conviction":  len(signals),
                 })
             except Exception:
                 pass
 
-    return hits
+    # Detect multi-strike: if >= 2 qualifying hits exist for this ticker, flag all of them
+    multi_strike = len(raw_hits) >= 2
+    for h in raw_hits:
+        h["multi_strike"] = multi_strike
+
+    return raw_hits
 
 
 # ── SMS message builder ───────────────────────────────────────────────────────
 
-def _build_sweep_msg(h: dict, now_et: datetime) -> str:
-    conviction = h["conviction"]
-
-    # Label and stars
-    if conviction >= 4:
-        label = "INSTITUTIONAL SETUP ⭐⭐⭐"
-    elif conviction == 3:
-        label = "HIGH CONVICTION ⭐⭐"
-    elif conviction == 2:
-        label = "STRONG SWEEP ⭐"
+def _build_sweep_msg(h: dict, now_et: datetime, ics_score: int, ics_labels: list[str]) -> str:
+    # ICS-based label (replaces the old 6-signal star rating)
+    if ics_score >= 80:
+        header = f"🔥🔥🔥 EXTREME CONVICTION — ICS {ics_score}/100"
+    elif ics_score >= 70:
+        header = f"⭐⭐⭐ HIGH CONVICTION — ICS {ics_score}/100"
     else:
-        label = "SWEEP"
+        header = f"⭐⭐ STRONG SWEEP — ICS {ics_score}/100"
 
-    vwap_label = "✅ above VWAP" if h["above_vwap"] else "⚠️ below VWAP"
     otm_label  = f"+{h['otm_pct']}% OTM" if h["otm_pct"] >= 0 else f"{abs(h['otm_pct'])}% ITM"
 
-    # Build signal detail lines
-    detail_lines = []
-
-    if "short_dated_otm" in " ".join(h["signals"]):
-        detail_lines.append("📅 Weekly OTM — almost never a hedge")
-
-    for s in h["signals"]:
-        if s.startswith("repeat_"):
-            days = s.split("_")[1].replace("d","")
-            detail_lines.append(f"🔁 Repeat sweep: {days} day(s) in a row — accumulation")
-
-    for s in h["signals"]:
-        if s.startswith("pc_div_"):
-            ratio = s.split("_")[2]
-            detail_lines.append(f"📊 P/C ratio {ratio} — elevated puts = contrarian fuel")
-
-    for s in h["signals"]:
-        if s.startswith("low_iv_"):
-            iv_val = s.split("_")[2]
-            detail_lines.append(f"📉 Low IV {iv_val}% — options cheap, buyer expects big move")
-
-    if "gamma_squeeze" in " ".join(h["signals"]):
-        detail_lines.append(f"⚡ Gamma squeeze zone — dealers must buy shares above ${h['strike']:.0f}")
-
     lines = [
-        f"📣 CALL SWEEP: {h['ticker']} — {label}",
+        f"🎯 INST. CONVICTION ALERT: {h['ticker']}",
+        header,
         f"${h['strike']} strike ({otm_label}) exp {h['expiry']} ({h['days_out']}d)",
         f"Vol {h['vol']:,} | OI {h['oi']:,} | {h['vol_oi']}x ratio",
-        f"Premium ${h['premium']:,} | Stock ${h['price']:.2f} {vwap_label}",
+        f"Premium ${h['premium']:,} | Stock ${h['price']:.2f}",
     ]
-    lines.extend(detail_lines)
+
+    # Add ICS signal breakdown (up to 5 signals to keep SMS short)
+    if ics_labels:
+        lines.append("Signals fired:")
+        for lbl in ics_labels[:5]:
+            lines.append(f"  {lbl}")
+        if len(ics_labels) > 5:
+            lines.append(f"  +{len(ics_labels)-5} more")
+
     lines.append(now_et.strftime("%I:%M %p ET"))
     return "\n".join(lines)
 
@@ -374,7 +454,7 @@ def run_call_sweep_scan(extra_tickers: list[str] | None = None):
         print("[options_sweep] no tickers to scan")
         return
 
-    print(f"[options_sweep] scanning {len(universe)} tickers across 6 confluence signals...")
+    print(f"[options_sweep] scanning {len(universe)} tickers (ICS threshold: {_ICS_SMS_THRESHOLD}+)...")
 
     try:
         from sms_alerts import send_sms
@@ -389,16 +469,25 @@ def run_call_sweep_scan(extra_tickers: list[str] | None = None):
                 if _already_sweep_alerted(ticker, h["strike"], h["expiry"]):
                     continue
 
-                msg = _build_sweep_msg(h, now_et)
+                # ── Auto-score against ICS weights ────────────────────────────
+                ics_score, ics_labels = _compute_ics_score(h, now_et)
+
+                print(f"[options_sweep] {ticker} ${h['strike']} exp {h['expiry']} → ICS {ics_score}/100")
+
+                # Only alert if automated ICS score meets threshold
+                if ics_score < _ICS_SMS_THRESHOLD:
+                    continue
+
+                msg = _build_sweep_msg(h, now_et, ics_score, ics_labels)
                 if send_sms(msg):
                     _log_sweep_alert(
                         ticker, h["strike"], h["expiry"],
                         h["vol"], h["oi"], h["vol_oi"],
                         h["premium"], h["price"], h["vwap"],
-                        h["conviction"], ",".join(h["signals"])
+                        ics_score, ",".join(h["signals"]) + f"|ics_{ics_score}"
                     )
                     sent += 1
         except Exception as e:
             print(f"[options_sweep] error scanning {ticker}: {e}")
 
-    print(f"[options_sweep] scan complete — {len(universe)} tickers, {sent} sweep alerts sent")
+    print(f"[options_sweep] scan complete — {len(universe)} tickers, {sent} ICS {_ICS_SMS_THRESHOLD}+ alerts sent")
