@@ -40,6 +40,7 @@ def init_sms_log_table():
     try:
         with _conn() as con:
             with con.cursor() as cur:
+                # Create table without unique constraint to allow re-alerts
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS sms_alerts_log (
                         id          SERIAL PRIMARY KEY,
@@ -50,24 +51,51 @@ def init_sms_log_table():
                         rel_vol     NUMERIC,
                         score       NUMERIC,
                         reason      TEXT,
-                        sent_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        UNIQUE (ticker, alert_date)
+                        sent_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                     )
+                """)
+                # Drop old unique constraint if it exists (migration)
+                cur.execute("""
+                    DO $$ BEGIN
+                        ALTER TABLE sms_alerts_log DROP CONSTRAINT IF EXISTS sms_alerts_log_ticker_alert_date_key;
+                    EXCEPTION WHEN others THEN NULL;
+                    END $$;
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS sms_alerts_log_ticker_date_idx
+                    ON sms_alerts_log (ticker, alert_date, sent_at DESC)
                 """)
         print("[sms_alerts] log table ready")
     except Exception as e:
         print(f"[sms_alerts] table init error: {e}")
 
 
-def _already_alerted_today(ticker: str) -> bool:
+def _should_skip_alert(ticker: str, current_chg: float) -> bool:
+    """
+    Skip if alerted in the last 2 hours AND current gain is less than
+    1.5x the gain at last alert. Re-alert when a stock significantly
+    accelerates (e.g. was +4% at 10am, now +10% at noon).
+    """
     try:
         with _conn() as con:
             with con.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM sms_alerts_log WHERE ticker=%s AND alert_date=CURRENT_DATE",
-                    (ticker,)
-                )
-                return cur.fetchone() is not None
+                cur.execute("""
+                    SELECT chg_pct, sent_at FROM sms_alerts_log
+                    WHERE ticker=%s AND alert_date=CURRENT_DATE
+                    ORDER BY sent_at DESC LIMIT 1
+                """, (ticker,))
+                row = cur.fetchone()
+        if row is None:
+            return False  # Never alerted today — go ahead
+        last_chg, last_sent = float(row[0] or 0), row[1]
+        now_et = datetime.now(_ET)
+        if last_sent.tzinfo is None:
+            last_sent = pytz.utc.localize(last_sent)
+        hours_since = (now_et - last_sent.astimezone(_ET)).total_seconds() / 3600
+        # Re-alert if 2+ hours passed AND gain grew 1.5x since last alert
+        if hours_since >= 2 and current_chg >= last_chg * 1.5:
+            return False  # Allow re-alert
+        return True  # Skip
     except Exception:
         return False
 
@@ -79,7 +107,6 @@ def _log_alert(ticker, price, chg_pct, rel_vol, score, reason):
                 cur.execute("""
                     INSERT INTO sms_alerts_log (ticker, price, chg_pct, rel_vol, score, reason)
                     VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (ticker, alert_date) DO NOTHING
                 """, (ticker, price, chg_pct, rel_vol, score, reason))
     except Exception as e:
         print(f"[sms_alerts] log error {ticker}: {e}")
@@ -259,9 +286,9 @@ def run_sms_alert_scan():
     # ── 3. Fire texts for new qualifiers ────────────────────────────────────
     sent = 0
     for ticker, d in sorted(candidates.items(), key=lambda x: -x[1].get("score", 0)):
-        if _already_alerted_today(ticker):
-            continue
         chg   = d["chg_pct"]
+        if _should_skip_alert(ticker, chg):
+            continue
         rv    = d["rel_vol"]
         price = d["price"]
         score = d["score"]
