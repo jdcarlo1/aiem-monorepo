@@ -85,9 +85,33 @@ def _log_alert(ticker, price, chg_pct, rel_vol, score, reason):
         print(f"[sms_alerts] log error {ticker}: {e}")
 
 
-# ── Twilio sender ─────────────────────────────────────────────────────────────
+# ── SMS via email-to-text gateway (primary) ───────────────────────────────────
+
+_SMS_EMAIL_GATEWAY = "4013185787@tmomail.net"  # T-Mobile gateway for +14013185787
+
+def _send_sms_via_email(message: str) -> bool:
+    """Send SMS via T-Mobile email-to-text gateway using existing SMTP setup."""
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        if not smtp_configured():
+            print("[sms_alerts] SMTP not configured — skipping email-to-SMS")
+            return False
+        ok = send_email_raw(to=_SMS_EMAIL_GATEWAY, subject="", html=f"<pre>{message}</pre>")
+        if ok:
+            print(f"[sms_alerts] SMS via email gateway sent: {message[:60]}…")
+        return ok
+    except Exception as e:
+        print(f"[sms_alerts] email-to-SMS error: {e}")
+        return False
+
+
+# ── Twilio sender (fallback) ───────────────────────────────────────────────────
 
 def send_sms(message: str) -> bool:
+    # Primary: email-to-SMS gateway (no carrier registration needed)
+    if _send_sms_via_email(message):
+        return True
+    # Fallback: Twilio
     sid   = os.getenv("TWILIO_ACCOUNT_SID", "")
     token = os.getenv("TWILIO_AUTH_TOKEN", "")
     frm   = os.getenv("TWILIO_FROM_NUMBER", "")
@@ -99,7 +123,7 @@ def send_sms(message: str) -> bool:
         url  = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
         resp = _req.post(url, auth=(sid, token), data={"From": frm, "To": to, "Body": message}, timeout=10)
         if resp.status_code in (200, 201):
-            print(f"[sms_alerts] SMS sent: {message[:60]}…")
+            print(f"[sms_alerts] SMS via Twilio sent: {message[:60]}…")
             return True
         print(f"[sms_alerts] Twilio error {resp.status_code}: {resp.text[:200]}")
         return False
