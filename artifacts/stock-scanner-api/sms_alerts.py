@@ -325,7 +325,8 @@ def run_sms_alert_scan():
         vwap_line = ""
         if vwap:
             vwap_status = "✅ above VWAP" if above_vwap else "⚠️ below VWAP"
-            vwap_line   = f"VWAP ${vwap:.2f} — {vwap_status}\n"
+            stop_price  = round(vwap * 0.995, 2)  # suggested stop: 0.5% below VWAP
+            vwap_line   = f"VWAP ${vwap:.2f} — {vwap_status}\nStop: ${stop_price:.2f} (below VWAP)\n"
 
         msg = (
             f"{emoji} SIGNAL: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}\n"
