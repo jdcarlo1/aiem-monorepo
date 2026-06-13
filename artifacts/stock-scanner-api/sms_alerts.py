@@ -274,9 +274,17 @@ def run_sms_alert_scan():
                 min_rv    = 1.5 if chg_pct >= 20 else 2.0 if chg_pct >= 10 else 3.0 if chg_pct >= 7 else 4.0 if chg_pct >= 3 else 5.0
                 if rel_vol < min_rv:
                     return None
-                score     = rel_vol * (chg_pct / 10)
+                # VWAP: cumulative(typical_price * volume) / cumulative(volume)
+                hist["_tp"] = (hist["High"] + hist["Low"] + hist["Close"]) / 3
+                tp_vol_sum  = float((hist["_tp"] * hist["Volume"]).sum())
+                vwap        = tp_vol_sum / cum_vol if cum_vol > 0 else price
+                above_vwap  = price >= vwap
+                score       = rel_vol * (chg_pct / 10)
+                if above_vwap:
+                    score *= 1.2  # boost score for stocks holding above VWAP
                 return {"ticker": ticker, "price": price, "chg_pct": chg_pct,
-                        "rel_vol": rel_vol, "score": score, "reason": "barchart_live"}
+                        "rel_vol": rel_vol, "score": score, "vwap": vwap,
+                        "above_vwap": above_vwap, "reason": "barchart_live"}
             except Exception:
                 return None
 
@@ -297,10 +305,12 @@ def run_sms_alert_scan():
         chg   = d["chg_pct"]
         if _should_skip_alert(ticker, chg):
             continue
-        rv    = d["rel_vol"]
-        price = d["price"]
-        score = d["score"]
-        reason = d["reason"]
+        rv          = d["rel_vol"]
+        price       = d["price"]
+        score       = d["score"]
+        reason      = d["reason"]
+        vwap        = d.get("vwap")
+        above_vwap  = d.get("above_vwap")
 
         # Classify signal
         if chg >= 30:
@@ -312,8 +322,14 @@ def run_sms_alert_scan():
         else:
             emoji = "📈"
 
+        vwap_line = ""
+        if vwap:
+            vwap_status = "✅ above VWAP" if above_vwap else "⚠️ below VWAP"
+            vwap_line   = f"VWAP ${vwap:.2f} — {vwap_status}\n"
+
         msg = (
             f"{emoji} SIGNAL: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}\n"
+            f"{vwap_line}"
             f"Score {score:.0f} | {now_et.strftime('%I:%M %p ET')}\n"
             f"nclexai.org/stock-scanner/"
         )
