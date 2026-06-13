@@ -20,12 +20,13 @@ import pytz
 
 _ET = pytz.timezone("US/Eastern")
 
+_DEFAULT_TO = "+14013185787"
+
 def sms_configured() -> bool:
     return all([
         os.getenv("TWILIO_ACCOUNT_SID"),
         os.getenv("TWILIO_AUTH_TOKEN"),
         os.getenv("TWILIO_FROM_NUMBER"),
-        os.getenv("TWILIO_TO_NUMBER"),
     ])
 
 
@@ -90,7 +91,7 @@ def send_sms(message: str) -> bool:
     sid   = os.getenv("TWILIO_ACCOUNT_SID", "")
     token = os.getenv("TWILIO_AUTH_TOKEN", "")
     frm   = os.getenv("TWILIO_FROM_NUMBER", "")
-    to    = os.getenv("TWILIO_TO_NUMBER", "")
+    to    = os.getenv("TWILIO_TO_NUMBER", "").strip() or _DEFAULT_TO
     if not all([sid, token, frm, to]):
         print("[sms_alerts] Twilio not configured — skipping send")
         return False
