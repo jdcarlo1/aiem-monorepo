@@ -179,42 +179,72 @@ def _has_options(ticker: str) -> bool:
 
 
 def _no_options_score(rv: float, chg: float, above_vwap: bool,
-                      gap_pct: float, early_morning: bool) -> int:
+                      gap_pct: float, early_morning: bool,
+                      float_turnover: float = 0.0,
+                      orb_break: bool = False,
+                      atr_multiple: float = 0.0,
+                      short_float: float = 0.0) -> int:
     """
-    Pure price/volume score 0-100 for stocks without (or ignoring) options flow.
-    Used to set quality label on every outgoing SMS.
-      RVOL        25 pts
-      Price chg   20 pts
-      Above VWAP  15 pts
-      Gap         10 pts
-      Consec /MFI 10 pts  (approximated via rv+chg strength)
-      VWAP recl.   5 pts  (proxy: above_vwap with chg momentum)
-      Early AM     5 pts
-    Total max = 90 (10 reserved for MFI/consec not computed here)
+    Pure price/volume score 0-100 aligned with the quant framework for
+    micro/small-cap stocks without options activity.
+
+    Scoring categories (total 100):
+      RVOL             25 pts  — substitute for options unusual activity
+      Float Turnover   20 pts  — Volume/Float; 50-100%+ = high conviction move
+      Above VWAP       15 pts  — institutions use this as the only clean benchmark
+      Gap %            10 pts  — gap-and-go vs gap-and-fade filter
+      ORB Breakout     10 pts  — 5-min opening range break = systematic entry signal
+      Price chg         8 pts  — confirms direction
+      ATR expansion     7 pts  — today's move vs average daily range (extension check)
+      Short Float       5 pts  — >15% float short = squeeze fuel bonus
     """
     pts = 0
-    # RVOL (25)
+
+    # RVOL (25) — min 3x threshold for small caps per quant framework
     if   rv >= 15: pts += 25
     elif rv >= 10: pts += 22
     elif rv >= 5:  pts += 18
     elif rv >= 3:  pts += 12
     elif rv >= 2:  pts += 6
-    # Price chg (20)
-    if   chg >= 15: pts += 20
-    elif chg >= 7:  pts += 18
-    elif chg >= 3:  pts += 14
-    elif chg >= 1:  pts += 8
-    # Above VWAP (15)
-    if above_vwap:  pts += 15
-    # Gap from prior close (10)
+
+    # Float Turnover (20) — Volume / Float shares; 50%+ = something real happening
+    if   float_turnover >= 2.0: pts += 20   # 200%+ float rotation = extreme squeeze
+    elif float_turnover >= 1.0: pts += 17   # 100%+ = full float traded
+    elif float_turnover >= 0.5: pts += 13   # 50%+ = high conviction
+    elif float_turnover >= 0.2: pts += 7    # 20%+ = notable interest
+    elif float_turnover >= 0.1: pts += 3
+
+    # Above VWAP (15) — buyers in control
+    if above_vwap: pts += 15
+
+    # Gap % (10) — gap holds pre-market high = gap-and-go signal
     if   gap_pct >= 20: pts += 10
     elif gap_pct >= 10: pts += 8
     elif gap_pct >= 5:  pts += 6
     elif gap_pct >= 1:  pts += 3
-    # VWAP momentum proxy (5) — above VWAP AND strong chg = high prob reclaim
-    if above_vwap and chg >= 3: pts += 5
-    # Early morning premium (5)
-    if early_morning: pts += 5
+
+    # ORB Breakout (10) — broke the 5-min opening range high = systematic entry
+    if orb_break: pts += 10
+
+    # Price change (8)
+    if   chg >= 15: pts += 8
+    elif chg >= 7:  pts += 6
+    elif chg >= 3:  pts += 4
+    elif chg >= 1:  pts += 2
+
+    # ATR multiple (7) — today's move vs 14-day ATR; 1x-2x ATR = healthy, >3x = extended
+    if   1.0 <= atr_multiple < 2.0: pts += 7   # ideal range: 1x ATR target reachable
+    elif 2.0 <= atr_multiple < 3.0: pts += 4   # hitting 2x ATR — partial profit zone
+    elif atr_multiple >= 0.5:       pts += 2
+
+    # Short float bonus (5) — >15% short float = squeeze fuel
+    if   short_float >= 0.30: pts += 5
+    elif short_float >= 0.20: pts += 4
+    elif short_float >= 0.15: pts += 3
+
+    # Early morning premium — strongest window
+    if early_morning: pts += 3  # small premium, not a primary factor
+
     return min(pts, 100)
 
 
@@ -333,23 +363,59 @@ def run_sms_alert_scan():
                     return None
                 proj_vol  = cum_vol / day_frac
                 rel_vol   = proj_vol / avg
-                # Volume bar scales inversely with move — tiny move needs huge vol to confirm
                 min_rv    = 1.5 if chg_pct >= 20 else 2.0 if chg_pct >= 10 else 3.0 if chg_pct >= 7 else 4.0 if chg_pct >= 3 else 5.0
                 if rel_vol < min_rv:
                     return None
-                # VWAP: cumulative(typical_price * volume) / cumulative(volume)
+                # VWAP
                 hist["_tp"] = (hist["High"] + hist["Low"] + hist["Close"]) / 3
                 tp_vol_sum  = float((hist["_tp"] * hist["Volume"]).sum())
                 vwap        = tp_vol_sum / cum_vol if cum_vol > 0 else price
                 above_vwap  = price >= vwap
                 open_price  = float(hist["Open"].iloc[0])
                 gap_pct     = (open_price - prev) / prev * 100 if prev > 0 else 0.0
-                score       = rel_vol * (chg_pct / 10)
+
+                # 5-min ORB (Opening Range Breakout) — first 5 candles set the range
+                orb_high  = float(hist.head(5)["High"].max()) if len(hist) >= 5 else price
+                orb_break = price > orb_high
+
+                # Float turnover + short float from tk.info (graceful fallback)
+                float_turnover = 0.0
+                short_float    = 0.0
+                try:
+                    info         = tk.info
+                    float_shares = float(info.get("floatShares") or 0)
+                    if float_shares > 0:
+                        float_turnover = cum_vol / float_shares
+                    short_float = float(info.get("shortPercentOfFloat") or 0)
+                except Exception:
+                    pass
+
+                # 14-day ATR from daily history (graceful fallback)
+                atr = 0.0
+                try:
+                    daily = tk.history(period="15d", interval="1d")
+                    if len(daily) >= 5:
+                        prev_c = daily["Close"].shift(1)
+                        trs    = [max(h - l, abs(h - pc), abs(l - pc))
+                                  for h, l, pc in zip(daily["High"].values[-14:],
+                                                       daily["Low"].values[-14:],
+                                                       prev_c.values[-14:])
+                                  if pc > 0]
+                        atr = sum(trs) / len(trs) if trs else 0.0
+                except Exception:
+                    pass
+
+                atr_multiple = (price - open_price) / atr if atr > 0 else 0.0
+
+                score = rel_vol * (chg_pct / 10)
                 if above_vwap:
-                    score *= 1.2  # boost score for stocks holding above VWAP
+                    score *= 1.2
                 return {"ticker": ticker, "price": price, "chg_pct": chg_pct,
                         "rel_vol": rel_vol, "score": score, "vwap": vwap,
                         "above_vwap": above_vwap, "gap_pct": gap_pct,
+                        "orb_break": orb_break, "orb_high": orb_high,
+                        "float_turnover": float_turnover, "short_float": short_float,
+                        "atr": atr, "atr_multiple": atr_multiple,
                         "reason": "barchart_live"}
             except Exception:
                 return None
@@ -378,11 +444,21 @@ def run_sms_alert_scan():
         vwap        = d.get("vwap")
         above_vwap  = d.get("above_vwap")
 
-        # Quality score (pure price/volume — no options confusion)
-        gap_pct_val  = d.get("gap_pct", 0.0)
-        early_flag   = (now_et.hour == 9 or (now_et.hour == 10 and now_et.minute <= 30))
-        nopt_score   = _no_options_score(rv, chg, above_vwap, gap_pct_val, early_flag)
-        quality      = _quality_prefix(nopt_score)
+        # Pull new quant indicator fields (graceful defaults for standout cache entries)
+        gap_pct_val     = d.get("gap_pct", 0.0)
+        orb_break_val   = d.get("orb_break", False)
+        float_turn_val  = d.get("float_turnover", 0.0)
+        short_fl_val    = d.get("short_float", 0.0)
+        atr_mult_val    = d.get("atr_multiple", 0.0)
+        atr_val         = d.get("atr", 0.0)
+
+        early_flag  = (now_et.hour == 9 or (now_et.hour == 10 and now_et.minute <= 30))
+        nopt_score  = _no_options_score(rv, chg, above_vwap, gap_pct_val, early_flag,
+                                        float_turnover=float_turn_val,
+                                        orb_break=orb_break_val,
+                                        atr_multiple=atr_mult_val,
+                                        short_float=short_fl_val)
+        quality     = _quality_prefix(nopt_score)
 
         vwap_line = ""
         if vwap:
@@ -390,9 +466,29 @@ def run_sms_alert_scan():
             stop_price  = round(vwap * 0.995, 2)
             vwap_line   = f"VWAP ${vwap:.2f} — {vwap_status}  stop ${stop_price:.2f}\n"
 
+        # ATR targets (1x = take partial, 2x = runner — per quant framework)
+        atr_line = ""
+        if atr_val > 0:
+            t1 = round(price + atr_val, 2)
+            t2 = round(price + 2 * atr_val, 2)
+            atr_line = f"ATR targets: ${t1:.2f} (1x) / ${t2:.2f} (2x)\n"
+
+        # Float rotation line — only show when meaningful
+        float_line = ""
+        if float_turn_val >= 0.2:
+            ft_pct = float_turn_val * 100
+            ft_str = f"Float rotation {ft_pct:.0f}%"
+            if short_fl_val >= 0.15:
+                ft_str += f" | {short_fl_val*100:.0f}% short 🔥"
+            float_line = ft_str + "\n"
+
+        orb_tag = " | ✅ ORB break" if orb_break_val else ""
+
         msg = (
-            f"{quality} MORNING BURST: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}\n"
+            f"{quality} MORNING BURST: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}{orb_tag}\n"
             f"{vwap_line}"
+            f"{atr_line}"
+            f"{float_line}"
             f"Score {nopt_score}/100 | {now_et.strftime('%I:%M %p ET')}\n"
             f"nclexai.org/stock-scanner/"
         )

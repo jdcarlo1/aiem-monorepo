@@ -414,6 +414,36 @@ try:
         id="exit_alert_scan",
         replace_existing=True,
     )
+    # Mid-Day Breakout scan: every 15 min 10:30 AM – 3:30 PM ET
+    # Confirmed trend + above VWAP + 15-min momentum — lower risk than morning entry
+    def _run_midday_breakout_scan():
+        try:
+            import threading as _thr_md
+            _thr_md.Thread(target=run_midday_breakout_scan, daemon=True).start()
+        except Exception as _e_md:
+            print(f"[scheduler] midday breakout scan error: {_e_md}")
+    _scheduler.add_job(
+        _run_midday_breakout_scan,
+        "interval",
+        minutes=15,
+        id="midday_breakout_scan",
+        replace_existing=True,
+    )
+    # Gap Recovery scan: every 15 min 10:30 AM – 1:00 PM ET
+    # Big gapper (20%+) that sold off then reclaimed VWAP with momentum
+    def _run_gap_recovery_scan():
+        try:
+            import threading as _thr_gr
+            _thr_gr.Thread(target=run_gap_recovery_scan, daemon=True).start()
+        except Exception as _e_gr:
+            print(f"[scheduler] gap recovery scan error: {_e_gr}")
+    _scheduler.add_job(
+        _run_gap_recovery_scan,
+        "interval",
+        minutes=15,
+        id="gap_recovery_scan",
+        replace_existing=True,
+    )
     # VWAP Reclaim scan: every 5 min — immediate SMS when alerted stock reclaims VWAP
     def _run_vwap_reclaim_scan():
         try:
