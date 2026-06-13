@@ -710,15 +710,16 @@ try:
         replace_existing=True,
     )
 
-    # Morning standout inflows: 9:31 AM (pass 1) + 9:35 AM (pass 2) + 9:45 AM + later waves
-    # Double-pass: 9:31 catches early movers; 9:35 re-scores with 5 min real data → email at 9:36
+    # Morning standout inflows: 9:31 → 9:33 → 9:35 → 9:38 → 9:41 → 9:45 AM + later waves
+    # Tight early window: 9:31 catches first movers; 9:33/9:35 confirm with 3-5 min real data
+    # → text arrives by 9:33-9:36 AM, same window hedge funds are accumulating
     def _run_morning_inflows():
         try:
             with app.test_request_context("/stock-api/morning-inflows?bust=1"):
                 morning_inflows()
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
-    for _mi_h, _mi_m in [(9, 31), (9, 35), (9, 45), (10, 0), (10, 15), (10, 30), (12, 0), (13, 0), (14, 0)]:
+    for _mi_h, _mi_m in [(9, 31), (9, 33), (9, 35), (9, 38), (9, 41), (9, 45), (10, 0), (10, 15), (10, 30), (12, 0), (13, 0), (14, 0)]:
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -957,7 +958,7 @@ try:
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
           "options warmer (all tabs): 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
-          "morning inflows: 9:31 AM + 9:45 AM + 10:00 AM + 10:15 AM + 10:30 AM + 12:00 PM + 1:00 PM + 2:00 PM | "
+          "morning inflows: 9:31 + 9:33 + 9:35 + 9:38 + 9:41 + 9:45 AM + 10:00 AM + 10:15 AM + 10:30 AM + 12:00 PM + 1:00 PM + 2:00 PM | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
