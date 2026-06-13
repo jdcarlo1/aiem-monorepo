@@ -313,6 +313,15 @@ def _quality_prefix(score: int) -> str:
     return "📈"
 
 
+def _cap_label(mkt_cap: float) -> str:
+    """Return cap-size label from market cap in dollars."""
+    if   mkt_cap >= 10_000_000_000: return "LARGE CAP"
+    elif mkt_cap >= 2_000_000_000:  return "MID CAP"
+    elif mkt_cap >= 300_000_000:    return "SMALL CAP"
+    elif mkt_cap > 0:               return "MICRO CAP"
+    return ""
+
+
 # ── Core scan ─────────────────────────────────────────────────────────────────
 
 def run_sms_alert_scan():
@@ -431,10 +440,11 @@ def run_sms_alert_scan():
                 orb_high  = float(hist.head(5)["High"].max()) if len(hist) >= 5 else price
                 orb_break = price > orb_high
 
-                # Float turnover + short float + market cap from tk.info (graceful fallback)
+                # Float turnover + short float + market cap + options flag
                 float_turnover = 0.0
                 short_float    = 0.0
                 mkt_cap        = 0.0
+                has_opts       = False
                 try:
                     info         = tk.info
                     float_shares = float(info.get("floatShares") or 0)
@@ -442,6 +452,10 @@ def run_sms_alert_scan():
                         float_turnover = cum_vol / float_shares
                     short_float = float(info.get("shortPercentOfFloat") or 0)
                     mkt_cap     = float(info.get("marketCap") or 0)
+                except Exception:
+                    pass
+                try:
+                    has_opts = len(tk.options) > 0
                 except Exception:
                     pass
 
@@ -471,7 +485,7 @@ def run_sms_alert_scan():
                         "orb_break": orb_break, "orb_high": orb_high,
                         "float_turnover": float_turnover, "short_float": short_float,
                         "atr": atr, "atr_multiple": atr_multiple, "mkt_cap": mkt_cap,
-                        "reason": "barchart_live"}
+                        "has_options": has_opts, "reason": "barchart_live"}
             except Exception:
                 return None
 
@@ -507,10 +521,10 @@ def run_sms_alert_scan():
         atr_mult_val    = d.get("atr_multiple", 0.0)
         atr_val         = d.get("atr", 0.0)
         mkt_cap_val     = d.get("mkt_cap", 0.0)
+        has_options_val = d.get("has_options", False)
 
         early_flag  = (now_et.hour == 9 or (now_et.hour == 10 and now_et.minute <= 30))
-        is_large_cap = mkt_cap_val > 500_000_000
-        if is_large_cap:
+        if has_options_val:
             nopt_score = _large_cap_score(rv, chg, above_vwap, gap_pct_val,
                                           orb_break=orb_break_val,
                                           atr_multiple=atr_mult_val)
@@ -539,17 +553,19 @@ def run_sms_alert_scan():
             t2 = round(price + 2 * atr_val, 2)
             atr_line = f"ATR targets: ${t1:.2f} (1x) / ${t2:.2f} (2x)\n"
 
-        # Float rotation line — micro-cap only; large-cap shows institutional tag
+        # Cap label + detail line: shows cap size, options status, and float rotation
+        cap_lbl    = _cap_label(mkt_cap_val)
         float_line = ""
-        if is_large_cap:
-            mkt_b = mkt_cap_val / 1e9
-            float_line = f"Institutional momentum | ${mkt_b:.1f}B cap\n"
+        if has_options_val:
+            float_line = f"{cap_lbl} | has options\n"
         elif float_turn_val >= 0.2:
             ft_pct = float_turn_val * 100
-            ft_str = f"Float rotation {ft_pct:.0f}%"
+            ft_str = f"{cap_lbl} | Float rotation {ft_pct:.0f}%"
             if short_fl_val >= 0.15:
                 ft_str += f" | {short_fl_val*100:.0f}% short 🔥"
             float_line = ft_str + "\n"
+        elif cap_lbl:
+            float_line = f"{cap_lbl} | no options\n"
 
         orb_tag = " | ✅ ORB break" if orb_break_val else ""
 
@@ -898,13 +914,18 @@ def run_midday_breakout_scan():
                 if momentum_15m < 1.0:
                     return None  # no momentum
                 gap_pct = (open_p - prev) / prev * 100 if prev > 0 else 0.0
-                # Market cap for large-cap routing
-                mkt_cap = 0.0
+                # Market cap + options flag for routing
+                mkt_cap  = 0.0
+                has_opts = False
                 try:
                     mkt_cap = float(tk.info.get("marketCap") or 0)
                 except Exception:
                     pass
-                if mkt_cap > 500_000_000:
+                try:
+                    has_opts = len(tk.options) > 0
+                except Exception:
+                    pass
+                if has_opts:
                     score = _large_cap_score(rel_vol, chg_from_prev, True, gap_pct)
                 else:
                     score = _no_options_score(rel_vol, chg_from_prev, True, gap_pct, early_morning=False)
@@ -912,7 +933,7 @@ def run_midday_breakout_scan():
                     "ticker": ticker, "price": price, "chg_from_open": chg_from_open,
                     "chg_pct": chg_from_prev, "rel_vol": rel_vol, "vwap": vwap,
                     "momentum_15m": momentum_15m, "gap_pct": gap_pct, "score": score,
-                    "mkt_cap": mkt_cap,
+                    "mkt_cap": mkt_cap, "has_options": has_opts,
                 }
             except Exception:
                 return None
@@ -937,13 +958,15 @@ def run_midday_breakout_scan():
             m15     = d["momentum_15m"]
             score   = d["score"]
             chg_open = d["chg_from_open"]
-            is_lc   = d.get("mkt_cap", 0) > 500_000_000
-            threshold = 55 if is_lc else 60
+            has_opts = d.get("has_options", False)
+            mkt_cap  = d.get("mkt_cap", 0)
+            threshold = 55 if has_opts else 60
             if score < threshold:
                 continue
-            quality = _quality_prefix(score)
-            stop_p  = round(vwap * 0.995, 2)
-            cap_tag = f" | ${d.get('mkt_cap',0)/1e9:.1f}B cap" if is_lc else ""
+            quality  = _quality_prefix(score)
+            stop_p   = round(vwap * 0.995, 2)
+            cap_lbl  = _cap_label(mkt_cap)
+            cap_tag  = f" | {cap_lbl} {'w/opts' if has_opts else 'no opts'}" if cap_lbl else ""
             msg = (
                 f"{quality} MIDDAY BREAKOUT: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}{cap_tag}\n"
                 f"Above VWAP ${vwap:.2f} ✅  stop ${stop_p:.2f}\n"
@@ -1052,13 +1075,18 @@ def run_gap_recovery_scan():
                 pullback_pct = (open_p - intraday_low) / open_p * 100 if open_p > 0 else 0
                 if pullback_pct < 3.0:
                     return None  # no real shakeout = not a recovery pattern
-                # Market cap for large-cap routing
-                mkt_cap = 0.0
+                # Market cap + options flag for routing
+                mkt_cap  = 0.0
+                has_opts = False
                 try:
                     mkt_cap = float(tk.info.get("marketCap") or 0)
                 except Exception:
                     pass
-                if mkt_cap > 500_000_000:
+                try:
+                    has_opts = len(tk.options) > 0
+                except Exception:
+                    pass
+                if has_opts:
                     score = _large_cap_score(rel_vol, chg_pct_prev, True, gap_pct)
                 else:
                     score = _no_options_score(rel_vol, chg_pct_prev, True, gap_pct, early_morning=False)
@@ -1071,7 +1099,7 @@ def run_gap_recovery_scan():
                     "ticker": ticker, "price": price, "chg_pct": chg_pct_prev,
                     "rel_vol": rel_vol, "vwap": vwap, "gap_pct": gap_pct,
                     "momentum_15m": momentum_15m, "pullback_pct": pullback_pct,
-                    "score": score, "mkt_cap": mkt_cap,
+                    "score": score, "mkt_cap": mkt_cap, "has_options": has_opts,
                 }
             except Exception:
                 return None
@@ -1097,14 +1125,17 @@ def run_gap_recovery_scan():
             m15     = d["momentum_15m"]
             pb      = d["pullback_pct"]
             score   = d["score"]
-            is_lc   = d.get("mkt_cap", 0) > 500_000_000
-            threshold = 55 if is_lc else 60
+            has_opts  = d.get("has_options", False)
+            mkt_cap   = d.get("mkt_cap", 0)
+            threshold = 55 if has_opts else 60
             if score < threshold:
                 continue
-            quality = _quality_prefix(score)
-            stop_p  = round(vwap * 0.995, 2)
+            quality  = _quality_prefix(score)
+            stop_p   = round(vwap * 0.995, 2)
+            cap_lbl  = _cap_label(mkt_cap)
+            cap_tag  = f" | {cap_lbl} {'w/opts' if has_opts else 'no opts'}" if cap_lbl else ""
             msg = (
-                f"{quality} GAP RECOVERY: {ticker} reclaimed VWAP | ${price:.2f}\n"
+                f"{quality} GAP RECOVERY: {ticker} reclaimed VWAP | ${price:.2f}{cap_tag}\n"
                 f"Gap +{gap:.0f}% | pulled back {pb:.0f}% then recovered\n"
                 f"VWAP ${vwap:.2f} ✅  stop ${stop_p:.2f}  |  {rv:.1f}x vol\n"
                 f"+{m15:.1f}% last 15 min  |  Score {score}/100\n"
