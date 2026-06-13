@@ -21,7 +21,9 @@ from email_alerts import (
 from historical_performance import init_score_history_table, save_scan_scores
 from signal_outcomes import init_signal_outcomes_table, store_bull_flow_signals, get_signal_outcomes
 from sms_alerts import (init_sms_log_table, init_exit_log_table,
+                        init_midday_log_table,
                         run_sms_alert_scan, run_exit_alert_scan,
+                        run_midday_breakout_scan, run_gap_recovery_scan,
                         send_sms, sms_configured)
 from options_sweep import init_call_sweep_log_table, run_call_sweep_scan
 from news_catalyst import init_news_catalyst_log, run_news_catalyst_scan
@@ -69,6 +71,7 @@ init_sms_log_table()
 init_exit_log_table()
 init_call_sweep_log_table()
 init_news_catalyst_log()
+init_midday_log_table()
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler

@@ -167,6 +167,69 @@ def send_sms(message: str) -> bool:
         return False
 
 
+# ── Quality scoring helpers (options-aware) ────────────────────────────────────
+
+def _has_options(ticker: str) -> bool:
+    """Return True if yfinance reports at least one options expiry for this ticker."""
+    try:
+        import yfinance as _yf
+        return len(_yf.Ticker(ticker).options) > 0
+    except Exception:
+        return False
+
+
+def _no_options_score(rv: float, chg: float, above_vwap: bool,
+                      gap_pct: float, early_morning: bool) -> int:
+    """
+    Pure price/volume score 0-100 for stocks without (or ignoring) options flow.
+    Used to set quality label on every outgoing SMS.
+      RVOL        25 pts
+      Price chg   20 pts
+      Above VWAP  15 pts
+      Gap         10 pts
+      Consec /MFI 10 pts  (approximated via rv+chg strength)
+      VWAP recl.   5 pts  (proxy: above_vwap with chg momentum)
+      Early AM     5 pts
+    Total max = 90 (10 reserved for MFI/consec not computed here)
+    """
+    pts = 0
+    # RVOL (25)
+    if   rv >= 15: pts += 25
+    elif rv >= 10: pts += 22
+    elif rv >= 5:  pts += 18
+    elif rv >= 3:  pts += 12
+    elif rv >= 2:  pts += 6
+    # Price chg (20)
+    if   chg >= 15: pts += 20
+    elif chg >= 7:  pts += 18
+    elif chg >= 3:  pts += 14
+    elif chg >= 1:  pts += 8
+    # Above VWAP (15)
+    if above_vwap:  pts += 15
+    # Gap from prior close (10)
+    if   gap_pct >= 20: pts += 10
+    elif gap_pct >= 10: pts += 8
+    elif gap_pct >= 5:  pts += 6
+    elif gap_pct >= 1:  pts += 3
+    # VWAP momentum proxy (5) — above VWAP AND strong chg = high prob reclaim
+    if above_vwap and chg >= 3: pts += 5
+    # Early morning premium (5)
+    if early_morning: pts += 5
+    return min(pts, 100)
+
+
+def _quality_prefix(score: int) -> str:
+    """
+    SMS quality label based on no-options score.
+      80+ → 🟢🔥  (exceptional — institutions piling in)
+      65+ → 🔥    (strong signal)
+      60+ → 📈    (solid signal)
+    """
+    if score >= 80: return "🟢🔥"
+    if score >= 65: return "🔥"
+    return "📈"
+
+
 # ── Core scan ─────────────────────────────────────────────────────────────────
 
 def run_sms_alert_scan():
@@ -279,12 +342,15 @@ def run_sms_alert_scan():
                 tp_vol_sum  = float((hist["_tp"] * hist["Volume"]).sum())
                 vwap        = tp_vol_sum / cum_vol if cum_vol > 0 else price
                 above_vwap  = price >= vwap
+                open_price  = float(hist["Open"].iloc[0])
+                gap_pct     = (open_price - prev) / prev * 100 if prev > 0 else 0.0
                 score       = rel_vol * (chg_pct / 10)
                 if above_vwap:
                     score *= 1.2  # boost score for stocks holding above VWAP
                 return {"ticker": ticker, "price": price, "chg_pct": chg_pct,
                         "rel_vol": rel_vol, "score": score, "vwap": vwap,
-                        "above_vwap": above_vwap, "reason": "barchart_live"}
+                        "above_vwap": above_vwap, "gap_pct": gap_pct,
+                        "reason": "barchart_live"}
             except Exception:
                 return None
 
@@ -312,26 +378,22 @@ def run_sms_alert_scan():
         vwap        = d.get("vwap")
         above_vwap  = d.get("above_vwap")
 
-        # Classify signal
-        if chg >= 30:
-            emoji = "🔥🔥"
-        elif chg >= 20:
-            emoji = "🔥"
-        elif chg >= 15:
-            emoji = "🚨"
-        else:
-            emoji = "📈"
+        # Quality score (pure price/volume — no options confusion)
+        gap_pct_val  = d.get("gap_pct", 0.0)
+        early_flag   = (now_et.hour == 9 or (now_et.hour == 10 and now_et.minute <= 30))
+        nopt_score   = _no_options_score(rv, chg, above_vwap, gap_pct_val, early_flag)
+        quality      = _quality_prefix(nopt_score)
 
         vwap_line = ""
         if vwap:
             vwap_status = "✅ above VWAP" if above_vwap else "⚠️ below VWAP"
-            stop_price  = round(vwap * 0.995, 2)  # suggested stop: 0.5% below VWAP
-            vwap_line   = f"VWAP ${vwap:.2f} — {vwap_status}\nStop: ${stop_price:.2f} (below VWAP)\n"
+            stop_price  = round(vwap * 0.995, 2)
+            vwap_line   = f"VWAP ${vwap:.2f} — {vwap_status}  stop ${stop_price:.2f}\n"
 
         msg = (
-            f"{emoji} SIGNAL: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}\n"
+            f"{quality} MORNING BURST: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}\n"
             f"{vwap_line}"
-            f"Score {score:.0f} | {now_et.strftime('%I:%M %p ET')}\n"
+            f"Score {nopt_score}/100 | {now_et.strftime('%I:%M %p ET')}\n"
             f"nclexai.org/stock-scanner/"
         )
         if send_sms(msg):
@@ -530,3 +592,335 @@ def run_exit_alert_scan():
             print(f"[sms_alerts] exit check error {ticker}: {e}")
 
     print(f"[sms_alerts] exit scan complete — {len(alerted)} watched, {sent} exit alerts sent")
+
+
+# ── Mid-Day Breakout + Gap Recovery dedup table ───────────────────────────────
+
+def init_midday_log_table():
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS sms_midday_log (
+                        id          SERIAL PRIMARY KEY,
+                        ticker      TEXT NOT NULL,
+                        alert_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+                        alert_type  TEXT NOT NULL,
+                        price       NUMERIC,
+                        chg_pct     NUMERIC,
+                        rel_vol     NUMERIC,
+                        score       NUMERIC,
+                        sent_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        UNIQUE (ticker, alert_date, alert_type)
+                    )
+                """)
+        print("[sms_alerts] midday log table ready")
+    except Exception as e:
+        print(f"[sms_alerts] midday table init error: {e}")
+
+
+def _already_midday_alerted(ticker: str, alert_type: str) -> bool:
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    SELECT 1 FROM sms_midday_log
+                    WHERE ticker=%s AND alert_date=CURRENT_DATE AND alert_type=%s LIMIT 1
+                """, (ticker, alert_type))
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def _log_midday_alert(ticker, price, chg_pct, rel_vol, score, alert_type):
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO sms_midday_log (ticker, price, chg_pct, rel_vol, score, alert_type)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (ticker, alert_date, alert_type) DO NOTHING
+                """, (ticker, price, chg_pct, rel_vol, score, alert_type))
+    except Exception as e:
+        print(f"[sms_alerts] midday log error {ticker}: {e}")
+
+
+# ── Mid-Day Breakout scanner ───────────────────────────────────────────────────
+
+def run_midday_breakout_scan():
+    """
+    Runs every 15 min, 10:30 AM – 3:30 PM ET.
+    Looks for stocks that are >2% from open, above VWAP, with 15-min
+    momentum >1% — trend is confirmed, lower risk than morning entry.
+    One text per ticker per day for this alert type.
+    """
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+    start  = now_et.replace(hour=10, minute=30, second=0, microsecond=0)
+    end    = now_et.replace(hour=15, minute=30, second=0, microsecond=0)
+    if now_et < start or now_et > end:
+        return
+
+    try:
+        import yfinance as _yf
+        import math as _math
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        mins_elapsed = max((now_et - market_open).total_seconds() / 60.0, 1.0)
+        day_frac    = min(mins_elapsed / 390.0, 1.0)
+
+        bc_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept":     "application/json",
+            "Referer":    "https://www.barchart.com/stocks/advances",
+        }
+        bc_syms = set()
+        for bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us",
+                        "stocks.advances.midcap.us",   "stocks.advances.largecap.us"):
+            try:
+                url = (
+                    "https://www.barchart.com/proxies/core-api/v1/quotes/get"
+                    f"?fields=symbol%2CpercentChange%2Cvolume%2CaverageVolume&"
+                    f"list={bc_list}&orderBy=percentChange&orderDir=desc&raw=1&limit=100"
+                )
+                r = _req.get(url, headers=bc_headers, timeout=8)
+                if r.ok:
+                    for row in r.json().get("data", []):
+                        sym = (row.get("symbol") or "").strip().upper()
+                        pct = float(row.get("percentChange") or 0)
+                        if sym and len(sym) <= 5 and "." not in sym and pct >= 2:
+                            bc_syms.add(sym)
+            except Exception:
+                pass
+
+        def _check_midday(ticker):
+            try:
+                tk   = _yf.Ticker(ticker)
+                fi   = tk.fast_info
+                prev = float(getattr(fi, "previous_close", 0) or 0)
+                avg  = float(getattr(fi, "three_month_average_volume", 1) or 1)
+                if prev <= 0 or avg <= 0:
+                    return None
+                hist = tk.history(period="1d", interval="1m")
+                if hist.empty or len(hist) < 16:
+                    return None
+                hist.index = hist.index.tz_convert(_ET)
+                cum_vol    = float(hist["Volume"].sum())
+                price      = float(hist["Close"].iloc[-1])
+                open_p     = float(hist["Open"].iloc[0])
+                if price <= 0 or open_p <= 0:
+                    return None
+                chg_from_open  = (price - open_p) / open_p * 100
+                chg_from_prev  = (price - prev) / prev * 100
+                if chg_from_open < 2.0:
+                    return None
+                proj_vol   = cum_vol / day_frac
+                rel_vol    = proj_vol / avg
+                if rel_vol < 2.0:
+                    return None
+                # VWAP
+                hist["_tp"]  = (hist["High"] + hist["Low"] + hist["Close"]) / 3
+                tp_vol_sum   = float((hist["_tp"] * hist["Volume"]).sum())
+                vwap         = tp_vol_sum / cum_vol if cum_vol > 0 else price
+                if price < vwap:
+                    return None  # must be above VWAP
+                # 15-min momentum: compare last 15 bars vs 15 bars before that
+                last_15      = hist.tail(15)
+                prev_15      = hist.iloc[-30:-15] if len(hist) >= 30 else hist.head(15)
+                momentum_15m = (float(last_15["Close"].iloc[-1]) - float(prev_15["Close"].iloc[-1])) / float(prev_15["Close"].iloc[-1]) * 100
+                if momentum_15m < 1.0:
+                    return None  # no momentum
+                gap_pct = (open_p - prev) / prev * 100 if prev > 0 else 0.0
+                score   = _no_options_score(rel_vol, chg_from_prev, True, gap_pct, early_morning=False)
+                return {
+                    "ticker": ticker, "price": price, "chg_from_open": chg_from_open,
+                    "chg_pct": chg_from_prev, "rel_vol": rel_vol, "vwap": vwap,
+                    "momentum_15m": momentum_15m, "gap_pct": gap_pct, "score": score,
+                }
+            except Exception:
+                return None
+
+        candidates = [s for s in bc_syms if not _already_midday_alerted(s, "midday")]
+        results = []
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            futs = {pool.submit(_check_midday, t): t for t in candidates}
+            for fut in as_completed(futs):
+                res = fut.result()
+                if res:
+                    results.append(res)
+
+        results.sort(key=lambda x: -x["score"])
+        sent = 0
+        for d in results:
+            ticker  = d["ticker"]
+            chg     = d["chg_pct"]
+            rv      = d["rel_vol"]
+            price   = d["price"]
+            vwap    = d["vwap"]
+            m15     = d["momentum_15m"]
+            score   = d["score"]
+            chg_open = d["chg_from_open"]
+            quality = _quality_prefix(score)
+            stop_p  = round(vwap * 0.995, 2)
+            msg = (
+                f"{quality} MIDDAY BREAKOUT: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}\n"
+                f"Above VWAP ${vwap:.2f} ✅  stop ${stop_p:.2f}\n"
+                f"+{m15:.1f}% last 15 min  |  +{chg_open:.1f}% from open\n"
+                f"Score {score}/100 | {now_et.strftime('%I:%M %p ET')}\n"
+                f"nclexai.org/stock-scanner/"
+            )
+            if send_sms(msg):
+                _log_midday_alert(ticker, price, chg, rv, score, "midday")
+                sent += 1
+
+        print(f"[sms_alerts] midday breakout scan — {len(candidates)} checked, {sent} texts sent")
+    except Exception as e:
+        print(f"[sms_alerts] midday breakout scan error: {e}")
+
+
+# ── Gap Recovery scanner ───────────────────────────────────────────────────────
+
+def run_gap_recovery_scan():
+    """
+    Runs every 15 min, 10:30 AM – 1:00 PM ET.
+    Targets stocks that gapped up 20%+ at open, sold off, then reclaimed VWAP
+    with fresh momentum. Classic short-squeeze setup after morning shakeout.
+    One text per ticker per day for this alert type.
+    """
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+    start  = now_et.replace(hour=10, minute=30, second=0, microsecond=0)
+    end    = now_et.replace(hour=13, minute=0,  second=0, microsecond=0)
+    if now_et < start or now_et > end:
+        return
+
+    try:
+        import yfinance as _yf
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        mins_elapsed = max((now_et - market_open).total_seconds() / 60.0, 1.0)
+        day_frac    = min(mins_elapsed / 390.0, 1.0)
+
+        bc_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept":     "application/json",
+            "Referer":    "https://www.barchart.com/stocks/advances",
+        }
+        # Target big gappers (>20% from prior close)
+        bc_syms = set()
+        for bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us",
+                        "stocks.advances.midcap.us",   "stocks.advances.largecap.us"):
+            try:
+                url = (
+                    "https://www.barchart.com/proxies/core-api/v1/quotes/get"
+                    f"?fields=symbol%2CpercentChange%2Cvolume%2CaverageVolume&"
+                    f"list={bc_list}&orderBy=percentChange&orderDir=desc&raw=1&limit=100"
+                )
+                r = _req.get(url, headers=bc_headers, timeout=8)
+                if r.ok:
+                    for row in r.json().get("data", []):
+                        sym = (row.get("symbol") or "").strip().upper()
+                        pct = float(row.get("percentChange") or 0)
+                        if sym and len(sym) <= 5 and "." not in sym and pct >= 20:
+                            bc_syms.add(sym)
+            except Exception:
+                pass
+
+        def _check_gap_recovery(ticker):
+            try:
+                tk   = _yf.Ticker(ticker)
+                fi   = tk.fast_info
+                prev = float(getattr(fi, "previous_close", 0) or 0)
+                avg  = float(getattr(fi, "three_month_average_volume", 1) or 1)
+                if prev <= 0 or avg <= 0:
+                    return None
+                hist = tk.history(period="1d", interval="1m")
+                if hist.empty or len(hist) < 16:
+                    return None
+                hist.index = hist.index.tz_convert(_ET)
+                cum_vol    = float(hist["Volume"].sum())
+                price      = float(hist["Close"].iloc[-1])
+                open_p     = float(hist["Open"].iloc[0])
+                if price <= 0 or open_p <= 0:
+                    return None
+                gap_pct    = (open_p - prev) / prev * 100 if prev > 0 else 0.0
+                if gap_pct < 20:
+                    return None  # only big gappers qualify
+                proj_vol   = cum_vol / day_frac
+                rel_vol    = proj_vol / avg
+                if rel_vol < 3.0:
+                    return None
+                # VWAP
+                hist["_tp"]  = (hist["High"] + hist["Low"] + hist["Close"]) / 3
+                tp_vol_sum   = float((hist["_tp"] * hist["Volume"]).sum())
+                vwap         = tp_vol_sum / cum_vol if cum_vol > 0 else price
+                if price < vwap:
+                    return None  # must have reclaimed VWAP
+                chg_pct_prev = (price - prev) / prev * 100
+                # 15-min momentum
+                last_15      = hist.tail(15)
+                prev_15      = hist.iloc[-30:-15] if len(hist) >= 30 else hist.head(15)
+                momentum_15m = (float(last_15["Close"].iloc[-1]) - float(prev_15["Close"].iloc[-1])) / float(prev_15["Close"].iloc[-1]) * 100
+                if momentum_15m < 1.5:
+                    return None  # higher bar — gap recovery needs stronger momentum
+                # Check that price pulled back from open (classic gap recovery shape)
+                intraday_low = float(hist["Low"].min())
+                pullback_pct = (open_p - intraday_low) / open_p * 100 if open_p > 0 else 0
+                if pullback_pct < 3.0:
+                    return None  # no real shakeout = not a recovery pattern
+                score = _no_options_score(rel_vol, chg_pct_prev, True, gap_pct, early_morning=False)
+                # Gap recovery bonus — big pullback + reclaim = higher conviction
+                if pullback_pct >= 10:
+                    score = min(score + 10, 100)
+                elif pullback_pct >= 5:
+                    score = min(score + 5, 100)
+                return {
+                    "ticker": ticker, "price": price, "chg_pct": chg_pct_prev,
+                    "rel_vol": rel_vol, "vwap": vwap, "gap_pct": gap_pct,
+                    "momentum_15m": momentum_15m, "pullback_pct": pullback_pct,
+                    "score": score,
+                }
+            except Exception:
+                return None
+
+        candidates = [s for s in bc_syms if not _already_midday_alerted(s, "gap_recovery")]
+        results = []
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            futs = {pool.submit(_check_gap_recovery, t): t for t in candidates}
+            for fut in as_completed(futs):
+                res = fut.result()
+                if res:
+                    results.append(res)
+
+        results.sort(key=lambda x: -x["score"])
+        sent = 0
+        for d in results:
+            ticker  = d["ticker"]
+            chg     = d["chg_pct"]
+            rv      = d["rel_vol"]
+            price   = d["price"]
+            vwap    = d["vwap"]
+            gap     = d["gap_pct"]
+            m15     = d["momentum_15m"]
+            pb      = d["pullback_pct"]
+            score   = d["score"]
+            quality = _quality_prefix(score)
+            stop_p  = round(vwap * 0.995, 2)
+            msg = (
+                f"{quality} GAP RECOVERY: {ticker} reclaimed VWAP | ${price:.2f}\n"
+                f"Gap +{gap:.0f}% | pulled back {pb:.0f}% then recovered\n"
+                f"VWAP ${vwap:.2f} ✅  stop ${stop_p:.2f}  |  {rv:.1f}x vol\n"
+                f"+{m15:.1f}% last 15 min  |  Score {score}/100\n"
+                f"{now_et.strftime('%I:%M %p ET')} | nclexai.org/stock-scanner/"
+            )
+            if send_sms(msg):
+                _log_midday_alert(ticker, price, chg, rv, score, "gap_recovery")
+                sent += 1
+
+        print(f"[sms_alerts] gap recovery scan — {len(candidates)} checked, {sent} texts sent")
+    except Exception as e:
+        print(f"[sms_alerts] gap recovery scan error: {e}")
