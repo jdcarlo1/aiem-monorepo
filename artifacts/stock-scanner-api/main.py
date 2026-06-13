@@ -24,6 +24,7 @@ from sms_alerts import (init_sms_log_table, init_exit_log_table,
                         run_sms_alert_scan, run_exit_alert_scan,
                         send_sms, sms_configured)
 from options_sweep import init_call_sweep_log_table, run_call_sweep_scan
+from news_catalyst import init_news_catalyst_log, run_news_catalyst_scan
 import execution
 import pnl
 
@@ -67,6 +68,7 @@ init_signal_outcomes_table()
 init_sms_log_table()
 init_exit_log_table()
 init_call_sweep_log_table()
+init_news_catalyst_log()
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -719,6 +721,23 @@ try:
                 morning_inflows()
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
+
+    # News Catalyst scanner — parallel track, fires '📰 NEWS CATALYST' SMS (separate from ICS)
+    # Runs same tight morning window 9:31–10:30.  Does NOT affect ICS logic.
+    import threading as _thr_nc
+    def _run_news_catalyst():
+        try:
+            _thr_nc.Thread(target=run_news_catalyst_scan, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] news catalyst error: {e}")
+    for _nc_h, _nc_m in [(9, 31), (9, 33), (9, 35), (9, 38), (9, 41), (9, 45), (10, 0), (10, 15), (10, 30)]:
+        _scheduler.add_job(
+            _run_news_catalyst,
+            CronTrigger(day_of_week="mon-fri", hour=_nc_h, minute=_nc_m, timezone=_ET),
+            id=f"news_catalyst_{_nc_h}_{_nc_m}",
+            replace_existing=True,
+        )
+
     for _mi_h, _mi_m in [(9, 31), (9, 33), (9, 35), (9, 38), (9, 41), (9, 45), (10, 0), (10, 15), (10, 30), (12, 0), (13, 0), (14, 0)]:
         _scheduler.add_job(
             _run_morning_inflows,
