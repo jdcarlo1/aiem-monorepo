@@ -180,7 +180,7 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - Keep under ~100 tickers — each requires individual yfinance call, 350+ would cause scan overlap
 - Grow by adding tickers user reports each evening that the scanner missed
 
-## SMS Alert Scoring & Routing (updated June 13 2026)
+## SMS Alert Scoring & Routing (updated June 2026)
 - Options-based routing (NOT market cap): `has options → _with_options_score (threshold 50)`, `no options → _no_options_score (threshold 60)`
 - Cap label in SMS (display only): MICRO/SMALL/MID/LARGE CAP + "has options" / "no options"
 - Morning Burst (9:31–9:45 AM): fires on any size move, no % cap
@@ -200,9 +200,20 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 
 ## SMS / Twilio
 - `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
-- Scheduler: every 15 min, Mon-Fri 9:30 AM–3:45 PM ET
+- **Intraday scan: every 5 min, Mon-Fri 10:00 AM–3:45 PM ET** (changed from 9:30 AM — June 14 2026)
+- **SPY green-day filter active on all 3 scan types** (changed June 14 2026): run_sms_alert_scan, run_midday_breakout_scan, run_gap_recovery_scan all call `_spy_is_green()` and return early if SPY is red
 - One text per ticker per day (deduped via sms_alerts_log table UNIQUE constraint on ticker+date)
 - User phone: +14013185787 (T-Mobile), gateway: 4013185787@tmomail.net
+
+## Intraday Scanner Backtest (week of Jun 8-12 2026) — KEY FINDINGS
+- **SPY green days** (Mon +0.23%, Thu +1.70%, Fri +0.54%): Original scanner 45% hit rate, net +$1,057 on $58K deployed
+- **SPY red days** (Tue -0.29%, Wed -1.58%): Original scanner 10% hit rate, net -$1,109 — BOTH criteria lost money
+- **Original (sliding RVOL) vs Tight (RVOL≥3x, +5%)**: Original wins on green days ($1,057 vs $616), Tight slightly better on red days but both lose
+- **Decision**: Keep original sliding RVOL gate — it's smarter (higher % → lower RVOL needed); add SPY filter instead of tightening criteria
+- **Original sliding RVOL gate**: `min_rv = 1.5 if chg≥20% else 2.0 if chg≥10% else 3.0 if chg≥7% else 4.0 if chg≥3% else 5.0`
+- **Pre-10 AM signals**: 13% hit rate on all SPY days, -3.8% avg/trade — opening bell pump creates false positives
+- **Post-10 AM signals on green days**: 45% hit rate overall, profitable
+- **Early morning cron jobs removed**: 9:33, 9:37, 9:43 AM precision triggers deleted (were added for opening bell, now dead code)
 
 ## Email alerts
 - `artifacts/stock-scanner-api/email_alerts.py` — full email digest
