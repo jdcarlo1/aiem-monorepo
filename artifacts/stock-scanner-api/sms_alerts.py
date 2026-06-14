@@ -356,13 +356,15 @@ def run_sms_alert_scan():
         return
 
     now_et = datetime.now(_ET)
-    # Only run Mon-Fri 10:00 AM – 3:45 PM ET
-    # Backtest showed pre-10 AM signals are opening-bell noise (13% hit rate vs 45% post-10 AM)
+    # Run Mon-Fri 9:35 AM – 3:45 PM ET
+    # Updated backtest (Jun 1-13, 2026): early morning RVOL≥2x signals fire 62% win rate
+    # (vs 57% for 10:00-10:30 AM). Starting at 9:35 catches the first 5-min bar close.
     if now_et.weekday() >= 5:
         return
-    market_open  = now_et.replace(hour=10, minute=0,  second=0, microsecond=0)
+    actual_open  = now_et.replace(hour=9,  minute=30, second=0, microsecond=0)
+    scan_start   = now_et.replace(hour=9,  minute=35, second=0, microsecond=0)
     market_close = now_et.replace(hour=15, minute=45, second=0, microsecond=0)
-    if now_et < market_open or now_et > market_close:
+    if now_et < scan_start or now_et > market_close:
         return
 
     # SPY green-day filter — suppress all alerts on red market days
@@ -403,7 +405,7 @@ def run_sms_alert_scan():
         import yfinance as _yf
         import math as _math
 
-        mins_elapsed = max((now_et - market_open).total_seconds() / 60.0, 1.0)
+        mins_elapsed = max((now_et - actual_open).total_seconds() / 60.0, 1.0)
         day_frac     = min(mins_elapsed / 390.0, 1.0)
 
         bc_headers = {
@@ -489,6 +491,14 @@ def run_sms_alert_scan():
                         float_turnover = cum_vol / float_shares
                     short_float = float(info.get("shortPercentOfFloat") or 0)
                     mkt_cap     = float(info.get("marketCap") or 0)
+                    # Sector ETF confirmation — if the sector is red, individual stocks fade
+                    # Semis get SMH (more specific than XLK); all others map by sector name
+                    _industry_str = info.get("industry", "") or ""
+                    _sector_str   = info.get("sector",   "") or ""
+                    _etf_key = "SMH" if "Semiconductor" in _industry_str \
+                               else _SECTOR_TO_ETF.get(_sector_str, "")
+                    if _etf_key and _etf_key in _sms_sector_green and not _sms_sector_green[_etf_key]:
+                        return None  # sector headwind — stock move will fade
                 except Exception:
                     pass
                 try:
@@ -525,6 +535,29 @@ def run_sms_alert_scan():
                         "has_options": has_opts, "reason": "barchart_live"}
             except Exception:
                 return None
+
+        # Pre-fetch sector ETF direction once — dict lookup inside _score, no extra API calls
+        # Sector headwind check: if XLE is red, energy stocks grinding up will fade
+        _SECTOR_TO_ETF = {
+            "Technology":            "XLK",
+            "Energy":                "XLE",
+            "Financial Services":    "XLF",
+            "Financials":            "XLF",
+            "Healthcare":            "XLV",
+            "Consumer Cyclical":     "XLY",
+            "Consumer Defensive":    "XLP",
+            "Industrials":           "XLI",
+            "Communication Services":"XLC",
+            "Basic Materials":       "XLB",
+        }
+        _sms_sector_green: dict = {}
+        for _etf in set(_SECTOR_TO_ETF.values()) | {"SMH"}:
+            try:
+                _ed = _yf.Ticker(_etf).history(period="1d", interval="1m")
+                if not _ed.empty:
+                    _sms_sector_green[_etf] = float(_ed["Close"].iloc[-1]) > float(_ed["Open"].iloc[0])
+            except Exception:
+                pass
 
         new_syms = [s for s in bc_syms if s not in candidates]
         with ThreadPoolExecutor(max_workers=12) as pool:
