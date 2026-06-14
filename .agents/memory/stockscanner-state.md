@@ -36,102 +36,51 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - Runs 9:31–10:30 AM ET only (same window as ICS)
 
 ## SMS Alert Flow (Monday morning)
-1. 🔥 ICS Entry text (9:31-9:33 AM) → buy
+1. 🔥 Morning burst texts at 9:35, 9:40, 9:45 AM (cron, fixed times)
 2. 📰 News Catalyst text (if news gap fires) → different setup type
-3. 🎯 +10% profit target text → set trailing stop, let it run
-4. ⚠️ VWAP break exit text → tighten stop or exit
+3. 📶 Steady Grinder texts 10:30 AM–1:30 PM (every 30 min)
+4. 🎯 +10% profit target text → set trailing stop, let it run
+5. ⚠️ VWAP break exit text → tighten stop or exit
 - SMS: primary via 4013185787@tmomail.net (T-Mobile email-to-SMS), backup joeldcarlo@gmail.com
 - User phone: +14013185787 (T-Mobile)
 
-## Backtest Findings (June 2026)
-- **Catches** (ICS 80+): ZDGE (+25.68%, score 86), TXMD (+20.88%, score 91) — gap-up institutional burst at 9:31
-- **Correctly ignores**: ALMS, ARM, TBN — slow all-day grinders, no opening volume signature
-- **News catalyst track catches**: ELVN (+14.3%, 35x RVOL) — blowout open volume with news, choppy recovery
-- **Key insight**: ICS requires CLEAN one-directional buying at open. Biotech news gaps have two-sided action → scored low on ICS but caught by news catalyst scanner
-- **TBN**: 0 shares at 9:30 AM, move started 11:10 AM → neither scanner catches, by design
+## Morning Burst Scanner (run_sms_alert_scan) — UPDATED June 14 2026
+- **Schedule**: cron at `hour=9, minute="35,40,45"` — exactly 3 scans per day
+- **Window**: 9:35–9:50 AM only (market_close set to 9:50 in function)
+- **RVOL threshold**: sliding gate — RVOL≥2x for large/mid-cap chg 3-7%, RVOL≥1.5x for chg≥20%, etc.
+- **Sector ETF check**: pre-fetches SMH/XLK/XLE/XLF/XLV/XLY/XLP/XLI/XLC/XLB once per scan run; uses `info.sector` + `info.industry` from yfinance; "Semiconductor" in industry → checks SMH; blocks signal if sector ETF is red on the day
+- **elapsed mins**: calculated from 9:30 AM (actual_open), NOT from scan_start — RVOL math correct
+- **Backtest (Jun 1–13, 2026, 10 days)**: 62% win rate (45 signals), avg win +2.55%, avg loss -3.33%
+  - Week 1 (Jun 1-5): 74% win rate (27 signals)
+  - Week 2 (Jun 9-13): 44% win rate (18 signals) — week 2 was choppy, Jun 9 SPY red (-0.3%) killed all 5 early signals
+- **Key insight**: waiting until 10:00 AM does NOT help — win rate drops from 62% to 57%. Fire at 9:35.
+- **Old rule** ("pre-10 AM = noise at 13%") was based on lower RVOL thresholds. With RVOL≥2x the early morning is the BEST window.
 
-## Scanner Pattern Dictionary
-- Gap-up institutional burst (ZDGE/TXMD type): ICS 80+ at 9:31
-- Biotech news catalyst (ELVN type): News Catalyst 75+ at 9:35-9:45
-- Slow all-day grinder (ALMS/ARM/TBN type): Neither scanner fires — correct behavior
-- Bounce/recovery from gap-down (RFL type): Neither scanner fires — different setup
+## Steady Grinder Scanner — UPDATED June 14 2026
+- `run_steady_grinder_scan()` in `artifacts/stock-scanner-api/sms_alerts.py`
+- **Schedule**: every 30 min, 10:30 AM–1:30 PM ET (start moved from 11:00→10:30 in prior session)
+- **Sector ETF check**: pre-fetches 8 sector ETFs (SMH/XLK/XLE/XLF/XLV/XLY/XLI/XLC) once; uses hardcoded `_SECTOR_ETF` dict mapping tickers to ETFs; blocks if ETF red on day
+- **All gates**: avg daily vol ≥ 1M, price ≥ $10, chg 2-8%, RVOL 1.3-3.0x, t45 0.5-2.0%, above VWAP (ext ≤3%), no single bar >40% vol, HOD within 2%, EMA9>EMA21 on 30-min, dual 45-min trend
+- **Backtest (Jun 1–13, 10 days)**: 50% win rate (28 signals), avg win +1.50%, avg loss -1.65%
+  - Week 1 (Jun 1-5): 59% win rate (17 signals)
+  - Week 2 (Jun 9-13): 36% win rate (11 signals)
+- **Sector ETF impact**: Jun 1 — 5 energy stocks (OXY/CVX/COP/FRO/XOM) all lost when XLE was red; sector check blocks them → grinder win rate goes from 60% → ~69% for Jun 1-5 week
+- **Signal profile**: pure day trade, NOT overnight (next-day follow-through is nearly random, avg -0.16%)
+- **Best setup**: stock up 3-5% at 10:30 AM, RVOL 1.5-2.5x, t45 1.0-2.0%, above VWAP, 🔥 call sweep earlier
+- Uses `sms_midday_log` table with alert_type='grinder' for dedup; text label: "📶 STEADY GRINDER"
 
-## AI Trades — 60+ Data Points, 32 Rules, 5 Setups
-The `/stock-api/ai-trades` route aggregates all scanners into a GPT-5-mini prompt.
-**Output: exactly 5 trade setups** (changed from 3) — sorted by conviction, aim 2-3 BULLISH / 1 NEUTRAL / 1-2 BEARISH.
-max_completion_tokens=9000 (bumped from 6000 to handle 5 setups).
+## Backtest Scripts
+- `artifacts/stock-scanner-api/backtest_week.py` — grinder only, Jun 1-5 (5-min bars)
+- `artifacts/stock-scanner-api/backtest_morning_vs_grinder.py` — **two-week comparison**: morning scanner (early 9:30-10:00 / late 10:00-10:30) vs grinder; Jun 1-5 + Jun 9-13
+- `artifacts/stock-scanner-api/backtest_results.py` — targeted post-signal performance checker
+- `artifacts/stock-scanner-api/backtest_grinder.py` — older grinder backtest
 
-## Signal Stack — 99% of free-data buildable (as of June 2026)
-All computed in vol-crush `_analyze()` (Q1-Q18):
-
-### Vol surface (Q1-Q4)
-- iv_skew, iv_term_structure, gex_m/gex_regime, iv_rv_premium
-
-### Price/momentum (Q5-Q6)
-- momentum_12_1, sector_corr, spy_beta
-
-### Short interest (Q7-Q8)
-- short_float_pct, short_ratio, borrow_cost_proxy (Q8: HIGH_BORROW≥20%, ELEVATED_BORROW≥10%)
-
-### Earnings/fundamental (Q9, Q10, Q11, Q13)
-- earnings_impl_move_pct, eps_revision_trend, hist_earn_reaction_pct
-- analyst_dispersion_pct (Q13: HIGH_DISAGREEMENT≥30% → prefer straddle)
-
-### Options flow (Q7 derivatives, Q12)
-- call_vol_oi_ratio, put_vol_oi_ratio (flow persistence: STRUCTURAL<0.05 vs FRESH>0.25)
-- pc_premium_ratio (dollar-weighted put/call spend ratio)
-- week52_range_pct, squeeze_risk (composite: 4-factor score)
-
-### NEW signals batch (Q14-Q18, built June 2026)
-- rs_vs_spy: stock 1y return minus SPY 1y return (BEATING_MARKET>+20%)
-- money_flow_ratio: up-day vol / down-day vol (ACCUMULATION>1.3, DISTRIBUTION<0.8)
-- insider_net: net insider buy/sell last 30d — uses Text column + Start Date column from yfinance insider_transactions
-- div_yield_pct + ex_div_days: dividend yield % (normalized: >1 means already pct) + days to ex-dividend
-- tail_risk_put_pct: % of put vol in deep OTM strikes >15% below spot (CRASH_HEDGING>40%)
-
-### Future percentile signals (activate automatically after 30+ daily snapshots)
-- iv_skew_pctl: today's skew ranked vs 1-year history (stored in daily_vol_snapshots table)
-- short_float_trend: short float change vs 5 sessions ago
-
-## SPY Cache (module-level)
-- `_spy_1y_cache = {"return_pct": None, "rets_arr": None, "date": None}`
-- `_refresh_spy_1y_cache()` called at startup + 9:05 AM ET daily
-- vol_crush() reads from cache (NOT per-request download) to avoid rate-limit collisions with 20 concurrent ticker fetches
-
-## DB Tables (PostgreSQL)
-- `ai_trade_log` — every GPT trade pick stored for track record
-- `signal_history` — daily signal snapshots; has `scan_time` (timestamptz, UTC); ticker, scan_date, price_chg_pct, rel_vol, flow_ratio, standout_score
-- `signal_outcomes` — T+3/5/10 price outcomes for win rate tracking
-- `daily_vol_snapshots` — daily iv_skew, short_float, pc_oi_ratio, pc_prem_ratio, rs_vs_spy per ticker
-- `daily_top10`, `answers`, `questions`, `score_history`, `sessions`, `sm_subscribers`
-- `unusual_calls_log` — per-tick options flow; date column is `first_seen` (NOT `log_date`); populated by scheduled scans
-- `morning_inflows_cache` — columns: scan_date, payload (JSON), saved_at; ONE row per day, overwritten each scan; payload has scanned/standouts/criteria/generated_at
-- `eod_accum_picks` — columns: scan_date, ticker, close_price, accum_score, eod_rel_vol, closing_range, late_flow, news_headline; started June 11, 2026
-- `eod_accum_outcomes` — tracks next-day outcomes of EOD accum picks
-- `sms_alerts_log` — ICS SMS alerts (ticker+date unique)
-- `sms_profit_log` — +10% profit target alerts (ticker+date unique)
-- `news_catalyst_log` — news catalyst SMS alerts (ticker+date unique)
-
-## Scan time → UTC conversion (EDT = UTC-4)
-- 9:31 AM ET = 13:31 UTC | 9:45 AM = 13:45 | 10:00 = 14:00 | 10:15 = 14:15 | 10:30 = 14:30 | 12:00 PM = 16:00 | 3:45 PM = 19:45 | 4:00 PM = 20:00
-
-## ⚠️ CRITICAL: Dev DB ≠ Production DB
-Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted via dev server (manual scans, curl to localhost) does NOT appear in production.
-
-**EOD Sweep tab shows no data if production DB has no records for today.** This happens when:
-1. The production server deployed AFTER the scheduled scans (3:30–4:15 PM ET)
-2. The server was restarted mid-day
-
-**Fix**: Hit `GET https://nclexai.org/stock-api/unusual-calls` from a detached process — it runs a live scan and saves results to the production DB with `last_seen = NOW()`. Takes ~2–3 minutes.
-
-**Better fix** (deployed): `POST https://nclexai.org/stock-api/admin/run-eod-scan` — starts scan in background, returns immediately.
-
-## EOD Sweep Endpoint (`/stock-api/eod-sweeps`)
-- Line 6441 in main.py
-- Today-first SQL: `WHERE last_seen::date = CURRENT_DATE AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 14 AND 23`
-- Fallback: last 5 days in same hour window
-- Cache: 120s TTL, busted with `?bust=1`
-- Admin trigger: `POST /stock-api/admin/run-eod-scan` (line 6588) — runs scan in background thread
+## Two-Week Head-to-Head (Jun 1–13, 2026)
+| Scanner | Signals | Win Rate | Avg Win | Avg Loss |
+|---|---|---|---|---|
+| Early morning 9:35-10:00 | 45 | 62% | +2.55% | -3.33% |
+| Late morning 10:00-10:30 | 7 | 57% | +1.59% | -1.84% |
+| Steady Grinder 10:30 | 28 | 50% | +1.50% | -1.65% |
 
 ## Stripe
 - Product: "StockScanner AI Pro" — Price: `price_1TfQfiChn3bmMDTvww8LpUIn` ($59/mo, ACTIVE)
@@ -168,76 +117,46 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 ## EOD Short Squeeze Setup Signal (added June 2026)
 - **Pattern**: eod_rel_vol ≥ 50×, late_flow < 2.0× (sellers winning), closing_range < 0.50, price ≥ $1, mkt_cap ≥ $20M
 - **Opposite of accumulation** — shorts loading in at close on massive volume, weak close
-- **Forensic proof**: June 10→11 backtest: MNTS -9.4%→+45%, VELO +15%→+37%, ASTI→+30%, SPCE→+28%, LUNR→+16%, FLY→+17%
-- All showed 100-800× EOD vol with sellers winning and weak close — zero showed unusual calls the day before
 - `signal_type = "squeeze"` in response; `squeeze_setups` is a separate array in the API response
 - Displayed as 🩳 SHORT SQUEEZE SETUPS section (red cards) below the accumulation section
-- Squeeze score = raw eod_rel_vol (higher = more shorts loaded)
-
-## Morning Watchlist (37 tickers as of 2026-06-10)
-['AXTI','AZI','BATL','BBGI','BULL','CASY','CBRL','CMCT','CRE','DSY','DWSN','FJET','FLL','FRMI','HCAI','HPK','INDP','JEM','LAKE','LICN','LMNR','LUCK','MAAS','OCC','OPTX','PLAY','PW','RETO','SCLX','SDOT','SPHL','STAK','STI','TGL','TTRX','VSME','WTI']
-- Watchlist checked at every scan (9:31/9:45/10:00/10:15/10:30) regardless of gap size
-- Keep under ~100 tickers — each requires individual yfinance call, 350+ would cause scan overlap
-- Grow by adding tickers user reports each evening that the scanner missed
-
-## SMS Alert Scoring & Routing (updated June 2026)
-- Options-based routing (NOT market cap): `has options → _with_options_score (threshold 50)`, `no options → _no_options_score (threshold 60)`
-- Cap label in SMS (display only): MICRO/SMALL/MID/LARGE CAP + "has options" / "no options"
-- Morning Burst (9:31–9:45 AM): fires on any size move, no % cap
-- Midday scanner filters: max +5% from prev close, must be 2%+ below HOD, momentum_15m ≥ 2%, min +2% from open, RVOL ≥ 2x
-- Gap Recovery: momentum_15m ≥ 1.5%, pullback ≥ 3%, VWAP reclaim required
-- Scoring: `_with_options_score` (RVOL 30pts, chg 25pts, VWAP 20pts, ORB 10pts, gap 8pts, ATR 7pts), `_no_options_score` (RVOL 25pts, float_turnover 20pts, VWAP 15pts, gap 10pts, ORB 10pts, chg 8pts, ATR 7pts, short 5pts)
 
 ## Pre-Close Swing Scanner (added June 13 2026)
 - `artifacts/stock-scanner-api/eod_swing.py` — EOD swing setup scanner
 - Fires at 3:30 PM ET Mon-Fri — 30 min before close so user can enter same day
 - Universe: Barchart top movers up 2%+ across all 4 cap tiers (~200 tickers)
-- 3-day lookback (not 5 — catches setups earlier, better R/R)
 - Scoring (100 pts, threshold 60): close position in range (25), peak RVOL (25), 3d momentum (20), pullback quality (15), options PCR (10), above 20d MA (5)
-- Must-have gates: close in top 60%+ of range, 3d momentum ≥ 3%
 - SMS: all qualifying setups in ONE text (format: ticker/price/chg/score/3d-gain/PCR)
-- Exit rule discussed: sell gap Day 4 morning (half), trail VWAP on rest, out by Day 5
 
 ## SMS / Twilio
 - `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
-- **Intraday scan: every 5 min, Mon-Fri 10:00 AM–3:45 PM ET** (changed from 9:30 AM — June 14 2026)
-- **SPY green-day filter active on ALL scan types**: run_sms_alert_scan, run_midday_breakout_scan, run_gap_recovery_scan, run_steady_grinder_scan all call `_spy_is_green()` and return early if SPY is red
+- **Morning burst**: cron `hour=9, minute="35,40,45"` — exactly 9:35, 9:40, 9:45 AM
+- **Grinder**: every 30 min, 10:30 AM–1:30 PM ET
+- **SPY green-day filter active on ALL scan types**
 - One text per ticker per day (deduped via sms_alerts_log table UNIQUE constraint on ticker+date)
 - User phone: +14013185787 (T-Mobile), gateway: 4013185787@tmomail.net
 
-## Steady Grinder Scanner (added June 14 2026)
-- `run_steady_grinder_scan()` in sms_alerts.py — runs every 30 min, 11:00 AM–1:30 PM ET
-- Targets large/mid-cap institutional accumulation (FRO/AMKR type): low RVOL but sustained uptrend
-- **All gates must pass**: avg daily vol ≥ 1M, up 2-8% from prev close, RVOL 1.0–3.0x, above VWAP, price now > 45m ago AND 45m ago > 90m ago (dual trend), within 2% of HOD, has options
-- Uses `sms_midday_log` table with alert_type='grinder' for dedup (one text per ticker per day)
-- Text label: "📶 STEADY GRINDER"
-- FRO backtest: fires at 11 AM (+6.4%, 2.2x RVOL) → +2.2% to close, +3.2% to HOD ✅
-- AMKR: borderline (1.5x RVOL) — may fire at 11:30 AM once 90-min trend confirms
+## DB Tables (PostgreSQL)
+- `ai_trade_log` — every GPT trade pick stored for track record
+- `signal_history` — daily signal snapshots; has `scan_time` (timestamptz, UTC); ticker, scan_date, price_chg_pct, rel_vol, flow_ratio, standout_score
+- `signal_outcomes` — T+3/5/10 price outcomes for win rate tracking
+- `daily_vol_snapshots` — daily iv_skew, short_float, pc_oi_ratio, pc_prem_ratio, rs_vs_spy per ticker
+- `daily_top10`, `answers`, `questions`, `score_history`, `sessions`, `sm_subscribers`
+- `unusual_calls_log` — per-tick options flow; date column is `first_seen` (NOT `log_date`)
+- `morning_inflows_cache` — columns: scan_date, payload (JSON), saved_at; ONE row per day
+- `eod_accum_picks` — columns: scan_date, ticker, close_price, accum_score, eod_rel_vol, closing_range, late_flow, news_headline
+- `eod_accum_outcomes` — tracks next-day outcomes of EOD accum picks
+- `sms_alerts_log` — ICS SMS alerts (ticker+date unique)
+- `sms_profit_log` — +10% profit target alerts (ticker+date unique)
+- `news_catalyst_log` — news catalyst SMS alerts (ticker+date unique)
 
-## Large-Cap Gate Lowering (June 14 2026)
-- +3-7% RVOL tier in morning burst scanner: **4.0x → 2.5x** when avg daily vol ≥ 500k
-- Logic in `_score()` inside `run_sms_alert_scan`: `if avg >= 500_000 and 3.0 <= chg_pct < 7.0: min_rv = 2.5`
-- Backtest: FRO (+5.2% to close ✅), SVCO (-3.7% ❌), TNXP (+0.2% ⚠️) — net +1.7% over 3 signals
-- SVCO/TNXP still blocked because avg vol < 500k → 4.0x threshold still applies to them
-
-## Intraday Scanner Backtest (week of Jun 8-12 2026) — KEY FINDINGS
-- **SPY green days** (Mon +0.23%, Thu +1.70%, Fri +0.54%): Original scanner 45% hit rate, net +$1,057 on $58K deployed
-- **SPY red days** (Tue -0.29%, Wed -1.58%): Original scanner 10% hit rate, net -$1,109 — BOTH criteria lost money
-- **Original (sliding RVOL) vs Tight (RVOL≥3x, +5%)**: Original wins on green days ($1,057 vs $616), Tight slightly better on red days but both lose
-- **Decision**: Keep original sliding RVOL gate — it's smarter (higher % → lower RVOL needed); add SPY filter instead of tightening criteria
-- **Original sliding RVOL gate**: `min_rv = 1.5 if chg≥20% else 2.0 if chg≥10% else 3.0 if chg≥7% else 4.0 if chg≥3% else 5.0`
-- **Pre-10 AM signals**: 13% hit rate on all SPY days, -3.8% avg/trade — opening bell pump creates false positives
-- **Post-10 AM signals on green days**: 45% hit rate overall, profitable
-- **Early morning cron jobs removed**: 9:33, 9:37, 9:43 AM precision triggers deleted (were added for opening bell, now dead code)
-
-## Email alerts
-- `artifacts/stock-scanner-api/email_alerts.py` — full email digest
-- SMTP not configured — needs `SMTP_USER` + `SMTP_PASS` secrets
-- Subscriber id=2 is joeldcarlo@gmail.com
+## ⚠️ CRITICAL: Dev DB ≠ Production DB
+Dev and production use COMPLETELY SEPARATE PostgreSQL databases.
+**Fix**: `POST https://nclexai.org/stock-api/admin/run-eod-scan` — starts scan in background, returns immediately.
 
 ## Key design decisions
 - Default tab on load is "lookup" (Stock Lookup)
 - `top_prem_value_k` is in $K units in the options_summary response
 - BB_BG="#060c14", BB_PANEL="#0b1320", accent green="#22c55e", monospace terminal font
+- yfinance multi-ticker column order: `df[ticker][metric]` NOT `df[metric][ticker]`
 
 **Why:** User asked to preserve all work across sessions so nothing is lost between conversations.
