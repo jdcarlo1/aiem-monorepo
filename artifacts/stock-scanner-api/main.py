@@ -752,6 +752,19 @@ try:
         id="conviction_outcomes",
         replace_existing=True,
     )
+    # Whale + High Conviction crossover alert — every 30 min, 10 AM–3:30 PM ET
+    def _run_whale_hc_cross():
+        try:
+            import threading as _thr_wh
+            _thr_wh.Thread(target=_check_whale_hc_crossover, daemon=True).start()
+        except Exception as _e_wh:
+            print(f"[scheduler] whale_hc crossover error: {_e_wh}")
+    _scheduler.add_job(
+        _run_whale_hc_cross,
+        CronTrigger(day_of_week="mon-fri", hour="10-15", minute="0,30", timezone=_ET),
+        id="whale_hc_crossover",
+        replace_existing=True,
+    )
     # Scan cache warmer — every 15 min during market hours so on-demand scans feel instant
     def _warm_sm_cache():
         try:
@@ -1682,6 +1695,112 @@ def _fill_conviction_outcomes() -> None:
     except Exception as e:
         import traceback
         print(f"[conviction_outcomes] error: {e}\n{traceback.format_exc()}")
+
+
+_whale_hc_alerted: dict = {}   # {date_str: set(ticker)} — prevents repeat SMS same day
+
+def _check_whale_hc_crossover() -> None:
+    """
+    Cross-tab alert: fires SMS when the same ticker appears in both
+    the Whale tab (LEAPS CALL, ≥$5M) AND High Conviction tab (EXTREME or HIGH, today).
+    Runs every 30 min during market hours. De-duped per trading day.
+    """
+    import psycopg2 as _pg
+    import pytz as _pytz
+    from datetime import datetime as _dt, timedelta as _td
+    from email_alerts import send_email_raw, smtp_configured
+
+    try:
+        et    = _pytz.timezone("US/Eastern")
+        now   = _dt.now(et)
+        today = str(now.date())
+
+        # Skip before 10 AM or after 4 PM
+        if not (10 <= now.hour < 16):
+            return
+
+        if not smtp_configured():
+            print("[whale_hc] SMTP not configured — skipping")
+            return
+
+        db_url = os.environ["DATABASE_URL"]
+        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+
+            # 1. Whale tab: LEAPS CALL blocks ≥$5M seen today
+            cur.execute("""
+                SELECT ticker, prem_m, days_out, strike, expiry, tier
+                FROM whale_blocks
+                WHERE direction = 'CALL'
+                  AND category  = 'LEAPS'
+                  AND prem_m   >= 5
+                  AND first_seen >= NOW() - INTERVAL '24 hours'
+                ORDER BY prem_m DESC
+            """)
+            whale_rows = {row[0]: row for row in cur.fetchall()}
+            # columns: ticker, prem_m, days_out, strike, expiry, tier
+
+            if not whale_rows:
+                print("[whale_hc] no whale LEAPS today — skip")
+                return
+
+            # 2. High Conviction tab: EXTREME or HIGH tickers from unusual_calls_log today
+            cur.execute("""
+                SELECT DISTINCT ticker,
+                       MAX(vol_oi)   AS best_vol_oi,
+                       MAX(prem)     AS best_prem,
+                       MAX(urgency)  AS urgency
+                FROM unusual_calls_log
+                WHERE log_date = %s
+                  AND vol_oi  >= 5
+                  AND prem    >= 500000
+                GROUP BY ticker
+            """, (today,))
+            hc_rows = {row[0]: row for row in cur.fetchall()}
+            # columns: ticker, best_vol_oi, best_prem, urgency
+
+        # 3. Intersection
+        crossovers = set(whale_rows.keys()) & set(hc_rows.keys())
+        if not crossovers:
+            print(f"[whale_hc] no crossovers today (whales={list(whale_rows)[:5]}, HC={list(hc_rows)[:5]})")
+            return
+
+        # 4. De-dupe: only alert on tickers we haven't sent today
+        already_sent = _whale_hc_alerted.get(today, set())
+        new_crosses  = crossovers - already_sent
+        if not new_crosses:
+            print(f"[whale_hc] all {len(crossovers)} crossover(s) already alerted today")
+            return
+
+        # 5. Build + send SMS for each new crossover
+        for ticker in sorted(new_crosses):
+            _t, prem_m, days_out, strike, expiry, tier = whale_rows[ticker]
+            _t2, vol_oi, prem_k, urgency = hc_rows[ticker]
+
+            conv_label = "EXTREME 🔥" if (vol_oi or 0) >= 12 else "HIGH ⚡"
+            tier_label = {"MEGA_WHALE": "MEGA WHALE", "WHALE": "WHALE", "BIG_BLOCK": "BIG BLOCK"}.get(tier, tier)
+
+            msg = (
+                f"🔥🐋 DUAL SIGNAL: ${ticker}\n"
+                f"Whale {tier_label}: ${prem_m:.1f}M LEAPS CALL · {days_out}d out · ${strike:.0f} strike\n"
+                f"High Conv: {conv_label} · {vol_oi:.1f}x vol/OI · ${prem_k/1e6:.2f}M prem\n"
+                f"Long-term + short-term smart money BOTH bullish on {ticker}"
+            )
+
+            for gateway in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
+                try:
+                    send_email_raw(gateway, f"🔥🐋 DUAL SIGNAL: ${ticker}", f"<pre>{msg}</pre>")
+                except Exception as _se:
+                    print(f"[whale_hc] SMS send error to {gateway}: {_se}")
+
+            print(f"[whale_hc] 🔥🐋 SMS sent for {ticker}: ${prem_m:.1f}M whale + {conv_label}")
+
+        # 6. Update de-dupe set (reset stale dates)
+        _whale_hc_alerted.clear()
+        _whale_hc_alerted[today] = already_sent | new_crosses
+
+    except Exception as e:
+        import traceback
+        print(f"[whale_hc] error: {e}\n{traceback.format_exc()}")
 
 
 def _send_eod_accum_email() -> None:
