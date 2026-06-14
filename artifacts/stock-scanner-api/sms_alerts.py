@@ -555,7 +555,11 @@ def run_sms_alert_scan():
             try:
                 _ed = _yf.Ticker(_etf).history(period="1d", interval="1m")
                 if not _ed.empty:
-                    _sms_sector_green[_etf] = float(_ed["Close"].iloc[-1]) > float(_ed["Open"].iloc[0])
+                    _etf_now  = float(_ed["Close"].iloc[-1])
+                    _etf_tp   = (_ed["High"] + _ed["Low"] + _ed["Close"]) / 3
+                    _etf_cvol = float(_ed["Volume"].sum())
+                    _etf_vwap = float((_etf_tp * _ed["Volume"]).sum()) / _etf_cvol if _etf_cvol > 0 else _etf_now
+                    _sms_sector_green[_etf] = _etf_now > _etf_vwap
             except Exception:
                 pass
 
@@ -1337,9 +1341,11 @@ def run_steady_grinder_scan():
             try:
                 _etf_hist = _yf.Ticker(_etf).history(period="1d", interval="1m")
                 if not _etf_hist.empty:
-                    _etf_open  = float(_etf_hist["Open"].iloc[0])
                     _etf_close = float(_etf_hist["Close"].iloc[-1])
-                    _sector_green[_etf] = _etf_close > _etf_open
+                    _etf_tp    = (_etf_hist["High"] + _etf_hist["Low"] + _etf_hist["Close"]) / 3
+                    _etf_cvol  = float(_etf_hist["Volume"].sum())
+                    _etf_vwap  = float((_etf_tp * _etf_hist["Volume"]).sum()) / _etf_cvol if _etf_cvol > 0 else _etf_close
+                    _sector_green[_etf] = _etf_close > _etf_vwap
             except Exception:
                 pass
 

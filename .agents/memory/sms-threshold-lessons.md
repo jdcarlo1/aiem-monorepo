@@ -53,3 +53,28 @@ ARM → AMKR → AXTI → KLA → Teradyne all moved same day on same catalyst.
 - The scanner finds these. The missing piece is real-time SMS notification (Twilio pending).
 
 **Why this matters:** Don't over-tune the scanner — it's finding the right stocks. The problem is notification timing, not discovery.
+
+## ETF Gate: VWAP Beats Open-of-Day (backtested Jun 1–13 2026)
+**Backtest script:** `artifacts/stock-scanner-api/backtest_etf_gate.py`
+
+### Morning Burst (9:35–9:45 AM) — clear winner
+| Gate | n | Win Rate | EV/trade |
+|---|---|---|---|
+| No gate | 40 | 62% | +0.23% |
+| Open gate (old) | 35 | 60% | +0.20% |
+| VWAP gate (live) | 30 | 67% | +0.83% |
+
+VWAP gate blocked Jun 9 semi blowups (AMAT/LRCX/AMKR/ONTO −4 to −6%) where SMH had fallen below VWAP at 9:35 AM despite being above open. Open gate missed this.
+
+### Grinder (10:30 AM) — marginal improvement
+| Gate | n | Win Rate | EV/trade |
+|---|---|---|---|
+| No gate | 28 | 50% | −0.08% |
+| Open gate (old) | 25 | 44% | −0.25% |
+| VWAP gate (live) | 27 | 48% | −0.12% |
+
+VWAP gate +4pp WR over open gate. Note: open gate was blocking winners (CAT Jun 2, AMD Jun 3) that had ETFs above VWAP despite being below open — those correctly pass under VWAP gate.
+
+**Key insight:** At 9:35 AM, VWAP ≠ open — ETFs can gap up then immediately reverse below VWAP while still above open. VWAP captures intraday weakness that open gate is blind to.
+
+**Decision (June 14 2026):** Switched both scanners to VWAP gate in `sms_alerts.py`.
