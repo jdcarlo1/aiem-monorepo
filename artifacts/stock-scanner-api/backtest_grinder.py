@@ -1,7 +1,7 @@
 """
-Steady Grinder backtest — every trading day of last week (Jun 9–13, 2026).
-Uses yf.download() to batch-fetch all tickers in 2 calls per day instead of
-one HTTP request per ticker. Much faster.
+Steady Grinder backtest — Jun 9–13, 2026.
+For every signal that passes at 11:30 AM, measures how much the stock moved
+from entry (11:30 AM close) to end-of-day (3:45 PM close).
 
 Run: python artifacts/stock-scanner-api/backtest_grinder.py
 """
@@ -23,8 +23,6 @@ UNIVERSE = [
     "LULU","MELI","MPWR","NET","PANW","PAYC","PKG",
 ]
 
-SCAN_TIME = "11:30"   # simulate 11:30 AM ET each day
-
 
 def last_week_dates():
     today = date(2026, 6, 14)
@@ -36,56 +34,58 @@ def last_week_dates():
     return days
 
 
-def spy_direction(dt):
-    try:
-        d = yf.download("SPY", start=str(dt), end=str(dt + timedelta(days=1)),
-                        interval="1d", progress=False, auto_adjust=True)
-        if d.empty:
-            return None
-        return float(d["Close"].iloc[0]) > float(d["Open"].iloc[0])
-    except Exception:
-        return None
-
-
 def run_backtest():
     dates = last_week_dates()
 
-    print(f"\n{'='*68}")
-    print(f"  STEADY GRINDER BACKTEST  —  Jun 9–13, 2026  (11:30 AM snapshot)")
-    print(f"  Universe: {len(UNIVERSE)} stocks")
-    print(f"{'='*68}\n")
+    print(f"\n{'='*72}")
+    print(f"  STEADY GRINDER BACKTEST — Jun 9–13, 2026")
+    print(f"  Entry: 11:30 AM price  |  Exit: 3:45 PM price  |  {len(UNIVERSE)} stocks")
+    print(f"{'='*72}\n")
 
-    # ── Pre-fetch daily closes for the whole period so we have prev-close ──
-    print("Fetching daily data for the week…")
+    print("Fetching daily data…")
     daily = yf.download(
         UNIVERSE, start="2026-06-06", end="2026-06-14",
         interval="1d", group_by="ticker", auto_adjust=True, progress=False
     )
 
-    # ── Pre-fetch 1-min data for the whole week in one call ────────────────
-    print("Fetching 1-min intraday data for Mon–Fri…")
+    print("Fetching 1-min intraday data for the week…")
     intra = yf.download(
         UNIVERSE, start="2026-06-09", end="2026-06-14",
         interval="1m", group_by="ticker", auto_adjust=True, progress=False
     )
-    print("Data loaded. Running grinder logic…\n")
 
+    print("Fetching SPY 1-min for day direction…")
+    spy_intra = yf.download(
+        "SPY", start="2026-06-09", end="2026-06-14",
+        interval="1m", auto_adjust=True, progress=False
+    )
+    print("Data ready.\n")
+
+    all_results = []
     total_hits = 0
 
     for dt in dates:
-        spy_green = spy_direction(dt)
-        spy_lbl   = "🟢 SPY green" if spy_green else ("🔴 SPY red " if spy_green is False else "❓")
-        skipped   = "" if spy_green else "  ← would have been SKIPPED by old filter"
-        print(f"── {dt.strftime('%A %b %d')}  {spy_lbl}{skipped}")
-
         snap_ts  = pd.Timestamp(f"{dt} 11:30:00").tz_localize("America/New_York")
         open_ts  = pd.Timestamp(f"{dt} 09:30:00").tz_localize("America/New_York")
-        day_frac = 120.0 / 390.0   # 2 hours / 6.5 hours
+        eod_ts   = pd.Timestamp(f"{dt} 15:45:00").tz_localize("America/New_York")
+        day_frac = 120.0 / 390.0
+
+        # SPY direction
+        spy_day = spy_intra[(spy_intra.index >= open_ts) & (spy_intra.index <= snap_ts)]
+        if not spy_day.empty:
+            spy_open  = float(spy_day["Open"].iloc[0])
+            spy_now   = float(spy_day["Close"].iloc[-1])
+            spy_green = spy_now > spy_open
+            spy_lbl   = "🟢 SPY +" + f"{(spy_now/spy_open-1)*100:.1f}%" if spy_green else "🔴 SPY " + f"{(spy_now/spy_open-1)*100:.1f}%"
+        else:
+            spy_lbl, spy_green = "❓ SPY ?", None
+
+        print(f"── {dt.strftime('%a %b %d')}  {spy_lbl}")
 
         hits = []
         for tkr in UNIVERSE:
             try:
-                # ── prev close ──────────────────────────────────────────────
+                # prev close
                 try:
                     dc = daily[tkr]["Close"] if isinstance(daily.columns, pd.MultiIndex) else daily["Close"][tkr]
                 except Exception:
@@ -98,18 +98,18 @@ def run_backtest():
                 if prev <= 0:
                     continue
 
-                # ── 1-min bars up to 11:30 AM on this date ──────────────────
+                # 1-min bars up to 11:30 AM
                 try:
                     ic = intra[tkr] if isinstance(intra.columns, pd.MultiIndex) else intra
                 except Exception:
                     continue
-                day_bars = ic[(ic.index >= open_ts) & (ic.index <= snap_ts)]
-                if len(day_bars) < 60:
+                snap_bars = ic[(ic.index >= open_ts) & (ic.index <= snap_ts)]
+                if len(snap_bars) < 60:
                     continue
 
-                cum_vol = float(day_bars["Volume"].sum())
-                price   = float(day_bars["Close"].iloc[-1])
-                open_p  = float(day_bars["Open"].iloc[0])
+                cum_vol = float(snap_bars["Volume"].sum())
+                price   = float(snap_bars["Close"].iloc[-1])   # entry price
+                open_p  = float(snap_bars["Open"].iloc[0])
                 if price <= 0 or open_p <= 0 or price < 10.0:
                     continue
 
@@ -117,33 +117,26 @@ def run_backtest():
                 if not (2.0 <= chg_pct <= 8.0):
                     continue
 
-                proj_vol = cum_vol / day_frac
-                # Use a loose avg-vol proxy: any stock in our large/mid universe is ≥1M
-                # but cap check at 500k to not over-filter — universe is pre-screened
-                avg_vol = proj_vol / 1.5   # assume they pass if proj is reasonable
-                rel_vol = proj_vol / max(avg_vol, 1)
-                # Better: compute rel_vol from daily volume if available
+                # avg vol from daily history
                 dc_vols = (daily[tkr]["Volume"] if isinstance(daily.columns, pd.MultiIndex)
                            else daily["Volume"][tkr])
                 dc_vols_dt = dc_vols.index.tz_localize(None) if dc_vols.index.tzinfo else dc_vols.index
-                avg_from_daily = float(dc_vols[dc_vols_dt < pd.Timestamp(dt)].tail(10).mean()) if len(dc_vols) >= 3 else 0
-                if avg_from_daily >= 100_000:
-                    proj_vol_real = cum_vol / day_frac
-                    rel_vol = proj_vol_real / avg_from_daily
-                else:
-                    continue  # skip if we can't compute avg vol
-
+                avg_vol = float(dc_vols[dc_vols_dt < pd.Timestamp(dt)].tail(10).mean()) if len(dc_vols) >= 3 else 0
+                if avg_vol < 100_000:
+                    continue
+                proj_vol = cum_vol / day_frac
+                rel_vol  = proj_vol / avg_vol
                 if rel_vol < 1.0 or rel_vol >= 3.0:
                     continue
 
                 # No single-bar spike >40%
-                if cum_vol > 0 and float(day_bars["Volume"].max()) / cum_vol > 0.40:
+                if cum_vol > 0 and float(snap_bars["Volume"].max()) / cum_vol > 0.40:
                     continue
 
                 # VWAP
-                day_bars = day_bars.copy()
-                day_bars["_tp"] = (day_bars["High"] + day_bars["Low"] + day_bars["Close"]) / 3
-                tp_vol_sum = float((day_bars["_tp"] * day_bars["Volume"]).sum())
+                snap_bars = snap_bars.copy()
+                snap_bars["_tp"] = (snap_bars["High"] + snap_bars["Low"] + snap_bars["Close"]) / 3
+                tp_vol_sum = float((snap_bars["_tp"] * snap_bars["Volume"]).sum())
                 vwap = tp_vol_sum / cum_vol if cum_vol > 0 else price
                 if price < vwap:
                     continue
@@ -152,57 +145,93 @@ def run_backtest():
                     continue
 
                 # HOD within 2%
-                hod = float(day_bars["High"].max())
+                hod = float(snap_bars["High"].max())
                 if hod > 0 and (hod - price) / hod * 100 > 2.0:
                     continue
 
-                # 45-min trend
-                if len(day_bars) < 45:
+                # 45-min and 90-min trend
+                if len(snap_bars) < 45:
                     continue
-                p45 = float(day_bars["Close"].iloc[-45])
+                p45 = float(snap_bars["Close"].iloc[-45])
                 if price <= p45:
                     continue
-                if len(day_bars) >= 90:
-                    p90 = float(day_bars["Close"].iloc[-90])
+                if len(snap_bars) >= 90:
+                    p90 = float(snap_bars["Close"].iloc[-90])
                     if p45 <= p90:
                         continue
                 t45 = (price - p45) / p45 * 100
 
                 # EMA 9 > EMA 21 on 30-min
-                b30 = day_bars["Close"].resample("30min").last().dropna()
+                b30 = snap_bars["Close"].resample("30min").last().dropna()
                 if len(b30) >= 9:
                     ema9  = float(b30.ewm(span=9,  adjust=False).mean().iloc[-1])
                     ema21 = float(b30.ewm(span=21, adjust=False).mean().iloc[-1]) if len(b30) >= 21 else ema9 - 0.01
                     if ema9 <= ema21:
                         continue
 
-                gap_pct = (open_p - prev) / prev * 100
+                # ── EXIT: 3:45 PM price ──────────────────────────────────────
+                eod_bars = ic[(ic.index >= snap_ts) & (ic.index <= eod_ts)]
+                if eod_bars.empty:
+                    exit_price = price
+                else:
+                    exit_price = float(eod_bars["Close"].iloc[-1])
+
+                from_entry  = (exit_price - price) / price * 100
+                eod_vs_prev = (exit_price - prev) / prev * 100
+
                 hits.append({
-                    "ticker": tkr, "price": round(price, 2), "chg": round(chg_pct, 1),
-                    "rvol": round(rel_vol, 2), "vwap_ext": round(vwap_ext, 1),
-                    "hod": round(hod, 2), "t45": round(t45, 2), "gap": round(gap_pct, 1),
+                    "ticker":      tkr,
+                    "entry":       round(price, 2),
+                    "exit":        round(exit_price, 2),
+                    "chg_at_entry": round(chg_pct, 1),
+                    "move_after":  round(from_entry, 2),
+                    "total_day":   round(eod_vs_prev, 1),
+                    "rvol":        round(rel_vol, 2),
+                    "vwap_ext":    round(vwap_ext, 1),
+                    "t45":         round(t45, 2),
+                    "spy_green":   spy_green,
+                    "date":        str(dt),
                 })
             except Exception:
                 continue
 
         if hits:
-            hits.sort(key=lambda x: -x["chg"])
+            hits.sort(key=lambda x: -x["chg_at_entry"])
             for h in hits:
+                arrow = "✅" if h["move_after"] > 0 else "❌"
                 print(
-                    f"  📶 {h['ticker']:6s}  +{h['chg']:.1f}%  "
-                    f"RVOL {h['rvol']:.1f}x  ${h['price']:.2f}  "
-                    f"VWAP +{h['vwap_ext']:.1f}%  "
-                    f"↑{h['t45']:.1f}% last 45m  "
-                    f"gap {h['gap']:+.1f}%"
+                    f"  {arrow} {h['ticker']:6s}  entry ${h['entry']:.2f} (+{h['chg_at_entry']:.1f}% vs prev)"
+                    f"  →  exit ${h['exit']:.2f}  "
+                    f"({'+' if h['move_after']>=0 else ''}{h['move_after']:.2f}% from entry)"
+                    f"  day total {'+' if h['total_day']>=0 else ''}{h['total_day']:.1f}%"
                 )
             total_hits += len(hits)
+            all_results.extend(hits)
         else:
-            print("  (no grinder signals)")
+            print("  (no signals)")
         print()
 
-    print(f"{'='*68}")
-    print(f"  Total signals this week: {total_hits}")
-    print(f"{'='*68}\n")
+    # ── Summary ──────────────────────────────────────────────────────────────
+    print(f"{'='*72}")
+    if all_results:
+        df = pd.DataFrame(all_results)
+        wins    = df[df["move_after"] > 0]
+        losses  = df[df["move_after"] <= 0]
+        win_rate = len(wins) / len(df) * 100
+        avg_win  = wins["move_after"].mean()   if not wins.empty   else 0
+        avg_loss = losses["move_after"].mean() if not losses.empty else 0
+        avg_move = df["move_after"].mean()
+
+        print(f"  Signals found:  {len(df)}")
+        print(f"  Win rate:       {win_rate:.0f}%  ({len(wins)} wins / {len(losses)} losses)")
+        print(f"  Avg move after entry:  {avg_move:+.2f}%")
+        print(f"  Avg winner:  {avg_win:+.2f}%   |   Avg loser: {avg_loss:+.2f}%")
+        print(f"  Best trade:  {df.loc[df['move_after'].idxmax(), 'ticker']}  {df['move_after'].max():+.2f}%")
+        if not losses.empty:
+            print(f"  Worst trade: {df.loc[df['move_after'].idxmin(), 'ticker']}  {df['move_after'].min():+.2f}%")
+    else:
+        print("  No signals found this week.")
+    print(f"{'='*72}\n")
 
 
 if __name__ == "__main__":

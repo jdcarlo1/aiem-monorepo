@@ -1204,7 +1204,7 @@ def run_gap_recovery_scan():
 
 def run_steady_grinder_scan():
     """
-    Runs every 30 min, 11:00 AM – 1:30 PM ET.
+    Runs every 30 min, 10:30 AM – 1:30 PM ET.
     Targets large/mid-cap stocks (avg vol ≥ 1M) that are grinding steadily
     higher on light-but-sustained volume — institutional accumulation plays.
     Classic pattern: FRO (+9.8%), AMKR (+8.7%) type.
@@ -1224,7 +1224,7 @@ def run_steady_grinder_scan():
     now_et = datetime.now(_ET)
     if now_et.weekday() >= 5:
         return
-    start = now_et.replace(hour=11, minute=0,  second=0, microsecond=0)
+    start = now_et.replace(hour=10, minute=30, second=0, microsecond=0)
     end   = now_et.replace(hour=13, minute=30, second=0, microsecond=0)
     if now_et < start or now_et > end:
         return
