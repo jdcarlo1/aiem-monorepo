@@ -1743,20 +1743,24 @@ def _check_whale_hc_crossover() -> None:
                 print("[whale_hc] no whale LEAPS today — skip")
                 return
 
-            # 2. High Conviction tab: EXTREME or HIGH tickers from unusual_calls_log today
+            # 2. High Conviction tab: best strike+expiry per ticker from unusual_calls_log today
             cur.execute("""
-                SELECT DISTINCT ticker,
-                       MAX(vol_oi)   AS best_vol_oi,
-                       MAX(prem)     AS best_prem,
-                       MAX(urgency)  AS urgency
+                SELECT DISTINCT ON (ticker)
+                       ticker,
+                       vol_oi,
+                       prem,
+                       urgency,
+                       strike,
+                       expiry,
+                       days_out
                 FROM unusual_calls_log
                 WHERE log_date = %s
                   AND vol_oi  >= 5
                   AND prem    >= 500000
-                GROUP BY ticker
+                ORDER BY ticker, vol_oi DESC
             """, (today,))
             hc_rows = {row[0]: row for row in cur.fetchall()}
-            # columns: ticker, best_vol_oi, best_prem, urgency
+            # columns: ticker, vol_oi, prem, urgency, strike, expiry, days_out
 
         # 3. Intersection
         crossovers = set(whale_rows.keys()) & set(hc_rows.keys())
@@ -1773,17 +1777,24 @@ def _check_whale_hc_crossover() -> None:
 
         # 5. Build + send SMS for each new crossover
         for ticker in sorted(new_crosses):
-            _t, prem_m, days_out, strike, expiry, tier = whale_rows[ticker]
-            _t2, vol_oi, prem_k, urgency = hc_rows[ticker]
+            _t,  prem_m,  days_out,  w_strike, w_expiry, tier   = whale_rows[ticker]
+            _t2, vol_oi,  prem_k,   urgency,  hc_strike, hc_expiry, hc_days = hc_rows[ticker]
 
             conv_label = "EXTREME 🔥" if (vol_oi or 0) >= 12 else "HIGH ⚡"
             tier_label = {"MEGA_WHALE": "MEGA WHALE", "WHALE": "WHALE", "BIG_BLOCK": "BIG BLOCK"}.get(tier, tier)
 
+            # Format short-term play line
+            st_strike = f"${hc_strike:.0f}C" if hc_strike else "?"
+            st_expiry = hc_expiry or "?"
+            st_days   = f"{hc_days}d" if hc_days else ""
+            st_line   = f"{st_strike} exp {st_expiry} ({st_days})"
+
             msg = (
                 f"🔥🐋 DUAL SIGNAL: ${ticker}\n"
-                f"Whale {tier_label}: ${prem_m:.1f}M LEAPS CALL · {days_out}d out · ${strike:.0f} strike\n"
-                f"High Conv: {conv_label} · {vol_oi:.1f}x vol/OI · ${prem_k/1e6:.2f}M prem\n"
-                f"Long-term + short-term smart money BOTH bullish on {ticker}"
+                f"🐋 Whale {tier_label}: ${prem_m:.1f}M LEAPS CALL · {days_out}d · ${w_strike:.0f} strike exp {w_expiry}\n"
+                f"⚡ HC {conv_label}: {vol_oi:.1f}x vol/OI · ${prem_k/1e6:.2f}M prem\n"
+                f"📌 Short-term play: {st_line}\n"
+                f"Both long-term whale + short-term smart money bullish on {ticker}"
             )
 
             for gateway in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
