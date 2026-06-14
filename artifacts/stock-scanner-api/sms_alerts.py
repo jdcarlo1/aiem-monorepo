@@ -1381,6 +1381,13 @@ def run_steady_grinder_scan():
                 chg_pct  = (price - prev) / prev * 100
                 if not (2.0 <= chg_pct <= 8.0):
                     return None
+                # Gain-from-open cap: >3% from open = stock already made its move
+                # Backtest Jun 1-13: stocks up >3% from open before 10:30 AM were
+                # 3 winners (+0.38%, +4.10%, +2.64%) vs 5 losers incl ONTO -6.91%, INTC -3.20%
+                # Removing them improves EV significantly. They belong in the morning burst scanner.
+                gain_from_open = (price - open_p) / open_p * 100 if open_p > 0 else 0.0
+                if gain_from_open >= 3.0:
+                    return None
                 proj_vol = cum_vol / day_frac
                 rel_vol  = proj_vol / avg
                 # RVOL 1.3–3.0x: meaningful institutional volume, not explosive
@@ -1393,6 +1400,11 @@ def run_steady_grinder_scan():
                 # and historically fade. Dict lookup only — no extra API call per ticker.
                 _etf = _SECTOR_ETF.get(ticker)
                 if _etf and _etf in _sector_green and not _sector_green[_etf]:
+                    return None
+                # Dead-sector block: XLV (healthcare) + XLY (consumer) = 0% WR over 10 days
+                # Backtest Jun 1-13: LLY x2, AMGN, PFE, NKE, MELI — all losers, zero winners.
+                # These sectors gap up at open and fade; they are NOT grinders.
+                if _etf in {"XLV", "XLY"}:
                     return None
                 # No single-bar volume spike >40% of total day's volume
                 # A genuine grind has evenly distributed volume — one dominant bar = news pop, not a grind

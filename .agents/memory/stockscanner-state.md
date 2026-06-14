@@ -58,15 +58,14 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 
 ## Steady Grinder Scanner — UPDATED June 14 2026
 - `run_steady_grinder_scan()` in `artifacts/stock-scanner-api/sms_alerts.py`
-- **Schedule**: every 30 min, 10:30 AM–1:30 PM ET (start moved from 11:00→10:30 in prior session)
-- **Sector ETF check**: pre-fetches 8 sector ETFs (SMH/XLK/XLE/XLF/XLV/XLY/XLI/XLC) once; uses hardcoded `_SECTOR_ETF` dict mapping tickers to ETFs; blocks if ETF red on day
+- **Schedule**: every 30 min, 10:30 AM–1:30 PM ET
 - **All gates**: avg daily vol ≥ 1M, price ≥ $10, chg 2-8%, RVOL 1.3-3.0x, t45 0.5-2.0%, above VWAP (ext ≤3%), no single bar >40% vol, HOD within 2%, EMA9>EMA21 on 30-min, dual 45-min trend
-- **Backtest (Jun 1–13, 10 days)**: 50% win rate (28 signals), avg win +1.50%, avg loss -1.65%
-  - Week 1 (Jun 1-5): 59% win rate (17 signals)
-  - Week 2 (Jun 9-13): 36% win rate (11 signals)
-- **Sector ETF impact**: Jun 1 — 5 energy stocks (OXY/CVX/COP/FRO/XOM) all lost when XLE was red; sector check blocks them → grinder win rate goes from 60% → ~69% for Jun 1-5 week
-- **Signal profile**: pure day trade, NOT overnight (next-day follow-through is nearly random, avg -0.16%)
-- **Best setup**: stock up 3-5% at 10:30 AM, RVOL 1.5-2.5x, t45 1.0-2.0%, above VWAP, 🔥 call sweep earlier
+- **NEW gate (Jun 14 2026): gain-from-open < 3%** — stocks already up >3% from open have run their race; belong in morning burst, not grinder
+- **NEW gate (Jun 14 2026): block XLV + XLY** — healthcare/consumer = 0% WR across 6 signals (LLY x2, AMGN, PFE, NKE, MELI all losers). These sectors gap at open and fade, not grinders.
+- **Backtest (Jun 1–13, 10 days) WITH new filters**: 68.8% WR (16 signals, from 50%/28), EV +0.541%/trade (from -0.075%)
+  - Removed 9 losers (-17.86% total avoided), cost 3 winners (+7.12% missed) — net +10.74%
+- **Signal profile**: pure day trade, NOT overnight
+- **Best sectors**: XLK (88% WR), SMH (60% WR) — stick to tech and semis
 - Uses `sms_midday_log` table with alert_type='grinder' for dedup; text label: "📶 STEADY GRINDER"
 
 ## Backtest Scripts
