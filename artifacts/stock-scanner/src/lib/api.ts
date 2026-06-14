@@ -791,6 +791,31 @@ export function fetchConvictionCalls(force = false) {
   return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string; error?: string }>(`/conviction-calls${force ? "?force=1" : ""}`);
 }
 
+export interface ConvictionOutcomePick {
+  snap_date: string; ticker: string; conviction: string; score: number;
+  entry_price: number | null;
+  d1_price: number | null; d1_pct: number | null;
+  d3_price: number | null; d3_pct: number | null;
+  d5_price: number | null; d5_pct: number | null;
+  updated_at: string | null;
+}
+export interface ConvictionOutcomeStats {
+  signals: number; settled: number; wins: number; losses: number;
+  win_rate: number | null; avg_gain: number | null; avg_loss: number | null; ev: number | null;
+}
+export interface ConvictionOutcomeResult {
+  picks: ConvictionOutcomePick[];
+  stats: {
+    overall: { d1: ConvictionOutcomeStats; d3: ConvictionOutcomeStats; d5: ConvictionOutcomeStats };
+    extreme: { d1: ConvictionOutcomeStats; d3: ConvictionOutcomeStats; d5: ConvictionOutcomeStats };
+    high:    { d1: ConvictionOutcomeStats; d3: ConvictionOutcomeStats; d5: ConvictionOutcomeStats };
+  };
+  total: number;
+}
+export function fetchConvictionOutcomes() {
+  return fetchJson<ConvictionOutcomeResult>(`/conviction-outcomes`);
+}
+
 export interface EodSweepStrike {
   ticker: string; price: number; strike: number; expiry: string;
   days_out: number; vol_oi: number; prem: number; otm_pct: number;

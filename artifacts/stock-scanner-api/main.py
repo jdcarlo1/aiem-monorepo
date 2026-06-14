@@ -74,6 +74,55 @@ init_call_sweep_log_table()
 init_news_catalyst_log()
 init_midday_log_table()
 
+def _init_conviction_snapshot_table():
+    import psycopg2 as _pg2
+    with _pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS conviction_calls_snapshot (
+                id           SERIAL PRIMARY KEY,
+                snap_date    DATE NOT NULL,
+                ticker       VARCHAR(10) NOT NULL,
+                price        FLOAT,
+                score        FLOAT,
+                conviction   VARCHAR(20),
+                num_strikes  INT,
+                total_prem_m FLOAT,
+                max_vol_oi   FLOAT,
+                avg_iv       FLOAT,
+                rank         INT,
+                saved_at     TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (snap_date, ticker)
+            )
+        """)
+        _c.commit()
+    print("[conviction_snapshot] table ready")
+_init_conviction_snapshot_table()
+
+def _init_conviction_outcomes_table():
+    import psycopg2 as _pg2
+    with _pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS conviction_calls_outcomes (
+                id          SERIAL PRIMARY KEY,
+                snap_date   DATE NOT NULL,
+                ticker      VARCHAR(10) NOT NULL,
+                conviction  VARCHAR(20),
+                score       FLOAT,
+                entry_price FLOAT,
+                d1_price    FLOAT,
+                d1_pct      FLOAT,
+                d3_price    FLOAT,
+                d3_pct      FLOAT,
+                d5_price    FLOAT,
+                d5_pct      FLOAT,
+                updated_at  TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (snap_date, ticker)
+            )
+        """)
+        _c.commit()
+    print("[conviction_outcomes] table ready")
+_init_conviction_outcomes_table()
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -674,6 +723,33 @@ try:
         _auto_log_eod_sweeps,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=20, timezone=_ET),
         id="eod_sweep_auto_log",
+        replace_existing=True,
+    )
+    # Conviction calls snapshot: 4:25 PM ET — after EOD unusual-calls scans finish,
+    # snapshot EXTREME+HIGH picks to DB and send email + SMS digest.
+    def _run_conviction_snapshot():
+        try:
+            import threading as _thr_cs
+            _thr_cs.Thread(target=_save_and_send_conviction_snapshot, daemon=True).start()
+        except Exception as _e_cs:
+            print(f"[scheduler] conviction snapshot error: {_e_cs}")
+    _scheduler.add_job(
+        _run_conviction_snapshot,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=25, timezone=_ET),
+        id="conviction_snapshot",
+        replace_existing=True,
+    )
+    # Conviction outcomes: 4:32 PM ET — fill D+1/D+3/D+5 prices for past snapshots
+    def _run_conviction_outcomes():
+        try:
+            import threading as _thr_co
+            _thr_co.Thread(target=_fill_conviction_outcomes, daemon=True).start()
+        except Exception as _e_co:
+            print(f"[scheduler] conviction outcomes error: {_e_co}")
+    _scheduler.add_job(
+        _run_conviction_outcomes,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=32, timezone=_ET),
+        id="conviction_outcomes",
         replace_existing=True,
     )
     # Scan cache warmer — every 15 min during market hours so on-demand scans feel instant
@@ -1291,6 +1367,321 @@ def _send_ai_short_calls_high_conviction(picks: list) -> None:
         print(f"[ai_hc_alert] sent to {sent}/{len(subs)} subscribers — {len(picks)} HIGH conviction picks")
     except Exception as _e:
         print(f"[ai_hc_alert] error (non-fatal): {_e}")
+
+
+def _save_and_send_conviction_snapshot() -> None:
+    """
+    4:25 PM ET Mon-Fri — snapshot today's HIGH CONVICTION tab to DB + send email + SMS.
+    Saves EXTREME + HIGH picks so every day's signals are preserved for review.
+    """
+    import math as _m
+    import psycopg2 as _pg
+    import pytz as _pytz
+    import requests as _rq
+    from collections import defaultdict as _dd
+    from datetime import datetime as _dt
+    from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
+
+    try:
+        db_url = os.environ["DATABASE_URL"]
+        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, price::float, strike::float, expiry, days_out,
+                       vol_oi::float, prem::bigint, otm_pct::float, iv::float,
+                       urgency, last_seen
+                FROM unusual_calls_log
+                WHERE last_seen >= CURRENT_DATE
+                  AND days_out BETWEEN 1 AND 30
+                  AND vol_oi  >= 5
+                  AND prem    >= 500000
+                  AND otm_pct BETWEEN -2 AND 30
+                  AND strike  >= price * 0.97
+                ORDER BY last_seen DESC, vol_oi DESC
+            """)
+            rows_raw = cur.fetchall()
+
+        if not rows_raw:
+            print("[conviction_snapshot] no qualifying rows today — skipping")
+            return
+
+        cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
+        rows = [dict(zip(cols, r)) for r in rows_raw]
+
+        by_ticker = _dd(list)
+        for r in rows:
+            by_ticker[r["ticker"]].append(r)
+
+        results = []
+        for ticker, strikes in by_ticker.items():
+            num_strikes   = len(strikes)
+            total_prem    = sum(s["prem"] for s in strikes)
+            max_vol_oi    = max(s["vol_oi"] for s in strikes)
+            avg_iv        = sum(s["iv"] or 0 for s in strikes) / num_strikes
+            best_strike   = max(strikes, key=lambda s: s["vol_oi"])
+            most_recent   = max(strikes, key=lambda s: s["last_seen"])
+            price         = most_recent["price"]
+            urgency_rank  = {"EXPIRING": 3, "SHORT": 2, "NEAR": 1}.get(best_strike["urgency"], 1)
+            iv_bonus      = 1.8 if avg_iv >= 90 else 1.5 if avg_iv >= 70 else 1.2 if avg_iv >= 50 else 1.0
+            sweep_mult    = 1.0 + 0.4 * (num_strikes - 1)
+            prem_factor   = _m.log(total_prem / 1_000_000 + 1) + 1
+            vol_oi_factor = _m.log(max_vol_oi + 1)
+            score         = round(vol_oi_factor * prem_factor * iv_bonus * sweep_mult * urgency_rank, 2)
+            conviction    = "EXTREME" if score >= 12 else "HIGH" if score >= 7 else "ELEVATED" if score >= 4 else "MODERATE"
+            results.append({
+                "ticker": ticker, "price": price, "score": score,
+                "conviction": conviction, "num_strikes": num_strikes,
+                "total_prem_m": round(total_prem / 1_000_000, 2),
+                "max_vol_oi": round(max_vol_oi, 1), "avg_iv": round(avg_iv, 1),
+            })
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+        for i, r in enumerate(results):
+            r["rank"] = i + 1
+
+        today = _dt.now(_pytz.timezone("US/Eastern")).date()
+
+        # ── Save ALL results to DB ─────────────────────────────────────────────
+        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+            for r in results:
+                cur.execute("""
+                    INSERT INTO conviction_calls_snapshot
+                        (snap_date, ticker, price, score, conviction, num_strikes,
+                         total_prem_m, max_vol_oi, avg_iv, rank)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (snap_date, ticker) DO UPDATE SET
+                        price=EXCLUDED.price, score=EXCLUDED.score,
+                        conviction=EXCLUDED.conviction, num_strikes=EXCLUDED.num_strikes,
+                        total_prem_m=EXCLUDED.total_prem_m, max_vol_oi=EXCLUDED.max_vol_oi,
+                        avg_iv=EXCLUDED.avg_iv, rank=EXCLUDED.rank, saved_at=NOW()
+                """, (today, r["ticker"], r["price"], r["score"], r["conviction"],
+                      r["num_strikes"], r["total_prem_m"], r["max_vol_oi"], r["avg_iv"], r["rank"]))
+            conn.commit()
+        print(f"[conviction_snapshot] saved {len(results)} tickers for {today}")
+
+        # ── EXTREME + HIGH only for alerts ────────────────────────────────────
+        alert_picks = [r for r in results if r["conviction"] in ("EXTREME", "HIGH")]
+        if not alert_picks:
+            print("[conviction_snapshot] no EXTREME/HIGH today — skipping alerts")
+            return
+
+        date_str = _dt.now(_pytz.timezone("US/Eastern")).strftime("%B %d, %Y")
+        extreme  = [r for r in alert_picks if r["conviction"] == "EXTREME"]
+        high     = [r for r in alert_picks if r["conviction"] == "HIGH"]
+
+        # ── SMS ───────────────────────────────────────────────────────────────
+        sid   = os.getenv("TWILIO_ACCOUNT_SID")
+        token = os.getenv("TWILIO_AUTH_TOKEN")
+        from_ = os.getenv("TWILIO_FROM_NUMBER")
+        if sid and token and from_:
+            lines = [f"🔥 EOD CONVICTION ({date_str})"]
+            if extreme:
+                lines.append("EXTREME: " + " · ".join(
+                    f"{r['ticker']} ${r['total_prem_m']:.1f}M {r['max_vol_oi']}x"
+                    for r in extreme[:5]
+                ))
+            if high:
+                lines.append("HIGH: " + " · ".join(
+                    f"{r['ticker']} ${r['total_prem_m']:.1f}M {r['max_vol_oi']}x"
+                    for r in high[:3]
+                ))
+            lines.append("See HIGH CONVICTION tab for full breakdown.")
+            sms_body = "\n".join(lines)
+            for to in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
+                try:
+                    _rq.post(
+                        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
+                        auth=(sid, token), timeout=10,
+                        data={"From": from_, "To": to, "Body": sms_body},
+                    )
+                except Exception as _se:
+                    print(f"[conviction_snapshot] SMS error to {to}: {_se}")
+
+        # ── Email ─────────────────────────────────────────────────────────────
+        if not smtp_configured():
+            print("[conviction_snapshot] SMTP not configured — SMS only")
+            return
+        subs = get_active_subscribers()
+        if not subs:
+            return
+
+        rows_html = ""
+        for r in alert_picks:
+            badge_color = "#f97316" if r["conviction"] == "EXTREME" else "#22c55e"
+            rows_html += f"""
+            <tr>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
+                <span style="font-size:15px;font-weight:700;color:#f1f5f9;">{r['ticker']}</span>
+                <span style="display:block;font-size:11px;color:#64748b;">
+                  ${r['price']:.2f} · {r['num_strikes']} strike{'s' if r['num_strikes']!=1 else ''} sweeping
+                </span>
+              </td>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="background:{badge_color};color:#000;font-size:9px;font-weight:900;padding:2px 7px;border-radius:3px;">{r['conviction']}</span>
+                <div style="font-size:13px;font-weight:700;color:#f1f5f9;margin-top:4px;">{r['score']}</div>
+              </td>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#a78bfa;">${r['total_prem_m']:.2f}M</span>
+                <div style="font-size:10px;color:#64748b;">Total Premium</div>
+              </td>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#f97316;">{r['max_vol_oi']}×</span>
+                <div style="font-size:10px;color:#64748b;">Max Vol/OI</div>
+              </td>
+              <td style="padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center;">
+                <span style="font-weight:700;color:#f1f5f9;">{r['avg_iv']:.0f}%</span>
+                <div style="font-size:10px;color:#64748b;">Avg IV</div>
+              </td>
+            </tr>"""
+
+        base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
+        html = f"""
+        <div style="background:#060c14;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 EOD HIGH CONVICTION RECAP</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">
+              {len(extreme)} EXTREME · {len(high)} HIGH · {date_str}
+            </span>
+            <span style="display:block;font-size:11px;color:#475569;margin-top:2px;">
+              Score = Vol/OI × Premium × IV × Strike sweep count · EXTREME ≥ 12 · HIGH ≥ 7
+            </span>
+          </div>
+          <table width="100%" cellpadding="0" cellspacing="0"
+                 style="background:#0b1320;border-radius:8px;border:1px solid #1e293b;margin-bottom:20px;">
+            <tr style="background:#0f172a;">
+              <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Ticker</th>
+              <th style="padding:8px 14px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Score</th>
+              <th style="padding:8px 14px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Premium</th>
+              <th style="padding:8px 14px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Vol/OI</th>
+              <th style="padding:8px 14px;text-align:center;color:#475569;font-size:10px;font-weight:600;text-transform:uppercase;">Avg IV</th>
+            </tr>
+            {rows_html}
+          </table>
+          <div style="text-align:center;margin-bottom:16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#f97316;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">
+              View HIGH CONVICTION Tab →
+            </a>
+          </div>
+          <div style="font-size:10px;color:#334155;text-align:center;margin-top:12px;">
+            StockScanner AI · nclexai.org · Snapshotted daily at 4:25 PM ET
+          </div>
+        </div>"""
+
+        subject = f"🔥 EOD CONVICTION: {len(extreme)} EXTREME · {len(high)} HIGH · {date_str}"
+        sent = 0
+        for sub in subs:
+            if send_email_raw(to=sub["email"], subject=subject, html=html):
+                sent += 1
+        print(f"[conviction_snapshot] email sent to {sent}/{len(subs)} subscriber(s)")
+
+    except Exception as _err:
+        import traceback
+        print(f"[conviction_snapshot] error: {_err}\n{traceback.format_exc()}")
+
+
+def _fill_conviction_outcomes() -> None:
+    """
+    4:32 PM ET Mon-Fri — fetch next-day closes for past conviction snapshots.
+    Fills D+1, D+3, D+5 % change vs entry price so win rates are always current.
+    """
+    import psycopg2 as _pg
+    import yfinance as _yf
+    import pytz as _pytz
+    from datetime import datetime as _dt, timedelta as _td
+
+    try:
+        db_url = os.environ["DATABASE_URL"]
+        today  = _dt.now(_pytz.timezone("US/Eastern")).date()
+
+        # Find snapshots missing outcome data (past days only, within 14 calendar days)
+        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT s.snap_date, s.ticker, s.price, s.conviction, s.score
+                FROM conviction_calls_snapshot s
+                LEFT JOIN conviction_calls_outcomes o
+                    ON o.snap_date = s.snap_date AND o.ticker = s.ticker
+                WHERE s.snap_date < %s
+                  AND s.snap_date >= %s
+                  AND s.conviction IN ('EXTREME', 'HIGH')
+                  AND (o.id IS NULL
+                       OR (o.d1_pct  IS NULL AND s.snap_date <= %s)
+                       OR (o.d3_pct  IS NULL AND s.snap_date <= %s)
+                       OR (o.d5_pct  IS NULL AND s.snap_date <= %s))
+                ORDER BY s.snap_date DESC
+            """, (today,
+                  today - _td(days=14),
+                  today - _td(days=1),
+                  today - _td(days=3),
+                  today - _td(days=5)))
+            rows = cur.fetchall()
+
+        if not rows:
+            print("[conviction_outcomes] nothing to fill today")
+            return
+
+        # Group by ticker to batch yfinance calls
+        from collections import defaultdict as _dd
+        by_ticker = _dd(list)
+        for snap_date, ticker, entry_price, conviction, score in rows:
+            by_ticker[ticker].append({
+                "snap_date": snap_date, "entry_price": entry_price,
+                "conviction": conviction, "score": score,
+            })
+
+        print(f"[conviction_outcomes] filling {len(rows)} rows for {len(by_ticker)} tickers")
+        updates = []
+        for ticker, picks in by_ticker.items():
+            try:
+                hist = _yf.Ticker(ticker).history(period="20d", interval="1d")
+                if hist.empty:
+                    continue
+                closes = {}
+                for row in hist.itertuples():
+                    d = row.Index.date() if hasattr(row.Index, "date") else row.Index
+                    closes[str(d)] = float(row.Close)
+                sorted_dates = sorted(closes.keys())
+
+                for pick in picks:
+                    snap_d = pick["snap_date"]
+                    entry  = pick["entry_price"]
+                    if not entry:
+                        continue
+                    future = [d for d in sorted_dates if d > str(snap_d)]
+                    d1p = closes[future[0]] if len(future) >= 1 else None
+                    d3p = closes[future[2]] if len(future) >= 3 else None
+                    d5p = closes[future[4]] if len(future) >= 5 else None
+                    pct = lambda p: round((p - entry) / entry * 100, 2) if p else None
+                    updates.append((
+                        snap_d, ticker, pick["conviction"], pick["score"], entry,
+                        d1p, pct(d1p), d3p, pct(d3p), d5p, pct(d5p),
+                    ))
+            except Exception as _te:
+                print(f"[conviction_outcomes] {ticker} error: {_te}")
+
+        if not updates:
+            return
+
+        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+            for u in updates:
+                cur.execute("""
+                    INSERT INTO conviction_calls_outcomes
+                        (snap_date, ticker, conviction, score, entry_price,
+                         d1_price, d1_pct, d3_price, d3_pct, d5_price, d5_pct)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (snap_date, ticker) DO UPDATE SET
+                        d1_price=COALESCE(EXCLUDED.d1_price, conviction_calls_outcomes.d1_price),
+                        d1_pct  =COALESCE(EXCLUDED.d1_pct,   conviction_calls_outcomes.d1_pct),
+                        d3_price=COALESCE(EXCLUDED.d3_price, conviction_calls_outcomes.d3_price),
+                        d3_pct  =COALESCE(EXCLUDED.d3_pct,   conviction_calls_outcomes.d3_pct),
+                        d5_price=COALESCE(EXCLUDED.d5_price, conviction_calls_outcomes.d5_price),
+                        d5_pct  =COALESCE(EXCLUDED.d5_pct,   conviction_calls_outcomes.d5_pct),
+                        updated_at=NOW()
+                """, u)
+            conn.commit()
+        print(f"[conviction_outcomes] wrote {len(updates)} outcome rows")
+
+    except Exception as e:
+        import traceback
+        print(f"[conviction_outcomes] error: {e}\n{traceback.format_exc()}")
 
 
 def _send_eod_accum_email() -> None:
@@ -10162,6 +10553,139 @@ def conviction_calls():
         import traceback
         print(f"[conviction_calls] error: {e}\n{traceback.format_exc()}", file=__import__("sys").stderr)
         return jsonify({"error": str(e), "signals": []}), 500
+
+
+@app.route("/stock-api/conviction-history", methods=["GET"])
+def conviction_history():
+    """
+    Return saved conviction-calls snapshots.
+    ?date=YYYY-MM-DD  → single day (defaults to today)
+    ?days=N           → last N days (max 30)
+    """
+    import psycopg2 as _pg
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        db_url = os.environ["DATABASE_URL"]
+        date_param = request.args.get("date")
+        days_param = int(request.args.get("days", 1))
+        days_param = min(days_param, 30)
+
+        if date_param:
+            since = date_param
+        else:
+            since = (_dt.utcnow() - _td(days=days_param - 1)).strftime("%Y-%m-%d")
+
+        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT snap_date, ticker, price, score, conviction,
+                       num_strikes, total_prem_m, max_vol_oi, avg_iv, rank, saved_at
+                FROM conviction_calls_snapshot
+                WHERE snap_date >= %s
+                ORDER BY snap_date DESC, rank ASC
+            """, (since,))
+            rows = cur.fetchall()
+
+        cols = ["snap_date","ticker","price","score","conviction",
+                "num_strikes","total_prem_m","max_vol_oi","avg_iv","rank","saved_at"]
+        records = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            d["snap_date"] = str(d["snap_date"])
+            d["saved_at"]  = d["saved_at"].isoformat() if d["saved_at"] else None
+            records.append(d)
+
+        # Group by date for easy consumption
+        from collections import defaultdict as _dd2
+        by_date = _dd2(list)
+        for rec in records:
+            by_date[rec["snap_date"]].append(rec)
+
+        return jsonify({
+            "days": [{"date": dt, "signals": sigs} for dt, sigs in sorted(by_date.items(), reverse=True)],
+            "total_records": len(records),
+        })
+    except Exception as e:
+        import traceback
+        print(f"[conviction_history] error: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": str(e), "days": []}), 500
+
+
+@app.route("/stock-api/conviction-outcomes", methods=["GET"])
+def conviction_outcomes_api():
+    """
+    Win rate tracker for HIGH CONVICTION picks (EXTREME + HIGH only).
+    Returns overall + per-conviction-level stats + individual pick history.
+    """
+    import psycopg2 as _pg
+    try:
+        db_url = os.environ["DATABASE_URL"]
+        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT snap_date, ticker, conviction, score, entry_price,
+                       d1_price, d1_pct, d3_price, d3_pct,
+                       d5_price, d5_pct, updated_at
+                FROM conviction_calls_outcomes
+                WHERE conviction IN ('EXTREME', 'HIGH')
+                ORDER BY snap_date DESC, score DESC
+                LIMIT 300
+            """)
+            rows = cur.fetchall()
+
+        cols = ["snap_date","ticker","conviction","score","entry_price",
+                "d1_price","d1_pct","d3_price","d3_pct","d5_price","d5_pct","updated_at"]
+        records = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            d["snap_date"] = str(d["snap_date"])
+            d["updated_at"] = d["updated_at"].isoformat() if d["updated_at"] else None
+            records.append(d)
+
+        def _stats(picks, field):
+            settled = [p for p in picks if p[field] is not None]
+            if not settled:
+                return {"signals": len(picks), "settled": 0, "wins": 0,
+                        "losses": 0, "win_rate": None, "avg_gain": None, "avg_loss": None, "ev": None}
+            wins   = [p for p in settled if p[field] > 0]
+            losses = [p for p in settled if p[field] <= 0]
+            avg_w  = round(sum(p[field] for p in wins)   / len(wins),   2) if wins   else 0
+            avg_l  = round(sum(p[field] for p in losses) / len(losses), 2) if losses else 0
+            wr     = len(wins) / len(settled)
+            ev     = round(wr * avg_w + (1 - wr) * avg_l, 2)
+            return {
+                "signals": len(picks), "settled": len(settled),
+                "wins": len(wins), "losses": len(losses),
+                "win_rate": round(wr * 100, 1),
+                "avg_gain": avg_w, "avg_loss": avg_l, "ev": ev,
+            }
+
+        extreme = [r for r in records if r["conviction"] == "EXTREME"]
+        high    = [r for r in records if r["conviction"] == "HIGH"]
+
+        return jsonify({
+            "picks": records,
+            "stats": {
+                "overall": {
+                    "d1": _stats(records, "d1_pct"),
+                    "d3": _stats(records, "d3_pct"),
+                    "d5": _stats(records, "d5_pct"),
+                },
+                "extreme": {
+                    "d1": _stats(extreme, "d1_pct"),
+                    "d3": _stats(extreme, "d3_pct"),
+                    "d5": _stats(extreme, "d5_pct"),
+                },
+                "high": {
+                    "d1": _stats(high, "d1_pct"),
+                    "d3": _stats(high, "d3_pct"),
+                    "d5": _stats(high, "d5_pct"),
+                },
+            },
+            "total": len(records),
+        })
+    except Exception as e:
+        import traceback
+        print(f"[conviction_outcomes] api error: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": str(e), "picks": [], "stats": {}}), 500
 
 
 @app.route("/stock-api/ai-short-calls", methods=["GET"])

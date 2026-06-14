@@ -23,6 +23,7 @@ import {
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
   fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
   fetchConvictionCalls, ConvictionCallSignal, ConvictionCallStrike,
+  fetchConvictionOutcomes, ConvictionOutcomeResult,
   fetchEodSweeps, EodSweepSignal, EodSweepStrike, fetchEodSweepTrackRecord,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
@@ -8242,6 +8243,8 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [outcomes, setOutcomes]           = useState<ConvictionOutcomeResult | null>(null);
+  const [outcomesLoading, setOutcomesLoading] = useState(false);
 
   const load = async (force = false) => {
     setLoading(true); setError(null);
@@ -8249,7 +8252,14 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
     catch (e: any) { setError(e.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    setOutcomesLoading(true);
+    fetchConvictionOutcomes()
+      .then(d => setOutcomes(d))
+      .catch(() => {})
+      .finally(() => setOutcomesLoading(false));
+  }, []);
 
   const convColor = (c: string) => {
     if (c === "EXTREME") return "#ff4444";
@@ -8288,6 +8298,92 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         <span style={{ color: "#fbbf24", fontSize: 9, fontWeight: 700 }}>⚡ HIGH score ≥7</span>
         <span style={{ color: "#22c55e", fontSize: 9, fontWeight: 700 }}>✓ ELEVATED score ≥4</span>
         <span style={{ color: BB_LABEL, fontSize: 9 }}>Score = Vol/OI × Premium × IV × Strike sweep count</span>
+      </div>
+
+      {/* 📊 Track Record */}
+      <div style={{ background: "#0a0a0a", border: "1px solid #1e293b", marginBottom: 16 }}>
+        <div style={{ padding: "8px 14px", borderBottom: "1px solid #1e293b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#fbbf24" }}>📊 TRACK RECORD</span>
+          <span style={{ fontSize: 8, color: BB_LABEL }}>D+1 = next-day close · snapshotted 4:25 PM daily · Unusual Calls + High Conviction</span>
+        </div>
+        {outcomesLoading && <div style={{ fontSize: 9, color: BB_LABEL, padding: "10px 14px" }}>Loading track record…</div>}
+        {outcomes && (() => {
+          const s = outcomes.stats;
+          const hasSett = s.overall.d1.settled > 0;
+          return (
+            <>
+              {/* Win rate summary row */}
+              <div style={{ display: "flex", borderBottom: "1px solid #1e293b" }}>
+                {([
+                  { label: "🔥 EXTREME D+1", st: s.extreme.d1, color: "#ff4444" },
+                  { label: "⚡ HIGH D+1",    st: s.high.d1,    color: "#fbbf24" },
+                  { label: "ALL D+1",         st: s.overall.d1, color: "#22c55e" },
+                  { label: "ALL D+3",         st: s.overall.d3, color: "#60a5fa" },
+                ] as const).map(({ label, st, color }) => (
+                  <div key={label} style={{ flex: 1, padding: "8px 10px", borderRight: "1px solid #1e293b", textAlign: "center" }}>
+                    <div style={{ fontSize: 7, color: BB_LABEL, marginBottom: 3, letterSpacing: "0.08em" }}>{label}</div>
+                    {st.settled === 0 ? (
+                      <div style={{ fontSize: 9, color: BB_LABEL }}>—</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 18, fontWeight: 900, lineHeight: 1, color: (st.win_rate ?? 0) >= 65 ? color : "#ef4444" }}>
+                          {st.win_rate?.toFixed(0)}%
+                        </div>
+                        <div style={{ fontSize: 7, color: BB_LABEL, marginTop: 2 }}>
+                          {st.wins}W/{st.losses}L · {st.settled}
+                        </div>
+                        {st.ev !== null && (
+                          <div style={{ fontSize: 7, marginTop: 1, color: (st.ev ?? 0) > 0 ? "#22c55e" : "#ef4444" }}>
+                            EV {st.ev > 0 ? "+" : ""}{st.ev?.toFixed(2)}%
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Recent picks table */}
+              {outcomes.picks.length > 0 ? (
+                <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
+                    <thead>
+                      <tr style={{ background: "#0f172a", position: "sticky", top: 0 }}>
+                        {["DATE","TICKER","","ENTRY","D+1","D+3","D+5"].map(h => (
+                          <th key={h} style={{ padding: "5px 8px", textAlign: h === "TICKER" || h === "DATE" ? "left" : "right", color: BB_LABEL, fontWeight: 600, letterSpacing: "0.06em", fontSize: 8 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outcomes.picks.slice(0, 50).map((p, i) => {
+                        const pctCell = (v: number | null) => v === null
+                          ? <td style={{ padding: "4px 8px", textAlign: "right", color: BB_LABEL }}>—</td>
+                          : <td style={{ padding: "4px 8px", textAlign: "right", fontWeight: 700, color: v > 0 ? "#22c55e" : "#ef4444" }}>{v > 0 ? "+" : ""}{v.toFixed(2)}%</td>;
+                        return (
+                          <tr key={i} style={{ borderBottom: "1px solid #111827", background: i % 2 === 0 ? "transparent" : "#080d14" }}>
+                            <td style={{ padding: "4px 8px", color: BB_LABEL, fontSize: 8 }}>{p.snap_date.slice(5)}</td>
+                            <td style={{ padding: "4px 8px", color: BB_WHITE, fontWeight: 700 }}>{p.ticker}</td>
+                            <td style={{ padding: "4px 6px", textAlign: "center", fontSize: 9 }}>
+                              {p.conviction === "EXTREME" ? "🔥" : "⚡"}
+                            </td>
+                            <td style={{ padding: "4px 8px", textAlign: "right", color: BB_LABEL }}>{p.entry_price ? `$${p.entry_price.toFixed(0)}` : "—"}</td>
+                            {pctCell(p.d1_pct)}
+                            {pctCell(p.d3_pct)}
+                            {pctCell(p.d5_pct)}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ padding: "14px", color: BB_LABEL, fontSize: 9, textAlign: "center" }}>
+                  No tracked picks yet — snapshots save at 4:25 PM ET daily. Check back after market close.
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
