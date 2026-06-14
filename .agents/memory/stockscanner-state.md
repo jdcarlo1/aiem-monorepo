@@ -201,9 +201,24 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 ## SMS / Twilio
 - `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
 - **Intraday scan: every 5 min, Mon-Fri 10:00 AM–3:45 PM ET** (changed from 9:30 AM — June 14 2026)
-- **SPY green-day filter active on all 3 scan types** (changed June 14 2026): run_sms_alert_scan, run_midday_breakout_scan, run_gap_recovery_scan all call `_spy_is_green()` and return early if SPY is red
+- **SPY green-day filter active on ALL scan types**: run_sms_alert_scan, run_midday_breakout_scan, run_gap_recovery_scan, run_steady_grinder_scan all call `_spy_is_green()` and return early if SPY is red
 - One text per ticker per day (deduped via sms_alerts_log table UNIQUE constraint on ticker+date)
 - User phone: +14013185787 (T-Mobile), gateway: 4013185787@tmomail.net
+
+## Steady Grinder Scanner (added June 14 2026)
+- `run_steady_grinder_scan()` in sms_alerts.py — runs every 30 min, 11:00 AM–1:30 PM ET
+- Targets large/mid-cap institutional accumulation (FRO/AMKR type): low RVOL but sustained uptrend
+- **All gates must pass**: avg daily vol ≥ 1M, up 2-8% from prev close, RVOL 1.0–3.0x, above VWAP, price now > 45m ago AND 45m ago > 90m ago (dual trend), within 2% of HOD, has options
+- Uses `sms_midday_log` table with alert_type='grinder' for dedup (one text per ticker per day)
+- Text label: "📶 STEADY GRINDER"
+- FRO backtest: fires at 11 AM (+6.4%, 2.2x RVOL) → +2.2% to close, +3.2% to HOD ✅
+- AMKR: borderline (1.5x RVOL) — may fire at 11:30 AM once 90-min trend confirms
+
+## Large-Cap Gate Lowering (June 14 2026)
+- +3-7% RVOL tier in morning burst scanner: **4.0x → 2.5x** when avg daily vol ≥ 500k
+- Logic in `_score()` inside `run_sms_alert_scan`: `if avg >= 500_000 and 3.0 <= chg_pct < 7.0: min_rv = 2.5`
+- Backtest: FRO (+5.2% to close ✅), SVCO (-3.7% ❌), TNXP (+0.2% ⚠️) — net +1.7% over 3 signals
+- SVCO/TNXP still blocked because avg vol < 500k → 4.0x threshold still applies to them
 
 ## Intraday Scanner Backtest (week of Jun 8-12 2026) — KEY FINDINGS
 - **SPY green days** (Mon +0.23%, Thu +1.70%, Fri +0.54%): Original scanner 45% hit rate, net +$1,057 on $58K deployed
