@@ -1,6 +1,8 @@
 """
-Side-by-side backtest: Morning Scanner vs Steady Grinder — Jun 9-13, 2026
-─────────────────────────────────────────────────────────────────────────
+Side-by-side backtest: Morning Scanner vs Steady Grinder — Jun 1-5 + Jun 9-13, 2026
+─────────────────────────────────────────────────────────────────────────────────────
+Covers TWO full weeks (10 trading days) for a reliable sample.
+
 Morning scanner: scans every 5-min bar from 9:30-10:30 AM
   • EARLY signal: first qualifying bar between 9:30-10:00 AM (noisy open)
   • LATE  signal: first qualifying bar between 10:00-10:30 AM (noise filtered)
@@ -30,7 +32,8 @@ UNIVERSE = [
 ]
 
 ET         = "America/New_York"
-WEEK_DATES = [date(2026, 6, d) for d in [9, 10, 11, 12, 13]]
+# Both weeks: Jun 1-5 (week 1) + Jun 9-13 (week 2) = 10 trading days
+WEEK_DATES = [date(2026, 6, d) for d in [1, 2, 3, 4, 5, 9, 10, 11, 12, 13]]
 
 MORNING_RVOL_MIN = 2.0   # projected RVOL threshold for morning scanner
 MORNING_CHG_MIN  = 3.0   # % above prev close
@@ -59,19 +62,19 @@ def get_col(df, metric, ticker):
 
 
 print("\n" + "="*74)
-print("  MORNING SCANNER vs STEADY GRINDER  —  Jun 9–13, 2026  (5-min bars)")
-print("  Entry = signal bar close  |  Exit = 3:45 PM close")
+print("  MORNING SCANNER vs STEADY GRINDER  —  Jun 1–5 + Jun 9–13, 2026")
+print("  Entry = signal bar close  |  Exit = 3:45 PM close  |  10 trading days")
 print("="*74)
 
-print("\nFetching daily data (May 26 – Jun 14)…")
+print("\nFetching daily data (May 16 – Jun 14)…")
 daily = yf.download(
-    UNIVERSE, start="2026-05-26", end="2026-06-14",
+    UNIVERSE, start="2026-05-16", end="2026-06-14",
     interval="1d", group_by="ticker", auto_adjust=True, progress=False
 )
 
-print("Fetching 5-min intraday data (Jun 9 – Jun 14)…")
+print("Fetching 5-min intraday data (Jun 1 – Jun 14)…")
 intra = yf.download(
-    UNIVERSE + ["SPY"], start="2026-06-09", end="2026-06-14",
+    UNIVERSE + ["SPY"], start="2026-06-01", end="2026-06-14",
     interval="5m", group_by="ticker", auto_adjust=True, progress=False
 )
 print("Data ready.\n")
@@ -273,29 +276,46 @@ def summarize(label, signals):
     print(f"    Avg move: {avgs:+.2f}%   Avg win: {avg_w:+.2f}%   Avg loss: {avg_l:+.2f}%")
     print()
 
+WEEK1 = {date(2026, 6, d) for d in [1, 2, 3, 4, 5]}
+WEEK2 = {date(2026, 6, d) for d in [9, 10, 11, 12, 13]}
+
+def wr(signals):
+    valid = [s for s in signals if s.get("same_day") is not None]
+    if not valid: return 0, 0
+    wins = sum(1 for s in valid if s["same_day"] > 0)
+    return wins / len(valid) * 100, len(valid)
+
 print("=" * 74)
-print("  SUMMARY  —  Jun 9–13, 2026")
+print("  COMBINED SUMMARY  —  Jun 1–5 + Jun 9–13, 2026  (10 trading days)")
 print("=" * 74 + "\n")
 summarize("🔴 EARLY MORNING  (9:30–10:00 AM  ·  RVOL≥2x, chg≥3%)", early_signals)
 summarize("🟡 LATE  MORNING  (10:00–10:30 AM ·  RVOL≥2x, chg≥3%)", late_signals)
 summarize("🟢 STEADY GRINDER (10:30 AM entry ·  RVOL 1.3-3x, chg 2-8%)", grinder_signals)
 
-print("-" * 74)
-all_morning = early_signals + late_signals
-if all_morning and grinder_signals:
-    print("\n  HEAD-TO-HEAD COMPARISON:")
-    print(f"  Early morning  vs  Grinder: "
-          f"{sum(1 for s in early_signals if (s['same_day'] or -99)>0)/max(len(early_signals),1)*100:.0f}%"
-          f"  vs  "
-          f"{sum(1 for s in grinder_signals if s['same_day']>0)/len(grinder_signals)*100:.0f}%")
-    print(f"  Late morning   vs  Grinder: "
-          f"{sum(1 for s in late_signals if (s['same_day'] or -99)>0)/max(len(late_signals),1)*100:.0f}%"
-          f"  vs  "
-          f"{sum(1 for s in grinder_signals if s['same_day']>0)/len(grinder_signals)*100:.0f}%")
-    print(f"\n  Key question — does waiting from 9:30→10:00 improve win rate?")
-    early_wr = sum(1 for s in early_signals if (s['same_day'] or -99)>0)/max(len(early_signals),1)*100
-    late_wr  = sum(1 for s in late_signals  if (s['same_day'] or -99)>0)/max(len(late_signals),1)*100
-    diff = late_wr - early_wr
-    arrow = "▲" if diff > 0 else "▼"
-    print(f"  {arrow} {abs(diff):.0f}pp {'improvement' if diff>0 else 'decline'} "
-          f"by waiting until 10:00 AM  ({early_wr:.0f}% → {late_wr:.0f}%)")
+# Per-week breakdown
+print("=" * 74)
+print("  PER-WEEK BREAKDOWN")
+print("=" * 74)
+for wk_label, wk_set in [("  Week 1 (Jun 1–5) ", WEEK1), ("  Week 2 (Jun 9–13)", WEEK2)]:
+    e  = [s for s in early_signals   if s["date"] in wk_set]
+    l  = [s for s in late_signals    if s["date"] in wk_set]
+    g  = [s for s in grinder_signals if s["date"] in wk_set]
+    ewr, en = wr(e); lwr, ln = wr(l); gwr, gn = wr(g)
+    print(f"\n{wk_label}")
+    print(f"    Early 9:30–10:00 : {ewr:4.0f}% win rate  ({en} signals)")
+    print(f"    Late  10:00–10:30: {lwr:4.0f}% win rate  ({ln} signals)")
+    print(f"    Grinder 10:30    : {gwr:4.0f}% win rate  ({gn} signals)")
+
+print("\n" + "=" * 74)
+print("  KEY QUESTION: does waiting from 9:30 → 10:00 AM improve win rate?")
+print("=" * 74)
+early_wr_all = wr(early_signals)[0]
+late_wr_all  = wr(late_signals)[0]
+grind_wr_all = wr(grinder_signals)[0]
+diff_el = late_wr_all - early_wr_all
+arrow = "▲" if diff_el > 0 else "▼"
+print(f"  Early (9:30–10:00) : {early_wr_all:.0f}%  ({wr(early_signals)[1]} signals)")
+print(f"  Late  (10:00–10:30): {late_wr_all:.0f}%  ({wr(late_signals)[1]} signals)")
+print(f"  Grinder (10:30)    : {grind_wr_all:.0f}%  ({wr(grinder_signals)[1]} signals)")
+print(f"\n  {arrow} {abs(diff_el):.0f}pp {'improvement' if diff_el >= 0 else 'decline'} "
+      f"by waiting until 10:00 AM  ({early_wr_all:.0f}% → {late_wr_all:.0f}%)")
