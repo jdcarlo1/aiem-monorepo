@@ -259,7 +259,7 @@ def run_eod_swing_scan(max_tickers: int = 200) -> list[dict]:
 # ── SMS alert for top picks ───────────────────────────────────────────────────
 
 def send_swing_sms(picks: list[dict]) -> None:
-    """Send a summary SMS with the top 3 EOD swing setups."""
+    """Send all qualifying swing setups in one text."""
     if not picks:
         return
 
@@ -270,15 +270,15 @@ def send_swing_sms(picks: list[dict]) -> None:
     if not all([sid, token, from_]):
         return
 
-    top3 = picks[:3]
-    lines = ["🌙 EOD SWING SETUPS"]
-    for p in top3:
-        pcr_str = f"PCR {p['pcr']}" if p["pcr"] is not None else "no opts"
+    lines = [f"🌙 PRE-CLOSE SWINGS ({len(picks)})"]
+    for p in picks:
+        pcr_str = f"PCR {p['pcr']}" if p["pcr"] is not None else ""
+        pcr_part = f" | {pcr_str}" if pcr_str else ""
         lines.append(
-            f"{p['ticker']} ${p['price']} +{p['today_chg']}% | "
-            f"Score {p['score']} | {p['close_pct_range']:.0f}% range | {pcr_str}"
+            f"{p['ticker']} ${p['price']} +{p['today_chg']}% "
+            f"| Scr {p['score']} | 3d +{p['momentum_3d']}%{pcr_part}"
         )
-    lines.append(f"Stop below 3d low. Hold overnight.")
+    lines.append("Stop: below 3d low. Hold overnight.")
     body = "\n".join(lines)
 
     # Primary: T-Mobile gateway
