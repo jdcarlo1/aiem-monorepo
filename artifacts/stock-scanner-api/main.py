@@ -398,7 +398,7 @@ try:
     _scheduler.add_job(
         _run_sms_alert_scan,
         "cron",
-        minute="1,6,11,16,21,26,31,36,41,46,51,56",
+        hour="9", minute="35,40,45",
         id="sms_alert_scan",
         replace_existing=True,
     )

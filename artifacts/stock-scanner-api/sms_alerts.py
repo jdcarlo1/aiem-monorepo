@@ -356,14 +356,14 @@ def run_sms_alert_scan():
         return
 
     now_et = datetime.now(_ET)
-    # Run Mon-Fri 9:35 AM – 3:45 PM ET
-    # Updated backtest (Jun 1-13, 2026): early morning RVOL≥2x signals fire 62% win rate
-    # (vs 57% for 10:00-10:30 AM). Starting at 9:35 catches the first 5-min bar close.
+    # Morning burst window: 9:35, 9:40, 9:45 AM only (3 scans)
+    # Backtest (Jun 1-13, 2026): RVOL≥2x signals in first 15 min = 62% win rate.
+    # Grinder handles 10:30 AM+ separately. After 9:45 the burst setup is stale.
     if now_et.weekday() >= 5:
         return
     actual_open  = now_et.replace(hour=9,  minute=30, second=0, microsecond=0)
     scan_start   = now_et.replace(hour=9,  minute=35, second=0, microsecond=0)
-    market_close = now_et.replace(hour=15, minute=45, second=0, microsecond=0)
+    market_close = now_et.replace(hour=9,  minute=50, second=0, microsecond=0)
     if now_et < scan_start or now_et > market_close:
         return
 
