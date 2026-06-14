@@ -119,9 +119,10 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - `signal_type = "squeeze"` in response; `squeeze_setups` is a separate array in the API response
 - Displayed as 🩳 SHORT SQUEEZE SETUPS section (red cards) below the accumulation section
 
-## Pre-Close Swing Scanner (added June 13 2026)
+## Pre-Close Swing Scanner — UPDATED June 14 2026
 - `artifacts/stock-scanner-api/eod_swing.py` — EOD swing setup scanner
-- Fires at 3:30 PM ET Mon-Fri — 30 min before close so user can enter same day
+- **Trigger: 2:00 PM ET** (was 3:30 PM → SMS arrived at 4 PM after close; useless)
+  - Scan takes ~20-30 min via yfinance, so SMS lands ~2:20-2:30 PM = 90 min to analyze before close
 - Universe: Barchart top movers up 2%+ across all 4 cap tiers (~200 tickers)
 - Scoring (100 pts, threshold 60): close position in range (25), peak RVOL (25), 3d momentum (20), pullback quality (15), options PCR (10), above 20d MA (5)
 - SMS: all qualifying setups in ONE text (format: ticker/price/chg/score/3d-gain/PCR)
@@ -130,6 +131,14 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
   - D+3: 0% WR, avg loss -10.43%/trade (n=4, all from tech-correction week Jun 1-5)
   - SMS and email both updated to say "Exit: next-day close. Stop: below 3d low."
   - Signal frequency: ~1 signal/day (much lower than morning burst's ~4-5/day)
+
+## OPTIONS — HIGH Conviction Filter (June 14 2026)
+- Backtested 45 expired Jun 12 contracts → HIGH = 91% WR (11 signals), MEDIUM = 59% WR (34 signals)
+- **Only HIGH conviction signals are sent going forward**
+- Unusual calls alert threshold raised: vol/OI ≥5x + premium ≥$100K (was 2x/$20K)
+- AI Short Calls: new `_send_ai_short_calls_high_conviction` job at 10:15 AM — HIGH picks only
+- AI Short Calls tab UI: filtered to HIGH only
+- HIGH CONVICTION tab: filtered to EXTREME + HIGH only (ELEVATED removed)
 
 ## SMS / Twilio
 - `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
