@@ -1228,9 +1228,10 @@ def run_steady_grinder_scan():
     end   = now_et.replace(hour=13, minute=30, second=0, microsecond=0)
     if now_et < start or now_et > end:
         return
-    if not _spy_is_green():
-        print("[sms_alerts] SPY red day — skipping steady grinder scan")
-        return
+    # NOTE: No SPY green-day gate here intentionally.
+    # Institutional accumulation is stock-specific — it happens on red SPY days too.
+    # The grinder's own filters (above VWAP, trending, RVOL 1-3x, EMA 9>21) are
+    # sufficient to screen out market-panic sells without needing a market-wide gate.
 
     try:
         import yfinance as _yf
