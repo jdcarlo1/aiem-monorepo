@@ -499,8 +499,10 @@ def run_sms_alert_scan():
                                else _SECTOR_TO_ETF.get(_sector_str, "")
                     if _etf_key and _etf_key in _sms_sector_green and not _sms_sector_green[_etf_key]:
                         return None  # sector headwind — stock move will fade
+                    # A+ flag: sector ETF explicitly confirmed above VWAP (not just unmapped)
+                    _sector_conf = bool(_etf_key and _sms_sector_green.get(_etf_key) is True)
                 except Exception:
-                    pass
+                    _sector_conf = False
                 try:
                     has_opts = len(tk.options) > 0
                 except Exception:
@@ -532,7 +534,8 @@ def run_sms_alert_scan():
                         "orb_break": orb_break, "orb_high": orb_high,
                         "float_turnover": float_turnover, "short_float": short_float,
                         "atr": atr, "atr_multiple": atr_multiple, "mkt_cap": mkt_cap,
-                        "has_options": has_opts, "reason": "barchart_live"}
+                        "has_options": has_opts, "sector_confirmed": _sector_conf,
+                        "reason": "barchart_live"}
             except Exception:
                 return None
 
@@ -597,6 +600,7 @@ def run_sms_alert_scan():
         mkt_cap_val     = d.get("mkt_cap", 0.0)
         has_options_val = d.get("has_options", False)
 
+        sector_conf_val = d.get("sector_confirmed", False)
         early_flag  = (now_et.hour == 9 or (now_et.hour == 10 and now_et.minute <= 30))
         if has_options_val:
             nopt_score = _with_options_score(rv, chg, above_vwap, gap_pct_val,
@@ -642,9 +646,11 @@ def run_sms_alert_scan():
             float_line = f"{cap_lbl} | no options\n"
 
         orb_tag = " | ✅ ORB break" if orb_break_val else ""
+        aplus_line = "⭐ A+ SETUP — sector ETF confirmed above VWAP. Size up.\n" if sector_conf_val else ""
 
         msg = (
             f"{quality} MORNING BURST: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}{orb_tag}\n"
+            f"{aplus_line}"
             f"{vwap_line}"
             f"{atr_line}"
             f"{float_line}"
