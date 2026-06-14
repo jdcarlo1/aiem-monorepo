@@ -360,46 +360,82 @@ for etf in etfs:
 
 # ── Proposed new filters ─────────────────────────────────────────────────────
 print("\n" + "="*74)
-print("  PROPOSED FILTERS (based on loser patterns)")
+print("  FILTER TESTS — Two-week full sample (Jun 1–5 + Jun 9–13, 2026)")
 print("="*74)
 
-# Test: require SPY slope > -0.05% (SPY not falling in last 30 min)
-filtered_spy = [s for s in signals if s["spy_slope"] >= -0.05]
-fw = [s for s in filtered_spy if s["same_day"] > 0]
-print(f"\n  1. Require SPY slope ≥ -0.05% (last 30 min not falling)")
-print(f"     Before: {len(signals)} signals, {len(wins)}/{len(signals)} WR={len(wins)/len(signals)*100:.0f}%")
-print(f"     After:  {len(filtered_spy)} signals, {len(fw)}/{len(filtered_spy)} WR={len(fw)/len(filtered_spy)*100:.0f}%" if filtered_spy else "     No signals")
+DEAD_SECTORS = {"XLV", "XLY"}
 
-# Test: require stock slope_30 > -0.05%
-filtered_slope = [s for s in signals if s["slope_30"] >= -0.02]
-fw2 = [s for s in filtered_slope if s["same_day"] > 0]
-print(f"\n  2. Require stock slope last 30 min ≥ -0.02% (not actively fading)")
-print(f"     Before: {len(signals)} signals, {len(wins)}/{len(signals)} WR={len(wins)/len(signals)*100:.0f}%")
-print(f"     After:  {len(filtered_slope)} signals, {len(fw2)}/{len(filtered_slope)} WR={len(fw2)/len(filtered_slope)*100:.0f}%" if filtered_slope else "     No signals")
+n  = len(signals)
+nw = len(wins)
+base_wr  = nw / n * 100
+base_avg_w = avg(wins, "same_day")
+base_avg_l = avg(losses, "same_day")
+base_ev    = base_wr/100 * base_avg_w + (1 - base_wr/100) * base_avg_l
 
-# Test: sector ETF green
-filtered_etf = [s for s in signals if s["sector_green"]]
-fw3 = [s for s in filtered_etf if s["same_day"] > 0]
-print(f"\n  3. Sector ETF green (already in live scanner)")
-print(f"     After:  {len(filtered_etf)} signals, {len(fw3)}/{len(filtered_etf)} WR={len(fw3)/len(filtered_etf)*100:.0f}%" if filtered_etf else "     No signals")
+print(f"\n  BASELINE (current scanner):")
+print(f"    {n} signals  WR={base_wr:.1f}%  avg_win={base_avg_w:+.2f}%  avg_loss={base_avg_l:+.2f}%  EV={base_ev:+.3f}%/trade")
 
-# Test: vol_accel >= 0.8 (volume not collapsing)
-filtered_vol = [s for s in signals if s["vol_accel"] >= 0.8]
-fw4 = [s for s in filtered_vol if s["same_day"] > 0]
-print(f"\n  4. Vol acceleration ≥ 0.8x (volume not collapsing in last 30 min)")
-print(f"     After:  {len(filtered_vol)} signals, {len(fw4)}/{len(filtered_vol)} WR={len(fw4)/len(filtered_vol)*100:.0f}%" if filtered_vol else "     No signals")
+def show_filter(label, flt):
+    fw  = [s for s in flt if s["same_day"] > 0]
+    fl  = [s for s in flt if s["same_day"] <= 0]
+    if not flt:
+        print(f"\n  {label}: 0 signals")
+        return
+    wr   = len(fw)/len(flt)*100
+    aw   = avg(fw, "same_day")
+    al   = avg(fl, "same_day")
+    ev   = wr/100*aw + (1-wr/100)*al
+    drop = n - len(flt)
+    w_drop = nw - len(fw)
+    l_drop = len(losses) - len(fl)
+    print(f"\n  {label}")
+    print(f"    {len(flt)} signals (removed {drop}: -{w_drop} winners, -{l_drop} losers)")
+    print(f"    WR={wr:.1f}%  avg_win={aw:+.2f}%  avg_loss={al:+.2f}%  EV={ev:+.3f}%/trade  "
+          f"(was {base_wr:.0f}% / EV {base_ev:+.3f}%)")
 
-# Test: combine SPY slope + sector ETF
-filtered_combo = [s for s in signals if s["spy_slope"] >= -0.05 and s["sector_green"]]
-fwc = [s for s in filtered_combo if s["same_day"] > 0]
-print(f"\n  5. Combined: SPY slope ≥ -0.05% AND sector ETF green")
-print(f"     After:  {len(filtered_combo)} signals, {len(fwc)}/{len(filtered_combo)} WR={len(fwc)/len(filtered_combo)*100:.0f}%" if filtered_combo else "     No signals")
 
-# Test: all three
-filtered_all = [s for s in signals if s["spy_slope"] >= -0.05 and s["sector_green"] and s["vol_accel"] >= 0.8]
-fwa = [s for s in filtered_all if s["same_day"] > 0]
-print(f"\n  6. All three: SPY slope + sector green + vol not fading")
-print(f"     After:  {len(filtered_all)} signals, {len(fwa)}/{len(filtered_all)} WR={len(fwa)/len(filtered_all)*100:.0f}%" if filtered_all else "     No signals")
+# Filter A: Block dead sectors (XLV + XLY — 0% WR combined)
+fA = [s for s in signals if s["etf"] not in DEAD_SECTORS]
+show_filter("A. Block XLV + XLY (0% WR sectors)", fA)
+
+# Filter B: Cap gain-from-open at 3% (exhausted movers)
+fB = [s for s in signals if s["gain_from_open"] < 3.0]
+show_filter("B. Cap gain-from-open < 3%  (ONTO +6%, INTC +4.7% killed us)", fB)
+
+# Filter C: Block when SPY slope < -0.15% (market rolling over)
+fC = [s for s in signals if s["spy_slope"] >= -0.15]
+show_filter("C. Block when SPY slope < -0.15% (Jun 9 kill zone)", fC)
+
+# Filter AB: A + B
+fAB = [s for s in fA if s["gain_from_open"] < 3.0]
+show_filter("A+B. No dead sectors + gain-from-open < 3%", fAB)
+
+# Filter AC: A + C
+fAC = [s for s in fA if s["spy_slope"] >= -0.15]
+show_filter("A+C. No dead sectors + SPY slope filter", fAC)
+
+# Filter BC: B + C
+fBC = [s for s in fB if s["spy_slope"] >= -0.15]
+show_filter("B+C. Gain-from-open < 3% + SPY slope filter", fBC)
+
+# Filter ABC: All three
+fABC = [s for s in fAB if s["spy_slope"] >= -0.15]
+show_filter("A+B+C. All three combined", fABC)
+
+# Show which signals are removed by each filter
+print("\n" + "─"*74)
+print("  Signals removed by each filter:")
+print(f"  {'Ticker':6s} {'Date':12s} {'Sector':5s} {'GainOpen':9s} {'SPYslope':9s} {'Outcome':8s}  Removed by")
+for s in sorted(signals, key=lambda x: x["date"]):
+    removed_by = []
+    if s["etf"] in DEAD_SECTORS:          removed_by.append("A(sector)")
+    if s["gain_from_open"] >= 3.0:        removed_by.append("B(gainOpen)")
+    if s["spy_slope"] < -0.15:            removed_by.append("C(SPYslope)")
+    if not removed_by: continue
+    tag = "✅" if s["same_day"] > 0 else "❌"
+    print(f"  {s['ticker']:6s} {str(s['date']):12s} {s['etf']:5s} "
+          f"{s['gain_from_open']:+8.1f}% {s['spy_slope']:+8.3f}%  "
+          f"{s['same_day']:+6.2f}% {tag}  {', '.join(removed_by)}")
 
 print()
 
