@@ -24,6 +24,7 @@ from sms_alerts import (init_sms_log_table, init_exit_log_table,
                         init_midday_log_table,
                         run_sms_alert_scan, run_exit_alert_scan,
                         run_midday_breakout_scan, run_gap_recovery_scan,
+                        run_steady_grinder_scan,
                         send_sms, sms_configured)
 from options_sweep import init_call_sweep_log_table, run_call_sweep_scan
 from news_catalyst import init_news_catalyst_log, run_news_catalyst_scan
@@ -443,6 +444,23 @@ try:
         "interval",
         minutes=5,
         id="gap_recovery_scan",
+        replace_existing=True,
+    )
+    # Steady Grinder scan: every 30 min 11:00 AM – 1:30 PM ET
+    # Large/mid-cap institutional accumulation stocks (FRO/AMKR type)
+    # Low RVOL (1-3x) but sustained uptrend confirmed by dual 45-min trend check
+    # avg vol ≥ 1M, above VWAP, within 2% of HOD, has options
+    def _run_steady_grinder_scan():
+        try:
+            import threading as _thr_sg
+            _thr_sg.Thread(target=run_steady_grinder_scan, daemon=True).start()
+        except Exception as _e_sg:
+            print(f"[scheduler] steady grinder scan error: {_e_sg}")
+    _scheduler.add_job(
+        _run_steady_grinder_scan,
+        "interval",
+        minutes=30,
+        id="steady_grinder_scan",
         replace_existing=True,
     )
     # VWAP Reclaim scan: every 5 min — immediate SMS when alerted stock reclaims VWAP

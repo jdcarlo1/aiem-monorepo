@@ -454,7 +454,15 @@ def run_sms_alert_scan():
                     return None
                 proj_vol  = cum_vol / day_frac
                 rel_vol   = proj_vol / avg
-                min_rv    = 1.5 if chg_pct >= 20 else 2.0 if chg_pct >= 10 else 3.0 if chg_pct >= 7 else 4.0 if chg_pct >= 3 else 5.0
+                # Large/mid-cap (avg vol ≥ 500k): lower +3-7% tier to 2.5x
+                # Catches FRO-type institutional grinders; backtest confirmed clean on green days
+                if avg >= 500_000 and 3.0 <= chg_pct < 7.0:
+                    min_rv = 2.5
+                elif chg_pct >= 20: min_rv = 1.5
+                elif chg_pct >= 10: min_rv = 2.0
+                elif chg_pct >= 7:  min_rv = 3.0
+                elif chg_pct >= 3:  min_rv = 4.0
+                else:               min_rv = 5.0
                 if rel_vol < min_rv:
                     return None
                 # VWAP
@@ -1190,3 +1198,193 @@ def run_gap_recovery_scan():
         print(f"[sms_alerts] gap recovery scan — {len(candidates)} checked, {sent} texts sent")
     except Exception as e:
         print(f"[sms_alerts] gap recovery scan error: {e}")
+
+
+# ── Steady Grinder scanner ─────────────────────────────────────────────────────
+
+def run_steady_grinder_scan():
+    """
+    Runs every 30 min, 11:00 AM – 1:30 PM ET.
+    Targets large/mid-cap stocks (avg vol ≥ 1M) that are grinding steadily
+    higher on light-but-sustained volume — institutional accumulation plays.
+    Classic pattern: FRO (+9.8%), AMKR (+8.7%) type.
+
+    Criteria (all must pass):
+      • Avg daily vol ≥ 1M (institutional stocks only — screens out micro/small-cap pump)
+      • Up 2-8% from prev close (not too small, not already extended)
+      • RVOL 1.0–3.0x  (if >3x, morning burst scanner already has it)
+      • Above VWAP  (institutional benchmark — buyers still in control)
+      • Price NOW > price 45 min ago  (actively trending, not stalling)
+      • Price 45 min ago > price 90 min ago  (grind started before we checked — not a spike)
+      • Within 2% of intraday high  (still at highs, not pulling back)
+      • Has options  (quality filter: all large/mid caps qualify)
+
+    One text per ticker per day via sms_midday_log alert_type='grinder'.
+    """
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+    start = now_et.replace(hour=11, minute=0,  second=0, microsecond=0)
+    end   = now_et.replace(hour=13, minute=30, second=0, microsecond=0)
+    if now_et < start or now_et > end:
+        return
+    if not _spy_is_green():
+        print("[sms_alerts] SPY red day — skipping steady grinder scan")
+        return
+
+    try:
+        import yfinance as _yf
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        market_open  = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        mins_elapsed = max((now_et - market_open).total_seconds() / 60.0, 1.0)
+        day_frac     = min(mins_elapsed / 390.0, 1.0)
+
+        bc_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept":     "application/json",
+            "Referer":    "https://www.barchart.com/stocks/advances",
+        }
+        # Only mid + large cap feeds — grinders are institutional, not micro/small
+        bc_syms = set()
+        for bc_list in ("stocks.advances.midcap.us", "stocks.advances.largecap.us"):
+            try:
+                url = (
+                    "https://www.barchart.com/proxies/core-api/v1/quotes/get"
+                    f"?fields=symbol%2CpercentChange%2Cvolume%2CaverageVolume&"
+                    f"list={bc_list}&orderBy=percentChange&orderDir=desc&raw=1&limit=100"
+                )
+                r = _req.get(url, headers=bc_headers, timeout=8)
+                if r.ok:
+                    for row in r.json().get("data", []):
+                        sym = (row.get("symbol") or "").strip().upper()
+                        pct = float(row.get("percentChange") or 0)
+                        if sym and len(sym) <= 5 and "." not in sym and 2.0 <= pct <= 8.0:
+                            bc_syms.add(sym)
+            except Exception:
+                pass
+
+        def _check_grinder(ticker):
+            try:
+                tk   = _yf.Ticker(ticker)
+                fi   = tk.fast_info
+                prev = float(getattr(fi, "previous_close", 0) or 0)
+                avg  = float(getattr(fi, "three_month_average_volume", 1) or 1)
+                if prev <= 0 or avg <= 0:
+                    return None
+                # Institutional stocks only — avg daily vol ≥ 1M filters micro/small-cap pumps
+                if avg < 1_000_000:
+                    return None
+                hist = tk.history(period="1d", interval="1m")
+                if hist.empty or len(hist) < 60:
+                    return None
+                hist.index = hist.index.tz_convert(_ET)
+                cum_vol  = float(hist["Volume"].sum())
+                price    = float(hist["Close"].iloc[-1])
+                open_p   = float(hist["Open"].iloc[0])
+                if price <= 0 or open_p <= 0:
+                    return None
+                chg_pct  = (price - prev) / prev * 100
+                if not (2.0 <= chg_pct <= 8.0):
+                    return None
+                proj_vol = cum_vol / day_frac
+                rel_vol  = proj_vol / avg
+                # RVOL 1.0–3.0x: sustained but not explosive
+                # Below 1.0x = too quiet even for a grinder; above 3.0x = morning burst covers it
+                if rel_vol < 1.0 or rel_vol >= 3.0:
+                    return None
+                # VWAP — must be above it (buyers in control)
+                hist["_tp"] = (hist["High"] + hist["Low"] + hist["Close"]) / 3
+                tp_vol_sum  = float((hist["_tp"] * hist["Volume"]).sum())
+                vwap        = tp_vol_sum / cum_vol if cum_vol > 0 else price
+                if price < vwap:
+                    return None
+                # Still at highs — within 2% of intraday high (not fading)
+                hod = float(hist["High"].max())
+                pct_from_hod = (hod - price) / hod * 100 if hod > 0 else 0
+                if pct_from_hod > 2.0:
+                    return None
+                # Trending up over the past 90 min — the core grinder confirmation
+                # price_now > price_45m_ago: still climbing right now
+                # price_45m_ago > price_90m_ago: was already climbing when we first checked
+                bars_45m = hist.iloc[-45] if len(hist) >= 45 else None
+                bars_90m = hist.iloc[-90] if len(hist) >= 90 else None
+                if bars_45m is None:
+                    return None
+                price_45m = float(bars_45m["Close"])
+                if price <= price_45m:
+                    return None  # flat or fading over last 45 min — not a grinder
+                if bars_90m is not None:
+                    price_90m = float(bars_90m["Close"])
+                    if price_45m <= price_90m:
+                        return None  # was stalling 45-90 min ago — spike, not a grind
+                trend_gain_45m = (price - price_45m) / price_45m * 100
+                gap_pct = (open_p - prev) / prev * 100 if prev > 0 else 0.0
+                # Has options — quality filter: large/mid caps qualify; micro-caps often don't
+                has_opts = False
+                mkt_cap  = 0.0
+                try:
+                    has_opts = len(tk.options) > 0
+                except Exception:
+                    pass
+                try:
+                    mkt_cap = float(tk.info.get("marketCap") or 0)
+                except Exception:
+                    pass
+                if not has_opts:
+                    return None
+                score = _with_options_score(rel_vol, chg_pct, True, gap_pct)
+                # Trending bonus — each confirmed 45-min leg adds conviction
+                if trend_gain_45m >= 2.0:
+                    score = min(score + 8, 100)
+                elif trend_gain_45m >= 1.0:
+                    score = min(score + 4, 100)
+                return {
+                    "ticker": ticker, "price": price, "chg_pct": chg_pct,
+                    "rel_vol": rel_vol, "vwap": vwap, "gap_pct": gap_pct,
+                    "trend_gain_45m": round(trend_gain_45m, 2),
+                    "hod": hod, "score": score, "mkt_cap": mkt_cap,
+                }
+            except Exception:
+                return None
+
+        candidates = [s for s in bc_syms if not _already_midday_alerted(s, "grinder")]
+        results = []
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            futs = {pool.submit(_check_grinder, t): t for t in candidates}
+            for fut in as_completed(futs):
+                res = fut.result()
+                if res:
+                    results.append(res)
+
+        results.sort(key=lambda x: -x["score"])
+        sent = 0
+        for d in results:
+            ticker  = d["ticker"]
+            chg     = d["chg_pct"]
+            rv      = d["rel_vol"]
+            price   = d["price"]
+            vwap    = d["vwap"]
+            hod     = d["hod"]
+            t45     = d["trend_gain_45m"]
+            score   = d["score"]
+            mkt_cap = d.get("mkt_cap", 0)
+            if score < 45:
+                continue
+            stop_p  = round(vwap * 0.995, 2)
+            cap_lbl = _cap_label(mkt_cap)
+            cap_tag = f" | {cap_lbl}" if cap_lbl else ""
+            msg = (
+                f"📶 STEADY GRINDER: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}{cap_tag}\n"
+                f"Climbing — +{t45:.1f}% last 45 min  HOD ${hod:.2f}\n"
+                f"Above VWAP ${vwap:.2f} ✅  stop ${stop_p:.2f}\n"
+                f"Score {score}/100 | {now_et.strftime('%I:%M %p ET')}\n"
+                f"nclexai.org/stock-scanner/"
+            )
+            if send_sms(msg):
+                _log_midday_alert(ticker, price, chg, rv, score, "grinder")
+                sent += 1
+
+        print(f"[sms_alerts] steady grinder scan — {len(candidates)} checked, {sent} texts sent")
+    except Exception as e:
+        print(f"[sms_alerts] steady grinder scan error: {e}")
