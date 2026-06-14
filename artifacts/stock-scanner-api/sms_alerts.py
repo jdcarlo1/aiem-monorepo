@@ -1265,6 +1265,51 @@ def run_steady_grinder_scan():
             except Exception:
                 pass
 
+        # ── Sector ETF map ────────────────────────────────────────────────────
+        # Maps each ticker to its primary sector ETF.
+        # Grinder confirmation: if the sector is red on the day, individual stocks
+        # in that sector face an institutional headwind and tend to fade.
+        _SECTOR_ETF = {
+            # Semiconductors (most specific — use SMH, not XLK)
+            "NVDA":"SMH","AMD":"SMH","AVGO":"SMH","QCOM":"SMH","MU":"SMH",
+            "AMAT":"SMH","KLAC":"SMH","LRCX":"SMH","ON":"SMH","MRVL":"SMH",
+            "INTC":"SMH","SMCI":"SMH","AMKR":"SMH","ONTO":"SMH",
+            "POWI":"SMH","SLAB":"SMH","MPWR":"SMH",
+            # Broader tech
+            "AAPL":"XLK","MSFT":"XLK","ANET":"XLK","CRWD":"XLK","FTNT":"XLK",
+            "NET":"XLK","PANW":"XLK","PAYC":"XLK","KEYS":"XLK",
+            # Energy
+            "XOM":"XLE","CVX":"XLE","COP":"XLE","OXY":"XLE",
+            "FRO":"XLE","SLB":"XLE","HAL":"XLE",
+            # Financials
+            "JPM":"XLF","GS":"XLF","MS":"XLF","BAC":"XLF",
+            "AXP":"XLF","V":"XLF","MA":"XLF","BLK":"XLF",
+            # Healthcare
+            "JNJ":"XLV","LLY":"XLV","UNH":"XLV","ABBV":"XLV","MRK":"XLV",
+            "PFE":"XLV","AMGN":"XLV","GILD":"XLV","BIIB":"XLV","DXCM":"XLV",
+            # Consumer discretionary
+            "AMZN":"XLY","TSLA":"XLY","HD":"XLY","NKE":"XLY",
+            "LULU":"XLY","MELI":"XLY","DECK":"XLY",
+            # Consumer staples
+            "COST":"XLP","WMT":"XLP","CELH":"XLP",
+            # Industrials / defense tech
+            "GE":"XLI","HON":"XLI","CAT":"XLI","AXON":"XLI",
+            # Communication services
+            "GOOGL":"XLC","META":"XLC","NFLX":"XLC",
+        }
+
+        # Pre-fetch all unique sector ETFs once — single batch, no per-ticker calls
+        _sector_green: dict = {}
+        for _etf in set(_SECTOR_ETF.values()):
+            try:
+                _etf_hist = _yf.Ticker(_etf).history(period="1d", interval="1m")
+                if not _etf_hist.empty:
+                    _etf_open  = float(_etf_hist["Open"].iloc[0])
+                    _etf_close = float(_etf_hist["Close"].iloc[-1])
+                    _sector_green[_etf] = _etf_close > _etf_open
+            except Exception:
+                pass
+
         def _check_grinder(ticker):
             try:
                 tk   = _yf.Ticker(ticker)
@@ -1297,6 +1342,12 @@ def run_steady_grinder_scan():
                 # Below 1.3x = barely above average, not enough conviction
                 # Above 3.0x = morning burst scanner already covers it
                 if rel_vol < 1.3 or rel_vol >= 3.0:
+                    return None
+                # Sector ETF confirmation — stock must swim with its sector, not against it
+                # If XLE is red, energy stocks grinding up are fighting institutional headwinds
+                # and historically fade. Dict lookup only — no extra API call per ticker.
+                _etf = _SECTOR_ETF.get(ticker)
+                if _etf and _etf in _sector_green and not _sector_green[_etf]:
                     return None
                 # No single-bar volume spike >40% of total day's volume
                 # A genuine grind has evenly distributed volume — one dominant bar = news pop, not a grind
