@@ -1293,9 +1293,10 @@ def run_steady_grinder_scan():
                     return None
                 proj_vol = cum_vol / day_frac
                 rel_vol  = proj_vol / avg
-                # RVOL 1.0–3.0x: sustained but not explosive
-                # Below 1.0x = too quiet even for a grinder; above 3.0x = morning burst covers it
-                if rel_vol < 1.0 or rel_vol >= 3.0:
+                # RVOL 1.3–3.0x: meaningful institutional volume, not explosive
+                # Below 1.3x = barely above average, not enough conviction
+                # Above 3.0x = morning burst scanner already covers it
+                if rel_vol < 1.3 or rel_vol >= 3.0:
                     return None
                 # No single-bar volume spike >40% of total day's volume
                 # A genuine grind has evenly distributed volume — one dominant bar = news pop, not a grind
@@ -1331,6 +1332,11 @@ def run_steady_grinder_scan():
                     if price_45m <= price_90m:
                         return None  # was stalling 45-90 min ago — spike, not a grind
                 trend_gain_45m = (price - price_45m) / price_45m * 100
+                # t45 floor: ≥ 0.5% — must be visibly climbing, not just sitting near highs
+                # t45 ceiling: ≤ 2.0% — above 2% in 45 min is a spike, not a grind
+                # Backtest data: stocks with t45 > 2% (e.g. +5.5%) faded hard same day
+                if trend_gain_45m < 0.5 or trend_gain_45m > 2.0:
+                    return None
                 # EMA 9 > EMA 21 on 30-min bars — confirms structured uptrend, not a choppy drift
                 # Resample 1-min closes → 30-min, compute exponential moving averages
                 bars_30m = hist["Close"].resample("30min").last().dropna()
