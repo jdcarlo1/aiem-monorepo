@@ -385,8 +385,9 @@ try:
             id=f"morning_inflows_email_{_mi_eh}_{_mi_em}",
             replace_existing=True,
         )
-    # SMS alert scan: every 5 min Mon-Fri 9:30 AM – 3:45 PM ET
-    # Fires a text the instant any stock crosses your indicators — no email needed
+    # SMS alert scan: every 5 min Mon-Fri 10:00 AM – 3:45 PM ET
+    # Starts at 10 AM — backtest showed pre-10 AM signals are opening-bell noise (13% hit rate)
+    # Only fires on green SPY days — red days historically lose money regardless of signal quality
     def _run_sms_alert_scan():
         try:
             import threading as _thr_sms
@@ -400,18 +401,6 @@ try:
         id="sms_alert_scan",
         replace_existing=True,
     )
-    # Early morning precision triggers: fires 2 min AFTER morning inflows populates cache
-    # 9:31 inflows → 9:33 SMS reads cache → text arrives ~9:33-9:34 AM
-    # 9:35 inflows (double-pass) → 9:37 SMS re-checks for any new movers
-    # 9:41 inflows → 9:43 SMS final early window pass
-    # This guarantees texts fire within 2 minutes of open, not up to 15 min later
-    for _sms_h, _sms_m in [(9, 33), (9, 37), (9, 43)]:
-        _scheduler.add_job(
-            _run_sms_alert_scan,
-            CronTrigger(day_of_week="mon-fri", hour=_sms_h, minute=_sms_m, timezone=_ET),
-            id=f"sms_alert_scan_am_{_sms_h}_{_sms_m}",
-            replace_existing=True,
-        )
     # Exit alert scan: every 15 min — watches stocks alerted today for VWAP breaks
     def _run_exit_alert_scan():
         try:

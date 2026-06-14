@@ -322,6 +322,28 @@ def _cap_label(mkt_cap: float) -> str:
     return ""
 
 
+def _spy_is_green() -> bool:
+    """
+    Returns True if SPY is currently trading above yesterday's close.
+    Backtest showed: on red SPY days hit rate drops to ~10% and every
+    scanner version loses money. Only fire alerts on green market days.
+    """
+    try:
+        import yfinance as _yf
+        spy = _yf.Ticker("SPY")
+        fi  = spy.fast_info
+        prev_close = float(getattr(fi, "previous_close", 0) or 0)
+        last_price = float(getattr(fi, "last_price", 0) or 0)
+        if prev_close <= 0 or last_price <= 0:
+            return True  # data unavailable — don't block alerts
+        is_green = last_price > prev_close
+        print(f"[sms_alerts] SPY check: ${last_price:.2f} vs prev ${prev_close:.2f} → {'GREEN ✅' if is_green else 'RED ❌ — suppressing alerts'}")
+        return is_green
+    except Exception as e:
+        print(f"[sms_alerts] SPY check error: {e} — allowing alerts")
+        return True  # fail open
+
+
 # ── Core scan ─────────────────────────────────────────────────────────────────
 
 def run_sms_alert_scan():
@@ -334,12 +356,19 @@ def run_sms_alert_scan():
         return
 
     now_et = datetime.now(_ET)
-    # Only run Mon-Fri 9:30 AM – 3:45 PM ET
+    # Only run Mon-Fri 10:00 AM – 3:45 PM ET
+    # Backtest showed pre-10 AM signals are opening-bell noise (13% hit rate vs 45% post-10 AM)
     if now_et.weekday() >= 5:
         return
-    market_open  = now_et.replace(hour=9,  minute=30, second=0, microsecond=0)
+    market_open  = now_et.replace(hour=10, minute=0,  second=0, microsecond=0)
     market_close = now_et.replace(hour=15, minute=45, second=0, microsecond=0)
     if now_et < market_open or now_et > market_close:
+        return
+
+    # SPY green-day filter — suppress all alerts on red market days
+    # Backtest: green SPY days = 45% hit rate (+$1,057/week); red days = 10% (-$1,109/week)
+    if not _spy_is_green():
+        print("[sms_alerts] SPY red day — skipping intraday scan")
         return
 
     candidates = {}  # ticker -> {price, chg_pct, rel_vol, score, reason}
@@ -842,6 +871,9 @@ def run_midday_breakout_scan():
     end    = now_et.replace(hour=15, minute=30, second=0, microsecond=0)
     if now_et < start or now_et > end:
         return
+    if not _spy_is_green():
+        print("[sms_alerts] SPY red day — skipping midday breakout scan")
+        return
 
     try:
         import yfinance as _yf
@@ -1005,6 +1037,9 @@ def run_gap_recovery_scan():
     start  = now_et.replace(hour=10, minute=30, second=0, microsecond=0)
     end    = now_et.replace(hour=13, minute=0,  second=0, microsecond=0)
     if now_et < start or now_et > end:
+        return
+    if not _spy_is_green():
+        print("[sms_alerts] SPY red day — skipping gap recovery scan")
         return
 
     try:
