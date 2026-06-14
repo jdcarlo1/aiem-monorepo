@@ -3,3 +3,4 @@
 - [StockScanner AI state](stockscanner-state.md) — full product state: landing page design, Stripe setup, SMS live via email gateway, key files, scheduler times
 - [SMS delivery solution](sms-delivery-solution.md) — email-to-SMS gateway bypasses Twilio A2P 10DLC blocking; T-Mobile gateway confirmed working
 - [SMS threshold lessons](sms-threshold-lessons.md) — why 1%+tiered-vol beats 10% flat; 10 missed movers June 12 2026 all opened below 3%
+- [Scanner baseline June 2026](scanner-baseline-june2026.md) — Win rate, R:R, EV/trade for all scanners as of June 14, 2026; compare live vs backtest in mid-July 2026
