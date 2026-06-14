@@ -53,7 +53,7 @@ for ticker, dt in SIGNALS:
 
         raw.index = raw.index.tz_convert(ET)
 
-        snap_ts = pd.Timestamp(f"{dt} 11:30:00").tz_localize(ET)
+        snap_ts = pd.Timestamp(f"{dt} 10:30:00").tz_localize(ET)
         eod_ts  = pd.Timestamp(f"{dt} 15:45:00").tz_localize(ET)
 
         snap_bar = raw[raw.index <= snap_ts]
