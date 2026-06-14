@@ -307,7 +307,7 @@ def send_swing_sms(picks: list[dict]) -> None:
         )
         if p.get("double_signal"):
             lines.append("  → Double signal. Could be the start of a 5-day stretch.")
-    lines.append("Stop: below 3d low. Hold overnight.")
+    lines.append("Exit: next-day close. Stop: below 3d low.")
     body = "\n".join(lines)
 
     # Primary: T-Mobile gateway
@@ -447,7 +447,7 @@ def build_swing_email(picks: list[dict], date_str: str, unsub_token: str,
       <p style="color:#94a3b8;font-size:12px;line-height:1.7;margin:0;">
         💡 <b style="color:#e2e8f0;">Swing tip:</b> These stocks closed near their high of day with buying pressure
         sustained into the close. The edge is overnight — institutions who accumulated today don't sell overnight.
-        Watch for gap-up or early continuation at the open. Stop below the 3-day low listed.
+        <b style="color:#e2e8f0;">Exit at next-day close (D+1).</b> Watch for gap-up or early continuation at the open. Stop below the 3-day low listed.
       </p>
     </div>
 

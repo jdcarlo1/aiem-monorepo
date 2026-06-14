@@ -126,6 +126,11 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - Universe: Barchart top movers up 2%+ across all 4 cap tiers (~200 tickers)
 - Scoring (100 pts, threshold 60): close position in range (25), peak RVOL (25), 3d momentum (20), pullback quality (15), options PCR (10), above 20d MA (5)
 - SMS: all qualifying setups in ONE text (format: ticker/price/chg/score/3d-gain/PCR)
+- **Exit rule (backtested June 14 2026): D+1 close ONLY** — holding 3 days is wrong
+  - D+1: 71% WR, avg win +3.97%, avg loss -9.47%, EV +0.13%/trade (n=7)
+  - D+3: 0% WR, avg loss -10.43%/trade (n=4, all from tech-correction week Jun 1-5)
+  - SMS and email both updated to say "Exit: next-day close. Stop: below 3d low."
+  - Signal frequency: ~1 signal/day (much lower than morning burst's ~4-5/day)
 
 ## SMS / Twilio
 - `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
