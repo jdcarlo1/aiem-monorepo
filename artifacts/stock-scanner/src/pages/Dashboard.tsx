@@ -9191,6 +9191,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [historySignals, setHistorySignals] = useState<BullFlowHistorySignal[]>([]);
   const [historyDates,   setHistoryDates]   = useState<string[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [outcomes, setOutcomes] = useState<{ outcomes: SignalOutcome[]; count: number; win_rates: { t3: number | null; t5: number | null; t10: number | null } } | null>(null);
 
   const loadHistory = async () => {
     setHistoryLoading(true);
@@ -9248,7 +9249,11 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
     }
   };
 
-  useEffect(() => { run(); loadHistory(); }, []);
+  useEffect(() => {
+    run();
+    loadHistory();
+    fetchSignalOutcomes().then(d => setOutcomes(d)).catch(() => {});
+  }, []);
 
   const rankLabel = (rank: number) =>
     rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
@@ -9339,6 +9344,91 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         )}
         {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
       </div>
+
+      {/* 📊 Track Record */}
+      {outcomes && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-white font-semibold text-sm">📊 Track Record</span>
+              <span className="text-slate-500 text-xs ml-2">· Bull Flow signals · C/P ≥2x · {outcomes.count} settled trades</span>
+            </div>
+            <span className="text-slate-600 text-xs">T+3 = 3 trading days · T+5 = 5 days · T+10 = 2 weeks</span>
+          </div>
+
+          {/* Win rate cards */}
+          <div className="flex divide-x divide-slate-800 border-b border-slate-800">
+            {([
+              { label: "T+3 Win Rate", wr: outcomes.win_rates.t3, settled: outcomes.outcomes.filter(o => o.t3_win !== null).length, color: "text-emerald-400" },
+              { label: "T+5 Win Rate", wr: outcomes.win_rates.t5, settled: outcomes.outcomes.filter(o => o.t5_win !== null).length, color: "text-blue-400" },
+              { label: "T+10 Win Rate", wr: outcomes.win_rates.t10, settled: outcomes.outcomes.filter(o => o.t10_win !== null).length, color: "text-purple-400" },
+            ]).map(({ label, wr, settled, color }) => (
+              <div key={label} className="flex-1 py-4 text-center">
+                <div className="text-slate-500 text-xs mb-1 uppercase tracking-wider">{label}</div>
+                {settled === 0 ? (
+                  <div className="text-slate-600 text-sm">—</div>
+                ) : (
+                  <>
+                    <div className={`text-2xl font-black ${wr !== null && wr >= 55 ? color : "text-red-400"}`}>
+                      {wr !== null ? `${wr.toFixed(0)}%` : "—"}
+                    </div>
+                    <div className="text-slate-600 text-xs mt-1">{settled} trades settled</div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Picks table */}
+          {outcomes.outcomes.length > 0 && (
+            <div className="overflow-x-auto max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-slate-950">
+                  <tr className="text-slate-500 uppercase tracking-wider">
+                    <th className="px-4 py-2 text-left font-semibold">Date</th>
+                    <th className="px-4 py-2 text-left font-semibold">Ticker</th>
+                    <th className="px-4 py-2 text-right font-semibold">C/P</th>
+                    <th className="px-4 py-2 text-right font-semibold">Prem</th>
+                    <th className="px-4 py-2 text-right font-semibold">Entry</th>
+                    <th className="px-4 py-2 text-right font-semibold">T+3</th>
+                    <th className="px-4 py-2 text-right font-semibold">T+5</th>
+                    <th className="px-4 py-2 text-right font-semibold">T+10</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/40">
+                  {outcomes.outcomes.slice(0, 50).map((o, i) => {
+                    const pctCell = (pct: number | null, win: boolean | null) =>
+                      pct === null ? <td className="px-4 py-2.5 text-right text-slate-600">—</td>
+                        : <td className={`px-4 py-2.5 text-right font-bold ${win ? "text-emerald-400" : "text-red-400"}`}>
+                            {pct > 0 ? "+" : ""}{pct.toFixed(2)}%
+                          </td>;
+                    return (
+                      <tr key={i} className="hover:bg-slate-800/20 cursor-pointer" onClick={() => onSelectTicker(o.ticker)}>
+                        <td className="px-4 py-2.5 text-slate-500">{o.signal_date.slice(5)}</td>
+                        <td className="px-4 py-2.5 text-white font-black">{o.ticker}</td>
+                        <td className="px-4 py-2.5 text-right text-emerald-400 font-bold">{o.call_put_ratio.toFixed(1)}x</td>
+                        <td className="px-4 py-2.5 text-right text-slate-300">
+                          {o.premium_m != null ? (o.premium_m >= 1 ? `$${o.premium_m.toFixed(1)}M` : `$${(o.premium_m * 1000).toFixed(0)}K`) : "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-slate-400">${o.price_at_signal.toFixed(2)}</td>
+                        {pctCell(o.t3_pct, o.t3_win)}
+                        {pctCell(o.t5_pct, o.t5_win)}
+                        {pctCell(o.t10_pct, o.t10_win)}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {outcomes.outcomes.length === 0 && (
+            <div className="text-center py-8 text-slate-600 text-sm">
+              No settled trades yet — T+3 outcomes appear 3 trading days after the scan
+            </div>
+          )}
+        </div>
+      )}
 
       {/* History Panel */}
       {showHistory && (
