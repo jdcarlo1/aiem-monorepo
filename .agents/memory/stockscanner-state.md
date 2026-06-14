@@ -49,12 +49,12 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - **Window**: 9:35–9:50 AM only (market_close set to 9:50 in function)
 - **RVOL threshold**: sliding gate — RVOL≥2x for large/mid-cap chg 3-7%, RVOL≥1.5x for chg≥20%, etc.
 - **Sector ETF check**: pre-fetches SMH/XLK/XLE/XLF/XLV/XLY/XLP/XLI/XLC/XLB once per scan run; uses `info.sector` + `info.industry` from yfinance; "Semiconductor" in industry → checks SMH; blocks signal if sector ETF is red on the day
-- **elapsed mins**: calculated from 9:30 AM (actual_open), NOT from scan_start — RVOL math correct
-- **Backtest (Jun 1–13, 2026, 10 days)**: 62% win rate (45 signals), avg win +2.55%, avg loss -3.33%
-  - Week 1 (Jun 1-5): 74% win rate (27 signals)
-  - Week 2 (Jun 9-13): 44% win rate (18 signals) — week 2 was choppy, Jun 9 SPY red (-0.3%) killed all 5 early signals
+- **NEW gate (Jun 14 2026): gap_pct > 4% → skip** — stock ran its move pre-market; 9:35 burst is retail FOMO. 6 of 8 worst losses were gap>4%. Filter alone → 67.9% WR.
+- **NEW gate (Jun 14 2026): vwap_ext > 2% → skip** — chasing extended move. LRCX Jun10 vwap+3.6%→-5.97%, INTC Jun10 vwap+2.7%→-3.58%. Combined with gap cap → ~70-72% WR.
+- **DO NOT add XLV/XLY block to morning burst** — XLV = 100% WR in morning (FDA/earnings follow-through). Opposite of grinder.
+- **SPY insight**: winning signals fire when SPY is flat. When SPY is already positive at 9:35, stocks are riding the market and tend to fade. No filter added (removing SPY-negative removes 12 winners for only 5 losers).
+- **Backtest (Jun 1–13, 10 days) WITH new filters**: ~70-72% WR (est. 25 signals from 40)
 - **Key insight**: waiting until 10:00 AM does NOT help — win rate drops from 62% to 57%. Fire at 9:35.
-- **Old rule** ("pre-10 AM = noise at 13%") was based on lower RVOL thresholds. With RVOL≥2x the early morning is the BEST window.
 
 ## Steady Grinder Scanner — UPDATED June 14 2026
 - `run_steady_grinder_scan()` in `artifacts/stock-scanner-api/sms_alerts.py`

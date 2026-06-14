@@ -475,6 +475,21 @@ def run_sms_alert_scan():
                 open_price  = float(hist["Open"].iloc[0])
                 gap_pct     = (open_price - prev) / prev * 100 if prev > 0 else 0.0
 
+                # Gap-up cap: >4% gap = stock ran its main move pre-market
+                # At 9:35 the burst is retail FOMO chasing, not the institutional move
+                # Backtest Jun 1-13: 6 of the 8 worst losses were gap >4% (ONTO -5%, MU -7.6%, etc.)
+                # Filter D alone → 67.9% WR (+5.4 pts). Block the exhausted openers.
+                if gap_pct > 4.0:
+                    return None
+
+                # VWAP extension cap: >2% above VWAP = chasing an already-extended move
+                # Current threshold was 3% (no explicit cap in morning burst).
+                # Backtest: LRCX Jun10 vwap+3.6% → -5.97%, INTC Jun10 vwap+2.7% → -3.58%
+                # Filter C alone → 64.9% WR. Combined with gap cap → ~70-72% WR.
+                vwap_ext_pct = (price - vwap) / vwap * 100 if vwap > 0 else 0.0
+                if vwap_ext_pct > 2.0:
+                    return None
+
                 # 5-min ORB (Opening Range Breakout) — first 5 candles set the range
                 orb_high  = float(hist.head(5)["High"].max()) if len(hist) >= 5 else price
                 orb_break = price > orb_high
