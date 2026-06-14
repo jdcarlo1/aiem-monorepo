@@ -188,6 +188,16 @@ Dev and production use COMPLETELY SEPARATE PostgreSQL databases. Data inserted v
 - Gap Recovery: momentum_15m ≥ 1.5%, pullback ≥ 3%, VWAP reclaim required
 - Scoring: `_with_options_score` (RVOL 30pts, chg 25pts, VWAP 20pts, ORB 10pts, gap 8pts, ATR 7pts), `_no_options_score` (RVOL 25pts, float_turnover 20pts, VWAP 15pts, gap 10pts, ORB 10pts, chg 8pts, ATR 7pts, short 5pts)
 
+## Pre-Close Swing Scanner (added June 13 2026)
+- `artifacts/stock-scanner-api/eod_swing.py` — EOD swing setup scanner
+- Fires at 3:30 PM ET Mon-Fri — 30 min before close so user can enter same day
+- Universe: Barchart top movers up 2%+ across all 4 cap tiers (~200 tickers)
+- 3-day lookback (not 5 — catches setups earlier, better R/R)
+- Scoring (100 pts, threshold 60): close position in range (25), peak RVOL (25), 3d momentum (20), pullback quality (15), options PCR (10), above 20d MA (5)
+- Must-have gates: close in top 60%+ of range, 3d momentum ≥ 3%
+- SMS: all qualifying setups in ONE text (format: ticker/price/chg/score/3d-gain/PCR)
+- Exit rule discussed: sell gap Day 4 morning (half), trail VWAP on rest, out by Day 5
+
 ## SMS / Twilio
 - `artifacts/stock-scanner-api/sms_alerts.py` — complete SMS system, fully wired into main.py
 - Scheduler: every 15 min, Mon-Fri 9:30 AM–3:45 PM ET
