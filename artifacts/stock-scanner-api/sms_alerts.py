@@ -1284,6 +1284,9 @@ def run_steady_grinder_scan():
                 open_p   = float(hist["Open"].iloc[0])
                 if price <= 0 or open_p <= 0:
                     return None
+                # Price ≥ $10 — filters thin/manipulated names that sneak into mid-cap feeds
+                if price < 10.0:
+                    return None
                 chg_pct  = (price - prev) / prev * 100
                 if not (2.0 <= chg_pct <= 8.0):
                     return None
@@ -1293,11 +1296,19 @@ def run_steady_grinder_scan():
                 # Below 1.0x = too quiet even for a grinder; above 3.0x = morning burst covers it
                 if rel_vol < 1.0 or rel_vol >= 3.0:
                     return None
+                # No single-bar volume spike >40% of total day's volume
+                # A genuine grind has evenly distributed volume — one dominant bar = news pop, not a grind
+                if cum_vol > 0 and float(hist["Volume"].max()) / cum_vol > 0.40:
+                    return None
                 # VWAP — must be above it (buyers in control)
                 hist["_tp"] = (hist["High"] + hist["Low"] + hist["Close"]) / 3
                 tp_vol_sum  = float((hist["_tp"] * hist["Volume"]).sum())
                 vwap        = tp_vol_sum / cum_vol if cum_vol > 0 else price
                 if price < vwap:
+                    return None
+                # Not >3% above VWAP — prevents chasing stocks that already ripped
+                vwap_ext = (price - vwap) / vwap * 100 if vwap > 0 else 0.0
+                if vwap_ext > 3.0:
                     return None
                 # Still at highs — within 2% of intraday high (not fading)
                 hod = float(hist["High"].max())
@@ -1319,6 +1330,19 @@ def run_steady_grinder_scan():
                     if price_45m <= price_90m:
                         return None  # was stalling 45-90 min ago — spike, not a grind
                 trend_gain_45m = (price - price_45m) / price_45m * 100
+                # EMA 9 > EMA 21 on 30-min bars — confirms structured uptrend, not a choppy drift
+                # Resample 1-min closes → 30-min, compute exponential moving averages
+                bars_30m = hist["Close"].resample("30min").last().dropna()
+                ema_ok = True  # graceful pass if not enough bars
+                if len(bars_30m) >= 21:
+                    ema9  = float(bars_30m.ewm(span=9,  adjust=False).mean().iloc[-1])
+                    ema21 = float(bars_30m.ewm(span=21, adjust=False).mean().iloc[-1])
+                    ema_ok = ema9 > ema21
+                elif len(bars_30m) >= 9:
+                    ema9  = float(bars_30m.ewm(span=9, adjust=False).mean().iloc[-1])
+                    ema_ok = ema9 > float(bars_30m.iloc[0])  # rising from open at minimum
+                if not ema_ok:
+                    return None
                 gap_pct = (open_p - prev) / prev * 100 if prev > 0 else 0.0
                 # Has options — quality filter: large/mid caps qualify; micro-caps often don't
                 has_opts = False
@@ -1333,17 +1357,36 @@ def run_steady_grinder_scan():
                     pass
                 if not has_opts:
                     return None
+                # Bonus: check if ticker had unusual call sweeps earlier today
+                # Options flow from earlier in the day = institutional intent confirmed
+                has_call_sweep = False
+                try:
+                    with _conn() as con:
+                        with con.cursor() as cur:
+                            cur.execute("""
+                                SELECT 1 FROM unusual_calls_log
+                                WHERE ticker=%s
+                                AND DATE(first_seen AT TIME ZONE 'UTC')=CURRENT_DATE
+                                LIMIT 1
+                            """, (ticker,))
+                            has_call_sweep = cur.fetchone() is not None
+                except Exception:
+                    pass
                 score = _with_options_score(rel_vol, chg_pct, True, gap_pct)
                 # Trending bonus — each confirmed 45-min leg adds conviction
                 if trend_gain_45m >= 2.0:
                     score = min(score + 8, 100)
                 elif trend_gain_45m >= 1.0:
                     score = min(score + 4, 100)
+                # Call sweep bonus — options flow from earlier confirms institutional intent
+                if has_call_sweep:
+                    score = min(score + 10, 100)
                 return {
                     "ticker": ticker, "price": price, "chg_pct": chg_pct,
-                    "rel_vol": rel_vol, "vwap": vwap, "gap_pct": gap_pct,
-                    "trend_gain_45m": round(trend_gain_45m, 2),
+                    "rel_vol": rel_vol, "vwap": vwap, "vwap_ext": round(vwap_ext, 1),
+                    "gap_pct": gap_pct, "trend_gain_45m": round(trend_gain_45m, 2),
                     "hod": hod, "score": score, "mkt_cap": mkt_cap,
+                    "has_call_sweep": has_call_sweep,
                 }
             except Exception:
                 return None
@@ -1360,24 +1403,27 @@ def run_steady_grinder_scan():
         results.sort(key=lambda x: -x["score"])
         sent = 0
         for d in results:
-            ticker  = d["ticker"]
-            chg     = d["chg_pct"]
-            rv      = d["rel_vol"]
-            price   = d["price"]
-            vwap    = d["vwap"]
-            hod     = d["hod"]
-            t45     = d["trend_gain_45m"]
-            score   = d["score"]
-            mkt_cap = d.get("mkt_cap", 0)
+            ticker        = d["ticker"]
+            chg           = d["chg_pct"]
+            rv            = d["rel_vol"]
+            price         = d["price"]
+            vwap          = d["vwap"]
+            hod           = d["hod"]
+            t45           = d["trend_gain_45m"]
+            score         = d["score"]
+            mkt_cap       = d.get("mkt_cap", 0)
+            vwap_ext      = d.get("vwap_ext", 0)
+            has_call_sweep = d.get("has_call_sweep", False)
             if score < 45:
                 continue
             stop_p  = round(vwap * 0.995, 2)
             cap_lbl = _cap_label(mkt_cap)
             cap_tag = f" | {cap_lbl}" if cap_lbl else ""
+            sweep_tag = "  🔥 call sweeps earlier" if has_call_sweep else ""
             msg = (
                 f"📶 STEADY GRINDER: {ticker} +{chg:.1f}% | {rv:.1f}x vol | ${price:.2f}{cap_tag}\n"
                 f"Climbing — +{t45:.1f}% last 45 min  HOD ${hod:.2f}\n"
-                f"Above VWAP ${vwap:.2f} ✅  stop ${stop_p:.2f}\n"
+                f"VWAP ${vwap:.2f} +{vwap_ext:.1f}% above ✅  stop ${stop_p:.2f}{sweep_tag}\n"
                 f"Score {score}/100 | {now_et.strftime('%I:%M %p ET')}\n"
                 f"nclexai.org/stock-scanner/"
             )
