@@ -68,11 +68,11 @@ def _score_swing(ticker: str) -> dict | None:
 
         # 30 days daily — we use last 6 (today + 5 prior)
         daily = tk.history(period="30d", interval="1d")
-        if len(daily) < 6:
+        if len(daily) < 4:
             return None
 
         today   = daily.iloc[-1]
-        prior5  = daily.iloc[-6:-1]   # 5 trading days before today
+        prior3  = daily.iloc[-4:-1]   # 3 trading days before today
         rolling20 = daily["Close"].iloc[-21:-1]  # 20 prior closes for MA
         avg_vol20 = daily["Volume"].iloc[-21:-1].mean()
 
@@ -100,23 +100,23 @@ def _score_swing(ticker: str) -> dict | None:
         # RVOL today
         rvol_today = vol / avg_vol20 if avg_vol20 > 0 else 0
 
-        # Best RVOL in last 5 prior days
+        # Best RVOL in last 3 prior days
         best_prior_rvol = 0.0
-        for _, r in prior5.iterrows():
+        for _, r in prior3.iterrows():
             rv = float(r["Volume"]) / avg_vol20 if avg_vol20 > 0 else 0
             if rv > best_prior_rvol:
                 best_prior_rvol = rv
 
         best_rvol = max(rvol_today, best_prior_rvol)
 
-        # 5-day momentum: gain from 5 days ago close to today
-        five_day_ago_close = float(prior5.iloc[0]["Close"])
-        momentum_5d = (close - five_day_ago_close) / five_day_ago_close * 100
+        # 3-day momentum: gain from 3 days ago close to today
+        three_day_ago_close = float(prior3.iloc[0]["Close"])
+        momentum_3d = (close - three_day_ago_close) / three_day_ago_close * 100
 
         # Pullback quality: look at each prior day's change
         max_down_day = 0.0
-        for i in range(1, len(prior5)):
-            day_chg = (float(prior5.iloc[i]["Close"]) - float(prior5.iloc[i-1]["Close"])) / float(prior5.iloc[i-1]["Close"]) * 100
+        for i in range(1, len(prior3)):
+            day_chg = (float(prior3.iloc[i]["Close"]) - float(prior3.iloc[i-1]["Close"])) / float(prior3.iloc[i-1]["Close"]) * 100
             if day_chg < 0:
                 max_down_day = max(max_down_day, abs(day_chg))
 
@@ -156,13 +156,13 @@ def _score_swing(ticker: str) -> dict | None:
         elif best_rvol >= 1.5: score += 10; signals.append(f"RVOL {best_rvol:.1f}x")
         # If best RVOL < 1.5x (like VECO's 1.34x) score 0 here — but can still qualify via other signals
 
-        # 3. 5-day momentum (20 pts)
-        if   momentum_5d >= 20: score += 20; signals.append(f"+{momentum_5d:.1f}% in 5 days 🚀")
-        elif momentum_5d >= 15: score += 16; signals.append(f"+{momentum_5d:.1f}% in 5 days")
-        elif momentum_5d >= 10: score += 12; signals.append(f"+{momentum_5d:.1f}% in 5 days")
-        elif momentum_5d >= 7:  score += 8;  signals.append(f"+{momentum_5d:.1f}% in 5 days")
-        elif momentum_5d >= 5:  score += 5;  signals.append(f"+{momentum_5d:.1f}% in 5 days")
-        elif momentum_5d >= 3:  score += 3
+        # 3. 3-day momentum (20 pts)
+        if   momentum_3d >= 20: score += 20; signals.append(f"+{momentum_3d:.1f}% in 3 days 🚀")
+        elif momentum_3d >= 15: score += 16; signals.append(f"+{momentum_3d:.1f}% in 3 days")
+        elif momentum_3d >= 10: score += 12; signals.append(f"+{momentum_3d:.1f}% in 3 days")
+        elif momentum_3d >= 7:  score += 8;  signals.append(f"+{momentum_3d:.1f}% in 3 days")
+        elif momentum_3d >= 5:  score += 5;  signals.append(f"+{momentum_3d:.1f}% in 3 days")
+        elif momentum_3d >= 3:  score += 3
 
         # 4. Pullback quality (15 pts)
         if   max_down_day == 0:    score += 15; signals.append("All green this week ✅")
@@ -186,7 +186,7 @@ def _score_swing(ticker: str) -> dict | None:
         # At minimum: close in top 70% of range AND at least some momentum
         if close_pct_range < 60:
             return None
-        if momentum_5d < 3.0:
+        if momentum_3d < 3.0:
             return None
 
         if score < 60:
@@ -209,7 +209,7 @@ def _score_swing(ticker: str) -> dict | None:
             "label":            label,
             "price":            round(close, 2),
             "today_chg":        round(today_chg, 2),
-            "momentum_5d":      round(momentum_5d, 2),
+            "momentum_3d":      round(momentum_3d, 2),
             "close_pct_range":  round(close_pct_range, 1),
             "best_rvol":        round(best_rvol, 2),
             "rvol_today":       round(rvol_today, 2),
@@ -339,8 +339,8 @@ def _swing_card_html(p: dict, rank: int) -> str:
                 {pcr_badge}
               </div>
               <div style="margin-top:10px;font-size:11px;color:#64748b;">
-                <span style="color:#e2e8f0;font-weight:600;">5d gain:</span>
-                <span style="color:#22c55e;font-weight:700;"> +{p["momentum_5d"]}%</span>
+                <span style="color:#e2e8f0;font-weight:600;">3d gain:</span>
+                <span style="color:#22c55e;font-weight:700;"> +{p["momentum_3d"]}%</span>
                 &nbsp;·&nbsp;
                 <span style="color:#e2e8f0;font-weight:600;">Closed:</span>
                 <span style="color:#94a3b8;"> {p["close_pct_range"]:.0f}% of range</span>
@@ -397,7 +397,7 @@ def build_swing_email(picks: list[dict], date_str: str, unsub_token: str,
             {count} Overnight Swing Setup{'s' if count != 1 else ''}
           </div>
           <div style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:2px;">
-            4:05 PM scan — stocks closing strong with accumulation behind them
+            3:30 PM scan — 30 min to buy before close and hold overnight
           </div>
         </div>
       </div>

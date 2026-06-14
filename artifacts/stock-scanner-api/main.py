@@ -500,8 +500,8 @@ try:
         id="eod_accum_email",
         replace_existing=True,
     )
-    # EOD Swing Setup scan: 4:05 PM ET — after market close, scans for quiet
-    # accumulation setups (closed near HOD, surge volume in last 5 days, tight pullbacks)
+    # Pre-Close Swing Setup scan: 3:30 PM ET — 30 min before close so user can
+    # enter same day and hold overnight. 3-day lookback for tightest entry timing.
     def _run_eod_swing_job():
         try:
             import threading as _thr_sw
@@ -509,10 +509,10 @@ try:
             _base = os.getenv("BASE_URL", "")
             _thr_sw.Thread(target=send_swing_digest, args=(_base,), daemon=True).start()
         except Exception as _e_sw:
-            print(f"[scheduler] EOD swing scan error: {_e_sw}")
+            print(f"[scheduler] pre-close swing scan error: {_e_sw}")
     _scheduler.add_job(
         _run_eod_swing_job,
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=5, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone=_ET),
         id="eod_swing_scan",
         replace_existing=True,
     )
