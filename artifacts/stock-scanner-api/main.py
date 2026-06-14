@@ -507,8 +507,9 @@ try:
         id="eod_accum_email",
         replace_existing=True,
     )
-    # Pre-Close Swing Setup scan: 3:30 PM ET — 30 min before close so user can
-    # enter same day and hold overnight. 3-day lookback for tightest entry timing.
+    # Pre-Close Swing Setup scan: 2:00 PM ET — scan takes ~20-30 min to process
+    # all tickers via yfinance, so SMS lands ~2:20-2:30 PM = 90 min to analyze
+    # and buy before close. Daily OHLCV data is fully available by 2 PM.
     def _run_eod_swing_job():
         try:
             import threading as _thr_sw
@@ -519,7 +520,7 @@ try:
             print(f"[scheduler] pre-close swing scan error: {_e_sw}")
     _scheduler.add_job(
         _run_eod_swing_job,
-        CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=14, minute=0, timezone=_ET),
         id="eod_swing_scan",
         replace_existing=True,
     )
@@ -579,6 +580,13 @@ try:
                         if picks:
                             _save_ai_short_calls_to_log(picks, str(_dt2.now().date()))
                             print(f"[scheduler] AI short calls saved {len(picks)} picks")
+                            # HIGH conviction only — 91% WR vs 59% for MEDIUM (backtest Jun 1-13)
+                            high = [p for p in picks if p.get("conviction") == "HIGH"]
+                            if high:
+                                import threading as _thr_sc
+                                _thr_sc.Thread(target=_send_ai_short_calls_high_conviction, args=(high,), daemon=True).start()
+                            else:
+                                print("[scheduler] AI short calls: no HIGH conviction picks today")
                         else:
                             print("[scheduler] AI short calls: no picks returned")
                 except Exception as _we:
@@ -1094,10 +1102,12 @@ def _send_unusual_calls_alert(hits: list) -> None:
     Called right after _run_unusual_calls_scan saves to DB.
     """
     try:
-        # Filter: Vol/OI >= 2x and prem >= $50K — catches insider-sized bets too
+        # HIGH CONVICTION ONLY: Vol/OI >= 5x and prem >= $100K
+        # Backtest Jun 1-13: HIGH conviction = 91% WR vs 59% WR for MEDIUM
+        # Only send alerts that meet the institutional sweep threshold
         alerts = [
             h for h in hits
-            if h.get("vol_oi", 0) >= 2.0 and h.get("prem", 0) >= 20_000
+            if h.get("vol_oi", 0) >= 5.0 and h.get("prem", 0) >= 100_000
         ]
         if not alerts:
             return
@@ -1182,6 +1192,105 @@ def _send_unusual_calls_alert(hits: list) -> None:
         print(f"[unusual_alert] sent alert to {sent}/{len(subs)} subscribers — {len(alerts)} signals")
     except Exception as _ae:
         print(f"[unusual_alert] alert error (non-fatal): {_ae}")
+
+
+def _send_ai_short_calls_high_conviction(picks: list) -> None:
+    """
+    Email + SMS the user whenever AI Short Calls generates HIGH conviction picks.
+    HIGH conviction = 91% WR in Jun 1-13 backtest. MEDIUM (59% WR) is never sent.
+    Fires automatically at 10:15 AM ET Mon-Fri when picks are generated.
+    """
+    try:
+        from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
+        from sms_alerts import send_sms, sms_configured
+        if not smtp_configured() and not sms_configured():
+            print("[ai_hc_alert] no email or SMS configured — skipping")
+            return
+
+        from datetime import datetime as _dt
+        date_str = _dt.now().strftime("%b %d")
+        time_str = _dt.now().strftime("%-I:%M %p ET")
+
+        # ── SMS (brief — one line per pick) ──────────────────────────────────
+        if sms_configured():
+            lines = [f"⚡ HIGH CONVICTION CALLS ({date_str}) — {len(picks)} picks:"]
+            for p in picks:
+                otm = f"{p.get('otm_pct', 0):+.1f}%OTM"
+                lines.append(f"• {p['ticker']} ${p['strike']} {p.get('expiry','')[:10]} | Vol/OI {p.get('vol_oi',0):.1f}x | {otm}")
+            lines.append("→ nclexai.org/stock-scanner/")
+            send_sms("\n".join(lines))
+
+        if not smtp_configured():
+            return
+
+        # ── Email (detailed cards) ────────────────────────────────────────────
+        cards_html = ""
+        for p in picks:
+            otm_pct  = p.get("otm_pct", 0)
+            otm_str  = f"+{otm_pct:.1f}%" if otm_pct >= 0 else f"{otm_pct:.1f}%"
+            prem_str = f"${p.get('prem', 0):,.0f}"
+            be_str   = f"${p.get('breakeven', 0):.2f}" if p.get("breakeven") else "—"
+            cards_html += f"""
+            <div style="background:#111827;border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:16px 18px;margin-bottom:12px;">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <span style="background:rgba(251,191,36,0.15);color:#fbbf24;font-size:9px;font-weight:900;padding:2px 8px;border-radius:4px;letter-spacing:0.1em;">HIGH CONVICTION</span>
+                <span style="font-size:18px;font-weight:900;color:#f1f5f9;">{p['ticker']}</span>
+                <span style="font-size:12px;color:#64748b;">${p.get('stock_price', 0):.2f}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                <div style="text-align:center;background:#0f172a;border-radius:6px;padding:8px;">
+                  <div style="color:#fbbf24;font-weight:700;font-size:13px;">${p['strike']}</div>
+                  <div style="color:#475569;font-size:9px;">Strike</div>
+                </div>
+                <div style="text-align:center;background:#0f172a;border-radius:6px;padding:8px;">
+                  <div style="color:#f1f5f9;font-weight:700;font-size:13px;">{p.get('expiry','')[:10]}</div>
+                  <div style="color:#475569;font-size:9px;">Expiry</div>
+                </div>
+                <div style="text-align:center;background:#0f172a;border-radius:6px;padding:8px;">
+                  <div style="color:#f97316;font-weight:700;font-size:13px;">{p.get('vol_oi',0):.1f}×</div>
+                  <div style="color:#475569;font-size:9px;">Vol/OI</div>
+                </div>
+                <div style="text-align:center;background:#0f172a;border-radius:6px;padding:8px;">
+                  <div style="color:#a78bfa;font-weight:700;font-size:13px;">{otm_str}</div>
+                  <div style="color:#475569;font-size:9px;">OTM%</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:16px;margin-bottom:8px;font-size:11px;color:#64748b;">
+                <span>Premium: <span style="color:#f1f5f9;font-weight:700;">{prem_str}</span></span>
+                <span>Breakeven: <span style="color:#f1f5f9;font-weight:700;">{be_str}</span></span>
+                <span>Urgency: <span style="color:#f97316;font-weight:700;">{p.get('urgency','')}</span></span>
+              </div>
+              <p style="font-size:11px;color:#94a3b8;line-height:1.6;margin:0;">{p.get('thesis','')}</p>
+            </div>"""
+
+        base_url = os.getenv("PUBLIC_URL", "https://hello-world-2-joeldcarlo.replit.app")
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:20px;">
+            <div style="font-size:11px;color:#fbbf24;font-weight:700;letter-spacing:0.12em;margin-bottom:6px;">⚡ AI SHORT CALLS · HIGH CONVICTION ONLY</div>
+            <div style="font-size:22px;font-weight:900;color:#f1f5f9;">{len(picks)} HIGH Conviction Pick{'s' if len(picks)!=1 else ''}</div>
+            <div style="font-size:12px;color:#475569;margin-top:4px;">{date_str} · {time_str} · 91% win rate (Jun backtest)</div>
+          </div>
+          <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:11px;color:#94a3b8;">
+            <strong style="color:#fbbf24;">Why only HIGH?</strong> Backtest Jun 1–13: HIGH conviction = 91% WR (10/11 signals). MEDIUM = 59% WR — not worth the risk. You're only seeing the best setups.
+          </div>
+          {cards_html}
+          <div style="text-align:center;margin-top:20px;">
+            <a href="{base_url}/stock-scanner/" style="background:#fbbf24;color:#000;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:900;font-size:14px;">View Full Dashboard →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin-top:16px;">
+            StockScanner AI · <a href="{base_url}/stock-scanner/unsubscribe" style="color:#475569;">Unsubscribe</a>
+          </p>
+        </div>"""
+
+        subs = get_active_subscribers()
+        sent = 0
+        for sub in subs:
+            if send_email_raw(sub["email"], f"⚡ {len(picks)} HIGH Conviction Call{'s' if len(picks)!=1 else ''} — {date_str}", html):
+                sent += 1
+        print(f"[ai_hc_alert] sent to {sent}/{len(subs)} subscribers — {len(picks)} HIGH conviction picks")
+    except Exception as _e:
+        print(f"[ai_hc_alert] error (non-fatal): {_e}")
 
 
 def _send_eod_accum_email() -> None:

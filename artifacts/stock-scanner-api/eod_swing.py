@@ -1,5 +1,6 @@
 """
-EOD Swing Setup Scanner — runs at 4:05 PM ET Mon-Fri.
+EOD Swing Setup Scanner — runs at 2:00 PM ET Mon-Fri.
+Scan takes ~20-30 min, so SMS lands ~2:20-2:30 PM — 90 min to analyze before close.
 
 Looks for the 'quiet accumulation' pattern:
   1. Closed near top of day's range (80%+) — buyers still in at close

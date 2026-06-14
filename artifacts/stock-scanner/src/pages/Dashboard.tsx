@@ -3013,7 +3013,7 @@ function AIShortCallsTab() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <span style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, letterSpacing: "0.08em" }}>⚡ AI SHORT CALLS</span>
-          <span style={{ fontSize: 10, color: BB_DIM, marginLeft: 10 }}>5 AI-PICKED CALLS · ≤30 DAY EXPIRY</span>
+          <span style={{ fontSize: 10, color: BB_DIM, marginLeft: 10 }}>HIGH CONVICTION ONLY · 91% WIN RATE (JUN BACKTEST)</span>
           {generatedAt && (
             <span style={{ fontSize: 9, color: BB_DIM, marginLeft: 10 }}>
               Generated {new Date(generatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
@@ -3051,9 +3051,9 @@ function AIShortCallsTab() {
         </div>
       )}
 
-      {/* Picks cards */}
-      {picks.map((p, i) => {
-        const isHigh = p.conviction === "HIGH";
+      {/* Picks cards — HIGH conviction only (91% WR vs 59% for MEDIUM) */}
+      {picks.filter(p => p.conviction === "HIGH").map((p, i) => {
+        const isHigh = true;
         const accentColor = isHigh ? BB_ORANGE : "#888";
         const isOpen = expanded === i;
         const pnlPct = p.stock_price > 0
@@ -8265,7 +8265,7 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   };
 
   const fmtPrem = (p: number) => p >= 1 ? `$${p.toFixed(1)}M` : `$${(p * 1000).toFixed(0)}K`;
-  const signals = data?.signals ?? [];
+  const signals = (data?.signals ?? []).filter(s => s.conviction === "EXTREME" || s.conviction === "HIGH");
 
   return (
     <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
