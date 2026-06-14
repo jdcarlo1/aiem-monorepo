@@ -227,11 +227,29 @@ def _score_swing(ticker: str) -> dict | None:
         return None
 
 
+# ── Cross-reference intraday SMS log ─────────────────────────────────────────
+
+def _get_today_intraday_alerts() -> set:
+    """Return set of tickers that fired the intraday SMS scanner today."""
+    try:
+        with _conn() as con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ticker FROM sms_alerts_log
+                    WHERE alert_date = CURRENT_DATE
+                """)
+                return {row[0] for row in cur.fetchall()}
+    except Exception as e:
+        print(f"[eod_swing] intraday log lookup error: {e}")
+        return set()
+
+
 # ── Main scan ─────────────────────────────────────────────────────────────────
 
 def run_eod_swing_scan(max_tickers: int = 200) -> list[dict]:
     """
     Scan Barchart universe EOD and return top swing setups sorted by score.
+    Double-signal flag: fired intraday SMS today AND qualifies for swing setup.
     """
     now = datetime.now(_ET)
     if now.weekday() >= 5:
@@ -241,6 +259,10 @@ def run_eod_swing_scan(max_tickers: int = 200) -> list[dict]:
     universe = _barchart_universe(min_pct=2.0)[:max_tickers]
     print(f"[eod_swing] universe: {len(universe)} tickers")
 
+    # Pull today's intraday alerts once (before threading)
+    intraday_alerts = _get_today_intraday_alerts()
+    print(f"[eod_swing] {len(intraday_alerts)} intraday alerts today for cross-ref")
+
     from concurrent.futures import ThreadPoolExecutor, as_completed
     results = []
     with ThreadPoolExecutor(max_workers=8) as pool:
@@ -248,11 +270,15 @@ def run_eod_swing_scan(max_tickers: int = 200) -> list[dict]:
         for fut in as_completed(futs):
             res = fut.result()
             if res:
+                # Flag double signals — fired intraday AND qualifies for swing
+                res["double_signal"] = res["ticker"] in intraday_alerts
                 results.append(res)
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+    # Sort: double signals first, then by score
+    results.sort(key=lambda x: (x["double_signal"], x["score"]), reverse=True)
     top = results[:10]
-    print(f"[eod_swing] {len(results)} qualified → top {len(top)} returned")
+    doubles = sum(1 for r in top if r["double_signal"])
+    print(f"[eod_swing] {len(results)} qualified → top {len(top)} ({doubles} double signals)")
     return top
 
 
@@ -274,10 +300,13 @@ def send_swing_sms(picks: list[dict]) -> None:
     for p in picks:
         pcr_str = f"PCR {p['pcr']}" if p["pcr"] is not None else ""
         pcr_part = f" | {pcr_str}" if pcr_str else ""
+        double_tag = " ❤️" if p.get("double_signal") else ""
         lines.append(
             f"{p['ticker']} ${p['price']} +{p['today_chg']}% "
-            f"| Scr {p['score']} | 3d +{p['momentum_3d']}%{pcr_part}"
+            f"| Scr {p['score']} | 3d +{p['momentum_3d']}%{pcr_part}{double_tag}"
         )
+        if p.get("double_signal"):
+            lines.append("  → Double signal. Could be the start of a 5-day stretch.")
     lines.append("Stop: below 3d low. Hold overnight.")
     body = "\n".join(lines)
 
