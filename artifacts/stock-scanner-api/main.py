@@ -422,7 +422,7 @@ try:
             print(f"[scheduler] micro-cap options scan → {len(hits)} unusual calls saved")
         except Exception as e:
             print(f"[scheduler] micro-cap options scan error: {e}")
-    for _mc_hour, _mc_min in [(10, 30), (15, 30), (16, 0), (16, 15)]:
+    for _mc_hour, _mc_min in [(10, 30), (12, 0), (13, 30), (14, 30), (15, 30), (16, 0), (16, 15)]:
         _scheduler.add_job(
             _run_microcap_options_auto,
             CronTrigger(day_of_week="mon-fri", hour=_mc_hour, minute=_mc_min, timezone=_ET),
@@ -4093,9 +4093,15 @@ def _run_microcap_options_scan() -> list:
             pass
         return hits
 
+    import time as _time2
     all_hits = []
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        futs = {ex.submit(_scan_one, t): t for t in tickers}
+    # max_workers=3 avoids Yahoo Finance rate limits (10 was too aggressive)
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futs = []
+        for i, t in enumerate(tickers):
+            futs.append(ex.submit(_scan_one, t))
+            if i % 10 == 9:
+                _time2.sleep(0.5)  # brief pause every 10 submissions
         for fut in _asc(futs):
             all_hits.extend(fut.result() or [])
 
