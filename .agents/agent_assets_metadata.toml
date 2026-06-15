@@ -18,3 +18,9 @@ id = "rNA186u6m9UBZq6IFrnbS"
 uri = "file://INVENTION_DISCLOSURE.md"
 type = "text"
 title = "Invention Disclosure — StockScanner AI + NCLEX Prep AI"
+
+[[outputs]]
+id = "xTSVUCr4ccXTx_DQ6KW7a"
+uri = "file://STOCKSCANNER_AI_INVENTION_DISCLOSURE.md"
+type = "text"
+title = "StockScanner AI — Invention Disclosure (Patent Ready)"
