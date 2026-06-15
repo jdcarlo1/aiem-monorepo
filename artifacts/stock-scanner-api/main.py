@@ -298,6 +298,25 @@ try:
         id="morning_unusual_calls",
         replace_existing=True,
     )
+    # Midday scans: 11:30 AM, 1:00 PM, 2:30 PM ET — keeps HC tab fresh throughout the session
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("midday-1"),
+        CronTrigger(day_of_week="mon-fri", hour=11, minute=30, timezone=_ET),
+        id="midday_unusual_calls_1",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("midday-2"),
+        CronTrigger(day_of_week="mon-fri", hour=13, minute=0, timezone=_ET),
+        id="midday_unusual_calls_2",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("midday-3"),
+        CronTrigger(day_of_week="mon-fri", hour=14, minute=30, timezone=_ET),
+        id="midday_unusual_calls_3",
+        replace_existing=True,
+    )
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("pre-close"),
         CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone=_ET),
@@ -1137,7 +1156,7 @@ try:
 
     _scheduler.start()
     print("[scheduler] APScheduler started — "
-          "scans: 9:00/9:45 AM, 3:30/4:00/4:05/4:15 PM ET | "
+          "scans: 9:30/10:00 AM, 11:30 AM, 1:00/2:30/3:30/4:00/4:15 PM ET | "
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
