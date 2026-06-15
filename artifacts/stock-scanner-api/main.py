@@ -10586,10 +10586,11 @@ def conviction_calls():
                 ORDER BY last_seen DESC, vol_oi DESC
             """
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-            # Try today first, fall back to 24 hours, then 7 days
+            # Try today first; fall back if fewer than 5 distinct tickers (sparse scan day)
             cur.execute(_base_sql.format(interval="CURRENT_DATE"))
             rows_today = cur.fetchall()
-            if rows_today:
+            today_tickers = len(set(r[0] for r in rows_today))
+            if today_tickers >= 5:
                 rows_raw = rows_today
                 window_label = "today"
             else:
@@ -10600,7 +10601,7 @@ def conviction_calls():
                     cur.execute(_base_sql.format(interval="NOW() - INTERVAL '7 days'"))
                     rows_raw = cur.fetchall()
                     window_label = "7d"
-        print(f"[conviction_calls] today={len(rows_today)}, window={window_label}, total={len(rows_raw)}")
+        print(f"[conviction_calls] today={len(rows_today)} ({today_tickers} tickers), window={window_label}, total={len(rows_raw)}")
 
         cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
         rows = [dict(zip(cols, r)) for r in rows_raw]
