@@ -8239,7 +8239,7 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
 // ---- High Conviction Calls Tab --------------------------------------------
 function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-  const [data, setData]       = useState<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string } | null>(null);
+  const [data, setData]       = useState<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; window?: string; note?: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -8276,6 +8276,19 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 
   const fmtPrem = (p: number) => p >= 1 ? `$${p.toFixed(1)}M` : `$${(p * 1000).toFixed(0)}K`;
   const signals = (data?.signals ?? []).filter(s => s.conviction === "EXTREME" || s.conviction === "HIGH");
+  const fmtScanDate = (iso?: string) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+    const timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (isToday) return `Today ${timeStr}`;
+    if (isYesterday) return `Yesterday ${timeStr}`;
+    return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + timeStr;
+  };
+  const windowLabel = data?.window === "today" ? "TODAY" : data?.window === "24h" ? "LAST 24H" : data?.window === "7d" ? "LAST 7D" : null;
 
   return (
     <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
@@ -8287,9 +8300,16 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
             Stocks where calls DRAMATICALLY outpace puts · Multi-strike sweeps · ≤30d · Pure naked calls only
           </div>
         </div>
-        <button onClick={() => load(true)} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
-          {loading ? "SCANNING…" : "↻ REFRESH"}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+          {windowLabel && (
+            <span style={{ fontSize: 7, fontWeight: 700, letterSpacing: "0.1em", color: windowLabel === "TODAY" ? "#22c55e" : "#fbbf24", background: windowLabel === "TODAY" ? "rgba(34,197,94,0.1)" : "rgba(251,191,36,0.1)", padding: "2px 6px" }}>
+              DATA: {windowLabel}
+            </span>
+          )}
+          <button onClick={() => load(true)} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
+            {loading ? "SCANNING…" : "↻ REFRESH"}
+          </button>
+        </div>
       </div>
 
       {/* How scoring works */}
@@ -8335,6 +8355,11 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
                 >{sig.ticker}</span>
                 <span style={{ color: BB_LABEL, fontSize: 10 }}>${sig.price.toFixed(2)}</span>
                 <span style={{ background: sig.urgency === "EXPIRING" ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.12)", color: sig.urgency === "EXPIRING" ? BB_RED : "#fbbf24", fontSize: 8, fontWeight: 700, padding: "2px 7px" }}>{sig.urgency}</span>
+                {fmtScanDate(sig.last_seen) && (
+                  <span style={{ color: fmtScanDate(sig.last_seen)?.startsWith("Today") ? "#22c55e" : "#fbbf24", fontSize: 8, fontWeight: 600 }}>
+                    🕐 {fmtScanDate(sig.last_seen)}
+                  </span>
+                )}
               </div>
               <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>Strikes: <span style={{ color: sig.num_strikes >= 3 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.num_strikes} sweeping</span></span>

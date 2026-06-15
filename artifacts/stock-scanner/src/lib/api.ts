@@ -785,10 +785,11 @@ export interface ConvictionCallSignal {
   ticker: string; price: number; score: number; conviction: string;
   rank: number; num_strikes: number; total_prem_m: number;
   max_vol_oi: number; avg_iv: number; urgency: string;
+  last_seen?: string;
   strikes: ConvictionCallStrike[];
 }
 export function fetchConvictionCalls(force = false) {
-  return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; note?: string; error?: string }>(`/conviction-calls${force ? "?force=1" : ""}`);
+  return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; window?: string; note?: string; error?: string }>(`/conviction-calls${force ? "?force=1" : ""}`);
 }
 
 export interface ConvictionOutcomePick {

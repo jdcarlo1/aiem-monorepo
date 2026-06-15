@@ -10650,6 +10650,10 @@ def conviction_calls():
             days_out_min = min(s["days_out"] for s in strikes if s["days_out"])
             urgency_label = "EXPIRING" if days_out_min <= 5 else f"{days_out_min}D"
 
+            # Most recent last_seen across all strikes for this ticker
+            last_seen_vals = [s["last_seen"] for s in strikes if s.get("last_seen")]
+            ticker_last_seen = max(last_seen_vals).isoformat() if last_seen_vals else None
+
             results.append({
                 "ticker":         ticker,
                 "price":          price,
@@ -10660,6 +10664,7 @@ def conviction_calls():
                 "max_vol_oi":     round(max_vol_oi, 1),
                 "avg_iv":         round(avg_iv, 1),
                 "urgency":        urgency_label,
+                "last_seen":      ticker_last_seen,
                 "strikes":        sorted(strikes, key=lambda s: s["vol_oi"], reverse=True)[:8],
             })
 
@@ -10676,6 +10681,7 @@ def conviction_calls():
             "signals":      results,
             "generated_at": _dt.now().isoformat(),
             "total":        len(results),
+            "window":       window_label,
         }
         app._conv_calls_cache    = out
         app._conv_calls_cache_ts = _dt.now()
