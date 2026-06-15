@@ -3016,7 +3016,7 @@ function ETFCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         <div>
           <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🔥 High Conviction ETFs</h2>
           <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
-            ETF-only bullish call activity · Sorted most → least bullish (Vol/OI ↓ then Premium ↓)
+            ETF-only bullish call activity · Sorted by biggest premium first (most money on table → least)
             {data ? ` · ${signals.length} signals · ${data.today_count} today` : " · loading…"}
           </p>
         </div>

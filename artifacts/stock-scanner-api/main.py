@@ -10286,7 +10286,7 @@ def etf_calls():
                 WHERE ticker IN ({placeholders})
                   AND prem >= 50000
                   {date_filter}
-                ORDER BY vol_oi DESC, prem DESC
+                ORDER BY prem DESC, vol_oi DESC
                 LIMIT 300
             """, _etf_set)
             cols = [d[0] for d in cur.description]
