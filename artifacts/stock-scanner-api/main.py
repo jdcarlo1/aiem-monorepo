@@ -3558,6 +3558,7 @@ PORT = int(os.environ.get("STOCK_API_PORT", 5050))
 
 
 @app.route("/stock-api/", methods=["GET"])
+@app.route("/stock-api", methods=["GET"])
 def health_root():
     return jsonify({"status": "ok"}), 200
 
@@ -5280,47 +5281,52 @@ def bull_flow_top10():
             return None
 
     rows = []
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    with ThreadPoolExecutor(max_workers=3) as ex:
         futures = {ex.submit(_get_row, t): t for t in tickers}
         for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                rows.append(r)
+            try:
+                r = fut.result(timeout=15)
+                if r:
+                    rows.append(r)
+            except Exception:
+                pass
 
-    # ── DB fallback: if yfinance rate-limited and returned nothing, pull from unusual_calls_log ──
-    if not rows:
-        try:
-            with _psycopg2.connect(_DB_URL) as _bfc, _bfc.cursor() as _bfcur:
-                _bfcur.execute("""
-                    SELECT DISTINCT ON (ticker)
-                        ticker, price::float, strike::float, expiry,
-                        volume, oi, vol_oi::float, prem::bigint
-                    FROM unusual_calls_log
-                    WHERE last_seen  >= NOW() - INTERVAL '36 hours'
-                      AND expiry::date > CURRENT_DATE
-                      AND prem >= 500000
-                    ORDER BY ticker, prem DESC
-                """)
-                db_hits = _bfcur.fetchall()
-            db_hits.sort(key=lambda x: x[7], reverse=True)
-            for idx, r in enumerate(db_hits[:40]):
-                _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
-                rows.append({
-                    "ticker":           _tk,
-                    "price":            round(float(_pr or 0), 2),
-                    "strike":           float(_st or 0),
-                    "expiry":           _ex,
-                    "premium_m":        round(float(_prem) / 1_000_000, 2),
-                    "premium_k":        round(float(_prem) / 1_000, 1),
-                    "call_put_ratio":   round(float(_voi or 1), 2),
-                    "call_vol_oi":      round(float(_voi or 0), 2),
-                    "total_call_vol":   int(_vol or 0),
-                    "days_to_earnings": None,
-                    "short_float_pct":  None,
-                    "source":           "db",
-                })
-        except Exception as _dbe:
-            print(f"[bull_flow] DB fallback error: {_dbe}")
+    # ── DB fallback: always merge DB data so tab always has content ──
+    try:
+        with _psycopg2.connect(_DB_URL) as _bfc, _bfc.cursor() as _bfcur:
+            _bfcur.execute("""
+                SELECT DISTINCT ON (ticker)
+                    ticker, price::float, strike::float, expiry,
+                    volume, oi, vol_oi::float, prem::bigint
+                FROM unusual_calls_log
+                WHERE last_seen  >= NOW() - INTERVAL '48 hours'
+                  AND expiry::date > CURRENT_DATE
+                  AND prem >= 100000
+                ORDER BY ticker, prem DESC
+            """)
+            db_hits = _bfcur.fetchall()
+        db_hits.sort(key=lambda x: x[7], reverse=True)
+        live_tickers = {r["ticker"] for r in rows}
+        for idx, r in enumerate(db_hits[:40]):
+            _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
+            if _tk in live_tickers:
+                continue  # live scan already has fresher data for this ticker
+            rows.append({
+                "ticker":           _tk,
+                "price":            round(float(_pr or 0), 2),
+                "strike":           float(_st or 0),
+                "expiry":           _ex,
+                "premium_m":        round(float(_prem) / 1_000_000, 2),
+                "premium_k":        round(float(_prem) / 1_000, 1),
+                "call_put_ratio":   round(float(_voi or 1), 2),
+                "call_vol_oi":      round(float(_voi or 0), 2),
+                "total_call_vol":   int(_vol or 0),
+                "days_to_earnings": None,
+                "short_float_pct":  None,
+                "source":           "db",
+            })
+    except Exception as _dbe:
+        print(f"[bull_flow] DB fallback error: {_dbe}")
 
     rows.sort(key=lambda x: x["premium_m"], reverse=True)
     top40 = rows[:40]
@@ -14218,14 +14224,6 @@ def insider_outcomes_route():
 @app.route("/stock-api/healthz", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
-
-@app.route("/stock-api/", methods=["GET"])
-@app.route("/stock-api", methods=["GET"])
-def health_root():
-    """Root health check — Replit's deployment system pings this URL.
-    Without it the healthcheck returns 500 and Replit restarts the server."""
-    return jsonify({"status": "ok"})
-
 
 def _startup_scan_if_needed():
     """On startup, trigger a scan if:
