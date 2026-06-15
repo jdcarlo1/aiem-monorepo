@@ -12,3 +12,9 @@ id = "la0rsFQjbH-EMx_nOkJLn"
 uri = "file://artifacts/stock-scanner/Landing.txt"
 type = "text"
 title = "Landing.tsx — StockScanner AI"
+
+[[outputs]]
+id = "rNA186u6m9UBZq6IFrnbS"
+uri = "file://INVENTION_DISCLOSURE.md"
+type = "text"
+title = "Invention Disclosure — StockScanner AI + NCLEX Prep AI"
