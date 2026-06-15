@@ -29,6 +29,7 @@ import {
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
+  fetchEtfCalls, EtfCallsResult,
   fetchInsiderRadar, InsiderRadarRow, InsiderRadarResult,
   fetchInsiderAlerts, InsiderAlert, InsiderAlertsResult,
   fetchInsiderOutcomes, InsiderOutcome, InsiderOutcomesResult,
@@ -2953,6 +2954,176 @@ function UnusualCallsLogTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
       )}
       <p style={{ fontFamily: BB_F, color: "#334155", fontSize: 10, marginTop: 20, textAlign: "center" }}>
         Captured every time 🚨 Unusual Calls is scanned · Signals never deleted · Max 500 shown · first_seen = when first detected
+      </p>
+    </div>
+  );
+}
+
+// ---- ETF Calls Tab -------------------------------------------------------
+function ETFCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]       = useState<EtfCallsResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [todayOnly, setTodayOnly] = useState(false);
+  const [saved, setSaved]     = useState<Record<string, boolean>>({});
+
+  const load = (today: boolean) => {
+    setLoading(true);
+    fetchEtfCalls(today)
+      .then(d => setData(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(todayOnly); }, [todayOnly]);
+
+  const handleSave = async (e: React.MouseEvent, h: UnusualCallsLogEntry) => {
+    e.stopPropagation();
+    const key = `${h.ticker}-${h.strike}-${h.expiry}`;
+    try {
+      await saveMyTrade({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, vol_oi: h.vol_oi, prem: h.prem, otm_pct: h.otm_pct, urgency: h.urgency, signal_detected_at: h.first_seen });
+      setSaved(s => ({ ...s, [key]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
+    } catch {}
+  };
+
+  const signals = data?.signals ?? [];
+
+  const urgencyStyle = (u: string) => {
+    if (u === "EXPIRING") return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 EXPIRING ≤7d" };
+    if (u === "NEAR")     return { color: "#fb923c", bg: "rgba(251,146,60,0.12)",  border: "rgba(251,146,60,0.3)",  label: "🟠 NEAR ≤14d" };
+    return                       { color: "#facc15", bg: "rgba(250,204,21,0.1)",   border: "rgba(250,204,21,0.25)", label: "🟡 SHORT ≤45d" };
+  };
+
+  const volOiBadge = (r: number) => {
+    if (r >= 20) return { color: "#f87171" };
+    if (r >= 10) return { color: "#fb923c" };
+    if (r >= 5)  return { color: "#facc15" };
+    return              { color: "#38bdf8" };
+  };
+
+  const fmt = (iso: string) => {
+    try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; }
+    catch { return iso; }
+  };
+
+  const totalPrem   = signals.reduce((s, h) => s + h.prem, 0);
+  const topTicker   = signals.length ? signals.reduce((a, b) => b.prem > a.prem ? b : a).ticker : "—";
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🔥 High Conviction ETFs</h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            ETF-only bullish call activity · Sorted most → least bullish (Vol/OI ↓ then Premium ↓)
+            {data ? ` · ${signals.length} signals · ${data.today_count} today` : " · loading…"}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[{ label: "ALL TIME", val: false }, { label: "TODAY ONLY", val: true }].map(opt => (
+            <button key={opt.label} onClick={() => setTodayOnly(opt.val)}
+              style={{ fontFamily: BB_F, fontSize: 11, fontWeight: 700, padding: "6px 14px", borderRadius: 8, cursor: "pointer", transition: "all 0.15s",
+                background: todayOnly === opt.val ? "rgba(56,189,248,0.15)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${todayOnly === opt.val ? "rgba(56,189,248,0.5)" : "rgba(255,255,255,0.1)"}`,
+                color: todayOnly === opt.val ? "#38bdf8" : "#64748b" }}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {data && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 24 }}>
+          {[
+            { label: "Today's ETF Signals", val: data.today_count,                               color: "#38bdf8" },
+            { label: "Total ETF Premium",   val: `$${(totalPrem/1_000_000).toFixed(1)}M`,        color: "#4ade80" },
+            { label: "Biggest Flow ETF",    val: topTicker,                                      color: "#facc15" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "16px 20px", textAlign: "center" }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 24, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loading && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+            {[0,1,2].map(i => <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#38bdf8", display: "inline-block", animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />)}
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>Loading ETF flow data…</p>
+        </div>
+      )}
+
+      {!loading && signals.length === 0 && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🏛️</div>
+          <p style={{ fontFamily: BB_F, color: "#475569" }}>
+            {todayOnly
+              ? "No ETF unusual calls captured today yet. The scanner runs 9× daily during market hours."
+              : "No ETF signals on record yet. They will populate automatically during market hours."}
+          </p>
+        </div>
+      )}
+
+      {!loading && signals.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {signals.map((h, i) => {
+            const urg  = urgencyStyle(h.urgency);
+            const voib = volOiBadge(h.vol_oi);
+            const key  = `${h.ticker}-${h.strike}-${h.expiry}`;
+            const premK = h.prem >= 1_000_000 ? `$${(h.prem/1_000_000).toFixed(1)}M` : `$${(h.prem/1000).toFixed(0)}k`;
+            const otmLabel = h.otm_pct > 0 ? `+${h.otm_pct.toFixed(1)}% OTM` : h.otm_pct < 0 ? `${Math.abs(h.otm_pct).toFixed(1)}% ITM` : "ATM";
+            const isToday = (h.last_seen || "").startsWith(new Date().toISOString().slice(0,10));
+            return (
+              <div key={i} onClick={() => onSelectTicker(h.ticker)} style={{
+                background: isToday ? "rgba(56,189,248,0.04)" : "rgba(255,255,255,0.02)",
+                border: `1px solid ${isToday ? "rgba(56,189,248,0.18)" : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center",
+                justifyContent: "space-between", gap: 12, flexWrap: "wrap", cursor: "pointer",
+                transition: "background 0.15s",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = isToday ? "rgba(56,189,248,0.08)" : "rgba(255,255,255,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = isToday ? "rgba(56,189,248,0.04)" : "rgba(255,255,255,0.02)")}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 17 }}>{h.ticker}</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>${h.price?.toFixed(2)}</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(56,189,248,0.12)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.3)" }}>ETF CALL</span>
+                      {isToday && <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(34,197,94,0.12)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.3)" }}>TODAY</span>}
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 7px", borderRadius: 99, background: urg.bg, color: urg.color, border: `1px solid ${urg.border}` }}>{urg.label}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 12, fontWeight: 700 }}>${h.strike} strike</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>exp {h.expiry}</span>
+                      <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11 }}>{otmLabel}</span>
+                      <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>Detected {fmt(h.first_seen)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, letterSpacing: "-0.04em", marginBottom: 1, color: voib.color }}>{h.vol_oi}x</div>
+                  <div style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 10, marginBottom: 1 }}>Vol/OI</div>
+                  <div style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 12, fontWeight: 700 }}>{premK}</div>
+                  <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{h.volume?.toLocaleString()} vol · {h.oi?.toLocaleString()} OI</div>
+                  <button onClick={e => handleSave(e, h)} style={{ marginTop: 6, padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer", border: "1px solid", transition: "all 0.2s",
+                    background: saved[key] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                    borderColor: saved[key] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                    color: saved[key] ? "#4ade80" : "#64748b" }}>
+                    {saved[key] ? "✓ Saved" : "📌 Save"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p style={{ fontFamily: BB_F, color: "#334155", fontSize: 10, marginTop: 20, textAlign: "center" }}>
+        ETF-only · $50K+ premium floor · Sorted most → least bullish · TODAY badge = detected today · Max 300 shown
       </p>
     </div>
   );
@@ -12213,7 +12384,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -12339,6 +12510,7 @@ export default function Dashboard() {
     { id: "insiderradar",    label: "🕵️ INSIDER RADAR" },
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
+    { id: "etfcalls",        label: "🔥 HC ETFs" },
     { id: "convictioncalls", label: "🔥 HIGH CONVICTION" },
     { id: "eodsweep",        label: "🌙 EOD SWEEP" },
     { id: "sweeptrack",      label: "📊 SWEEP TRACK RECORD" },
@@ -12953,6 +13125,7 @@ export default function Dashboard() {
         {tab === "insiderradar"    && <InsiderRadarTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
+        {tab === "etfcalls"        && <ETFCallsTab        onSelectTicker={selectTicker} />}
         {tab === "convictioncalls" && <ConvictionCallsTab onSelectTicker={selectTicker} />}
         {tab === "eodsweep"        && <EodSweepTab       onSelectTicker={selectTicker} />}
         {tab === "sweeptrack"      && <EodSweepTrackTab />}

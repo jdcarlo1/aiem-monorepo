@@ -1226,6 +1226,16 @@ export function fetchUnusualCallsLog(ticker?: string) {
   return fetchJson<UnusualCallsLogResult>(`/unusual-calls-log${q}`);
 }
 
+export interface EtfCallsResult {
+  signals: UnusualCallsLogEntry[];
+  total: number;
+  today_count: number;
+}
+
+export function fetchEtfCalls(todayOnly = false) {
+  return fetchJson<EtfCallsResult>(`/etf-calls${todayOnly ? "?today=1" : ""}`);
+}
+
 export interface InsiderRadarRow extends UnusualCallsLogEntry {
   suspicion_score:    number;
   ticker_appearances: number;

@@ -10249,6 +10249,59 @@ def unusual_calls_log():
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
 
 
+@app.route("/stock-api/etf-calls", methods=["GET"])
+def etf_calls():
+    """ETF-only unusual calls from the DB, sorted most bullish first (Vol/OI desc, prem desc)."""
+    today_only = request.args.get("today", "0") == "1"
+    _ETF_TICKERS = [
+        "SPY","QQQ","IWM","DIA","MDY","VTI","VOO",
+        "XLF","XLE","XLK","XLY","XLI","XLV","XLB","XLP","XLU","XLRE",
+        "SMH","SOXX","XBI","IBB","KRE","XRT","ITB","JETS","KWEB","DRAM",
+        "TQQQ","SPXL","SOXL","UDOW","LABU","FNGU","TECL","UPRO","TNA","FAS","ERX",
+        "SQQQ","SPXS","SOXS","SDOW","TZA","FAZ","ERY",
+        "SSO","QLD","DDM","UWM","SDS","QID","DXD","TWM",
+        "VXX","UVXY","SVXY","VIXY","SVOL",
+        "GLD","IAU","SLV","USO","UNG","GDX","GDXJ","OIH",
+        "TLT","HYG","LQD","TBT","TMF","SHY","IEF","JNK",
+        "EEM","EFA","FXI","EWJ","EWZ","EWY","IEMG",
+        "ARKK","ARKG","ARKW","ARKF",
+        "IBIT","FBTC","BITB","ARKB","WGMI",
+        "MCHI","INDA","EWT","EWG","EWU","EWC","EWA","EWH","EWS","EWL",
+        "XOP","BOIL","KOLD","NAIL","CURE","BULZ","BERZ","MEXX","HIBL","HIBS",
+        "SOXL","SOXS","FNGU","FNGD","BULZ","BERZ","WEBL","WEBS",
+        "BITX","BITO","BITI","MSTR",
+    ]
+    _etf_set = list(dict.fromkeys(_ETF_TICKERS))
+    placeholders = ",".join(["%s"] * len(_etf_set))
+    date_filter = "AND DATE(last_seen AT TIME ZONE 'UTC') = CURRENT_DATE" if today_only else ""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT ticker, price::float, strike::float, expiry, days_out,
+                       volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                       iv::float, urgency,
+                       first_seen AT TIME ZONE 'UTC' AS first_seen,
+                       last_seen  AT TIME ZONE 'UTC' AS last_seen
+                FROM unusual_calls_log
+                WHERE ticker IN ({placeholders})
+                  AND prem >= 50000
+                  {date_filter}
+                ORDER BY vol_oi DESC, prem DESC
+                LIMIT 300
+            """, _etf_set)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            from datetime import datetime as _dt_etf, timezone as _tz2
+            today_str = _dt_etf.now(_tz2.utc).strftime("%Y-%m-%d")
+            for r in rows:
+                if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
+                if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
+            today_count = sum(1 for r in rows if (r.get("last_seen") or "")[:10] == today_str)
+        return jsonify({"signals": rows, "total": len(rows), "today_count": today_count})
+    except Exception as e:
+        return jsonify({"error": str(e), "signals": [], "total": 0, "today_count": 0}), 500
+
+
 @app.route("/stock-api/eod-sweeps", methods=["GET"])
 def eod_sweeps():
     """
