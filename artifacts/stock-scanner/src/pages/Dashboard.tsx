@@ -8281,12 +8281,11 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
     const d = new Date(iso);
     const now = new Date();
     const isToday = d.toDateString() === now.toDateString();
-    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
-    const isYesterday = d.toDateString() === yesterday.toDateString();
     const timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     if (isToday) return `Today ${timeStr}`;
-    if (isYesterday) return `Yesterday ${timeStr}`;
-    return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + timeStr;
+    const dayName = d.toLocaleDateString([], { weekday: "short" });
+    const dateStr = d.toLocaleDateString([], { month: "short", day: "numeric" });
+    return `${dayName} ${dateStr} ${timeStr}`;
   };
   const windowLabel = data?.window === "today" ? "TODAY" : data?.window === "24h" ? "LAST 24H" : data?.window === "7d" ? "LAST 7D" : null;
 

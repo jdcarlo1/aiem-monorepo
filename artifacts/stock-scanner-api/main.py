@@ -14190,9 +14190,15 @@ def health():
 
 
 def _startup_scan_if_needed():
-    """On startup, if today's unusual_calls_log is empty, trigger a background scan immediately."""
+    """On startup, if today's unusual_calls_log is empty AND it's a weekday, trigger a background scan."""
     import threading as _sthr
+    from datetime import datetime as _dtc
+    import pytz as _ptz
     try:
+        _et_now = _dtc.now(_ptz.timezone("America/New_York"))
+        if _et_now.weekday() >= 5:  # 5=Saturday, 6=Sunday
+            print(f"[startup] weekend ({_et_now.strftime('%A')}) — skipping startup scan, no market data")
+            return
         with _psycopg2.connect(_DB_URL) as _sc, _sc.cursor() as _scur:
             _scur.execute("SELECT COUNT(*) FROM unusual_calls_log WHERE last_seen >= CURRENT_DATE")
             _count = _scur.fetchone()[0]
