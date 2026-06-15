@@ -792,6 +792,10 @@ export function fetchConvictionCalls(force = false) {
   return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; window?: string; note?: string; error?: string }>(`/conviction-calls${force ? "?force=1" : ""}`);
 }
 
+export function triggerConvictionScan() {
+  return fetchJson<{ status: string; message: string }>("/admin/run-eod-scan", { method: "POST" });
+}
+
 export interface ConvictionOutcomePick {
   snap_date: string; ticker: string; conviction: string; score: number;
   entry_price: number | null;

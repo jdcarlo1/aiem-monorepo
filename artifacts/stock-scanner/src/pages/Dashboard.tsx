@@ -22,7 +22,7 @@ import {
   AITradeSetup, SignalEvent, CompositeScoreRow,
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
   fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
-  fetchConvictionCalls, ConvictionCallSignal, ConvictionCallStrike,
+  fetchConvictionCalls, triggerConvictionScan, ConvictionCallSignal, ConvictionCallStrike,
   fetchConvictionOutcomes, ConvictionOutcomeResult,
   fetchEodSweeps, EodSweepSignal, EodSweepStrike, fetchEodSweepTrackRecord,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
@@ -8241,17 +8241,37 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData]       = useState<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; window?: string; note?: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [outcomes, setOutcomes]           = useState<ConvictionOutcomeResult | null>(null);
   const [outcomesLoading, setOutcomesLoading] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const load = async (force = false) => {
-    setLoading(true); setError(null);
-    try { setData(await fetchConvictionCalls(force)); }
+  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+
+  const load = async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    setError(null);
+    try { setData(await fetchConvictionCalls(true)); }
     catch (e: any) { setError(e.message ?? "Failed to load"); }
-    finally { setLoading(false); }
+    finally { if (!quiet) setLoading(false); }
   };
+
+  const handleRefresh = async () => {
+    if (scanning || loading) return;
+    setScanning(true);
+    setError(null);
+    try { await triggerConvictionScan(); } catch { /* fire and forget */ }
+    // Poll every 15s — scan takes ~2 min
+    stopPoll();
+    pollRef.current = setInterval(() => { load(true); }, 15_000);
+    // Reload immediately once, then rely on polling
+    await load(true);
+    // Stop polling after 3 minutes max
+    setTimeout(() => { stopPoll(); setScanning(false); }, 180_000);
+  };
+
   useEffect(() => {
     load();
     setOutcomesLoading(true);
@@ -8259,6 +8279,7 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
       .then(d => setOutcomes(d))
       .catch(() => {})
       .finally(() => setOutcomesLoading(false));
+    return stopPoll;
   }, []);
 
   const convColor = (c: string) => {
@@ -8305,8 +8326,8 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
               DATA: {windowLabel}
             </span>
           )}
-          <button onClick={() => load(true)} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
-            {loading ? "SCANNING…" : "↻ REFRESH"}
+          <button onClick={handleRefresh} disabled={loading || scanning} style={{ background: scanning ? "rgba(34,197,94,0.08)" : "transparent", border: `1px solid ${scanning ? "#22c55e" : BB_BORDER}`, color: scanning ? "#22c55e" : BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: (loading || scanning) ? "not-allowed" : "pointer", letterSpacing: "0.1em", opacity: (loading || scanning) ? 0.7 : 1, transition: "all 0.2s" }}>
+            {scanning ? "⚙ SCANNING…" : loading ? "LOADING…" : "↻ REFRESH"}
           </button>
         </div>
       </div>
