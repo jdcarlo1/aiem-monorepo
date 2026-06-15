@@ -324,6 +324,12 @@ try:
         replace_existing=True,
     )
     _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("late-session"),
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=45, timezone=_ET),
+        id="late_session_unusual_calls",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
         lambda: _run_unusual_calls_scan("eod-1"),
         CronTrigger(day_of_week="mon-fri", hour=16, minute=0, timezone=_ET),
         id="eod_unusual_calls_1",
