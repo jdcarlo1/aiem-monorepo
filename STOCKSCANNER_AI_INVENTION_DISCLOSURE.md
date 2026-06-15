@@ -781,7 +781,488 @@ inventive concepts suitable for patent protection:
 
 ---
 
-## SECTION 12 — DECLARATION
+## SECTION 12 — PROBLEM-SOLUTION NARRATIVE
+
+### The Problem with Existing Tools
+
+Every major existing financial data platform — Bloomberg Terminal, ThinkOrSwim,
+Unusual Whales, FlowAlgo, Cheddar Flow, Market Chameleon, Barchart — presents
+signals in **isolation**. A trader looking at unusual options activity sees one
+table. A trader looking at dark pool prints sees another table. A trader looking
+at technical breakouts sees a third. There is no system that:
+
+1. Monitors all signal types simultaneously in real time
+2. Cross-references signals across methodologies automatically
+3. Applies a multi-gate conviction scoring algorithm to filter noise
+4. Delivers only the highest-confidence results via automated SMS
+5. Tracks and stores the verified outcomes of every signal for win rate analysis
+
+The result is a **false positive problem**: most "unusual" options activity is
+noise. Most technical breakouts fail. Most dark pool prints don't precede moves.
+Retail traders and even professionals acting on isolated signals are responding
+to noise more often than signal.
+
+### The Specific Technical Problem
+
+Existing systems lack a mechanism to:
+- Distinguish between institutional options activity (high probability) and
+  retail-mimicking activity (low probability) using multi-factor scoring
+- Cross-reference long-term dollar-weighted positioning (whale LEAPS) with
+  short-term urgency signals (vol/OI sweeps) on the same security simultaneously
+- Gate intraday price signals against sector-level market conditions in real time
+- Detect end-of-day institutional accumulation on flat/negative price days
+  (existing systems require positive price change, missing the most sophisticated
+  institutional buying patterns)
+
+### The Inventive Solution
+
+StockScanner AI solves these problems through:
+
+1. **Multi-layer signal cross-referencing** — 45 independent scanners running
+   simultaneously, with a composite engine that only surfaces tickers confirmed
+   by multiple independent methodologies
+
+2. **The Dual-Signal Crossover** — a novel cross-referencing of (a) absolute
+   dollar size (whale LEAPS ≥$5M) and (b) relative activity ratio (vol/OI ≥5x)
+   on the same security the same day — two signals that measure fundamentally
+   different dimensions of institutional conviction
+
+3. **The ICS Conviction Scorer** — a 200-point multi-factor algorithm that
+   separates 91% WR (HIGH tier) signals from 59% WR (MEDIUM tier) signals
+   using the same underlying data — demonstrating that the scoring methodology
+   itself creates the edge, not just the raw data
+
+4. **The EOD Accumulation Algorithm** — five simultaneous gates that detect
+   institutional accumulation on flat/negative days, a pattern invisible to
+   all existing scanners that require positive price change
+
+5. **Verified outcome tracking** — real-time computation and permanent storage
+   of D+1, D+3, D+5 outcomes for every signal, creating a continuously growing
+   verifiable track record
+
+---
+
+## SECTION 13 — PRIOR ART COMPARISON
+
+The following existing commercial products were analyzed. None perform the
+specific inventive combinations claimed in Section 11.
+
+| Product | What it does | What it lacks |
+|---|---|---|
+| **Bloomberg Terminal** | Institutional data, options flow, dark pool | No cross-signal scoring, no SMS delivery, no conviction filter, costs $25K+/yr |
+| **ThinkOrSwim (TD/Schwab)** | Technical scanners, options chains | No options flow cross-referencing, no whale detection, no automated alerts |
+| **Unusual Whales** | Options flow visualization, vol/OI display | No whale LEAPS cross-reference, no ICS scorer, no dual-signal crossover, no SMS |
+| **FlowAlgo** | Real-time options sweep alerts | No conviction scoring, no whale cross-reference, no EOD accumulation, no outcomes |
+| **Cheddar Flow** | Options sweep display by premium size | No multi-signal composite, no technical confirmation, no SMS, no outcome tracking |
+| **Market Chameleon** | IV rank, options analytics | No real-time sweep detection, no whale tracking, no SMS alerts |
+| **Barchart Options** | Options scanner, top movers | No institutional cross-referencing, no conviction scoring, no automated delivery |
+| **Finviz Elite** | Technical screener | Options flow not integrated, no whale detection, no SMS |
+| **Trade-Alert.com** | Options flow alerts | No whale cross-reference, no ICS, no sector ETF gating, no outcome tracking |
+| **BlackBoxStocks** | Options + technical hybrid | No LEAPS whale cross-referencing, no conviction scoring algorithm, no EOD accumulation |
+
+### Key Differentiators Not Found in Prior Art:
+
+1. **Whale LEAPS + Short-Term HC Crossover** — No existing product cross-references
+   long-term dollar-weighted whale positioning with short-term vol/OI sweep ratios
+   on the same security in real time.
+
+2. **200-Point Multi-Factor ICS with Sector ETF Gate** — No existing scanner
+   applies a 21-signal composite score AND simultaneously gates against the
+   relevant sector ETF's daily performance before issuing an alert.
+
+3. **EOD Flat/Down-Day Accumulation Detection** — Existing scanners require positive
+   price change. This system's five-gate algorithm detects accumulation on flat
+   and down days — a different and more sophisticated institutional buying pattern.
+
+4. **Automated D+1/D+3/D+5 Outcome Tracking** — No existing scanner automatically
+   stores verified forward price outcomes for every signal generated, enabling
+   a continuously compounding win rate database.
+
+5. **Email-to-SMS Gateway with Per-Day De-duplication** — Novel method of
+   delivering real-time trading alerts via carrier SMTP gateways with
+   database-enforced per-ticker-per-day deduplication logic.
+
+---
+
+## SECTION 14 — EXACT ALGORITHM SPECIFICATIONS
+
+### 14.1 Intraday Conviction Score (ICS) — Full Formula
+
+```
+ICS_SCORE = SUM(original_signals) + SUM(holy_grail_signals)
+ICS_PCT   = ICS_SCORE / 200 * 100
+
+LABELS:
+  ICS_PCT >= 80  → "EXTREME 🔥🔥🔥"  → SMS fires
+  ICS_PCT >= 70  → "HIGH ⭐⭐⭐"       → SMS fires
+  ICS_PCT >= 50  → "ELEVATED"          → No SMS (display only)
+
+ORIGINAL SIGNALS (max 120 pts):
+  rvol_3x        = 10 if rvol >= 3.0 else 0
+  above_vwap     = 8  if price > vwap else 0
+  price_chg      = 8  if price_chg_pct >= 1.0 else 0
+  gap_up         = 7  if gap_pct > 0 else 0
+  spread_tight   = 7  if (ask-bid)/price < 0.002 else 0
+  options_sweep  = [up to 80 pts from options_sweep.py sub-signals]
+
+HOLY GRAIL SIGNALS (max 80 pts — holy_grail.py):
+  delta_flow     = 10 if call_delta_flow > put_delta_flow * 1.5 else 0
+  tape_reading   = 8  if tape_velocity > baseline * 2 else 0
+  vwap_2std      = 8  if price > vwap + (2 * vwap_std) else 0
+  mfi_70         = 8  if MFI(14) > 70 else 0
+  price_accel    = 7  if d2_price > 0 else 0  # second derivative
+  consec_green   = 6  if consecutive_green_candles >= 3 else 0
+  premarket_5x   = 8  if premarket_vol > avg_premarket * 5 else 0
+  vwap_reclaim   = 8  if prev_below_vwap AND now_above_vwap else 0
+  min_rvol_3x    = 10 if current_min_vol > avg_min_vol * 3 else 0
+  spread_compress= 7  if spread_pct < spread_5d_avg * 0.5 else 0
+
+SECTOR ETF GATE (applied AFTER scoring):
+  sector_etf = map(yfinance.info.sector, industry → ETF ticker)
+  if sector_etf.day_chg_pct < 0:
+    BLOCK signal (do not alert regardless of ICS score)
+  EXCEPTION: XLV (healthcare), XLY (consumer) never blocked in morning burst
+
+MORNING BURST ADDITIONAL GATES (applied before scoring):
+  if gap_pct > 4.0:   SKIP  # pre-market retail FOMO
+  if vwap_ext > 2.0:  SKIP  # already extended from VWAP
+```
+
+### 14.2 High Conviction Options Filter — Full Formula
+
+```
+INPUT: unusual_calls_log WHERE days_out BETWEEN 1 AND 30
+
+HC_SCORE = vol_oi_ratio  # raw ratio of volume to open interest
+
+CONVICTION_TIER:
+  HC_SCORE >= 12  → "EXTREME 🔥🔥🔥"
+  HC_SCORE >= 7   → "HIGH ⭐⭐⭐"
+  HC_SCORE >= 3   → "MEDIUM"  → EXCLUDED from alerts after June 14, 2026
+  HC_SCORE < 3    → below threshold
+
+ADDITIONAL GATES:
+  premium_usd >= 500,000   # minimum dollar conviction
+  days_out BETWEEN 1 AND 30  # no LEAPS in this filter
+  direction = 'CALL'       # calls only
+
+RESULT: Only EXTREME and HIGH signals sent via email and SMS.
+BACKTESTED RESULT:
+  HIGH tier (n=11):    91% win rate — alerts sent
+  MEDIUM tier (n=34):  59% win rate — alerts suppressed
+```
+
+### 14.3 Whale + HC Dual-Signal Crossover — Full Algorithm
+
+```
+SCHEDULE: Every 30 minutes, 10:00 AM – 3:30 PM ET
+
+STEP 1 — Query Whale LEAPS:
+  SELECT DISTINCT ticker FROM whale_blocks
+  WHERE direction = 'CALL'
+    AND category = 'LEAPS'         # days_out >= 180
+    AND prem_m >= 5.0              # >= $5M
+    AND first_seen >= NOW() - INTERVAL '24 hours'
+  → Result: whale_set (set of ticker symbols)
+
+STEP 2 — Query HC Signals:
+  SELECT DISTINCT ticker FROM unusual_calls_log
+  WHERE vol_oi >= 5.0              # >= 5x ratio
+    AND prem >= 500000             # >= $500K
+    AND days_out BETWEEN 1 AND 30  # short-term only
+    AND DATE(first_seen) = TODAY
+  → Result: hc_set (set of ticker symbols)
+
+STEP 3 — Crossover Detection:
+  dual_signal_set = whale_set INTERSECT hc_set
+
+STEP 4 — De-duplication:
+  for ticker in dual_signal_set:
+    if ticker NOT IN _whale_hc_alerted[today]:
+      FIRE SMS ALERT
+      _whale_hc_alerted[today].add(ticker)
+
+STEP 5 — SMS Construction:
+  whale_data  = fetch whale block details for ticker
+  hc_data     = fetch HC signal details for ticker
+  sms_body    = format(whale_tier, whale_prem, whale_strike,
+                       whale_expiry, hc_conviction, hc_vol_oi,
+                       hc_prem, hc_strike, hc_expiry, hc_days_out)
+  send_email_raw(TMOMAIL_GATEWAY, subject, sms_body)
+```
+
+### 14.4 EOD Accumulation Detection — Full Five-Gate Algorithm
+
+```
+SCHEDULE: 3:45 PM ET and 3:55 PM ET daily
+
+FOR EACH ticker IN universe:
+
+  GATE 1 — Price Range Gate:
+    price_chg_pct >= -20%          # allows flat/down days
+    (NOT: price_chg_pct > 0 — this is the key innovation)
+
+  GATE 2 — Closing Range Gate:
+    closing_range = (close - low) / (high - low)
+    closing_range >= 0.50          # closed above midpoint
+
+  GATE 3 — EOD Volume Gate:
+    eod_vol   = volume in last 30 min of session
+    avg_eod   = average last-30-min volume (20d)
+    eod_rel_vol = eod_vol / avg_eod
+    eod_rel_vol >= 2.5             # 2.5x normal EOD volume
+
+  GATE 4 — Late Flow Gate:
+    buy_vol    = volume on upticks 3:30–4:00 PM
+    sell_vol   = volume on downticks 3:30–4:00 PM
+    late_flow  = buy_vol / sell_vol
+    late_flow >= 2.0               # buyers 2x more aggressive than sellers
+
+  GATE 5 — Quiet Surge Gate (HARD GATE):
+    midday_vol_per_min = volume(12:00–2:00 PM) / 120
+    eod_vol_per_min    = eod_vol / 30
+    quiet_surge        = eod_vol_per_min / midday_vol_per_min
+    quiet_surge >= 1.5             # EOD 1.5x busier than midday
+
+  ALL 5 GATES MUST PASS → ticker flagged as EOD ACCUMULATION
+```
+
+---
+
+## SECTION 15 — SYSTEM ARCHITECTURE DIAGRAM
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║                    STOCKSCANNER AI — DATA FLOW                       ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+DATA SOURCES
+────────────
+  yfinance API (1,400+ tickers) ──────┐
+  Options chain data (real-time) ──────┤
+  Tape / time & sales ─────────────────┤
+  Pre-market data (9:05 AM cache) ────-┘
+                │
+                ▼
+╔══════════════════════════════╗
+║    45 INDEPENDENT SCANNERS   ║
+║  (running in parallel via    ║
+║   APScheduler cron jobs)     ║
+╠══════════════════════════════╣
+║  GROUP A: Intraday (9:35 AM) ║  → Morning Burst, Grinder,
+║  GROUP B: EOD (3:45 PM)      ║    News Catalyst, VWAP Reclaim
+║  GROUP C: Options Flow       ║  → Unusual Calls, HC Filter,
+║  GROUP D: Composite          ║    Whale Blocks, Bull Flow
+║  GROUP E: Technical          ║  → Dark Pool, Breakout, Squeeze
+║  GROUP F: Alternative Data   ║  → Insider, Congress
+║  GROUP G: AI/ML              ║  → AI Trade Log, Smart Money
+╚══════════════════════════════╝
+                │
+                ▼
+╔══════════════════════════════╗
+║     POSTGRESQL DATABASE      ║
+║  (persistent signal storage) ║
+╠══════════════════════════════╣
+║  unusual_calls_log           ║
+║  whale_blocks                ║
+║  signal_history              ║
+║  conviction_calls_snapshot   ║
+║  conviction_calls_outcomes   ║
+║  eod_accum_picks             ║
+║  signal_outcomes             ║
+║  sms_alerts_log (UNIQUE)     ║
+╚══════════════════════════════╝
+                │
+          ┌─────┴──────┐
+          ▼            ▼
+╔═══════════════╗  ╔════════════════════════════════╗
+║  COMPOSITE    ║  ║   DUAL-SIGNAL CROSSOVER ENGINE ║
+║  SCORER       ║  ║   (whale_set ∩ hc_set)         ║
+║  (21 signals) ║  ║   Every 30 min, 10AM–3:30PM    ║
+╚═══════════════╝  ╚════════════════════════════════╝
+          │                      │
+          ▼                      ▼
+╔════════════════════════════════════════════════════╗
+║              CONVICTION FILTER                     ║
+║  ICS >= 80 (EXTREME) or >= 70 (HIGH) → ALERT      ║
+║  HC >= 12 (EXTREME) or >= 7 (HIGH) → ALERT        ║
+║  Dual-Signal (ANY crossover found) → ALERT         ║
+╚════════════════════════════════════════════════════╝
+                │
+    ┌───────────┼───────────┐
+    ▼           ▼           ▼
+╔════════╗  ╔════════╗  ╔══════════════╗
+║  SMS   ║  ║ EMAIL  ║  ║  DASHBOARD   ║
+║ ALERT  ║  ║REPORTS ║  ║   (React UI) ║
+║T-Mobile║  ║9 daily ║  ║ Live win     ║
+║gateway ║  ║windows ║  ║ rate display ║
+╚════════╝  ╚════════╝  ╚══════════════╝
+                │
+                ▼
+╔══════════════════════════════╗
+║   OUTCOME TRACKING ENGINE    ║
+║  4:25 PM: snapshot signals   ║
+║  4:32 PM: fill D+1/D+3/D+5  ║
+║  Permanent win rate storage  ║
+╚══════════════════════════════╝
+```
+
+**Scheduling Timeline (ET, each trading day):**
+```
+ 9:05 AM ── SPY cache refresh
+ 9:31 AM ── Morning Burst + News Catalyst scans begin
+ 9:35 AM ── Morning Burst SMS scan #1
+ 9:40 AM ── Morning Burst SMS scan #2
+ 9:45 AM ── Morning Burst SMS scan #3
+10:00 AM ── Whale+HC Dual-Signal check begins (every 30 min)
+10:15 AM ── AI Short Calls email
+10:30 AM ── Steady Grinder begins (every 30 min through 1:30 PM)
+ 2:00 PM ── Pre-Close Swing scan fires
+ 3:45 PM ── EOD Accumulation scan #1
+ 3:55 PM ── EOD Accumulation scan #2 + Short Squeeze
+ 3:30 PM ── Dual-Signal final check
+ 4:00 PM ── Signal history snapshot
+ 4:05 PM ── Daily vol/IV snapshot
+ 4:25 PM ── Conviction calls snapshot (entry price locked)
+ 4:32 PM ── D+1/D+3/D+5 outcome fill
+```
+
+---
+
+## SECTION 16 — INDEPENDENT AND DEPENDENT CLAIMS
+
+*Note to attorney: Independent claims define the broadest protection.
+Dependent claims are narrower fallbacks if the independent claim is rejected.*
+
+---
+
+### CLAIM 1 (Independent) — Dual-Signal Crossover System
+
+A computer-implemented method for generating trading alerts comprising:
+- Maintaining a first database of large-dollar options positions ("whale blocks")
+  where a single position exceeds a first threshold in dollar premium and has
+  an expiry date exceeding a first time threshold;
+- Maintaining a second database of options positions where the ratio of trading
+  volume to open interest exceeds a second threshold on a given trading day;
+- Identifying, at periodic intervals, securities appearing simultaneously in
+  both the first and second databases;
+- Transmitting an electronic alert message for each identified security,
+  the message including data from both the first and second databases.
+
+**Claim 1a (Dependent):** The method of Claim 1, wherein the first threshold
+is five million dollars ($5,000,000) and the first time threshold is 180 days.
+
+**Claim 1b (Dependent):** The method of Claim 1, wherein the second threshold
+is a volume-to-open-interest ratio of 5.0 and a minimum premium of $500,000.
+
+**Claim 1c (Dependent):** The method of Claim 1, wherein the electronic alert
+message is transmitted via an email-to-SMS carrier gateway, and wherein a
+de-duplication mechanism prevents more than one alert per security per
+calendar day.
+
+**Claim 1d (Dependent):** The method of Claim 1, wherein the periodic interval
+is 30 minutes during market trading hours.
+
+---
+
+### CLAIM 2 (Independent) — Multi-Factor Intraday Conviction Scoring
+
+A computer-implemented system for scoring intraday stock momentum comprising:
+- Computing a composite conviction score from at least 20 independent signals
+  spanning technical price action, relative volume, options activity, and
+  order flow data;
+- Applying a sector ETF confirmation gate that compares the target security's
+  sector ETF performance and blocks alerts when the sector is negative;
+- Transmitting an alert only when the composite score exceeds a threshold
+  and the sector ETF gate is satisfied.
+
+**Claim 2a (Dependent):** The system of Claim 2, wherein the composite score
+is computed on a 200-point scale and the alert threshold is 160 points (80%).
+
+**Claim 2b (Dependent):** The system of Claim 2, wherein one signal class
+measures the rate of change of price momentum (second derivative) to detect
+price acceleration.
+
+**Claim 2c (Dependent):** The system of Claim 2, wherein the sector ETF is
+dynamically determined from the security's industry classification, drawn
+from a mapping of industry categories to exchange-traded fund ticker symbols.
+
+---
+
+### CLAIM 3 (Independent) — EOD Accumulation Detection on Flat/Negative Days
+
+A computer-implemented method for detecting institutional end-of-day
+accumulation comprising:
+- Measuring end-of-day relative volume against a historical baseline
+  without requiring positive price change on the measured day;
+- Computing a closing range ratio representing the position of the closing
+  price within the day's high-low range;
+- Computing a late-session flow ratio representing net buying versus selling
+  pressure in a defined end-of-day window;
+- Computing a midday-to-EOD volume acceleration ratio;
+- Flagging a security as an accumulation candidate only when all four
+  measurements simultaneously exceed defined thresholds.
+
+**Claim 3a (Dependent):** The method of Claim 3, wherein the end-of-day
+window is the final 30 minutes of the regular trading session, and the
+midday comparison window is 12:00 PM to 2:00 PM.
+
+**Claim 3b (Dependent):** The method of Claim 3, wherein the defined
+thresholds are: closing range ≥ 0.50, EOD relative volume ≥ 2.5x, late flow
+≥ 2.0x, and midday-to-EOD acceleration ≥ 1.5x.
+
+**Claim 3c (Dependent):** The method of Claim 3, wherein the price change
+threshold permits securities with price changes as low as -20%, capturing
+accumulation patterns on down days.
+
+---
+
+### CLAIM 4 (Independent) — Conviction Filtering by Outcome-Verified Tiers
+
+A computer-implemented method for filtering options signals comprising:
+- Receiving a stream of options activity signals where volume-to-open-interest
+  exceeds a minimum threshold;
+- Classifying each signal into conviction tiers based on additional scoring;
+- Suppressing all signals below a conviction threshold from automated delivery;
+- Storing the entry price of all signals above the threshold;
+- Automatically computing and storing forward price outcomes at defined
+  intervals after each signal;
+- Computing and displaying a continuously updated win rate for each conviction tier.
+
+**Claim 4a (Dependent):** The method of Claim 4, wherein the forward price
+outcomes are computed at 1 trading day, 3 trading days, and 5 trading days
+following the signal date.
+
+**Claim 4b (Dependent):** The method of Claim 4, wherein the conviction tiers
+are determined by a scoring algorithm that has demonstrated a statistically
+significant difference in win rate between the highest tier (≥91%) and
+lower tiers (≤59%) as verified by backtesting.
+
+---
+
+### CLAIM 5 (Independent) — Automated Multi-Scanner Cross-Reference Engine
+
+A computer-implemented system for cross-referencing trading signals comprising:
+- Operating at least 13 independent scanning processes simultaneously, each
+  scanning market data using a different methodology;
+- Storing results of each scanning process in separate database tables;
+- Running a composite process that queries all scanning databases simultaneously
+  and identifies securities confirmed by multiple independent methodologies;
+- Displaying only securities confirmed by a minimum number of independent
+  methodologies, filtering out securities confirmed by fewer.
+
+**Claim 5a (Dependent):** The system of Claim 5, wherein the independent
+scanning methodologies include at least: options volume anomaly detection,
+dark pool print detection, technical price breakout detection, gamma exposure
+calculation, and implied volatility rank computation.
+
+**Claim 5b (Dependent):** The system of Claim 5, wherein results are cached
+in-memory after each scan cycle and the composite cross-reference query
+reads from cached results to avoid redundant API calls.
+
+---
+
+## SECTION 17 — DECLARATION (formerly Section 12)
 
 This document records features developed within the StockScanner AI software
 product as conceived, directed, and owned by Joel D. Carlo. All dates are
