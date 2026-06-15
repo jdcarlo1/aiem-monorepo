@@ -14219,6 +14219,13 @@ def insider_outcomes_route():
 def health():
     return jsonify({"status": "ok"})
 
+@app.route("/stock-api/", methods=["GET"])
+@app.route("/stock-api", methods=["GET"])
+def health_root():
+    """Root health check — Replit's deployment system pings this URL.
+    Without it the healthcheck returns 500 and Replit restarts the server."""
+    return jsonify({"status": "ok"})
+
 
 def _startup_scan_if_needed():
     """On startup, trigger a scan if:
