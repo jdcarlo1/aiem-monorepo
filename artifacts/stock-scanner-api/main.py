@@ -14215,9 +14215,13 @@ def health():
 
 
 def _startup_scan_if_needed():
-    """On startup, if today's unusual_calls_log is empty AND it's a weekday, trigger a background scan."""
+    """On startup, trigger a scan if:
+    - It's a weekday AND
+    - Either: today has 0 rows, OR it's market hours (9:30–4:00 PM ET) and last scan was >2h ago
+    This catches cases where the server crashed mid-day and missed scheduled scans.
+    """
     import threading as _sthr
-    from datetime import datetime as _dtc
+    from datetime import datetime as _dtc, timedelta as _tdelta
     import pytz as _ptz
     try:
         _et_now = _dtc.now(_ptz.timezone("America/New_York"))
@@ -14225,17 +14229,38 @@ def _startup_scan_if_needed():
             print(f"[startup] weekend ({_et_now.strftime('%A')}) — skipping startup scan, no market data")
             return
         with _psycopg2.connect(_DB_URL) as _sc, _sc.cursor() as _scur:
-            _scur.execute("SELECT COUNT(*) FROM unusual_calls_log WHERE last_seen >= CURRENT_DATE")
-            _count = _scur.fetchone()[0]
+            _scur.execute(
+                "SELECT COUNT(*), MAX(last_seen) FROM unusual_calls_log WHERE last_seen >= CURRENT_DATE"
+            )
+            _row = _scur.fetchone()
+            _count, _last_seen = _row[0], _row[1]
+
+        _market_open = _et_now.replace(hour=9, minute=30, second=0, microsecond=0)
+        _market_close = _et_now.replace(hour=16, minute=0, second=0, microsecond=0)
+        _in_market_hours = _market_open <= _et_now <= _market_close
+
+        _scan_fn = globals().get("_run_unusual_calls_scan")
+
         if _count == 0:
             print("[startup] unusual_calls_log has 0 rows for today — triggering immediate background scan")
-            _scan_fn = globals().get("_run_unusual_calls_scan")
             if _scan_fn:
                 _sthr.Thread(target=lambda: _scan_fn("startup"), daemon=True).start()
             else:
                 print("[startup] _run_unusual_calls_scan not available — skipping auto-scan")
+        elif _in_market_hours and _last_seen is not None:
+            # last_seen from DB is a naive UTC datetime — make it timezone-aware
+            _last_seen_utc = _last_seen.replace(tzinfo=_ptz.utc) if _last_seen.tzinfo is None else _last_seen
+            _hours_since = (_et_now.astimezone(_ptz.utc) - _last_seen_utc).total_seconds() / 3600
+            if _hours_since >= 2.0:
+                print(f"[startup] market hours — last scan was {_hours_since:.1f}h ago, triggering catch-up scan")
+                if _scan_fn:
+                    _sthr.Thread(target=lambda: _scan_fn("startup-catchup"), daemon=True).start()
+                else:
+                    print("[startup] _run_unusual_calls_scan not available — skipping auto-scan")
+            else:
+                print(f"[startup] last scan was {_hours_since:.1f}h ago — no catch-up needed")
         else:
-            print(f"[startup] unusual_calls_log has {_count} rows for today — no startup scan needed")
+            print(f"[startup] unusual_calls_log has {_count} rows for today, outside market hours — no startup scan needed")
     except Exception as _se:
         print(f"[startup] scan check error: {_se}")
 
