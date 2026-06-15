@@ -7,7 +7,7 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - React+Vite frontend: `artifacts/stock-scanner/` — preview at `/stock-scanner/`
 - Python Flask API: `artifacts/stock-scanner-api/main.py` — port 5050, workflow: "artifacts/stock-scanner: stock-api"
 - Node.js API server: `artifacts/api-server/` — port 8080, handles Stripe checkout + webhooks
-- APScheduler: 9:00, 9:05, 9:45, 3:30, 4:00, 4:05, 4:15, 4:30 ET every trading day
+- APScheduler unusual_calls scans: 9:30, 10:00, 11:30 AM, 1:00, 2:30, 3:30, 3:45, 4:00, 4:15 PM ET every trading day
 - Morning inflows scans: 9:31, 9:33, 9:35, 9:38, 9:41, 9:45, 10:00, 10:15, 10:30 AM ET
 - Email schedule (Mon-Fri ET): morning_inflows 9:46/10:01/10:16/10:31 AM | eod_accum 3:46 PM | ai_trades 10:00 AM | unusual_calls 9:47 AM + 3:15 PM | microcap_calls 10:32 AM + 3:16 PM | high_conviction 9:48 AM + 3:17 PM
 - Position monitor: `position_monitor` DB table; exit signal checker every 30 min; fires at score ≥3
