@@ -8300,8 +8300,93 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         <span style={{ color: BB_LABEL, fontSize: 9 }}>Score = Vol/OI × Premium × IV × Strike sweep count</span>
       </div>
 
+      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
+
+      {loading && (
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 40 }}>SCANNING FOR HIGH-CONVICTION SWEEPS…</div>
+      )}
+
+      {!loading && data?.note && signals.length === 0 && (
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32, lineHeight: 1.8 }}>
+          {data.note}<br />
+          <span style={{ fontSize: 9 }}>Run a scan in 🚨 Unusual Calls first to populate the database.</span>
+        </div>
+      )}
+
+      {!loading && signals.map(sig => (
+        <div key={sig.ticker} style={{ background: BB_PANEL, border: `1px solid ${expanded === sig.ticker ? convColor(sig.conviction) : BB_BORDER}`, marginBottom: 10, transition: "border-color 0.2s" }}>
+          {/* Main row */}
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer" }}
+            onClick={() => setExpanded(expanded === sig.ticker ? null : sig.ticker)}
+          >
+            {/* Rank + conviction */}
+            <div style={{ textAlign: "center", minWidth: 32 }}>
+              <div style={{ color: BB_LABEL, fontSize: 8 }}>#{sig.rank}</div>
+              <div style={{ background: convBg(sig.conviction), color: convColor(sig.conviction), fontSize: 8, fontWeight: 900, padding: "2px 5px", marginTop: 2, letterSpacing: "0.05em" }}>{sig.conviction}</div>
+            </div>
+
+            {/* Ticker + urgency */}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span
+                  style={{ color: BB_WHITE, fontWeight: 900, fontSize: 16, cursor: "pointer", letterSpacing: "-0.01em" }}
+                  onClick={e => { e.stopPropagation(); onSelectTicker(sig.ticker); }}
+                >{sig.ticker}</span>
+                <span style={{ color: BB_LABEL, fontSize: 10 }}>${sig.price.toFixed(2)}</span>
+                <span style={{ background: sig.urgency === "EXPIRING" ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.12)", color: sig.urgency === "EXPIRING" ? BB_RED : "#fbbf24", fontSize: 8, fontWeight: 700, padding: "2px 7px" }}>{sig.urgency}</span>
+              </div>
+              <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Strikes: <span style={{ color: sig.num_strikes >= 3 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.num_strikes} sweeping</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Total prem: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{fmtPrem(sig.total_prem_m)}</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Max Vol/OI: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{sig.max_vol_oi.toFixed(0)}x</span></span>
+                <span style={{ color: BB_LABEL, fontSize: 9 }}>Avg IV: <span style={{ color: sig.avg_iv >= 80 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.avg_iv.toFixed(0)}%</span></span>
+              </div>
+            </div>
+
+            {/* Score */}
+            <div style={{ textAlign: "right" }}>
+              <div style={{ color: BB_LABEL, fontSize: 8, marginBottom: 2 }}>SCORE</div>
+              <div style={{ color: convColor(sig.conviction), fontSize: 22, fontWeight: 900, fontFamily: BB_FONT, lineHeight: 1 }}>{sig.score.toFixed(1)}</div>
+            </div>
+
+            <span style={{ color: BB_LABEL, fontSize: 12 }}>{expanded === sig.ticker ? "▲" : "▼"}</span>
+          </div>
+
+          {/* Expanded strikes grid */}
+          {expanded === sig.ticker && (
+            <div style={{ borderTop: `1px solid ${BB_BORDER}`, padding: "12px 16px" }}>
+              <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 10 }}>
+                {sig.num_strikes} STRIKES SWEEPING — INSTITUTIONAL MULTI-STRIKE PATTERN
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {sig.strikes.map((s, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#0a0a0a", padding: "8px 12px", border: `1px solid ${i === 0 ? convColor(sig.conviction) + "44" : BB_BORDER}` }}>
+                    {i === 0 && <span style={{ color: convColor(sig.conviction), fontSize: 8, fontWeight: 900 }}>▶</span>}
+                    {i > 0  && <span style={{ color: BB_LABEL, fontSize: 8 }}>{i + 1}</span>}
+                    <span style={{ color: BB_WHITE, fontWeight: 700, fontSize: 11, minWidth: 70 }}>${s.strike}C</span>
+                    <span style={{ color: BB_LABEL, fontSize: 9, minWidth: 70 }}>{s.expiry} ({s.days_out}d)</span>
+                    <span style={{ color: BB_GREEN, fontSize: 9, fontWeight: 700, minWidth: 55 }}>{s.vol_oi.toFixed(0)}x V/OI</span>
+                    <span style={{ color: BB_WHITE, fontSize: 9, minWidth: 55 }}>${(s.prem / 1_000_000).toFixed(2)}M</span>
+                    <span style={{ color: s.otm_pct > 0 ? BB_LABEL : "#fbbf24", fontSize: 9 }}>{s.otm_pct > 0 ? "+" : ""}{s.otm_pct.toFixed(1)}% OTM</span>
+                    <span style={{ color: s.iv >= 80 ? "#ff4444" : BB_LABEL, fontSize: 9 }}>IV {s.iv.toFixed(0)}%</span>
+                    <span style={{ background: s.urgency === "EXPIRING" ? "rgba(239,68,68,0.1)" : "rgba(251,191,36,0.08)", color: s.urgency === "EXPIRING" ? BB_RED : "#fbbf24", fontSize: 7, fontWeight: 700, padding: "1px 5px" }}>{s.urgency}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {data && signals.length > 0 && (
+        <div style={{ color: BB_LABEL, fontSize: 8, textAlign: "center", marginTop: 12, marginBottom: 20 }}>
+          {data.total} high-conviction setups · Generated {new Date(data.generated_at).toLocaleTimeString()} · Refreshes every 15 min · Data from last 3 days of scans
+        </div>
+      )}
+
       {/* 📊 Track Record */}
-      <div style={{ background: "#0a0a0a", border: "1px solid #1e293b", marginBottom: 16 }}>
+      <div style={{ background: "#0a0a0a", border: "1px solid #1e293b", marginBottom: 16, marginTop: signals.length > 0 ? 8 : 0 }}>
         <div style={{ padding: "8px 14px", borderBottom: "1px solid #1e293b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#fbbf24" }}>📊 TRACK RECORD</span>
           <span style={{ fontSize: 8, color: BB_LABEL }}>D+1 = next-day close · snapshotted 4:25 PM daily · Unusual Calls + High Conviction</span>
@@ -8386,90 +8471,6 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         })()}
       </div>
 
-      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
-
-      {loading && (
-        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 40 }}>SCANNING FOR HIGH-CONVICTION SWEEPS…</div>
-      )}
-
-      {!loading && data?.note && signals.length === 0 && (
-        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32, lineHeight: 1.8 }}>
-          {data.note}<br />
-          <span style={{ fontSize: 9 }}>Run a scan in 🚨 Unusual Calls first to populate the database.</span>
-        </div>
-      )}
-
-      {!loading && signals.map(sig => (
-        <div key={sig.ticker} style={{ background: BB_PANEL, border: `1px solid ${expanded === sig.ticker ? convColor(sig.conviction) : BB_BORDER}`, marginBottom: 10, transition: "border-color 0.2s" }}>
-          {/* Main row */}
-          <div
-            style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer" }}
-            onClick={() => setExpanded(expanded === sig.ticker ? null : sig.ticker)}
-          >
-            {/* Rank + conviction */}
-            <div style={{ textAlign: "center", minWidth: 32 }}>
-              <div style={{ color: BB_LABEL, fontSize: 8 }}>#{sig.rank}</div>
-              <div style={{ background: convBg(sig.conviction), color: convColor(sig.conviction), fontSize: 8, fontWeight: 900, padding: "2px 5px", marginTop: 2, letterSpacing: "0.05em" }}>{sig.conviction}</div>
-            </div>
-
-            {/* Ticker + urgency */}
-            <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span
-                  style={{ color: BB_WHITE, fontWeight: 900, fontSize: 16, cursor: "pointer", letterSpacing: "-0.01em" }}
-                  onClick={e => { e.stopPropagation(); onSelectTicker(sig.ticker); }}
-                >{sig.ticker}</span>
-                <span style={{ color: BB_LABEL, fontSize: 10 }}>${sig.price.toFixed(2)}</span>
-                <span style={{ background: sig.urgency === "EXPIRING" ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.12)", color: sig.urgency === "EXPIRING" ? BB_RED : "#fbbf24", fontSize: 8, fontWeight: 700, padding: "2px 7px" }}>{sig.urgency}</span>
-              </div>
-              <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
-                <span style={{ color: BB_LABEL, fontSize: 9 }}>Strikes: <span style={{ color: sig.num_strikes >= 3 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.num_strikes} sweeping</span></span>
-                <span style={{ color: BB_LABEL, fontSize: 9 }}>Total prem: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{fmtPrem(sig.total_prem_m)}</span></span>
-                <span style={{ color: BB_LABEL, fontSize: 9 }}>Max Vol/OI: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{sig.max_vol_oi.toFixed(0)}x</span></span>
-                <span style={{ color: BB_LABEL, fontSize: 9 }}>Avg IV: <span style={{ color: sig.avg_iv >= 80 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.avg_iv.toFixed(0)}%</span></span>
-              </div>
-            </div>
-
-            {/* Score */}
-            <div style={{ textAlign: "right" }}>
-              <div style={{ color: BB_LABEL, fontSize: 8, marginBottom: 2 }}>SCORE</div>
-              <div style={{ color: convColor(sig.conviction), fontSize: 22, fontWeight: 900, fontFamily: BB_FONT, lineHeight: 1 }}>{sig.score.toFixed(1)}</div>
-            </div>
-
-            <span style={{ color: BB_LABEL, fontSize: 12 }}>{expanded === sig.ticker ? "▲" : "▼"}</span>
-          </div>
-
-          {/* Expanded strikes grid */}
-          {expanded === sig.ticker && (
-            <div style={{ borderTop: `1px solid ${BB_BORDER}`, padding: "12px 16px" }}>
-              <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 10 }}>
-                {sig.num_strikes} STRIKES SWEEPING — INSTITUTIONAL MULTI-STRIKE PATTERN
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {sig.strikes.map((s, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#0a0a0a", padding: "8px 12px", border: `1px solid ${i === 0 ? convColor(sig.conviction) + "44" : BB_BORDER}` }}>
-                    {i === 0 && <span style={{ color: convColor(sig.conviction), fontSize: 8, fontWeight: 900 }}>▶</span>}
-                    {i > 0  && <span style={{ color: BB_LABEL, fontSize: 8 }}>{i + 1}</span>}
-                    <span style={{ color: BB_WHITE, fontWeight: 700, fontSize: 11, minWidth: 70 }}>${s.strike}C</span>
-                    <span style={{ color: BB_LABEL, fontSize: 9, minWidth: 70 }}>{s.expiry} ({s.days_out}d)</span>
-                    <span style={{ color: BB_GREEN, fontSize: 9, fontWeight: 700, minWidth: 55 }}>{s.vol_oi.toFixed(0)}x V/OI</span>
-                    <span style={{ color: BB_WHITE, fontSize: 9, minWidth: 55 }}>${(s.prem / 1_000_000).toFixed(2)}M</span>
-                    <span style={{ color: s.otm_pct > 0 ? BB_LABEL : "#fbbf24", fontSize: 9 }}>{s.otm_pct > 0 ? "+" : ""}{s.otm_pct.toFixed(1)}% OTM</span>
-                    <span style={{ color: s.iv >= 80 ? "#ff4444" : BB_LABEL, fontSize: 9 }}>IV {s.iv.toFixed(0)}%</span>
-                    <span style={{ background: s.urgency === "EXPIRING" ? "rgba(239,68,68,0.1)" : "rgba(251,191,36,0.08)", color: s.urgency === "EXPIRING" ? BB_RED : "#fbbf24", fontSize: 7, fontWeight: 700, padding: "1px 5px" }}>{s.urgency}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-
-      {data && signals.length > 0 && (
-        <div style={{ color: BB_LABEL, fontSize: 8, textAlign: "center", marginTop: 12 }}>
-          {data.total} high-conviction setups · Generated {new Date(data.generated_at).toLocaleTimeString()} · Refreshes every 15 min · Data from last 3 days of scans
-        </div>
-      )}
     </div>
   );
 }
