@@ -2825,9 +2825,9 @@ function UnusualCallsLogTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
     } catch {}
   };
 
-  const filtered = (data?.signals ?? []).filter(h =>
-    !search || h.ticker.includes(search.toUpperCase())
-  );
+  const filtered = (data?.signals ?? [])
+    .filter(h => !search || h.ticker.includes(search.toUpperCase()))
+    .sort((a, b) => b.vol_oi - a.vol_oi || b.prem - a.prem);
 
   const urgencyStyle = (u: string) => {
     if (u === "EXPIRING") return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 EXPIRING ≤7d" };
@@ -2855,7 +2855,7 @@ function UnusualCallsLogTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         <div>
           <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>📋 Unusual Calls Log</h2>
           <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
-            All-time history · Every unusual call signal ever detected · Newest first
+            All-time history · Every unusual call signal ever detected · Most bullish first (Vol/OI ↓)
             {data ? ` · ${data.total} signals on record` : " · loading…"}
           </p>
         </div>
