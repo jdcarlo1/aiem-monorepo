@@ -4054,19 +4054,31 @@ def _run_microcap_options_scan() -> list:
                     chain = tk.option_chain(exp).calls
                     for _, row in chain.iterrows():
                         try:
-                            vol = int(row.get("volume") or 0)
-                            oi  = int(row.get("openInterest") or 0)
+                            import math as _math
+                            def _si(v):
+                                try:
+                                    f = float(v) if v is not None else 0.0
+                                    return 0 if _math.isnan(f) or _math.isinf(f) else int(f)
+                                except: return 0
+                            def _sf(v, d=0.0):
+                                try:
+                                    f = float(v) if v is not None else d
+                                    return d if _math.isnan(f) or _math.isinf(f) else f
+                                except: return d
+                            vol = _si(row.get("volume"))
+                            oi  = _si(row.get("openInterest"))
                             if oi < 5 or vol < min_vol:
                                 continue
                             voi = vol / oi
                             if voi < min_voi:
                                 continue
-                            strike  = float(row["strike"])
+                            strike  = _sf(row.get("strike"))
+                            if not strike: continue
                             otm_pct = round((strike - price) / price * 100, 2)
                             if otm_pct < -10 or otm_pct > 50:
                                 continue
-                            bid  = float(row.get("bid") or 0)
-                            ask  = float(row.get("ask") or 0)
+                            bid  = _sf(row.get("bid"))
+                            ask  = _sf(row.get("ask"))
                             if bid <= 0 or ask <= 0:
                                 continue
                             spread_pct = (ask - bid) / ask
@@ -5591,7 +5603,7 @@ _MICRO_CAP_UNIVERSE = sorted(set([
     # ── AI / Quantum / Small Semis ────────────────────────────────────────
     "IONQ","QUBT","RGTI","SOUN","QBTS","ARQQ","CRDO","AMBA",
     "FORM","SITM","NVTS","INDI","LAZR","MVIS","CXAI","AIOT",
-    "OAI","MKFG","MARA","RIOT","CLSK","HUT","BTBT","CIFR",
+    "OAI","MKFG","MARA","RIOT","CLSK","HUT","BTBT","CIFR","BTQ","GEMI",
     # ── Biotech / Gene Therapy / RNA ──────────────────────────────────────
     "RXRX","KRYS","VKTX","VERA","ARQT","INSM","IMVT","JANX",
     "KYMR","RVMD","RCKT","FOLD","DNLI","BLUE","NTLA","CRSP",
@@ -5637,8 +5649,51 @@ _MICRO_CAP_UNIVERSE = sorted(set([
 
 
 def _get_microcap_tickers() -> list:
-    """Return the curated micro-cap ticker universe (~350 stocks)."""
-    return list(_MICRO_CAP_UNIVERSE)
+    """Return the curated micro-cap ticker universe merged with today's dynamic tickers.
+
+    Sources (in addition to static universe):
+      1. _fetch_market_movers() — Yahoo screeners + Barchart advances (gainers/most-active)
+      2. Barchart most-active options — catches any ticker with unusual options volume today
+    """
+    static = set(_MICRO_CAP_UNIVERSE)
+    dynamic: set = set()
+
+    # ── Source 1: market movers (Yahoo + Barchart equity advances) ────────────
+    try:
+        for t in _fetch_market_movers(count=100):
+            if t and len(t) <= 6 and "." not in t and "^" not in t:
+                dynamic.add(t.upper())
+    except Exception as _e:
+        print(f"[microcap_tickers] movers fetch error: {_e}")
+
+    # ── Source 2: Barchart most-active options (pure options-flow discovery) ──
+    try:
+        import requests as _rq
+        _hdrs = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://www.barchart.com/options/most-active/stocks",
+        }
+        for _bc_endpoint in (
+            "https://www.barchart.com/proxies/core-api/v1/options/get"
+            "?fields=baseSymbol%2CbaseLastPrice%2Csymbol%2CoptionType%2ClastPrice%2Cvolume%2CopenInterest"
+            "&optionType=Call&groupBy=optionsByUnderlying&orderBy=volume&orderDir=desc"
+            "&raw=1&limit=200&meta=field.shortName%2Cfield.type",
+        ):
+            _r2 = _rq.get(_bc_endpoint, headers=_hdrs, timeout=10)
+            if _r2.ok:
+                for _row in _r2.json().get("data", []):
+                    sym = (_row.get("baseSymbol") or "").strip().upper()
+                    if sym and len(sym) <= 6 and "." not in sym and "^" not in sym:
+                        dynamic.add(sym)
+    except Exception as _e:
+        print(f"[microcap_tickers] barchart options fetch error: {_e}")
+
+    all_tickers = list(static | dynamic)
+    new_count = len(dynamic - static)
+    if new_count:
+        print(f"[microcap_tickers] {len(static)} static + {new_count} new dynamic = {len(all_tickers)} total")
+    return all_tickers
 
 
 def _run_microcap_flow_scan() -> dict:
