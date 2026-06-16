@@ -831,6 +831,21 @@ try:
         id="oi_snapshot_eod",
         replace_existing=True,
     )
+    # Pre-market OI refresh: 8:30 AM ET — pulls fresh Barchart/Yahoo small-cap movers
+    # and runs OI snapshot on them so the 9:45 AM conviction email has real squeeze candidates
+    def _run_premarket_oi_refresh():
+        try:
+            import threading as _thr_pmoi
+            _thr_pmoi.Thread(target=_run_oi_snapshot, daemon=True).start()
+            print("[scheduler] pre-market OI refresh started (Barchart + Yahoo small-cap universe)")
+        except Exception as _e_pmoi:
+            print(f"[scheduler] pre-market OI refresh error: {_e_pmoi}")
+    _scheduler.add_job(
+        _run_premarket_oi_refresh,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=30, timezone=_ET),
+        id="oi_snapshot_premarket",
+        replace_existing=True,
+    )
     # Whale + High Conviction crossover alert — every 30 min, 10 AM–3:30 PM ET
     def _run_whale_hc_cross():
         try:
@@ -5000,6 +5015,19 @@ def _run_oi_snapshot() -> None:
     today  = et_now.date()
 
     universe = list(_MICRO_CAP_UNIVERSE)
+
+    # ── Dynamic discovery: pull fresh small/micro-cap movers from Barchart + Yahoo ──
+    try:
+        dynamic_tickers = _get_microcap_tickers()
+        added = 0
+        for t in dynamic_tickers:
+            if t not in universe:
+                universe.append(t)
+                added += 1
+        print(f"[oi_snapshot] universe: {len(_MICRO_CAP_UNIVERSE)} static + {added} dynamic (Barchart/Yahoo) = {len(universe)} total")
+    except Exception as _e_dyn:
+        print(f"[oi_snapshot] dynamic ticker fetch failed: {_e_dyn}")
+
     try:
         import psycopg2
         with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
