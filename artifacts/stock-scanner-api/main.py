@@ -9744,6 +9744,31 @@ def _enrich_technical_signals(tickers_data):
     print("[enrich_tech] done", file=sys.stderr, flush=True)
 
 
+def _get_smp_scores_batch(tickers: list) -> dict:
+    """Run the 8-layer SMP conviction scan and return scores for the given tickers.
+    Returns {ticker: {"smp_score": float, "smp_label": str, "smp_layers": list}}
+    """
+    try:
+        all_results = _run_five_layer_conviction(max_tickers=200)
+        ticker_set = set(tickers)
+        lookup = {}
+        for r in all_results:
+            t = r.get("ticker")
+            if t in ticker_set:
+                layers = list(r.get("layers", {}).keys())
+                lookup[t] = {
+                    "smp_score": round(float(r.get("total_pts", 0)), 1),
+                    "smp_label": r.get("label", "WATCH"),
+                    "smp_layers": layers,
+                }
+        for t in tickers:
+            if t not in lookup:
+                lookup[t] = {"smp_score": 0.0, "smp_label": "NO DATA", "smp_layers": []}
+        return lookup
+    except Exception:
+        return {}
+
+
 def _ai_trades_worker():
     """Background worker: generate AI trade setups and store in app._ait_cache."""
     import sys
@@ -10851,6 +10876,17 @@ JSON array only. No markdown. Start immediately with ["""
                 print(f"[ai_trades] premium filter: {len(trades)} picks kept (had {len(_uc_prem_map)} uc tickers, {len(_qualified)} ≥$20K)")
             else:
                 print(f"[ai_trades] premium filter skipped — only {len(_filtered)} qualified picks (keeping all {len(trades)})")
+
+        # Enrich each trade with SMP conviction score
+        try:
+            _smp_map = _get_smp_scores_batch([tr.get("ticker", "") for tr in trades])
+            for tr in trades:
+                smp = _smp_map.get(tr.get("ticker", ""), {})
+                tr["smp_score"]  = smp.get("smp_score", 0.0)
+                tr["smp_label"]  = smp.get("smp_label", "NO DATA")
+                tr["smp_layers"] = smp.get("smp_layers", [])
+        except Exception:
+            pass
 
         out = {
             "trades": trades,
@@ -12950,6 +12986,18 @@ Return a JSON array of exactly 20 objects. Sort by conviction (HIGH first). JSON
         except Exception:
             from json_repair import repair_json as _rj
             picks = _json.loads(_rj(raw))
+
+        # Enrich each pick with SMP conviction score
+        try:
+            _smp_map = _get_smp_scores_batch([p.get("ticker", "") for p in picks])
+            for p in picks:
+                smp = _smp_map.get(p.get("ticker", ""), {})
+                p["smp_score"]  = smp.get("smp_score", 0.0)
+                p["smp_label"]  = smp.get("smp_label", "NO DATA")
+                p["smp_layers"] = smp.get("smp_layers", [])
+        except Exception:
+            pass
+
         out = {
             "picks": picks,
             "generated_at": _dt.now().isoformat(),

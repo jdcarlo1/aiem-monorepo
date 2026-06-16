@@ -3999,8 +3999,18 @@ function AIShortCallsTab() {
                 </div>
               </div>
 
-              {/* Right side: conviction + urgency */}
+              {/* Right side: SMP score + conviction + urgency */}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                {(p.smp_score ?? 0) > 0 && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 900, borderRadius: 3, padding: "2px 6px",
+                    background: (p.smp_score ?? 0) >= 8 ? "rgba(239,68,68,0.15)" : (p.smp_score ?? 0) >= 6 ? "rgba(249,115,22,0.15)" : "rgba(234,179,8,0.12)",
+                    color:      (p.smp_score ?? 0) >= 8 ? "#ef4444"              : (p.smp_score ?? 0) >= 6 ? "#f97316"              : "#eab308",
+                    border:     `1px solid ${(p.smp_score ?? 0) >= 8 ? "rgba(239,68,68,0.35)" : (p.smp_score ?? 0) >= 6 ? "rgba(249,115,22,0.35)" : "rgba(234,179,8,0.25)"}`,
+                  }}>
+                    SMP {p.smp_score?.toFixed(1)}/10
+                  </span>
+                )}
                 <span style={{ fontSize: 9, fontWeight: 700, color: accentColor, border: `1px solid ${accentColor}`, borderRadius: 3, padding: "1px 5px" }}>
                   {p.conviction}
                 </span>
@@ -4985,6 +4995,15 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                   <span className="text-slate-500 text-xs">${t.price?.toFixed(2)}</span>
                   <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: dBg(t.direction), color: dColor(t.direction) }}>{t.direction}</span>
                   <span className="text-slate-400 text-xs hidden sm:block">{t.setup_type}</span>
+                  {(t.smp_score ?? 0) > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded font-black hidden sm:inline-flex items-center gap-1" style={{
+                      background: (t.smp_score ?? 0) >= 8 ? "rgba(239,68,68,0.15)" : (t.smp_score ?? 0) >= 6 ? "rgba(249,115,22,0.15)" : "rgba(234,179,8,0.12)",
+                      color:      (t.smp_score ?? 0) >= 8 ? "#ef4444"              : (t.smp_score ?? 0) >= 6 ? "#f97316"              : "#eab308",
+                      border: `1px solid ${(t.smp_score ?? 0) >= 8 ? "rgba(239,68,68,0.3)" : (t.smp_score ?? 0) >= 6 ? "rgba(249,115,22,0.3)" : "rgba(234,179,8,0.2)"}`,
+                    }}>
+                      SMP {t.smp_score?.toFixed(1)}/10
+                    </span>
+                  )}
                   <div className="ml-auto flex items-center gap-3">
                     <span className="text-xs" style={{ color: rColor(t.risk_level) }}>Risk: {t.risk_level}</span>
                     <button

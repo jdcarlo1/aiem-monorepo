@@ -707,6 +707,9 @@ export interface AITradeSetup {
   target_price: number; stop_loss: number;
   signals_aligned: string[];
   thesis: string; risk_level: "LOW" | "MEDIUM" | "HIGH";
+  smp_score?: number;
+  smp_label?: string;
+  smp_layers?: string[];
 }
 export function fetchAITrades() {
   return fetchJson<{ trades: AITradeSetup[]; generated_at?: string; tickers_scanned?: number; signal_sources?: string[]; warming?: boolean; loading?: boolean; refreshing?: boolean; error?: string }>("/ai-trades");
@@ -737,6 +740,9 @@ export interface AIShortCall {
   urgency: string;
   thesis: string;
   why_it_stands_out: string;
+  smp_score?: number;
+  smp_label?: string;
+  smp_layers?: string[];
 }
 export function fetchAIShortCalls(force = false) {
   return fetchJson<{ picks: AIShortCall[]; generated_at: string | null; signals_evaluated: number; error?: string }>(`/ai-short-calls${force ? "?force=1" : ""}`);
