@@ -55,6 +55,9 @@ import {
   IVRankResult, IVScanRow, fetchIVRank, fetchIVRankScan,
   MarketPressArticle, MarketPressResult, fetchMarketPress,
   EarningsRow, EarningsCalendarResult, fetchEarningsCalendar,
+  fetchFarOtmSweeps, FarOtmSweepRow, FarOtmSweepResult,
+  fetchSectorHeat, HotSector, SectorHeatResult,
+  fetchFloatPressure, FloatPressureRow, FloatPressureResult,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -3158,12 +3161,15 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
     finally { setRunning(false); }
   };
 
-  const LAYER_KEYS: { key: keyof ConvictionLayers; label: string; color: string }[] = [
-    { key: "oi_accum",  label: "OI Build",  color: "#22c55e" },
-    { key: "gamma_fir", label: "γ FIR",     color: "#facc15" },
-    { key: "charm",     label: "Charm",     color: "#38bdf8" },
-    { key: "short_int", label: "Short Int", color: "#f87171" },
-    { key: "dark_pool", label: "Dark Pool", color: "#a78bfa" },
+  const LAYER_KEYS: { key: string; label: string; color: string }[] = [
+    { key: "oi_accum",        label: "L1 OI Build",  color: "#22c55e" },
+    { key: "gamma_fir",       label: "L2 γ FIR",     color: "#facc15" },
+    { key: "charm",           label: "L3 Charm",     color: "#38bdf8" },
+    { key: "short_int",       label: "L4 Short Int", color: "#f87171" },
+    { key: "dark_pool",       label: "L5 Dark Pool", color: "#a78bfa" },
+    { key: "float_pressure",  label: "L6 Float OD",  color: "#fb923c" },
+    { key: "far_otm_sweep",   label: "L7 Sweep",     color: "#e879f9" },
+    { key: "sector_sympathy", label: "L8 Sector",    color: "#34d399" },
   ];
 
   const ptColor = (pts: number) => pts >= 8 ? "#f87171" : pts >= 6 ? "#fb923c" : pts >= 4 ? "#facc15" : "#38bdf8";
@@ -3177,12 +3183,12 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>
-            🎯 5-Layer Conviction Stack
+            🎯 7-Layer Conviction Stack
           </h2>
           <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0, maxWidth: 680 }}>
-            Combines all five deterministic squeeze signals into one score per ticker.
+            Combines all seven deterministic squeeze signals into one score per ticker.
             <span style={{ color: "#facc15" }}> 8+ / 10 pts = ~90% probability</span> the stock is being pre-positioned for a squeeze.
-            This is how quant desks confirm setups before the move happens.
+            L6 (Float Demand) + L7 (Far-OTM Sweep) + L8 (Sector Heat) added over the original 5.
           </p>
         </div>
         <button onClick={handleRun} disabled={running}
@@ -3195,7 +3201,7 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
       </div>
 
       {/* Scoring legend */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
         {LAYER_KEYS.map(l => (
           <div key={l.key} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${l.color}22`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
             <div style={{ fontFamily: BB_F, fontSize: 10, color: l.color, fontWeight: 700, marginBottom: 3 }}>{l.label}</div>
@@ -3221,19 +3227,21 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 
       {/* Explanation */}
       <div style={{ background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.2)", borderRadius: 10, padding: "12px 16px", marginBottom: 22, fontFamily: BB_F, fontSize: 12, color: "#94a3b8", lineHeight: 1.8 }}>
-        <span style={{ color: "#f87171", fontWeight: 900 }}>🎯 SCORING: </span>
-        <span style={{ color: "#22c55e" }}>OI Buildup</span> (multi-day smart money loading) +&nbsp;
-        <span style={{ color: "#facc15" }}>γ FIR</span> (intraday float-impact, forced buying NOW) +&nbsp;
-        <span style={{ color: "#38bdf8" }}>Charm</span> (days-to-expiry timer, daily delta increase) +&nbsp;
-        <span style={{ color: "#f87171" }}>Short Interest</span> (SI&gt;15% = shorts also cover as it rises) +&nbsp;
-        <span style={{ color: "#a78bfa" }}>Dark Pool</span> (same institution buying shares AND calls off-exchange)
-        {" "}= <strong style={{ color: "#fff" }}>10 pts max</strong>.
-        Each layer 0-2 pts. <span style={{ color: "#facc15" }}>8+ pts ≈ 90% confidence.</span>
-        {" "}All five firing = event that typically produces +20-60% intraday moves.
+        <span style={{ color: "#f87171", fontWeight: 900 }}>🎯 SCORING (0–2 pts each): </span>
+        <span style={{ color: "#22c55e" }}>L1 OI Build</span> (multi-day loading) · {" "}
+        <span style={{ color: "#facc15" }}>L2 γFIR</span> (float-impact forced buy) · {" "}
+        <span style={{ color: "#38bdf8" }}>L3 Charm</span> (delta timer) · {" "}
+        <span style={{ color: "#f87171" }}>L4 Short Int</span> (short cover fuel) · {" "}
+        <span style={{ color: "#a78bfa" }}>L5 Dark Pool</span> (off-exchange accumulation) · {" "}
+        <span style={{ color: "#fb923c" }}>L6 Float OD</span> (MM delta-hedge obligations &gt;2% of float) · {" "}
+        <span style={{ color: "#e879f9" }}>L7 Sweep</span> (&gt;40% OTM directional conviction bet) · {" "}
+        <span style={{ color: "#34d399" }}>L8 Sector</span> (sympathy play from hot theme)
+        {" "}= <strong style={{ color: "#fff" }}>up to 14 pts, normalized to 10</strong>.
+        <span style={{ color: "#facc15" }}> 8+ pts ≈ 90% confidence.</span>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>Running all 5 signal layers…</div>
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>Running all 7 signal layers (L1–L8)…</div>
       ) : results.length === 0 ? (
         <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>
           No scored tickers yet. Conviction requires at least one OI or Charm signal first.
@@ -12903,11 +12911,253 @@ function ShortSqueezeTab() {
   );
 }
 
+// ── L7: Far-OTM Sweep Radar Tab ───────────────────────────────────────────────
+function FarOtmSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [days, setDays]       = useState(5);
+  const [data, setData]       = useState<FarOtmSweepResult | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = (d = days) => {
+    setLoading(true);
+    fetchFarOtmSweeps(d).then(r => setData(r)).catch(() => {}).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [days]);
+
+  const fmt = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}K` : `$${n}`;
+  const urgColor = (u: string) => u === "FAR" ? "#a78bfa" : u === "MEDIUM" ? "#38bdf8" : u === "NEAR" ? "#22c55e" : "#facc15";
+  const rows = data?.sweeps ?? [];
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>
+            🔍 Far-OTM Sweep Radar <span style={{ fontSize: 14, color: "#a78bfa", fontWeight: 700 }}>L7</span>
+          </h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0, maxWidth: 700 }}>
+            Directional conviction bets:{" "}
+            <span style={{ color: "#f87171" }}>&gt;40% OTM · Vol/OI &gt;5× · Premium &gt;$200K</span>.
+            Not hedges — someone is paying large premium for a directional lottery ticket.{" "}
+            <span style={{ color: "#facc15" }}>Probability of innocence &lt;3%.</span>
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {[1, 3, 5, 10].map(d => (
+            <button key={d} onClick={() => setDays(d)}
+              style={{ fontFamily: BB_F, fontSize: 11, padding: "5px 12px", borderRadius: 6, cursor: "pointer",
+                background: days === d ? "rgba(167,139,250,0.15)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${days === d ? "rgba(167,139,250,0.6)" : "rgba(255,255,255,0.1)"}`,
+                color: days === d ? "#a78bfa" : "#64748b" }}>
+              {d}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontFamily: BB_F, fontSize: 12, color: "#94a3b8", lineHeight: 1.8 }}>
+        <span style={{ color: "#a78bfa", fontWeight: 900 }}>🔍 HOW TO READ: </span>
+        A BTQ $7.5C Oct at +80% OTM with 7.4× vol/OI and $805K premium means someone spent{" "}
+        <strong style={{ color: "#fff" }}>$805,000</strong> betting BTQ reaches $7.50 by October — a directional conviction bet.
+        The scanner now catches these and flags them as{" "}
+        <span style={{ color: "#a78bfa" }}>FAR urgency</span> — missed opportunity from before the upgrade.
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>Scanning far-OTM sweeps…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>
+          No far-OTM sweeps detected in the last {days} day{days !== 1 ? "s" : ""}.
+          <br /><span style={{ fontSize: 11, color: "#334155", marginTop: 6, display: "block" }}>
+            Sweeps appear when someone buys calls &gt;40% OTM with &gt;$200K premium and 5× vol/OI ratio.
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {rows.map((sw, i) => (
+            <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 10, padding: "14px 18px", cursor: "pointer" }}
+              onClick={() => onSelectTicker(sw.ticker)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                  <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#a78bfa", fontSize: 18 }}>${sw.ticker}</span>
+                  <span style={{ fontFamily: BB_F, fontSize: 11, color: urgColor(sw.urgency),
+                    background: `${urgColor(sw.urgency)}18`, border: `1px solid ${urgColor(sw.urgency)}44`,
+                    borderRadius: 5, padding: "2px 8px", fontWeight: 700 }}>
+                    {sw.urgency}
+                  </span>
+                  <span style={{ fontFamily: BB_F, fontSize: 12, color: "#f87171", fontWeight: 700 }}>
+                    +{sw.otm_pct.toFixed(0)}% OTM
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569" }}>PREMIUM</div>
+                    <div style={{ fontFamily: BB_F, fontSize: 16, fontWeight: 900, color: "#22c55e" }}>{fmt(sw.prem)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569" }}>VOL/OI</div>
+                    <div style={{ fontFamily: BB_F, fontSize: 16, fontWeight: 900, color: "#facc15" }}>{sw.vol_oi.toFixed(1)}×</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 20, marginTop: 10, flexWrap: "wrap" }}>
+                {[
+                  { label: "Strike",  val: `$${sw.strike}C` },
+                  { label: "Expiry",  val: sw.expiry },
+                  { label: "Days Out", val: `${sw.days_out}d` },
+                  { label: "Volume",  val: sw.volume.toLocaleString() },
+                  { label: "Open Int", val: sw.oi.toLocaleString() },
+                  { label: "IV",      val: `${sw.iv.toFixed(0)}%` },
+                  { label: "Spot",    val: `$${sw.price.toFixed(2)}` },
+                ].map(f => (
+                  <div key={f.label}>
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569" }}>{f.label}</div>
+                    <div style={{ fontFamily: BB_F, fontSize: 12, color: "#e2e8f0", fontWeight: 700 }}>{f.val}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── L8: Sector Heat Tab ───────────────────────────────────────────────────────
+function SectorHeatTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [days, setDays]       = useState(2);
+  const [data, setData]       = useState<SectorHeatResult | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = (d = days) => {
+    setLoading(true);
+    fetchSectorHeat(d).then(r => setData(r)).catch(() => {}).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [days]);
+
+  const SECTOR_COLORS: Record<string, string> = {
+    quantum_computing: "#a78bfa", crypto_mining: "#fb923c", gene_editing: "#34d399",
+    ai_infrastructure: "#38bdf8", ev_space:       "#22c55e", meme_squeeze:  "#f87171",
+    clean_energy:      "#fbbf24", biotech_catalyst:"#e879f9", fintech_crypto: "#60a5fa",
+    small_float_spec:  "#f472b6",
+  };
+
+  const sectors = data?.hot_sectors ?? [];
+  const totalFired = Object.keys(data?.sector_tickers_fired ?? {}).length;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>
+            🌡️ Sector Heat Correlation <span style={{ fontSize: 14, color: "#fb923c", fontWeight: 700 }}>L8</span>
+          </h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0, maxWidth: 700 }}>
+            When a lead ticker in a theme fires unusual options activity, <span style={{ color: "#facc15" }}>all micro-float names in that sector</span>{" "}
+            become sympathy plays. Hedge funds ride the theme — one quantum stock moves,{" "}
+            scan all other quantum micro-floats for the next leg.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {[1, 2, 3, 5].map(d => (
+            <button key={d} onClick={() => setDays(d)}
+              style={{ fontFamily: BB_F, fontSize: 11, padding: "5px 12px", borderRadius: 6, cursor: "pointer",
+                background: days === d ? "rgba(251,146,60,0.15)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${days === d ? "rgba(251,146,60,0.6)" : "rgba(255,255,255,0.1)"}`,
+                color: days === d ? "#fb923c" : "#64748b" }}>
+              {d}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 22 }}>
+        {[
+          { label: "Hot Sectors",    val: sectors.length,   color: "#fb923c" },
+          { label: "Tickers Fired",  val: totalFired,        color: "#22c55e" },
+          { label: "Sympathy Plays", val: sectors.reduce((a,s)=>a+s.sympathy_plays.length,0), color: "#a78bfa" },
+        ].map(s => (
+          <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontFamily: BB_F, fontSize: 26, fontWeight: 900, color: s.color }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>Mapping sector correlations…</div>
+      ) : sectors.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>
+          No hot sectors detected in the last {days} day{days !== 1 ? "s" : ""}.
+          <br /><span style={{ fontSize: 11, color: "#334155", marginTop: 6, display: "block" }}>
+            Sector heat appears when multiple tickers in the same theme fire unusual call activity.
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {sectors.map((hs, i) => {
+            const sectorLabel = hs.sector.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+            const col = SECTOR_COLORS[hs.sector] ?? "#94a3b8";
+            return (
+              <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${col}30`, borderRadius: 12, padding: "16px 20px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                  <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 16, color: col }}>{sectorLabel}</div>
+                  <div style={{ fontFamily: BB_F, fontSize: 12, color: col,
+                    background: `${col}18`, border: `1px solid ${col}44`,
+                    borderRadius: 6, padding: "2px 10px", fontWeight: 700 }}>
+                    🌡️ Heat {hs.heat_score}
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", marginBottom: 6, letterSpacing: "0.06em" }}>
+                      ⚡ LEAD TICKERS (already fired)
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {hs.lead_tickers.map(t => (
+                        <button key={t} onClick={() => onSelectTicker(t)}
+                          style={{ fontFamily: BB_F, fontSize: 12, fontWeight: 900, color: col,
+                            background: `${col}18`, border: `1px solid ${col}50`,
+                            borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+                          ${t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", marginBottom: 6, letterSpacing: "0.06em" }}>
+                      👀 SYMPATHY PLAYS (watch next)
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {hs.sympathy_plays.length === 0 ? (
+                        <span style={{ fontFamily: BB_F, fontSize: 11, color: "#334155" }}>All sector members already fired</span>
+                      ) : hs.sympathy_plays.map(t => (
+                        <button key={t} onClick={() => onSelectTicker(t)}
+                          style={{ fontFamily: BB_F, fontSize: 12, fontWeight: 700, color: "#94a3b8",
+                            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
+                            borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+                          ${t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics"|"gammapressure"|"oiaccum"|"convictionstack">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -13033,7 +13283,9 @@ export default function Dashboard() {
     { id: "insiderradar",    label: "🕵️ INSIDER RADAR" },
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
-    { id: "convictionstack", label: "🎯 5-LAYER CONVICTION" },
+    { id: "convictionstack", label: "🎯 7-LAYER CONVICTION" },
+    { id: "sweepradar",      label: "🔍 SWEEP RADAR" },
+    { id: "sectorheat",      label: "🌡️ SECTOR HEAT" },
     { id: "gammapressure",   label: "⚡ GAMMA SQUEEZE" },
     { id: "oiaccum",         label: "📈 OI BUILDUP" },
     { id: "etfcalls",        label: "🔥 HC ETFs" },
@@ -13652,6 +13904,8 @@ export default function Dashboard() {
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
         {tab === "convictionstack" && <ConvictionStackTab  onSelectTicker={selectTicker} />}
+        {tab === "sweepradar"      && <FarOtmSweepTab     onSelectTicker={selectTicker} />}
+        {tab === "sectorheat"      && <SectorHeatTab       onSelectTicker={selectTicker} />}
         {tab === "gammapressure"   && <GammaPressureTab   onSelectTicker={selectTicker} />}
         {tab === "oiaccum"         && <OiAccumulationTab  onSelectTicker={selectTicker} />}
         {tab === "etfcalls"        && <ETFCallsTab        onSelectTicker={selectTicker} />}

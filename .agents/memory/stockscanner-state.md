@@ -17,6 +17,22 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - SPY cache refresh at 9:05 AM ET (module-level _spy_1y_cache dict)
 - Outcome tracker at 4:30 PM ET (T+3/5/10 day price outcomes)
 
+## 7-Layer Conviction Stack — UPGRADED June 16 2026
+- **Scanner universe**: ARQQ, BTQ, QUBT, NTLA, BEAM, EDIT, CRSP, FATE, BLUE, CIFR, IREN, WULF, CORZ, BITF added to DEFAULT_LEADERBOARD in smart_money.py
+- **L7 OTM filter fix**: `_run_microcap_options_scan()._scan_one()` — expiry window extended 45d → 365d; calls >40% OTM now pass if vol/OI ≥5× AND prem ≥$200K; `far_otm_sweep=True` flag added to hit dict; urgency now includes MEDIUM (21-60d) and FAR (60d+) labels
+- **DB**: `far_otm_sweep BOOLEAN DEFAULT FALSE` column added to `unusual_calls_microcap_log` (ALTER TABLE IF NOT EXISTS migration in `_init_microcap_calls_table()`)
+- **SECTOR_MAP**: 10 themes (quantum_computing, crypto_mining, gene_editing, ai_infrastructure, ev_space, meme_squeeze, clean_energy, biotech_catalyst, fintech_crypto, small_float_spec) in main.py at module level
+- **L6 `_get_float_pressure_signals(tickers)`**: fetches float + total call OI, computes (call_OI×100×0.4) / float × 100 → flags >2%; 0-2 pts
+- **L7 `_get_far_otm_sweeps(days_back)`**: queries unusual_calls_microcap_log WHERE far_otm_sweep=TRUE; 0-2 pts based on vol/OI ratio
+- **L8 `_get_sector_heat(days_back)`**: cross-references fired tickers against SECTOR_MAP → sympathy plays in same sector; 0-1.5 pts
+- **`_run_five_layer_conviction()`**: now runs L6/L7/L8 after L5; L7/L8 can INTRODUCE new tickers not in L1-L5; score normalized to 10 (max 14 raw pts)
+- **3 new API endpoints**: `/stock-api/float-pressure`, `/stock-api/far-otm-sweeps`, `/stock-api/sector-heat`
+- **Morning SMS**: now includes "🔍 FAR-OTM SWEEPS" section (L7) and "🔥 SECTOR HEAT" section (L8)
+- **Dashboard tabs**: "🔍 SWEEP RADAR" (id: sweepradar → FarOtmSweepTab) and "🌡️ SECTOR HEAT" (id: sectorheat → SectorHeatTab) added
+- **ConvictionStackTab**: updated to show L1–L8 legend (4-col grid), new scoring explanation
+- **Conviction stack tab label**: changed from "🎯 5-LAYER CONVICTION" to "🎯 7-LAYER CONVICTION"
+- **api.ts**: `fetchFarOtmSweeps`, `fetchSectorHeat`, `fetchFloatPressure` + full TypeScript interfaces added
+
 ## ICS Scoring System (as of June 2026)
 - Total weight: 200 pts (120 original + 80 holy grail)
 - SMS threshold: 80+ → text fires

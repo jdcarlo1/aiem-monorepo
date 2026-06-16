@@ -3983,28 +3983,33 @@ def _update_eod_sweep_outcomes():
 def _init_microcap_calls_table():
     sql = """
     CREATE TABLE IF NOT EXISTS unusual_calls_microcap_log (
-        id          SERIAL PRIMARY KEY,
-        ticker      TEXT NOT NULL,
-        price       NUMERIC NOT NULL,
-        strike      NUMERIC NOT NULL,
-        expiry      TEXT NOT NULL,
-        days_out    INTEGER,
-        volume      INTEGER,
-        oi          INTEGER,
-        vol_oi      NUMERIC,
-        prem        BIGINT,
-        otm_pct     NUMERIC,
-        iv          NUMERIC,
-        urgency     TEXT,
-        cap_tier    TEXT,
-        first_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        last_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        id             SERIAL PRIMARY KEY,
+        ticker         TEXT NOT NULL,
+        price          NUMERIC NOT NULL,
+        strike         NUMERIC NOT NULL,
+        expiry         TEXT NOT NULL,
+        days_out       INTEGER,
+        volume         INTEGER,
+        oi             INTEGER,
+        vol_oi         NUMERIC,
+        prem           BIGINT,
+        otm_pct        NUMERIC,
+        iv             NUMERIC,
+        urgency        TEXT,
+        cap_tier       TEXT,
+        far_otm_sweep  BOOLEAN DEFAULT FALSE,
+        first_seen     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE (ticker, strike, expiry)
     );
     """
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute(sql)
+            cur.execute("""
+                ALTER TABLE unusual_calls_microcap_log
+                ADD COLUMN IF NOT EXISTS far_otm_sweep BOOLEAN DEFAULT FALSE
+            """)
             conn.commit()
     except Exception as e:
         print(f"[microcap_calls] init table error: {e}")
@@ -4014,20 +4019,22 @@ def _save_microcap_calls_to_db(hits: list):
     if not hits:
         return
     sql = """
-    INSERT INTO unusual_calls_microcap_log (ticker, price, strike, expiry, days_out, volume, oi, vol_oi, prem, otm_pct, iv, urgency, cap_tier)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    INSERT INTO unusual_calls_microcap_log
+        (ticker, price, strike, expiry, days_out, volume, oi, vol_oi, prem, otm_pct, iv, urgency, cap_tier, far_otm_sweep)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (ticker, strike, expiry) DO UPDATE
-        SET price     = EXCLUDED.price,
-            days_out  = EXCLUDED.days_out,
-            volume    = EXCLUDED.volume,
-            oi        = EXCLUDED.oi,
-            vol_oi    = EXCLUDED.vol_oi,
-            prem      = EXCLUDED.prem,
-            otm_pct   = EXCLUDED.otm_pct,
-            iv        = EXCLUDED.iv,
-            urgency   = EXCLUDED.urgency,
-            cap_tier  = EXCLUDED.cap_tier,
-            last_seen = NOW();
+        SET price         = EXCLUDED.price,
+            days_out      = EXCLUDED.days_out,
+            volume        = EXCLUDED.volume,
+            oi            = EXCLUDED.oi,
+            vol_oi        = EXCLUDED.vol_oi,
+            prem          = EXCLUDED.prem,
+            otm_pct       = EXCLUDED.otm_pct,
+            iv            = EXCLUDED.iv,
+            urgency       = EXCLUDED.urgency,
+            cap_tier      = EXCLUDED.cap_tier,
+            far_otm_sweep = EXCLUDED.far_otm_sweep,
+            last_seen     = NOW();
     """
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -4037,9 +4044,11 @@ def _save_microcap_calls_to_db(hits: list):
                     h["days_out"], h["volume"], h["oi"], h["vol_oi"],
                     h["prem"], h["otm_pct"], h["iv"], h["urgency"],
                     h.get("cap_tier", "micro"),
+                    bool(h.get("far_otm_sweep", False)),
                 ))
             conn.commit()
-        print(f"[microcap_calls] saved {len(hits)} signals to DB")
+        far_count = sum(1 for h in hits if h.get("far_otm_sweep"))
+        print(f"[microcap_calls] saved {len(hits)} signals ({far_count} far-OTM sweeps) to DB")
     except Exception as e:
         print(f"[microcap_calls] save error: {e}")
 
@@ -4089,7 +4098,8 @@ def _run_microcap_options_scan() -> list:
 
             for exp in opts:
                 days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
-                if not (1 <= days <= max_exp):
+                # Allow up to 365 days — far-OTM sweeps are often long-dated
+                if not (1 <= days <= 365):
                     continue
                 try:
                     chain = tk.option_chain(exp).calls
@@ -4116,28 +4126,43 @@ def _run_microcap_options_scan() -> list:
                             strike  = _sf(row.get("strike"))
                             if not strike: continue
                             otm_pct = round((strike - price) / price * 100, 2)
-                            if otm_pct < -10 or otm_pct > 50:
-                                continue
+                            if otm_pct < -10:
+                                continue   # always skip deep ITM
                             bid  = _sf(row.get("bid"))
                             ask  = _sf(row.get("ask"))
                             if bid <= 0 or ask <= 0:
                                 continue
                             spread_pct = (ask - bid) / ask
-                            if spread_pct > 0.25:
+                            if spread_pct > 0.40:  # allow wider spreads on far-OTM
                                 continue
                             mid  = (bid + ask) / 2
                             prem = int(mid * vol * 100)
-                            if prem < min_prem:
-                                continue
+                            # ── L7 Far-OTM Sweep gate ─────────────────────────────────────────
+                            # >40% OTM: only log if it's a genuine directional conviction bet
+                            # (vol/OI > 5× AND premium > $200K). This is what hedge funds flag.
+                            far_otm_sweep = False
+                            if otm_pct > 40:
+                                if voi < 5.0 or prem < 200_000:
+                                    continue   # noise — skip
+                                far_otm_sweep = True
+                            else:
+                                # Normal call: apply standard expiry + premium window
+                                if days > max_exp:
+                                    continue
+                                if prem < min_prem:
+                                    continue
+                            # ────────────────────────────────────────────────────────────────
                             iv      = round(float(row.get("impliedVolatility") or 0) * 100, 1)
                             urgency = ("EXPIRING" if days <= 3 else
                                        "SHORT"    if days <= 7 else
-                                       "NEAR"     if days <= 14 else "MEDIUM")
+                                       "NEAR"     if days <= 21 else
+                                       "MEDIUM"   if days <= 60 else "FAR")
                             hits.append({
                                 "ticker": ticker, "price": price, "strike": strike,
                                 "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
                                 "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
                                 "iv": iv, "urgency": urgency, "cap_tier": cap_tier,
+                                "far_otm_sweep": far_otm_sweep,
                             })
                         except Exception:
                             pass
@@ -4303,28 +4328,63 @@ def _send_morning_gamma_watchlist_sms() -> None:
             print(f"[morning_watchlist] no data — skipping")
             return
 
-        # ── 5-Layer Conviction: top combined signals ───────────────────────────
-        conviction_results = _run_five_layer_conviction(max_tickers=5)
+        # ── 7-Layer Conviction Stack (L1-L8) ──────────────────────────────────
+        conviction_results = _run_five_layer_conviction(max_tickers=8)
         extreme_setups = [r for r in conviction_results if r["total_pts"] >= 6.0]
         if extreme_setups:
             lines.append("")
-            lines.append("🎯 5-LAYER CONVICTION STACK:")
+            lines.append("🎯 7-LAYER CONVICTION STACK:")
             for r in extreme_setups[:3]:
                 lyr = r["layers"]
                 parts = []
-                if lyr.get("oi_accum"):   parts.append(f"OI✓")
-                if lyr.get("gamma_fir"):  parts.append(f"γFIR✓")
-                if lyr.get("charm"):      parts.append(f"Charm✓")
-                if lyr.get("short_int"):  parts.append(f"SI✓")
-                if lyr.get("dark_pool"):  parts.append(f"DP✓")
+                if lyr.get("oi_accum"):       parts.append("OI✓")
+                if lyr.get("gamma_fir"):      parts.append("γFIR✓")
+                if lyr.get("charm"):          parts.append("Charm✓")
+                if lyr.get("short_int"):      parts.append("SI✓")
+                if lyr.get("dark_pool"):      parts.append("DP✓")
+                if lyr.get("float_pressure"): parts.append("Float✓")
+                if lyr.get("far_otm_sweep"):  parts.append("Sweep✓")
+                if lyr.get("sector_sympathy"):parts.append("Sector✓")
                 m = r["meta"]
                 si_s = f"  SI:{m['si_pct']:.0f}%" if m.get("si_pct") else ""
                 dp_s = f"  DP:{m['dp_pct']:.0f}%OX" if m.get("dp_pct") else ""
+                fp_s = f"  Float:{m['float_pressure_pct']:.1f}%OD" if m.get("float_pressure_pct") else ""
+                sw_s = f"  Sweep:{m['sweep_voi']:.0f}x@+{m['sweep_otm']:.0f}%OTM" if m.get("sweep_voi") else ""
                 lines.append(
                     f"🔥 ${r['ticker']}  {r['label']}  {r['conviction_pct']}% conviction\n"
-                    f"   Score:{r['total_pts']}/10  [{' '.join(parts)}]{si_s}{dp_s}"
+                    f"   Score:{r['total_pts']}/10  [{' '.join(parts)}]{si_s}{dp_s}{fp_s}{sw_s}"
                 )
             lines.append("→ These are the highest-probability setups TODAY.")
+
+        # ── L7: Far-OTM Sweeps ─────────────────────────────────────────────────
+        far_sweeps = _get_far_otm_sweeps(days_back=(days_bk + 1))
+        if far_sweeps:
+            lines.append("")
+            lines.append("🔍 FAR-OTM SWEEPS — Directional conviction bets:")
+            for sw in far_sweeps[:3]:
+                prem_s = f"${sw['prem']/1000:.0f}K" if sw['prem'] < 1_000_000 else f"${sw['prem']/1_000_000:.1f}M"
+                lines.append(
+                    f"💥 ${sw['ticker']}  ${sw['strike']:.0f}C {sw['expiry'][:10]}"
+                    f"  +{sw['otm_pct']:.0f}%OTM  {sw['vol_oi']:.1f}x vol/OI  {prem_s}prem"
+                )
+            lines.append("→ Not hedges. Someone is paying serious premium for a directional bet.")
+
+        # ── L8: Sector Heat ────────────────────────────────────────────────────
+        heat_data = _get_sector_heat(days_back=days_bk)
+        hot_sectors = heat_data.get("hot_sectors", [])
+        if hot_sectors:
+            lines.append("")
+            lines.append("🔥 SECTOR HEAT — Theme sympathy plays to watch:")
+            for hs in hot_sectors[:2]:
+                sector_label = hs["sector"].replace("_", " ").title()
+                leads  = ", ".join(f"${t}" for t in hs["lead_tickers"][:3])
+                symp   = " ".join(f"${t}" for t in hs["sympathy_plays"][:4])
+                lines.append(
+                    f"🌡️ {sector_label}  ({hs['heat_score']} lead{'s' if hs['heat_score']!=1 else ''} fired)\n"
+                    f"   Leads: {leads}\n"
+                    f"   Watch: {symp if symp else '—'}"
+                )
+            lines.append("→ Theme momentum: lead name fires → micro-floats in same sector run next.")
 
         lines += ["", "Stop: below pre-market low | Target: +8-15%"]
         msg = "\n".join(lines)
@@ -4927,13 +4987,57 @@ def _run_five_layer_conviction(max_tickers: int = 15) -> list:
         scores[ticker]["meta"]["dp_pct"]   = dp_pct
         scores[ticker]["meta"]["dp_vol"]   = dp["volume"]
 
+    # ── Layer 6: Float-Adjusted Options Demand ────────────────────────────────
+    fp_data = _get_float_pressure_signals(active)
+    for ticker, fp in fp_data.items():
+        if ticker not in scores:
+            scores[ticker] = {"price": 0, "pts": {}, "meta": {}}
+        if fp["l6_pts"] > 0:
+            scores[ticker]["pts"]["float_pressure"]     = fp["l6_pts"]
+            scores[ticker]["meta"]["float_pressure_pct"] = fp["pressure_pct"]
+            scores[ticker]["meta"]["float_m"]            = fp["float_m"]
+            scores[ticker]["meta"]["call_oi"]            = fp["call_oi"]
+
+    # ── Layer 7: Far-OTM Sweep Detector ──────────────────────────────────────
+    far_sweeps = _get_far_otm_sweeps(days_back=3)
+    sweep_by_ticker: dict = {}
+    for r in far_sweeps:
+        tk = r["ticker"]
+        if tk not in sweep_by_ticker or r["prem"] > sweep_by_ticker[tk]["prem"]:
+            sweep_by_ticker[tk] = r
+    for ticker, sweep in sweep_by_ticker.items():
+        if ticker not in scores:
+            scores[ticker] = {"price": float(sweep.get("price") or 0), "pts": {}, "meta": {}}
+        voi = float(sweep.get("vol_oi", 0))
+        pts = 2.0 if voi >= 10 else 1.5 if voi >= 7 else 1.0
+        scores[ticker]["pts"]["far_otm_sweep"]    = pts
+        scores[ticker]["meta"]["sweep_voi"]       = round(voi, 1)
+        scores[ticker]["meta"]["sweep_prem"]      = int(sweep.get("prem", 0))
+        scores[ticker]["meta"]["sweep_otm"]       = round(float(sweep.get("otm_pct", 0)), 0)
+        scores[ticker]["meta"]["sweep_expiry"]    = str(sweep.get("expiry", ""))
+
+    # ── Layer 8: Sector Theme Correlation ─────────────────────────────────────
+    sector_heat = _get_sector_heat(days_back=2)
+    for hs in sector_heat.get("hot_sectors", []):
+        heat = hs["heat_score"]
+        for tk in hs.get("sympathy_plays", []):
+            if tk not in scores:
+                scores[tk] = {"price": 0, "pts": {}, "meta": {}}
+            pts = 1.5 if heat >= 3 else 1.0 if heat >= 2 else 0.5
+            cur_pts = scores[tk]["pts"].get("sector_sympathy", 0)
+            scores[tk]["pts"]["sector_sympathy"]    = max(cur_pts, pts)
+            scores[tk]["meta"]["sector"]            = hs["sector"]
+            scores[tk]["meta"]["sector_leads"]      = hs["lead_tickers"][:3]
+            scores[tk]["meta"]["sector_heat_score"] = heat
+
     # ── Build ranked results ───────────────────────────────────────────────────
     results = []
     for ticker, data in scores.items():
         total = sum(data["pts"].values())
         if total < 1.0:
             continue
-        # Conviction % caps at 95 — nothing is 100% certain
+        # Normalize conviction % to 95 ceiling.
+        # Max possible = 14 pts (7 layers × 2 pts), but we scale against 10 for continuity.
         conviction = min(95, round(total / 10.0 * 95, 0))
         results.append({
             "ticker":         ticker,
@@ -4952,6 +5056,256 @@ def _run_five_layer_conviction(max_tickers: int = 15) -> list:
 
     results.sort(key=lambda x: x["total_pts"], reverse=True)
     return results[:max_tickers]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# L6 — Float-Adjusted Options Demand
+# L7 — Far-OTM Sweep Detector
+# L8 — Sector Theme Correlation
+# ══════════════════════════════════════════════════════════════════════════════
+
+SECTOR_MAP: dict = {
+    "quantum_computing":  ["IONQ","RGTI","QBTS","ARQQ","QUBT","SOUN","QMCO"],
+    "crypto_mining":      ["MARA","RIOT","CLSK","HUT","BTBT","BTQ","CIFR","IREN","WULF","CORZ","BITF","BRRR"],
+    "gene_editing":       ["NTLA","BEAM","EDIT","CRSP","FATE","BLUE","NKTR","ACAD","CELC","ARQT"],
+    "ai_infrastructure":  ["NVDA","AMD","SMCI","ARM","PLTR","AI","BBAI","SOUN","SNOW","MDB"],
+    "ev_space":           ["RIVN","LCID","NIO","XPEV","LI","ACHR","JOBY","LILM","LUNR","RKLB","SPCE","ASTS"],
+    "meme_squeeze":       ["GME","AMC","HOOD","SOFI","MSTR","COIN","SQ"],
+    "clean_energy":       ["FSLR","ENPH","SEDG","ARRY","RUN","NOVA"],
+    "biotech_catalyst":   ["LMND","ADMA","PRGO","NKTR","SGEN","IMVT","PRAX","MVST"],
+    "fintech_crypto":     ["COIN","HOOD","SOFI","PYPL","MSTR","RIOT","MARA"],
+    "small_float_spec":   ["ARQQ","BTQ","BTBT","NTLA","GFAI","SKIN","VINC","AEYE"],
+}
+
+# Reverse map: ticker → list of sector names it belongs to
+_TICKER_TO_SECTORS: dict = {}
+for _sec, _tks in SECTOR_MAP.items():
+    for _tk in _tks:
+        _TICKER_TO_SECTORS.setdefault(_tk, []).append(_sec)
+
+
+def _get_float_pressure_signals(tickers: list) -> dict:
+    """
+    Layer 6 — Float-Adjusted Options Demand.
+    For micro-float stocks, even modest call OI forces MMs to buy a meaningful
+    % of the entire float as delta hedge. This creates a self-reinforcing feedback:
+    stock moves up → delta rises → MM buys more shares → stock moves more.
+
+    Score = (total_call_oi × 100 × avg_delta=0.40) / float_shares × 100
+    Flag when > 3% of float is tied up in MM delta obligations.
+
+    Returns {ticker: {"pressure_pct": float, "float_shares": int, "call_oi": int, "l6_pts": float}}
+    """
+    import yfinance as _yf6
+    from concurrent.futures import ThreadPoolExecutor as _Tex6, as_completed as _asc6
+
+    def _fetch_one(ticker):
+        try:
+            tk   = _yf6.Ticker(ticker)
+            info = tk.info
+            fl   = int(info.get("floatShares") or info.get("sharesOutstanding") or 0)
+            if fl <= 0:
+                return ticker, None
+            total_oi = 0
+            for exp in (tk.options or [])[:6]:
+                try:
+                    calls = tk.option_chain(exp).calls
+                    total_oi += int(calls["openInterest"].fillna(0).sum())
+                except Exception:
+                    pass
+            if total_oi <= 0:
+                return ticker, None
+            delta_demand = total_oi * 100 * 0.40
+            pressure_pct = round(delta_demand / fl * 100, 2)
+            pts = (2.0 if pressure_pct >= 8.0 else
+                   1.5 if pressure_pct >= 4.0 else
+                   1.0 if pressure_pct >= 2.0 else 0.0)
+            return ticker, {
+                "pressure_pct": pressure_pct,
+                "float_shares":  fl,
+                "float_m":       round(fl / 1e6, 2),
+                "call_oi":       total_oi,
+                "delta_demand":  int(delta_demand),
+                "l6_pts":        pts,
+            }
+        except Exception:
+            return ticker, None
+
+    result = {}
+    with _Tex6(max_workers=8) as ex:
+        futs = {ex.submit(_fetch_one, t): t for t in tickers[:30]}
+        for f in _asc6(futs):
+            try:
+                tk, data = f.result()
+                if data:
+                    result[tk] = data
+            except Exception:
+                pass
+    return result
+
+
+def _get_far_otm_sweeps(days_back: int = 3) -> list:
+    """
+    Layer 7 — Far-OTM Sweep Detector.
+    Queries the unusual_calls_microcap_log for calls that were flagged as
+    far-OTM sweeps (>40% OTM, vol/OI > 5×, prem > $200K).
+    These are directional conviction bets — someone paying large premium for
+    a lottery ticket. Probability of innocence at this threshold: <3%.
+    Returns list of dicts sorted by premium × vol_oi.
+    """
+    import psycopg2 as _pg7, os as _os7
+    from datetime import date as _d7, timedelta as _td7
+    cutoff = _d7.today() - _td7(days=days_back)
+    try:
+        with _pg7.connect(_os7.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, price, strike, expiry::TEXT, days_out,
+                       volume, oi, vol_oi::float, prem::bigint,
+                       otm_pct::float, iv::float, urgency, cap_tier,
+                       last_seen AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York' AS last_seen_et
+                FROM unusual_calls_microcap_log
+                WHERE far_otm_sweep = TRUE
+                  AND last_seen >= %s
+                ORDER BY vol_oi * prem DESC
+                LIMIT 20
+            """, (cutoff,))
+            cols = ["ticker","price","strike","expiry","days_out","volume","oi",
+                    "vol_oi","prem","otm_pct","iv","urgency","cap_tier","last_seen_et"]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for r in rows:
+                if r.get("last_seen_et"):
+                    r["last_seen_et"] = r["last_seen_et"].isoformat()
+            return rows
+    except Exception:
+        return []
+
+
+def _get_sector_heat(days_back: int = 2) -> dict:
+    """
+    Layer 8 — Sector Theme Correlation.
+    When a "lead" ticker in a theme fires unusual call activity, ALL smaller-float
+    names in the same sector become sympathy plays. Hedge funds monitor sector
+    momentum: one quantum stock moves → scan all quantum micro-floats.
+
+    Returns {
+      "hot_sectors": [{"sector": str, "lead_tickers": [...], "sympathy_plays": [...]}],
+      "sector_tickers_fired": {ticker: [sectors]},
+    }
+    """
+    import psycopg2 as _pg8, os as _os8
+    from datetime import date as _d8, timedelta as _td8
+    cutoff = _d8.today() - _td8(days=days_back)
+    try:
+        with _pg8.connect(_os8.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_microcap_log
+                WHERE last_seen >= %s AND prem >= 5000
+            """, (cutoff,))
+            fired = {r[0] for r in cur.fetchall()}
+    except Exception:
+        fired = set()
+
+    hot: dict = {}
+    for ticker in fired:
+        for sector in _TICKER_TO_SECTORS.get(ticker, []):
+            if sector not in hot:
+                hot[sector] = {"lead_tickers": [], "sympathy_plays": []}
+            hot[sector]["lead_tickers"].append(ticker)
+
+    # Sympathy plays = other sector members NOT already fired
+    for sector, data in hot.items():
+        leads = set(data["lead_tickers"])
+        data["sympathy_plays"] = [
+            t for t in SECTOR_MAP[sector]
+            if t not in leads and t not in fired
+        ]
+
+    results = []
+    for sector, data in sorted(hot.items(), key=lambda x: len(x[1]["lead_tickers"]), reverse=True):
+        results.append({
+            "sector":        sector,
+            "lead_tickers":  data["lead_tickers"],
+            "sympathy_plays": data["sympathy_plays"],
+            "heat_score":    len(data["lead_tickers"]),
+        })
+
+    return {
+        "hot_sectors":           results,
+        "sector_tickers_fired":  {t: _TICKER_TO_SECTORS.get(t, []) for t in fired if t in _TICKER_TO_SECTORS},
+        "total_sectors_hot":     len(results),
+    }
+
+
+# ── API endpoints for L6 / L7 / L8 ───────────────────────────────────────────
+
+@app.route("/stock-api/float-pressure")
+def float_pressure_endpoint():
+    """
+    L6 — Float-Adjusted Options Demand.
+    Returns tickers where MM delta-hedge obligations exceed 2%+ of float.
+    These micro-float stocks become self-reinforcing momentum accelerants.
+    """
+    import psycopg2 as _pg, os as _osp
+    from datetime import date as _dp, timedelta as _tdp
+    cutoff = _dp.today() - _tdp(days=3)
+    try:
+        with _pg.connect(_osp.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_microcap_log
+                WHERE last_seen >= %s AND prem >= 5000
+                ORDER BY ticker
+            """, (cutoff,))
+            tickers = [r[0] for r in cur.fetchall()]
+    except Exception:
+        tickers = []
+
+    # Also include all sector-map tickers with known small floats
+    small_float_candidates = SECTOR_MAP.get("small_float_spec", []) + SECTOR_MAP.get("quantum_computing", [])
+    for t in small_float_candidates:
+        if t not in tickers:
+            tickers.append(t)
+
+    data = _get_float_pressure_signals(tickers[:40])
+    results = sorted(
+        [{"ticker": t, **v} for t, v in data.items() if v["l6_pts"] >= 1.0],
+        key=lambda x: x["pressure_pct"],
+        reverse=True,
+    )
+    return jsonify({
+        "results": results,
+        "total":   len(results),
+        "note":    "pressure_pct = (call_OI × 100 × 0.4delta) / float_shares × 100",
+        "threshold": "Flag when >2% of float is delta-hedge obligation",
+    })
+
+
+@app.route("/stock-api/far-otm-sweeps")
+def far_otm_sweeps_endpoint():
+    """
+    L7 — Far-OTM Sweep Detector.
+    Returns directional conviction bets (>40% OTM, vol/OI>5×, prem>$200K).
+    These are NOT hedges. Someone is paying large premium for big directional bets.
+    """
+    days_back = int(request.args.get("days", 5))
+    rows = _get_far_otm_sweeps(days_back=days_back)
+    return jsonify({
+        "sweeps": rows,
+        "total":  len(rows),
+        "filter": "otm_pct > 40% AND vol_oi > 5× AND prem > $200K",
+        "note":   "These are directional conviction bets, not hedges. Probability of innocence <3%.",
+    })
+
+
+@app.route("/stock-api/sector-heat")
+def sector_heat_endpoint():
+    """
+    L8 — Sector Theme Correlation.
+    When lead tickers in a theme fire, ALL micro-float names in that sector
+    become sympathy plays. Hedge funds ride the theme.
+    """
+    days_back = int(request.args.get("days", 2))
+    result = _get_sector_heat(days_back=days_back)
+    return jsonify(result)
 
 
 # ── My Trades — personal trade journal ───────────────────────────────────────

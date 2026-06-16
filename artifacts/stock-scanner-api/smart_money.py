@@ -76,11 +76,19 @@ DEFAULT_LEADERBOARD = [
     "LYV", "IPG", "OMC", "FOX", "FOXA",
     # ── Clean Energy / Solar ──────────────────────────────────────────────────
     "FSLR", "ENPH", "SEDG", "RUN", "ARRY", "NOVA",
-    # ── Quantum / AI / Space / Speculative ───────────────────────────────────
-    "IONQ", "RGTI", "QBTS", "SOUN", "LUNR", "RKLB", "SPCE",
-    # ── Crypto-adjacent / Meme ───────────────────────────────────────────────
-    "MARA", "RIOT", "CLSK", "HUT", "BTBT", "BRRR",
-    "GME", "AMC", "BBAI",
+    # ── Quantum Computing ─────────────────────────────────────────────────────
+    "IONQ", "RGTI", "QBTS", "ARQQ", "QUBT", "SOUN", "LUNR", "RKLB", "SPCE",
+    "QMCO", "IQM",
+    # ── Crypto Mining / Bitcoin-adjacent ─────────────────────────────────────
+    "MARA", "RIOT", "CLSK", "HUT", "BTBT", "BTQ", "BRRR", "CIFR", "IREN",
+    "WULF", "CORZ", "BIT", "BITF",
+    # ── High-SI Biotech / Gene Editing ────────────────────────────────────────
+    "NTLA", "BEAM", "EDIT", "CRSP", "FATE", "BLUE", "NKTR", "SGEN", "ACAD",
+    "ARQT", "LMND", "CELC", "ADMA", "PRGO",
+    # ── Micro-Float Speculative ────────────────────────────────────────────────
+    "GFAI", "MVST", "SKIN", "IMVT", "PRAX", "ACHR", "JOBY", "LILM",
+    # ── Meme / Social Momentum ───────────────────────────────────────────────
+    "GME", "AMC", "BBAI", "VINC", "AEYE",
     # ── ── ETFs ───────────────────────────────────────────────────────────────
     # Broad market
     "SPY", "QQQ", "IWM", "DIA", "MDY", "VTI", "VOO",

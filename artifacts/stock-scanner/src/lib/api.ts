@@ -1337,6 +1337,69 @@ export function fetchConvictionStack() {
   return fetchJson<ConvictionStackResult>(`/conviction-stack`);
 }
 
+// ── L6: Float-Adjusted Options Demand ────────────────────────────────────────
+export interface FloatPressureRow {
+  ticker:           string;
+  pressure_pct:     number;
+  float_shares:     number;
+  float_m:          number;
+  call_oi:          number;
+  delta_demand:     number;
+  l6_pts:           number;
+}
+export interface FloatPressureResult {
+  results:    FloatPressureRow[];
+  total:      number;
+  note:       string;
+  threshold:  string;
+}
+export function fetchFloatPressure() {
+  return fetchJson<FloatPressureResult>(`/float-pressure`);
+}
+
+// ── L7: Far-OTM Sweep Detector ────────────────────────────────────────────────
+export interface FarOtmSweepRow {
+  ticker:       string;
+  price:        number;
+  strike:       number;
+  expiry:       string;
+  days_out:     number;
+  volume:       number;
+  oi:           number;
+  vol_oi:       number;
+  prem:         number;
+  otm_pct:      number;
+  iv:           number;
+  urgency:      string;
+  cap_tier:     string;
+  last_seen_et: string;
+}
+export interface FarOtmSweepResult {
+  sweeps: FarOtmSweepRow[];
+  total:  number;
+  filter: string;
+  note:   string;
+}
+export function fetchFarOtmSweeps(days = 5) {
+  return fetchJson<FarOtmSweepResult>(`/far-otm-sweeps?days=${days}`);
+}
+
+// ── L8: Sector Theme Correlation ─────────────────────────────────────────────
+export interface HotSector {
+  sector:          string;
+  lead_tickers:    string[];
+  sympathy_plays:  string[];
+  heat_score:      number;
+}
+export interface SectorHeatResult {
+  hot_sectors:           HotSector[];
+  sector_tickers_fired:  Record<string, string[]>;
+  total_sectors_hot:     number;
+}
+export function fetchSectorHeat(days = 2) {
+  return fetchJson<SectorHeatResult>(`/sector-heat?days=${days}`);
+}
+
 export interface InsiderRadarRow extends UnusualCallsLogEntry {
   suspicion_score:    number;
   ticker_appearances: number;
