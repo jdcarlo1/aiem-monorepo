@@ -4943,8 +4943,14 @@ def _run_microcap_options_scan() -> list:
                 _cbump("large_skip")
                 return hits
 
-            min_voi  = 1.5
-            min_prem = 5_000 if cap_tier in ("nano", "micro") else 15_000
+            # Loosened thresholds: in small/micro caps a small premium controls a
+            # huge notional (e.g. $100K of cheap calls can control ~$10M of stock),
+            # so the dollar-premium floor is kept deliberately low — gating on
+            # premium spent hides the most leveraged directional bets. We lean on
+            # vol/OI (unusual vs. existing positioning) + a min volume floor to
+            # filter pure illiquidity (1–9-contract prints aren't signal).
+            min_voi  = 1.0
+            min_prem = 1_000 if cap_tier in ("nano", "micro") else 2_500
             min_vol  = 10
             max_exp  = 45
 
