@@ -5135,35 +5135,26 @@ def _run_oi_snapshot() -> None:
     et_now = _dt.now(_tz.utc)
     today  = et_now.date()
 
-    universe = list(_MICRO_CAP_UNIVERSE)
-
-    # ── Add recent unusual-call tickers (confirmed to have liquid options) ──
+    # ── Build prioritized universe (cap at 150 to avoid YF rate limits) ──────
+    # Priority 1: tickers with recent unusual-call activity (live liquid options)
+    priority = []
     try:
         import psycopg2
         with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT DISTINCT ticker FROM unusual_calls_microcap_log
-                WHERE last_seen >= NOW() - INTERVAL '14 days' LIMIT 200
+                WHERE last_seen >= NOW() - INTERVAL '14 days'
+                ORDER BY ticker LIMIT 100
             """)
-            for (t,) in cur.fetchall():
-                if t not in universe:
-                    universe.append(t)
+            priority = [r[0] for r in cur.fetchall()]
     except Exception:
         pass
 
-    # ── Dynamic discovery capped at 100 high-conviction tickers to avoid rate limits ──
-    try:
-        dynamic_tickers = _get_microcap_tickers()
-        added = 0
-        for t in dynamic_tickers:
-            if t not in universe:
-                universe.append(t)
-                added += 1
-            if added >= 100:
-                break
-        print(f"[oi_snapshot] universe: {len(_MICRO_CAP_UNIVERSE)} static + {added} dynamic = {len(universe)} total")
-    except Exception as _e_dyn:
-        print(f"[oi_snapshot] dynamic ticker fetch failed: {_e_dyn}")
+    # Priority 2: static universe (fill remaining slots up to 150 total)
+    static_pool = [t for t in _MICRO_CAP_UNIVERSE if t not in priority]
+    universe = priority + static_pool
+    universe = universe[:150]
+    print(f"[oi_snapshot] universe: {len(priority)} active-options + {len(universe)-len(priority)} static = {len(universe)} tickers (capped at 150)")
 
     snapshots = []
 
@@ -5172,18 +5163,21 @@ def _run_oi_snapshot() -> None:
     def _snap_ticker(ticker):
         rows = []
         try:
-            _time.sleep(_random.uniform(0.2, 0.6))
+            _time.sleep(_random.uniform(1.5, 2.5))  # conservative — avoids YF rate limits
             tk    = yf.Ticker(ticker)
             price = _sf(getattr(tk.fast_info, "last_price", None))
             if not price or price < 0.10:
                 return rows
-            for exp in (tk.options or []):
+            # Limit to 3 nearest expiries within 30 days (reduces calls ~70%)
+            exps_near = [
+                exp for exp in (tk.options or [])
+                if max(1, (_dt.strptime(exp, "%Y-%m-%d").replace(tzinfo=_tz.utc) - et_now).days + 1) <= 30
+            ][:3]
+            for exp in exps_near:
                 try:
                     exp_dt = _dt.strptime(exp, "%Y-%m-%d").replace(tzinfo=_tz.utc)
                     days   = max(1, (exp_dt - et_now).days + 1)
-                    if days > 45:
-                        continue
-                    _time.sleep(0.3)
+                    _time.sleep(_random.uniform(0.4, 0.8))
                     calls = tk.option_chain(exp).calls
                     for _, row in calls.iterrows():
                         oi     = _si(row.get("openInterest"))
@@ -5200,7 +5194,8 @@ def _run_oi_snapshot() -> None:
             pass
         return rows
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    # 2 workers max — YF allows ~1 req/sec per IP; 2 workers + 1.5-2.5s sleep ≈ safe
+    with ThreadPoolExecutor(max_workers=2) as ex:
         futs = {ex.submit(_snap_ticker, t): t for t in universe}
         for fut in _ascf(futs):
             try:
