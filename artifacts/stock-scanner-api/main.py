@@ -5639,37 +5639,88 @@ def _get_float_pressure_signals(tickers: list) -> dict:
 def _get_far_otm_sweeps(days_back: int = 3) -> list:
     """
     Layer 7 — Far-OTM Sweep Detector.
-    Queries the unusual_calls_microcap_log for calls that were flagged as
-    far-OTM sweeps (>40% OTM, vol/OI > 5×, prem > $200K).
-    These are directional conviction bets — someone paying large premium for
-    a lottery ticket. Probability of innocence at this threshold: <3%.
-    Returns list of dicts sorted by premium × vol_oi.
+    Queries BOTH unusual_calls_log (large-cap) and unusual_calls_microcap_log
+    for high-conviction directional bets: vol/OI >= 5x, prem >= $500K.
+    Deduplicates by (ticker, strike, expiry) keeping highest vol_oi.
+    Returns list of dicts sorted by prem * vol_oi descending.
     """
     import psycopg2 as _pg7, os as _os7
     from datetime import date as _d7, timedelta as _td7
     cutoff = _d7.today() - _td7(days=days_back)
+    rows = []
     try:
+        # ETFs / broad indices — excluded from individual stock sweep signals
+        _ETF_EXCLUDE = (
+            'SPY','QQQ','IWM','DIA','EFA','EEM','TLT','IEF','GLD','SLV',
+            'XLK','XLF','XLE','XLV','XLY','XLI','XLB','XLC','XLRE','XLU','XLP',
+            'IVV','VOO','VXX','UVXY','SVXY','SQQQ','TQQQ','SPXU','SPXL',
+            'SMH','SOXX','ARKK','ARKG','ARKW','ARKF','ARKQ',
+            'HYG','LQD','AGG','BND','GOVT','VCIT','VCSH',
+            'USO','UNG','GDX','GDXJ','SLV','IAU',
+        )
         with _pg7.connect(_os7.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Source 1: main unusual_calls_log (large + mid cap signals), ETFs excluded
             cur.execute("""
-                SELECT ticker, price, strike, expiry::TEXT, days_out,
+                SELECT ticker, price::float, strike::float, expiry::TEXT, days_out,
+                       volume, oi, vol_oi::float, prem::bigint,
+                       otm_pct::float, iv::float, urgency,
+                       last_seen AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'
+                FROM unusual_calls_log
+                WHERE last_seen >= %s
+                  AND vol_oi >= 5.0
+                  AND prem >= 500000
+                  AND ticker != ALL(%s)
+                ORDER BY vol_oi * prem DESC
+                LIMIT 30
+            """, (cutoff, list(_ETF_EXCLUDE)))
+            cols = ["ticker","price","strike","expiry","days_out","volume","oi",
+                    "vol_oi","prem","otm_pct","iv","urgency","last_seen_et"]
+            for r in cur.fetchall():
+                d = dict(zip(cols, r))
+                d["cap_tier"] = "large"
+                if d.get("last_seen_et"):
+                    d["last_seen_et"] = d["last_seen_et"].isoformat()
+                rows.append(d)
+
+            # Source 2: microcap unusual calls (any far_otm_sweep flag)
+            cur.execute("""
+                SELECT ticker, price::float, strike::float, expiry::TEXT, days_out,
                        volume, oi, vol_oi::float, prem::bigint,
                        otm_pct::float, iv::float, urgency, cap_tier,
-                       last_seen AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York' AS last_seen_et
+                       last_seen AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'
                 FROM unusual_calls_microcap_log
-                WHERE far_otm_sweep = TRUE
-                  AND last_seen >= %s
+                WHERE last_seen >= %s
+                  AND (far_otm_sweep = TRUE OR (vol_oi >= 5.0 AND prem >= 200000))
                 ORDER BY vol_oi * prem DESC
                 LIMIT 20
             """, (cutoff,))
-            cols = ["ticker","price","strike","expiry","days_out","volume","oi",
-                    "vol_oi","prem","otm_pct","iv","urgency","cap_tier","last_seen_et"]
-            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-            for r in rows:
-                if r.get("last_seen_et"):
-                    r["last_seen_et"] = r["last_seen_et"].isoformat()
-            return rows
+            cols2 = ["ticker","price","strike","expiry","days_out","volume","oi",
+                     "vol_oi","prem","otm_pct","iv","urgency","cap_tier","last_seen_et"]
+            for r in cur.fetchall():
+                d = dict(zip(cols2, r))
+                if d.get("last_seen_et"):
+                    d["last_seen_et"] = d["last_seen_et"].isoformat()
+                rows.append(d)
+
     except Exception:
         return []
+
+    # Deduplicate by (ticker, strike, expiry) — keep highest vol_oi
+    seen: dict = {}
+    for r in rows:
+        key = (r["ticker"], r["strike"], r["expiry"])
+        if key not in seen or r["vol_oi"] > seen[key]["vol_oi"]:
+            seen[key] = r
+
+    # Per-ticker: keep only best strike (highest prem * vol_oi)
+    best_by_ticker: dict = {}
+    for r in seen.values():
+        t = r["ticker"]
+        score = (r["prem"] or 0) * (r["vol_oi"] or 0)
+        if t not in best_by_ticker or score > (best_by_ticker[t]["prem"] or 0) * (best_by_ticker[t]["vol_oi"] or 0):
+            best_by_ticker[t] = r
+
+    return sorted(best_by_ticker.values(), key=lambda x: (x["prem"] or 0) * (x["vol_oi"] or 0), reverse=True)[:25]
 
 
 def _get_sector_heat(days_back: int = 2) -> dict:
@@ -12189,7 +12240,7 @@ def conviction_stack_endpoint():
     8+ pts = ~90% confidence the stock is being positioned for a squeeze.
     """
     try:
-        results = _run_five_layer_conviction(max_tickers=15)
+        results = _run_five_layer_conviction(max_tickers=25)
         return jsonify({"results": results, "count": len(results)})
     except Exception as e:
         import traceback
