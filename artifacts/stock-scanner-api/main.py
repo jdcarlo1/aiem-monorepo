@@ -404,7 +404,8 @@ try:
             out = _run_microcap_flow_scan()
             app._nfmc_cache    = out
             app._nfmc_cache_ts = _dt.now()
-            print(f"[scheduler] micro-cap pre-warm → scanned {out['scanned']} tickers, {len(out['results'])} positive")
+            positive = len(out.get("micro", [])) + len(out.get("small", []))
+            print(f"[scheduler] micro-cap pre-warm → scanned {out.get('scanned', 0)} tickers, {positive} micro/small positive")
         except Exception as e:
             print(f"[scheduler] micro-cap pre-warm error: {e}")
     _scheduler.add_job(
@@ -1297,6 +1298,7 @@ def _send_unusual_calls_alert(hits: list) -> None:
     Called right after _run_unusual_calls_scan saves to DB.
     """
     try:
+        from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
         # HIGH CONVICTION ONLY: Vol/OI >= 5x and prem >= $100K
         # Backtest Jun 1-13: HIGH conviction = 91% WR vs 59% WR for MEDIUM
         # Only send alerts that meet the institutional sweep threshold
