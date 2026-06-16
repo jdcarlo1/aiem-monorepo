@@ -100,6 +100,8 @@ _SM_CACHE_TTL_SECS = 1200        # 20 minutes
 init_db()
 init_score_history_table()
 composite_scan.init_composite_table()
+composite_scan.init_meta_table()
+composite_scan.init_watchlist_table()
 init_signal_outcomes_table()
 init_sms_log_table()
 init_exit_log_table()
@@ -1287,6 +1289,48 @@ try:
             _run_eod_accum,
             CronTrigger(day_of_week="mon-fri", hour=_ea_h, minute=_ea_m, timezone=_ET),
             id=f"eod_accum_{_ea_h}_{_ea_m}",
+            replace_existing=True,
+        )
+
+    # ── Composite 8+ watchlist ───────────────────────────────────────────────
+    # After-close scan on COMPLETE daily candles (16:15 ET) → that list is the
+    # "buy at tomorrow's open" set. Snapshot the actionable cohort (16:45), then
+    # fill 1–4 week outcomes (9:50 AM next-day for entry/open + 17:00 daily).
+    def _run_composite_scan_eod():
+        try:
+            composite_scan.start_job()
+        except Exception as _e_cs:
+            print(f"[scheduler] composite scan error: {_e_cs}")
+    _scheduler.add_job(
+        _run_composite_scan_eod,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
+        id="composite_scan_eod",
+        replace_existing=True,
+    )
+
+    def _run_composite_snapshot():
+        try:
+            composite_scan.run_snapshot()
+        except Exception as _e_csn:
+            print(f"[scheduler] composite snapshot error: {_e_csn}")
+    _scheduler.add_job(
+        _run_composite_snapshot,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=_ET),
+        id="composite_snapshot",
+        replace_existing=True,
+    )
+
+    def _run_composite_outcomes():
+        try:
+            import threading as _thr_cw
+            _thr_cw.Thread(target=composite_scan.fill_outcomes, daemon=True).start()
+        except Exception as _e_cw:
+            print(f"[scheduler] composite outcomes error: {_e_cw}")
+    for _co_h, _co_m in [(9, 50), (17, 0)]:
+        _scheduler.add_job(
+            _run_composite_outcomes,
+            CronTrigger(day_of_week="mon-fri", hour=_co_h, minute=_co_m, timezone=_ET),
+            id=f"composite_outcomes_{_co_h}_{_co_m}",
             replace_existing=True,
         )
 
@@ -16823,7 +16867,34 @@ def composite_leaderboard():
         mn = float(request.args.get("min", 6))
     except (TypeError, ValueError):
         mn = 6.0
-    return jsonify(composite_scan.get_leaderboard(mn))
+    exclude_etf = request.args.get("exclude_etf", "0") in ("1", "true", "True", "yes")
+    return jsonify(composite_scan.get_leaderboard(mn, exclude_etf=exclude_etf))
+
+
+@app.route("/stock-api/composite-snapshot/trigger", methods=["POST"])
+def composite_snapshot_trigger():
+    return jsonify(composite_scan.run_snapshot())
+
+
+@app.route("/stock-api/composite-snapshot/status", methods=["GET"])
+def composite_snapshot_status():
+    return jsonify(composite_scan.get_snapshot_status())
+
+
+@app.route("/stock-api/composite-outcomes/trigger", methods=["POST"])
+def composite_outcomes_trigger():
+    import threading as _t
+    _t.Thread(target=composite_scan.fill_outcomes, daemon=True).start()
+    return jsonify({"started": True})
+
+
+@app.route("/stock-api/composite-track-record", methods=["GET"])
+def composite_track_record():
+    try:
+        days = int(request.args.get("days", 90))
+    except (TypeError, ValueError):
+        days = 90
+    return jsonify(composite_scan.get_track_record(days))
 
 
 if __name__ == "__main__":

@@ -24,6 +24,8 @@ import {
   fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
   fetchConvictionCalls, triggerConvictionScan, ConvictionCallSignal, ConvictionCallStrike,
   fetchConvictionOutcomes, ConvictionOutcomeResult,
+  fetchCompositeLeaderboard, CompositeLeaderboard,
+  fetchCompositeTrackRecord, CompositeTrackRecord,
   fetchEodSweeps, EodSweepSignal, EodSweepStrike, fetchEodSweepTrackRecord,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
@@ -9154,6 +9156,261 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 }
 
 
+// ---- Top Score 8+ Tab -----------------------------------------------------
+// Today's full single-name 8+ list (ETFs/funds excluded), ranked most-bullish
+// to least-bullish, plus a daily track record of the actionable cohort.
+function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const [board, setBoard]   = useState<CompositeLeaderboard | null>(null);
+  const [track, setTrack]   = useState<CompositeTrackRecord | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+  const [surgeOnly, setSurgeOnly] = useState(false);
+
+  const load = async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    setError(null);
+    try {
+      const [b, t] = await Promise.all([
+        fetchCompositeLeaderboard(8, true),
+        fetchCompositeTrackRecord(120).catch(() => null),
+      ]);
+      setBoard(b);
+      if (t) setTrack(t);
+    } catch (e: any) {
+      setError(e.message ?? "Failed to load");
+    } finally {
+      if (!quiet) setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const id = setInterval(() => load(true), 90_000);
+    const onVis = () => { if (document.visibilityState === "visible") load(true); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
+  }, []);
+
+  const pctColor = (v: number | null | undefined) =>
+    v == null ? BB_LABEL : v > 0 ? BB_GREEN : v < 0 ? BB_RED : BB_LABEL;
+  const fmtPct = (v: number | null | undefined) =>
+    v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
+  const fmtPx = (v: number | null | undefined) =>
+    v == null ? "—" : `$${v.toFixed(2)}`;
+  const fmtVol = (v: number | null | undefined) =>
+    v == null ? "—" : `${v.toFixed(2)}×`;
+  const fmtDate = (s?: string | null) => {
+    if (!s) return "—";
+    const d = new Date(s + "T00:00:00");
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+  const scoreColor = (s: number) =>
+    s >= 10 ? "#00e676" : s >= 9 ? BB_GREEN : BB_ORANGE;
+
+  const all  = board?.leaderboard ?? [];
+  const rows = surgeOnly ? all.filter(r => (r.volume_ratio ?? 0) >= 1.5) : all;
+  const surgeCount = all.filter(r => (r.volume_ratio ?? 0) >= 1.5).length;
+  const verified = all.filter(r => r.quote_type && r.quote_type !== "UNKNOWN").length;
+  const unknown  = all.length - verified;
+
+  const cards: { key: "w1" | "w2" | "w3" | "w4"; label: string }[] = [
+    { key: "w1", label: "1 WEEK" },
+    { key: "w2", label: "2 WEEKS" },
+    { key: "w3", label: "3 WEEKS" },
+    { key: "w4", label: "4 WEEKS" },
+  ];
+
+  const td: React.CSSProperties = {
+    padding: "7px 10px", fontSize: 11, borderBottom: `1px solid ${BB_BORDER}`,
+    whiteSpace: "nowrap",
+  };
+  const th: React.CSSProperties = {
+    padding: "8px 10px", fontSize: 9, letterSpacing: "0.1em", color: BB_LABEL,
+    textAlign: "left", borderBottom: `1px solid ${BB_BDR2}`, fontWeight: 700,
+    position: "sticky", top: 0, background: BB_BG,
+  };
+
+  return (
+    <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: "0.12em", color: "#00e676" }}>💎 TOP SCORE 8+</div>
+          <div style={{ fontSize: 10, color: BB_LABEL, marginTop: 3, letterSpacing: "0.04em", maxWidth: 720, lineHeight: 1.5 }}>
+            Every single-name stock scoring <b style={{ color: BB_WHITE }}>8.0+</b> on the composite model (ETFs &amp; funds excluded),
+            ranked from <b style={{ color: "#00e676" }}>highest mathematical conviction → lowest</b>.
+            Scored on <b style={{ color: BB_WHITE }}>completed daily candles after the close</b>, so this is your <b style={{ color: BB_WHITE }}>buy-at-next-open</b> watchlist.
+          </div>
+        </div>
+        <button onClick={() => load()} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: loading ? "not-allowed" : "pointer", letterSpacing: "0.1em", opacity: loading ? 0.6 : 1 }}>
+          {loading ? "LOADING…" : "↻ REFRESH"}
+        </button>
+      </div>
+
+      {/* Ranking / methodology note */}
+      <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "9px 14px", marginBottom: 12, fontSize: 10, color: BB_LABEL, lineHeight: 1.6 }}>
+        <b style={{ color: BB_WHITE }}>How the ranking works:</b> #1 is the most bullish. Order = composite <b style={{ color: BB_WHITE }}>score</b> (0–10, the model's conviction)
+        → then <b style={{ color: BB_WHITE }}>volume confirmation</b> (today's volume vs its average) → then <b style={{ color: BB_WHITE }}>momentum</b> (today's % move).
+        A higher score means more of the underlying signals (trend, momentum, RSI, volume, structure) agree, i.e. higher statistical conviction — not a guarantee.
+      </div>
+
+      {/* Options-safety, neutral & factual */}
+      <div style={{ background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.25)", padding: "9px 14px", marginBottom: 16, fontSize: 10, color: "#cbd5e1", lineHeight: 1.6 }}>
+        <b style={{ color: BB_BLUE }}>“Is it safe to buy a 3-week call on each of these?”</b> — This is information, not advice.
+        A high composite score reflects bullish conviction in the <b>stock</b>, but a call option is a different instrument: it loses value to time decay (theta) every day,
+        is sensitive to a drop in implied volatility (IV crush, common right after a run-up or earnings), and can expire worthless even if the stock drifts sideways.
+        Check each name’s <b>earnings date</b> (a report inside 3 weeks adds large binary risk) and the <b>bid/ask spread</b> (wide spreads on thin names cost you on entry &amp; exit).
+        The track record below measures <b>stock</b> returns at the open, <b>not</b> option P&amp;L, and is still being built — treat it as unproven.
+      </div>
+
+      {error && (
+        <div style={{ background: "rgba(248,113,113,0.1)", border: `1px solid ${BB_RED}`, color: BB_RED, padding: "10px 14px", marginBottom: 16, fontSize: 11 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Track record win-rate cards */}
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", color: BB_LABEL, marginBottom: 8 }}>
+        📈 TRACK RECORD — actionable cohort (score ≥ 8 · volume ≥ 1.5× · entry at next open)
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
+        {cards.map(c => {
+          const s = track?.stats?.[c.key];
+          const wr = s?.win_rate;
+          const avg = s?.avg_pct;
+          const settled = s ? s.wins + s.losses : 0;
+          return (
+            <div key={c.key} style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+              <div style={{ fontSize: 9, letterSpacing: "0.12em", color: BB_LABEL, marginBottom: 6 }}>{c.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: wr == null ? BB_LABEL : wr >= 50 ? BB_GREEN : BB_RED }}>
+                {wr == null ? "—" : `${wr.toFixed(0)}%`}
+              </div>
+              <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2 }}>win rate</div>
+              <div style={{ marginTop: 8, fontSize: 10, color: BB_LABEL }}>
+                avg move <span style={{ color: pctColor(avg), fontWeight: 700 }}>{fmtPct(avg)}</span>
+              </div>
+              <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2 }}>
+                {settled > 0 ? `${settled} settled` : "settles over time"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Today's list header + toggle */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", color: BB_LABEL }}>
+          🎯 TODAY’S 8+ LIST {board ? <span style={{ color: BB_WHITE }}>· {rows.length}</span> : null}
+          {board?.scan_date ? <span style={{ color: BB_LABEL, fontWeight: 400 }}>  ·  scan {fmtDate(board.scan_date)}</span> : null}
+        </div>
+        <button onClick={() => setSurgeOnly(v => !v)} style={{ background: surgeOnly ? "rgba(0,230,118,0.1)" : "transparent", border: `1px solid ${surgeOnly ? "#00e676" : BB_BORDER}`, color: surgeOnly ? "#00e676" : BB_LABEL, padding: "5px 12px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.08em" }}>
+          {surgeOnly ? "✓ " : ""}VOLUME SURGE ONLY (≥1.5×) · {surgeCount}
+        </button>
+      </div>
+
+      {board && (
+        <div style={{ fontSize: 9, color: BB_LABEL, marginBottom: 6 }}>
+          {verified} verified single-name{unknown > 0
+            ? ` · ${unknown} still being classified (kept as stocks for now; a few funds may slip through until verified — coverage fills daily)`
+            : " · all names verified non-fund"}
+        </div>
+      )}
+
+      <div style={{ border: `1px solid ${BB_BORDER}`, maxHeight: 560, overflow: "auto", marginBottom: 24 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "right" }}>#</th>
+              <th style={th}>TICKER</th>
+              <th style={{ ...th, textAlign: "right" }}>SCORE</th>
+              <th style={{ ...th, textAlign: "left" }}>RATING</th>
+              <th style={{ ...th, textAlign: "right" }}>PRICE</th>
+              <th style={{ ...th, textAlign: "right" }}>DAY %</th>
+              <th style={{ ...th, textAlign: "right" }}>VOLUME</th>
+              <th style={{ ...th, textAlign: "right" }}>RSI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const surge = (r.volume_ratio ?? 0) >= 1.5;
+              return (
+                <tr key={r.ticker} onClick={() => onSelectTicker(r.ticker)} style={{ cursor: "pointer", background: surge ? "rgba(0,230,118,0.05)" : "transparent" }}>
+                  <td style={{ ...td, textAlign: "right", color: BB_LABEL }}>{i + 1}</td>
+                  <td style={{ ...td, fontWeight: 800, color: BB_BLUE }}>
+                    {r.ticker}
+                    {surge && <span title="volume surge ≥1.5×" style={{ marginLeft: 6, fontSize: 9, color: "#00e676" }}>▲vol</span>}
+                  </td>
+                  <td style={{ ...td, textAlign: "right" }}>
+                    <span style={{ fontWeight: 900, color: scoreColor(r.score) }}>{r.score.toFixed(1)}</span>
+                  </td>
+                  <td style={{ ...td, color: BB_LABEL }}>{r.rating}</td>
+                  <td style={{ ...td, textAlign: "right" }}>{fmtPx(r.price)}</td>
+                  <td style={{ ...td, textAlign: "right", color: pctColor(r.price_change_pct), fontWeight: 700 }}>{fmtPct(r.price_change_pct)}</td>
+                  <td style={{ ...td, textAlign: "right", color: surge ? "#00e676" : BB_WHITE, fontWeight: surge ? 700 : 400 }}>{fmtVol(r.volume_ratio)}</td>
+                  <td style={{ ...td, textAlign: "right", color: BB_LABEL }}>{r.rsi == null ? "—" : r.rsi.toFixed(0)}</td>
+                </tr>
+              );
+            })}
+            {board && rows.length === 0 && (
+              <tr><td colSpan={8} style={{ ...td, textAlign: "center", color: BB_LABEL, padding: 24 }}>No names match the current filter.</td></tr>
+            )}
+            {!board && loading && (
+              <tr><td colSpan={8} style={{ ...td, textAlign: "center", color: BB_LABEL, padding: 24 }}>Loading…</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Track record detail (logged picks) */}
+      {track && track.picks.length > 0 && (
+        <>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", color: BB_LABEL, marginBottom: 8 }}>
+            📋 LOGGED PICKS — daily cohort, return from next-open entry
+          </div>
+          <div style={{ border: `1px solid ${BB_BORDER}`, maxHeight: 480, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={th}>DATE</th>
+                  <th style={th}>TICKER</th>
+                  <th style={{ ...th, textAlign: "right" }}>SCORE</th>
+                  <th style={{ ...th, textAlign: "right" }}>VOL</th>
+                  <th style={{ ...th, textAlign: "right" }}>ENTRY</th>
+                  <th style={{ ...th, textAlign: "right" }}>1W</th>
+                  <th style={{ ...th, textAlign: "right" }}>2W</th>
+                  <th style={{ ...th, textAlign: "right" }}>3W</th>
+                  <th style={{ ...th, textAlign: "right" }}>4W</th>
+                </tr>
+              </thead>
+              <tbody>
+                {track.picks.slice(0, 80).map((p, i) => (
+                  <tr key={`${p.snap_date}-${p.ticker}-${i}`} onClick={() => onSelectTicker(p.ticker)} style={{ cursor: "pointer" }}>
+                    <td style={{ ...td, color: BB_LABEL }}>{fmtDate(p.snap_date)}</td>
+                    <td style={{ ...td, fontWeight: 800, color: BB_BLUE }}>{p.ticker}</td>
+                    <td style={{ ...td, textAlign: "right", fontWeight: 800, color: p.score == null ? BB_LABEL : scoreColor(p.score) }}>{p.score == null ? "—" : p.score.toFixed(1)}</td>
+                    <td style={{ ...td, textAlign: "right", color: BB_LABEL }}>{fmtVol(p.volume_ratio)}</td>
+                    <td style={{ ...td, textAlign: "right" }}>{fmtPx(p.entry_open)}</td>
+                    <td style={{ ...td, textAlign: "right", color: pctColor(p.w1_pct), fontWeight: 700 }}>{fmtPct(p.w1_pct)}</td>
+                    <td style={{ ...td, textAlign: "right", color: pctColor(p.w2_pct), fontWeight: 700 }}>{fmtPct(p.w2_pct)}</td>
+                    <td style={{ ...td, textAlign: "right", color: pctColor(p.w3_pct), fontWeight: 700 }}>{fmtPct(p.w3_pct)}</td>
+                    <td style={{ ...td, textAlign: "right", color: pctColor(p.w4_pct), fontWeight: 700 }}>{fmtPct(p.w4_pct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 // ---- High Conviction Calls Tab --------------------------------------------
 function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData]       = useState<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; window?: string; note?: string } | null>(null);
@@ -13406,7 +13663,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -13501,6 +13758,7 @@ export default function Dashboard() {
     { id: "aitrades",     label: "🤖 AI TRADES" },
     { id: "signalboard",  label: "📡 SIGNAL FEED" },
     { id: "composite",    label: "🎯 SCORE BOARD" },
+    { id: "topscore",     label: "💎 TOP SCORE 8+" },
     { id: "morningbrief", label: "🌅 MORNING BRIEF" },
     { id: "convergence",  label: "⚡ CONVERGENCE" },
     { id: "darkpool",     label: "🌑 DARK POOL" },
@@ -14138,6 +14396,7 @@ export default function Dashboard() {
         {tab === "aitrades"     && <AITradesTab     onSelectTicker={selectTicker} />}
         {tab === "signalboard"  && <SignalFeedTab   onSelectTicker={selectTicker} />}
         {tab === "composite"    && <CompositeBoardTab onSelectTicker={selectTicker} />}
+        {tab === "topscore"     && <TopScoreTab       onSelectTicker={selectTicker} />}
         {tab === "putintent"    && <PutIntentTab    onSelectTicker={selectTicker} />}
         {tab === "callintent"   && <CallIntentTab   onSelectTicker={selectTicker} />}
         {tab === "volcrush"     && <VolCrushTab     onSelectTicker={selectTicker} />}

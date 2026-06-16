@@ -834,6 +834,89 @@ export function fetchConvictionOutcomes() {
   return fetchJson<ConvictionOutcomeResult>(`/conviction-outcomes`);
 }
 
+// ---- Composite 8+ ("Top Score") ----------------------------------------
+// Today's full single-name 8+ list (ETFs/funds excluded), ranked most-bullish
+// (highest composite score, then volume confirmation, then momentum) first.
+export interface CompositeLeaderEntry {
+  ticker: string;
+  score: number;
+  rating: string;
+  price: number | null;
+  rsi: number | null;
+  volume_ratio: number | null;
+  price_change_pct: number | null;
+  quote_type: string;
+}
+export interface CompositeLeaderboard {
+  scan_date: string;
+  min_score: number;
+  exclude_etf: boolean;
+  count: number;
+  leaderboard: CompositeLeaderEntry[];
+}
+export function fetchCompositeLeaderboard(min = 8, excludeEtf = true) {
+  const params = new URLSearchParams();
+  params.set("min", String(min));
+  if (excludeEtf) params.set("exclude_etf", "1");
+  return fetchJson<CompositeLeaderboard>(`/composite-leaderboard?${params.toString()}`);
+}
+
+// Daily track record of the actionable cohort (score≥8, vol≥1.5×, non-ETF).
+// Entry = next session OPEN; returns = 1/2/3/4 weeks held (5/10/15/20 sessions).
+export interface CompositeTrackPick {
+  snap_date: string;
+  ticker: string;
+  score: number | null;
+  rating: string | null;
+  scan_price: number | null;
+  volume_ratio: number | null;
+  price_change_pct: number | null;
+  entry_date: string | null;
+  entry_open: number | null;
+  w1_pct: number | null;
+  w2_pct: number | null;
+  w3_pct: number | null;
+  w4_pct: number | null;
+}
+export interface CompositeTrackStat {
+  count: number;
+  wins: number;
+  losses: number;
+  win_rate: number | null;
+  avg_pct: number | null;
+}
+export interface CompositeTrackRecord {
+  picks: CompositeTrackPick[];
+  stats: {
+    w1: CompositeTrackStat;
+    w2: CompositeTrackStat;
+    w3: CompositeTrackStat;
+    w4: CompositeTrackStat;
+  };
+  today_count: number;
+}
+export function fetchCompositeTrackRecord(days = 120) {
+  return fetchJson<CompositeTrackRecord>(`/composite-track-record?days=${days}`);
+}
+
+export interface CompositeSnapshotStatus {
+  running: boolean;
+  phase: string;
+  snap_date: string | null;
+  logged: number;
+  error: string | null;
+  finished_at: string | null;
+}
+export function fetchCompositeSnapshotStatus() {
+  return fetchJson<CompositeSnapshotStatus>(`/composite-snapshot/status`);
+}
+export function triggerCompositeSnapshot() {
+  return fetchJson<{ started: boolean; reason?: string }>(
+    `/composite-snapshot/trigger`,
+    { method: "POST" },
+  );
+}
+
 export interface EodSweepStrike {
   ticker: string; price: number; strike: number; expiry: string;
   days_out: number; vol_oi: number; prem: number; otm_pct: number;
