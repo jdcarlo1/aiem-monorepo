@@ -14621,10 +14621,12 @@ def morning_inflows():
         return []
 
     _supp_tasks = [
-        ("most_actives",          100, 0),
+        ("most_actives",          100,  0),
         ("most_actives",          100, 50),
-        ("aggressive_small_caps", 100, 0),
-        ("small_cap_gainers",     100, 0),
+        ("aggressive_small_caps", 100,  0),
+        ("small_cap_gainers",     100,  0),
+        ("day_gainers",           100,  0),   # top % gainers — catches CRVO-type catalysts
+        ("day_gainers",           100, 50),   # page 2 — large moves can stack up
     ]
     _supp_syms = []
     with _TPE_src(max_workers=4) as _src_ex:
@@ -14662,12 +14664,16 @@ def morning_inflows():
             "Accept-Language": "en-US,en;q=0.9",
         }
         _fv_screens_mi = [
-            "cap_micro,sh_opt_option,ta_change_u5",
-            "cap_small,sh_opt_option,ta_change_u5",
-            "cap_micro,sh_opt_option",
-            "cap_small,sh_opt_option",
-            "cap_micro,ta_change_u10",
-            "cap_small,ta_change_u10",
+            "cap_micro,sh_opt_option,ta_change_u5",   # micro + options + up 5%
+            "cap_small,sh_opt_option,ta_change_u5",   # small + options + up 5%
+            "cap_micro,sh_opt_option",                # micro + options (any move)
+            "cap_small,sh_opt_option",                # small + options (any move)
+            "cap_micro,ta_change_u10",                # micro up 10%+ (no options req)
+            "cap_small,ta_change_u10",                # small up 10%+ (no options req)
+            "cap_micro,ta_change_u20",                # micro up 20%+ — catches CRVO-type FDA/news gaps
+            "cap_small,ta_change_u20",                # small up 20%+ — no options required
+            "cap_micro,ta_change_u50",                # micro up 50%+ — extreme catalyst movers
+            "cap_small,ta_change_u50",                # small up 50%+ — extreme catalyst movers
         ]
         for _fv_f in _fv_screens_mi:
             try:
