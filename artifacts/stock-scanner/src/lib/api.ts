@@ -1393,11 +1393,14 @@ export function triggerOiSnapshot() {
 }
 
 export interface ConvictionLayers {
-  oi_accum?:  number;
-  gamma_fir?: number;
-  charm?:     number;
-  short_int?: number;
-  dark_pool?: number;
+  oi_accum?:       number;
+  gamma_fir?:      number;
+  charm?:          number;
+  short_int?:      number;
+  dark_pool?:      number;
+  float_pressure?: number;
+  far_otm_sweep?:  number;
+  sector_sympathy?: number;
 }
 
 export interface ConvictionMeta {
@@ -1425,12 +1428,57 @@ export interface ConvictionResult {
 }
 
 export interface ConvictionStackResult {
-  results: ConvictionResult[];
-  count:   number;
+  results:         ConvictionResult[];
+  count:           number;
+  source?:         string;
+  universe_count?: number;
 }
 
 export function fetchConvictionStack() {
   return fetchJson<ConvictionStackResult>(`/conviction-stack`);
+}
+
+// ---- TOP SCORE 8+ track record (L1-L8 money-pressure, next-open entry) ------
+export interface ConvictionStackTrackPick {
+  snap_date:       string;
+  ticker:          string;
+  total_pts:       number | null;
+  conviction_pct:  number | null;
+  label:           string | null;
+  price:           number | null;
+  entry_date:      string | null;
+  entry_open:      number | null;
+  w1_pct:          number | null;
+  w2_pct:          number | null;
+  w3_pct:          number | null;
+  w4_pct:          number | null;
+  layers:          ConvictionLayers;
+  meta:            ConvictionMeta;
+  universe_count:  number | null;
+  source?:         string | null;
+}
+
+export interface ConvictionStackTrackStat {
+  count:    number;
+  wins:     number;
+  losses:   number;
+  win_rate: number | null;
+  avg_pct:  number | null;
+}
+
+export interface ConvictionStackTrackRecord {
+  picks: ConvictionStackTrackPick[];
+  stats: {
+    w1: ConvictionStackTrackStat;
+    w2: ConvictionStackTrackStat;
+    w3: ConvictionStackTrackStat;
+    w4: ConvictionStackTrackStat;
+  };
+  today_count: number;
+}
+
+export function fetchConvictionStackTrackRecord(days = 120) {
+  return fetchJson<ConvictionStackTrackRecord>(`/conviction-stack-track-record?days=${days}`);
 }
 
 // ── L6: Float-Adjusted Options Demand ────────────────────────────────────────

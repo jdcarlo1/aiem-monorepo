@@ -5,7 +5,8 @@
 - [SMS threshold lessons](sms-threshold-lessons.md) — why 1%+tiered-vol beats 10% flat; 10 missed movers June 12 2026 all opened below 3%
 - [Scanner baseline June 2026](scanner-baseline-june2026.md) — Win rate, R:R, EV/trade for all scanners as of June 14, 2026; compare live vs backtest in mid-July 2026
 - [Invention Disclosure](invention-disclosure.md) — StockScanner AI patent doc at STOCKSCANNER_AI_INVENTION_DISCLOSURE.md in project root; 17 sections, 5 patent claims; NEVER delete this file
-- [Composite 8+ / TOP SCORE tab](composite-topscore.md) — ETF exclusion keeps UNKNOWNs in; horizon = close of future idx 4/9/14/19; snapshot must stay same-day idempotent
+- [TOP SCORE 8+ rebased onto L1-L8 engine](conviction-stack-topscore.md) — TOP SCORE tab now scored by _run_five_layer_conviction (conviction_stack_watchlist), NOT composite; CONVICTION_STACK_MAX seam; empty-cohort must prune same-day
+- [Composite 8+ pipeline (DORMANT)](composite-topscore.md) — now drives only the COMPOSITE tab; ETF exclusion keeps UNKNOWNs in; horizon = close of future idx 4/9/14/19; snapshot same-day idempotent
 - [Scanner data-source ceiling](scanner-data-source-ceiling.md) — yfinance polling caps ~1,200 tickers/scan; don't add micro/small (3,800) to morning poll; fix = full-market snapshot API (Polygon)
 - [yfinance fast_info attribute names](yfinance-fastinfo.md) — v1.4.1 uses snake_case: last_price, previous_close, NOT lastPrice/regularMarketPrice/previousClose
 - [Finviz data source](finviz-data-source.md) — Barchart IP-blocked; Finviz is permanent replacement; correct regex is stock\?t=([A-Z]{1,5})& not old screener URL; Yahoo rate-limits when OI snapshot runs concurrently

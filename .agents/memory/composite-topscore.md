@@ -1,11 +1,17 @@
 ---
-name: Composite 8+ / TOP SCORE tab
-description: Design decisions & conventions for StockScanner's "TOP SCORE 8+" feature (composite_scan.py + TopScoreTab) — read before changing scoring horizons, ETF exclusion, or the snapshot/track-record logic.
+name: Composite 8+ pipeline (DORMANT — was TOP SCORE tab)
+description: Design decisions for the now-DORMANT composite_scan.py pipeline + COMPOSITE tab. NOTE the TOP SCORE 8+ tab was rebased onto the L1-L8 conviction engine — see conviction-stack-topscore.md. This file describes the composite pipeline only.
 ---
 
-# TOP SCORE 8+ feature
+> **STALE for the TOP SCORE tab.** The "💎 TOP SCORE 8+" tab was rebased onto the
+> L1-L8 Smart Money Pressure engine (see `conviction-stack-topscore.md`). The
+> composite pipeline below (`composite_scan.py`, `composite_watchlist`, COMPOSITE
+> tab) is now **dormant but intact** — kept for the COMPOSITE tab, not deleted.
+> The horizon/idempotency conventions here still hold for that dormant pipeline.
 
-The "💎 TOP SCORE 8+" tab shows today's full single-name 8.0+ composite list
+# Composite 8+ pipeline (dormant)
+
+The composite list shows today's full single-name 8.0+ composite list
 (ETFs/funds excluded), ranked most-bullish→least, plus a daily track record of
 the actionable cohort (score≥8, vol≥1.5×, non-fund). Backend lives in
 `artifacts/stock-scanner-api/composite_scan.py`; UI is `TopScoreTab` in

@@ -24,8 +24,6 @@ import {
   fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
   fetchConvictionCalls, triggerConvictionScan, ConvictionCallSignal, ConvictionCallStrike,
   fetchConvictionOutcomes, ConvictionOutcomeResult,
-  fetchCompositeLeaderboard, CompositeLeaderboard,
-  fetchCompositeTrackRecord, CompositeTrackRecord,
   fetchEodSweeps, EodSweepSignal, EodSweepStrike, fetchEodSweepTrackRecord,
   fetchWhaleActivity, fetchWhaleHistory, WhaleBlock, WhaleHistoryBlock,
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
@@ -35,6 +33,7 @@ import {
   fetchGammaPressure, GammaPressureRow, GammaPressureResult, triggerGammaScan,
   fetchOiAccumulation, OiAccumRow, OiAccumResult, triggerOiSnapshot,
   fetchConvictionStack, ConvictionResult, ConvictionStackResult, ConvictionLayers, ConvictionMeta,
+  fetchConvictionStackTrackRecord, ConvictionStackTrackRecord,
   fetchInsiderRadar, InsiderRadarRow, InsiderRadarResult,
   fetchInsiderAlerts, InsiderAlert, InsiderAlertsResult,
   fetchInsiderOutcomes, InsiderOutcome, InsiderOutcomesResult,
@@ -9157,24 +9156,26 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
 
 // ---- Top Score 8+ Tab -----------------------------------------------------
-// Today's full single-name 8+ list (ETFs/funds excluded), ranked most-bullish
-// to least-bullish, plus a daily track record of the actionable cohort.
+// The EXTREME (8+) cohort of the L1-L8 Smart Money Pressure engine, ranked most-
+// bullish → least, plus a daily track record of that cohort's next-open returns.
+// Universe today = whatever the FREE options feed covers; a paid feed widens it
+// later with no change here (the engine just returns more candidates).
 function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-  const [board, setBoard]   = useState<CompositeLeaderboard | null>(null);
-  const [track, setTrack]   = useState<CompositeTrackRecord | null>(null);
+  const [data, setData]   = useState<ConvictionStackResult | null>(null);
+  const [track, setTrack] = useState<ConvictionStackTrackRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState<string | null>(null);
-  const [surgeOnly, setSurgeOnly] = useState(false);
+  const [showHigh, setShowHigh] = useState(false);
 
   const load = async (quiet = false) => {
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const [b, t] = await Promise.all([
-        fetchCompositeLeaderboard(8, true),
-        fetchCompositeTrackRecord(120).catch(() => null),
+      const [d, t] = await Promise.all([
+        fetchConvictionStack(),
+        fetchConvictionStackTrackRecord(120).catch(() => null),
       ]);
-      setBoard(b);
+      setData(d);
       if (t) setTrack(t);
     } catch (e: any) {
       setError(e.message ?? "Failed to load");
@@ -9196,27 +9197,37 @@ function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
     };
   }, []);
 
+  const LAYER_KEYS: { key: keyof ConvictionLayers; label: string; color: string }[] = [
+    { key: "oi_accum",        label: "L1 OI Build",  color: "#22c55e" },
+    { key: "gamma_fir",       label: "L2 γ FIR",     color: "#facc15" },
+    { key: "charm",           label: "L3 Charm",     color: "#38bdf8" },
+    { key: "short_int",       label: "L4 Short Int", color: "#f87171" },
+    { key: "dark_pool",       label: "L5 Dark Pool", color: "#a78bfa" },
+    { key: "float_pressure",  label: "L6 Float OD",  color: "#fb923c" },
+    { key: "far_otm_sweep",   label: "L7 Sweep",     color: "#e879f9" },
+    { key: "sector_sympathy", label: "L8 Sector",    color: "#34d399" },
+  ];
+
   const pctColor = (v: number | null | undefined) =>
     v == null ? BB_LABEL : v > 0 ? BB_GREEN : v < 0 ? BB_RED : BB_LABEL;
   const fmtPct = (v: number | null | undefined) =>
     v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
   const fmtPx = (v: number | null | undefined) =>
     v == null ? "—" : `$${v.toFixed(2)}`;
-  const fmtVol = (v: number | null | undefined) =>
-    v == null ? "—" : `${v.toFixed(2)}×`;
   const fmtDate = (s?: string | null) => {
     if (!s) return "—";
     const d = new Date(s + "T00:00:00");
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
   };
-  const scoreColor = (s: number) =>
-    s >= 10 ? "#00e676" : s >= 9 ? BB_GREEN : BB_ORANGE;
+  const ptColor = (pts: number) =>
+    pts >= 8 ? "#f87171" : pts >= 6 ? "#fb923c" : pts >= 4 ? "#facc15" : "#38bdf8";
 
-  const all  = board?.leaderboard ?? [];
-  const rows = surgeOnly ? all.filter(r => (r.volume_ratio ?? 0) >= 1.5) : all;
-  const surgeCount = all.filter(r => (r.volume_ratio ?? 0) >= 1.5).length;
-  const verified = all.filter(r => r.quote_type && r.quote_type !== "UNKNOWN").length;
-  const unknown  = all.length - verified;
+  const results = (data?.results ?? []).slice().sort((a, b) => b.total_pts - a.total_pts);
+  const extreme = results.filter(r => r.total_pts >= 8);
+  const high    = results.filter(r => r.total_pts >= 6 && r.total_pts < 8);
+  const rows    = showHigh ? results.filter(r => r.total_pts >= 6) : extreme;
+  const maxPts  = results.length ? results[0].total_pts : 0;
+  const universeCount = data?.universe_count ?? results.length;
 
   const cards: { key: "w1" | "w2" | "w3" | "w4"; label: string }[] = [
     { key: "w1", label: "1 WEEK" },
@@ -9240,11 +9251,11 @@ function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: "0.12em", color: "#00e676" }}>💎 TOP SCORE 8+</div>
-          <div style={{ fontSize: 10, color: BB_LABEL, marginTop: 3, letterSpacing: "0.04em", maxWidth: 720, lineHeight: 1.5 }}>
-            Every single-name stock scoring <b style={{ color: BB_WHITE }}>8.0+</b> on the composite model (ETFs &amp; funds excluded),
-            ranked from <b style={{ color: "#00e676" }}>highest mathematical conviction → lowest</b>.
-            Scored on <b style={{ color: BB_WHITE }}>completed daily candles after the close</b>, so this is your <b style={{ color: BB_WHITE }}>buy-at-next-open</b> watchlist.
+          <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: "0.12em", color: "#f87171" }}>💎 TOP SCORE 8+</div>
+          <div style={{ fontSize: 10, color: BB_LABEL, marginTop: 3, letterSpacing: "0.04em", maxWidth: 760, lineHeight: 1.5 }}>
+            Every name the <b style={{ color: BB_WHITE }}>Smart Money Pressure</b> engine scores <b style={{ color: "#f87171" }}>8+ / 10 (“EXTREME”)</b> across its
+            8 options-flow layers — OI build, gamma, charm, short interest, dark pool, float demand, sweeps, sector heat —
+            ranked from <b style={{ color: "#f87171" }}>highest conviction → lowest</b>. 8+ ≈ the stock is being pre-positioned for a squeeze.
           </div>
         </div>
         <button onClick={() => load()} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: loading ? "not-allowed" : "pointer", letterSpacing: "0.1em", opacity: loading ? 0.6 : 1 }}>
@@ -9254,15 +9265,31 @@ function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
       {/* Ranking / methodology note */}
       <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "9px 14px", marginBottom: 12, fontSize: 10, color: BB_LABEL, lineHeight: 1.6 }}>
-        <b style={{ color: BB_WHITE }}>How the ranking works:</b> #1 is the most bullish. Order = composite <b style={{ color: BB_WHITE }}>score</b> (0–10, the model's conviction)
-        → then <b style={{ color: BB_WHITE }}>volume confirmation</b> (today's volume vs its average) → then <b style={{ color: BB_WHITE }}>momentum</b> (today's % move).
-        A higher score means more of the underlying signals (trend, momentum, RSI, volume, structure) agree, i.e. higher statistical conviction — not a guarantee.
+        <b style={{ color: BB_WHITE }}>How the ranking works:</b> #1 is the strongest money-pressure signal. Score = the sum of 8 options-flow layers
+        (0–2 pts each, normalized to a 0–10 scale). Universe today = the names the <b style={{ color: BB_WHITE }}>free</b> options feed covers
+        (<b style={{ color: BB_WHITE }}>{universeCount}</b> scored) — a wider paid feed is planned and will only add more candidates.
+        Higher score = more layers of institutional positioning agree. A probability signal, not a guarantee.
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginBottom: 16 }}>
+        {[
+          { label: "SCORED UNIVERSE", val: universeCount,                                color: BB_BLUE },
+          { label: "🔴 EXTREME (8+)", val: extreme.length,                               color: "#f87171" },
+          { label: "🟠 HIGH (6–7.9)", val: high.length,                                  color: "#fb923c" },
+          { label: "MAX SCORE",       val: results.length ? `${maxPts}/10` : "—",        color: "#facc15" },
+        ].map(s => (
+          <div key={s.label} style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "12px 14px" }}>
+            <div style={{ fontSize: 9, letterSpacing: "0.1em", color: BB_LABEL, marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: s.color }}>{s.val}</div>
+          </div>
+        ))}
       </div>
 
       {/* Options-safety, neutral & factual */}
       <div style={{ background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.25)", padding: "9px 14px", marginBottom: 16, fontSize: 10, color: "#cbd5e1", lineHeight: 1.6 }}>
         <b style={{ color: BB_BLUE }}>“Is it safe to buy a 3-week call on each of these?”</b> — This is information, not advice.
-        A high composite score reflects bullish conviction in the <b>stock</b>, but a call option is a different instrument: it loses value to time decay (theta) every day,
+        A high money-pressure score reflects institutional positioning in the <b>stock/options</b>, but buying a call is its own instrument: it loses value to time decay (theta) every day,
         is sensitive to a drop in implied volatility (IV crush, common right after a run-up or earnings), and can expire worthless even if the stock drifts sideways.
         Check each name’s <b>earnings date</b> (a report inside 3 weeks adds large binary risk) and the <b>bid/ask spread</b> (wide spreads on thin names cost you on entry &amp; exit).
         The track record below measures <b>stock</b> returns at the open, <b>not</b> option P&amp;L, and is still being built — treat it as unproven.
@@ -9276,7 +9303,7 @@ function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
       {/* Track record win-rate cards */}
       <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", color: BB_LABEL, marginBottom: 8 }}>
-        📈 TRACK RECORD — actionable cohort (score ≥ 8 · volume ≥ 1.5× · entry at next open)
+        📈 TRACK RECORD — EXTREME (8+) cohort · entry at next open · stock returns
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
         {cards.map(c => {
@@ -9303,74 +9330,109 @@ function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       </div>
 
       {/* Today's list header + toggle */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", color: BB_LABEL }}>
-          🎯 TODAY’S 8+ LIST {board ? <span style={{ color: BB_WHITE }}>· {rows.length}</span> : null}
-          {board?.scan_date ? <span style={{ color: BB_LABEL, fontWeight: 400 }}>  ·  scan {fmtDate(board.scan_date)}</span> : null}
+          🎯 TODAY’S {showHigh ? "6+ LIST" : "8+ LIST"} {data ? <span style={{ color: BB_WHITE }}>· {rows.length}</span> : null}
         </div>
-        <button onClick={() => setSurgeOnly(v => !v)} style={{ background: surgeOnly ? "rgba(0,230,118,0.1)" : "transparent", border: `1px solid ${surgeOnly ? "#00e676" : BB_BORDER}`, color: surgeOnly ? "#00e676" : BB_LABEL, padding: "5px 12px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.08em" }}>
-          {surgeOnly ? "✓ " : ""}VOLUME SURGE ONLY (≥1.5×) · {surgeCount}
+        <button onClick={() => setShowHigh(v => !v)} style={{ background: showHigh ? "rgba(251,146,60,0.12)" : "transparent", border: `1px solid ${showHigh ? "#fb923c" : BB_BORDER}`, color: showHigh ? "#fb923c" : BB_LABEL, padding: "5px 12px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.08em" }}>
+          {showHigh ? "✓ " : ""}INCLUDE HIGH (6–7.9) · {high.length}
         </button>
       </div>
 
-      {board && (
-        <div style={{ fontSize: 9, color: BB_LABEL, marginBottom: 6 }}>
-          {verified} verified single-name{unknown > 0
-            ? ` · ${unknown} still being classified (kept as stocks for now; a few funds may slip through until verified — coverage fills daily)`
-            : " · all names verified non-fund"}
+      {/* List as conviction cards (8 layers) */}
+      {loading && !data ? (
+        <div style={{ textAlign: "center", color: BB_LABEL, fontSize: 11, padding: 48 }}>Loading L1–L8 money-pressure scores…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, padding: "28px 20px", textAlign: "center", fontSize: 11, color: BB_LABEL, lineHeight: 1.8, marginBottom: 24 }}>
+          {extreme.length === 0 && high.length > 0 && !showHigh ? (
+            <>
+              No names hit <b style={{ color: "#f87171" }}>EXTREME (8+)</b> yet today —
+              but <b style={{ color: "#fb923c" }}>{high.length}</b> {high.length === 1 ? "is" : "are"} HIGH (6–7.9).
+              <br />Toggle <b style={{ color: "#fb923c" }}>INCLUDE HIGH</b> above to see what’s closest to breakout.
+            </>
+          ) : (
+            <>
+              <b style={{ color: BB_WHITE }}>Building today’s signals.</b>
+              <br />The engine scores off the EOD options snapshot taken at <b style={{ color: BB_WHITE }}>4:30 PM ET</b>, then ranks the EXTREME cohort.
+              <br />If the market is open, fresh scores fill in after the close — check back later.
+            </>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+          {rows.map((r, i) => {
+            const pc  = ptColor(r.total_pts);
+            const m   = r.meta;
+            const lyr = r.layers;
+            return (
+              <div key={r.ticker} onClick={() => onSelectTicker(r.ticker)}
+                style={{ background: BB_PANEL, border: `1px solid ${pc}33`, borderRadius: 10, padding: "16px 18px", cursor: "pointer", transition: "border-color 0.15s" }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = `${pc}66`)}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = `${pc}33`)}>
+
+                {/* Row 1: rank + ticker + score */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 11, color: BB_LABEL, fontWeight: 700, minWidth: 22 }}>#{i + 1}</span>
+                    <span style={{ fontWeight: 900, fontSize: 18, color: BB_WHITE }}>{r.ticker}</span>
+                    <span style={{ fontSize: 10, color: pc, fontWeight: 700, background: `${pc}15`, padding: "3px 9px", borderRadius: 99, border: `1px solid ${pc}44` }}>
+                      {r.label}
+                    </span>
+                    <span style={{ fontSize: 11, color: BB_LABEL }}>{fmtPx(r.price)}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ fontSize: 26, fontWeight: 900, color: pc }}>{r.total_pts}</div>
+                    <div style={{ fontSize: 10, color: BB_LABEL, lineHeight: 1.4 }}>
+                      / 10 pts<br />
+                      <span style={{ color: pc }}>{r.conviction_pct}%</span> conf.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 2: score bar */}
+                <div style={{ height: 6, borderRadius: 99, background: "rgba(255,255,255,0.06)", marginBottom: 12, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.min(r.total_pts, 10) * 10}%`, background: pc, borderRadius: 99, transition: "width 0.5s" }} />
+                </div>
+
+                {/* Row 3: layer pills */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                  {LAYER_KEYS.map(l => {
+                    const pts = lyr[l.key] ?? 0;
+                    const active = pts > 0;
+                    return (
+                      <div key={l.key} style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 99,
+                        background: active ? `${l.color}18` : "rgba(255,255,255,0.03)",
+                        border: `1px solid ${active ? l.color + "55" : "rgba(255,255,255,0.06)"}`,
+                        color: active ? l.color : "#334155" }}>
+                        {active ? "✓ " : "○ "}{l.label}
+                        {active && <span style={{ opacity: 0.7, marginLeft: 4 }}>+{pts}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Row 4: metadata */}
+                <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 10, color: BB_LABEL }}>
+                  {m.strike      && <span>Strike: <span style={{ color: "#94a3b8" }}>${m.strike.toFixed(0)}C</span></span>}
+                  {m.expiry      && <span>Exp: <span style={{ color: "#94a3b8" }}>{m.expiry}</span></span>}
+                  {m.days_out    && <span>Days: <span style={{ color: m.days_out <= 7 ? "#fb923c" : "#94a3b8" }}>{m.days_out}d</span></span>}
+                  {m.oi_pct      && <span>OI Δ: <span style={{ color: "#22c55e" }}>+{m.oi_pct.toFixed(0)}%</span></span>}
+                  {m.fir         && <span>FIR: <span style={{ color: "#facc15" }}>{m.fir.toFixed(1)}%</span></span>}
+                  {m.charm_score && <span>Charm: <span style={{ color: "#38bdf8" }}>{m.charm_score.toLocaleString()}</span></span>}
+                  {m.si_pct      && <span>SI: <span style={{ color: m.si_pct >= 15 ? "#f87171" : "#94a3b8" }}>{m.si_pct.toFixed(0)}%</span>{m.dtc ? <span> / {m.dtc.toFixed(1)}d cover</span> : null}</span>}
+                  {m.dp_pct      && <span>Dark Pool: <span style={{ color: "#a78bfa" }}>{m.dp_pct.toFixed(0)}% OX</span></span>}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
-
-      <div style={{ border: `1px solid ${BB_BORDER}`, maxHeight: 560, overflow: "auto", marginBottom: 24 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={{ ...th, textAlign: "right" }}>#</th>
-              <th style={th}>TICKER</th>
-              <th style={{ ...th, textAlign: "right" }}>SCORE</th>
-              <th style={{ ...th, textAlign: "left" }}>RATING</th>
-              <th style={{ ...th, textAlign: "right" }}>PRICE</th>
-              <th style={{ ...th, textAlign: "right" }}>DAY %</th>
-              <th style={{ ...th, textAlign: "right" }}>VOLUME</th>
-              <th style={{ ...th, textAlign: "right" }}>RSI</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => {
-              const surge = (r.volume_ratio ?? 0) >= 1.5;
-              return (
-                <tr key={r.ticker} onClick={() => onSelectTicker(r.ticker)} style={{ cursor: "pointer", background: surge ? "rgba(0,230,118,0.05)" : "transparent" }}>
-                  <td style={{ ...td, textAlign: "right", color: BB_LABEL }}>{i + 1}</td>
-                  <td style={{ ...td, fontWeight: 800, color: BB_BLUE }}>
-                    {r.ticker}
-                    {surge && <span title="volume surge ≥1.5×" style={{ marginLeft: 6, fontSize: 9, color: "#00e676" }}>▲vol</span>}
-                  </td>
-                  <td style={{ ...td, textAlign: "right" }}>
-                    <span style={{ fontWeight: 900, color: scoreColor(r.score) }}>{r.score.toFixed(1)}</span>
-                  </td>
-                  <td style={{ ...td, color: BB_LABEL }}>{r.rating}</td>
-                  <td style={{ ...td, textAlign: "right" }}>{fmtPx(r.price)}</td>
-                  <td style={{ ...td, textAlign: "right", color: pctColor(r.price_change_pct), fontWeight: 700 }}>{fmtPct(r.price_change_pct)}</td>
-                  <td style={{ ...td, textAlign: "right", color: surge ? "#00e676" : BB_WHITE, fontWeight: surge ? 700 : 400 }}>{fmtVol(r.volume_ratio)}</td>
-                  <td style={{ ...td, textAlign: "right", color: BB_LABEL }}>{r.rsi == null ? "—" : r.rsi.toFixed(0)}</td>
-                </tr>
-              );
-            })}
-            {board && rows.length === 0 && (
-              <tr><td colSpan={8} style={{ ...td, textAlign: "center", color: BB_LABEL, padding: 24 }}>No names match the current filter.</td></tr>
-            )}
-            {!board && loading && (
-              <tr><td colSpan={8} style={{ ...td, textAlign: "center", color: BB_LABEL, padding: 24 }}>Loading…</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
 
       {/* Track record detail (logged picks) */}
       {track && track.picks.length > 0 && (
         <>
           <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", color: BB_LABEL, marginBottom: 8 }}>
-            📋 LOGGED PICKS — daily cohort, return from next-open entry
+            📋 LOGGED PICKS — daily EXTREME (8+) cohort, return from next-open entry
           </div>
           <div style={{ border: `1px solid ${BB_BORDER}`, maxHeight: 480, overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -9379,7 +9441,7 @@ function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                   <th style={th}>DATE</th>
                   <th style={th}>TICKER</th>
                   <th style={{ ...th, textAlign: "right" }}>SCORE</th>
-                  <th style={{ ...th, textAlign: "right" }}>VOL</th>
+                  <th style={{ ...th, textAlign: "left" }}>LABEL</th>
                   <th style={{ ...th, textAlign: "right" }}>ENTRY</th>
                   <th style={{ ...th, textAlign: "right" }}>1W</th>
                   <th style={{ ...th, textAlign: "right" }}>2W</th>
@@ -9392,8 +9454,8 @@ function TopScoreTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                   <tr key={`${p.snap_date}-${p.ticker}-${i}`} onClick={() => onSelectTicker(p.ticker)} style={{ cursor: "pointer" }}>
                     <td style={{ ...td, color: BB_LABEL }}>{fmtDate(p.snap_date)}</td>
                     <td style={{ ...td, fontWeight: 800, color: BB_BLUE }}>{p.ticker}</td>
-                    <td style={{ ...td, textAlign: "right", fontWeight: 800, color: p.score == null ? BB_LABEL : scoreColor(p.score) }}>{p.score == null ? "—" : p.score.toFixed(1)}</td>
-                    <td style={{ ...td, textAlign: "right", color: BB_LABEL }}>{fmtVol(p.volume_ratio)}</td>
+                    <td style={{ ...td, textAlign: "right", fontWeight: 800, color: p.total_pts == null ? BB_LABEL : ptColor(p.total_pts) }}>{p.total_pts == null ? "—" : p.total_pts}</td>
+                    <td style={{ ...td, color: BB_LABEL }}>{p.label ?? "—"}</td>
                     <td style={{ ...td, textAlign: "right" }}>{fmtPx(p.entry_open)}</td>
                     <td style={{ ...td, textAlign: "right", color: pctColor(p.w1_pct), fontWeight: 700 }}>{fmtPct(p.w1_pct)}</td>
                     <td style={{ ...td, textAlign: "right", color: pctColor(p.w2_pct), fontWeight: 700 }}>{fmtPct(p.w2_pct)}</td>

@@ -158,6 +158,231 @@ def _init_conviction_outcomes_table():
     print("[conviction_outcomes] table ready")
 _init_conviction_outcomes_table()
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TOP SCORE 8+ — L1-L8 Smart Money Pressure snapshot + track record
+# ------------------------------------------------------------------------------
+# The TOP SCORE 8+ tab is scored by the EXISTING 8-layer money-pressure engine
+# (_run_five_layer_conviction): total_pts >= 8 = EXTREME. This block persists the
+# daily EXTREME cohort and measures STOCK returns from a next-open entry over
+# 1/2/3/4 weeks. Universe today = whatever the FREE options feed covers (~25-150
+# tickers the engine already signals); adding a paid feed later just widens the
+# engine's universe — no change needed here or in the tab (the `source` /
+# `universe_count` fields are the forward-compatibility seam).
+# Defined BEFORE the scheduler `try:` block so its jobs can reference them.
+# ══════════════════════════════════════════════════════════════════════════════
+from zoneinfo import ZoneInfo as _ZoneInfo
+_ET_TZ = _ZoneInfo("America/New_York")
+
+# Shared cap for the L1-L8 money-pressure engine, used by BOTH the live
+# /conviction-stack endpoint and snapshot_conviction_stack() so the universe the
+# tab shows matches the universe that gets logged. The frontend reads the
+# explicit `universe_count` field (not len(results)), so widening coverage later
+# with a paid feed only needs this raised — no tab rewrite required.
+CONVICTION_STACK_MAX = 60
+
+
+def _init_conviction_stack_watchlist():
+    import psycopg2 as _pg2
+    with _pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS conviction_stack_watchlist (
+                id             SERIAL PRIMARY KEY,
+                snap_date      DATE NOT NULL,
+                ticker         VARCHAR(10) NOT NULL,
+                total_pts      FLOAT,
+                conviction_pct INT,
+                label          VARCHAR(20),
+                price          FLOAT,
+                layers         JSONB,
+                meta           JSONB,
+                rank           INT,
+                universe_count INT,
+                source         VARCHAR(24) DEFAULT 'free_yfinance',
+                captured_at    TIMESTAMPTZ DEFAULT NOW(),
+                entry_date     DATE,
+                entry_open     FLOAT,
+                w1_pct         FLOAT,
+                w2_pct         FLOAT,
+                w3_pct         FLOAT,
+                w4_pct         FLOAT,
+                updated_at     TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (snap_date, ticker)
+            )
+        """)
+        _c.commit()
+    print("[conviction_stack_watchlist] table ready")
+_init_conviction_stack_watchlist()
+
+
+def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTION_STACK_MAX) -> dict:
+    """Persist today's L1-L8 EXTREME cohort (total_pts >= min_pts) from the money-
+    pressure engine. Same-day idempotent (UNIQUE upsert + prune of names that
+    dropped out). Logs NOTHING on an empty cohort (status skipped_empty_extreme)
+    so a quiet day never pollutes the track record."""
+    import psycopg2 as _pg2
+    from psycopg2.extras import Json as _Json
+    from datetime import datetime as _dt
+    today = _dt.now(_ET_TZ).date()
+    try:
+        results = _run_five_layer_conviction(max_tickers=max_tickers)
+    except Exception as e:
+        return {"ok": False, "reason": f"engine error: {e}", "snap_date": str(today)}
+    universe_count = len(results)
+    cohort = [r for r in results if float(r.get("total_pts", 0) or 0) >= min_pts]
+    cohort.sort(key=lambda r: r.get("total_pts", 0) or 0, reverse=True)
+    if not cohort:
+        # Clear ANY rows already logged for today so a later same-day rerun that
+        # finds zero 8+ names can't leave stale picks polluting the track record.
+        with _pg2.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.execute("DELETE FROM conviction_stack_watchlist WHERE snap_date=%s", (today,))
+            c.commit()
+        return {"ok": True, "status": "skipped_empty_extreme", "snap_date": str(today),
+                "universe_count": universe_count, "logged": 0}
+    with _pg2.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+        keep = [r["ticker"] for r in cohort]
+        cur.execute(
+            "DELETE FROM conviction_stack_watchlist WHERE snap_date=%s AND NOT (ticker = ANY(%s))",
+            (today, keep),
+        )
+        for i, r in enumerate(cohort):
+            cur.execute(
+                """INSERT INTO conviction_stack_watchlist
+                       (snap_date,ticker,total_pts,conviction_pct,label,price,
+                        layers,meta,rank,universe_count,source)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (snap_date,ticker) DO UPDATE SET
+                       total_pts=EXCLUDED.total_pts, conviction_pct=EXCLUDED.conviction_pct,
+                       label=EXCLUDED.label, price=EXCLUDED.price, layers=EXCLUDED.layers,
+                       meta=EXCLUDED.meta, rank=EXCLUDED.rank, source=EXCLUDED.source,
+                       universe_count=EXCLUDED.universe_count, updated_at=NOW()""",
+                (today, r["ticker"], float(r.get("total_pts", 0) or 0),
+                 int(r.get("conviction_pct", 0) or 0), r.get("label", ""),
+                 float(r.get("price", 0) or 0), _Json(r.get("layers", {}) or {}),
+                 _Json(r.get("meta", {}) or {}), i + 1, universe_count, "free_yfinance"),
+            )
+        c.commit()
+    return {"ok": True, "status": "logged", "snap_date": str(today),
+            "universe_count": universe_count, "logged": len(cohort)}
+
+
+def fill_conviction_stack_outcomes() -> dict:
+    """Entry = next trading day OPEN (what the user can actually buy). Returns
+    measured at the close of trading-session index 4/9/14/19 = 1/2/3/4 weeks of
+    exposure. Tracks STOCK returns, not option P&L."""
+    import psycopg2 as _pg2
+    import yfinance as _yf
+    from datetime import datetime as _dt, timedelta as _td
+    from collections import defaultdict as _dd
+    today = _dt.now(_ET_TZ).date()
+    with _pg2.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+        cur.execute(
+            """SELECT snap_date, ticker FROM conviction_stack_watchlist
+               WHERE snap_date < %s
+                 AND (entry_open IS NULL OR w1_pct IS NULL OR w2_pct IS NULL
+                      OR w3_pct IS NULL OR w4_pct IS NULL)
+               ORDER BY snap_date""",
+            (today,),
+        )
+        rows = cur.fetchall()
+    if not rows:
+        return {"filled": 0}
+    by_ticker = _dd(list)
+    for snap_date, ticker in rows:
+        by_ticker[ticker].append(snap_date)
+    updates = []
+    for ticker, snaps in by_ticker.items():
+        try:
+            start = min(snaps) - _td(days=6)
+            hist = _yf.Ticker(ticker).history(
+                start=start.isoformat(),
+                end=(today + _td(days=1)).isoformat(),
+                interval="1d",
+            )
+            if hist.empty:
+                continue
+            bars = []
+            for row in hist.itertuples():
+                d = row.Index.date() if hasattr(row.Index, "date") else row.Index
+                bars.append((d, float(row.Open), float(row.Close)))
+            bars.sort(key=lambda x: x[0])
+            for snap_date in snaps:
+                future = [b for b in bars if b[0] > snap_date]
+                if not future:
+                    continue
+                entry_date, entry_open, _ = future[0]
+                if not entry_open:
+                    continue
+
+                def pct(h):
+                    return (round((future[h][2] - entry_open) / entry_open * 100, 2)
+                            if len(future) > h else None)
+
+                updates.append((entry_date, entry_open, pct(4), pct(9), pct(14), pct(19),
+                                snap_date, ticker))
+        except Exception:
+            continue
+    if updates:
+        with _pg2.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.executemany(
+                """UPDATE conviction_stack_watchlist SET
+                       entry_date=%s, entry_open=%s,
+                       w1_pct=%s, w2_pct=%s, w3_pct=%s, w4_pct=%s, updated_at=NOW()
+                   WHERE snap_date=%s AND ticker=%s""",
+                updates,
+            )
+            c.commit()
+    return {"filled": len(updates)}
+
+
+def get_conviction_stack_track_record(days: int = 120) -> dict:
+    import psycopg2 as _pg2
+    from datetime import datetime as _dt, timedelta as _td
+    today = _dt.now(_ET_TZ).date()
+    cutoff = today - _td(days=days)
+    with _pg2.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+        cur.execute(
+            """SELECT snap_date,ticker,total_pts,conviction_pct,label,price,
+                      entry_date,entry_open,w1_pct,w2_pct,w3_pct,w4_pct,
+                      layers,meta,universe_count,source
+               FROM conviction_stack_watchlist
+               WHERE snap_date >= %s
+               ORDER BY snap_date DESC, total_pts DESC NULLS LAST""",
+            (cutoff,),
+        )
+        rows = cur.fetchall()
+
+    def f(v):
+        return float(v) if v is not None else None
+
+    picks = [{
+        "snap_date": str(r[0]), "ticker": r[1], "total_pts": f(r[2]),
+        "conviction_pct": int(r[3]) if r[3] is not None else None,
+        "label": r[4], "price": f(r[5]),
+        "entry_date": str(r[6]) if r[6] else None, "entry_open": f(r[7]),
+        "w1_pct": f(r[8]), "w2_pct": f(r[9]), "w3_pct": f(r[10]), "w4_pct": f(r[11]),
+        "layers": r[12] or {}, "meta": r[13] or {},
+        "universe_count": r[14], "source": r[15],
+    } for r in rows]
+
+    def stat(key):
+        vals = [p[key] for p in picks if p[key] is not None]
+        wins = sum(1 for v in vals if v > 0)
+        losses = sum(1 for v in vals if v <= 0)
+        return {
+            "count": len(vals), "wins": wins, "losses": losses,
+            "win_rate": round(wins / len(vals) * 100, 1) if vals else None,
+            "avg_pct": round(sum(vals) / len(vals), 2) if vals else None,
+        }
+
+    return {
+        "picks": picks,
+        "stats": {"w1": stat("w1_pct"), "w2": stat("w2_pct"),
+                  "w3": stat("w3_pct"), "w4": stat("w4_pct")},
+        "today_count": sum(1 for p in picks if p["snap_date"] == str(today)),
+    }
+
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -1331,6 +1556,37 @@ try:
             _run_composite_outcomes,
             CronTrigger(day_of_week="mon-fri", hour=_co_h, minute=_co_m, timezone=_ET),
             id=f"composite_outcomes_{_co_h}_{_co_m}",
+            replace_existing=True,
+        )
+
+    # ── TOP SCORE 8+ (L1-L8 money-pressure) snapshot + outcomes ───────────────
+    # Snapshot today's EXTREME (8+) cohort at 16:50 ET — AFTER the EOD OI
+    # snapshot (16:30) so the engine has today's fresh OI/charm to score on.
+    # Outcomes (next-open 1-4 wk stock returns) at 9:52 AM + 17:05 ET daily.
+    def _run_conviction_stack_snapshot():
+        try:
+            import threading as _thr_css
+            _thr_css.Thread(target=snapshot_conviction_stack, daemon=True).start()
+        except Exception as _e_css:
+            print(f"[scheduler] conviction-stack snapshot error: {_e_css}")
+    _scheduler.add_job(
+        _run_conviction_stack_snapshot,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=50, timezone=_ET),
+        id="conviction_stack_snapshot",
+        replace_existing=True,
+    )
+
+    def _run_conviction_stack_outcomes():
+        try:
+            import threading as _thr_cso
+            _thr_cso.Thread(target=fill_conviction_stack_outcomes, daemon=True).start()
+        except Exception as _e_cso:
+            print(f"[scheduler] conviction-stack outcomes error: {_e_cso}")
+    for _cso_h, _cso_m in [(9, 52), (17, 5)]:
+        _scheduler.add_job(
+            _run_conviction_stack_outcomes,
+            CronTrigger(day_of_week="mon-fri", hour=_cso_h, minute=_cso_m, timezone=_ET),
+            id=f"conviction_stack_outcomes_{_cso_h}_{_cso_m}",
             replace_existing=True,
         )
 
@@ -12337,12 +12593,50 @@ def conviction_stack_endpoint():
     8+ pts = ~90% confidence the stock is being positioned for a squeeze.
     """
     try:
-        results = _run_five_layer_conviction(max_tickers=25)
-        return jsonify({"results": results, "count": len(results)})
+        results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
+        return jsonify({"results": results, "count": len(results),
+                        "source": "free_yfinance", "universe_count": len(results)})
     except Exception as e:
         import traceback
         return jsonify({"results": [], "count": 0, "error": str(e),
                         "trace": traceback.format_exc()}), 500
+
+
+# ── TOP SCORE 8+ : L1-L8 money-pressure snapshot / outcomes / track record ────
+@app.route("/stock-api/conviction-stack-snapshot/trigger", methods=["POST"])
+def conviction_stack_snapshot_trigger():
+    """Snapshot today's EXTREME (8+) cohort. ?sync=1 runs inline & returns the
+    result (used for manual/testing); default spawns a background thread."""
+    if request.args.get("sync") == "1":
+        try:
+            return jsonify(snapshot_conviction_stack())
+        except Exception as e:
+            import traceback
+            return jsonify({"ok": False, "error": str(e),
+                            "trace": traceback.format_exc()}), 500
+    import threading as _thr_css
+    _thr_css.Thread(target=snapshot_conviction_stack, daemon=True).start()
+    return jsonify({"started": True})
+
+
+@app.route("/stock-api/conviction-stack-outcomes/trigger", methods=["POST"])
+def conviction_stack_outcomes_trigger():
+    """Fill 1/2/3/4-week next-open returns for logged picks (runs in background)."""
+    import threading as _thr_cso
+    _thr_cso.Thread(target=fill_conviction_stack_outcomes, daemon=True).start()
+    return jsonify({"started": True})
+
+
+@app.route("/stock-api/conviction-stack-track-record", methods=["GET"])
+def conviction_stack_track_record_route():
+    try:
+        days = int(request.args.get("days", 120))
+    except Exception:
+        days = 120
+    try:
+        return jsonify(get_conviction_stack_track_record(days))
+    except Exception as e:
+        return jsonify({"picks": [], "stats": {}, "today_count": 0, "error": str(e)}), 500
 
 
 @app.route("/stock-api/charm-cascade", methods=["GET"])
