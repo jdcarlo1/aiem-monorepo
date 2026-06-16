@@ -777,6 +777,33 @@ try:
         id="conviction_outcomes",
         replace_existing=True,
     )
+    # Morning Gamma Watchlist SMS: 8:45 AM ET — yesterday's unusual calls = today's squeeze list
+    def _run_morning_gamma_watchlist():
+        try:
+            import threading as _thr_mgw
+            _thr_mgw.Thread(target=_send_morning_gamma_watchlist_sms, daemon=True).start()
+        except Exception as _e_mgw:
+            print(f"[scheduler] morning gamma watchlist error: {_e_mgw}")
+    _scheduler.add_job(
+        _run_morning_gamma_watchlist,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=45, timezone=_ET),
+        id="morning_gamma_watchlist",
+        replace_existing=True,
+    )
+    # Intraday Gamma Pressure Scanner: every 5 min, 9:35 AM–3:30 PM ET
+    # FIR > 2% = MMs are forced to buy >2% of float — deterministic squeeze signal
+    def _run_gamma_pressure_job():
+        try:
+            import threading as _thr_gps
+            _thr_gps.Thread(target=_run_gamma_pressure_scan, daemon=True).start()
+        except Exception as _e_gps:
+            print(f"[scheduler] gamma pressure scan error: {_e_gps}")
+    _scheduler.add_job(
+        _run_gamma_pressure_job,
+        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/5", timezone=_ET),
+        id="gamma_pressure_scan",
+        replace_existing=True,
+    )
     # Whale + High Conviction crossover alert — every 30 min, 10 AM–3:30 PM ET
     def _run_whale_hc_cross():
         try:
@@ -4123,6 +4150,342 @@ def _run_microcap_options_scan() -> list:
 
 
 _init_microcap_calls_table()
+
+
+# ── Gamma Pressure Scanner + Morning Watchlist ────────────────────────────────
+# Float Impact Ratio (FIR) = (call_volume × 100 × avg_delta) / shares_float
+# When FIR > 2%  →  market makers are FORCED to buy >2% of float in shares.
+# This is not a prediction — it is deterministic mechanical buying.
+
+_float_cache: dict         = {}   # ticker → (float_shares, cached_ts)
+_gamma_alerted_today: dict = {}   # date_str → set of tickers already SMS'd
+
+
+def _get_float_shares(ticker: str) -> int:
+    """Float shares with 24-hour in-memory cache (yfinance fast_info then full info)."""
+    import yfinance as yf, math
+    from datetime import datetime as _dtnow
+
+    entry = _float_cache.get(ticker)
+    if entry:
+        shares, ts = entry
+        if (_dtnow.now() - ts).total_seconds() < 86400 and shares > 0:
+            return shares
+    try:
+        tk     = yf.Ticker(ticker)
+        shares = int(getattr(tk.fast_info, "shares", 0) or 0)
+        if not shares:
+            info   = tk.info
+            shares = int(info.get("floatShares") or info.get("sharesOutstanding") or 0)
+        if shares > 0:
+            _float_cache[ticker] = (shares, _dtnow.now())
+        return shares
+    except Exception:
+        return 0
+
+
+def _init_gamma_pressure_table() -> None:
+    try:
+        import psycopg2, os as _os
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS gamma_pressure_alerts (
+                    id                SERIAL PRIMARY KEY,
+                    ticker            VARCHAR(10) NOT NULL,
+                    price             FLOAT,
+                    price_change_pct  FLOAT,
+                    fir               FLOAT,
+                    fsd               BIGINT,
+                    float_shares      BIGINT,
+                    float_m           FLOAT,
+                    call_volume       INTEGER,
+                    avg_delta         FLOAT,
+                    vol_oi            FLOAT,
+                    top_strike        FLOAT,
+                    top_strike_expiry VARCHAR(20),
+                    score             FLOAT,
+                    sms_sent          BOOLEAN DEFAULT FALSE,
+                    alerted_at        TIMESTAMPTZ DEFAULT NOW(),
+                    alert_date        DATE DEFAULT CURRENT_DATE
+                );
+                CREATE INDEX IF NOT EXISTS idx_gpa_date
+                    ON gamma_pressure_alerts(alert_date DESC);
+                CREATE INDEX IF NOT EXISTS idx_gpa_ticker
+                    ON gamma_pressure_alerts(ticker, alert_date);
+            """)
+            conn.commit()
+            print("[gamma_pressure] table ready")
+    except Exception as e:
+        print(f"[gamma_pressure] init error: {e}")
+
+
+def _send_morning_gamma_watchlist_sms() -> None:
+    """
+    8:45 AM ET Mon-Fri:
+    Pull yesterday's top unusual call setups → send as today's squeeze watchlist.
+    Stocks with high Vol/OI + premium yesterday = gamma squeeze candidates today
+    as delta hedging pressure compounds from market open.
+    """
+    import psycopg2, os as _os
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from zoneinfo import ZoneInfo
+    from email_alerts import send_email_raw
+
+    try:
+        et      = _dt.now(_tz.utc).astimezone(ZoneInfo("America/New_York"))
+        days_bk = 4 if et.weekday() == 0 else 1   # Monday → look back to Friday
+        cutoff  = et - _td(days=days_bk)
+
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker,
+                       MAX(vol_oi)  AS max_voi,
+                       MAX(prem)    AS max_prem,
+                       COUNT(*)     AS signals,
+                       MAX(strike)  AS strike,
+                       MAX(expiry)  AS expiry,
+                       MAX(otm_pct) AS otm_pct
+                FROM unusual_calls_microcap_log
+                WHERE last_seen >= %s AND prem >= 3000
+                GROUP BY ticker
+                ORDER BY MAX(vol_oi) * MAX(prem) DESC
+                LIMIT 8
+            """, (cutoff,))
+            rows = cur.fetchall()
+
+        if not rows:
+            print(f"[morning_watchlist] no data since {cutoff} — skipping")
+            return
+
+        day_str = et.strftime("%b %d")
+        lines   = [
+            f"⚡ GAMMA WATCHLIST — {day_str}",
+            f"Unusual call buildup → delta hedging pressure at open:",
+            "",
+        ]
+        for ticker, voi, prem, sigs, strike, expiry, otm in rows:
+            pk  = (prem or 0) / 1000
+            ps  = f"${pk:.0f}K" if pk < 1000 else f"${pk/1000:.1f}M"
+            sk  = f"${strike:.0f}C" if strike else "?"
+            ex  = str(expiry)[:10] if expiry else "?"
+            os_ = f" +{otm:.0f}%OTM" if otm and otm > 0 else ""
+            lines.append(
+                f"🎯 ${ticker}  {sk} {ex}{os_}\n"
+                f"   Vol/OI:{voi:.1f}x  Prem:{ps}  ({int(sigs)} signals)"
+            )
+
+        lines += ["", "MMs delta hedge at open = forced share buying.", "Stop: pre-mkt low | Target: +8-15%"]
+        msg = "\n".join(lines)
+
+        for gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
+            try:
+                send_email_raw(gw, f"⚡ Gamma Watchlist {day_str}", f"<pre>{msg}</pre>")
+            except Exception as _e:
+                print(f"[morning_watchlist] send error {gw}: {_e}")
+
+        print(f"[morning_watchlist] SMS sent — {len(rows)} squeeze candidates for {day_str}")
+    except Exception as e:
+        import traceback
+        print(f"[morning_watchlist] error: {e}\n{traceback.format_exc()}")
+
+
+def _run_gamma_pressure_scan() -> list:
+    """
+    Intraday Gamma Pressure Scanner — runs every 5 min, 9:35 AM–3:30 PM ET.
+
+    For every ticker in the universe (static list + recent microcap signals):
+      avg_delta  = volume-weighted delta across near-term OTM call strikes
+      FSD        = call_volume × 100 × avg_delta        (Forced Share Demand)
+      FIR        = FSD / shares_float × 100             (Float Impact Ratio %)
+      score      = FIR × Vol/OI × (1 + price_momentum)
+
+    SMS fires immediately when: FIR > 2.0% AND Vol/OI > 2.0 AND price already up.
+    One SMS per ticker per calendar day (de-duped).
+    """
+    import yfinance as yf, math, os as _os
+    from datetime import datetime as _dt, timezone as _tz
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _ascf
+    from email_alerts import send_email_raw
+
+    def _sf(v, d=0.0):
+        try:
+            f = float(v) if v is not None else d
+            return d if (math.isnan(f) or math.isinf(f)) else f
+        except: return d
+
+    def _si(v):
+        try:
+            f = float(v) if v is not None else 0.0
+            return 0 if (math.isnan(f) or math.isinf(f)) else int(f)
+        except: return 0
+
+    def _approx_delta(price, strike, days):
+        """Sigmoid delta: ATM≈0.50, OTM decays, time-adjusted."""
+        if not price or not strike: return 0.30
+        try:
+            x = ((price / strike) - 1.0) * 10.0
+            if days > 0:
+                x *= (20.0 / max(days, 1)) ** 0.4
+            return max(0.02, min(0.98, 1.0 / (1.0 + math.exp(-x))))
+        except: return 0.30
+
+    et_now = _dt.now(_tz.utc)
+    today  = str(et_now.date())
+
+    if len(_gamma_alerted_today) > 5:
+        _gamma_alerted_today.clear()
+    already = _gamma_alerted_today.get(today, set())
+
+    # Universe: static list + recent microcap unusual call tickers
+    universe = list(_MICRO_CAP_UNIVERSE)
+    try:
+        import psycopg2
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_microcap_log
+                WHERE last_seen >= NOW() - INTERVAL '48 hours' LIMIT 200
+            """)
+            for (t,) in cur.fetchall():
+                if t not in universe:
+                    universe.append(t)
+    except Exception:
+        pass
+
+    def _scan_one(ticker):
+        try:
+            tk    = yf.Ticker(ticker)
+            fi    = tk.fast_info
+            price = _sf(getattr(fi, "lastPrice", None) or getattr(fi, "regularMarketPrice", None))
+            if not price or price < 0.30:
+                return None
+            prev  = _sf(getattr(fi, "previousClose", None) or price)
+            chg   = round((price - prev) / prev * 100, 2) if prev else 0.0
+            flt   = _get_float_shares(ticker)
+            if not flt or flt < 500_000:
+                return None
+
+            total_vol = 0; total_oi = 0
+            w_delta   = 0.0; w_wt = 0.0
+            best_strike = None; best_exp = None; best_vol = 0
+
+            for exp in (tk.options or [])[:3]:
+                try:
+                    exp_dt = _dt.strptime(exp, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+                    days   = max(1, (exp_dt - et_now).days + 1)
+                    if days > 30:
+                        continue
+                    calls = tk.option_chain(exp).calls
+                    for _, row in calls.iterrows():
+                        vol    = _si(row.get("volume"))
+                        oi     = _si(row.get("openInterest"))
+                        strike = _sf(row.get("strike"))
+                        if vol < 5 or not strike:
+                            continue
+                        otm = (strike - price) / price
+                        if otm < -0.20 or otm > 0.70:
+                            continue
+                        d = _approx_delta(price, strike, days)
+                        total_vol += vol; total_oi += oi
+                        w_delta   += vol * d; w_wt += vol
+                        if vol > best_vol:
+                            best_vol = vol; best_strike = strike; best_exp = exp
+                except Exception:
+                    continue
+
+            if total_vol < 30:
+                return None
+
+            avg_d  = w_delta / w_wt if w_wt else 0.30
+            fsd    = int(total_vol * 100 * avg_d)
+            fir    = round(fsd / flt * 100, 3)
+            vol_oi = round(total_vol / max(total_oi, 1), 2)
+            mom    = max(chg, 0.1) if chg > 0 else 0.1
+            score  = round(fir * vol_oi * (1 + mom / 10), 2)
+
+            if fir < 1.2:
+                return None
+
+            return {
+                "ticker": ticker, "price": round(price, 2),
+                "price_change_pct": chg, "fir": fir, "fsd": fsd,
+                "float_shares": flt, "float_m": round(flt / 1e6, 2),
+                "call_volume": total_vol, "avg_delta": round(avg_d, 3),
+                "vol_oi": vol_oi, "top_strike": best_strike,
+                "top_strike_expiry": best_exp, "score": score,
+            }
+        except Exception:
+            return None
+
+    results = []
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        futs = {ex.submit(_scan_one, t): t for t in universe}
+        for fut in _ascf(futs):
+            try:
+                r = fut.result()
+                if r:
+                    results.append(r)
+            except Exception:
+                pass
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+
+    # SMS: only fire for high-conviction new signals not yet alerted today
+    sms_sent = []
+    for r in results[:25]:
+        t = r["ticker"]
+        if t in already:
+            continue
+        if r["fir"] < 2.0 or r["vol_oi"] < 2.0:
+            continue
+        if r["price_change_pct"] < 0.3:
+            continue
+
+        sk_s  = f"${r['top_strike']:.0f}C {r['top_strike_expiry']}" if r["top_strike"] else "N/A"
+        msg   = (
+            f"⚡ GAMMA SQUEEZE: ${t}\n"
+            f"Float Impact Ratio: {r['fir']:.1f}% → MMs forced to buy {r['fsd']:,} shares\n"
+            f"Float: {r['float_m']:.1f}M  Call Vol: {r['call_volume']:,}  Vol/OI: {r['vol_oi']:.1f}x\n"
+            f"Avg Delta: {r['avg_delta']:.2f}  Top Strike: {sk_s}\n"
+            f"Price: ${r['price']:.2f} (+{r['price_change_pct']:.1f}%) ← already moving\n"
+            f"Score: {r['score']:.1f} — delta cascade in progress. GET IN NOW."
+        )
+        try:
+            for gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
+                send_email_raw(gw, f"⚡ GAMMA SQUEEZE ${t}  FIR:{r['fir']:.1f}%", f"<pre>{msg}</pre>")
+            already.add(t)
+            sms_sent.append(t)
+        except Exception as _se:
+            print(f"[gamma_pressure] SMS error {t}: {_se}")
+
+    _gamma_alerted_today[today] = already
+
+    # Persist top results to DB
+    try:
+        import psycopg2
+        today_dt = et_now.date()
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for r in results[:30]:
+                cur.execute("""
+                    INSERT INTO gamma_pressure_alerts
+                        (ticker, price, price_change_pct, fir, fsd, float_shares, float_m,
+                         call_volume, avg_delta, vol_oi, top_strike, top_strike_expiry,
+                         score, sms_sent, alert_date)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    r["ticker"], r["price"], r["price_change_pct"], r["fir"], r["fsd"],
+                    r["float_shares"], r["float_m"], r["call_volume"], r["avg_delta"],
+                    r["vol_oi"], r["top_strike"], r["top_strike_expiry"],
+                    r["score"], r["ticker"] in sms_sent, today_dt,
+                ))
+            conn.commit()
+    except Exception as _db:
+        print(f"[gamma_pressure] DB error: {_db}")
+
+    print(f"[gamma_pressure] {len(results)} signals | SMS fired: {sms_sent}")
+    return results
+
+
+_init_gamma_pressure_table()
 
 
 # ── My Trades — personal trade journal ───────────────────────────────────────
@@ -10376,6 +10739,64 @@ def unusual_calls_log():
         return jsonify({"signals": rows, "total": len(rows)})
     except Exception as e:
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
+
+
+@app.route("/stock-api/gamma-pressure", methods=["GET"])
+def gamma_pressure_endpoint():
+    """
+    Return recent gamma pressure signals sorted by score desc.
+    ?date=YYYY-MM-DD  → filter to specific date (default: last 3 days)
+    ?limit=N          → max rows (default 60)
+    """
+    try:
+        import psycopg2, os as _os
+        date_arg = request.args.get("date")
+        limit    = min(int(request.args.get("limit", 60)), 200)
+
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            if date_arg:
+                cur.execute("""
+                    SELECT ticker, price, price_change_pct, fir, fsd, float_shares, float_m,
+                           call_volume, avg_delta, vol_oi, top_strike, top_strike_expiry,
+                           score, sms_sent, alerted_at::TEXT, alert_date::TEXT
+                    FROM gamma_pressure_alerts
+                    WHERE alert_date = %s
+                    ORDER BY score DESC LIMIT %s
+                """, (date_arg, limit))
+            else:
+                cur.execute("""
+                    SELECT ticker, price, price_change_pct, fir, fsd, float_shares, float_m,
+                           call_volume, avg_delta, vol_oi, top_strike, top_strike_expiry,
+                           score, sms_sent, alerted_at::TEXT, alert_date::TEXT
+                    FROM gamma_pressure_alerts
+                    WHERE alert_date >= CURRENT_DATE - INTERVAL '3 days'
+                    ORDER BY score DESC LIMIT %s
+                """, (limit,))
+
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT MAX(alerted_at)::TEXT
+                FROM gamma_pressure_alerts
+                WHERE alert_date = CURRENT_DATE
+            """)
+            last_scan = (cur.fetchone() or [None])[0]
+
+        return jsonify({"signals": rows, "count": len(rows), "last_scan": last_scan})
+    except Exception as e:
+        return jsonify({"signals": [], "count": 0, "last_scan": None, "error": str(e)}), 500
+
+
+@app.route("/stock-api/gamma-pressure/trigger", methods=["POST"])
+def gamma_pressure_trigger():
+    """Manually trigger a gamma pressure scan (runs in background thread)."""
+    try:
+        import threading as _thr_gt
+        _thr_gt.Thread(target=_run_gamma_pressure_scan, daemon=True).start()
+        return jsonify({"status": "scan started"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 @app.route("/stock-api/etf-calls", methods=["GET"])

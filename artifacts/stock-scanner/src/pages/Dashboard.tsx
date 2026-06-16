@@ -30,6 +30,7 @@ import {
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
   fetchEtfCalls, EtfCallsResult,
+  fetchGammaPressure, GammaPressureRow, GammaPressureResult, triggerGammaScan,
   fetchInsiderRadar, InsiderRadarRow, InsiderRadarResult,
   fetchInsiderAlerts, InsiderAlert, InsiderAlertsResult,
   fetchInsiderOutcomes, InsiderOutcome, InsiderOutcomesResult,
@@ -2960,6 +2961,182 @@ function UnusualCallsLogTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 }
 
 // ---- ETF Calls Tab -------------------------------------------------------
+function GammaPressureTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]         = useState<GammaPressureResult | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [date, setDate]         = useState<string>("");
+
+  const load = (d?: string) => {
+    setLoading(true);
+    fetchGammaPressure(d || undefined)
+      .then(r => setData(r))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleTrigger = async () => {
+    setScanning(true);
+    try { await triggerGammaScan(); setTimeout(() => load(date || undefined), 8000); }
+    catch {}
+    finally { setTimeout(() => setScanning(false), 5000); }
+  };
+
+  const firColor  = (fir: number) => fir >= 5 ? "#f87171" : fir >= 3 ? "#fb923c" : fir >= 2 ? "#facc15" : "#38bdf8";
+  const firLabel  = (fir: number) => fir >= 5 ? "🔴 EXTREME" : fir >= 3 ? "🟠 HIGH" : fir >= 2 ? "🟡 ELEVATED" : "🔵 WATCH";
+  const fmtChg    = (v: number)   => v > 0 ? `+${v.toFixed(1)}%` : `${v.toFixed(1)}%`;
+  const fmtAt     = (iso: string) => { try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; } catch { return iso; } };
+
+  const signals = data?.signals ?? [];
+  const todaySigs = signals.filter(s => s.alert_date === new Date().toISOString().slice(0, 10));
+  const smsSent   = signals.filter(s => s.sms_sent).map(s => s.ticker);
+  const topFir    = signals.length ? Math.max(...signals.map(s => s.fir)) : 0;
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>
+            ⚡ Gamma Pressure Scanner
+          </h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0, maxWidth: 600 }}>
+            Float Impact Ratio = (Call Vol × 100 × avg Δ) ÷ Float Shares.
+            FIR &gt; 2% → market makers are <em style={{ color: "#facc15" }}>legally forced</em> to buy &gt;2% of float in shares today.
+            {data?.last_scan && <span style={{ color: "#475569" }}> · Last scan: {fmtAt(data.last_scan)}</span>}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="date" value={date} onChange={e => setDate(e.target.value)}
+            style={{ fontFamily: BB_F, fontSize: 11, padding: "5px 10px", borderRadius: 6, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#94a3b8", cursor: "pointer" }}
+          />
+          <button onClick={() => load(date || undefined)}
+            style={{ fontFamily: BB_F, fontSize: 11, fontWeight: 700, padding: "6px 14px", borderRadius: 8, cursor: "pointer", background: "rgba(56,189,248,0.12)", border: "1px solid rgba(56,189,248,0.4)", color: "#38bdf8" }}>
+            LOAD
+          </button>
+          <button onClick={handleTrigger} disabled={scanning}
+            style={{ fontFamily: BB_F, fontSize: 11, fontWeight: 700, padding: "6px 16px", borderRadius: 8, cursor: scanning ? "default" : "pointer", transition: "all 0.15s",
+              background: scanning ? "rgba(250,204,21,0.08)" : "rgba(250,204,21,0.12)",
+              border: `1px solid ${scanning ? "rgba(250,204,21,0.3)" : "rgba(250,204,21,0.5)"}`,
+              color: scanning ? "#a3a3a3" : "#facc15" }}>
+            {scanning ? "⏳ SCANNING…" : "▶ SCAN NOW"}
+          </button>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 22 }}>
+        {[
+          { label: "Today's Signals",    val: todaySigs.length,                    color: "#38bdf8" },
+          { label: "Top FIR Today",      val: topFir ? `${topFir.toFixed(1)}%` : "—", color: firColor(topFir) },
+          { label: "SMS Alerts Sent",    val: smsSent.length,                      color: "#4ade80" },
+          { label: "Tickers Tracked",    val: signals.length,                      color: "#a78bfa" },
+        ].map(s => (
+          <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontFamily: BB_F, fontSize: 22, fontWeight: 900, color: s.color }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Explanation banner */}
+      <div style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.2)", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontFamily: BB_F, fontSize: 12, color: "#94a3b8", lineHeight: 1.7 }}>
+        <span style={{ color: "#facc15", fontWeight: 900 }}>⚡ HOW THIS WORKS: </span>
+        When someone buys large call volume on a low-float stock, the market maker who sold must buy shares to stay delta-hedged.
+        <strong style={{ color: "#fff" }}> FIR is how much of the float they must buy.</strong> FIR 2% = they buy 2% of all available shares.
+        As the stock rises, delta increases → they buy more → stock rises more. This is the gamma squeeze feedback loop — and it fires SMS the moment it crosses threshold.
+        <span style={{ color: "#facc15" }}> SMS arrives instantly. 8:45 AM morning text covers yesterday's setups.</span>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>Scanning universe…</div>
+      ) : signals.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>
+          No signals yet. Click ▶ SCAN NOW during market hours (9:35 AM–3:30 PM ET) to run a live scan.
+          <br /><span style={{ fontSize: 11, color: "#334155", marginTop: 6, display: "block" }}>Scans run automatically every 5 min during market hours.</span>
+        </div>
+      ) : (
+        <div>
+          {/* Table */}
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                {["Ticker / Strike", "FIR %", "Forced Shares", "Float", "Call Vol", "Vol/OI", "Avg Δ", "Price / Chg", "Score", "SMS"].map(h => (
+                  <th key={h} style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700, padding: "8px 10px", textAlign: h === "Ticker / Strike" ? "left" : "right", letterSpacing: "0.05em" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {signals.map((r, i) => {
+                const fc  = firColor(r.fir);
+                const fl  = firLabel(r.fir);
+                const chg = r.price_change_pct;
+                const chgColor = chg > 3 ? "#4ade80" : chg > 0 ? "#86efac" : chg < 0 ? "#f87171" : "#64748b";
+                return (
+                  <tr key={i}
+                    onClick={() => onSelectTicker(r.ticker)}
+                    style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", cursor: "pointer", transition: "background 0.12s" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                    <td style={{ padding: "10px 10px", fontFamily: BB_F }}>
+                      <span style={{ fontSize: 14, fontWeight: 900, color: "#f1f5f9" }}>{r.ticker}</span>
+                      {r.top_strike && (
+                        <span style={{ display: "block", fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                          ${r.top_strike.toFixed(0)}C {r.top_strike_expiry ?? ""}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 9, color: "#334155" }}>{r.alert_date}</span>
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right" }}>
+                      <span style={{ fontFamily: BB_F, fontSize: 15, fontWeight: 900, color: fc }}>{r.fir.toFixed(1)}%</span>
+                      <span style={{ display: "block", fontSize: 9, color: fc, fontWeight: 700, fontFamily: BB_F, marginTop: 2 }}>{fl}</span>
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right", fontFamily: BB_F, fontSize: 12, color: "#94a3b8" }}>
+                      {r.fsd.toLocaleString()}
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right", fontFamily: BB_F, fontSize: 12, color: "#64748b" }}>
+                      {r.float_m.toFixed(1)}M
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right", fontFamily: BB_F, fontSize: 12, color: "#94a3b8" }}>
+                      {(r.call_volume ?? 0).toLocaleString()}
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right", fontFamily: BB_F, fontSize: 13, fontWeight: 700,
+                      color: r.vol_oi >= 5 ? "#f87171" : r.vol_oi >= 3 ? "#fb923c" : r.vol_oi >= 2 ? "#facc15" : "#64748b" }}>
+                      {r.vol_oi.toFixed(1)}x
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right", fontFamily: BB_F, fontSize: 12, color: "#64748b" }}>
+                      {(r.avg_delta ?? 0).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right", fontFamily: BB_F }}>
+                      <span style={{ fontSize: 13, color: "#f1f5f9", fontWeight: 700 }}>${(r.price ?? 0).toFixed(2)}</span>
+                      <span style={{ display: "block", fontSize: 11, color: chgColor, fontWeight: 700, marginTop: 1 }}>{fmtChg(chg)}</span>
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right", fontFamily: BB_F, fontSize: 14, fontWeight: 900, color: "#a78bfa" }}>
+                      {(r.score ?? 0).toFixed(1)}
+                    </td>
+                    <td style={{ padding: "10px 10px", textAlign: "right" }}>
+                      {r.sms_sent ? (
+                        <span style={{ fontFamily: BB_F, fontSize: 9, fontWeight: 900, background: "rgba(74,222,128,0.15)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)", borderRadius: 4, padding: "2px 6px" }}>📲 SENT</span>
+                      ) : (
+                        <span style={{ fontFamily: BB_F, fontSize: 9, color: "#334155" }}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function ETFCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
   const [data, setData]       = useState<EtfCallsResult | null>(null);
@@ -12384,7 +12561,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics"|"gammapressure">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -12510,6 +12687,7 @@ export default function Dashboard() {
     { id: "insiderradar",    label: "🕵️ INSIDER RADAR" },
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
+    { id: "gammapressure",   label: "⚡ GAMMA SQUEEZE" },
     { id: "etfcalls",        label: "🔥 HC ETFs" },
     { id: "convictioncalls", label: "🔥 HIGH CONVICTION" },
     { id: "eodsweep",        label: "🌙 EOD SWEEP" },
@@ -13125,6 +13303,7 @@ export default function Dashboard() {
         {tab === "insiderradar"    && <InsiderRadarTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
+        {tab === "gammapressure"   && <GammaPressureTab   onSelectTicker={selectTicker} />}
         {tab === "etfcalls"        && <ETFCallsTab        onSelectTicker={selectTicker} />}
         {tab === "convictioncalls" && <ConvictionCallsTab onSelectTicker={selectTicker} />}
         {tab === "eodsweep"        && <EodSweepTab       onSelectTicker={selectTicker} />}

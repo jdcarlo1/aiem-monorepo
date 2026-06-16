@@ -1236,6 +1236,39 @@ export function fetchEtfCalls(todayOnly = false) {
   return fetchJson<EtfCallsResult>(`/etf-calls${todayOnly ? "?today=1" : ""}`);
 }
 
+export interface GammaPressureRow {
+  ticker:             string;
+  price:              number;
+  price_change_pct:   number;
+  fir:                number;
+  fsd:                number;
+  float_m:            number;
+  call_volume:        number;
+  avg_delta:          number;
+  vol_oi:             number;
+  top_strike:         number | null;
+  top_strike_expiry:  string | null;
+  score:              number;
+  sms_sent:           boolean;
+  alerted_at:         string;
+  alert_date:         string;
+}
+
+export interface GammaPressureResult {
+  signals:   GammaPressureRow[];
+  count:     number;
+  last_scan: string | null;
+}
+
+export function fetchGammaPressure(date?: string) {
+  const q = date ? `?date=${date}` : "";
+  return fetchJson<GammaPressureResult>(`/gamma-pressure${q}`);
+}
+
+export function triggerGammaScan() {
+  return fetch(`${getApiBase()}/gamma-pressure/trigger`, { method: "POST" }).then(r => r.json());
+}
+
 export interface InsiderRadarRow extends UnusualCallsLogEntry {
   suspicion_score:    number;
   ticker_appearances: number;
