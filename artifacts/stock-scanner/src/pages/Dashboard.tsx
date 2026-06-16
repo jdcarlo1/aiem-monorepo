@@ -3175,15 +3175,17 @@ function SmartMoneyPressureTab({ onSelectTicker }: { onSelectTicker: (t: string)
   const ptColor = (pts: number) => pts >= 8 ? "#f87171" : pts >= 6 ? "#fb923c" : pts >= 4 ? "#facc15" : "#38bdf8";
   const results = data?.results ?? [];
 
-  const day2Likelihood = (r: ConvictionResult): { pct: number; reason: string } => {
+  const day2Likelihood = (r: ConvictionResult): { pct: number; reason: string; sessionOnly: boolean } => {
     const si = r.meta?.si_pct ?? 0;
     const fp = r.layers?.float_pressure ?? 0;
     const sweep = r.layers?.far_otm_sweep ?? 0;
-    if (si >= 25 && fp > 0) return { pct: 75, reason: `${si.toFixed(0)}% SI still needs to cover` };
-    if (si >= 15 && sweep > 0) return { pct: 65, reason: `${si.toFixed(0)}% SI + sweep conviction` };
-    if (si >= 10) return { pct: 50, reason: `${si.toFixed(0)}% SI — partial continuation likely` };
-    if (sweep > 0 && fp > 0) return { pct: 45, reason: "Gamma + sweep — watch the open" };
-    return { pct: 25, reason: "Primarily options-driven — day 2 less certain" };
+    if (si >= 25 && fp > 0) return { pct: 75, reason: `${si.toFixed(0)}% SI — shorts trapped, cover takes days`, sessionOnly: false };
+    if (si >= 15 && sweep > 0) return { pct: 65, reason: `${si.toFixed(0)}% SI + sweep conviction`, sessionOnly: false };
+    if (si >= 15) return { pct: 55, reason: `${si.toFixed(0)}% SI — multi-day cover likely`, sessionOnly: false };
+    if (si >= 10 && fp > 0) return { pct: 50, reason: `${si.toFixed(0)}% SI on small float — dangerous for shorts`, sessionOnly: false };
+    if (si >= 10) return { pct: 40, reason: `${si.toFixed(0)}% SI — watch vol at open day 2`, sessionOnly: false };
+    if (sweep > 0 && fp > 0) return { pct: 45, reason: "Gamma + sweep — watch the open", sessionOnly: false };
+    return { pct: 25, reason: "Options-driven only", sessionOnly: true };
   };
 
   return (
@@ -3315,13 +3317,14 @@ function SmartMoneyPressureTab({ onSelectTicker }: { onSelectTicker: (t: string)
                     {m?.oi_pct    && <span>OI Δ <span style={{ color: "#22c55e" }}>+{m.oi_pct.toFixed(0)}%</span></span>}
                     {m?.si_pct    && <span>SI <span style={{ color: m.si_pct >= 15 ? "#f87171" : "#94a3b8" }}>{m.si_pct.toFixed(0)}%</span>{m.dtc ? <span> / {m.dtc.toFixed(1)}d cover</span> : null}</span>}
                     {m?.fir       && <span>FIR <span style={{ color: "#facc15" }}>{m.fir.toFixed(1)}%</span></span>}
-                    {m?.dp_pct    && <span>Dark Pool <span style={{ color: "#a78bfa" }}>{m.dp_pct.toFixed(0)}%</span></span>}
+                    {m?.dp_pct    && <span>Dark Pool <span style={{ color: "#a78bfa" }}>{m.dp_pct.toFixed(0)}%</span><span style={{ color: "#334155", fontSize: 9 }}> total vol</span></span>}
                   </div>
                   {/* Day 2 box */}
                   <div style={{ background: `${d2Color}12`, border: `1px solid ${d2Color}33`, borderRadius: 8, padding: "6px 12px", display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ fontFamily: BB_F, fontSize: 18, fontWeight: 900, color: d2Color }}>{d2.pct}%</div>
                     <div style={{ fontFamily: BB_F, fontSize: 9, color: d2Color, lineHeight: 1.4 }}>
-                      DAY 2<br />CONT.<br /><span style={{ color: "#475569", fontSize: 8 }}>{d2.reason}</span>
+                      {d2.sessionOnly ? <>SINGLE<br />SESSION<br />ONLY</> : <>DAY 2<br />CONT.</>}
+                      <br /><span style={{ color: "#475569", fontSize: 8 }}>{d2.reason}</span>
                     </div>
                   </div>
                 </div>
