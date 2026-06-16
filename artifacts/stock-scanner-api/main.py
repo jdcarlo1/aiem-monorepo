@@ -1033,6 +1033,21 @@ try:
             replace_existing=True,
         )
 
+    # ── Nano-cap breakout scanner — EOD + pre-market ─────────────────────
+    def _run_nano_breakout():
+        try:
+            import threading as _thr_nb
+            _thr_nb.Thread(target=run_nano_cap_breakout_scan, daemon=True).start()
+        except Exception as _e_nb:
+            print(f"[scheduler] nano_breakout error: {_e_nb}")
+    for _nb_h, _nb_m in [(16, 5), (8, 0), (8, 30)]:
+        _scheduler.add_job(
+            _run_nano_breakout,
+            CronTrigger(day_of_week="mon-fri", hour=_nb_h, minute=_nb_m, timezone=_ET),
+            id=f"nano_breakout_{_nb_h}_{_nb_m}",
+            replace_existing=True,
+        )
+
     # ── EOD Accumulation picks + outcomes tables ──────────────────────────
     try:
         import psycopg2 as _pg_eat, os as _os_eat
@@ -14646,6 +14661,9 @@ def morning_inflows():
                      WHERE first_seen >= NOW() - INTERVAL '90 days'
                     UNION
                     SELECT ticker FROM morning_watchlist
+                    UNION
+                    SELECT ticker FROM nano_breakout_watchlist
+                     WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
                 ) combined
             """)
             _tracked = [r[0] for r in _cur.fetchall()]
@@ -16445,6 +16463,254 @@ def _startup_scan_if_needed():
             print(f"[startup] unusual_calls_log has {_count} rows for today, outside market hours — no startup scan needed")
     except Exception as _se:
         print(f"[startup] scan check error: {_se}")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NANO-CAP BREAKOUT SCANNER
+# Scans every nano-cap stock (<$50M mkt cap) in the US market daily.
+# Runs at 4:05 PM ET (EOD setups for tomorrow) and 8:00/8:30 AM ET (pre-market).
+# Top 30 saved to DB → auto-included in morning_inflows universe next 3 days.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+try:
+    import psycopg2 as _pg_nb_init, os as _os_nb_init
+    with _pg_nb_init.connect(_os_nb_init.getenv("DATABASE_URL","")) as _c_nb, _c_nb.cursor() as _cu_nb:
+        _cu_nb.execute("""
+            CREATE TABLE IF NOT EXISTS nano_breakout_watchlist (
+                id              SERIAL PRIMARY KEY,
+                scan_date       DATE    NOT NULL,
+                ticker          TEXT    NOT NULL,
+                price           NUMERIC,
+                mkt_cap_m       NUMERIC,
+                breakout_score  NUMERIC,
+                vol_trend       NUMERIC,
+                price_vs_high   NUMERIC,
+                momentum_5d     NUMERIC,
+                atr_ratio       NUMERIC,
+                avg_vol_10d     NUMERIC,
+                notes           TEXT,
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(scan_date, ticker)
+            )
+        """)
+        _c_nb.commit()
+    print("[nano_breakout] table ready")
+except Exception as _nb_init_e:
+    print(f"[nano_breakout] table init error: {_nb_init_e}")
+
+
+def run_nano_cap_breakout_scan():
+    """
+    Full-market nano-cap breakout scanner.
+    Pulls every US nano-cap stock (<$50M mkt cap, price >$0.50, avg vol >20K)
+    from finviz — currently ~300 tickers — scores each one for breakout
+    readiness, saves the top 30 to nano_breakout_watchlist, and pushes ntfy.
+
+    Breakout score (0-100):
+      30 pts  Volume building  — 5-day avg vol vs 20-day avg vol
+      25 pts  Near highs       — price vs 20-day high
+      25 pts  Momentum         — 5-day price return
+      20 pts  ATR compression  — recent range vs 20-day range (coiling)
+    """
+    import requests as _req_nb
+    import re as _re_nb
+    import yfinance as _yf_nb
+    import datetime as _dt_nb
+    import psycopg2 as _pg_nb
+    import os as _os_nb
+    import time as _time_nb
+    from concurrent.futures import ThreadPoolExecutor as _TPE_nb, as_completed as _ac_nb
+
+    _DB = _os_nb.getenv("DATABASE_URL", "")
+    _today = _dt_nb.date.today().isoformat()
+    _hdr = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    print(f"[nano_breakout] scan started — {_dt_nb.datetime.now().strftime('%I:%M %p ET')}")
+
+    # ── 1. Pull full nano-cap universe from finviz (paginated) ───────────────
+    _universe = []
+    for _start in range(1, 500, 20):
+        try:
+            _r = _req_nb.get(
+                f"https://finviz.com/screener.ashx?v=111"
+                f"&f=cap_nano,sh_price_o0.5,sh_avgvol_o20&o=-volume&r={_start}",
+                headers=_hdr, timeout=12
+            )
+            _page_syms = list(dict.fromkeys(_re_nb.findall(r"stock\?t=([A-Z]{1,6})&", _r.text)))
+            if not _page_syms:
+                break
+            _universe.extend(_page_syms)
+            _time_nb.sleep(0.25)
+        except Exception as _pe:
+            print(f"[nano_breakout] finviz page {_start}: {_pe}")
+            break
+
+    _universe = list(dict.fromkeys(_universe))
+    print(f"[nano_breakout] universe: {len(_universe)} nano-cap tickers")
+
+    # ── 2. Score each ticker ─────────────────────────────────────────────────
+    def _score(ticker):
+        try:
+            tk = _yf_nb.Ticker(ticker)
+            hist = tk.history(period="30d", interval="1d")
+            if hist is None or len(hist) < 10:
+                return None
+            closes  = hist["Close"].dropna().tolist()
+            volumes = hist["Volume"].dropna().tolist()
+            highs   = hist["High"].dropna().tolist()
+            lows    = hist["Low"].dropna().tolist()
+            if len(closes) < 10 or closes[-1] <= 0:
+                return None
+
+            price = closes[-1]
+
+            # Volume trend: 5d avg vs 20d avg (or however many days we have)
+            vol5  = sum(volumes[-5:])  / 5  if len(volumes) >= 5  else sum(volumes) / len(volumes)
+            vol20 = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else sum(volumes) / len(volumes)
+            vol_trend = (vol5 / vol20) if vol20 > 0 else 1.0
+
+            # Volume score (0-30)
+            if   vol_trend >= 3.0: v_pts = 30
+            elif vol_trend >= 2.0: v_pts = 22
+            elif vol_trend >= 1.5: v_pts = 15
+            elif vol_trend >= 1.2: v_pts = 8
+            else:                  v_pts = 0
+
+            # Price vs 20-day high (0-25)
+            high20 = max(highs[-20:]) if len(highs) >= 20 else max(highs)
+            pct_from_high = price / high20 if high20 > 0 else 0
+            if   pct_from_high >= 0.97: h_pts = 25  # within 3% of 20d high
+            elif pct_from_high >= 0.92: h_pts = 18
+            elif pct_from_high >= 0.85: h_pts = 10
+            elif pct_from_high >= 0.75: h_pts = 4
+            else:                       h_pts = 0
+
+            # 5-day momentum (0-25)
+            price5d_ago = closes[-6] if len(closes) >= 6 else closes[0]
+            momentum_5d = (price - price5d_ago) / price5d_ago * 100 if price5d_ago > 0 else 0
+            if   momentum_5d >= 20: m_pts = 25
+            elif momentum_5d >= 10: m_pts = 20
+            elif momentum_5d >= 5:  m_pts = 14
+            elif momentum_5d >= 2:  m_pts = 8
+            elif momentum_5d >= 0:  m_pts = 3
+            else:                   m_pts = 0
+
+            # ATR compression — recent 3d range vs 20d range (0-20)
+            def _atr(h_list, l_list):
+                return sum(h - l for h, l in zip(h_list, l_list)) / len(h_list) if h_list else 0
+            atr3  = _atr(highs[-3:],  lows[-3:])
+            atr20 = _atr(highs[-20:], lows[-20:]) if len(highs) >= 20 else _atr(highs, lows)
+            atr_ratio = (atr3 / atr20) if atr20 > 0 else 1.0
+            if   atr_ratio <= 0.50: c_pts = 20  # tight coil
+            elif atr_ratio <= 0.70: c_pts = 14
+            elif atr_ratio <= 0.85: c_pts = 7
+            else:                   c_pts = 0
+
+            score = v_pts + h_pts + m_pts + c_pts
+
+            # Build a short human-readable note
+            _notes = []
+            if vol_trend >= 1.5: _notes.append(f"vol {vol_trend:.1f}x 20d avg")
+            if pct_from_high >= 0.95: _notes.append("near 20d high")
+            if momentum_5d >= 5: _notes.append(f"+{momentum_5d:.0f}% 5d")
+            if atr_ratio <= 0.60: _notes.append("coiling")
+
+            fi = tk.fast_info
+            mkt_cap = float(getattr(fi, "market_cap", 0) or 0)
+
+            return {
+                "ticker":        ticker,
+                "price":         round(price, 2),
+                "mkt_cap_m":     round(mkt_cap / 1e6, 1),
+                "breakout_score": round(score, 1),
+                "vol_trend":     round(vol_trend, 2),
+                "price_vs_high": round(pct_from_high, 3),
+                "momentum_5d":   round(momentum_5d, 1),
+                "atr_ratio":     round(atr_ratio, 3),
+                "avg_vol_10d":   round(sum(volumes[-10:]) / min(10, len(volumes))),
+                "notes":         " · ".join(_notes) if _notes else "no standout signal",
+            }
+        except Exception:
+            return None
+
+    _results = []
+    with _TPE_nb(max_workers=12) as _ex:
+        _futs = {_ex.submit(_score, t): t for t in _universe}
+        for _fut in _ac_nb(_futs):
+            _r = _fut.result()
+            if _r and _r["breakout_score"] >= 20:
+                _results.append(_r)
+
+    _results.sort(key=lambda x: x["breakout_score"], reverse=True)
+    _top = _results[:30]
+    print(f"[nano_breakout] scored {len(_results)} qualifying tickers, top {len(_top)} saved")
+
+    # ── 3. Save to DB ────────────────────────────────────────────────────────
+    if _top and _DB:
+        try:
+            with _pg_nb.connect(_DB) as _c, _c.cursor() as _cu:
+                for _s in _top:
+                    _cu.execute("""
+                        INSERT INTO nano_breakout_watchlist
+                            (scan_date, ticker, price, mkt_cap_m, breakout_score,
+                             vol_trend, price_vs_high, momentum_5d, atr_ratio, avg_vol_10d, notes)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (scan_date, ticker) DO UPDATE
+                            SET price=EXCLUDED.price, breakout_score=EXCLUDED.breakout_score,
+                                notes=EXCLUDED.notes, created_at=NOW()
+                    """, (_today, _s["ticker"], _s["price"], _s["mkt_cap_m"],
+                          _s["breakout_score"], _s["vol_trend"], _s["price_vs_high"],
+                          _s["momentum_5d"], _s["atr_ratio"], _s["avg_vol_10d"], _s["notes"]))
+                _c.commit()
+            print(f"[nano_breakout] saved {len(_top)} tickers to DB")
+        except Exception as _dbe:
+            print(f"[nano_breakout] DB save error: {_dbe}")
+
+    # ── 4. ntfy alert ────────────────────────────────────────────────────────
+    if _top:
+        _lines = []
+        for _s in _top[:10]:
+            _lines.append(
+                f"{_s['ticker']} ${_s['price']:.2f} · score {_s['breakout_score']:.0f}/100"
+                f" · {_s['notes']}"
+            )
+        _lines.append("nclexai.org/stock-scanner/")
+        _send_ntfy(
+            f"🔭 {len(_top)} Nano-Cap Setups for {_dt_nb.date.today().strftime('%b %d')}",
+            "\n".join(_lines),
+            priority="default",
+            tags="mag,chart_with_upwards_trend",
+        )
+    return _top
+
+
+@app.route("/stock-api/nano-watchlist", methods=["GET"])
+def nano_watchlist():
+    """Return today's (or most recent) nano-cap breakout watchlist."""
+    try:
+        import psycopg2 as _pg_nw, os as _os_nw
+        with _pg_nw.connect(_os_nw.getenv("DATABASE_URL","")) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT ticker, price, mkt_cap_m, breakout_score, vol_trend,
+                       price_vs_high, momentum_5d, atr_ratio, avg_vol_10d, notes, scan_date
+                FROM nano_breakout_watchlist
+                WHERE scan_date = (SELECT MAX(scan_date) FROM nano_breakout_watchlist)
+                ORDER BY breakout_score DESC
+                LIMIT 30
+            """)
+            cols = [d[0] for d in _cu.description]
+            rows = [dict(zip(cols, r)) for r in _cu.fetchall()]
+            for row in rows:
+                for k, v in row.items():
+                    if hasattr(v, '__float__'):
+                        row[k] = float(v)
+                    elif hasattr(v, 'isoformat'):
+                        row[k] = v.isoformat()
+        return jsonify({"watchlist": rows, "count": len(rows)})
+    except Exception as _e:
+        return jsonify({"error": str(_e), "watchlist": []}), 500
+
 
 _startup_scan_if_needed()
 
