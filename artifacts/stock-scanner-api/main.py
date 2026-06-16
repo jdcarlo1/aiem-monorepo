@@ -2202,17 +2202,58 @@ def _send_top_pick_email() -> None:
               </td>
             </tr>"""
 
+        # ── DTC-based expiry recommendation ───────────────────────────────────
+        dtc = float(meta.get("dtc") or 0)
+        def _expiry_rec(conviction_score, days_to_cover):
+            if conviction_score >= 8:
+                return {"action": "CALL", "weeks": 2,
+                        "reason": "EXTREME score — mechanics force move within days, 2-week cap"}
+            elif conviction_score >= 6:
+                if days_to_cover > 0:
+                    days_needed = (days_to_cover * 1.5) + 5
+                    wks = max(2, _math.ceil(days_needed / 5))
+                    wks = min(wks, 5)
+                    reason = f"DTC {days_to_cover:.0f}d → ({days_to_cover:.0f}×1.5)+5 = {days_needed:.0f} trading days needed"
+                else:
+                    wks = 3
+                    reason = "HIGH score, no DTC data — default 3-week window"
+                return {"action": "CALL", "weeks": wks, "reason": reason}
+            elif conviction_score >= 4:
+                hold = max(2, round((days_to_cover * 1.2) / 5)) if days_to_cover > 0 else 3
+                hold = min(hold, 4)
+                return {"action": "STOCK", "hold_weeks": hold,
+                        "reason": f"Score {conviction_score:.1f}/10 — timing too uncertain for calls; stock safer"}
+            else:
+                return {"action": "STOCK", "hold_weeks": 2,
+                        "reason": "Low conviction — stock only"}
+
+        erec = _expiry_rec(score, dtc)
+
         # ── Build call option recommendation block ────────────────────────────
         call_html = ""
         call_sms  = ""
-        if best_call:
+        if erec["action"] == "STOCK":
+            hold_w = erec.get("hold_weeks", 3)
+            call_html = f"""
+            <div style="margin:20px 0;padding:16px 18px;background:#1a1f2e;border:2px solid #f59e0b;border-radius:8px;">
+              <div style="color:#f59e0b;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">📈 TRADE RECOMMENDATION — BUY STOCK, NOT CALLS</div>
+              <div style="color:#f1f5f9;font-size:22px;font-weight:900;">BUY ${ticker} STOCK</div>
+              <div style="color:#94a3b8;font-size:14px;margin-top:6px;">Hold for <b style="color:#fbbf24;">{hold_w} weeks</b></div>
+              <div style="margin-top:8px;color:#38bdf8;font-size:12px;">WHY: {erec['reason']}</div>
+              <div style="margin-top:8px;color:#64748b;font-size:11px;">
+                Entry: market open or first pullback · Stop: 7-8% below entry · Target: 10-20% gain
+              </div>
+            </div>"""
+            call_sms = f"\n📈 BUY STOCK: ${ticker} — hold {hold_w} weeks\n⚠️ Skip calls — {erec['reason']}"
+        elif best_call:
             c = best_call
             exp_fmt = _dt.strptime(c["exp"], "%Y-%m-%d").strftime("%b %d")
             otm_label = f"+{c['otm_pct']:.0f}% OTM" if c['otm_pct'] > 0 else "ATM"
             ps = f"${c['prem']/1000:.0f}K" if c['prem'] < 1_000_000 else f"${c['prem']/1_000_000:.1f}M"
+            wk = erec["weeks"]
             call_html = f"""
             <div style="margin:20px 0;padding:16px 18px;background:#0f2027;border:2px solid #22c55e;border-radius:8px;">
-              <div style="color:#22c55e;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">🎯 CALL OPTION TO BUY</div>
+              <div style="color:#22c55e;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">🎯 CALL OPTION TO BUY — {wk}-WEEK EXPIRY</div>
               <div style="color:#f1f5f9;font-size:22px;font-weight:900;">${ticker} ${c['strike']:.0f}C &nbsp;<span style="font-size:14px;color:#94a3b8;">exp {exp_fmt} · {c['days']}d</span></div>
               <div style="margin-top:8px;">
                 <span style="color:#f1f5f9;font-size:16px;">Bid <b>${c['bid']:.2f}</b> · Ask <b>${c['ask']:.2f}</b> · Mid <b style="color:#22c55e;">${c['mid']:.2f}</b></span>
@@ -2220,16 +2261,21 @@ def _send_top_pick_email() -> None:
               <div style="margin-top:8px;color:#94a3b8;font-size:12px;">
                 {otm_label} · {c['voi']:.1f}× vol/OI · {ps} premium today · IV {c['iv']}%
               </div>
-              <div style="margin-top:10px;color:#64748b;font-size:11px;">
+              <div style="margin-top:8px;color:#38bdf8;font-size:12px;font-weight:700;">
+                📅 WHY {wk}-WEEK: {erec['reason']}
+              </div>
+              <div style="margin-top:8px;color:#64748b;font-size:11px;">
                 Entry: market open or first 15-min pullback · Target: +50–100% on the option · Stop: close below today's open
               </div>
             </div>"""
-            call_sms = f"\n🎯 BUY: ${ticker} ${c['strike']:.0f}C exp {exp_fmt} @ ${c['mid']:.2f} ({otm_label} · {c['voi']:.1f}x · {ps})"
+            call_sms = f"\n🎯 BUY: ${ticker} ${c['strike']:.0f}C exp {exp_fmt} @ ${c['mid']:.2f}\n📅 {wk}-WEEK CALL — {erec['reason']}"
         else:
+            hold_w = erec.get("weeks", 2)
             call_html = f"""
             <div style="margin:20px 0;padding:14px 18px;background:#1e293b;border-radius:8px;color:#94a3b8;font-size:13px;">
-              ⚠️ No near-term ATM/OTM calls with sufficient liquidity found yet. Check options chain at open.
+              ⚠️ No liquid calls found. <b style="color:#fbbf24;">Buy ${ticker} stock instead, hold {hold_w} weeks.</b>
             </div>"""
+            call_sms = f"\n📈 No liquid calls — BUY ${ticker} STOCK, hold {hold_w} weeks"
 
         badge_color = "#ef4444" if "EXTREME" in label else "#f97316" if "HIGH" in label else "#eab308"
         label_clean = label.replace("🔴 ","").replace("🟠 ","").replace("🟡 ","").replace("🔵 ","")
