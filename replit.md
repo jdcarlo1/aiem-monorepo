@@ -34,7 +34,10 @@ _Describe the high-level user-facing capabilities of this app once they exist._
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- **On-demand scoring trigger:** when the user types `score TICKER` (one or more
+  symbols, e.g. `score ASTS RKLB`), run each through the full 8-layer Smart Money
+  Pressure engine via `GET /stock-api/conviction-stack/score/<ticker>` and report
+  total points, tier, and which layers fired.
 
 ## Gotchas
 
