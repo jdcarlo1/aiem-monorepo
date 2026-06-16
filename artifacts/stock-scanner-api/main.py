@@ -2358,11 +2358,45 @@ def _send_top_pick_email() -> None:
             f"{call_sms}\n"
             f"Layers: " + ", ".join(f"{LAYER_LABELS.get(k,('?',k))[0]}:{v:.1f}" for k,v in sorted(layers.items(), key=lambda x:-x[1])[:4])
         )
+
+        # Primary: email-to-SMS gateway (T-Mobile) + email copy
+        _gw_sent = False
         for _gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
             try:
-                send_email_raw(_gw, subject, f"<pre>{sms_body}</pre>")
+                import smtplib as _smtplib
+                from email.mime.multipart import MIMEMultipart as _MMAP
+                from email.mime.text import MIMEText as _MTXT
+                from email_alerts import _smtp_cfg as _scfg
+                _cfg = _scfg()
+                _msg = _MMAP("alternative")
+                _msg["Subject"] = subject
+                _msg["From"]    = f'StockScanner AI <{_cfg["user"]}>'
+                _msg["To"]      = _gw
+                _msg.attach(_MTXT(sms_body, "plain"))
+                with _smtplib.SMTP(_cfg["host"], _cfg["port"]) as _srv:
+                    _srv.starttls()
+                    _srv.login(_cfg["user"], _cfg["password"])
+                    _srv.sendmail(_cfg["user"], [_gw], _msg.as_string())
+                if "tmomail" in _gw:
+                    _gw_sent = True
+                    print(f"[top_pick] SMS gateway sent → {_gw}")
             except Exception as _se:
-                print(f"[top_pick] SMS error to {_gw}: {_se}")
+                print(f"[top_pick] SMS gateway error to {_gw}: {_se}")
+
+        # Fallback: Twilio direct SMS if gateway didn't confirm send
+        if not _gw_sent:
+            try:
+                from twilio.rest import Client as _TwClient
+                _tw_sid  = os.getenv("TWILIO_ACCOUNT_SID", "")
+                _tw_tok  = os.getenv("TWILIO_AUTH_TOKEN", "")
+                _tw_from = os.getenv("TWILIO_FROM_NUMBER", "")
+                _tw_to   = "+14013185787"  # confirmed T-Mobile number
+                if _tw_sid and _tw_tok and _tw_from and _tw_to:
+                    _tw = _TwClient(_tw_sid, _tw_tok)
+                    _tw.messages.create(body=sms_body[:1500], from_=_tw_from, to=_tw_to)
+                    print("[top_pick] SMS sent via Twilio fallback")
+            except Exception as _te:
+                print(f"[top_pick] Twilio fallback error: {_te}")
 
     except Exception as _e:
         import traceback
