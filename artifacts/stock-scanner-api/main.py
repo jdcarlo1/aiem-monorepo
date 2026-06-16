@@ -7062,7 +7062,9 @@ def bull_flow_top10():
             except Exception:
                 pass
 
-    # ── DB fallback: always merge DB data so tab always has content ──
+    # ── DB merge: fill in tickers the live scan missed. TODAY only (ET calendar
+    # day) — this tab is labeled "Top Flow Today", so a rolling 48h merge would
+    # surface yesterday's flow as today's. ──
     try:
         with _psycopg2.connect(_DB_URL) as _bfc, _bfc.cursor() as _bfcur:
             _bfcur.execute("""
@@ -7070,7 +7072,7 @@ def bull_flow_top10():
                     ticker, price::float, strike::float, expiry,
                     volume, oi, vol_oi::float, prem::bigint
                 FROM unusual_calls_log
-                WHERE last_seen  >= NOW() - INTERVAL '48 hours'
+                WHERE last_seen  >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                   AND expiry::date > CURRENT_DATE
                   AND prem >= 100000
                 ORDER BY ticker, prem DESC
@@ -11994,7 +11996,10 @@ def unusual_calls():
             except Exception: pass
             return hits
 
-        # Check DB for today's data first — avoids a slow live scan if we already have results
+        # Check DB for TODAY's data first (ET calendar day) — avoids a slow live
+        # scan if today already has results. Must be ET-today, NOT a rolling
+        # window: a rolling 36h pre-check would serve yesterday's rows as "today's"
+        # on this live/current tab (which shows no per-row dates).
         try:
             with _psycopg2.connect(_DB_URL) as _pre_conn, _pre_conn.cursor() as _pre_cur:
                 _pre_cur.execute("""
@@ -12002,7 +12007,7 @@ def unusual_calls():
                            volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
                            iv::float, urgency
                     FROM unusual_calls_log
-                    WHERE last_seen >= NOW() - INTERVAL '36 hours'
+                    WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                       AND expiry::date > CURRENT_DATE
                       AND vol_oi >= 3
                       AND prem >= 500000
@@ -12038,7 +12043,8 @@ def unusual_calls():
 
         all_hits.sort(key=lambda x: x["vol_oi"], reverse=True)
 
-        # If live scan returned nothing (rate limited / cold start), fall back to DB
+        # If live scan returned nothing (rate limited / cold start), fall back to
+        # TODAY's DB rows only (ET calendar day) — never yesterday's.
         if not all_hits:
             try:
                 with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
@@ -12047,7 +12053,7 @@ def unusual_calls():
                                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
                                iv::float, urgency
                         FROM unusual_calls_log
-                        WHERE last_seen >= CURRENT_DATE
+                        WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                           AND vol_oi >= 3
                           AND prem >= 100000
                         ORDER BY vol_oi DESC LIMIT 80
@@ -12071,34 +12077,46 @@ def unusual_calls():
 @app.route("/stock-api/unusual-calls/microcap", methods=["GET"])
 def unusual_calls_microcap():
     """Return micro/small-cap unusual call options from DB, newest first.
-    If the requested window is empty, auto-extends to 7 days and kicks off
-    a background scan so future loads have fresh data.
+    "Today" (days=1) is the ET calendar day only — no silent fallback to older
+    days. If the window is empty a background scan is kicked off so the next
+    load has fresh data.
     """
     days_back = min(int(request.args.get("days", 3)), 30)
 
-    _SEL = """
+    # "Today" (days=1) means the actual ET calendar day — NOT a rolling 24h
+    # window. A rolling window bleeds yesterday's afternoon/evening signals into
+    # "today" (e.g. checking at noon shows data from yesterday at noon onward).
+    # Wider windows (3d/7d) stay as rolling look-backs, which is what they say.
+    if days_back <= 1:
+        _window_clause = ("last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                          "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
+        _params: dict = {}
+    else:
+        _window_clause = "last_seen >= NOW() - (%(days)s || ' days')::INTERVAL"
+        _params = {"days": days_back}
+
+    _SEL = f"""
         SELECT ticker, price::float, strike::float, expiry, days_out,
                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
                iv::float, urgency, cap_tier,
                first_seen AT TIME ZONE 'UTC' AS first_seen,
                last_seen  AT TIME ZONE 'UTC' AS last_seen
         FROM unusual_calls_microcap_log
-        WHERE last_seen >= NOW() - (%(days)s || ' days')::INTERVAL
+        WHERE {_window_clause}
           AND expiry::date > CURRENT_DATE
         ORDER BY prem DESC
         LIMIT 200
     """
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-            cur.execute(_SEL, {"days": days_back})
+            cur.execute(_SEL, _params)
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
 
-            # If the requested window returned nothing, extend to 7 days so the
-            # tab always shows the most recently available data
-            if not rows and days_back < 7:
-                cur.execute(_SEL, {"days": 7})
-                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            # NO silent fallback to a wider window: if "Today" is empty we return
+            # empty (and trigger a background scan below) rather than passing off
+            # older days' signals as today's. That silent swap was the root cause
+            # of the tab showing "yesterday's names" every morning.
 
             for r in rows:
                 if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
@@ -13019,11 +13037,25 @@ def ai_short_calls():
     if not force and _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
         return jsonify(_cache)
 
-    # 1. Try in-memory live cache first
-    uc   = getattr(app, "_unusual_calls_cache", None)
-    hits = (uc.get("hits") or []) if uc else []
+    # 1. Try in-memory live cache — but ONLY if it was built TODAY (ET). A cache
+    #    left over from yesterday's last scan would feed Claude stale rows under
+    #    the "today's signals" prompt, so treat a stale-date cache as empty.
+    uc    = getattr(app, "_unusual_calls_cache", None)
+    uc_ts = getattr(app, "_unusual_calls_cache_ts", None)
+    hits  = []
+    if uc and uc_ts:
+        try:
+            from zoneinfo import ZoneInfo as _ZI
+            from datetime import timezone as _tzc
+            _et = _ZI("America/New_York")
+            _cache_et = uc_ts.replace(tzinfo=_tzc.utc).astimezone(_et).date()
+            _today_et = _dt.now(_tzc.utc).astimezone(_et).date()
+            if _cache_et == _today_et:
+                hits = uc.get("hits") or []
+        except Exception:
+            hits = []
 
-    # 2. Fall back to DB if live cache is empty — prefer TODAY's signals, then 24h
+    # 2. Fall back to DB if live cache is empty — TODAY's signals only (ET).
     if not hits:
         try:
             _db_sql = """
@@ -13037,12 +13069,14 @@ def ai_short_calls():
                 ORDER BY last_seen DESC, vol_oi DESC
                 LIMIT 25
             """
+            # ET calendar day only. NO silent fallback to yesterday: the AI prompt
+            # below tells Claude these are "today's" signals, so feeding it
+            # yesterday's rows would mislabel stale data as today's picks.
+            _et_today = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                         "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
             with _psycopg2.connect(_DB_URL) as conn_fb, conn_fb.cursor() as cur_fb:
-                cur_fb.execute(_db_sql.format(interval="CURRENT_DATE"))
+                cur_fb.execute(_db_sql.format(interval=_et_today))
                 rows = cur_fb.fetchall()
-                if not rows:
-                    cur_fb.execute(_db_sql.format(interval="NOW() - INTERVAL '1 day'"))
-                    rows = cur_fb.fetchall()
             hits = [
                 {"ticker": r[0], "strike": r[1], "expiry": str(r[2]), "days_out": r[3],
                  "vol_oi": float(r[4]), "prem": int(r[5]), "otm_pct": float(r[6]),
