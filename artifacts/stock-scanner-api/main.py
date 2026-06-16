@@ -5080,24 +5080,13 @@ def _run_oi_snapshot() -> None:
 
     universe = list(_MICRO_CAP_UNIVERSE)
 
-    # ── Dynamic discovery: pull fresh small/micro-cap movers from Barchart + Yahoo ──
-    try:
-        dynamic_tickers = _get_microcap_tickers()
-        added = 0
-        for t in dynamic_tickers:
-            if t not in universe:
-                universe.append(t)
-                added += 1
-        print(f"[oi_snapshot] universe: {len(_MICRO_CAP_UNIVERSE)} static + {added} dynamic (Barchart/Yahoo) = {len(universe)} total")
-    except Exception as _e_dyn:
-        print(f"[oi_snapshot] dynamic ticker fetch failed: {_e_dyn}")
-
+    # ── Add recent unusual-call tickers (confirmed to have liquid options) ──
     try:
         import psycopg2
         with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT DISTINCT ticker FROM unusual_calls_microcap_log
-                WHERE last_seen >= NOW() - INTERVAL '7 days' LIMIT 300
+                WHERE last_seen >= NOW() - INTERVAL '14 days' LIMIT 200
             """)
             for (t,) in cur.fetchall():
                 if t not in universe:
@@ -5105,11 +5094,28 @@ def _run_oi_snapshot() -> None:
     except Exception:
         pass
 
+    # ── Dynamic discovery capped at 100 high-conviction tickers to avoid rate limits ──
+    try:
+        dynamic_tickers = _get_microcap_tickers()
+        added = 0
+        for t in dynamic_tickers:
+            if t not in universe:
+                universe.append(t)
+                added += 1
+            if added >= 100:
+                break
+        print(f"[oi_snapshot] universe: {len(_MICRO_CAP_UNIVERSE)} static + {added} dynamic = {len(universe)} total")
+    except Exception as _e_dyn:
+        print(f"[oi_snapshot] dynamic ticker fetch failed: {_e_dyn}")
+
     snapshots = []
+
+    import time as _time, random as _random
 
     def _snap_ticker(ticker):
         rows = []
         try:
+            _time.sleep(_random.uniform(0.2, 0.6))
             tk    = yf.Ticker(ticker)
             price = _sf(getattr(tk.fast_info, "last_price", None))
             if not price or price < 0.10:
@@ -5120,6 +5126,7 @@ def _run_oi_snapshot() -> None:
                     days   = max(1, (exp_dt - et_now).days + 1)
                     if days > 45:
                         continue
+                    _time.sleep(0.3)
                     calls = tk.option_chain(exp).calls
                     for _, row in calls.iterrows():
                         oi     = _si(row.get("openInterest"))
@@ -5136,7 +5143,7 @@ def _run_oi_snapshot() -> None:
             pass
         return rows
 
-    with ThreadPoolExecutor(max_workers=25) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futs = {ex.submit(_snap_ticker, t): t for t in universe}
         for fut in _ascf(futs):
             try:
