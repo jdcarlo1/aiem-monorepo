@@ -804,6 +804,20 @@ try:
         id="gamma_pressure_scan",
         replace_existing=True,
     )
+    # OI Accumulation Snapshot: 4:30 PM ET — captures final EOD OI for all tickers
+    # Compared to prior day at morning SMS time to detect multi-day smart-money loading
+    def _run_oi_snapshot_job():
+        try:
+            import threading as _thr_ois
+            _thr_ois.Thread(target=_run_oi_snapshot, daemon=True).start()
+        except Exception as _e_ois:
+            print(f"[scheduler] OI snapshot error: {_e_ois}")
+    _scheduler.add_job(
+        _run_oi_snapshot_job,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone=_ET),
+        id="oi_snapshot_eod",
+        replace_existing=True,
+    )
     # Whale + High Conviction crossover alert — every 30 min, 10 AM–3:30 PM ET
     def _run_whale_hc_cross():
         try:
@@ -4221,10 +4235,12 @@ def _init_gamma_pressure_table() -> None:
 
 def _send_morning_gamma_watchlist_sms() -> None:
     """
-    8:45 AM ET Mon-Fri:
-    Pull yesterday's top unusual call setups → send as today's squeeze watchlist.
-    Stocks with high Vol/OI + premium yesterday = gamma squeeze candidates today
-    as delta hedging pressure compounds from market open.
+    8:45 AM ET Mon-Fri — Two-layer pre-market alert:
+    LAYER 1: OI Accumulation — tickers where OI grew ≥20% over the past day
+             (smart money quietly loading positions 1-3 days ahead of the move)
+    LAYER 2: Unusual Call Activity — high Vol/OI + premium from yesterday
+             (same-day aggressive buying = gamma squeeze setup for today)
+    Combined = highest-conviction pre-market watchlist.
     """
     import psycopg2, os as _os
     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
@@ -4233,9 +4249,25 @@ def _send_morning_gamma_watchlist_sms() -> None:
 
     try:
         et      = _dt.now(_tz.utc).astimezone(ZoneInfo("America/New_York"))
-        days_bk = 4 if et.weekday() == 0 else 1   # Monday → look back to Friday
+        days_bk = 4 if et.weekday() == 0 else 1
         cutoff  = et - _td(days=days_bk)
+        day_str = et.strftime("%b %d")
+        lines   = [f"⚡ PRE-MARKET SQUEEZE RADAR — {day_str}", ""]
 
+        # ── LAYER 1: OI Accumulation (multi-day smart money) ──────────────────
+        oi_sigs = _get_oi_accumulation_signals(days_back=days_bk)
+        if oi_sigs:
+            lines.append("📈 OI BUILDUP — Smart money loading positions:")
+            for ticker, price, strike, expiry, oi_t, oi_y, oi_chg, oi_pct, otm, days in oi_sigs[:5]:
+                otm_s = f"+{otm:.0f}%OTM" if otm and otm > 0 else "ATM"
+                lines.append(
+                    f"🔭 ${ticker}  ${strike:.0f}C {expiry}  {otm_s}\n"
+                    f"   OI: {int(oi_y):,}→{int(oi_t):,} (+{int(oi_chg):,} / +{float(oi_pct):.0f}%)  {int(days)}d to exp"
+                )
+            lines.append("→ Institutional loading. Squeeze risk HIGH if gamma fires today.")
+            lines.append("")
+
+        # ── LAYER 2: Yesterday's unusual call activity ─────────────────────────
         with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT ticker,
@@ -4249,41 +4281,38 @@ def _send_morning_gamma_watchlist_sms() -> None:
                 WHERE last_seen >= %s AND prem >= 3000
                 GROUP BY ticker
                 ORDER BY MAX(vol_oi) * MAX(prem) DESC
-                LIMIT 8
+                LIMIT 7
             """, (cutoff,))
             rows = cur.fetchall()
 
-        if not rows:
-            print(f"[morning_watchlist] no data since {cutoff} — skipping")
+        if rows:
+            lines.append("⚡ CALL SURGE — High Vol/OI activity yesterday:")
+            for ticker, voi, prem, sigs, strike, expiry, otm in rows:
+                pk  = (prem or 0) / 1000
+                ps  = f"${pk:.0f}K" if pk < 1000 else f"${pk/1000:.1f}M"
+                sk  = f"${strike:.0f}C" if strike else "?"
+                ex  = str(expiry)[:10] if expiry else "?"
+                os_ = f" +{otm:.0f}%OTM" if otm and otm > 0 else ""
+                lines.append(
+                    f"🎯 ${ticker}  {sk} {ex}{os_}\n"
+                    f"   Vol/OI:{voi:.1f}x  Prem:{ps}  ({int(sigs)} signals)"
+                )
+            lines.append("→ MMs delta hedge at open = forced share buying.")
+
+        if not oi_sigs and not rows:
+            print(f"[morning_watchlist] no data — skipping")
             return
 
-        day_str = et.strftime("%b %d")
-        lines   = [
-            f"⚡ GAMMA WATCHLIST — {day_str}",
-            f"Unusual call buildup → delta hedging pressure at open:",
-            "",
-        ]
-        for ticker, voi, prem, sigs, strike, expiry, otm in rows:
-            pk  = (prem or 0) / 1000
-            ps  = f"${pk:.0f}K" if pk < 1000 else f"${pk/1000:.1f}M"
-            sk  = f"${strike:.0f}C" if strike else "?"
-            ex  = str(expiry)[:10] if expiry else "?"
-            os_ = f" +{otm:.0f}%OTM" if otm and otm > 0 else ""
-            lines.append(
-                f"🎯 ${ticker}  {sk} {ex}{os_}\n"
-                f"   Vol/OI:{voi:.1f}x  Prem:{ps}  ({int(sigs)} signals)"
-            )
-
-        lines += ["", "MMs delta hedge at open = forced share buying.", "Stop: pre-mkt low | Target: +8-15%"]
+        lines += ["", "Stop: below pre-market low | Target: +8-15%"]
         msg = "\n".join(lines)
 
         for gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
             try:
-                send_email_raw(gw, f"⚡ Gamma Watchlist {day_str}", f"<pre>{msg}</pre>")
+                send_email_raw(gw, f"⚡ Squeeze Radar {day_str}", f"<pre>{msg}</pre>")
             except Exception as _e:
                 print(f"[morning_watchlist] send error {gw}: {_e}")
 
-        print(f"[morning_watchlist] SMS sent — {len(rows)} squeeze candidates for {day_str}")
+        print(f"[morning_watchlist] sent — OI:{len(oi_sigs)} buildup + {len(rows)} call surge for {day_str}")
     except Exception as e:
         import traceback
         print(f"[morning_watchlist] error: {e}\n{traceback.format_exc()}")
@@ -4486,6 +4515,179 @@ def _run_gamma_pressure_scan() -> list:
 
 
 _init_gamma_pressure_table()
+
+
+# ── OI Accumulation Tracker ───────────────────────────────────────────────────
+# EOD job (4:30 PM): snapshots OI for every OTM call strike on every ticker.
+# Compare to prior day → flag where OI grew ≥20% + ≥100 new contracts.
+# This detects MULTI-DAY smart-money loading 1-3 days BEFORE the gamma squeeze fires.
+# Combined with the intraday FIR scanner → two-layer confirmation = highest win rate.
+
+def _init_oi_snapshot_table() -> None:
+    try:
+        import psycopg2, os as _os
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS oi_daily_snapshot (
+                    id            SERIAL PRIMARY KEY,
+                    ticker        VARCHAR(10) NOT NULL,
+                    price         FLOAT,
+                    strike        FLOAT NOT NULL,
+                    expiry        DATE NOT NULL,
+                    oi            INTEGER NOT NULL,
+                    otm_pct       FLOAT,
+                    days_out      INTEGER,
+                    iv            FLOAT,
+                    snapshot_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    created_at    TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(ticker, strike, expiry, snapshot_date)
+                );
+                CREATE INDEX IF NOT EXISTS idx_oi_snap_date
+                    ON oi_daily_snapshot(snapshot_date DESC);
+                CREATE INDEX IF NOT EXISTS idx_oi_snap_ticker
+                    ON oi_daily_snapshot(ticker, snapshot_date);
+            """)
+            conn.commit()
+            print("[oi_snapshot] table ready")
+    except Exception as e:
+        print(f"[oi_snapshot] init error: {e}")
+
+
+def _run_oi_snapshot() -> None:
+    """
+    4:30 PM ET Mon-Fri: Snapshot OI for every OTM call strike on every ticker.
+    Stores in oi_daily_snapshot. Compared at 8:45 AM to detect multi-day buildup.
+    """
+    import yfinance as yf, math, os as _os
+    from datetime import datetime as _dt, timezone as _tz
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _ascf
+
+    def _sf(v, d=0.0):
+        try:
+            f = float(v) if v is not None else d
+            return d if (math.isnan(f) or math.isinf(f)) else f
+        except: return d
+    def _si(v):
+        try:
+            f = float(v) if v is not None else 0.0
+            return 0 if (math.isnan(f) or math.isinf(f)) else int(f)
+        except: return 0
+
+    et_now = _dt.now(_tz.utc)
+    today  = et_now.date()
+
+    universe = list(_MICRO_CAP_UNIVERSE)
+    try:
+        import psycopg2
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_microcap_log
+                WHERE last_seen >= NOW() - INTERVAL '7 days' LIMIT 300
+            """)
+            for (t,) in cur.fetchall():
+                if t not in universe:
+                    universe.append(t)
+    except Exception:
+        pass
+
+    snapshots = []
+
+    def _snap_ticker(ticker):
+        rows = []
+        try:
+            tk    = yf.Ticker(ticker)
+            price = _sf(getattr(tk.fast_info, "lastPrice", None) or getattr(tk.fast_info, "regularMarketPrice", None))
+            if not price or price < 0.10:
+                return rows
+            for exp in (tk.options or []):
+                try:
+                    exp_dt = _dt.strptime(exp, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+                    days   = max(1, (exp_dt - et_now).days + 1)
+                    if days > 45:
+                        continue
+                    calls = tk.option_chain(exp).calls
+                    for _, row in calls.iterrows():
+                        oi     = _si(row.get("openInterest"))
+                        if oi < 20: continue
+                        strike = _sf(row.get("strike"))
+                        if not strike: continue
+                        otm_pct = round((strike - price) / price * 100, 2)
+                        if otm_pct < -10 or otm_pct > 80: continue
+                        iv = round(_sf(row.get("impliedVolatility")) * 100, 1)
+                        rows.append((ticker, price, strike, exp, oi, otm_pct, days, iv))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return rows
+
+    with ThreadPoolExecutor(max_workers=25) as ex:
+        futs = {ex.submit(_snap_ticker, t): t for t in universe}
+        for fut in _ascf(futs):
+            try:
+                snapshots.extend(fut.result())
+            except Exception:
+                pass
+
+    print(f"[oi_snapshot] captured {len(snapshots)} strikes across {len(universe)} tickers")
+
+    try:
+        import psycopg2
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for row in snapshots:
+                ticker, price, strike, expiry, oi, otm_pct, days_out, iv = row
+                cur.execute("""
+                    INSERT INTO oi_daily_snapshot
+                        (ticker, price, strike, expiry, oi, otm_pct, days_out, iv, snapshot_date)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (ticker, strike, expiry, snapshot_date) DO UPDATE
+                        SET oi=EXCLUDED.oi, price=EXCLUDED.price
+                """, (ticker, price, strike, expiry, oi, otm_pct, days_out, iv, today))
+            conn.commit()
+            print(f"[oi_snapshot] saved {len(snapshots)} rows for {today}")
+    except Exception as e:
+        import traceback
+        print(f"[oi_snapshot] DB error: {e}\n{traceback.format_exc()}")
+
+
+def _get_oi_accumulation_signals(days_back: int = 1) -> list:
+    """
+    Compare OI from `days_back` trading days ago vs one day prior.
+    Returns tickers where OI grew ≥20% AND ≥100 new contracts on OTM calls.
+    """
+    import psycopg2, os as _os
+    from datetime import date as _date, timedelta as _td
+
+    today  = _date.today()
+    day1   = today - _td(days=days_back)
+    day2   = today - _td(days=days_back + 1)
+    try:
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    t.ticker, t.price, t.strike, t.expiry::TEXT,
+                    t.oi AS oi_today, y.oi AS oi_yesterday,
+                    (t.oi - y.oi) AS oi_change,
+                    ROUND(((t.oi - y.oi)::FLOAT / NULLIF(y.oi,0) * 100)::NUMERIC,1) AS oi_pct,
+                    t.otm_pct, t.days_out
+                FROM oi_daily_snapshot t
+                JOIN oi_daily_snapshot y
+                    ON t.ticker=y.ticker AND t.strike=y.strike AND t.expiry=y.expiry
+                WHERE t.snapshot_date = %s
+                  AND y.snapshot_date = %s
+                  AND t.oi > y.oi
+                  AND (t.oi - y.oi) >= 100
+                  AND (t.oi::FLOAT / NULLIF(y.oi,0)) >= 1.20
+                  AND t.otm_pct >= -8
+                ORDER BY (t.oi - y.oi) DESC
+                LIMIT 10
+            """, (day1, day2))
+            return cur.fetchall()
+    except Exception:
+        return []
+
+
+_init_oi_snapshot_table()
 
 
 # ── My Trades — personal trade journal ───────────────────────────────────────
@@ -10786,6 +10988,50 @@ def gamma_pressure_endpoint():
         return jsonify({"signals": rows, "count": len(rows), "last_scan": last_scan})
     except Exception as e:
         return jsonify({"signals": [], "count": 0, "last_scan": None, "error": str(e)}), 500
+
+
+@app.route("/stock-api/oi-accumulation", methods=["GET"])
+def oi_accumulation_endpoint():
+    """
+    Return OI accumulation signals: compare yesterday vs day-before snapshots.
+    ?days=N  → how many days back to compare (default 1 = yesterday vs day before)
+    """
+    try:
+        days_back = int(request.args.get("days", 1))
+        rows = _get_oi_accumulation_signals(days_back=days_back)
+        signals = []
+        for r in rows:
+            ticker, price, strike, expiry, oi_t, oi_y, oi_chg, oi_pct, otm, days = r
+            signals.append({
+                "ticker": ticker, "price": float(price or 0),
+                "strike": float(strike), "expiry": str(expiry),
+                "oi_today": int(oi_t), "oi_yesterday": int(oi_y),
+                "oi_change": int(oi_chg), "oi_pct_change": float(oi_pct or 0),
+                "otm_pct": float(otm or 0), "days_out": int(days or 0),
+            })
+        # Also return snapshot dates available
+        import psycopg2, os as _os
+        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT snapshot_date::TEXT
+                FROM oi_daily_snapshot
+                ORDER BY snapshot_date DESC LIMIT 10
+            """)
+            dates = [r[0] for r in cur.fetchall()]
+        return jsonify({"signals": signals, "count": len(signals), "snapshot_dates": dates})
+    except Exception as e:
+        return jsonify({"signals": [], "count": 0, "snapshot_dates": [], "error": str(e)}), 500
+
+
+@app.route("/stock-api/oi-snapshot/trigger", methods=["POST"])
+def oi_snapshot_trigger():
+    """Manually trigger an EOD OI snapshot (runs in background)."""
+    try:
+        import threading as _thr_ost
+        _thr_ost.Thread(target=_run_oi_snapshot, daemon=True).start()
+        return jsonify({"status": "oi snapshot started"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 @app.route("/stock-api/gamma-pressure/trigger", methods=["POST"])

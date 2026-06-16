@@ -1269,6 +1269,33 @@ export function triggerGammaScan() {
   return fetch(`${getApiBase()}/gamma-pressure/trigger`, { method: "POST" }).then(r => r.json());
 }
 
+export interface OiAccumRow {
+  ticker:         string;
+  price:          number;
+  strike:         number;
+  expiry:         string;
+  oi_today:       number;
+  oi_yesterday:   number;
+  oi_change:      number;
+  oi_pct_change:  number;
+  otm_pct:        number;
+  days_out:       number;
+}
+
+export interface OiAccumResult {
+  signals:        OiAccumRow[];
+  count:          number;
+  snapshot_dates: string[];
+}
+
+export function fetchOiAccumulation(days = 1) {
+  return fetchJson<OiAccumResult>(`/oi-accumulation?days=${days}`);
+}
+
+export function triggerOiSnapshot() {
+  return fetch(`${getApiBase()}/oi-snapshot/trigger`, { method: "POST" }).then(r => r.json());
+}
+
 export interface InsiderRadarRow extends UnusualCallsLogEntry {
   suspicion_score:    number;
   ticker_appearances: number;
