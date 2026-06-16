@@ -4866,38 +4866,81 @@ def _run_microcap_options_scan() -> list:
     from datetime import datetime as _dt2
 
     tickers = _get_microcap_tickers()
+    # Scan the most-likely-unusual names FIRST so that if Yahoo throttles the
+    # option-chain fetches mid-run, the budget was already spent on the biggest
+    # movers / highest-volume names rather than alphabetical leftovers. Names
+    # with Finviz metadata sort ahead of meta-less names (which get skipped).
+    def _scan_priority(t):
+        m = _microcap_meta.get(t)
+        if not m:
+            return (-1.0,)
+        return (abs(float(m.get("change_pct") or 0.0)), float(m.get("volume") or 0.0))
+    tickers = sorted(tickers, key=_scan_priority, reverse=True)
+
+    # ── Rotating shard ─────────────────────────────────────────────────────
+    # Yahoo throttles option-chain fetches mid-run (circuit breaker), so no
+    # single scan can cover the full ~2,000-name universe. Always scan a priority
+    # HEAD (biggest movers / highest volume — most likely to carry unusual flow),
+    # then a ROTATING window of the remainder. The cursor is advanced AFTER the
+    # scan by the number of tail names actually processed (see end of fn), so the
+    # next scan resumes exactly where this one stopped — contiguous coverage with
+    # no gaps or overlap. Across the day's scheduled scans (10:30 / 3:30 / 4:00 /
+    # 4:15 + warmers) the rotation sweeps the whole universe; the tab reads
+    # days=1, so distinct coverage compounds in the DB.
+    _HEAD_N = 80
+    _today_shard = _dt2.now().strftime("%Y-%m-%d")
+    _head, _tail = tickers[:_HEAD_N], tickers[_HEAD_N:]
+    _shard_tail_len = len(_tail)
+    _shard_start = 0
+    _shard_head_count = len(_head)
+    if _tail:
+        if _microcap_shard["date"] != _today_shard:
+            _microcap_shard["date"], _microcap_shard["pos"] = _today_shard, 0
+        _shard_start = _microcap_shard["pos"] % _shard_tail_len
+        _tail = _tail[_shard_start:] + _tail[:_shard_start]
+        tickers = _head + _tail
+
+    import threading as _thr_cov
+    _cov = {"total": 0, "no_meta": 0, "no_price": 0, "large_skip": 0, "no_options": 0,
+            "rate_limited": 0, "error": 0, "scanned_ok": 0, "names_with_hits": 0}
+    _cov_lock = _thr_cov.Lock()
+    _rl_stop = _thr_cov.Event()  # tripped if rate limits spike → stop gracefully
+    def _cbump(k, n=1):
+        with _cov_lock:
+            _cov[k] += n
 
     def _scan_one(ticker):
         hits = []
+        _cbump("total")
+        if _rl_stop.is_set():
+            return hits
         try:
-            tk    = yf.Ticker(ticker)
-            price = 0.0
-            try:
-                price = float(getattr(tk.fast_info, "last_price", 0) or 0)
-            except Exception:
-                pass
+            # ── Price + market cap come from the cached Finviz row, NOT yfinance.
+            # A per-name fast_info call here, under Yahoo rate-limiting, falls back
+            # to history(1y/5d) and triggers a rate-limit death spiral that starved
+            # the option-chain budget. The ONLY yfinance calls below are the option
+            # chains themselves (no batch API exists for those).
+            meta = _microcap_meta.get(ticker)
+            if not meta:
+                # Yahoo/static-only name with no Finviz row → no free price/cap.
+                # Skip rather than burn a rate-limited yfinance call on it; the
+                # Finviz comprehensive universe already supersets live optionable
+                # sub-$2B names.
+                _cbump("no_meta")
+                return hits
+            price    = float(meta.get("price") or 0)
+            mc_val   = float(meta.get("market_cap") or 0)
+            cap_tier = meta.get("cap_tier") or "small"
             if price <= 0:
+                _cbump("no_price")
                 return hits
 
-            cap_tier = "micro"
-            mc_val   = 0
-            try:
-                mc = tk.fast_info.market_cap
-                if mc:
-                    mc_val = mc
-                    if mc < 50_000_000:      cap_tier = "nano"
-                    elif mc < 300_000_000:   cap_tier = "micro"
-                    elif mc < 2_000_000_000: cap_tier = "small"
-                    else:                    cap_tier = "mid"
-            except Exception:
-                pass
-
             # ── Hard market-cap ceiling ──────────────────────────────────────
-            # This is the MICRO/SMALL-cap tab: exclude anything >= $2B even if it
-            # leaked in via a screener or graduated out of small-cap (e.g. RKLB,
-            # ASTS, RBLX, SNDK, AVGO, NFLX, LRCX). Done BEFORE the options fetch
-            # so we don't burn rate-limited yfinance calls on names we'll discard.
+            # This is the MICRO/SMALL-cap tab: exclude anything >= $2B. Finviz
+            # cap_smallunder already enforces this, but keep the gate as a belt-
+            # and-suspenders guard before we spend option-chain calls.
             if mc_val >= 2_000_000_000:
+                _cbump("large_skip")
                 return hits
 
             min_voi  = 1.5
@@ -4905,15 +4948,24 @@ def _run_microcap_options_scan() -> list:
             min_vol  = 10
             max_exp  = 45
 
+            tk = yf.Ticker(ticker)
             opts = tk.options
             if not opts:
+                _cbump("no_options")
                 return hits
 
+            _n_exp = 0
             for exp in opts:
                 days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
-                # Allow up to 365 days — far-OTM sweeps are often long-dated
-                if not (1 <= days <= 365):
+                # Near-dated only: with a ~1,500-name universe, scanning every
+                # expiry out to 365 DTE is intractable and gets the shared yfinance
+                # session banned. The front 6 expiries within 90 DTE hold the vast
+                # majority of actionable unusual call flow.
+                if not (1 <= days <= 90):
                     continue
+                _n_exp += 1
+                if _n_exp > 6:
+                    break
                 try:
                     chain = tk.option_chain(exp).calls
                     for _, row in chain.iterrows():
@@ -4981,14 +5033,25 @@ def _run_microcap_options_scan() -> list:
                             pass
                 except Exception:
                     pass
-        except Exception:
-            pass
+            _cbump("scanned_ok")
+        except Exception as _e_scan:
+            _msg = str(_e_scan).lower()
+            if "rate" in _msg or "too many" in _msg or "429" in _msg:
+                _cbump("rate_limited")
+                if _cov["rate_limited"] >= 40:
+                    _rl_stop.set()  # session is getting banned — stop gracefully
+            else:
+                _cbump("error")
+        if hits:
+            _cbump("names_with_hits")
         return hits
 
     import time as _time2
     all_hits = []
-    # max_workers=3 avoids Yahoo Finance rate limits (10 was too aggressive)
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    # max_workers=5 + per-name expiry cap (<=6 exp, <=90 DTE) + the _rl_stop
+    # circuit breaker keep the ~1,500-name scan tractable without banning the
+    # shared yfinance session.
+    with ThreadPoolExecutor(max_workers=5) as ex:
         futs = []
         for i, t in enumerate(tickers):
             futs.append(ex.submit(_scan_one, t))
@@ -4996,6 +5059,29 @@ def _run_microcap_options_scan() -> list:
                 _time2.sleep(0.5)  # brief pause every 10 submissions
         for fut in _asc(futs):
             all_hits.extend(fut.result() or [])
+
+    print(
+        f"[microcap_calls] coverage: universe={_cov['total']} | "
+        f"no_meta={_cov['no_meta']} | no_price={_cov['no_price']} | "
+        f">=$2B_skip={_cov['large_skip']} | "
+        f"no_options={_cov['no_options']} | chains_read={_cov['scanned_ok']} | "
+        f"rate_limited={_cov['rate_limited']} | other_err={_cov['error']} | "
+        f"names_with_hits={_cov['names_with_hits']} | raw_hits={len(all_hits)}"
+    )
+
+    # Advance the rotating cursor by the number of TAIL names actually processed
+    # this scan (everything that got past the circuit-breaker short-circuit, minus
+    # the always-scanned head). Using actual work — not a fixed step — guarantees
+    # the next scan resumes exactly where this one stopped, so consecutive scans
+    # cover fresh names instead of re-scanning an overlapping slice.
+    if _shard_tail_len:
+        _processed = (_cov["scanned_ok"] + _cov["no_options"] + _cov["no_meta"]
+                      + _cov["no_price"] + _cov["large_skip"]
+                      + _cov["rate_limited"] + _cov["error"])
+        _tail_done = max(0, _processed - _shard_head_count)
+        _microcap_shard["pos"] = (_shard_start + _tail_done) % _shard_tail_len
+        print(f"[microcap_calls] shard: start={_shard_start} tail_done={_tail_done} "
+              f"next_pos={_microcap_shard['pos']} tail_len={_shard_tail_len}")
 
     all_hits.sort(key=lambda x: x["prem"], reverse=True)
     return all_hits
@@ -7736,6 +7822,51 @@ _MICRO_CAP_UNIVERSE = sorted(set([
 
 
 _microcap_ticker_cache: dict = {"ts": 0.0, "tickers": []}
+# ticker -> {"price": float, "market_cap": float, "cap_tier": str,
+#            "change_pct": float, "volume": int}
+# Populated from the Finviz screener rows we already download for the universe,
+# so _scan_one can gate on price + market cap WITHOUT a per-name yfinance
+# fast_info call (which, under Yahoo rate-limiting, falls back to history(1y/5d)
+# and triggers a rate-limit death spiral). Persists for the life of the universe
+# cache window.
+_microcap_meta: dict = {}
+# Rotating-shard cursor for the option-chain scan. Yahoo throttles chain fetches
+# at ~200 names/scan, so a single scan cannot cover the full ~2,000-name
+# universe. Each scan covers a priority HEAD plus a rotating window of the tail;
+# the cursor advances so the day's scans accumulate hundreds of distinct names in
+# the DB (the tab reads days=1). Resets daily.
+_microcap_shard: dict = {"date": "", "pos": 0}
+
+
+def _parse_finviz_cap(s: str) -> float:
+    """'289.04M' -> 289_040_000.0 ; '1.23B' -> 1_230_000_000.0 ; '-' -> 0.0"""
+    s = (s or "").strip().upper()
+    if not s or s == "-":
+        return 0.0
+    mult = 1.0
+    if s.endswith("B"):
+        mult, s = 1e9, s[:-1]
+    elif s.endswith("M"):
+        mult, s = 1e6, s[:-1]
+    elif s.endswith("K"):
+        mult, s = 1e3, s[:-1]
+    try:
+        return float(s.replace(",", "")) * mult
+    except Exception:
+        return 0.0
+
+
+def _cap_tier_for(mc: float) -> str:
+    if mc <= 0:
+        return "small"          # unknown cap from a sub-$2B screener → treat as small
+    if mc < 50_000_000:
+        return "nano"
+    if mc < 300_000_000:
+        return "micro"
+    if mc < 2_000_000_000:
+        return "small"
+    return "mid"
+
 
 def _get_microcap_tickers() -> list:
     """Return the micro-cap ticker universe (static + dynamically discovered).
@@ -7748,11 +7879,12 @@ def _get_microcap_tickers() -> list:
     from concurrent.futures import ThreadPoolExecutor, as_completed as _asc_mc
 
     # ── 30-minute cache ───────────────────────────────────────────────────────
-    if time.time() - _microcap_ticker_cache["ts"] < 1800 and _microcap_ticker_cache["tickers"]:
+    if time.time() - _microcap_ticker_cache["ts"] < 5400 and _microcap_ticker_cache["tickers"]:
         return list(_microcap_ticker_cache["tickers"])
 
     static = set(_MICRO_CAP_UNIVERSE)
     dynamic: set = set()
+    _microcap_meta.clear()  # rebuild metadata in lockstep with the universe
 
     import requests as _rq
 
@@ -7776,33 +7908,73 @@ def _get_microcap_tickers() -> list:
         "growth_technology_stocks",
     ]
 
-    # ── Finviz screener filter sets (replaces Barchart which is IP-blocked) ──
-    _FV_FILTERS = [
-        "cap_micro,sh_opt_option,ta_change_u5",   # micro-cap with options, up 5%+
-        "cap_small,sh_opt_option,ta_change_u5",   # small-cap with options, up 5%+
-        "cap_micro,sh_opt_option",                # micro-cap with options (any move)
-        "cap_small,sh_opt_option",                # small-cap with options (any move)
-        "cap_micro,ta_change_u10",                # micro-cap up 10%+ (momentum)
-        "cap_small,ta_change_u10",                # small-cap up 10%+
-        # ── Biotech / healthcare (catalyst-driven, often missed) ────────────
-        "cap_micro,ind_biotechnology,sh_opt_option",   # micro biotech w/ options
-        "cap_small,ind_biotechnology,sh_opt_option",   # small biotech w/ options
-        "cap_micro,sec_healthcare,sh_opt_option,ta_change_u5",  # micro healthcare movers
-        "cap_small,sec_healthcare,sh_opt_option,ta_change_u5",  # small healthcare movers
+    # ── Finviz: ONE comprehensive paginated source ───────────────────────────
+    # cap_smallunder = everything under $2B (small + micro + nano); sh_opt_option
+    # = has listed options. Sorted by % change (o=-change) so the biggest movers
+    # come first. This supersets every narrow filter we used to run (micro/small/
+    # biotech/healthcare are all under-$2B optionable names) and, paginated, yields
+    # the FULL ~1,750-name optionable sub-$2B universe instead of 20 per filter.
+    _FV_COMPREHENSIVE = "cap_smallunder,sh_opt_option"
+    # Boosters surface catalyst names that may sit deep in the change-sorted list:
+    # >=2x relative volume (most likely to have unusual options flow) and biotech.
+    _FV_BOOSTERS = [
+        "cap_smallunder,sh_opt_option,sh_relvol_o2",
+        "cap_smallunder,sh_opt_option,ind_biotechnology",
     ]
 
     import re as _re_mc
 
-    def _finviz(filters: str) -> list:
+    def _finviz(filters: str, max_pages: int = 3) -> list:
+        # v=111 screener, 20 rows/page; r= is the 1-based first-row index
+        # (1, 21, 41, ...). Parse each ROW for ticker + market cap + price +
+        # change% + volume and stash it in _microcap_meta so the scan can gate on
+        # price/cap with ZERO per-name yfinance calls. Paginate until a page
+        # yields no NEW tickers (past the last page) or max_pages is hit.
+        # Fail-soft: whatever was parsed before an error is kept.
+        found: list = []
+        seen: set = set()
         try:
-            url = f"https://finviz.com/screener.ashx?v=111&f={filters}&o=-change&r=1"
-            r = _rq.get(url, headers=_fvhdrs, timeout=12)
-            if not r.ok:
-                return []
-            tickers = list(set(_re_mc.findall(r'stock\?t=([A-Z]{1,5})&', r.text)))
-            return [t for t in tickers if t and len(t) <= 5 and "." not in t]
+            for pg in range(max_pages):
+                start = pg * 20 + 1
+                url = f"https://finviz.com/screener.ashx?v=111&f={filters}&o=-change&r={start}"
+                r = _rq.get(url, headers=_fvhdrs, timeout=12)
+                if not r.ok:
+                    break
+                new_this_page = 0
+                for chunk in _re_mc.split(r'<tr class="styled-row', r.text)[1:]:
+                    cells = [
+                        _re_mc.sub(r"<[^>]+>", "", c).strip()
+                        for c in _re_mc.findall(r"<td[^>]*>(.*?)</td>", chunk, _re_mc.S)
+                    ]
+                    if len(cells) < 11:
+                        continue
+                    tk = cells[1].upper()
+                    if not tk or len(tk) > 5 or "." in tk or tk in seen:
+                        continue
+                    mc = _parse_finviz_cap(cells[6])
+                    try:    px = float(cells[8].replace(",", ""))
+                    except Exception: px = 0.0
+                    try:    chg = float(cells[9].replace("%", "").replace(",", ""))
+                    except Exception: chg = 0.0
+                    try:    vol = int(cells[10].replace(",", ""))
+                    except Exception: vol = 0
+                    seen.add(tk)
+                    found.append(tk)
+                    new_this_page += 1
+                    # First write wins (comprehensive runs first, change-sorted);
+                    # boosters re-finding the same name must not overwrite.
+                    if tk not in _microcap_meta:
+                        _microcap_meta[tk] = {
+                            "price": px, "market_cap": mc,
+                            "cap_tier": _cap_tier_for(mc),
+                            "change_pct": chg, "volume": vol,
+                        }
+                if new_this_page == 0:
+                    break
+                time.sleep(0.3)  # be polite to Finviz
         except Exception:
-            return []
+            pass
+        return found
 
     def _yahoo(scrId: str, start: int) -> list:
         try:
@@ -7840,28 +8012,35 @@ def _get_microcap_tickers() -> list:
         except Exception:
             return []
 
-    # ── Parallel fetch all sources ────────────────────────────────────────────
+    source_hits: dict = {}
+
+    def _absorb(label, tickers):
+        for t in (tickers or []):
+            if t and len(t) <= 6 and "." not in t and "^" not in t:
+                dynamic.add(t.upper())
+        source_hits[label] = len(tickers or [])
+
+    # ── Yahoo screens fetched in parallel (different host, no conflict) ───────
     tasks: dict = {}
     with ThreadPoolExecutor(max_workers=24) as ex:
         for scrId in _YAHOO_SCREENS:
             for start in (0, 100):
                 f = ex.submit(_yahoo, scrId, start)
                 tasks[f] = f"yahoo:{scrId}:{start}"
-        for fv in _FV_FILTERS:
-            f = ex.submit(_finviz, fv)
-            tasks[f] = f"finviz:{fv}"
-
-        source_hits: dict = {}
         for future in _asc_mc(tasks):
-            label = tasks[future]
             try:
-                tickers = future.result() or []
-                for t in tickers:
-                    if t and len(t) <= 6 and "." not in t and "^" not in t:
-                        dynamic.add(t.upper())
-                source_hits[label] = len(tickers)
+                _absorb(tasks[future], future.result())
             except Exception:
                 pass
+
+    # ── Finviz fetched SEQUENTIALLY (single stream) ──────────────────────────
+    # Finviz blocks CONCURRENT scraping from one IP, but a single sequential
+    # stream paginates deep reliably (verified ~800+ names, ~0.2s/page). The
+    # comprehensive call (change-sorted) yields the full optionable sub-$2B
+    # universe; boosters add catalyst names (>=2x rel-vol, biotech) that may be
+    # flat and therefore ranked low by % change.
+    for _fv, _pages in [(_FV_COMPREHENSIVE, 90)] + [(b, 3) for b in _FV_BOOSTERS]:
+        _absorb(f"finviz:{_fv}", _finviz(_fv, _pages))
 
     all_tickers = list(static | dynamic)
     new_count = len(dynamic - static)
