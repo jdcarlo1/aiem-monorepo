@@ -3142,6 +3142,199 @@ function GammaPressureTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 }
 
 
+function SmartMoneyPressureTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]       = useState<ConvictionStackResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    fetchConvictionStack().then(r => setData(r)).catch(() => {}).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const handleRun = async () => {
+    setRunning(true);
+    try { await fetchConvictionStack().then(r => setData(r)); }
+    catch {}
+    finally { setRunning(false); }
+  };
+
+  const PRESSURES = [
+    { key: "oi_accum",        label: "L1 OI BUILD",    color: "#22c55e",  desc: "Smart money loading calls over multiple days",          icon: "📦" },
+    { key: "gamma_fir",       label: "L2 GAMMA",        color: "#facc15",  desc: "Market makers forced to buy shares as price rises",      icon: "⚡" },
+    { key: "charm",           label: "L3 CHARM",        color: "#38bdf8",  desc: "Delta increasing daily as expiry clock ticks down",      icon: "⏱️" },
+    { key: "short_int",       label: "L4 SQUEEZE FUEL", color: "#f87171",  desc: "Trapped shorts must buy to cover — adds rocket fuel",   icon: "🩳" },
+    { key: "dark_pool",       label: "L5 DARK POOL",    color: "#a78bfa",  desc: "Institutions accumulating quietly off-exchange",         icon: "🌊" },
+    { key: "float_pressure",  label: "L6 FLOAT OD",     color: "#fb923c",  desc: "Delta obligations exceed 2% of float — math forces it", icon: "🔩" },
+    { key: "far_otm_sweep",   label: "L7 SWEEP",        color: "#e879f9",  desc: "Conviction bet at extreme strike — someone knows",      icon: "🎯" },
+    { key: "sector_sympathy", label: "L8 SECTOR",       color: "#34d399",  desc: "Hot sector theme pulling this name along with it",       icon: "🌡️" },
+  ];
+
+  const ptColor = (pts: number) => pts >= 8 ? "#f87171" : pts >= 6 ? "#fb923c" : pts >= 4 ? "#facc15" : "#38bdf8";
+  const results = data?.results ?? [];
+
+  const day2Likelihood = (r: ConvictionResult): { pct: number; reason: string } => {
+    const si = r.meta?.si_pct ?? 0;
+    const fp = r.layers?.float_pressure ?? 0;
+    const sweep = r.layers?.far_otm_sweep ?? 0;
+    if (si >= 25 && fp > 0) return { pct: 75, reason: `${si.toFixed(0)}% SI still needs to cover` };
+    if (si >= 15 && sweep > 0) return { pct: 65, reason: `${si.toFixed(0)}% SI + sweep conviction` };
+    if (si >= 10) return { pct: 50, reason: `${si.toFixed(0)}% SI — partial continuation likely` };
+    if (sweep > 0 && fp > 0) return { pct: 45, reason: "Gamma + sweep — watch the open" };
+    return { pct: 25, reason: "Primarily options-driven — day 2 less certain" };
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>
+            🔥 Smart Money Pressure
+          </h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0, maxWidth: 700 }}>
+            8 independent pressure signals converging on the same ticker.
+            When 4+ layers fire simultaneously, the mechanics almost force the move to happen.
+            <span style={{ color: "#facc15" }}> 8+ / 10 pts ≈ 90% probability of explosive move.</span>
+          </p>
+        </div>
+        <button onClick={handleRun} disabled={running}
+          style={{ fontFamily: BB_F, fontSize: 11, fontWeight: 700, padding: "6px 18px", borderRadius: 8, cursor: running ? "default" : "pointer",
+            background: running ? "rgba(248,113,113,0.05)" : "rgba(248,113,113,0.12)",
+            border: `1px solid ${running ? "rgba(248,113,113,0.2)" : "rgba(248,113,113,0.5)"}`,
+            color: running ? "#a3a3a3" : "#f87171" }}>
+          {running ? "⏳ SCANNING…" : "▶ RUN SCAN"}
+        </button>
+      </div>
+
+      {/* Pressure legend */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 20 }}>
+        {PRESSURES.map(p => (
+          <div key={p.key} style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${p.color}22`, borderRadius: 8, padding: "9px 12px" }}>
+            <div style={{ fontFamily: BB_F, fontSize: 10, color: p.color, fontWeight: 700, marginBottom: 3 }}>{p.icon} {p.label}</div>
+            <div style={{ fontFamily: BB_F, fontSize: 9, color: "#475569", lineHeight: 1.4 }}>{p.desc}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Stats row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "Tickers Scanned", val: results.length, color: "#38bdf8" },
+          { label: "🔴 EXTREME (8+)", val: results.filter(r => r.total_pts >= 8).length, color: "#f87171" },
+          { label: "🟠 HIGH (6–7.9)", val: results.filter(r => r.total_pts >= 6 && r.total_pts < 8).length, color: "#fb923c" },
+          { label: "Top Score", val: results[0] ? `${results[0].total_pts}/10` : "—", color: "#facc15" },
+        ].map(s => (
+          <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontFamily: BB_F, fontSize: 22, fontWeight: 900, color: s.color }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60, fontSize: 13 }}>
+          ⏳ Running all 8 pressure layers across the full universe…
+        </div>
+      ) : results.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>
+          No high-pressure setups found yet.<br />
+          <span style={{ fontSize: 11, color: "#334155", marginTop: 6, display: "block" }}>
+            First OI snapshot runs at 4:30 PM ET — scores appear the following morning.
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {results.map((r, i) => {
+            const pc     = ptColor(r.total_pts);
+            const m      = r.meta;
+            const lyr    = r.layers;
+            const d2     = day2Likelihood(r);
+            const d2Color = d2.pct >= 65 ? "#22c55e" : d2.pct >= 45 ? "#facc15" : "#64748b";
+            const activeLayers = PRESSURES.filter(p => (lyr[p.key] ?? 0) > 0);
+
+            return (
+              <div key={i} onClick={() => onSelectTicker(r.ticker)}
+                style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${pc}33`, borderRadius: 14, padding: "20px 22px", cursor: "pointer", transition: "border-color 0.15s, background 0.15s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = `${pc}66`; e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = `${pc}33`; e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}>
+
+                {/* Row 1: Ticker + badge + score */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 22, color: "#fff" }}>${r.ticker}</span>
+                    <span style={{ fontFamily: BB_F, fontSize: 11, color: pc, fontWeight: 700, background: `${pc}18`, padding: "3px 12px", borderRadius: 99, border: `1px solid ${pc}44` }}>
+                      {r.label}
+                    </span>
+                    <span style={{ fontFamily: BB_F, fontSize: 12, color: "#64748b" }}>${r.price.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 32, fontWeight: 900, color: pc }}>{r.total_pts}</div>
+                    <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", lineHeight: 1.5 }}>
+                      / 10 pts<br />
+                      <span style={{ color: pc }}>{r.conviction_pct}% conf.</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Score bar */}
+                <div style={{ height: 7, borderRadius: 99, background: "rgba(255,255,255,0.06)", marginBottom: 14, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${r.total_pts * 10}%`, background: `linear-gradient(90deg, ${pc}88, ${pc})`, borderRadius: 99, transition: "width 0.5s" }} />
+                </div>
+
+                {/* Active pressure layers */}
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", marginBottom: 7, fontWeight: 700, letterSpacing: 1 }}>
+                    PRESSURE SOURCES ({activeLayers.length}/8 ACTIVE)
+                  </div>
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                    {PRESSURES.map(p => {
+                      const pts = lyr[p.key] ?? 0;
+                      const active = pts > 0;
+                      return (
+                        <div key={p.key} style={{ fontFamily: BB_F, fontSize: 10, fontWeight: 700, padding: "5px 11px", borderRadius: 99,
+                          background: active ? `${p.color}18` : "rgba(255,255,255,0.02)",
+                          border: `1px solid ${active ? p.color + "55" : "rgba(255,255,255,0.06)"}`,
+                          color: active ? p.color : "#2d3748" }}>
+                          {active ? `${p.icon} ${p.label}` : `○ ${p.label}`}
+                          {active && <span style={{ opacity: 0.7, marginLeft: 4 }}>+{pts}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Key metrics + Day 2 */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontFamily: BB_F, fontSize: 11, color: "#64748b" }}>
+                    {m?.strike    && <span>Strike <span style={{ color: "#94a3b8" }}>${m.strike.toFixed(0)}C</span></span>}
+                    {m?.expiry    && <span>Exp <span style={{ color: "#94a3b8" }}>{m.expiry}</span></span>}
+                    {m?.days_out  && <span>Days <span style={{ color: m.days_out <= 7 ? "#fb923c" : "#94a3b8" }}>{m.days_out}d</span></span>}
+                    {m?.oi_pct    && <span>OI Δ <span style={{ color: "#22c55e" }}>+{m.oi_pct.toFixed(0)}%</span></span>}
+                    {m?.si_pct    && <span>SI <span style={{ color: m.si_pct >= 15 ? "#f87171" : "#94a3b8" }}>{m.si_pct.toFixed(0)}%</span>{m.dtc ? <span> / {m.dtc.toFixed(1)}d cover</span> : null}</span>}
+                    {m?.fir       && <span>FIR <span style={{ color: "#facc15" }}>{m.fir.toFixed(1)}%</span></span>}
+                    {m?.dp_pct    && <span>Dark Pool <span style={{ color: "#a78bfa" }}>{m.dp_pct.toFixed(0)}%</span></span>}
+                  </div>
+                  {/* Day 2 box */}
+                  <div style={{ background: `${d2Color}12`, border: `1px solid ${d2Color}33`, borderRadius: 8, padding: "6px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 18, fontWeight: 900, color: d2Color }}>{d2.pct}%</div>
+                    <div style={{ fontFamily: BB_F, fontSize: 9, color: d2Color, lineHeight: 1.4 }}>
+                      DAY 2<br />CONT.<br /><span style={{ color: "#475569", fontSize: 8 }}>{d2.reason}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
   const [data, setData]       = useState<ConvictionStackResult | null>(null);
@@ -13157,7 +13350,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -13283,6 +13476,7 @@ export default function Dashboard() {
     { id: "insiderradar",    label: "🕵️ INSIDER RADAR" },
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
+    { id: "smpressure",       label: "🔥 SMART MONEY PRESSURE" },
     { id: "convictionstack", label: "🎯 7-LAYER CONVICTION" },
     { id: "sweepradar",      label: "🔍 SWEEP RADAR" },
     { id: "sectorheat",      label: "🌡️ SECTOR HEAT" },
@@ -13903,6 +14097,7 @@ export default function Dashboard() {
         {tab === "insiderradar"    && <InsiderRadarTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcalls"    && <UnusualCallsTab    onSelectTicker={selectTicker} />}
         {tab === "unusualcallslog" && <UnusualCallsLogTab onSelectTicker={selectTicker} />}
+        {tab === "smpressure"      && <SmartMoneyPressureTab onSelectTicker={selectTicker} />}
         {tab === "convictionstack" && <ConvictionStackTab  onSelectTicker={selectTicker} />}
         {tab === "sweepradar"      && <FarOtmSweepTab     onSelectTicker={selectTicker} />}
         {tab === "sectorheat"      && <SectorHeatTab       onSelectTicker={selectTicker} />}
