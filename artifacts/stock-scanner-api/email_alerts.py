@@ -119,6 +119,26 @@ def smtp_configured() -> bool:
     return bool(cfg["user"] and cfg["password"])
 
 
+def send_plain_to_gateway(to: str, text: str) -> bool:
+    """Send a plain-text email to an SMS gateway (no HTML — tags show as literal text in SMS)."""
+    cfg = _smtp_cfg()
+    if not cfg["user"] or not cfg["password"]:
+        return False
+    try:
+        msg = MIMEText(text, "plain", "utf-8")
+        msg["Subject"] = ""
+        msg["From"]    = cfg["user"]
+        msg["To"]      = to
+        with smtplib.SMTP(cfg["host"], cfg["port"]) as server:
+            server.starttls()
+            server.login(cfg["user"], cfg["password"])
+            server.sendmail(cfg["user"], [to], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"[email_alerts] gateway send error to {to}: {e}")
+        return False
+
+
 def send_email_raw(to: str, subject: str, html: str) -> bool:
     cfg = _smtp_cfg()
     if not cfg["user"] or not cfg["password"]:

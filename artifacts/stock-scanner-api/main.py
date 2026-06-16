@@ -1943,7 +1943,8 @@ def _check_whale_hc_crossover() -> None:
 
             for gateway in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
                 try:
-                    send_email_raw(gateway, f"🔥🐋 DUAL SIGNAL: ${ticker}", f"<pre>{msg}</pre>")
+                    from email_alerts import send_plain_to_gateway as _spg
+                    _spg(gateway, msg) if "tmomail" in gateway else send_email_raw(gateway, f"🔥🐋 DUAL SIGNAL: ${ticker}", f"<pre>{msg}</pre>")
                 except Exception as _se:
                     print(f"[whale_hc] SMS send error to {gateway}: {_se}")
 
@@ -4858,7 +4859,11 @@ def _send_morning_gamma_watchlist_sms() -> None:
 
         for gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
             try:
-                send_email_raw(gw, f"⚡ Squeeze Radar {day_str}", f"<pre>{msg}</pre>")
+                from email_alerts import send_plain_to_gateway as _spg2
+                if "tmomail" in gw:
+                    _spg2(gw, msg)
+                else:
+                    send_email_raw(gw, f"⚡ Squeeze Radar {day_str}", f"<pre>{msg}</pre>")
             except Exception as _e:
                 print(f"[morning_watchlist] send error {gw}: {_e}")
 
@@ -5029,8 +5034,12 @@ def _run_gamma_pressure_scan() -> list:
             f"Score: {r['score']:.1f} — delta cascade in progress. GET IN NOW."
         )
         try:
+            from email_alerts import send_plain_to_gateway as _spg3
             for gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
-                send_email_raw(gw, f"⚡ GAMMA SQUEEZE ${t}  FIR:{r['fir']:.1f}%", f"<pre>{msg}</pre>")
+                if "tmomail" in gw:
+                    _spg3(gw, msg)
+                else:
+                    send_email_raw(gw, f"⚡ GAMMA SQUEEZE ${t}  FIR:{r['fir']:.1f}%", f"<pre>{msg}</pre>")
             already.add(t)
             sms_sent.append(t)
         except Exception as _se:

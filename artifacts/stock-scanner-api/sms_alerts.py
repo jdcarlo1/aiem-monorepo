@@ -120,17 +120,17 @@ _BACKUP_EMAIL      = "joeldcarlo@gmail.com"    # Gmail backup in case SMS gatewa
 def _send_sms_via_email(message: str) -> bool:
     """Send SMS via T-Mobile email-to-text gateway + backup to Gmail."""
     try:
-        from email_alerts import send_email_raw, smtp_configured
+        from email_alerts import send_plain_to_gateway, send_email_raw, smtp_configured
         if not smtp_configured():
             print("[sms_alerts] SMTP not configured — skipping email-to-SMS")
             return False
-        # Fire SMS gateway
-        ok = send_email_raw(to=_SMS_EMAIL_GATEWAY, subject="", html=f"<pre>{message}</pre>")
+        # Fire SMS gateway — plain text only (HTML tags render literally in SMS)
+        ok = send_plain_to_gateway(_SMS_EMAIL_GATEWAY, message)
         if ok:
             print(f"[sms_alerts] SMS via email gateway sent: {message[:60]}…")
         # Always send backup email to Gmail regardless of SMS result
         try:
-            send_email_raw(to=_BACKUP_EMAIL, subject=f"📈 StockScanner Alert", html=f"<pre style='font-size:16px'>{message}</pre>")
+            send_email_raw(to=_BACKUP_EMAIL, subject="📈 StockScanner Alert", html=f"<pre style='font-size:16px'>{message}</pre>")
             print(f"[sms_alerts] Backup email sent to {_BACKUP_EMAIL}")
         except Exception as be:
             print(f"[sms_alerts] Backup email error: {be}")
