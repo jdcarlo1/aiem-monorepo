@@ -5727,14 +5727,18 @@ def _get_dark_pool_convergence(tickers: list) -> dict:
     return result
 
 
-def _run_five_layer_conviction(max_tickers: int = 15) -> list:
+def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> list:
     """
     Master 5-layer conviction scanner. Runs all signal layers and returns
     a ranked list of tickers with a unified conviction score (0-10 pts).
     8.0+ pts ≈ 90% probability setup. Called by API and morning SMS.
+    `force_tickers` are scored even with no OI/charm/gamma signal: they're added
+    to the heavy-fetch 'active' set and kept in the output regardless of the cap
+    or the 1.0-pt floor — used by the on-demand single-ticker score endpoint.
     """
     import psycopg2, os as _os
     from datetime import date as _date
+    _force = set((t or "").upper() for t in (force_tickers or []))
 
     # ── Layer 1: OI Accumulation ──────────────────────────────────────────────
     oi_sigs    = _get_oi_accumulation_signals(days_back=1)
