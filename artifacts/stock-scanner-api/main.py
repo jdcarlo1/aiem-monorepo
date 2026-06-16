@@ -5648,51 +5648,125 @@ _MICRO_CAP_UNIVERSE = sorted(set([
 ]))
 
 
-def _get_microcap_tickers() -> list:
-    """Return the curated micro-cap ticker universe merged with today's dynamic tickers.
+_microcap_ticker_cache: dict = {"ts": 0.0, "tickers": []}
 
-    Sources (in addition to static universe):
-      1. _fetch_market_movers() — Yahoo screeners + Barchart advances (gainers/most-active)
-      2. Barchart most-active options — catches any ticker with unusual options volume today
+def _get_microcap_tickers() -> list:
+    """Return the micro-cap ticker universe (static + dynamically discovered).
+
+    Pulls from 9 Yahoo screeners (2 pages each) + 6 Barchart lists in parallel,
+    then merges with the curated static universe. Results are cached for 30 min
+    so back-to-back scans (3:30 / 4:00 / 4:15 PM) reuse the same list instantly.
     """
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _asc_mc
+
+    # ── 30-minute cache ───────────────────────────────────────────────────────
+    if time.time() - _microcap_ticker_cache["ts"] < 1800 and _microcap_ticker_cache["tickers"]:
+        return list(_microcap_ticker_cache["tickers"])
+
     static = set(_MICRO_CAP_UNIVERSE)
     dynamic: set = set()
 
-    # ── Source 1: market movers (Yahoo + Barchart equity advances) ────────────
-    try:
-        for t in _fetch_market_movers(count=100):
-            if t and len(t) <= 6 and "." not in t and "^" not in t:
-                dynamic.add(t.upper())
-    except Exception as _e:
-        print(f"[microcap_tickers] movers fetch error: {_e}")
+    import requests as _rq
 
-    # ── Source 2: Barchart most-active options (pure options-flow discovery) ──
-    try:
-        import requests as _rq
-        _hdrs = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
-            "Referer": "https://www.barchart.com/options/most-active/stocks",
-        }
-        for _bc_endpoint in (
-            "https://www.barchart.com/proxies/core-api/v1/options/get"
-            "?fields=baseSymbol%2CbaseLastPrice%2Csymbol%2CoptionType%2ClastPrice%2Cvolume%2CopenInterest"
-            "&optionType=Call&groupBy=optionsByUnderlying&orderBy=volume&orderDir=desc"
-            "&raw=1&limit=200&meta=field.shortName%2Cfield.type",
-        ):
-            _r2 = _rq.get(_bc_endpoint, headers=_hdrs, timeout=10)
-            if _r2.ok:
-                for _row in _r2.json().get("data", []):
-                    sym = (_row.get("baseSymbol") or "").strip().upper()
-                    if sym and len(sym) <= 6 and "." not in sym and "^" not in sym:
-                        dynamic.add(sym)
-    except Exception as _e:
-        print(f"[microcap_tickers] barchart options fetch error: {_e}")
+    _yhdrs = {"User-Agent": "Mozilla/5.0 (compatible; StockScannerBot/1.0)"}
+    _bhdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Referer": "https://www.barchart.com/stocks/advances",
+    }
+
+    # ── Yahoo screener IDs (9 screens × 2 pages = 18 requests) ───────────────
+    _YAHOO_SCREENS = [
+        "most_actives",           # highest equity vol — catches anything big
+        "day_gainers",            # today's % movers
+        "small_cap_gainers",      # small-cap movers
+        "aggressive_small_caps",  # high-beta small
+        "undervalued_growth_stocks",
+        "growth_technology_stocks",
+        "undervalued_large_caps",
+        "portfolio_anchors",
+        "solid_midcap_growth_funds",
+    ]
+
+    # ── Barchart equity lists (6 cap tiers including volume-sorted) ───────────
+    _BC_LISTS = [
+        "stocks.advances.microcap.us",
+        "stocks.advances.smallcap.us",
+        "stocks.advances.midcap.us",
+        "stocks.advances.largecap.us",
+        "stocks.volume.us",           # most active by volume (catches low-% movers)
+        "stocks.mostactive.us",       # alternate most-active list
+    ]
+
+    def _yahoo(scrId: str, start: int) -> list:
+        try:
+            url = (
+                "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
+                f"?formatted=false&lang=en-US&region=US&scrIds={scrId}&count=100&start={start}"
+            )
+            r = _rq.get(url, headers=_yhdrs, timeout=8)
+            if not r.ok:
+                return []
+            quotes = r.json().get("finance", {}).get("result", [{}])[0].get("quotes", [])
+            return [
+                q["symbol"] for q in quotes
+                if q.get("symbol") and "^" not in q["symbol"]
+                and "/" not in q["symbol"] and "." not in q["symbol"]
+            ]
+        except Exception:
+            return []
+
+    def _barchart(bc_list: str) -> list:
+        try:
+            url = (
+                "https://www.barchart.com/proxies/core-api/v1/quotes/get"
+                f"?fields=symbol%2CpercentChange%2Cvolume&list={bc_list}"
+                "&orderBy=volume&orderDir=desc&raw=1&limit=200"
+            )
+            r = _rq.get(url, headers=_bhdrs, timeout=8)
+            if not r.ok:
+                return []
+            return [
+                (row.get("symbol") or "").strip().upper()
+                for row in r.json().get("data", [])
+                if row.get("symbol") and "." not in (row.get("symbol") or "")
+            ]
+        except Exception:
+            return []
+
+    # ── Parallel fetch all sources ────────────────────────────────────────────
+    tasks: dict = {}
+    with ThreadPoolExecutor(max_workers=24) as ex:
+        for scrId in _YAHOO_SCREENS:
+            for start in (0, 100):
+                f = ex.submit(_yahoo, scrId, start)
+                tasks[f] = f"yahoo:{scrId}:{start}"
+        for bc in _BC_LISTS:
+            f = ex.submit(_barchart, bc)
+            tasks[f] = f"barchart:{bc}"
+
+        source_hits: dict = {}
+        for future in _asc_mc(tasks):
+            label = tasks[future]
+            try:
+                tickers = future.result() or []
+                for t in tickers:
+                    if t and len(t) <= 6 and "." not in t and "^" not in t:
+                        dynamic.add(t.upper())
+                source_hits[label] = len(tickers)
+            except Exception:
+                pass
 
     all_tickers = list(static | dynamic)
     new_count = len(dynamic - static)
-    if new_count:
-        print(f"[microcap_tickers] {len(static)} static + {new_count} new dynamic = {len(all_tickers)} total")
+    total_sources = len([v for v in source_hits.values() if v > 0])
+    print(
+        f"[microcap_tickers] {len(static)} static + {new_count} dynamic "
+        f"= {len(all_tickers)} total | {total_sources}/{len(tasks)} sources responded"
+    )
+
+    _microcap_ticker_cache.update({"ts": time.time(), "tickers": all_tickers})
     return all_tickers
 
 
