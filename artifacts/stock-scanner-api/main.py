@@ -34,6 +34,22 @@ import pnl
 app = Flask(__name__)
 CORS(app)
 
+
+@app.after_request
+def _no_store_api(resp):
+    """Force dynamic API responses to never be cached by the browser/proxy.
+    Without this, identical GET URLs get served from disk/CDN cache and the
+    UI shows stale (e.g. yesterday's) data even though the server is fresh."""
+    try:
+        if request.path.startswith("/stock-api"):
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+    except Exception:
+        pass
+    return resp
+
+
 _NTFY_TOPIC = "stockscanner-joel-9x7k2"
 
 def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell") -> None:
@@ -12731,15 +12747,20 @@ def conviction_calls():
                   AND strike  >= price * 0.97
                 ORDER BY last_seen DESC, vol_oi DESC
             """
+        # By default show TODAY only. Falling back to yesterday's window is the
+        # reason this tab showed "yesterday's names" every morning before the
+        # first scan ran — so the older window is now strictly opt-in via
+        # ?fallback=1 (surfaced as a "Show last 24h" button in the UI).
+        allow_fallback = request.args.get("fallback") == "1"
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-            # Try today first; fall back if fewer than 5 distinct tickers (sparse scan day)
             cur.execute(_base_sql.format(interval="CURRENT_DATE"))
             rows_today = cur.fetchall()
             today_tickers = len(set(r[0] for r in rows_today))
-            if today_tickers >= 5:
+            if rows_today:
+                # Any of today's sweeps → always show today, never substitute older data.
                 rows_raw = rows_today
                 window_label = "today"
-            else:
+            elif allow_fallback:
                 cur.execute(_base_sql.format(interval="NOW() - INTERVAL '1 day'"))
                 rows_raw = cur.fetchall()
                 window_label = "24h"
@@ -12747,13 +12768,27 @@ def conviction_calls():
                     cur.execute(_base_sql.format(interval="NOW() - INTERVAL '7 days'"))
                     rows_raw = cur.fetchall()
                     window_label = "7d"
-        print(f"[conviction_calls] today={len(rows_today)} ({today_tickers} tickers), window={window_label}, total={len(rows_raw)}")
+            else:
+                rows_raw = []
+                window_label = "today"
+        print(f"[conviction_calls] today={len(rows_today)} ({today_tickers} tickers), window={window_label}, fallback={allow_fallback}, total={len(rows_raw)}")
 
         cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
         rows = [dict(zip(cols, r)) for r in rows_raw]
 
         if not rows:
-            return jsonify({"signals": [], "generated_at": _dt.now().isoformat(), "note": "No high-conviction calls found. Run a scan in 🚨 Unusual Calls first."})
+            # Distinguish "no scan has run yet today" from "genuinely nothing qualified".
+            note = ("No high-conviction call sweeps have come through yet today. "
+                    "The first scan runs ~9:45 AM ET (market opens 9:30) and refreshes "
+                    "through the day — check back after the morning scan.")
+            return jsonify({
+                "signals":      [],
+                "generated_at": _dt.now().isoformat(),
+                "total":        0,
+                "window":       "today",
+                "note":         note,
+                "can_fallback": not allow_fallback,
+            })
 
         # Group by ticker — multi-strike sweep = strongest institutional signal
         from collections import defaultdict as _dd

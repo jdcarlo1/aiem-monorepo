@@ -9164,13 +9164,17 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   const [outcomes, setOutcomes]           = useState<ConvictionOutcomeResult | null>(null);
   const [outcomesLoading, setOutcomesLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Remembers whether the user opted into the older 24h/7d window so background
+  // refreshes don't silently snap the view back to today-only.
+  const fallbackRef = useRef(false);
 
   const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
 
-  const load = async (quiet = false) => {
+  const load = async (quiet = false, fallback?: boolean) => {
+    if (typeof fallback === "boolean") fallbackRef.current = fallback;
     if (!quiet) setLoading(true);
     setError(null);
-    try { setData(await fetchConvictionCalls(true)); }
+    try { setData(await fetchConvictionCalls(true, fallbackRef.current)); }
     catch (e: any) { setError(e.message ?? "Failed to load"); }
     finally { if (!quiet) setLoading(false); }
   };
@@ -9197,6 +9201,20 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
       .catch(() => {})
       .finally(() => setOutcomesLoading(false));
     return stopPoll;
+  }, []);
+
+  // Keep the tab live: quietly refresh every 60s and whenever the user
+  // returns to the tab/window (so it never sits on stale names).
+  useEffect(() => {
+    const id = setInterval(() => { load(true); }, 60_000);
+    const onVisible = () => { if (document.visibilityState === "visible") load(true); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
   }, []);
 
   const convColor = (c: string) => {
@@ -9263,10 +9281,26 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 40 }}>SCANNING FOR HIGH-CONVICTION SWEEPS…</div>
       )}
 
-      {!loading && data?.note && signals.length === 0 && (
+      {!loading && signals.length === 0 && (data?.note || data?.signals) && (
         <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32, lineHeight: 1.8 }}>
-          {data.note}<br />
-          <span style={{ fontSize: 9 }}>Run a scan in 🚨 Unusual Calls first to populate the database.</span>
+          {data?.note ?? "No high-conviction call sweeps qualify right now."}<br />
+          {data?.can_fallback ? (
+            <button
+              onClick={() => load(false, true)}
+              style={{ marginTop: 12, background: "transparent", border: `1px solid ${BB_BORDER}`, color: "#fbbf24", padding: "6px 16px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em" }}
+            >↩ SHOW LAST 24H INSTEAD</button>
+          ) : (
+            <span style={{ fontSize: 9 }}>Or run a scan in 🚨 Unusual Calls to populate the database.</span>
+          )}
+        </div>
+      )}
+
+      {!loading && signals.length > 0 && data?.window && data.window !== "today" && (
+        <div style={{ textAlign: "center", marginBottom: 12 }}>
+          <button
+            onClick={() => load(false, false)}
+            style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: "#22c55e", padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em" }}
+          >↩ BACK TO TODAY ONLY</button>
         </div>
       )}
 

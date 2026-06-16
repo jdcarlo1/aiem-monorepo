@@ -1,7 +1,10 @@
 const BASE = "/stock-api";
 
 export async function fetchJson<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, opts);
+  // cache: "no-store" guarantees the browser never serves a stale cached
+  // response — without it, identical GET URLs (e.g. /conviction-calls?force=1)
+  // get served from disk cache and the UI shows yesterday's data.
+  const res = await fetch(`${BASE}${path}`, { ...opts, cache: "no-store" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || res.statusText);
@@ -794,8 +797,12 @@ export interface ConvictionCallSignal {
   last_seen?: string;
   strikes: ConvictionCallStrike[];
 }
-export function fetchConvictionCalls(force = false) {
-  return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; window?: string; note?: string; error?: string }>(`/conviction-calls${force ? "?force=1" : ""}`);
+export function fetchConvictionCalls(force = false, fallback = false) {
+  const params = new URLSearchParams();
+  if (force) params.set("force", "1");
+  if (fallback) params.set("fallback", "1");
+  const qs = params.toString();
+  return fetchJson<{ signals: ConvictionCallSignal[]; generated_at: string; total: number; window?: string; note?: string; error?: string }>(`/conviction-calls${qs ? `?${qs}` : ""}`);
 }
 
 export function triggerConvictionScan() {
