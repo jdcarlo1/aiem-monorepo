@@ -2468,6 +2468,8 @@ def _send_morning_inflows_email() -> None:
     Morning email with two sections:
       1. Last night's EOD picks — how they are opening today (confirmed vs quiet)
       2. Fresh morning finds — new standouts NOT in last night's EOD list
+    NOTE: ntfy push is now handled directly inside morning_inflows() on every scan.
+          This function only handles email delivery — it no longer gates ntfy.
     """
     try:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
@@ -14937,6 +14939,54 @@ def morning_inflows():
                     _time_mi2.sleep(0.5 * (_attempt_mi2 + 1))
                 else:
                     print(f"[morning_inflows] CACHE SAVE FAILED after 3 attempts: {_dbe_mi2}")
+
+    # ── Direct ntfy alert — fires on EVERY scan, independent of email ────────
+    # Tracks alerted tickers in app._mi_alerted_tickers so we only push NEW
+    # movers discovered since the last scan, not repeats across the 9:31–14:00 runs.
+    try:
+        _today_ntfy = _dt_mi.date.today().isoformat()
+        if getattr(app, '_mi_alerted_date', None) != _today_ntfy:
+            app._mi_alerted_date     = _today_ntfy
+            app._mi_alerted_tickers  = set()
+        _alerted = getattr(app, '_mi_alerted_tickers', set())
+
+        # Only alert tickers not yet pushed today — skip micro-pump junk (FADE/HIGH only if strong)
+        _pushable = [
+            s for s in _actionable[:20]
+            if s.get('ticker') not in _alerted
+            and float(s.get('price') or 0) >= 0.50          # min price 50¢
+            and float(s.get('rel_vol') or 0) >= 3.0          # min 3× rel vol
+        ]
+
+        if _pushable:
+            _lines = []
+            for _s in _pushable[:10]:
+                _tk   = _s.get('ticker', '?')
+                _prc  = float(_s.get('price') or 0)
+                _pct  = float(_s.get('price_chg_pct') or 0)
+                _rv   = float(_s.get('rel_vol') or 0)
+                _fr   = float(_s.get('flow_ratio') or 0)
+                _nm   = float(_s.get('net_m') or 0)
+                _fade = _s.get('fade_risk', '')
+                _rv_s = f"{_rv:.0f}x" if _rv < 100 else f"{_rv:.0f}x ⚡"
+                _lines.append(
+                    f"{_tk} ${_prc:.2f} +{_pct:.0f}% · {_rv_s} rvol · {_fr:.1f}:1 flow · net ${_nm:.1f}M · {_fade}"
+                )
+                _alerted.add(_tk)
+            app._mi_alerted_tickers = _alerted
+
+            _now_s = _dt_mi.datetime.now().strftime('%I:%M %p')
+            _send_ntfy(
+                f"🌅 {len(_pushable)} Morning Mover{'s' if len(_pushable) != 1 else ''} · {_now_s} ET",
+                '\n'.join(_lines) + '\nnclexai.org/stock-scanner/',
+                priority='high',
+                tags='chart_with_upwards_trend,bell',
+            )
+            print(f"[morning_inflows] ntfy pushed {len(_pushable)} new movers: {[s.get('ticker') for s in _pushable[:10]]}")
+        else:
+            print(f"[morning_inflows] ntfy skipped — no new tickers (already alerted: {sorted(_alerted)})")
+    except Exception as _ntfy_mi_e:
+        print(f"[morning_inflows] ntfy alert error: {_ntfy_mi_e}")
 
     # ── Save individual ticker rows to scan_history for analysis ────────────
     # Each ticker is saved in its own transaction so one bad row never silently
