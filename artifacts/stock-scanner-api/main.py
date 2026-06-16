@@ -469,6 +469,12 @@ try:
             print(f"[scheduler] top pick email error: {_e_tp}")
     _scheduler.add_job(
         _run_top_pick_email,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=35, timezone=_ET),
+        id="top_pick_email_935",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        _run_top_pick_email,
         CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
         id="top_pick_email",
         replace_existing=True,
