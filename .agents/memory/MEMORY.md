@@ -6,3 +6,4 @@
 - [Scanner baseline June 2026](scanner-baseline-june2026.md) — Win rate, R:R, EV/trade for all scanners as of June 14, 2026; compare live vs backtest in mid-July 2026
 - [Invention Disclosure](invention-disclosure.md) — StockScanner AI patent doc at STOCKSCANNER_AI_INVENTION_DISCLOSURE.md in project root; 17 sections, 5 patent claims; NEVER delete this file
 - [yfinance fast_info attribute names](yfinance-fastinfo.md) — v1.4.1 uses snake_case: last_price, previous_close, NOT lastPrice/regularMarketPrice/previousClose
+- [Finviz data source](finviz-data-source.md) — Barchart IP-blocked; Finviz is permanent replacement; correct regex is stock\?t=([A-Z]{1,5})& not old screener URL; Yahoo rate-limits when OI snapshot runs concurrently

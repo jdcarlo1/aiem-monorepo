@@ -7329,7 +7329,7 @@ def _get_microcap_tickers() -> list:
             r = _rq.get(url, headers=_fvhdrs, timeout=12)
             if not r.ok:
                 return []
-            tickers = list(set(_re_mc.findall(r'screener\.ashx\?v=1&[^"]*ticker=([A-Z]{1,6})', r.text)))
+            tickers = list(set(_re_mc.findall(r'stock\?t=([A-Z]{1,5})&', r.text)))
             return [t for t in tickers if t and len(t) <= 5 and "." not in t]
         except Exception:
             return []
@@ -14569,7 +14569,7 @@ def morning_inflows():
                 _fv_url = f"https://finviz.com/screener.ashx?v=111&f={_fv_f}&o=-change&r=1"
                 _fv_r = _req_mi.get(_fv_url, headers=_fv_hdr_mi, timeout=12)
                 if _fv_r.ok:
-                    _syms = list(set(_re_mi.findall(r'screener\.ashx\?v=1&[^"]*ticker=([A-Z]{1,6})', _fv_r.text)))
+                    _syms = list(set(_re_mi.findall(r'stock\?t=([A-Z]{1,5})&', _fv_r.text)))
                     for _sym in _syms:
                         if _sym and len(_sym) <= 5 and "." not in _sym:
                             _barchart_syms.append(_sym)
