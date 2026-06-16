@@ -460,6 +460,19 @@ try:
             id=f"morning_inflows_email_{_mi_eh}_{_mi_em}",
             replace_existing=True,
         )
+    # Top Pick of the Day: Mon-Fri 9:45 AM ET — #1 conviction setup + specific call option to buy
+    def _run_top_pick_email():
+        try:
+            import threading as _thr_tp
+            _thr_tp.Thread(target=_send_top_pick_email, daemon=True).start()
+        except Exception as _e_tp:
+            print(f"[scheduler] top pick email error: {_e_tp}")
+    _scheduler.add_job(
+        _run_top_pick_email,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        id="top_pick_email",
+        replace_existing=True,
+    )
     # SMS alert scan: every 5 min Mon-Fri 10:00 AM – 3:45 PM ET
     # Starts at 10 AM — backtest showed pre-10 AM signals are opening-bell noise (13% hit rate)
     # Only fires on green SPY days — red days historically lose money regardless of signal quality
@@ -2064,6 +2077,237 @@ def _send_eod_accum_email() -> None:
         print(f"[eod_accum_email] error: {_e}\n{traceback.format_exc()}")
 
 
+def _send_top_pick_email() -> None:
+    """
+    9:45 AM daily email: #1 highest 8-layer conviction setup + specific call option to buy.
+    This is the actionable signal — one stock, one call, sent before the move.
+    """
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        import yfinance as _yf, math as _math, time as _time
+        from datetime import datetime as _dt, date as _date
+        import os as _os
+
+        date_str = _dt.now().strftime("%A, %B %d")
+
+        # ── Run full 8-layer conviction to find #1 pick ───────────────────────
+        results = _run_five_layer_conviction(max_tickers=20)
+        if not results:
+            print("[top_pick] no conviction results today — skipping")
+            return
+
+        pick = results[0]
+        ticker   = pick["ticker"]
+        score    = pick["total_pts"]
+        label    = pick["label"]
+        layers   = pick["layers"]
+        meta     = pick["meta"]
+        base_price = pick["price"]
+
+        # ── Scan live options to find best call to buy ────────────────────────
+        best_call = None
+        try:
+            tk = _yf.Ticker(ticker)
+            info = tk.info
+            price = float(info.get("regularMarketPrice") or info.get("currentPrice") or base_price or 0)
+            float_sh = int(info.get("floatShares") or info.get("sharesOutstanding") or 0)
+            short_pct = float(info.get("shortPercentOfFloat") or info.get("sharesPercentSharesOut") or 0) * 100
+            mc = float(info.get("marketCap") or 0)
+            name = info.get("shortName") or info.get("longName") or ticker
+
+            today = _date.today()
+            candidates = []
+            for exp in (tk.options or [])[:8]:
+                try:
+                    days = (_dt.strptime(exp, "%Y-%m-%d").date() - today).days + 1
+                    if days < 4 or days > 60:
+                        continue
+                    chain = tk.option_chain(exp).calls
+                    for _, row in chain.iterrows():
+                        try:
+                            vol = int(row.get("volume") or 0)
+                            oi  = int(row.get("openInterest") or 0)
+                            if oi < 10 or vol < 5: continue
+                            strike = float(row.get("strike") or 0)
+                            if not strike: continue
+                            otm_pct = (strike - price) / price * 100
+                            if otm_pct < -5 or otm_pct > 25: continue
+                            bid = float(row.get("bid") or 0)
+                            ask = float(row.get("ask") or 0)
+                            if bid <= 0 or ask <= 0: continue
+                            mid = (bid + ask) / 2
+                            voi = vol / oi if oi > 0 else 0
+                            prem = int(mid * vol * 100)
+                            iv = round(float(row.get("impliedVolatility") or 0) * 100, 1)
+                            spread_pct = (ask - bid) / ask if ask else 1
+                            if spread_pct > 0.40: continue
+                            score_c = voi * prem
+                            candidates.append(dict(
+                                strike=strike, exp=exp, days=days, voi=round(voi,1),
+                                mid=round(mid,2), bid=round(bid,2), ask=round(ask,2),
+                                prem=prem, otm_pct=round(otm_pct,1), iv=iv, score_c=score_c
+                            ))
+                        except: pass
+                except: pass
+                _time.sleep(0.15)
+            if candidates:
+                candidates.sort(key=lambda x: x["score_c"], reverse=True)
+                best_call = candidates[0]
+        except Exception as _e_opt:
+            print(f"[top_pick] options scan error: {_e_opt}")
+            price = base_price; name = ticker
+            float_sh = 0; short_pct = 0; mc = 0
+
+        # ── Build layer summary lines ─────────────────────────────────────────
+        LAYER_LABELS = {
+            "oi_accum":       ("L1", "OI Buildup"),
+            "gamma_fir":      ("L2", "Gamma FIR"),
+            "charm":          ("L3", "Charm Cascade"),
+            "short_int":      ("L4", "Short Interest"),
+            "dark_pool":      ("L4", "Dark Pool"),
+            "float_pressure": ("L6", "Float Pressure"),
+            "far_otm_sweep":  ("L7", "Far-OTM Sweep"),
+            "sector_sympathy":("L8", "Sector Heat"),
+        }
+        layer_html = ""
+        for key, pts in sorted(layers.items(), key=lambda x: -x[1]):
+            lnum, lname = LAYER_LABELS.get(key, ("L?", key))
+            detail = ""
+            if key == "oi_accum"       and "oi_pct" in meta:
+                detail = f"OI grew {meta['oi_pct']:.0f}% overnight"
+            elif key == "short_int"    and "si_pct" in meta:
+                detail = f"{meta['si_pct']:.1f}% of float short — squeeze fuel"
+            elif key == "float_pressure" and "float_pressure_pct" in meta:
+                detail = f"{meta['float_pressure_pct']:.1f}% of float in delta obligations"
+            elif key == "far_otm_sweep" and "sweep_voi" in meta:
+                ps = f"${meta.get('sweep_prem',0)/1000:.0f}K"
+                detail = f"+{meta.get('sweep_otm',0):.0f}% OTM · {meta['sweep_voi']}× vol/OI · {ps} premium"
+            elif key == "sector_sympathy" and "sector" in meta:
+                leads = ", ".join(meta.get("sector_leads", [])[:2])
+                detail = f"{meta['sector'].replace('_',' ').title()} sector hot · leads: {leads}"
+            elif key == "gamma_fir"    and "fir" in meta:
+                detail = f"FIR={meta['fir']:.1f}× — MMs forced to buy shares"
+            elif key == "charm"        and "charm_score" in meta:
+                detail = f"charm score {meta['charm_score']:.0f}"
+            detail_html = f"<span style='color:#94a3b8;font-size:12px;'> — {detail}</span>" if detail else ""
+            layer_html += f"""
+            <tr>
+              <td style="padding:7px 14px;border-bottom:1px solid #1e293b;">
+                <span style="color:#64748b;font-size:11px;font-weight:700;">{lnum}</span>
+                <span style="color:#f1f5f9;font-size:13px;font-weight:600;margin-left:6px;">{lname}</span>
+                {detail_html}
+              </td>
+              <td style="padding:7px 14px;border-bottom:1px solid #1e293b;text-align:right;">
+                <span style="color:#22c55e;font-weight:700;">{pts:.1f} pts</span>
+              </td>
+            </tr>"""
+
+        # ── Build call option recommendation block ────────────────────────────
+        call_html = ""
+        call_sms  = ""
+        if best_call:
+            c = best_call
+            exp_fmt = _dt.strptime(c["exp"], "%Y-%m-%d").strftime("%b %d")
+            otm_label = f"+{c['otm_pct']:.0f}% OTM" if c['otm_pct'] > 0 else "ATM"
+            ps = f"${c['prem']/1000:.0f}K" if c['prem'] < 1_000_000 else f"${c['prem']/1_000_000:.1f}M"
+            call_html = f"""
+            <div style="margin:20px 0;padding:16px 18px;background:#0f2027;border:2px solid #22c55e;border-radius:8px;">
+              <div style="color:#22c55e;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">🎯 CALL OPTION TO BUY</div>
+              <div style="color:#f1f5f9;font-size:22px;font-weight:900;">${ticker} ${c['strike']:.0f}C &nbsp;<span style="font-size:14px;color:#94a3b8;">exp {exp_fmt} · {c['days']}d</span></div>
+              <div style="margin-top:8px;">
+                <span style="color:#f1f5f9;font-size:16px;">Bid <b>${c['bid']:.2f}</b> · Ask <b>${c['ask']:.2f}</b> · Mid <b style="color:#22c55e;">${c['mid']:.2f}</b></span>
+              </div>
+              <div style="margin-top:8px;color:#94a3b8;font-size:12px;">
+                {otm_label} · {c['voi']:.1f}× vol/OI · {ps} premium today · IV {c['iv']}%
+              </div>
+              <div style="margin-top:10px;color:#64748b;font-size:11px;">
+                Entry: market open or first 15-min pullback · Target: +50–100% on the option · Stop: close below today's open
+              </div>
+            </div>"""
+            call_sms = f"\n🎯 BUY: ${ticker} ${c['strike']:.0f}C exp {exp_fmt} @ ${c['mid']:.2f} ({otm_label} · {c['voi']:.1f}x · {ps})"
+        else:
+            call_html = f"""
+            <div style="margin:20px 0;padding:14px 18px;background:#1e293b;border-radius:8px;color:#94a3b8;font-size:13px;">
+              ⚠️ No near-term ATM/OTM calls with sufficient liquidity found yet. Check options chain at open.
+            </div>"""
+
+        badge_color = "#ef4444" if "EXTREME" in label else "#f97316" if "HIGH" in label else "#eab308"
+        label_clean = label.replace("🔴 ","").replace("🟠 ","").replace("🟡 ","").replace("🔵 ","")
+        float_str = f"{float_sh/1e6:.1f}M" if float_sh else "?"
+        si_str    = f"{short_pct:.1f}%" if short_pct else "?"
+        mc_str    = f"${mc/1e9:.2f}B" if mc >= 1e9 else f"${mc/1e6:.0f}M" if mc else "?"
+        price_str = f"${price:.2f}" if price else "?"
+
+        html = f"""<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#0a0f1e;font-family:'Segoe UI',Arial,sans-serif;">
+<div style="max-width:580px;margin:0 auto;padding:24px 16px;">
+
+  <div style="text-align:center;margin-bottom:20px;">
+    <span style="color:#64748b;font-size:11px;letter-spacing:2px;text-transform:uppercase;">StockScanner AI · {date_str}</span>
+    <h1 style="color:#f1f5f9;font-size:22px;margin:8px 0 0;">⚡ Top Pick of the Day</h1>
+  </div>
+
+  <div style="background:#111827;border-radius:10px;padding:20px 18px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div>
+        <span style="font-size:32px;font-weight:900;color:#f1f5f9;">${ticker}</span>
+        <span style="display:block;color:#94a3b8;font-size:13px;margin-top:2px;">{name}</span>
+        <span style="color:#94a3b8;font-size:12px;">{price_str} · Float {float_str} · SI {si_str} · MCap {mc_str}</span>
+      </div>
+      <div style="text-align:right;">
+        <span style="background:{badge_color};color:#fff;font-size:10px;font-weight:900;padding:3px 10px;border-radius:4px;letter-spacing:1px;">{label_clean}</span>
+        <div style="color:#f1f5f9;font-size:28px;font-weight:900;margin-top:4px;">{score:.1f}<span style="font-size:14px;color:#64748b;">/10</span></div>
+      </div>
+    </div>
+  </div>
+
+  {call_html}
+
+  <div style="background:#111827;border-radius:10px;overflow:hidden;margin-bottom:16px;">
+    <div style="padding:12px 14px;border-bottom:1px solid #1e293b;">
+      <span style="color:#64748b;font-size:11px;font-weight:700;letter-spacing:1px;">WHY THIS SETUP — LAYERS FIRING</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;">
+      {layer_html}
+    </table>
+    <div style="padding:10px 14px;border-top:1px solid #1e293b;">
+      <span style="color:#64748b;font-size:11px;">Total conviction score: <b style="color:#f1f5f9;">{score:.1f}/10</b> · Layers checked: 8</span>
+    </div>
+  </div>
+
+  <div style="padding:12px 14px;background:#1e293b;border-radius:8px;color:#64748b;font-size:11px;text-align:center;">
+    Not financial advice. Options trading involves substantial risk of loss. Trade only what you can afford to lose.
+  </div>
+</div>
+</body></html>"""
+
+        # ── Send email ────────────────────────────────────────────────────────
+        subject = f"⚡ Top Pick: ${ticker} — {label_clean} {score:.1f}/10 · {date_str}"
+        if smtp_configured():
+            try:
+                send_email_raw("joeldcarlo@gmail.com", subject, html)
+                print(f"[top_pick] email sent → ${ticker} {score:.1f}/10 {label_clean}")
+            except Exception as _e_mail:
+                print(f"[top_pick] email error: {_e_mail}")
+
+        # ── Send SMS ──────────────────────────────────────────────────────────
+        sms_body = (
+            f"⚡ TOP PICK: ${ticker} — {label_clean} {score:.1f}/10\n"
+            f"{price_str} · Float {float_str} · SI {si_str}"
+            f"{call_sms}\n"
+            f"Layers: " + ", ".join(f"{LAYER_LABELS.get(k,('?',k))[0]}:{v:.1f}" for k,v in sorted(layers.items(), key=lambda x:-x[1])[:4])
+        )
+        for _gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
+            try:
+                send_email_raw(_gw, subject, f"<pre>{sms_body}</pre>")
+            except Exception as _se:
+                print(f"[top_pick] SMS error to {_gw}: {_se}")
+
+    except Exception as _e:
+        import traceback
+        print(f"[top_pick] error: {_e}\n{traceback.format_exc()}")
+
+
 def _send_morning_inflows_email() -> None:
     """
     Morning email with two sections:
@@ -2299,6 +2543,54 @@ def _send_morning_inflows_email() -> None:
 
         confirmed_count = sum(1 for e in eod_annotated if e["confirming"])
 
+        # ── 8-Layer High Conviction (live-scored every morning) ───────────────
+        conviction_section_html = ""
+        try:
+            _hc_results = _run_five_layer_conviction(max_tickers=10)
+            _hc_top = [r for r in _hc_results if r["total_pts"] >= 4.0][:5]
+            if _hc_top:
+                _hc_rows_html = ""
+                _layer_names = {
+                    "oi_accum": "OI Buildup", "gamma_fir": "γFIR", "charm": "Charm",
+                    "short_int": "Short Int", "dark_pool": "Dark Pool",
+                    "float_pressure": "Float%", "far_otm_sweep": "Sweep", "sector_sympathy": "Sector",
+                }
+                for _r in _hc_top:
+                    _bc = "#ef4444" if "EXTREME" in _r["label"] else "#f97316" if "HIGH" in _r["label"] else "#eab308"
+                    _lbl = _r["label"].replace("🔴 ","").replace("🟠 ","").replace("🟡 ","").replace("🔵 ","")
+                    _top_layers = sorted(_r["layers"].items(), key=lambda x: -x[1])[:3]
+                    _layers_str = " · ".join(f"{_layer_names.get(k,k)}: {v:.1f}pt" for k,v in _top_layers)
+                    _si_txt  = f"{_r['meta'].get('si_pct',0):.0f}% SI"  if _r['meta'].get('si_pct') else ""
+                    _fp_txt  = f"{_r['meta'].get('float_pressure_pct',0):.1f}% float demand" if _r['meta'].get('float_pressure_pct') else ""
+                    _meta_parts = [x for x in [_si_txt, _fp_txt] if x]
+                    _meta_html  = f'<span style="display:block;font-size:10px;color:#94a3b8;margin-top:1px;">{" · ".join(_meta_parts)}</span>' if _meta_parts else ""
+                    _hc_rows_html += f"""
+                    <tr>
+                      <td style="padding:10px 14px;border-bottom:1px solid #1e293b;">
+                        <span style="font-size:15px;font-weight:800;color:#f1f5f9;">${_r['ticker']}</span>
+                        <span style="display:block;font-size:10px;color:#64748b;margin-top:2px;">{_layers_str}</span>
+                        {_meta_html}
+                      </td>
+                      <td style="padding:10px 12px;border-bottom:1px solid #1e293b;text-align:center;white-space:nowrap;">
+                        <span style="background:{_bc};color:#fff;font-size:9px;font-weight:900;padding:2px 7px;border-radius:3px;display:block;">{_lbl}</span>
+                        <span style="font-size:16px;font-weight:900;color:#f1f5f9;display:block;margin-top:3px;">{_r['total_pts']:.1f}<span style="font-size:10px;color:#64748b;">/10</span></span>
+                      </td>
+                    </tr>"""
+                conviction_section_html = f"""
+          <div style="margin-bottom:8px;">
+            <span style="font-size:16px;font-weight:800;color:#f1f5f9;">⚡ 8-Layer High Conviction</span>
+            <span style="display:block;font-size:11px;color:#64748b;margin-top:2px;">Live-scored this morning · all 8 signal layers checked</span>
+          </div>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:8px;border:1px solid #22c55e44;margin-bottom:22px;">
+            <tr style="background:#0f172a;">
+              <th style="padding:8px 14px;text-align:left;color:#475569;font-size:10px;text-transform:uppercase;">Ticker · Top Signals</th>
+              <th style="padding:8px 12px;text-align:center;color:#475569;font-size:10px;text-transform:uppercase;">Score</th>
+            </tr>
+            {_hc_rows_html}
+          </table>"""
+        except Exception as _e_hc:
+            print(f"[morning_email] 8-layer conviction section error: {_e_hc}")
+
         fresh_section_html = ""
         if fresh_rows_html:
             fresh_section_html = f"""
@@ -2330,6 +2622,8 @@ def _send_morning_inflows_email() -> None:
               {f'· {len(fresh)} fresh find{"s" if len(fresh)!=1 else ""}' if fresh else ''}
             </span>
           </div>
+
+          {conviction_section_html}
 
           <div style="margin-bottom:8px;">
             <span style="font-size:16px;font-weight:800;color:#f1f5f9;">📋 {eod_label} EOD Picks — Opening Action</span>
@@ -5074,7 +5368,8 @@ SECTOR_MAP: dict = {
     "clean_energy":       ["FSLR","ENPH","SEDG","ARRY","RUN","NOVA"],
     "biotech_catalyst":   ["LMND","ADMA","PRGO","NKTR","SGEN","IMVT","PRAX","MVST"],
     "fintech_crypto":     ["COIN","HOOD","SOFI","PYPL","MSTR","RIOT","MARA"],
-    "small_float_spec":   ["ARQQ","BTQ","BTBT","NTLA","GFAI","SKIN","VINC","AEYE"],
+    "small_float_spec":   ["ARQQ","BTQ","BTBT","NTLA","GFAI","SKIN","VINC","AEYE",
+                           "WYFI","SMWB","QNC","BIOA","WOLF","QUBT","RGTI","QBTS"],
 }
 
 # Reverse map: ticker → list of sector names it belongs to
