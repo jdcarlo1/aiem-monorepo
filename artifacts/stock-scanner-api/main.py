@@ -30,6 +30,7 @@ from options_sweep import init_call_sweep_log_table, run_call_sweep_scan
 from news_catalyst import init_news_catalyst_log, run_news_catalyst_scan
 import execution
 import pnl
+import composite_scan
 
 app = Flask(__name__)
 CORS(app)
@@ -98,6 +99,7 @@ _SM_CACHE_TTL_SECS = 1200        # 20 minutes
 # ── init DB & scheduler ──────────────────────────────────────────────────────
 init_db()
 init_score_history_table()
+composite_scan.init_composite_table()
 init_signal_outcomes_table()
 init_sms_log_table()
 init_exit_log_table()
@@ -16803,6 +16805,25 @@ def nano_watchlist():
 
 
 _startup_scan_if_needed()
+
+
+@app.route("/stock-api/composite-scan/trigger", methods=["POST"])
+def composite_scan_trigger():
+    return jsonify(composite_scan.start_job())
+
+
+@app.route("/stock-api/composite-scan/status", methods=["GET"])
+def composite_scan_status():
+    return jsonify(composite_scan.get_status())
+
+
+@app.route("/stock-api/composite-leaderboard", methods=["GET"])
+def composite_leaderboard():
+    try:
+        mn = float(request.args.get("min", 6))
+    except (TypeError, ValueError):
+        mn = 6.0
+    return jsonify(composite_scan.get_leaderboard(mn))
 
 
 if __name__ == "__main__":

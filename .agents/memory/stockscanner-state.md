@@ -110,10 +110,16 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 
 ## Smart Money / Options logic
 - `artifacts/stock-scanner-api/smart_money.py` — strike filter: 80%–150% of spot, skips 0DTE
-- DEFAULT_LEADERBOARD = ~1,433 tickers for all scans
+- DEFAULT_LEADERBOARD = 6,610 tickers (full CBOE optionable universe, June 10 2026). Morning polls cap at ~1,200/scan — see scanner-data-source-ceiling.
 - Use `UUP` (not `^DXY` — delisted on yfinance) for USD strength
 - GEX uses numpy normal PDF — no scipy dependency
 - FREE_LIMIT on NCLEX is 10 — never change
+
+## Composite Score universe scan (June 16 2026)
+- User wants the **Composite Score (/10) ONLY** — explicitly rejected the Smart Money score (/100). Composite = `compute_indicators(df)` + `compute_score(indicators)` from a 1y price df (RSI 40–60 best, MACD, trend price>SMA50>SMA200, volume ratio, Bollinger; 2 pts each → normalized /10). No options / no `.info` needed.
+- `composite_scan.py` runs it across the full DEFAULT_LEADERBOARD (6,610) inside the stock-api process; stores daily to `composite_score_history` (unique on scan_date,ticker). Endpoints: `POST /stock-api/composite-scan/trigger`, `/stock-api/composite-scan/status`, `/stock-api/composite-leaderboard?min=N`.
+- **8+ is NOT a shortlist**: ~514–578 names hit 8+, dominated by ETFs/funds and below-average-volume names. The actionable cut = score≥8 AND volume_ratio≥1.5 (~54 names), which fits the user's "forced buying" thesis. Many top scorers are ETFs (AMZO, CEW, IPO, UST…) — exclude funds for a pure single-name list.
+- NOT yet built (offered to user): daily scheduler job + frontend Composite Leaderboard screen + ETF/fund exclusion.
 
 ## EOD Accumulation Scanner — Key Design Decisions (June 2026)
 - Gate 1: `price_chg >= -20%` (NOT "up on day") — accumulation happens on flat/down days too
@@ -151,6 +157,7 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - `whale_blocks` — whale LEAPS/aggressive/medium option blocks; columns: ticker, direction, strike, expiry, days_out, prem_m, volume, otm_pct, category (LEAPS/AGGRESSIVE/MEDIUM), tier (MEGA_WHALE/WHALE/BIG_BLOCK), price, first_seen
 - `sms_alerts_log` — ICS SMS alerts (ticker+date unique)
 - `news_catalyst_log` — news catalyst SMS alerts (ticker+date unique)
+- `composite_score_history` — daily Composite Score (/10) for the full universe; UNIQUE (scan_date, ticker); cols: scan_date, ticker, score, rating, price, rsi, volume_ratio, price_change_pct, scanned_at
 
 ## ⚠️ CRITICAL: Dev DB ≠ Production DB
 Dev and production use COMPLETELY SEPARATE PostgreSQL databases.
