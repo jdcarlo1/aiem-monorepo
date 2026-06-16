@@ -7293,10 +7293,9 @@ def _get_microcap_tickers() -> list:
     import requests as _rq
 
     _yhdrs = {"User-Agent": "Mozilla/5.0 (compatible; StockScannerBot/1.0)"}
-    _bhdrs = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-        "Referer": "https://www.barchart.com/stocks/advances",
+    _fvhdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
     }
 
     # ── Yahoo screener IDs (9 screens × 2 pages = 18 requests) ───────────────
@@ -7312,15 +7311,28 @@ def _get_microcap_tickers() -> list:
         "solid_midcap_growth_funds",
     ]
 
-    # ── Barchart equity lists (6 cap tiers including volume-sorted) ───────────
-    _BC_LISTS = [
-        "stocks.advances.microcap.us",
-        "stocks.advances.smallcap.us",
-        "stocks.advances.midcap.us",
-        "stocks.advances.largecap.us",
-        "stocks.volume.us",           # most active by volume (catches low-% movers)
-        "stocks.mostactive.us",       # alternate most-active list
+    # ── Finviz screener filter sets (replaces Barchart which is IP-blocked) ──
+    _FV_FILTERS = [
+        "cap_micro,sh_opt_option,ta_change_u5",   # micro-cap with options, up 5%+
+        "cap_small,sh_opt_option,ta_change_u5",   # small-cap with options, up 5%+
+        "cap_micro,sh_opt_option",                # micro-cap with options (any move)
+        "cap_small,sh_opt_option",                # small-cap with options (any move)
+        "cap_micro,ta_change_u10",                # micro-cap up 10%+ (momentum)
+        "cap_small,ta_change_u10",                # small-cap up 10%+
     ]
+
+    import re as _re_mc
+
+    def _finviz(filters: str) -> list:
+        try:
+            url = f"https://finviz.com/screener.ashx?v=111&f={filters}&o=-change&r=1"
+            r = _rq.get(url, headers=_fvhdrs, timeout=12)
+            if not r.ok:
+                return []
+            tickers = list(set(_re_mc.findall(r'screener\.ashx\?v=1&[^"]*ticker=([A-Z]{1,6})', r.text)))
+            return [t for t in tickers if t and len(t) <= 5 and "." not in t]
+        except Exception:
+            return []
 
     def _yahoo(scrId: str, start: int) -> list:
         try:
@@ -7365,9 +7377,9 @@ def _get_microcap_tickers() -> list:
             for start in (0, 100):
                 f = ex.submit(_yahoo, scrId, start)
                 tasks[f] = f"yahoo:{scrId}:{start}"
-        for bc in _BC_LISTS:
-            f = ex.submit(_barchart, bc)
-            tasks[f] = f"barchart:{bc}"
+        for fv in _FV_FILTERS:
+            f = ex.submit(_finviz, fv)
+            tasks[f] = f"finviz:{fv}"
 
         source_hits: dict = {}
         for future in _asc_mc(tasks):
@@ -14534,35 +14546,39 @@ def morning_inflows():
     except Exception as _de:
         print(f"[morning_inflows] db: {_de}")
 
-    # ── PHASE 1d: Barchart micro-cap + small-cap top movers ───────────────────
-    # Barchart's screener catches movers that Yahoo may lag on or filter out.
-    # We pull their public advances list for micro-cap and small-cap stocks.
-    _barchart_syms = []
+    # ── PHASE 1d: Finviz micro-cap + small-cap top movers ────────────────────
+    # Finviz screener catches small/micro movers with options activity.
+    # (Barchart replaced — their proxies/core-api is IP-blocked on this server)
+    _barchart_syms = []   # kept as variable name for downstream merge compatibility
     try:
-        _bc_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
-            "Referer": "https://www.barchart.com/stocks/advances",
+        import re as _re_mi
+        _fv_hdr_mi = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
         }
-        for _bc_list in ("stocks.advances.microcap.us", "stocks.advances.smallcap.us", "stocks.advances.midcap.us", "stocks.advances.largecap.us"):
+        _fv_screens_mi = [
+            "cap_micro,sh_opt_option,ta_change_u5",
+            "cap_small,sh_opt_option,ta_change_u5",
+            "cap_micro,sh_opt_option",
+            "cap_small,sh_opt_option",
+            "cap_micro,ta_change_u10",
+            "cap_small,ta_change_u10",
+        ]
+        for _fv_f in _fv_screens_mi:
             try:
-                _bc_url = (
-                    "https://www.barchart.com/proxies/core-api/v1/quotes/get"
-                    f"?fields=symbol%2CpercentChange%2Cvolume%2CaverageVolume&"
-                    f"list={_bc_list}&orderBy=percentChange&orderDir=desc&raw=1&limit=100"
-                )
-                _bc_r = _req_mi.get(_bc_url, headers=_bc_headers, timeout=8)
-                if _bc_r.ok:
-                    _bc_data = _bc_r.json().get("data", [])
-                    for _row in _bc_data:
-                        _sym = (_row.get("symbol") or "").strip().upper()
+                _fv_url = f"https://finviz.com/screener.ashx?v=111&f={_fv_f}&o=-change&r=1"
+                _fv_r = _req_mi.get(_fv_url, headers=_fv_hdr_mi, timeout=12)
+                if _fv_r.ok:
+                    _syms = list(set(_re_mi.findall(r'screener\.ashx\?v=1&[^"]*ticker=([A-Z]{1,6})', _fv_r.text)))
+                    for _sym in _syms:
                         if _sym and len(_sym) <= 5 and "." not in _sym:
                             _barchart_syms.append(_sym)
-            except Exception as _bc_e:
-                print(f"[morning_inflows] barchart {_bc_list}: {_bc_e}")
-        print(f"[morning_inflows] barchart: {len(_barchart_syms)} micro+small-cap movers")
-    except Exception as _bce:
-        print(f"[morning_inflows] barchart feed error: {_bce}")
+            except Exception as _fv_e:
+                print(f"[morning_inflows] finviz {_fv_f}: {_fv_e}")
+        _barchart_syms = list(dict.fromkeys(_barchart_syms))  # dedup, preserve order
+        print(f"[morning_inflows] finviz: {len(_barchart_syms)} micro+small-cap movers")
+    except Exception as _fve:
+        print(f"[morning_inflows] finviz feed error: {_fve}")
 
     # Merge all sources: pre-filtered screen results first (highest confidence),
     # then Barchart movers, supplementary screeners + our tracked tickers.
