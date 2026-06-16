@@ -38,6 +38,19 @@ documents that dormant pipeline; it no longer describes the TOP SCORE tab.)
   feed widening coverage needs only backend changes (raise/remove `CONVICTION_STACK_MAX`
   or compute an uncapped `universe_count`), no tab rewrite.
 
+## On-demand single-ticker scoring (force_tickers)
+- The heavy layers L4-L6 (short interest, dark pool, float pressure — all live
+  yfinance) only run on the `active` set = names that already have an L1/L2/L3
+  (OI / gamma / charm) signal. So a name whose only footprint is a sweep (L7) or
+  dark pool shows a deceptively low score (e.g. SMCI/TLN at ~2.0) because L4-L6
+  were never computed for it.
+- `_run_five_layer_conviction(force_tickers=[...])` seeds those tickers into
+  `scores` + `active` so ALL 8 layers run, and keeps them in the output past the
+  cap / 1.0-pt floor. Route `GET /conviction-stack/score/<ticker>` wraps it.
+- **Why:** lets any ticker be scored on demand (user asks "score X") without it
+  having to first appear in the OI/charm/gamma tables. Default `force_tickers=None`
+  leaves the normal ranked path byte-for-byte unchanged.
+
 ## Idempotency (must preserve)
 - `snapshot_conviction_stack()` is same-day idempotent. On a **non-empty** cohort it
   deletes same-day rows not in the keep set, then upserts.

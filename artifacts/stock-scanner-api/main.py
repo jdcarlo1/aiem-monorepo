@@ -5793,6 +5793,12 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
 
     # Only run heavy fetches for tickers we already have OI or charm signals on
     active = [t for t in scores if scores[t]["pts"]][:max_tickers * 3]
+    # Force-scored tickers (on-demand single lookup) get heavy-layer coverage even
+    # without an OI/charm/gamma signal — seed an empty row + ensure they're active.
+    for _ft in _force:
+        scores.setdefault(_ft, {"price": 0, "pts": {}, "meta": {}})
+        if _ft not in active:
+            active.append(_ft)
 
     # ── Layer 4: Short Interest ────────────────────────────────────────────────
     si_data = _get_short_interest(active)
@@ -5864,7 +5870,7 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
     results = []
     for ticker, data in scores.items():
         total = sum(data["pts"].values())
-        if total < 1.0:
+        if total < 1.0 and ticker not in _force:
             continue
         # Normalize conviction % to 95 ceiling.
         # Max possible = 14 pts (7 layers × 2 pts), but we scale against 10 for continuity.
@@ -5885,7 +5891,11 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
         })
 
     results.sort(key=lambda x: x["total_pts"], reverse=True)
-    return results[:max_tickers]
+    top = results[:max_tickers]
+    if _force:
+        seen = {r["ticker"] for r in top}
+        top += [r for r in results if r["ticker"] in _force and r["ticker"] not in seen]
+    return top
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -12603,6 +12613,27 @@ def conviction_stack_endpoint():
     except Exception as e:
         import traceback
         return jsonify({"results": [], "count": 0, "error": str(e),
+                        "trace": traceback.format_exc()}), 500
+
+
+@app.route("/stock-api/conviction-stack/score/<ticker>", methods=["GET"])
+def conviction_stack_score_ticker_route(ticker):
+    """On-demand: run ALL L1-L8 money-pressure layers for a SINGLE ticker, even if
+    it has no OI/charm/gamma signal (which would normally keep it out of the heavy-
+    fetch 'active' set). Returns the full layer breakdown so any name can be scored."""
+    try:
+        t = (ticker or "").strip().upper()
+        if not t:
+            return jsonify({"error": "no ticker"}), 400
+        results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX, force_tickers=[t])
+        match = next((r for r in results if r["ticker"] == t), None)
+        if not match:
+            return jsonify({"ticker": t, "found": False, "source": "free_yfinance",
+                            "note": "No money-pressure signal on this ticker right now."})
+        return jsonify({"ticker": t, "found": True, "source": "free_yfinance", **match})
+    except Exception as e:
+        import traceback
+        return jsonify({"ticker": ticker, "error": str(e),
                         "trace": traceback.format_exc()}), 500
 
 
