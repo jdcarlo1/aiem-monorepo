@@ -34,6 +34,21 @@ import pnl
 app = Flask(__name__)
 CORS(app)
 
+_NTFY_TOPIC = "stockscanner-joel-9x7k2"
+
+def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell") -> None:
+    """Send a push notification via ntfy.sh — never raises, always non-fatal."""
+    try:
+        import requests as _r
+        _r.post(
+            f"https://ntfy.sh/{_NTFY_TOPIC}",
+            data=body.encode("utf-8"),
+            headers={"Title": title, "Priority": priority, "Tags": tags},
+            timeout=8,
+        )
+    except Exception as _ne:
+        print(f"[ntfy] error: {_ne}")
+
 # ── Global yfinance HTTP timeout patch ────────────────────────────────────────
 # yfinance creates requests.Session internally and never sets per-request
 # timeouts, so rate-limited calls hang forever and block Flask worker threads.
@@ -1387,6 +1402,13 @@ def _send_unusual_calls_alert(hits: list) -> None:
             if send_email_raw(sub["email"], f"🚨 {len(alerts)} Unusual Call Signal{'s' if len(alerts) != 1 else ''} Detected", html):
                 sent += 1
         print(f"[unusual_alert] sent alert to {sent}/{len(subs)} subscribers — {len(alerts)} signals")
+        top_a = alerts[0]
+        _send_ntfy(
+            f"🚨 {len(alerts)} Unusual Call Signal{'s' if len(alerts)!=1 else ''} Detected",
+            f"${top_a['ticker']} Vol/OI {top_a['vol_oi']:.0f}x · ${top_a['strike']} strike · ${top_a['prem']:,.0f} prem\nnclexai.org/stock-scanner/",
+            priority="urgent",
+            tags="rotating_light,money_with_wings",
+        )
     except Exception as _ae:
         print(f"[unusual_alert] alert error (non-fatal): {_ae}")
 
@@ -1415,7 +1437,14 @@ def _send_ai_short_calls_high_conviction(picks: list) -> None:
                 otm = f"{p.get('otm_pct', 0):+.1f}%OTM"
                 lines.append(f"• {p['ticker']} ${p['strike']} {p.get('expiry','')[:10]} | Vol/OI {p.get('vol_oi',0):.1f}x | {otm}")
             lines.append("→ nclexai.org/stock-scanner/")
-            send_sms("\n".join(lines))
+            sms_text = "\n".join(lines)
+            send_sms(sms_text)
+            _send_ntfy(
+                f"⚡ {len(picks)} HIGH Conviction Call{'s' if len(picks)!=1 else ''} — {date_str}",
+                sms_text,
+                priority="urgent",
+                tags="money_with_wings,chart_with_upwards_trend",
+            )
 
         if not smtp_configured():
             return
@@ -1616,6 +1645,13 @@ def _save_and_send_conviction_snapshot() -> None:
                     )
                 except Exception as _se:
                     print(f"[conviction_snapshot] SMS error to {to}: {_se}")
+
+        _send_ntfy(
+            f"🔥 EOD Conviction: {len(extreme)} EXTREME · {len(high)} HIGH · {date_str}",
+            sms_body,
+            priority="urgent",
+            tags="fire,money_with_wings",
+        )
 
         # ── Email ─────────────────────────────────────────────────────────────
         if not smtp_configured():
@@ -2374,22 +2410,13 @@ def _send_top_pick_email() -> None:
         )
 
         # ── ntfy push notification (primary — no carrier blocking) ───────────────
-        _NTFY_TOPIC = "stockscanner-joel-9x7k2"
-        try:
-            import requests as _rq
-            _ntfy_resp = _rq.post(
-                f"https://ntfy.sh/{_NTFY_TOPIC}",
-                data=sms_body.encode("utf-8"),
-                headers={
-                    "Title": f"Top Pick: ${ticker} -- {label_clean} {score:.1f}/10",
-                    "Priority": "urgent" if score >= 8 else "high",
-                    "Tags": "chart_with_upwards_trend,money_with_wings",
-                },
-                timeout=8,
-            )
-            print(f"[top_pick] ntfy push sent → status {_ntfy_resp.status_code}")
-        except Exception as _ne:
-            print(f"[top_pick] ntfy error: {_ne}")
+        _send_ntfy(
+            f"Top Pick: ${ticker} — {label_clean} {score:.1f}/10",
+            sms_body,
+            priority="urgent" if score >= 8 else "high",
+            tags="chart_with_upwards_trend,money_with_wings",
+        )
+        print(f"[top_pick] ntfy push sent")
 
         # Primary: email-to-SMS gateway (T-Mobile) + email copy
         _gw_sent = False
@@ -2790,6 +2817,18 @@ def _send_morning_inflows_email() -> None:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
         print(f"[morning_email] sent to {sent}/{len(subs)} — {confirmed_count}/{len(eod_annotated)} EOD confirming, {len(fresh)} fresh finds")
+        _ntfy_lines = []
+        if confirmed_count:
+            _ntfy_lines.append(f"✅ {confirmed_count} EOD pick{'s' if confirmed_count!=1 else ''} confirming")
+        if fresh:
+            _ntfy_lines.append(f"🌅 {len(fresh)} fresh find{'s' if len(fresh)!=1 else ''}: {', '.join(f['ticker'] for f in fresh[:4])}")
+        _ntfy_lines.append("nclexai.org/stock-scanner/")
+        _send_ntfy(
+            f"☀️ Morning Alert: {confirmed_count} confirming · {len(fresh)} fresh · {date_str}",
+            "\n".join(_ntfy_lines),
+            priority="high",
+            tags="sunrise,chart_with_upwards_trend",
+        )
     except Exception as _e:
         import traceback
         print(f"[morning_email] error: {_e}\n{traceback.format_exc()}")
@@ -3416,6 +3455,13 @@ def _send_high_conviction_email() -> None:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
         print(f"[hc_calls_email] sent to {sent}/{len(subs)} — {len(top5)} signals")
+        top_ticker = top5[0]["ticker"] if top5 else "—"
+        _send_ntfy(
+            f"🔥 High Conviction Calls: Top 5 · {date_str}",
+            f"{top_ticker} leads · {len(top5)} multi-strike sweeps detected\nnclexai.org/stock-scanner/",
+            priority="high",
+            tags="fire,chart_with_upwards_trend",
+        )
     except Exception as _e:
         import traceback
         print(f"[hc_calls_email] error: {_e}\n{traceback.format_exc()}")

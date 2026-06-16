@@ -339,6 +339,20 @@ def run_news_catalyst_scan() -> list:
                 if send_sms(msg):
                     _log_alert(ticker, price, score, catalyst_lbl)
                     print(f"[news_catalyst] 📰 SMS sent → {ticker}")
+                    try:
+                        import requests as _rq_nc
+                        _rq_nc.post(
+                            "https://ntfy.sh/stockscanner-joel-9x7k2",
+                            data=msg.encode("utf-8"),
+                            headers={
+                                "Title": f"📰 News Catalyst: {ticker} — {score}/100",
+                                "Priority": "urgent",
+                                "Tags": "newspaper,chart_with_upwards_trend",
+                            },
+                            timeout=8,
+                        )
+                    except Exception as _ne_nc:
+                        pass
                     hits.append({
                         "ticker": ticker, "score": score,
                         "price": price,   "chg":   chg_pct,
