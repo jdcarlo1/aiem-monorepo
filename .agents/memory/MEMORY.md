@@ -11,3 +11,4 @@
 - [yfinance fast_info attribute names](yfinance-fastinfo.md) — v1.4.1 uses snake_case: last_price, previous_close, NOT lastPrice/regularMarketPrice/previousClose
 - [Finviz data source](finviz-data-source.md) — Barchart IP-blocked; Finviz is permanent replacement; correct regex is stock\?t=([A-Z]{1,5})& not old screener URL; Yahoo rate-limits when OI snapshot runs concurrently
 - [Bulk scan must run in-process](bulk-scan-in-process.md) — detached bg processes get reaped between tool calls & fresh procs hit yfinance rate limits; long scans run as a daemon thread inside the always-on stock-api
+- [Micro/small-cap calls tab](microcap-calls-tab.md) — needs hard $2B ceiling enforced twice (scan skip + route cap_tier filter); coverage capped by free feed; unknown-cap kept on purpose

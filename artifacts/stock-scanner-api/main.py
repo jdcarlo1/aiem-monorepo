@@ -4880,15 +4880,25 @@ def _run_microcap_options_scan() -> list:
                 return hits
 
             cap_tier = "micro"
+            mc_val   = 0
             try:
                 mc = tk.fast_info.market_cap
                 if mc:
+                    mc_val = mc
                     if mc < 50_000_000:      cap_tier = "nano"
                     elif mc < 300_000_000:   cap_tier = "micro"
                     elif mc < 2_000_000_000: cap_tier = "small"
                     else:                    cap_tier = "mid"
             except Exception:
                 pass
+
+            # ── Hard market-cap ceiling ──────────────────────────────────────
+            # This is the MICRO/SMALL-cap tab: exclude anything >= $2B even if it
+            # leaked in via a screener or graduated out of small-cap (e.g. RKLB,
+            # ASTS, RBLX, SNDK, AVGO, NFLX, LRCX). Done BEFORE the options fetch
+            # so we don't burn rate-limited yfinance calls on names we'll discard.
+            if mc_val >= 2_000_000_000:
+                return hits
 
             min_voi  = 1.5
             min_prem = 5_000 if cap_tier in ("nano", "micro") else 15_000
@@ -7753,16 +7763,17 @@ def _get_microcap_tickers() -> list:
     }
 
     # ── Yahoo screener IDs (9 screens × 2 pages = 18 requests) ───────────────
+    # Large-cap-biased screens (most_actives, undervalued_large_caps,
+    # portfolio_anchors, solid_midcap_growth_funds) were removed — this is the
+    # MICRO/SMALL-cap tab, so they only polluted it with mega caps (AVGO, NFLX,
+    # SNDK). The $2B ceiling in _scan_one is the hard gate; this just keeps the
+    # universe focused on names that can actually qualify.
     _YAHOO_SCREENS = [
-        "most_actives",           # highest equity vol — catches anything big
         "day_gainers",            # today's % movers
         "small_cap_gainers",      # small-cap movers
         "aggressive_small_caps",  # high-beta small
         "undervalued_growth_stocks",
         "growth_technology_stocks",
-        "undervalued_large_caps",
-        "portfolio_anchors",
-        "solid_midcap_growth_funds",
     ]
 
     # ── Finviz screener filter sets (replaces Barchart which is IP-blocked) ──
@@ -7773,6 +7784,11 @@ def _get_microcap_tickers() -> list:
         "cap_small,sh_opt_option",                # small-cap with options (any move)
         "cap_micro,ta_change_u10",                # micro-cap up 10%+ (momentum)
         "cap_small,ta_change_u10",                # small-cap up 10%+
+        # ── Biotech / healthcare (catalyst-driven, often missed) ────────────
+        "cap_micro,ind_biotechnology,sh_opt_option",   # micro biotech w/ options
+        "cap_small,ind_biotechnology,sh_opt_option",   # small biotech w/ options
+        "cap_micro,sec_healthcare,sh_opt_option,ta_change_u5",  # micro healthcare movers
+        "cap_small,sec_healthcare,sh_opt_option,ta_change_u5",  # small healthcare movers
     ]
 
     import re as _re_mc
@@ -12420,6 +12436,7 @@ def unusual_calls_microcap():
         FROM unusual_calls_microcap_log
         WHERE {_window_clause}
           AND expiry::date > CURRENT_DATE
+          AND cap_tier IN ('nano', 'micro', 'small')
         ORDER BY prem DESC
         LIMIT 200
     """
