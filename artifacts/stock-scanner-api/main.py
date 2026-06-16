@@ -14664,16 +14664,23 @@ def morning_inflows():
             "Accept-Language": "en-US,en;q=0.9",
         }
         _fv_screens_mi = [
+            # ── Nano-cap (<$50M) — most explosive catalyst movers, rarely have options ──
+            "cap_nano,ta_change_u10",                 # nano up 10%+ (CRE, CRVO class)
+            "cap_nano,ta_change_u20",                 # nano up 20%+ — extreme moves
+            "cap_nano,ta_change_u50",                 # nano up 50%+ — parabolic movers
+            # ── Micro-cap ($50M–$300M) — no options required ─────────────────────────
+            "cap_micro,ta_change_u10",                # micro up 10%+ (WBX, VNCE class)
+            "cap_micro,ta_change_u20",                # micro up 20%+ — news/earnings gaps
+            "cap_micro,ta_change_u50",                # micro up 50%+ — extreme catalyst
+            # ── Small-cap ($300M–$2B) — no options required ──────────────────────────
+            "cap_small,ta_change_u10",                # small up 10%+
+            "cap_small,ta_change_u20",                # small up 20%+
+            "cap_small,ta_change_u50",                # small up 50%+
+            # ── Options-active screens (micro + small) ────────────────────────────────
             "cap_micro,sh_opt_option,ta_change_u5",   # micro + options + up 5%
             "cap_small,sh_opt_option,ta_change_u5",   # small + options + up 5%
             "cap_micro,sh_opt_option",                # micro + options (any move)
             "cap_small,sh_opt_option",                # small + options (any move)
-            "cap_micro,ta_change_u10",                # micro up 10%+ (no options req)
-            "cap_small,ta_change_u10",                # small up 10%+ (no options req)
-            "cap_micro,ta_change_u20",                # micro up 20%+ — catches CRVO-type FDA/news gaps
-            "cap_small,ta_change_u20",                # small up 20%+ — no options required
-            "cap_micro,ta_change_u50",                # micro up 50%+ — extreme catalyst movers
-            "cap_small,ta_change_u50",                # small up 50%+ — extreme catalyst movers
         ]
         for _fv_f in _fv_screens_mi:
             try:
