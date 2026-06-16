@@ -216,7 +216,7 @@ try:
                     max_exp = 60 if is_etf else 45
                     from datetime import datetime as _dt2
                     tk = yf.Ticker(ticker)
-                    price = tk.fast_info.get("lastPrice") or tk.fast_info.get("regularMarketPrice") or 0
+                    price = float(getattr(tk.fast_info, "last_price", 0) or 0)
                     if not price: return hits
                     for exp in (tk.options or []):
                         days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
@@ -4489,7 +4489,7 @@ def _run_microcap_options_scan() -> list:
             tk    = yf.Ticker(ticker)
             price = 0.0
             try:
-                price = float(tk.fast_info.get("lastPrice") or tk.fast_info.get("regularMarketPrice") or 0)
+                price = float(getattr(tk.fast_info, "last_price", 0) or 0)
             except Exception:
                 pass
             if price <= 0:
@@ -4886,10 +4886,10 @@ def _run_gamma_pressure_scan() -> list:
         try:
             tk    = yf.Ticker(ticker)
             fi    = tk.fast_info
-            price = _sf(getattr(fi, "lastPrice", None) or getattr(fi, "regularMarketPrice", None))
+            price = _sf(getattr(fi, "last_price", None))
             if not price or price < 0.30:
                 return None
-            prev  = _sf(getattr(fi, "previousClose", None) or price)
+            prev  = _sf(getattr(fi, "previous_close", None) or price)
             chg   = round((price - prev) / prev * 100, 2) if prev else 0.0
             flt   = _get_float_shares(ticker)
             if not flt or flt < 500_000:
@@ -5111,7 +5111,7 @@ def _run_oi_snapshot() -> None:
         rows = []
         try:
             tk    = yf.Ticker(ticker)
-            price = _sf(getattr(tk.fast_info, "lastPrice", None) or getattr(tk.fast_info, "regularMarketPrice", None))
+            price = _sf(getattr(tk.fast_info, "last_price", None))
             if not price or price < 0.10:
                 return rows
             for exp in (tk.options or []):
