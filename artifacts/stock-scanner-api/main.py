@@ -16634,23 +16634,34 @@ def run_nano_cap_breakout_scan():
         except Exception:
             return None
 
-    _results = []
+    # Score every ticker. Keep ALL of them — the full universe gets saved and
+    # monitored next morning. Tickers that fail scoring (yfinance hiccup) are
+    # still saved by symbol so they're never dropped from the morning scan.
+    _results = []   # successfully scored (has price/score/notes)
+    _failed  = []   # scoring unavailable — monitor by symbol anyway
     with _TPE_nb(max_workers=12) as _ex:
         _futs = {_ex.submit(_score, t): t for t in _universe}
         for _fut in _ac_nb(_futs):
             _r = _fut.result()
-            if _r and _r["breakout_score"] >= 20:
+            if _r:
                 _results.append(_r)
+            else:
+                _failed.append(_futs[_fut])
 
     _results.sort(key=lambda x: x["breakout_score"], reverse=True)
-    _top = _results[:30]
-    print(f"[nano_breakout] scored {len(_results)} qualifying tickers, top {len(_top)} saved")
+    _top = [r for r in _results if r["breakout_score"] >= 20][:15]  # for ntfy ranking only
+    print(f"[nano_breakout] scored {len(_results)} tickers ({len(_failed)} unscored), "
+          f"{len(_top)} high-score setups")
 
-    # ── 3. Save to DB ────────────────────────────────────────────────────────
-    if _top and _DB:
+    # ── 3. Save the FULL universe to DB ──────────────────────────────────────
+    # morning_inflows pulls every row from the last 3 days into its scan
+    # universe, so saving all of them means the entire nano-cap market is
+    # monitored live the next morning — not just the EOD standouts.
+    _saved = 0
+    if _DB:
         try:
             with _pg_nb.connect(_DB) as _c, _c.cursor() as _cu:
-                for _s in _top:
+                for _s in _results:
                     _cu.execute("""
                         INSERT INTO nano_breakout_watchlist
                             (scan_date, ticker, price, mkt_cap_m, breakout_score,
@@ -16662,19 +16673,29 @@ def run_nano_cap_breakout_scan():
                     """, (_today, _s["ticker"], _s["price"], _s["mkt_cap_m"],
                           _s["breakout_score"], _s["vol_trend"], _s["price_vs_high"],
                           _s["momentum_5d"], _s["atr_ratio"], _s["avg_vol_10d"], _s["notes"]))
+                    _saved += 1
+                for _tkr in _failed:
+                    _cu.execute("""
+                        INSERT INTO nano_breakout_watchlist (scan_date, ticker, notes)
+                        VALUES (%s,%s,%s)
+                        ON CONFLICT (scan_date, ticker) DO NOTHING
+                    """, (_today, _tkr, "universe member — scoring unavailable"))
+                    _saved += 1
                 _c.commit()
-            print(f"[nano_breakout] saved {len(_top)} tickers to DB")
+            print(f"[nano_breakout] saved {_saved} tickers to DB "
+                  f"({len(_results)} scored + {len(_failed)} unscored) — full universe monitored")
         except Exception as _dbe:
             print(f"[nano_breakout] DB save error: {_dbe}")
 
-    # ── 4. ntfy alert ────────────────────────────────────────────────────────
+    # ── 4. ntfy alert — top setups only (don't spam the whole universe) ──────
     if _top:
         _lines = []
-        for _s in _top[:10]:
+        for _s in _top[:12]:
             _lines.append(
                 f"{_s['ticker']} ${_s['price']:.2f} · score {_s['breakout_score']:.0f}/100"
                 f" · {_s['notes']}"
             )
+        _lines.append(f"+ {_saved} total nano-caps now on morning watch")
         _lines.append("nclexai.org/stock-scanner/")
         _send_ntfy(
             f"🔭 {len(_top)} Nano-Cap Setups for {_dt_nb.date.today().strftime('%b %d')}",
@@ -16682,7 +16703,7 @@ def run_nano_cap_breakout_scan():
             priority="default",
             tags="mag,chart_with_upwards_trend",
         )
-    return _top
+    return {"scored": len(_results), "unscored": len(_failed), "saved": _saved, "top": _top}
 
 
 @app.route("/stock-api/nano-watchlist", methods=["GET"])
