@@ -1296,6 +1296,47 @@ export function triggerOiSnapshot() {
   return fetch(`${getApiBase()}/oi-snapshot/trigger`, { method: "POST" }).then(r => r.json());
 }
 
+export interface ConvictionLayers {
+  oi_accum?:  number;
+  gamma_fir?: number;
+  charm?:     number;
+  short_int?: number;
+  dark_pool?: number;
+}
+
+export interface ConvictionMeta {
+  oi_pct?:      number;
+  oi_chg?:      number;
+  strike?:      number;
+  expiry?:      string;
+  days_out?:    number;
+  fir?:         number;
+  charm_score?: number;
+  si_pct?:      number;
+  dtc?:         number;
+  dp_pct?:      number;
+  dp_vol?:      number;
+}
+
+export interface ConvictionResult {
+  ticker:          string;
+  price:           number;
+  total_pts:       number;
+  conviction_pct:  number;
+  label:           string;
+  layers:          ConvictionLayers;
+  meta:            ConvictionMeta;
+}
+
+export interface ConvictionStackResult {
+  results: ConvictionResult[];
+  count:   number;
+}
+
+export function fetchConvictionStack() {
+  return fetchJson<ConvictionStackResult>(`/conviction-stack`);
+}
+
 export interface InsiderRadarRow extends UnusualCallsLogEntry {
   suspicion_score:    number;
   ticker_appearances: number;
