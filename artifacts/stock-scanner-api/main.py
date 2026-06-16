@@ -475,6 +475,12 @@ try:
     )
     _scheduler.add_job(
         _run_top_pick_email,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=40, timezone=_ET),
+        id="top_pick_email_940",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        _run_top_pick_email,
         CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
         id="top_pick_email",
         replace_existing=True,
