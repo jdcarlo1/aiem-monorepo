@@ -48,14 +48,26 @@ Yahoo screeners (now removed). The $2B gate is the real backstop.
   breaker short-circuits), so it equals the full universe — do NOT use it for cursor
   advancement; derive "processed" from the outcome sub-counters instead.
 
-## "Unusual" thresholds are deliberately LOW (user-directed, June 2026)
-`min_voi=1.0`, `min_prem=1_000` nano/micro / `2_500` small, `min_vol=10`, `oi≥5`,
-`spread≤40%`, `otm≥−10%`. **Why:** in small caps a small premium controls a huge
-notional (≈$100K of cheap calls ≈ $10M of stock), so a dollar-premium floor hides
-the most leveraged directional bets. Gate leans on vol/OI (unusual vs. existing
-positioning) + a volume floor to drop pure illiquidity (1–9-contract prints).
-Effect (one fresh scan): names_with_hits 21→36, distinct accumulated 29→45 as
-floors dropped. Far-OTM (>40%) still needs voi≥5 AND prem≥$200K (hedge-fund sweep).
+## "Unusual" thresholds — premium floor TIERED by cap (user-directed, June 2026)
+`min_voi=1.0`, `min_vol=10`, `oi≥5`, `spread≤40%`, `otm≥−10%`; premium floor scales
+with cap: **nano <$50M → $10K, micro $50M–$300M → $25K, small $300M–$2B → $50K**
+(unknown-cap falls through as small). Far-OTM (>40%) still needs voi≥5 AND
+prem≥$200K (hedge-fund sweep).
+**Why:** the same dollar premium means very different things across tiers — what
+moves a THIN stock is buying large relative to its float/volume (and the dealer
+gamma hedging it triggers), not raw premium. The user iterated to this: 5K/15K flat
+was too strict, 1K/2.5K flat admitted retail-sized noise that moves nothing, tiered
+"real money" per size is the balance. Effect on one fresh scan: names_with_hits
+21 (strict) → 36 (1K flat) → 12 (tiered conviction names).
+
+## Concurrency + display
+All scan entry points (manual POST, empty-tab auto-scan, scheduled jobs + warmers)
+MUST be serialized — they funnel through a non-blocking module lock so overlapping
+triggers can't race the shard cursor or double-spend the Yahoo budget; duplicates
+log "scan already running" and bow out. GET route LIMIT is 1000 (was 200) so a full
+day's accumulation can display. Shard cursor is in-memory (resets on restart,
+self-heals via rotation); DB persistence deferred as low-value since the stock-api
+isn't restarted mid-session in normal operation.
 
 ## The honest finding the user accepted
 Even with full coverage, marginal hit-rate in the deep tail is ~1%; "hundreds of

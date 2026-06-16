@@ -4856,7 +4856,29 @@ def _save_microcap_calls_to_db(hits: list):
         print(f"[microcap_calls] save error: {e}")
 
 
+import threading as _mc_scan_thr
+_microcap_scan_lock = _mc_scan_thr.Lock()
+
+
 def _run_microcap_options_scan() -> list:
+    """Serialized entry point for the micro/small-cap unusual-calls scan.
+
+    Only ONE scan may run at a time. Overlapping triggers — the manual POST, the
+    empty-tab auto-scan, and the 4 scheduled jobs + warmers — would otherwise race
+    the rotating shard cursor and double-spend the shared, rate-limited Yahoo
+    option-chain budget. A non-blocking lock lets duplicate triggers bow out
+    cleanly instead of piling on.
+    """
+    if not _microcap_scan_lock.acquire(blocking=False):
+        print("[microcap_calls] scan already running — skipping duplicate trigger")
+        return []
+    try:
+        return _run_microcap_options_scan_impl()
+    finally:
+        _microcap_scan_lock.release()
+
+
+def _run_microcap_options_scan_impl() -> list:
     """Scan micro/small-cap tickers for unusual call option activity.
     Uses lower thresholds than large-cap to match the smaller size of these stocks.
     Only processes tickers that actually have options data on Yahoo Finance.
@@ -4943,14 +4965,20 @@ def _run_microcap_options_scan() -> list:
                 _cbump("large_skip")
                 return hits
 
-            # Loosened thresholds: in small/micro caps a small premium controls a
-            # huge notional (e.g. $100K of cheap calls can control ~$10M of stock),
-            # so the dollar-premium floor is kept deliberately low — gating on
-            # premium spent hides the most leveraged directional bets. We lean on
-            # vol/OI (unusual vs. existing positioning) + a min volume floor to
-            # filter pure illiquidity (1–9-contract prints aren't signal).
+            # Premium floor is TIERED by cap size: the same dollar amount means very
+            # different things across tiers. What actually moves a thin stock is
+            # buying that's large relative to its float/volume (and the dealer gamma
+            # hedging it triggers), not raw premium — so we require genuine "real
+            # money" single-line conviction, scaled to the company's size:
+            #   nano  (<$50M)      → $10K
+            #   micro ($50M–$300M) → $25K
+            #   small ($300M–$2B)  → $50K
+            # vol/OI >= 1 (new positioning vs. existing OI) + a volume floor filter
+            # out pure illiquidity. Unknown-cap rows fall through as "small".
             min_voi  = 1.0
-            min_prem = 1_000 if cap_tier in ("nano", "micro") else 2_500
+            min_prem = (10_000 if cap_tier == "nano"
+                        else 25_000 if cap_tier == "micro"
+                        else 50_000)
             min_vol  = 10
             max_exp  = 45
 
@@ -12623,7 +12651,7 @@ def unusual_calls_microcap():
           AND expiry::date > CURRENT_DATE
           AND cap_tier IN ('nano', 'micro', 'small')
         ORDER BY prem DESC
-        LIMIT 200
+        LIMIT 1000
     """
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
