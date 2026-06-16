@@ -2359,6 +2359,24 @@ def _send_top_pick_email() -> None:
             f"Layers: " + ", ".join(f"{LAYER_LABELS.get(k,('?',k))[0]}:{v:.1f}" for k,v in sorted(layers.items(), key=lambda x:-x[1])[:4])
         )
 
+        # ── ntfy push notification (primary — no carrier blocking) ───────────────
+        _NTFY_TOPIC = "stockscanner-joel-9x7k2"
+        try:
+            import requests as _rq
+            _ntfy_resp = _rq.post(
+                f"https://ntfy.sh/{_NTFY_TOPIC}",
+                data=sms_body.encode("utf-8"),
+                headers={
+                    "Title": f"Top Pick: ${ticker} -- {label_clean} {score:.1f}/10",
+                    "Priority": "urgent" if score >= 8 else "high",
+                    "Tags": "chart_with_upwards_trend,money_with_wings",
+                },
+                timeout=8,
+            )
+            print(f"[top_pick] ntfy push sent → status {_ntfy_resp.status_code}")
+        except Exception as _ne:
+            print(f"[top_pick] ntfy error: {_ne}")
+
         # Primary: email-to-SMS gateway (T-Mobile) + email copy
         _gw_sent = False
         for _gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
