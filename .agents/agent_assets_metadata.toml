@@ -24,3 +24,9 @@ id = "xTSVUCr4ccXTx_DQ6KW7a"
 uri = "file://STOCKSCANNER_AI_INVENTION_DISCLOSURE.md"
 type = "text"
 title = "StockScanner AI — Invention Disclosure & Patent Draft (v2.0)"
+
+[[outputs]]
+id = "YCjbgV0NIH8hXFWQ9u7wC"
+uri = "file://backups/StockScanner-AI_NCLEX-Prep_backup_2026-06-17.zip"
+type = "unspecified"
+title = "StockScanner AI + NCLEX Prep — Full Code Backup (June 17, 2026)"
