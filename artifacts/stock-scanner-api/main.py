@@ -53,18 +53,20 @@ def _no_store_api(resp):
 
 _NTFY_TOPIC = "stockscanner-joel-9x7k2"
 
-def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell") -> None:
-    """Send a push notification via ntfy.sh — never raises, always non-fatal."""
+def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell") -> bool:
+    """Send a push notification via ntfy.sh — never raises. Returns True on 2xx."""
     try:
         import requests as _r
-        _r.post(
+        _resp = _r.post(
             f"https://ntfy.sh/{_NTFY_TOPIC}",
             data=body.encode("utf-8"),
             headers={"Title": title, "Priority": priority, "Tags": tags},
             timeout=8,
         )
+        return 200 <= _resp.status_code < 300
     except Exception as _ne:
         print(f"[ntfy] error: {_ne}")
+        return False
 
 # ── Global yfinance HTTP timeout patch ────────────────────────────────────────
 # yfinance creates requests.Session internally and never sets per-request
@@ -4818,6 +4820,68 @@ def _init_microcap_calls_table():
         print(f"[microcap_calls] init table error: {e}")
 
 
+import threading as _mc_alert_thr
+_microcap_alert_lock = _mc_alert_thr.Lock()
+
+
+def _push_microcap_ntfy(hits: list) -> None:
+    """Push ntfy alerts for NEW qualifying micro/small-cap names, deduped per ET day
+    in app._microcap_alerted_tickers so each ticker is pushed only once per day across
+    the 7 scheduled scans + manual/auto triggers. EVERY new name is sent — long lists
+    are split across multiple messages, never truncated. A ticker is marked alerted
+    only after its message is delivered (2xx), so transient ntfy failures retry on the
+    next scan. The lock serializes overlapping scan threads. Never raises."""
+    try:
+        if not hits:
+            return
+        from datetime import datetime as _dtm_mc
+        import pytz as _pytz_mc
+        with _microcap_alert_lock:
+            _today_mc = _dtm_mc.now(_pytz_mc.timezone("US/Eastern")).date().isoformat()
+            if getattr(app, "_microcap_alerted_date", None) != _today_mc:
+                app._microcap_alerted_date    = _today_mc
+                app._microcap_alerted_tickers = set()
+            _alerted_mc = getattr(app, "_microcap_alerted_tickers", set())
+
+            # Aggregate this scan's hits by ticker → keep largest single-contract premium
+            _by_tk = {}
+            for _h in hits:
+                _tk = _h.get("ticker")
+                if not _tk or _tk in _alerted_mc:
+                    continue
+                _pr = int(_h.get("prem") or 0)
+                _ex = _by_tk.get(_tk)
+                if _ex is None or _pr > _ex["prem"]:
+                    _by_tk[_tk] = {"prem": _pr, "tier": _h.get("cap_tier", "small")}
+
+            if not _by_tk:
+                return
+
+            # Largest premium first; send EVERY name, chunked across messages.
+            _new = sorted(_by_tk.items(), key=lambda kv: kv[1]["prem"], reverse=True)
+            _CHUNK = 15
+            _chunks = [_new[i:i + _CHUNK] for i in range(0, len(_new), _CHUNK)]
+            _total = len(_new)
+            _sent = 0
+            for _ci, _chunk in enumerate(_chunks, 1):
+                _lines = [f"{_tk} ({_v['tier']}) ${_v['prem']:,}" for _tk, _v in _chunk]
+                _part = f" ({_ci}/{len(_chunks)})" if len(_chunks) > 1 else ""
+                _ok = _send_ntfy(
+                    f"🎯 {_total} Micro/Small Call{'s' if _total != 1 else ''}{_part}",
+                    "\n".join(_lines) + "\nnclexai.org/stock-scanner/",
+                    priority="high",
+                    tags="dart,chart_with_upwards_trend",
+                )
+                if _ok:
+                    for _tk, _ in _chunk:
+                        _alerted_mc.add(_tk)
+                    _sent += len(_chunk)
+            app._microcap_alerted_tickers = _alerted_mc
+            print(f"[microcap_calls] ntfy pushed {_sent}/{_total} new movers in {len(_chunks)} msg(s)")
+    except Exception as _e_mc:
+        print(f"[microcap_calls] ntfy push error: {_e_mc}")
+
+
 def _save_microcap_calls_to_db(hits: list):
     if not hits:
         return
@@ -4852,6 +4916,10 @@ def _save_microcap_calls_to_db(hits: list):
             conn.commit()
         far_count = sum(1 for h in hits if h.get("far_otm_sweep"))
         print(f"[microcap_calls] saved {len(hits)} signals ({far_count} far-OTM sweeps) to DB")
+        # Push ntfy ONLY after a successful save, off-thread so it never blocks the
+        # scan/request. Deduped per day; sends every new qualifying name.
+        import threading as _thr_mcn
+        _thr_mcn.Thread(target=_push_microcap_ntfy, args=(hits,), daemon=True).start()
     except Exception as e:
         print(f"[microcap_calls] save error: {e}")
 
