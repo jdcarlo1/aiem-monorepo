@@ -183,6 +183,19 @@ _ET_TZ = _ZoneInfo("America/New_York")
 # with a paid feed only needs this raised — no tab rewrite required.
 CONVICTION_STACK_MAX = 60
 
+# Owner inbox for personal (non-customer) intraday alert copies. Matches the
+# ALERT_EMAIL used by sms_alerts so every owner-targeted email lands in one place.
+_OWNER_EMAIL = os.getenv("ALERT_EMAIL", "joeldcarlo@gmail.com")
+
+# Guard so overlapping triggers never run two heavy L1-L8 conviction scans at
+# once and trip yfinance rate limits.
+import threading as _threading
+_CONVICTION_SCAN_LOCK = _threading.Lock()
+# Short-lived cache of the best liquid call per (ticker, target_weeks) so the
+# staggered intraday emails don't re-scan the same option chains within an hour.
+_BEST_CALL_CACHE = {}
+_BEST_CALL_TTL = 2700  # seconds (45 min)
+
 
 def _init_conviction_stack_watchlist():
     import psycopg2 as _pg2
@@ -217,17 +230,21 @@ def _init_conviction_stack_watchlist():
 _init_conviction_stack_watchlist()
 
 
-def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTION_STACK_MAX) -> dict:
+def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTION_STACK_MAX,
+                              precomputed: list = None) -> dict:
     """Persist today's L1-L8 EXTREME cohort (total_pts >= min_pts) from the money-
     pressure engine. Same-day idempotent (UNIQUE upsert + prune of names that
     dropped out). Logs NOTHING on an empty cohort (status skipped_empty_extreme)
-    so a quiet day never pollutes the track record."""
+    so a quiet day never pollutes the track record.
+
+    Pass `precomputed` (a prior _run_five_layer_conviction result) to reuse a
+    single heavy scan for both this snapshot and the owner smart-money email."""
     import psycopg2 as _pg2
     from psycopg2.extras import Json as _Json
     from datetime import datetime as _dt
     today = _dt.now(_ET_TZ).date()
     try:
-        results = _run_five_layer_conviction(max_tickers=max_tickers)
+        results = precomputed if precomputed is not None else _run_five_layer_conviction(max_tickers=max_tickers)
     except Exception as e:
         return {"ok": False, "reason": f"engine error: {e}", "snap_date": str(today)}
     universe_count = len(results)
@@ -1561,22 +1578,72 @@ try:
             replace_existing=True,
         )
 
-    # ── TOP SCORE 8+ (L1-L8 money-pressure) snapshot + outcomes ───────────────
-    # Snapshot today's EXTREME (8+) cohort at 16:50 ET — AFTER the EOD OI
-    # snapshot (16:30) so the engine has today's fresh OI/charm to score on.
+    # ── TOP SCORE 8+ (L1-L8 money-pressure) snapshot + owner Smart-Money email ──
+    # EOD (16:50) AFTER the EOD OI snapshot (16:30): persist today's EXTREME (8+)
+    # cohort for the track record AND email the owner. Intraday runs ONLY email the
+    # owner the live /10 Smart-Money-Pressure signals (EXTREME 8+ and HIGH 6-7.9,
+    # each with a concrete call/stock trade) — they do NOT snapshot, so the
+    # next-open track record stays a single clean EOD capture.
     # Outcomes (next-open 1-4 wk stock returns) at 9:52 AM + 17:05 ET daily.
-    def _run_conviction_stack_snapshot():
-        try:
-            import threading as _thr_css
-            _thr_css.Thread(target=snapshot_conviction_stack, daemon=True).start()
-        except Exception as _e_css:
-            print(f"[scheduler] conviction-stack snapshot error: {_e_css}")
+    def _run_conviction_stack(do_snapshot: bool, max_tickers: int = CONVICTION_STACK_MAX):
+        def _worker():
+            if not _CONVICTION_SCAN_LOCK.acquire(blocking=False):
+                print("[scheduler] conviction scan already running — skipping this trigger")
+                return
+            try:
+                results = _run_five_layer_conviction(max_tickers=max_tickers)
+                if do_snapshot:
+                    try:
+                        snapshot_conviction_stack(precomputed=results)
+                    except Exception as _e_snap:
+                        print(f"[scheduler] conviction-stack snapshot error: {_e_snap}")
+                _send_smart_money_pressure_email(results=results)
+            except Exception as _e_run:
+                print(f"[scheduler] conviction-stack run error: {_e_run}")
+            finally:
+                _CONVICTION_SCAN_LOCK.release()
+        import threading as _thr_css
+        _thr_css.Thread(target=_worker, daemon=True).start()
+    # EOD: snapshot the track record + email the owner
     _scheduler.add_job(
-        _run_conviction_stack_snapshot,
+        lambda: _run_conviction_stack(do_snapshot=True),
         CronTrigger(day_of_week="mon-fri", hour=16, minute=50, timezone=_ET),
         id="conviction_stack_snapshot",
         replace_existing=True,
     )
+    # Intraday: owner-only Smart-Money-Pressure emails (morning + throughout day)
+    for _smp_h, _smp_m in [(10, 5), (12, 0), (14, 0), (15, 40)]:
+        _scheduler.add_job(
+            lambda: _run_conviction_stack(do_snapshot=False, max_tickers=35),
+            CronTrigger(day_of_week="mon-fri", hour=_smp_h, minute=_smp_m, timezone=_ET),
+            id=f"smart_money_email_{_smp_h}_{_smp_m}",
+            replace_existing=True,
+        )
+
+    # ── Owner-only intraday copies: micro/small-cap calls + high-conviction ─────
+    # Paying customers keep their existing 2x/day cadence untouched; these extra
+    # runs go ONLY to the owner inbox so he sees fresh calls throughout the day.
+    # Both are cheap DB reads (no extra yfinance load).
+    def _run_owner_microcap():
+        import threading as _t_mc
+        _t_mc.Thread(target=lambda: _send_microcap_calls_email(owner_only=True), daemon=True).start()
+    def _run_owner_hc():
+        import threading as _t_hc
+        _t_hc.Thread(target=lambda: _send_high_conviction_email(owner_only=True), daemon=True).start()
+    for _oc_h, _oc_m in [(9, 50), (11, 35), (13, 5), (14, 35), (15, 45)]:
+        _scheduler.add_job(
+            _run_owner_microcap,
+            CronTrigger(day_of_week="mon-fri", hour=_oc_h, minute=_oc_m, timezone=_ET),
+            id=f"owner_microcap_{_oc_h}_{_oc_m}",
+            replace_existing=True,
+        )
+    for _oh_h, _oh_m in [(9, 52), (11, 37), (13, 7), (14, 37), (15, 47)]:
+        _scheduler.add_job(
+            _run_owner_hc,
+            CronTrigger(day_of_week="mon-fri", hour=_oh_h, minute=_oh_m, timezone=_ET),
+            id=f"owner_hc_{_oh_h}_{_oh_m}",
+            replace_existing=True,
+        )
 
     def _run_conviction_stack_outcomes():
         try:
@@ -2758,6 +2825,249 @@ def _send_top_pick_email() -> None:
         print(f"[top_pick] error: {_e}\n{traceback.format_exc()}")
 
 
+def _expiry_recommendation(score: float, dtc: float) -> dict:
+    """Map an L1-L8 conviction score (/10) + days-to-cover (dtc) to a concrete
+    trade: a call option with a specific expiry window, or just the stock. Higher
+    score = tighter, more aggressive call window; lower score = stock (timing too
+    loose for options). Mirrors the morning Top-Pick logic so every signal is
+    consistent across emails."""
+    import math as _math
+    if score >= 8:
+        return {"action": "CALL", "weeks": 2,
+                "reason": "EXTREME score — mechanics force the move within days; 2-week call"}
+    elif score >= 6:
+        if dtc and dtc > 0:
+            days_needed = (dtc * 1.5) + 5
+            wks = min(max(2, _math.ceil(days_needed / 5)), 5)
+            reason = f"days-to-cover {dtc:.0f} → ({dtc:.0f}×1.5)+5 ≈ {days_needed:.0f} trading days needed"
+        else:
+            wks = 3
+            reason = "HIGH score, no days-to-cover data — default 3-week window"
+        return {"action": "CALL", "weeks": wks, "reason": reason}
+    elif score >= 4:
+        hold = min(max(2, round((dtc * 1.2) / 5)), 4) if dtc and dtc > 0 else 3
+        return {"action": "STOCK", "hold_weeks": hold,
+                "reason": f"Score {score:.1f}/10 — timing too uncertain for calls; stock is safer"}
+    else:
+        return {"action": "STOCK", "hold_weeks": 2,
+                "reason": "Low conviction — stock only"}
+
+
+def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
+    """Find the single best liquid call to buy for a ticker (high vol/OI × premium,
+    near/just-OTM, tight spread). When target_weeks is given, selection is biased
+    to expirations near that window so an 8+/2-week call doesn't return a 6-week
+    contract. Results cached ~45 min per (ticker, target_weeks). Returns a dict
+    with strike, exp, days, bid/ask/mid — or None if nothing liquid is found."""
+    import yfinance as _yf, time as _time
+    from datetime import datetime as _dt, date as _date
+    if not price or price <= 0:
+        return None
+    cache_key = (ticker, target_weeks)
+    cached = _BEST_CALL_CACHE.get(cache_key)
+    if cached and (_time.time() - cached[0]) < _BEST_CALL_TTL:
+        return cached[1]
+
+    win_lo = win_hi = None
+    if target_weeks:
+        center = target_weeks * 7
+        win_lo, win_hi = max(4, center - 5), center + 9
+
+    best = None
+    try:
+        tk = _yf.Ticker(ticker)
+        today = _date.today()
+        candidates = []
+        for exp in (tk.options or [])[:8]:
+            try:
+                days = (_dt.strptime(exp, "%Y-%m-%d").date() - today).days + 1
+                if days < 4 or days > 60:
+                    continue
+                chain = tk.option_chain(exp).calls
+                for _, row in chain.iterrows():
+                    try:
+                        vol = int(row.get("volume") or 0)
+                        oi = int(row.get("openInterest") or 0)
+                        if oi < 10 or vol < 5:
+                            continue
+                        strike = float(row.get("strike") or 0)
+                        if not strike:
+                            continue
+                        otm_pct = (strike - price) / price * 100
+                        if otm_pct < -5 or otm_pct > 25:
+                            continue
+                        bid = float(row.get("bid") or 0)
+                        ask = float(row.get("ask") or 0)
+                        if bid <= 0 or ask <= 0:
+                            continue
+                        spread_pct = (ask - bid) / ask if ask else 1
+                        if spread_pct > 0.40:
+                            continue
+                        mid = (bid + ask) / 2
+                        voi = vol / oi if oi > 0 else 0
+                        prem = int(mid * vol * 100)
+                        iv = round(float(row.get("impliedVolatility") or 0) * 100, 1)
+                        in_window = bool(win_lo is not None and win_lo <= days <= win_hi)
+                        candidates.append(dict(
+                            strike=strike, exp=exp, days=days, voi=round(voi, 1),
+                            mid=round(mid, 2), bid=round(bid, 2), ask=round(ask, 2),
+                            prem=prem, otm_pct=round(otm_pct, 1), iv=iv,
+                            score_c=voi * prem, in_window=in_window,
+                        ))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            _time.sleep(0.15)
+        if candidates:
+            # Prefer expirations inside the score-based week window, then liquidity.
+            candidates.sort(key=lambda x: (0 if x["in_window"] else 1, -x["score_c"]))
+            best = candidates[0]
+    except Exception:
+        pass
+    _BEST_CALL_CACHE[cache_key] = (_time.time(), best)
+    return best
+
+
+def _send_smart_money_pressure_email(results: list = None, max_picks: int = 6) -> None:
+    """Owner email: every Smart-Money-Pressure signal scored /10 (L1-L8 engine) —
+    EXTREME (8+) and HIGH (6-7.9) — each with a concrete trade next to its score:
+    a specific call strike + expiration date (and how many weeks out) when the
+    score is high enough, otherwise buy-the-stock with a hold window. Only sends
+    when at least one 6+ signal exists, so quiet windows stay silent."""
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        from datetime import datetime as _dt
+        if not smtp_configured():
+            print("[smart_money_email] SMTP not configured — skipping")
+            return
+
+        if results is None:
+            results = _run_five_layer_conviction(max_tickers=40)
+        if not results:
+            print("[smart_money_email] no engine results — skipping")
+            return
+
+        ranked = sorted(results, key=lambda r: float(r.get("total_pts", 0) or 0), reverse=True)
+        signals = [r for r in ranked if float(r.get("total_pts", 0) or 0) >= 6.0][:max_picks]
+        if not signals:
+            print("[smart_money_email] no 6+ signals — skipping (quiet window)")
+            return
+
+        date_str = _dt.now().strftime("%A, %B %d · %I:%M %p")
+        LAYER_LABELS = {
+            "oi_accum": "OI Buildup", "gamma_fir": "Gamma FIR", "charm": "Charm",
+            "short_int": "Short Interest", "dark_pool": "Dark Pool",
+            "float_pressure": "Float Pressure", "far_otm_sweep": "Far-OTM Sweep",
+            "sector_sympathy": "Sector Heat",
+        }
+
+        cards_html = ""
+        sms_lines = []
+        for i, r in enumerate(signals):
+            ticker = r.get("ticker", "")
+            score = float(r.get("total_pts", 0) or 0)
+            label = (r.get("label", "") or "").replace("🔴 ", "").replace("🟠 ", "").replace("🟡 ", "").replace("🔵 ", "")
+            price = float(r.get("price", 0) or 0)
+            layers = r.get("layers", {}) or {}
+            meta = r.get("meta", {}) or {}
+            dtc = float(meta.get("dtc") or 0)
+
+            tier = "EXTREME" if score >= 8 else "HIGH"
+            tier_color = "#ef4444" if score >= 8 else "#f59e0b"
+
+            rec = _expiry_recommendation(score, dtc)
+            if rec["action"] == "CALL":
+                bc = _scan_best_call(ticker, price, target_weeks=rec["weeks"])
+                if bc:
+                    exp_fmt = _dt.strptime(bc["exp"], "%Y-%m-%d").strftime("%b %d, %Y")
+                    act_wks = max(1, round(bc["days"] / 7))
+                    strike_str = f"{bc['strike']:g}"
+                    otm_lbl = f"+{bc['otm_pct']:.0f}% OTM" if bc["otm_pct"] > 0 else "ATM"
+                    trade_headline = f"BUY ${ticker} ${strike_str} CALL"
+                    trade_sub = (f"Expires {exp_fmt} ({bc['days']}d ≈ {act_wks}-week call) · "
+                                 f"Mid ${bc['mid']:.2f} (bid ${bc['bid']:.2f} / ask ${bc['ask']:.2f}) · {otm_lbl}")
+                    trade_color = "#22c55e"
+                    sms_lines.append(f"${ticker} {score:.1f}/10 → ${strike_str}C exp {exp_fmt} (~{act_wks}wk) @ ${bc['mid']:.2f}")
+                else:
+                    hold_w = rec.get("weeks", 2)
+                    trade_headline = f"BUY ${ticker} STOCK"
+                    trade_sub = f"No liquid call found right now — buy shares, hold ~{hold_w} weeks"
+                    trade_color = "#f59e0b"
+                    sms_lines.append(f"${ticker} {score:.1f}/10 → no liquid calls, buy stock ~{hold_w}wk")
+            else:
+                hold_w = rec.get("hold_weeks", 3)
+                trade_headline = f"BUY ${ticker} STOCK"
+                trade_sub = f"Hold ~{hold_w} weeks — {rec['reason']}"
+                trade_color = "#38bdf8"
+                sms_lines.append(f"${ticker} {score:.1f}/10 → buy stock, hold ~{hold_w}wk")
+
+            top_layers = ", ".join(
+                LAYER_LABELS.get(k, k) for k, v in sorted(layers.items(), key=lambda x: -x[1])[:4] if v
+            )
+            medal = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"#{i+1}")
+            price_str = f"${price:.2f}" if price else "?"
+
+            cards_html += f"""
+            <div style="background:#111827;border:1px solid {tier_color}44;border-left:3px solid {tier_color};border-radius:10px;margin-bottom:14px;overflow:hidden;">
+              <div style="background:#0f172a;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{medal} {ticker}
+                  <span style="font-size:11px;font-weight:500;color:#64748b;margin-left:6px;">{price_str}</span>
+                </span>
+                <span style="display:flex;gap:8px;align-items:center;">
+                  <span style="font-size:10px;font-weight:800;color:{tier_color};background:{tier_color}22;padding:2px 8px;border-radius:4px;letter-spacing:.5px;">{tier}</span>
+                  <span style="font-size:20px;font-weight:900;color:#f1f5f9;">{score:.1f}<span style="font-size:11px;color:#64748b;">/10</span></span>
+                </span>
+              </div>
+              <div style="padding:12px 16px;background:#0d1424;border-bottom:1px solid #1e293b;">
+                <div style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">🎯 What to trade</div>
+                <div style="font-size:16px;font-weight:900;color:{trade_color};">{trade_headline}</div>
+                <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">{trade_sub}</div>
+              </div>
+              <div style="padding:8px 16px;">
+                <span style="font-size:10px;color:#475569;">Layers firing: {top_layers or '—'}</span>
+              </div>
+            </div>"""
+
+        base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
+        n_ext = sum(1 for r in signals if float(r.get("total_pts", 0) or 0) >= 8)
+        n_high = len(signals) - n_ext
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:18px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 Smart Money Pressure — Scored /10</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">L1-L8 money-pressure engine · {n_ext} EXTREME (8+) · {n_high} HIGH (6-7.9) · {date_str}</span>
+          </div>
+          <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
+            Higher score = higher likelihood it works. 8+ → tight ~2-week call · 6-7.9 → call window scaled to days-to-cover · 4-5.9 → stock only.
+          </div>
+          {cards_html}
+          <div style="text-align:center;margin:8px 0 16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#ef4444;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Open Smart Money Pressure →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · Not financial advice. Options carry substantial risk of loss.
+          </p>
+        </div>"""
+
+        subject = f"🔥 Smart Money Pressure: {len(signals)} signal(s) /10 · {date_str}"
+        ok = send_email_raw(_OWNER_EMAIL, subject, html)
+        print(f"[smart_money_email] sent={ok} → {len(signals)} signals ({n_ext} EXTREME / {n_high} HIGH)")
+
+        try:
+            _send_ntfy(
+                f"Smart Money Pressure: {len(signals)} signal(s)",
+                "\n".join(sms_lines),
+                priority="urgent" if n_ext else "high",
+                tags="fire,money_with_wings",
+            )
+        except Exception:
+            pass
+    except Exception as _e:
+        import traceback
+        print(f"[smart_money_email] error: {_e}\n{traceback.format_exc()}")
+
+
 def _send_morning_inflows_email() -> None:
     """
     Morning email with two sections:
@@ -3427,13 +3737,16 @@ def _send_unusual_calls_email() -> None:
         print(f"[unusual_calls_email] error: {_e}\n{traceback.format_exc()}")
 
 
-def _send_microcap_calls_email() -> None:
-    """Email top 5 Small & Growth options flow picks ranked by conviction score."""
+def _send_microcap_calls_email(owner_only: bool = False) -> None:
+    """Email top 5 Small & Growth options flow picks ranked by conviction score.
+
+    owner_only=True sends ONLY to the owner inbox (intraday personal copies)
+    without touching the paying-customer cadence."""
     try:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
         if not smtp_configured():
             return
-        subs = get_active_subscribers()
+        subs = [{"email": _OWNER_EMAIL}] if owner_only else get_active_subscribers()
         if not subs:
             return
 
@@ -3580,13 +3893,16 @@ def _send_microcap_calls_email() -> None:
         print(f"[microcap_calls_email] error: {_e}\n{traceback.format_exc()}")
 
 
-def _send_high_conviction_email() -> None:
-    """Email top 5 High Conviction Calls ranked by composite conviction score."""
+def _send_high_conviction_email(owner_only: bool = False) -> None:
+    """Email top 5 High Conviction Calls ranked by composite conviction score.
+
+    owner_only=True sends ONLY to the owner inbox (intraday personal copies)
+    without touching the paying-customer cadence."""
     try:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
         if not smtp_configured():
             return
-        subs = get_active_subscribers()
+        subs = [{"email": _OWNER_EMAIL}] if owner_only else get_active_subscribers()
         if not subs:
             return
 

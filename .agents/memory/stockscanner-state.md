@@ -159,6 +159,16 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - `news_catalyst_log` — news catalyst SMS alerts (ticker+date unique)
 - `composite_score_history` — daily Composite Score (/10) for the full universe; UNIQUE (scan_date, ticker); cols: scan_date, ticker, score, rating, price, rsi, volume_ratio, price_change_pct, scanned_at
 
+## Owner-personal intraday alert emails (added June 17 2026)
+- **What the owner (Joel) asked for**: he wants to receive emails to HIMSELF (joeldcarlo@gmail.com) every morning AND throughout the day for three alert types — (1) micro/small-cap calls, (2) high-conviction picks, (3) Smart Money Pressure signals scored /10 — WITHOUT increasing what paying customers receive.
+- **Decision: owner_only seam, not a new cadence for customers.** `_send_microcap_calls_email`/`_send_high_conviction_email` take `owner_only=True` → recipients = `[{"email": _OWNER_EMAIL}]` (`_OWNER_EMAIL = ALERT_EMAIL env, default joeldcarlo@gmail.com`). Customer-facing default calls are untouched.
+- **Smart Money Pressure /10 email** (`_send_smart_money_pressure_email`): emails owner every signal ≥6 (EXTREME 8+, HIGH 6-7.9) from the L1-L8 engine, each with a concrete trade next to the score. `_expiry_recommendation(score,dtc)`: 8+ → ~2-wk call; 6-7.9 → call window scaled by days-to-cover; 4-5.9 → stock. `_scan_best_call(ticker,price,target_weeks)` finds a real liquid call biased to that week window; email DISPLAYS the actual expiry weeks (not the target) so headline strike+expiry never contradicts the stated window. Only sends if ≥1 signal ≥6.
+- **Why score→trade matters**: owner explicitly required "show the concrete trade next to the score — specific strike + expiration + buy-call-vs-stock, scaled by score." Do NOT regress this into a bare score list.
+- **Schedule (ET, Mon-Fri)**: smart-money owner emails 10:05/12:00/14:00/15:40 (email only, intraday max_tickers=35) + EOD 16:50 (snapshot+email, max_tickers=60). Owner micro-cap copies 9:50/11:35/13:05/14:35/15:45; owner high-conviction copies 9:52/11:37/13:07/14:37/15:47.
+- **EOD snapshot semantics preserved**: only the 16:50 run persists the conviction-stack track record; intraday runs email-only. `snapshot_conviction_stack(precomputed=...)` reuses one scan for both snapshot + email.
+- **Rate-limit guards**: module `_CONVICTION_SCAN_LOCK` (skip if a scan already running) + `_BEST_CALL_CACHE` (45-min per ticker/target_weeks) so staggered jobs don't re-hammer yfinance.
+- **⚠️ GOES LIVE ONLY ON REPUBLISH.** Code is on main/dev but emails fire only from the published app. Dev sandbox BLOCKS outbound SMTP (port 587) → emails CANNOT be e2e-tested in dev. Scheduler needs always-on Reserved VM (Autoscale spins down → missed jobs). The one action the owner must take: **republish from a computer as a Reserved VM.** (See stockscanner-deployment.md.)
+
 ## ⚠️ CRITICAL: Dev DB ≠ Production DB
 Dev and production use COMPLETELY SEPARATE PostgreSQL databases.
 **Fix**: `POST https://nclexai.org/stock-api/admin/run-eod-scan` — starts scan in background.
