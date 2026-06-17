@@ -1,13 +1,13 @@
 """
-Real-time SMS alerts via Twilio REST API.
-Scans all Barchart feeds + morning inflows cache every 15 min during market hours.
-Fires a text the moment any stock crosses the indicators threshold — no waiting for email.
+Real-time stock alerts delivered by EMAIL.
+Scans the morning inflows cache + live feeds every 15 min during market hours and
+emails the moment any stock crosses the indicators threshold. SMS / Twilio / the
+carrier email-to-text gateway have been fully removed — email (SMTP) is the only
+delivery channel, so nothing can get the sending account flagged or blocked.
 
 Env vars needed:
-  TWILIO_ACCOUNT_SID  — from console.twilio.com
-  TWILIO_AUTH_TOKEN   — from console.twilio.com
-  TWILIO_FROM_NUMBER  — your Twilio phone number  e.g. +15551234567
-  TWILIO_TO_NUMBER    — your cell number          e.g. +15559876543
+  SMTP_USER / SMTP_PASS — Gmail account used to send the alert emails
+  ALERT_EMAIL           — (optional) recipient address; defaults to the owner inbox
 """
 import os
 import psycopg2
@@ -19,15 +19,6 @@ import pytz
 # ── Config ───────────────────────────────────────────────────────────────────
 
 _ET = pytz.timezone("US/Eastern")
-
-_DEFAULT_TO = "+14013185787"
-
-def sms_configured() -> bool:
-    return all([
-        os.getenv("TWILIO_ACCOUNT_SID"),
-        os.getenv("TWILIO_AUTH_TOKEN"),
-        os.getenv("TWILIO_FROM_NUMBER"),
-    ])
 
 
 def _conn():
@@ -112,58 +103,44 @@ def _log_alert(ticker, price, chg_pct, rel_vol, score, reason):
         print(f"[sms_alerts] log error {ticker}: {e}")
 
 
-# ── SMS via email-to-text gateway (primary) ───────────────────────────────────
+# ── Personal alert recipient ──────────────────────────────────────────────────
 
-_SMS_EMAIL_GATEWAY = "4013185787@tmomail.net"  # T-Mobile gateway for +14013185787
-_BACKUP_EMAIL      = "joeldcarlo@gmail.com"    # Gmail backup in case SMS gateway drops it
-
-def _send_sms_via_email(message: str) -> bool:
-    """Send SMS via T-Mobile email-to-text gateway + backup to Gmail."""
-    try:
-        from email_alerts import send_plain_to_gateway, send_email_raw, smtp_configured
-        if not smtp_configured():
-            print("[sms_alerts] SMTP not configured — skipping email-to-SMS")
-            return False
-        # Fire SMS gateway — plain text only (HTML tags render literally in SMS)
-        ok = send_plain_to_gateway(_SMS_EMAIL_GATEWAY, message)
-        if ok:
-            print(f"[sms_alerts] SMS via email gateway sent: {message[:60]}…")
-        # Always send backup email to Gmail regardless of SMS result
-        try:
-            send_email_raw(to=_BACKUP_EMAIL, subject="📈 StockScanner Alert", html=f"<pre style='font-size:16px'>{message}</pre>")
-            print(f"[sms_alerts] Backup email sent to {_BACKUP_EMAIL}")
-        except Exception as be:
-            print(f"[sms_alerts] Backup email error: {be}")
-        return ok
-    except Exception as e:
-        print(f"[sms_alerts] email-to-SMS error: {e}")
-        return False
+_ALERT_EMAIL = os.getenv("ALERT_EMAIL", "joeldcarlo@gmail.com")  # personal alerts delivered here (email-only)
 
 
-# ── Twilio sender (fallback) ───────────────────────────────────────────────────
+# ── Personal alert sender (EMAIL only) ─────────────────────────────────────────
 
 def send_sms(message: str) -> bool:
-    # Primary: email-to-SMS gateway (no carrier registration needed)
-    if _send_sms_via_email(message):
-        return True
-    # Fallback: Twilio
-    sid   = os.getenv("TWILIO_ACCOUNT_SID", "")
-    token = os.getenv("TWILIO_AUTH_TOKEN", "")
-    frm   = os.getenv("TWILIO_FROM_NUMBER", "")
-    to    = os.getenv("TWILIO_TO_NUMBER", "").strip() or _DEFAULT_TO
-    if not all([sid, token, frm, to]):
-        print("[sms_alerts] Twilio not configured — skipping send")
-        return False
+    """
+    Deliver a personal alert to EMAIL.
+
+    Per user preference, every personal alert (morning movers, exits, profit
+    targets, midday/gap/grinder, gamma/insider/dual signals, etc.) is delivered
+    by email — the unreliable carrier SMS gateway is no longer used. Kept named
+    ``send_sms`` so all existing callers keep working unchanged.
+    """
+    import html as _htmlmod
     try:
-        url  = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-        resp = _req.post(url, auth=(sid, token), data={"From": frm, "To": to, "Body": message}, timeout=10)
-        if resp.status_code in (200, 201):
-            print(f"[sms_alerts] SMS via Twilio sent: {message[:60]}…")
-            return True
-        print(f"[sms_alerts] Twilio error {resp.status_code}: {resp.text[:200]}")
-        return False
+        from email_alerts import send_email_raw, smtp_configured
+        if not smtp_configured():
+            print("[sms_alerts] SMTP not configured — cannot email alert")
+            return False
+        first_line = message.strip().split("\n", 1)[0].strip()
+        subject    = first_line[:120] or "📈 StockScanner Alert"
+        body = (
+            "<pre style=\"font-size:16px;line-height:1.45;"
+            "font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
+            "white-space:pre-wrap;margin:0\">"
+            f"{_htmlmod.escape(message)}</pre>"
+        )
+        ok = send_email_raw(to=_ALERT_EMAIL, subject=subject, html=body)
+        if ok:
+            print(f"[sms_alerts] Alert email sent to {_ALERT_EMAIL}: {subject[:60]}")
+        else:
+            print("[sms_alerts] Alert email failed to send")
+        return ok
     except Exception as e:
-        print(f"[sms_alerts] send error: {e}")
+        print(f"[sms_alerts] alert email error: {e}")
         return False
 
 
@@ -352,7 +329,8 @@ def run_sms_alert_scan():
     Checks morning_inflows_cache + fresh Barchart feeds.
     Texts when a stock hits your indicators threshold for the first time today.
     """
-    if not sms_configured():
+    from email_alerts import smtp_configured
+    if not smtp_configured():
         return
 
     now_et = datetime.now(_ET)
@@ -791,7 +769,8 @@ def run_exit_alert_scan():
     Checks stocks alerted today — if any break below VWAP, fires an exit text.
     Only one exit alert per ticker per day.
     """
-    if not sms_configured():
+    from email_alerts import smtp_configured
+    if not smtp_configured():
         return
 
     now_et = datetime.now(_ET)

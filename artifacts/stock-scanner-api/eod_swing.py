@@ -290,13 +290,6 @@ def send_swing_sms(picks: list[dict]) -> None:
     if not picks:
         return
 
-    import os as _os
-    sid   = _os.getenv("TWILIO_ACCOUNT_SID")
-    token = _os.getenv("TWILIO_AUTH_TOKEN")
-    from_ = _os.getenv("TWILIO_FROM_NUMBER")
-    if not all([sid, token, from_]):
-        return
-
     lines = [f"🌙 PRE-CLOSE SWINGS ({len(picks)})"]
     for p in picks:
         pcr_str = f"PCR {p['pcr']}" if p["pcr"] is not None else ""
@@ -311,18 +304,13 @@ def send_swing_sms(picks: list[dict]) -> None:
     lines.append("Exit: next-day close. Stop: below 3d low.")
     body = "\n".join(lines)
 
-    # Primary: T-Mobile gateway
-    to_numbers = ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]
-    for to in to_numbers:
-        try:
-            _req.post(
-                f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
-                auth=(sid, token),
-                data={"From": from_, "To": to, "Body": body},
-                timeout=10,
-            )
-        except Exception as e:
-            print(f"[eod_swing] SMS error to {to}: {e}")
+    # Personal alert (email only)
+    try:
+        from email_alerts import send_email_raw as _ser, smtp_configured as _smc
+        if _smc():
+            _ser("joeldcarlo@gmail.com", f"🌙 Pre-Close Swings ({len(picks)})", f"<pre>{body}</pre>")
+    except Exception as e:
+        print(f"[eod_swing] email error: {e}")
 
 
 # ── Email builder ─────────────────────────────────────────────────────────────

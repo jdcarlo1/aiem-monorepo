@@ -1,35 +1,43 @@
 ---
-name: SMS delivery solution
-description: Email-to-SMS gateway bypasses Twilio A2P 10DLC carrier blocking for US numbers
+name: Alert delivery channel
+description: Personal alerts are EMAIL-ONLY; Twilio + carrier SMS gateway fully removed and why
 ---
 
-# SMS Delivery: Email-to-SMS Gateway
+# Alert Delivery: Email-Only
 
 ## The Rule
-Use ntfy.sh push notification as primary method, email gateway as secondary, Twilio as last resort.
+Personal owner alerts (morning movers, exits, profit targets, midday/gap/grinder,
+gamma/insider/dual signals, EOD conviction, pre-close swings) are delivered ONLY by
+email (SMTP via `email_alerts.send_email_raw`). Twilio REST and the carrier
+email-to-text gateway (`*@tmomail.net`) have been fully stripped out. ntfy.sh push
+still exists as an optional extra channel.
 
-**Why:** Twilio error 30034 (A2P 10DLC carrier blocking) permanently blocks regular SMS to T-Mobile numbers. Email-to-SMS gateway (tmomail.net) works but gets rate-throttled if >3 messages sent in quick succession (resets overnight). ntfy.sh bypasses all carrier filtering entirely.
+**Why:** Twilio A2P 10DLC (error 30034) permanently blocks SMS to the owner's
+T-Mobile number, and the tmomail gateway is unreliable/rate-throttled and risks
+getting the Gmail sending account flagged. Email is the one channel that reliably
+lands.
 
-## Primary: ntfy.sh Push Notification
-- Topic: `stockscanner-joel-9x7k2`
-- API: POST to `https://ntfy.sh/stockscanner-joel-9x7k2`
-- Headers: Title (ASCII only — no emoji), Priority (urgent/high), Tags
-- Body: plain text, UTF-8 encoded
-- User has ntfy app installed and subscribed to topic — CONFIRMED WORKING
-- **Important:** Do NOT put emoji in the Title header — causes latin-1 UnicodeEncodeError. Emoji are fine in body/Tags.
+## The trap that hid the breakage (important)
+The SMS path was once "confirmed working" — but that was a **manual one-off test
+only**. Scheduled production alerts were NEVER delivering, because the morning and
+exit scan functions opened with a delivery-channel availability gate
+(`if not sms_configured(): return`, a Twilio env-var check). When Twilio wasn't
+configured/healthy the scan bailed *before* sending anything — not even the backup
+email. 
 
-## Secondary: Email-to-SMS Gateway
-- Recipient: +14013185787 (T-Mobile, confirmed)
-- Gateway address: 4013185787@tmomail.net
-- Works for single daily message; throttled after burst sends (resets overnight)
-- msg.t-mobile.com is INVALID — do not use
+**Lesson:** never gate scan/compute logic on the availability of a *specific*
+delivery channel. Gate on whether the channel you actually use is configured
+(here: `smtp_configured()`), or don't gate at all and let the sender no-op. A
+channel-availability check sitting in front of the work means switching channels
+silently disables the whole feature until you also move the gate.
 
-## Last Resort: Twilio
-- Permanently blocked (error 30034) for 10-digit long codes to T-Mobile
-- Toll-free number would bypass this but requires Twilio setup
+## Still true
+- ntfy.sh push: topic `stockscanner-joel-9x7k2`; do NOT put emoji in the ntfy
+  Title header (latin-1 UnicodeEncodeError) — emoji are fine in body/Tags.
+- Owner email recipient defaults to the owner inbox; overridable via `ALERT_EMAIL`.
+- SMTP sends now carry a 20s timeout so a hung connection can't freeze a scan.
 
-## Carrier Gateways Reference
-- T-Mobile: number@tmomail.net
-- Verizon: number@vtext.com
-- AT&T: number@txt.att.net
-- Sprint: number@messaging.sprintpcs.com
+## Deployment caveat
+Code changes only reach production on republish (owner must do it from a computer),
+and the scheduler only fires reliably on an always-on Reserved VM — so this
+email switch is inert in prod until the owner republishes as Reserved VM.

@@ -25,7 +25,7 @@ from sms_alerts import (init_sms_log_table, init_exit_log_table,
                         run_sms_alert_scan, run_exit_alert_scan,
                         run_midday_breakout_scan, run_gap_recovery_scan,
                         run_steady_grinder_scan,
-                        send_sms, sms_configured)
+                        send_sms)
 from options_sweep import init_call_sweep_log_table, run_call_sweep_scan
 from news_catalyst import init_news_catalyst_log, run_news_catalyst_scan
 import execution
@@ -1756,8 +1756,8 @@ def _send_ai_short_calls_high_conviction(picks: list) -> None:
     """
     try:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
-        from sms_alerts import send_sms, sms_configured
-        if not smtp_configured() and not sms_configured():
+        from sms_alerts import send_sms
+        if not smtp_configured():
             print("[ai_hc_alert] no email or SMS configured — skipping")
             return
 
@@ -1765,8 +1765,8 @@ def _send_ai_short_calls_high_conviction(picks: list) -> None:
         date_str = _dt.now().strftime("%b %d")
         time_str = _dt.now().strftime("%-I:%M %p ET")
 
-        # ── SMS (brief — one line per pick) ──────────────────────────────────
-        if sms_configured():
+        # ── Personal brief alert (email) — one line per pick ─────────────────
+        if smtp_configured():
             lines = [f"⚡ HIGH CONVICTION CALLS ({date_str}) — {len(picks)} picks:"]
             for p in picks:
                 otm = f"{p.get('otm_pct', 0):+.1f}%OTM"
@@ -1953,33 +1953,25 @@ def _save_and_send_conviction_snapshot() -> None:
         extreme  = [r for r in alert_picks if r["conviction"] == "EXTREME"]
         high     = [r for r in alert_picks if r["conviction"] == "HIGH"]
 
-        # ── SMS ───────────────────────────────────────────────────────────────
-        sid   = os.getenv("TWILIO_ACCOUNT_SID")
-        token = os.getenv("TWILIO_AUTH_TOKEN")
-        from_ = os.getenv("TWILIO_FROM_NUMBER")
-        if sid and token and from_:
-            lines = [f"🔥 EOD CONVICTION ({date_str})"]
-            if extreme:
-                lines.append("EXTREME: " + " · ".join(
-                    f"{r['ticker']} ${r['total_prem_m']:.1f}M {r['max_vol_oi']}x"
-                    for r in extreme[:5]
-                ))
-            if high:
-                lines.append("HIGH: " + " · ".join(
-                    f"{r['ticker']} ${r['total_prem_m']:.1f}M {r['max_vol_oi']}x"
-                    for r in high[:3]
-                ))
-            lines.append("See HIGH CONVICTION tab for full breakdown.")
-            sms_body = "\n".join(lines)
-            for to in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
-                try:
-                    _rq.post(
-                        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
-                        auth=(sid, token), timeout=10,
-                        data={"From": from_, "To": to, "Body": sms_body},
-                    )
-                except Exception as _se:
-                    print(f"[conviction_snapshot] SMS error to {to}: {_se}")
+        # ── Personal alert (email) ─────────────────────────────────────────────
+        lines = [f"🔥 EOD CONVICTION ({date_str})"]
+        if extreme:
+            lines.append("EXTREME: " + " · ".join(
+                f"{r['ticker']} ${r['total_prem_m']:.1f}M {r['max_vol_oi']}x"
+                for r in extreme[:5]
+            ))
+        if high:
+            lines.append("HIGH: " + " · ".join(
+                f"{r['ticker']} ${r['total_prem_m']:.1f}M {r['max_vol_oi']}x"
+                for r in high[:3]
+            ))
+        lines.append("See HIGH CONVICTION tab for full breakdown.")
+        sms_body = "\n".join(lines)
+        try:
+            from email_alerts import send_email_raw as _ser
+            _ser("joeldcarlo@gmail.com", f"🔥 EOD Conviction — {date_str}", f"<pre>{sms_body}</pre>")
+        except Exception as _se:
+            print(f"[conviction_snapshot] email error: {_se}")
 
         _send_ntfy(
             f"🔥 EOD Conviction: {len(extreme)} EXTREME · {len(high)} HIGH · {date_str}",
@@ -2276,12 +2268,11 @@ def _check_whale_hc_crossover() -> None:
                 f"Both long-term whale + short-term smart money bullish on {ticker}"
             )
 
-            for gateway in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
-                try:
-                    from email_alerts import send_plain_to_gateway as _spg
-                    _spg(gateway, msg) if "tmomail" in gateway else send_email_raw(gateway, f"🔥🐋 DUAL SIGNAL: ${ticker}", f"<pre>{msg}</pre>")
-                except Exception as _se:
-                    print(f"[whale_hc] SMS send error to {gateway}: {_se}")
+            try:
+                from email_alerts import send_email_raw as _ser
+                _ser("joeldcarlo@gmail.com", f"🔥🐋 DUAL SIGNAL: ${ticker}", f"<pre>{msg}</pre>")
+            except Exception as _se:
+                print(f"[whale_hc] email send error: {_se}")
 
             print(f"[whale_hc] 🔥🐋 SMS sent for {ticker}: ${prem_m:.1f}M whale + {conv_label}")
 
@@ -2754,44 +2745,13 @@ def _send_top_pick_email() -> None:
         )
         print(f"[top_pick] ntfy push sent")
 
-        # Primary: email-to-SMS gateway (T-Mobile) + email copy
-        _gw_sent = False
-        for _gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
-            try:
-                import smtplib as _smtplib
-                from email.mime.multipart import MIMEMultipart as _MMAP
-                from email.mime.text import MIMEText as _MTXT
-                from email_alerts import _smtp_cfg as _scfg
-                _cfg = _scfg()
-                _msg = _MMAP("alternative")
-                _msg["Subject"] = subject
-                _msg["From"]    = f'StockScanner AI <{_cfg["user"]}>'
-                _msg["To"]      = _gw
-                _msg.attach(_MTXT(sms_body, "plain"))
-                with _smtplib.SMTP(_cfg["host"], _cfg["port"]) as _srv:
-                    _srv.starttls()
-                    _srv.login(_cfg["user"], _cfg["password"])
-                    _srv.sendmail(_cfg["user"], [_gw], _msg.as_string())
-                if "tmomail" in _gw:
-                    _gw_sent = True
-                    print(f"[top_pick] SMS gateway sent → {_gw}")
-            except Exception as _se:
-                print(f"[top_pick] SMS gateway error to {_gw}: {_se}")
-
-        # Fallback: Twilio direct SMS if gateway didn't confirm send
-        if not _gw_sent:
-            try:
-                from twilio.rest import Client as _TwClient
-                _tw_sid  = os.getenv("TWILIO_ACCOUNT_SID", "")
-                _tw_tok  = os.getenv("TWILIO_AUTH_TOKEN", "")
-                _tw_from = os.getenv("TWILIO_FROM_NUMBER", "")
-                _tw_to   = "+14013185787"  # confirmed T-Mobile number
-                if _tw_sid and _tw_tok and _tw_from and _tw_to:
-                    _tw = _TwClient(_tw_sid, _tw_tok)
-                    _tw.messages.create(body=sms_body[:1500], from_=_tw_from, to=_tw_to)
-                    print("[top_pick] SMS sent via Twilio fallback")
-            except Exception as _te:
-                print(f"[top_pick] Twilio fallback error: {_te}")
+        # Email copy of the top pick
+        try:
+            from email_alerts import send_email_raw as _ser
+            _ser("joeldcarlo@gmail.com", subject, f"<pre>{sms_body}</pre>")
+            print("[top_pick] email sent")
+        except Exception as _se:
+            print(f"[top_pick] email error: {_se}")
 
     except Exception as _e:
         import traceback
@@ -5390,15 +5350,10 @@ def _send_morning_gamma_watchlist_sms() -> None:
         lines += ["", "Stop: below pre-market low | Target: +8-15%"]
         msg = "\n".join(lines)
 
-        for gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
-            try:
-                from email_alerts import send_plain_to_gateway as _spg2
-                if "tmomail" in gw:
-                    _spg2(gw, msg)
-                else:
-                    send_email_raw(gw, f"⚡ Squeeze Radar {day_str}", f"<pre>{msg}</pre>")
-            except Exception as _e:
-                print(f"[morning_watchlist] send error {gw}: {_e}")
+        try:
+            send_email_raw("joeldcarlo@gmail.com", f"⚡ Squeeze Radar {day_str}", f"<pre>{msg}</pre>")
+        except Exception as _e:
+            print(f"[morning_watchlist] email error: {_e}")
 
         print(f"[morning_watchlist] sent — OI:{len(oi_sigs)} buildup + {len(rows)} call surge + {len(extreme_setups)} conviction setups for {day_str}")
     except Exception as e:
@@ -5567,16 +5522,11 @@ def _run_gamma_pressure_scan() -> list:
             f"Score: {r['score']:.1f} — delta cascade in progress. GET IN NOW."
         )
         try:
-            from email_alerts import send_plain_to_gateway as _spg3
-            for gw in ["4013185787@tmomail.net", "joeldcarlo@gmail.com"]:
-                if "tmomail" in gw:
-                    _spg3(gw, msg)
-                else:
-                    send_email_raw(gw, f"⚡ GAMMA SQUEEZE ${t}  FIR:{r['fir']:.1f}%", f"<pre>{msg}</pre>")
+            send_email_raw("joeldcarlo@gmail.com", f"⚡ GAMMA SQUEEZE ${t}  FIR:{r['fir']:.1f}%", f"<pre>{msg}</pre>")
             already.add(t)
             sms_sent.append(t)
         except Exception as _se:
-            print(f"[gamma_pressure] SMS error {t}: {_se}")
+            print(f"[gamma_pressure] email error {t}: {_se}")
 
     _gamma_alerted_today[today] = already
 
@@ -14869,7 +14819,7 @@ def squeeze_setup():
 
 @app.route("/stock-api/squeeze-setup/ai-signal", methods=["POST"])
 def squeeze_ai_signal():
-    """AI conviction analysis for squeeze + low-float setups with optional Twilio SMS."""
+    """AI conviction analysis for squeeze + low-float setups with optional email alert."""
     import os, json, re, sys
     from openai import OpenAI
 
@@ -14941,15 +14891,9 @@ Return ONLY valid JSON, no markdown:
         signals = parsed.get("signals", [])
 
         sms_sent = []
-        t_sid   = os.getenv("TWILIO_ACCOUNT_SID")
-        t_token = os.getenv("TWILIO_AUTH_TOKEN")
-        t_from  = os.getenv("TWILIO_FROM_NUMBER")
-        t_to    = os.getenv("TWILIO_TO_NUMBER")
-
-        if all([t_sid, t_token, t_from, t_to]):
-            try:
-                from twilio.rest import Client as TwilioClient
-                tw       = TwilioClient(t_sid, t_token)
+        try:
+            from email_alerts import send_email_raw as _ser, smtp_configured as _smc
+            if _smc():
                 critical = [s for s in signals if s.get("signal") in ("CRITICAL", "HIGH")][:3]
                 for sig in critical:
                     row = next((r for r in rows if r["ticker"] == sig["ticker"]), {})
@@ -14960,10 +14904,10 @@ Return ONLY valid JSON, no markdown:
                         f"Float: {row.get('float_m','?')}M shares | {row.get('rel_vol',0):.1f}x vol\n"
                         f"{sig['thesis'][:160]}"
                     )
-                    tw.messages.create(body=msg, from_=t_from, to=t_to)
+                    _ser("joeldcarlo@gmail.com", f"🔥 {sig['signal']} — {sig['ticker']}", f"<pre>{msg}</pre>")
                     sms_sent.append(sig["ticker"])
-            except Exception as sms_err:
-                print(f"[squeeze_ai] SMS error: {sms_err}", file=sys.stderr, flush=True)
+        except Exception as sms_err:
+            print(f"[squeeze_ai] email error: {sms_err}", file=sys.stderr, flush=True)
 
         return jsonify({"signals": signals, "sms_sent": sms_sent})
 
