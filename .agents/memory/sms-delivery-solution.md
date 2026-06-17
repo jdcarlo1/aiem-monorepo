@@ -17,19 +17,25 @@ T-Mobile number, and the tmomail gateway is unreliable/rate-throttled and risks
 getting the Gmail sending account flagged. Email is the one channel that reliably
 lands.
 
-## The trap that hid the breakage (important)
-The SMS path was once "confirmed working" — but that was a **manual one-off test
-only**. Scheduled production alerts were NEVER delivering, because the morning and
-exit scan functions opened with a delivery-channel availability gate
-(`if not sms_configured(): return`, a Twilio env-var check). When Twilio wasn't
-configured/healthy the scan bailed *before* sending anything — not even the backup
-email. 
+## What was actually happening in prod (corrected)
+The owner HAS been receiving alerts as **backup emails** every morning. The old
+live `send_sms()` tried the carrier email-to-text gateway (`*@tmomail.net`) first,
+and only when that gateway dropped the message did it fall back to emailing the
+owner's Gmail. Because the carrier keeps dropping the text, the backup email fires —
+so the emails landing in the inbox ARE the real alerts working via fallback. Do NOT
+claim alerts "went silent" or "never delivered"; that was an incorrect diagnosis.
+(Twilio IS configured in prod, so `sms_configured()` returned True and the scans did
+NOT bail.)
 
-**Lesson:** never gate scan/compute logic on the availability of a *specific*
-delivery channel. Gate on whether the channel you actually use is configured
-(here: `smtp_configured()`), or don't gate at all and let the sender no-op. A
-channel-availability check sitting in front of the work means switching channels
-silently disables the whole feature until you also move the gate.
+The new email-only version removes the texting attempt entirely so it emails the
+owner directly every time — no carrier-gateway step that drops messages or risks
+flagging the Gmail sender.
+
+**Design lesson that still holds:** don't gate scan/compute logic on a *different*
+channel than the one you actually send through. The old scans gated on
+`sms_configured()` (Twilio) while delivery happened via the email gateway+backup —
+a latent trap (removing Twilio would have bailed the scan even though email works).
+Gate on the channel you use (`smtp_configured()`) or don't gate at all.
 
 ## Still true
 - ntfy.sh push: topic `stockscanner-joel-9x7k2`; do NOT put emoji in the ntfy
