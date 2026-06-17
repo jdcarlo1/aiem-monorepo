@@ -11900,9 +11900,9 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   const [saved, setSaved]     = useState<Record<string, boolean>>({});
 
   // Per-section min thresholds (in $M for small, $K for nano/micro)
-  const [nanoMin,  setNanoMin]  = useState<0.05 | 0.2 | 0.5>(0.2);   // $50K / $200K / $500K
-  const [microMin, setMicroMin] = useState<0.2 | 0.5 | 1>(0.5);      // $200K / $500K / $1M
-  const [smallMin, setSmallMin] = useState<2 | 5 | 10>(5);            // $2M / $5M / $10M
+  const [nanoMin,  setNanoMin]  = useState<0.05 | 0.2 | 0.5>(0.05);  // $50K / $200K / $500K
+  const [microMin, setMicroMin] = useState<0.2 | 0.5 | 1>(0.2);      // $200K / $500K / $1M
+  const [smallMin, setSmallMin] = useState<2 | 5 | 10>(2);           // $2M / $5M / $10M
 
   const handleSave = async (e: React.MouseEvent, row: NetFlowRow, tier: string) => {
     e.stopPropagation();
@@ -12018,6 +12018,10 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
     thresholds: number[]; thresholdLabels: string[];
   }) => {
     const filtered = rows.filter(r => r.net_m >= minVal);
+    const label = thresholdLabels[thresholds.indexOf(minVal)];
+    // Never show an empty section when positive-inflow stocks exist: fall back to the largest few.
+    const fallback = filtered.length === 0 && rows.length > 0;
+    const display = filtered.length > 0 ? filtered : rows.slice(0, 6);
     return (
       <div className="space-y-3">
         {/* Section header */}
@@ -12047,13 +12051,19 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
           </div>
         </div>
 
-        {filtered.length === 0 && lastRun && (
-          <div className="text-center py-8 text-slate-600 text-sm">
-            No {title.toLowerCase()} stocks above {thresholdLabels[thresholds.indexOf(minVal)]} right now
+        {fallback && lastRun && (
+          <div className="text-center pt-2 pb-1 text-slate-500 text-xs">
+            {rows.length} {title.toLowerCase()} {rows.length === 1 ? "stock has" : "stocks have"} inflow below your {label}+ filter — showing the largest
           </div>
         )}
 
-        {filtered.map(row => <FlowCard key={row.ticker} row={row} tier={title} />)}
+        {display.length === 0 && lastRun && (
+          <div className="text-center py-8 text-slate-600 text-sm">
+            No {title.toLowerCase()} stocks with net inflow right now
+          </div>
+        )}
+
+        {display.map(row => <FlowCard key={row.ticker} row={row} tier={title} />)}
       </div>
     );
   };

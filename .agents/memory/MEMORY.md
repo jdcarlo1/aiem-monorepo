@@ -13,3 +13,4 @@
 - [Bulk scan must run in-process](bulk-scan-in-process.md) — detached bg processes get reaped between tool calls & fresh procs hit yfinance rate limits; long scans run as a daemon thread inside the always-on stock-api
 - [StockScanner prod deployment](stockscanner-deployment.md) — prod MUST be Reserved VM not Autoscale (scheduler+daemon scans need always-on); user changes type in Publish pane; dev/prod DBs separate, prod read-only
 - [Micro/small-cap calls tab](microcap-calls-tab.md) — $2B ceiling enforced twice; Finviz-meta gate (no per-name yfinance) + rotating shard sweep the ~2,200 universe; thresholds deliberately low (leverage); per-scan ceiling = Yahoo rate limit
+- [Net Flow tab display rule](netflow-tab-display.md) — tier sections must never render empty when positive rows exist; thresholds are display filters, default to lowest + fall back to top rows
