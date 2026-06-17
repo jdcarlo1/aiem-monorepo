@@ -12035,7 +12035,7 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
               <p className="text-slate-400 text-xs mt-0.5">{subtitle}</p>
             </div>
             {lastRun && (
-              <span className="text-slate-600 text-xs shrink-0">{filtered.length} stocks</span>
+              <span className="text-slate-600 text-xs shrink-0">{display.length} stocks</span>
             )}
           </div>
           <div className="flex gap-1.5">
@@ -12407,7 +12407,7 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const { data, loading, warming, refreshing, error, lastRun, run } = useMicrocapFlow();
   const [saved, setSaved]     = useState<Record<string, boolean>>({});
-  const [midMin, setMidMin]   = useState<5 | 10 | 20>(10);   // $5M / $10M / $20M
+  const [midMin, setMidMin]   = useState<5 | 10 | 20>(5);    // $5M / $10M / $20M
 
   const handleSave = async (e: React.MouseEvent, row: NetFlowRow) => {
     e.stopPropagation();
@@ -12439,6 +12439,9 @@ function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 
   const rows = data?.mid ?? [];
   const filtered = rows.filter(r => r.net_m >= midMin);
+  // Never show an empty section when positive-inflow rows exist: fall back to the largest few.
+  const fallback = filtered.length === 0 && rows.length > 0;
+  const display  = filtered.length > 0 ? filtered : rows.slice(0, 6);
 
   return (
     <div className="space-y-6">
@@ -12461,7 +12464,7 @@ function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         </div>
         {lastRun && (
           <p className="text-slate-600 text-xs">
-            Scanned {data?.scanned ?? 473} stocks · {lastRun.toLocaleTimeString()} · {filtered.length} mid-caps above threshold
+            Scanned {data?.scanned ?? 473} stocks · {lastRun.toLocaleTimeString()} · {rows.length} mid-caps with net inflow
             {refreshing && <span className="text-amber-400 animate-pulse"> · ⚙ refreshing…</span>}
           </p>
         )}
@@ -12509,7 +12512,7 @@ function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
                 </div>
                 <p className="text-slate-400 text-xs mt-0.5">Above $2B — institutions accumulate here before analyst upgrades and price targets</p>
               </div>
-              <span className="text-slate-600 text-xs shrink-0">{filtered.length} stocks</span>
+              <span className="text-slate-600 text-xs shrink-0">{display.length} stocks</span>
             </div>
             <div className="flex gap-1.5">
               {([5, 10, 20] as const).map((v, i) => (
@@ -12524,15 +12527,21 @@ function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
             </div>
           </div>
 
-          {filtered.length === 0 && (
+          {fallback && (
+            <div className="text-center pt-2 pb-1 text-slate-500 text-xs">
+              {rows.length} mid-cap {rows.length === 1 ? "stock has" : "stocks have"} inflow below your ${midMin}M+ filter — showing the largest
+            </div>
+          )}
+
+          {display.length === 0 && (
             <div className="text-center py-8 text-slate-600 text-sm">
-              No mid-cap stocks above ${midMin}M net inflow right now
+              No mid-cap stocks with net inflow right now
             </div>
           )}
 
           {/* Cards */}
           <div className="space-y-3">
-            {filtered.map(row => {
+            {display.map(row => {
               const pctIn    = row.total_vol_m > 0 ? (row.inflow_m / row.total_vol_m * 100) : 50;
               const isSaved  = saved[row.ticker];
               const isStrong = row.flow_ratio >= 1.5;
