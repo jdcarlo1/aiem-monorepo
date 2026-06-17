@@ -29,20 +29,43 @@ universe into `morning_inflows`.**
    Yahoo day_gainers) — a handful of HTTP requests return the movers across an
    entire tier — instead of polling thousands of tickers individually.
 
-## The durable fix (paid)
+## The durable fix (paid) — CHOSEN: Alpaca (June 2026)
 The real ceiling is the **data source**, not the code. A real-time market-data API
 with a **full-market snapshot** endpoint (one call returns price/%chg/volume for
-every US stock) removes the per-ticker polling entirely:
-- **Polygon.io** (most accessible for a retail scanner; ~$29/mo Starter for
-  real-time snapshots + websocket), Databento, IQFeed/DTN, Alpaca.
+every US stock) removes the per-ticker polling entirely.
+- Candidates were Polygon.io, Databento, IQFeed/DTN, Alpaca. **User chose Alpaca.**
+- Alpaca needs the **paid data tier** ("Algo Trader Plus", ~$99/mo) for the full
+  US SIP feed; the **free tier is IEX-only (~3% of volume)** and is NOT enough.
+- No Replit integration exists for Alpaca → plain **API Key ID + Secret Key**
+  stored via the environment-secrets skill (never in code).
 - The "snapshot all tickers" call covers every cap tier at once → micro/small
   coverage becomes trivial and rate-limit failures disappear.
 
+### Why Alpaca specifically (the conviction-score goal)
+User's real driver is an **accurate smart-money-pressure / L1-L8 conviction score**
+across the *whole* market, not just feed breadth. Alpaca uniquely adds, beyond a
+snapshot feed:
+- **Real OPRA/OCC open interest** on far more strikes/tickers than patchy Yahoo,
+  with no rate-limit choke → better Vol/OI signal at scale.
+- **A live options trade tape + bid/ask quotes** → enables true **aggressor-side**
+  (at-ask = buyer/bullish, at-bid = seller) + **sweep** detection — the *intraday*
+  half of smart-money pressure Yahoo snapshots can't give.
+- **Greeks/IV** for the gamma- and float-pressure layers.
+
+### Hard domain truth — OI is once-a-day (don't let anyone "fix" this)
+Open interest is published by the OCC **after end-of-day clearing**, available next
+pre-market. **No live/intraday OI exists anywhere** (not Alpaca, not anyone) —
+intraday you only see *volume*. The app already handles this right: 4:30 PM EOD OI
+snapshot + 8:30 AM pre-market refresh, then **Vol vs OI** is the "new positions
+opening" signal. Alpaca upgrades OI *quality + breadth*, NOT *freshness*. Reject any
+plan premised on "live OI."
+
 **Why:** user repeatedly hit missed-mover incidents caused by yfinance throttling
-and blind spots; on June 16 2026 we established the polling ceiling and that the
-fix is a snapshot feed, not more tickers in the loop.
+and blind spots; on June 16 2026 we established the polling ceiling, and in June
+2026 the user committed to Alpaca to power an accurate conviction score market-wide.
 
 **How to apply:** when asked to widen coverage (more tickers/cap tiers), don't grow
-the polling universe — either (a) use screener calls for live breadth, or (b)
-propose the Polygon snapshot path. Reserve per-ticker `history()` for a bounded,
-high-conviction watchlist.
+the polling universe — either (a) use screener calls for live breadth, or (b) build
+the Alpaca path. Sequence after the Reserved-VM republish; it rewires the data layer
+(18k-line main.py) so plan it (architect) before coding. Reserve per-ticker
+`history()` for a bounded, high-conviction watchlist.
