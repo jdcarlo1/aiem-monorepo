@@ -1132,6 +1132,8 @@ export interface UnusualCall {
   otm_pct: number;
   iv: number;
   urgency: "EXPIRING" | "NEAR" | "SHORT";
+  first_seen?: string;
+  detected_label?: string;
   is_etf?: boolean;
 }
 

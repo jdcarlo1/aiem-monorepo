@@ -2774,6 +2774,10 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                         background: "rgba(96,165,250,0.12)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.3)" }}>ETF</span>}
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
                         background: urg.bg, color: urg.color, border: `1px solid ${urg.border}` }}>{urg.label}</span>
+                      {h.detected_label && <span title="Day this flow was first detected" style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                        background: h.detected_label === "Today" ? "rgba(34,197,94,0.12)" : "rgba(148,163,184,0.1)",
+                        color: h.detected_label === "Today" ? "#4ade80" : "#94a3b8",
+                        border: `1px solid ${h.detected_label === "Today" ? "rgba(34,197,94,0.3)" : "rgba(148,163,184,0.25)"}` }}>📅 {h.detected_label}</span>}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                       <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${h.strike} strike</span>

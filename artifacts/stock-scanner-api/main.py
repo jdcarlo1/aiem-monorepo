@@ -5131,9 +5131,32 @@ def _init_unusual_calls_log_table():
         print(f"[unusual_calls_log] init table error: {e}")
 
 
+def _detected_label(dt_val) -> str:
+    """Human, ET-based label for when an unusual-call signal was first detected:
+    'Today', 'Yesterday', or e.g. 'Jun 15'. Lets each card show the day the big
+    flow first appeared without the user having to ask."""
+    if not dt_val:
+        return ""
+    try:
+        from datetime import datetime as __dt
+        _et = dt_val.astimezone(_ET_TZ) if getattr(dt_val, "tzinfo", None) else dt_val
+        _delta = (__dt.now(_ET_TZ).date() - _et.date()).days
+        if _delta <= 0:
+            return "Today"
+        if _delta == 1:
+            return "Yesterday"
+        return _et.strftime("%b %-d")
+    except Exception:
+        return ""
+
+
 def _save_unusual_calls_to_db(hits: list):
     if not hits:
         return
+    # RETURNING first_seen lets us stamp each hit in-place with the day the flow
+    # was FIRST detected (first_seen is preserved across upserts; only last_seen
+    # advances). The endpoint shares these dict objects with its JSON response, so
+    # this is what surfaces the date on each card.
     sql = """
     INSERT INTO unusual_calls_log (ticker, price, strike, expiry, days_out, volume, oi, vol_oi, prem, otm_pct, iv, urgency)
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -5147,7 +5170,8 @@ def _save_unusual_calls_to_db(hits: list):
             otm_pct  = EXCLUDED.otm_pct,
             iv       = EXCLUDED.iv,
             urgency  = EXCLUDED.urgency,
-            last_seen = NOW();
+            last_seen = NOW()
+    RETURNING first_seen;
     """
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -5157,6 +5181,10 @@ def _save_unusual_calls_to_db(hits: list):
                     h["days_out"], h["volume"], h["oi"], h["vol_oi"],
                     h["prem"], h["otm_pct"], h["iv"], h["urgency"]
                 ))
+                _row = cur.fetchone()
+                if _row and _row[0] is not None:
+                    h["first_seen"]     = _row[0].isoformat()
+                    h["detected_label"] = _detected_label(_row[0])
             conn.commit()
         print(f"[unusual_calls_log] saved {len(hits)} signals to DB")
     except Exception as e:
@@ -13130,7 +13158,7 @@ def unusual_calls():
                 _pre_cur.execute("""
                     SELECT ticker, price::float, strike::float, expiry, days_out,
                            volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                           iv::float, urgency
+                           iv::float, urgency, first_seen
                     FROM unusual_calls_log
                     WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                       AND expiry::date > CURRENT_DATE
@@ -13140,11 +13168,14 @@ def unusual_calls():
                 """)
                 _today_rows = _pre_cur.fetchall()
             if len(_today_rows) >= 5:
-                _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency"]
+                _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
                 all_hits = []
                 for _row in _today_rows:
                     _d = dict(zip(_cols, _row))
                     _d["is_etf"] = _d["ticker"] in _ETF_SET
+                    _fs = _d.get("first_seen")
+                    _d["detected_label"] = _detected_label(_fs)
+                    _d["first_seen"] = _fs.isoformat() if _fs else None
                     all_hits.append(_d)
                 out = {"hits": all_hits, "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
                 app._unusual_calls_cache    = out
@@ -13176,26 +13207,32 @@ def unusual_calls():
                     _cur.execute("""
                         SELECT ticker, price::float, strike::float, expiry, days_out,
                                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                               iv::float, urgency
+                               iv::float, urgency, first_seen
                         FROM unusual_calls_log
                         WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                           AND vol_oi >= 3
                           AND prem >= 100000
                         ORDER BY vol_oi DESC LIMIT 80
                     """)
-                    _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency"]
+                    _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
                     for _row in _cur.fetchall():
                         _d = dict(zip(_cols, _row))
                         _d["is_etf"] = _d["ticker"] in _ETF_SET
+                        _fs = _d.get("first_seen")
+                        _d["detected_label"] = _detected_label(_fs)
+                        _d["first_seen"] = _fs.isoformat() if _fs else None
                         all_hits.append(_d)
             except Exception:
                 pass
 
+        # Save FIRST so each hit dict is stamped in-place with first_seen /
+        # detected_label, THEN build + cache out — otherwise a concurrent request
+        # could read a cached response before the date badges are attached.
+        if all_hits:
+            _save_unusual_calls_to_db(all_hits)
         out = {"hits": all_hits[:80], "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
         app._unusual_calls_cache    = out
         app._unusual_calls_cache_ts = _dt.now()
-        if all_hits:
-            _save_unusual_calls_to_db(all_hits)
         return jsonify(out)
 
 
