@@ -17,4 +17,6 @@ Evidence: same scanner code captured 19 names in always-on dev vs only 4 in Auto
 
 **Symptom → diagnosis:** If prod shows empty tabs + healthcheck 500 floods + repeated scheduler restarts in deployment logs, the deployment is on Autoscale — tell the user to switch to Reserved VM.
 
+**The wake-up email catch-up CANNOT substitute for an always-on VM.** The `@app.before_request` catch-up only fires when a visitor hits the site. With no traffic at scan time (e.g. 9:35 AM ET), an Autoscale instance is asleep, the scheduler never runs, and the catch-up never triggers → the real-time alert is permanently missed (user only gets a late, collapsed email when they next open the app). Confirmed June 17 2026: zero deployment logs 8:40–10:00 AM ET (server asleep) → a +275% SNBR morning alert never sent. Only Reserved VM fixes timed sends.
+
 **Dev vs prod databases are SEPARATE.** Cleaning/curating the dev DB does NOT change the live app. The production DB is read-only from the agent side (`executeSql` with `environment:"production"` allows SELECT only), so prod data cannot be manually populated — it only fills from the deployed app's own scans. The fix for empty prod data is to make the deployment reliable (VM) so its scans run, not manual inserts.
