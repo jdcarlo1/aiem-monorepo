@@ -177,11 +177,17 @@ description: Full state of the StockScanner AI product — landing page, Stripe,
 - **Accepted tradeoff (claim-before-send)**: a rare transient SMTP failure consumes that slot without an email, BUT the next window's slot resends a fresh email, so it self-heals within a window — never an all-day loss. Deliberately did NOT build a pending/sent/failed retry state machine: it's untestable in dev (SMTP blocked) and would add more risk than it removes for a stopgap.
 - **smart_money in catch-up** runs the L1-L8 engine; serialized via `_CONVICTION_SCAN_LOCK` (skip if busy — another scan will send). Catch-up does NOT snapshot the track record (snapshot stays scheduler-EOD-only); the owner still gets the email, just not the snapshot, if on Autoscale.
 
+### News-catalyst wake-up backup (added June 17 2026) — same Autoscale stopgap
+- **Purpose**: morning NEWS CATALYST emails fire 9:31–10:30 ET, but a sleeping Autoscale server misses them (owner got an OCUL catalyst email at 10:44 instead of 9:31). Second `@app.before_request` hook `_news_catchup_on_wake` runs a fresh news scan on ANY request, weekdays, 9:31–16:00 ET, throttled 5 min, in a daemon thread via `_news_run_due_scan` (non-blocking `_NEWS_CATCHUP_LOCK`). Manual/test: `GET|POST /stock-api/admin/news-catchup`.
+- **⚠️ CRITICAL gotcha**: `run_news_catalyst_scan()` self-gates to 9:31–10:30 ET and returns `[]` outside it. Any catch-up/backup caller MUST pass `force=True` or it silently no-ops (was the original bug — admin endpoint returned `{"status":"ok"}` while scanning nothing). The scan math keys off `now_et`, so a forced late scan just measures 9:30→now; the per-ticker `news_catalyst_log` dedup makes re-runs safe (only NEW catalysts email). Weekends still skip even with force.
+- **Security note (accepted)**: `/stock-api/admin/news-catchup` is unauthenticated, matching the existing `/stock-api/admin/owner-catchup` convention; the before_request hook already triggers the scan publicly by design, and the lock (held for the scan's full ~60s) + dedup naturally rate-limit abuse. Not worth a bespoke auth scheme for a personal tool.
+
 ## ⚠️ CRITICAL: Dev DB ≠ Production DB
 Dev and production use COMPLETELY SEPARATE PostgreSQL databases.
 **Fix**: `POST https://nclexai.org/stock-api/admin/run-eod-scan` — starts scan in background.
 
 ## Key design decisions
+- **Heavy /stock-api endpoints (>~30s scan) MUST be stale-while-revalidate, never synchronous.** Pattern: serve cache instantly; if stale, return it with `refreshing:true` + kick a single-flight bg worker (process-local non-blocking `Lock` + `_generating` flag, initialized at startup so two cold requests can't each spawn a scan); if cold, return `{warming:true, <empty buckets>, scanned:0}` immediately. Frontend polls every ~7s while `warming||refreshing`. **Why:** a synchronous scan blows past the iOS/proxy ~60s timeout → WebKit shows "Load failed" (this was the Micro/Mid Net Flow bug); far worse on Autoscale where in-memory caches wipe on sleep, so the FIRST request after wake always cold-scans. Route scheduler prewarm through the SAME worker so prewarm + on-demand can't double-scan yfinance.
 - Default tab on load is "lookup" (Stock Lookup)
 - BB_BG="#060c14", BB_PANEL="#0b1320", accent green="#22c55e", monospace terminal font
 - yfinance multi-ticker column order: `df[ticker][metric]` NOT `df[metric][ticker]`

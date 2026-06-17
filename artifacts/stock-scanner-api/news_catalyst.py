@@ -241,18 +241,24 @@ def _get_scan_universe() -> list:
 
 # ── Main scan entry point ─────────────────────────────────────────────────────
 
-def run_news_catalyst_scan() -> list:
+def run_news_catalyst_scan(force: bool = False) -> list:
     """
     Runs in parallel to the ICS scan during the morning window (9:31–10:30 ET).
     Sends a DIFFERENT SMS labeled '📰 NEWS CATALYST' so the user always knows
     which scanner fired.  Never modifies ICS state.
+
+    force=True bypasses the 9:31–10:30 time gate so the wake-up backup can still
+    catch a monster mover later in the day (e.g. the server was asleep all morning
+    and the owner opens the app at 10:44). Safe because the per-ticker dedup log
+    still blocks duplicate alerts and the intraday math below keys off `now_et`, so
+    a later scan simply measures 9:30 → now. Weekends are always skipped.
     """
     now_et = dt.datetime.now(dt.timezone.utc).astimezone(_ET)
 
     if now_et.weekday() >= 5:
         return []
     total_min = now_et.hour * 60 + now_et.minute
-    if not (9 * 60 + 31 <= total_min <= 10 * 60 + 30):
+    if not force and not (9 * 60 + 31 <= total_min <= 10 * 60 + 30):
         return []
 
     with _NC_LOCK:

@@ -1745,6 +1745,8 @@ export interface NetFlowMicrocapResult {
   mid:     NetFlowRow[];
   unknown: NetFlowRow[];
   scanned: number;
+  warming?:    boolean;  // no cache yet — server is running the first scan
+  refreshing?: boolean;  // serving last good scan while a fresh one runs
 }
 
 export interface NetFlowSingleResult {

@@ -78,6 +78,43 @@ def _owner_catchup_on_wake():
         pass
 
 
+_last_news_catchup_ts = 0.0
+
+
+@app.before_request
+def _news_catchup_on_wake():
+    """Backup for the NEWS CATALYST alert emails. The scheduled news scans run
+    9:31–10:30 ET, but on Autoscale a sleeping server misses them — the owner saw a
+    catalyst email land at 10:44 instead of in the 9:31 window. So when ANY request
+    wakes the server during the trading day, fire a fresh news-catalyst scan in the
+    background. run_news_catalyst_scan dedupes per-ticker via its own log table, so a
+    re-run only ever emails NEW catalysts — never a duplicate. Throttled + non-blocking
+    so it never slows a request; harmless on a Reserved VM (the dedup log guards it
+    against the real-time scheduler)."""
+    global _last_news_catchup_ts
+    try:
+        if request.method == "OPTIONS" or request.path == "/stock-api/admin/news-catchup":
+            return
+        from datetime import datetime as _dt_nw
+        _now_et = _dt_nw.now(_ET_TZ)
+        if _now_et.weekday() >= 5:                       # weekdays only
+            return
+        _cur_min = _now_et.hour * 60 + _now_et.minute
+        # From the first scheduled slot (9:31) through the close (16:00 ET). A monster
+        # news mover is still worth catching at 11am or 1pm if the morning was missed.
+        if _cur_min < 9 * 60 + 31 or _cur_min > 16 * 60:
+            return
+        import time as _t_nw
+        _now_ts = _t_nw.time()
+        if _now_ts - _last_news_catchup_ts < 300:        # at most once every 5 min
+            return
+        _last_news_catchup_ts = _now_ts
+        import threading as _th_nw
+        _th_nw.Thread(target=_news_run_due_scan, daemon=True).start()
+    except Exception:
+        pass
+
+
 _NTFY_TOPIC = "stockscanner-joel-9x7k2"
 
 def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell") -> bool:
@@ -124,6 +161,14 @@ import threading as _threading
 app._sm_cache: dict = {}          # key = frozen sorted ticker tuple → {"result": ..., "ts": datetime}
 app._sm_cache_lock = _threading.Lock()
 _SM_CACHE_TTL_SECS = 1200        # 20 minutes
+
+# Micro/mid net-flow cache + single-flight guard (see net_flow_microcap / _nfmc_worker).
+# Initialized at startup so two concurrent cold requests can't each lazily create a
+# separate lock and then both run the heavy ~60-90s scan.
+app._nfmc_cache = None
+app._nfmc_cache_ts = None
+app._nfmc_generating = False
+app._nfmc_lock = _threading.Lock()
 
 # ── init DB & scheduler ──────────────────────────────────────────────────────
 init_db()
@@ -221,6 +266,10 @@ _CONVICTION_SCAN_LOCK = _threading.Lock()
 # Serializes the wake-up catch-up so two simultaneous requests can't split the
 # due slots between threads and each send a "collapsed" email for the same window.
 _OWNER_CATCHUP_LOCK = _threading.Lock()
+# Serializes the news-catalyst wake-up scan so two wakes can't run overlapping
+# scans (which would hammer the news/quote sources). Dedup is handled inside
+# run_news_catalyst_scan's own log table.
+_NEWS_CATCHUP_LOCK = _threading.Lock()
 # Short-lived cache of the best liquid call per (ticker, target_weeks) so the
 # staggered intraday emails don't re-scan the same option chains within an hour.
 _BEST_CALL_CACHE = {}
@@ -720,10 +769,11 @@ try:
     # Micro-cap net flow pre-warm: every 30 min during market hours (9:45 AM – 3:30 PM ET)
     def _run_microcap_prewarm():
         try:
-            from datetime import datetime as _dt
-            out = _run_microcap_flow_scan()
-            app._nfmc_cache    = out
-            app._nfmc_cache_ts = _dt.now()
+            # Route through the same locked single-flight worker the endpoint uses
+            # so a prewarm and an on-demand refresh can never run two heavy scans
+            # at once (which would double yfinance load and risk rate limits).
+            _nfmc_worker()
+            out = getattr(app, "_nfmc_cache", None) or {}
             positive = len(out.get("micro", [])) + len(out.get("small", []))
             print(f"[scheduler] micro-cap pre-warm → scanned {out.get('scanned', 0)} tickers, {positive} micro/small positive")
         except Exception as e:
@@ -4231,6 +4281,25 @@ def _owner_run_due_emails() -> dict:
         return {"status": "error", "error": str(_e)}
     finally:
         _OWNER_CATCHUP_LOCK.release()
+
+
+def _news_run_due_scan() -> dict:
+    """Wake-up backup for the NEWS CATALYST alerts: run one news-catalyst scan now.
+    run_news_catalyst_scan keeps its own per-ticker dedup log, so this only ever
+    emails NEW catalysts — safe to call repeatedly. Serialized so two simultaneous
+    wakes can't run overlapping scans against the news/quote sources."""
+    if not _NEWS_CATCHUP_LOCK.acquire(blocking=False):
+        return {"status": "busy"}
+    try:
+        # force=True so the catch-up still scans AFTER the 9:31–10:30 window
+        # (the whole point: the morning slots were missed while asleep). Per-ticker
+        # dedup means only NEW catalysts get emailed.
+        hits = run_news_catalyst_scan(force=True)
+        return {"status": "ok", "alerts": len(hits) if hits else 0}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+    finally:
+        _NEWS_CATCHUP_LOCK.release()
 
 
 # ─── Position Monitor: email-in trade logging + exit signal system ─────────────
@@ -8681,35 +8750,60 @@ def _run_microcap_flow_scan() -> dict:
     }
 
 
-@app.route("/stock-api/net-flow/microcap", methods=["POST"])
-def net_flow_microcap():
-    """Net equity flow scan for the dynamic micro-cap universe (200-400 tickers).
-
-    Results are pre-cached every 30 min by the scheduler during market hours.
-    Cache TTL is 30 min; first cold load takes ~40-90 s depending on ticker count.
-    """
+def _nfmc_worker():
+    """Background worker: run the micro-cap flow scan and refresh the cache.
+    Guarded by a non-blocking lock so only one scan ever runs at a time (the
+    scan is yfinance-heavy and we must not stack concurrent runs)."""
     from datetime import datetime as _dt
-
     if not hasattr(app, "_nfmc_lock"):
         app._nfmc_lock = threading.Lock()
-
-    _CACHE_TTL = 1800  # 30 minutes
-
-    _cache = getattr(app, "_nfmc_cache", None)
-    _ts    = getattr(app, "_nfmc_cache_ts", None)
-    if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
-        return jsonify(_cache)
-
-    with app._nfmc_lock:
-        _cache = getattr(app, "_nfmc_cache", None)
-        _ts    = getattr(app, "_nfmc_cache_ts", None)
-        if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
-            return jsonify(_cache)
-
+    if not app._nfmc_lock.acquire(blocking=False):
+        return  # another scan is already running
+    try:
+        app._nfmc_generating = True
         out = _run_microcap_flow_scan()
         app._nfmc_cache    = out
         app._nfmc_cache_ts = _dt.now()
-        return jsonify(out)
+    except Exception as _e:
+        print(f"[net_flow_microcap] background scan error: {_e}")
+    finally:
+        app._nfmc_generating = False
+        app._nfmc_lock.release()
+
+
+@app.route("/stock-api/net-flow/microcap", methods=["POST"])
+def net_flow_microcap():
+    """Return the micro-cap net-flow scan INSTANTLY; refresh in the background.
+
+    The scan spans 470+ tickers and takes ~40-90 s. Running it synchronously
+    blocks the request past the mobile proxy's timeout, so the phone aborts the
+    fetch and shows 'Load failed' even though the server eventually finishes.
+    Stale-while-revalidate fixes that: serve the last good scan immediately and
+    kick off a background refresh whenever the cache is stale or cold. The
+    scheduler's 30-min pre-warm writes the same cache, so on a Reserved VM this
+    is almost always a warm, instant hit.
+    """
+    from datetime import datetime as _dt
+    import threading as _thr
+
+    _CACHE_TTL = 1800  # 30 minutes
+    _cache = getattr(app, "_nfmc_cache", None)
+    _ts    = getattr(app, "_nfmc_cache_ts", None)
+    _gen   = getattr(app, "_nfmc_generating", False)
+    _stale = not (_ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL)
+
+    if _stale and not _gen:
+        _thr.Thread(target=_nfmc_worker, daemon=True).start()
+
+    if _cache:
+        return jsonify({**_cache, **({"refreshing": True} if _stale else {})})
+
+    return jsonify({
+        "warming": True,
+        "micro": [], "small": [], "nano": [], "mid": [], "unknown": [],
+        "scanned": 0,
+        "error": "First scan is warming up — checking 470+ stocks takes about a minute. This updates on its own.",
+    })
 
 
 @app.route("/stock-api/net-flow/microcap/tickers", methods=["GET"])
@@ -13718,6 +13812,15 @@ def admin_owner_catchup():
     owner emails that were due but haven't gone out yet, deduped via owner_email_log.
     Returns what was sent/claimed."""
     return jsonify(_owner_run_due_emails())
+
+
+@app.route("/stock-api/admin/news-catchup", methods=["GET", "POST"])
+def admin_news_catchup():
+    """Manually run the NEWS CATALYST catch-up scan (the same backup that fires
+    automatically on any request via the before_request hook). Runs a fresh news
+    scan now; run_news_catalyst_scan's per-ticker log dedupes so only NEW catalysts
+    are emailed. Returns the scan status."""
+    return jsonify(_news_run_due_scan())
 
 
 @app.route("/stock-api/eod-sweep-track-record", methods=["GET"])

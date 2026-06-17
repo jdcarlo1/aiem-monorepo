@@ -11839,32 +11839,66 @@ function NetFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
 
 // ---- Micro-Cap Net Flow Tab ----------------------------------------------
 
+// Shared data hook for both the Cap-Size and Mid-Cap net-flow tabs.
+// The /net-flow/microcap endpoint is non-blocking: it returns instantly with
+// the last good scan and refreshes in the background. When the cache is cold it
+// replies { warming: true } (no data yet); when stale it replies the old data
+// with { refreshing: true }. In both cases we poll every 7s until fresh results
+// arrive — so the mobile app never hangs on a 60-90s scan or shows "Load failed".
+function useMicrocapFlow() {
+  const [data, setData]             = useState<NetFlowMicrocapResult | null>(null);
+  const [loading, setLoading]       = useState(false);
+  const [warming, setWarming]       = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [lastRun, setLastRun]       = useState<Date | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPoll = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  };
+
+  const apply = (d: NetFlowMicrocapResult) => {
+    const isWarming    = !!d.warming;
+    const isRefreshing = !!d.refreshing;
+    setWarming(isWarming);
+    setRefreshing(isRefreshing);
+    if (!isWarming) {
+      setData(d);
+      setLastRun(new Date());
+    }
+    if (isWarming || isRefreshing) {
+      if (!pollRef.current) {
+        pollRef.current = setInterval(async () => {
+          try { apply(await fetchNetFlowMicrocap()); }
+          catch { /* keep polling — transient network blip */ }
+        }, 7000);
+      }
+    } else {
+      stopPoll();
+    }
+  };
+
+  const run = async () => {
+    setLoading(true); setError(null);
+    try { apply(await fetchNetFlowMicrocap()); }
+    catch (e: any) { setError(e.message ?? "Scan failed"); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { run(); return () => stopPoll(); }, []);
+
+  return { data, loading, warming, refreshing, error, lastRun, run };
+}
+
 function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-  const [data, setData]       = useState<NetFlowMicrocapResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const { data, loading, warming, refreshing, error, lastRun, run } = useMicrocapFlow();
   const [saved, setSaved]     = useState<Record<string, boolean>>({});
 
   // Per-section min thresholds (in $M for small, $K for nano/micro)
   const [nanoMin,  setNanoMin]  = useState<0.05 | 0.2 | 0.5>(0.2);   // $50K / $200K / $500K
   const [microMin, setMicroMin] = useState<0.2 | 0.5 | 1>(0.5);      // $200K / $500K / $1M
   const [smallMin, setSmallMin] = useState<2 | 5 | 10>(5);            // $2M / $5M / $10M
-
-  const run = async () => {
-    setLoading(true); setError(null);
-    try {
-      const d = await fetchNetFlowMicrocap();
-      setData(d);
-      setLastRun(new Date());
-    } catch (e: any) {
-      setError(e.message ?? "Scan failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { run(); }, []);
 
   const handleSave = async (e: React.MouseEvent, row: NetFlowRow, tier: string) => {
     e.stopPropagation();
@@ -12045,9 +12079,10 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         {lastRun && (
           <p className="text-slate-600 text-xs">
             Scanned {data?.scanned ?? 473} stocks · {lastRun.toLocaleTimeString()} · {totalFound} with positive net inflow
+            {refreshing && <span className="text-amber-400 animate-pulse"> · ⚙ refreshing…</span>}
           </p>
         )}
-        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+        {error && !warming && <p className="text-red-400 text-sm mt-2">{error}</p>}
       </div>
 
       {/* Key callout */}
@@ -12057,8 +12092,20 @@ function NetFlowMicrocapTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         </p>
       </div>
 
+      {/* Warming state — first scan of the day is running on the server */}
+      {warming && !data && (
+        <div className="bg-amber-950/20 border border-amber-800/40 rounded-xl p-6 text-center">
+          <div className="flex items-center justify-center gap-2 text-amber-300 font-semibold">
+            <Spinner /> Warming up the scanner…
+          </div>
+          <div className="text-slate-400 text-sm mt-2">
+            First scan checks 470+ stocks across every cap size — about a minute. Results appear here automatically, no need to tap anything.
+          </div>
+        </div>
+      )}
+
       {/* Cold state */}
-      {!loading && !lastRun && !error && (
+      {!loading && !warming && !lastRun && !error && (
         <div className="text-center py-20 text-slate-500">
           <div className="text-5xl mb-4">🔬</div>
           <div className="font-semibold text-slate-400 mb-1">Scan 473+ stocks across all cap sizes</div>
@@ -12344,27 +12391,9 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 // ---- Net Flow Mid-cap Tab -----------------------------------------------
 
 function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-  const [data, setData]       = useState<NetFlowMicrocapResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const { data, loading, warming, refreshing, error, lastRun, run } = useMicrocapFlow();
   const [saved, setSaved]     = useState<Record<string, boolean>>({});
   const [midMin, setMidMin]   = useState<5 | 10 | 20>(10);   // $5M / $10M / $20M
-
-  const run = async () => {
-    setLoading(true); setError(null);
-    try {
-      const d = await fetchNetFlowMicrocap();
-      setData(d);
-      setLastRun(new Date());
-    } catch (e: any) {
-      setError(e.message ?? "Scan failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { run(); }, []);
 
   const handleSave = async (e: React.MouseEvent, row: NetFlowRow) => {
     e.stopPropagation();
@@ -12419,9 +12448,10 @@ function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         {lastRun && (
           <p className="text-slate-600 text-xs">
             Scanned {data?.scanned ?? 473} stocks · {lastRun.toLocaleTimeString()} · {filtered.length} mid-caps above threshold
+            {refreshing && <span className="text-amber-400 animate-pulse"> · ⚙ refreshing…</span>}
           </p>
         )}
-        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+        {error && !warming && <p className="text-red-400 text-sm mt-2">{error}</p>}
       </div>
 
       {/* Callout */}
@@ -12431,8 +12461,20 @@ function NetFlowMidcapTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         </p>
       </div>
 
+      {/* Warming state — first scan of the day is running on the server */}
+      {warming && !data && (
+        <div className="bg-cyan-950/20 border border-cyan-800/40 rounded-xl p-6 text-center">
+          <div className="flex items-center justify-center gap-2 text-cyan-300 font-semibold">
+            <Spinner /> Warming up the scanner…
+          </div>
+          <div className="text-slate-400 text-sm mt-2">
+            First scan checks 470+ stocks — about a minute. Results appear here automatically, no need to tap anything.
+          </div>
+        </div>
+      )}
+
       {/* Cold state */}
-      {!loading && !lastRun && !error && (
+      {!loading && !warming && !lastRun && !error && (
         <div className="text-center py-20 text-slate-500">
           <div className="text-5xl mb-4">🏢</div>
           <div className="font-semibold text-slate-400 mb-1">Scan mid-cap stocks by net flow</div>
