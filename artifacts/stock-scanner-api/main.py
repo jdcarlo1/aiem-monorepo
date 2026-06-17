@@ -51,6 +51,33 @@ def _no_store_api(resp):
     return resp
 
 
+_last_owner_catchup_ts = 0.0
+
+
+@app.before_request
+def _owner_catchup_on_wake():
+    """Backup for Autoscale (which sleeps and misses scheduled emails): when ANY
+    request wakes this server — e.g. the owner opens the site in the morning — fire
+    the catch-up in the background so today's due-but-unsent owner emails go out.
+    Throttled + non-blocking so it never slows a request. Harmless on a Reserved VM:
+    the owner_email_log claims dedupe it against the real-time scheduler."""
+    global _last_owner_catchup_ts
+    try:
+        # Skip CORS preflights and the manual catch-up endpoint (which runs the
+        # catch-up itself) so we never double-trigger the same window.
+        if request.method == "OPTIONS" or request.path == "/stock-api/admin/owner-catchup":
+            return
+        import time as _t_bw
+        _now_bw = _t_bw.time()
+        if _now_bw - _last_owner_catchup_ts < 120:
+            return
+        _last_owner_catchup_ts = _now_bw
+        import threading as _th_bw
+        _th_bw.Thread(target=_owner_run_due_emails, daemon=True).start()
+    except Exception:
+        pass
+
+
 _NTFY_TOPIC = "stockscanner-joel-9x7k2"
 
 def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell") -> bool:
@@ -191,10 +218,24 @@ _OWNER_EMAIL = os.getenv("ALERT_EMAIL", "joeldcarlo@gmail.com")
 # once and trip yfinance rate limits.
 import threading as _threading
 _CONVICTION_SCAN_LOCK = _threading.Lock()
+# Serializes the wake-up catch-up so two simultaneous requests can't split the
+# due slots between threads and each send a "collapsed" email for the same window.
+_OWNER_CATCHUP_LOCK = _threading.Lock()
 # Short-lived cache of the best liquid call per (ticker, target_weeks) so the
 # staggered intraday emails don't re-scan the same option chains within an hour.
 _BEST_CALL_CACHE = {}
 _BEST_CALL_TTL = 2700  # seconds (45 min)
+
+# Canonical owner-email schedule (ET, Mon-Fri). Shared by the real-time
+# APScheduler jobs AND the wake-up catch-up (_owner_run_due_emails) so both paths
+# claim the same owner_email_log slots and can never double-send. The EOD
+# smart-money slot is separate because that run also snapshots the track record.
+_OWNER_EMAIL_SCHEDULE = {
+    "microcap":        [(9, 50), (11, 35), (13, 5), (14, 35), (15, 45)],
+    "high_conviction": [(9, 52), (11, 37), (13, 7), (14, 37), (15, 47)],
+    "smart_money":     [(10, 5), (12, 0), (14, 0), (15, 40)],
+}
+_EOD_SMART_MONEY_SLOT = (16, 50)
 
 
 def _init_conviction_stack_watchlist():
@@ -1578,72 +1619,67 @@ try:
             replace_existing=True,
         )
 
-    # ── TOP SCORE 8+ (L1-L8 money-pressure) snapshot + owner Smart-Money email ──
-    # EOD (16:50) AFTER the EOD OI snapshot (16:30): persist today's EXTREME (8+)
-    # cohort for the track record AND email the owner. Intraday runs ONLY email the
-    # owner the live /10 Smart-Money-Pressure signals (EXTREME 8+ and HIGH 6-7.9,
-    # each with a concrete call/stock trade) — they do NOT snapshot, so the
-    # next-open track record stays a single clean EOD capture.
-    # Outcomes (next-open 1-4 wk stock returns) at 9:52 AM + 17:05 ET daily.
-    def _run_conviction_stack(do_snapshot: bool, max_tickers: int = CONVICTION_STACK_MAX):
-        def _worker():
-            if not _CONVICTION_SCAN_LOCK.acquire(blocking=False):
-                print("[scheduler] conviction scan already running — skipping this trigger")
-                return
+    # ── Owner-personal alert emails: micro/small-cap calls, high-conviction picks,
+    # and /10 Smart-Money-Pressure signals (EXTREME 8+ / HIGH 6-7.9, each with a
+    # concrete strike+expiry or stock trade). These go ONLY to the owner inbox;
+    # paying customers keep their existing cadence untouched.
+    # Every fire claims its (kind, slot, today) row in owner_email_log BEFORE
+    # sending. The wake-up catch-up (_owner_run_due_emails, fired on any request)
+    # claims the same rows, so the two paths can NEVER double-send a slot — even
+    # side-by-side on a Reserved VM. Intraday smart-money is email-only; the EOD
+    # 16:50 run additionally snapshots the L1-L8 track record (one engine run).
+    def _owner_scheduled_fire(kind, slot):
+        def _w():
             try:
-                results = _run_five_layer_conviction(max_tickers=max_tickers)
-                if do_snapshot:
-                    try:
-                        snapshot_conviction_stack(precomputed=results)
-                    except Exception as _e_snap:
-                        print(f"[scheduler] conviction-stack snapshot error: {_e_snap}")
-                _send_smart_money_pressure_email(results=results)
-            except Exception as _e_run:
-                print(f"[scheduler] conviction-stack run error: {_e_run}")
+                if _owner_claim_slot(kind, slot):
+                    _owner_send_now(kind)
+                else:
+                    print(f"[owner_email] {kind}/{slot} already sent today — skip")
+            except Exception as _e_of:
+                print(f"[owner_email] scheduled fire error {kind}/{slot}: {_e_of}")
+        import threading as _t_of
+        _t_of.Thread(target=_w, daemon=True).start()
+
+    for _kind, _slots in _OWNER_EMAIL_SCHEDULE.items():
+        for (_h, _m) in _slots:
+            _slot = f"{_h:02d}:{_m:02d}"
+            _scheduler.add_job(
+                (lambda k=_kind, s=_slot: _owner_scheduled_fire(k, s)),
+                CronTrigger(day_of_week="mon-fri", hour=_h, minute=_m, timezone=_ET),
+                id=f"owner_email_{_kind}_{_slot}",
+                replace_existing=True,
+            )
+
+    # EOD 16:50: one engine run → snapshot the L1-L8 track record + email the owner.
+    def _run_eod_conviction_snapshot():
+        def _w():
+            got = _CONVICTION_SCAN_LOCK.acquire(timeout=120)
+            if not got:
+                print("[scheduler] EOD conviction: scan lock busy — proceeding unguarded")
+            try:
+                results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
+                try:
+                    snapshot_conviction_stack(precomputed=results)
+                except Exception as _e_snap:
+                    print(f"[scheduler] EOD snapshot error: {_e_snap}")
+                _eod_slot = f"{_EOD_SMART_MONEY_SLOT[0]:02d}:{_EOD_SMART_MONEY_SLOT[1]:02d}"
+                if _owner_claim_slot("smart_money", _eod_slot):
+                    _send_smart_money_pressure_email(results=results)
+            except Exception as _e_eod:
+                print(f"[scheduler] EOD conviction run error: {_e_eod}")
             finally:
-                _CONVICTION_SCAN_LOCK.release()
-        import threading as _thr_css
-        _thr_css.Thread(target=_worker, daemon=True).start()
-    # EOD: snapshot the track record + email the owner
+                if got:
+                    _CONVICTION_SCAN_LOCK.release()
+        import threading as _t_eod
+        _t_eod.Thread(target=_w, daemon=True).start()
     _scheduler.add_job(
-        lambda: _run_conviction_stack(do_snapshot=True),
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=50, timezone=_ET),
+        _run_eod_conviction_snapshot,
+        CronTrigger(day_of_week="mon-fri",
+                    hour=_EOD_SMART_MONEY_SLOT[0], minute=_EOD_SMART_MONEY_SLOT[1],
+                    timezone=_ET),
         id="conviction_stack_snapshot",
         replace_existing=True,
     )
-    # Intraday: owner-only Smart-Money-Pressure emails (morning + throughout day)
-    for _smp_h, _smp_m in [(10, 5), (12, 0), (14, 0), (15, 40)]:
-        _scheduler.add_job(
-            lambda: _run_conviction_stack(do_snapshot=False, max_tickers=35),
-            CronTrigger(day_of_week="mon-fri", hour=_smp_h, minute=_smp_m, timezone=_ET),
-            id=f"smart_money_email_{_smp_h}_{_smp_m}",
-            replace_existing=True,
-        )
-
-    # ── Owner-only intraday copies: micro/small-cap calls + high-conviction ─────
-    # Paying customers keep their existing 2x/day cadence untouched; these extra
-    # runs go ONLY to the owner inbox so he sees fresh calls throughout the day.
-    # Both are cheap DB reads (no extra yfinance load).
-    def _run_owner_microcap():
-        import threading as _t_mc
-        _t_mc.Thread(target=lambda: _send_microcap_calls_email(owner_only=True), daemon=True).start()
-    def _run_owner_hc():
-        import threading as _t_hc
-        _t_hc.Thread(target=lambda: _send_high_conviction_email(owner_only=True), daemon=True).start()
-    for _oc_h, _oc_m in [(9, 50), (11, 35), (13, 5), (14, 35), (15, 45)]:
-        _scheduler.add_job(
-            _run_owner_microcap,
-            CronTrigger(day_of_week="mon-fri", hour=_oc_h, minute=_oc_m, timezone=_ET),
-            id=f"owner_microcap_{_oc_h}_{_oc_m}",
-            replace_existing=True,
-        )
-    for _oh_h, _oh_m in [(9, 52), (11, 37), (13, 7), (14, 37), (15, 47)]:
-        _scheduler.add_job(
-            _run_owner_hc,
-            CronTrigger(day_of_week="mon-fri", hour=_oh_h, minute=_oh_m, timezone=_ET),
-            id=f"owner_hc_{_oh_h}_{_oh_m}",
-            replace_existing=True,
-        )
 
     def _run_conviction_stack_outcomes():
         try:
@@ -4079,6 +4115,122 @@ def _send_high_conviction_email(owner_only: bool = False) -> None:
     except Exception as _e:
         import traceback
         print(f"[hc_calls_email] error: {_e}\n{traceback.format_exc()}")
+
+
+# ─── Owner-email catch-up: backup that sends due-but-unsent owner emails ───────
+# A stopgap for Autoscale deployments (which sleep and miss the cron jobs) until
+# the app is republished as an always-on Reserved VM. owner_email_log gives every
+# (kind, slot, today) an atomic single-claim, shared by the real-time scheduler
+# AND this catch-up, so a given slot's email fires at most once per day no matter
+# how many instances / requests / visits happen.
+
+def _init_owner_email_log():
+    import psycopg2 as _pg2
+    try:
+        with _pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS owner_email_log (
+                    id        SERIAL PRIMARY KEY,
+                    kind      TEXT NOT NULL,
+                    slot      TEXT NOT NULL,
+                    sent_date DATE NOT NULL,
+                    sent_at   TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE (kind, slot, sent_date)
+                )
+            """)
+            _c.commit()
+        print("[owner_email_log] table ready")
+    except Exception as _e:
+        print(f"[owner_email_log] init error: {_e}")
+
+_init_owner_email_log()
+
+
+def _owner_claim_slot(kind: str, slot: str) -> bool:
+    """Atomically claim (kind, slot, today-ET). Returns True if WE claimed it (the
+    caller should send), False if it was already sent/claimed today (skip). This is
+    the single dedup gate shared by the scheduler and the wake-up catch-up."""
+    import psycopg2 as _pg2
+    from datetime import datetime as _dt
+    today = _dt.now(_ET_TZ).date()
+    try:
+        with _pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute(
+                "INSERT INTO owner_email_log (kind, slot, sent_date) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (kind, slot, sent_date) DO NOTHING",
+                (kind, slot, today),
+            )
+            claimed = _cur.rowcount > 0
+            _c.commit()
+        return claimed
+    except Exception as _e:
+        print(f"[owner_email_log] claim error {kind}/{slot}: {_e}")
+        return False
+
+
+def _owner_send_now(kind: str) -> None:
+    """Send ONE owner email of the given kind right now. Micro-cap and
+    high-conviction are cheap DB reads; smart-money runs the L1-L8 engine, so it is
+    serialized through the conviction scan lock to avoid yfinance rate limits."""
+    if kind == "microcap":
+        _send_microcap_calls_email(owner_only=True)
+    elif kind == "high_conviction":
+        _send_high_conviction_email(owner_only=True)
+    elif kind == "smart_money":
+        # The engine run must be serialized. If a scan is already running (it will
+        # send its own email), skip rather than launch a second concurrent scan and
+        # worsen yfinance rate limits.
+        if not _CONVICTION_SCAN_LOCK.acquire(timeout=90):
+            print("[owner_email] smart_money scan lock busy — skipping (another scan will send)")
+            return
+        try:
+            _send_smart_money_pressure_email(results=None)
+        finally:
+            _CONVICTION_SCAN_LOCK.release()
+
+
+def _owner_run_due_emails() -> dict:
+    """Wake-up backup. For each owner-email kind, claim every slot whose ET time has
+    already passed today and, if at least one was newly claimed, send a SINGLE
+    current email (so visiting at 3pm sends one fresh email, not a backlog of five).
+    The shared owner_email_log claims mean a Reserved VM's real-time scheduler never
+    double-sends. Weekends and pre-first-slot mornings are no-ops."""
+    from datetime import datetime as _dt
+    # Serialize: if another wake-up is already running the catch-up, bail so we
+    # don't split the due slots across threads and send two collapsed emails.
+    if not _OWNER_CATCHUP_LOCK.acquire(blocking=False):
+        return {"status": "busy"}
+    out = {}
+    try:
+        now = _dt.now(_ET_TZ)
+        if now.weekday() >= 5:
+            return {"status": "weekend", "et_time": now.strftime("%a %H:%M")}
+        cur_min = now.hour * 60 + now.minute
+        schedule = dict(_OWNER_EMAIL_SCHEDULE)
+        schedule["smart_money"] = list(schedule.get("smart_money", [])) + [_EOD_SMART_MONEY_SLOT]
+        for kind, slots in schedule.items():
+            newly = 0
+            latest = None
+            for (h, m) in slots:
+                if h * 60 + m <= cur_min:
+                    slot = f"{h:02d}:{m:02d}"
+                    latest = slot
+                    if _owner_claim_slot(kind, slot):
+                        newly += 1
+            if newly > 0:
+                try:
+                    _owner_send_now(kind)
+                    out[kind] = f"sent (caught up {newly} slot(s), latest {latest})"
+                except Exception as _e_send:
+                    out[kind] = f"error: {_e_send}"
+            else:
+                out[kind] = "nothing due or already sent"
+        return {"status": "ok", "et_time": now.strftime("%a %H:%M"), "detail": out}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+    finally:
+        _OWNER_CATCHUP_LOCK.release()
 
 
 # ─── Position Monitor: email-in trade logging + exit signal system ─────────────
@@ -13557,6 +13709,15 @@ def admin_run_eod_scan():
                    "Call /stock-api/eod-sweeps?bust=1 afterwards to see fresh data.",
         "tickers": len(DEFAULT_LEADERBOARD),
     })
+
+
+@app.route("/stock-api/admin/owner-catchup", methods=["GET", "POST"])
+def admin_owner_catchup():
+    """Manually run the owner-email catch-up (the same backup that fires
+    automatically on any request via the before_request hook). Sends any of today's
+    owner emails that were due but haven't gone out yet, deduped via owner_email_log.
+    Returns what was sent/claimed."""
+    return jsonify(_owner_run_due_emails())
 
 
 @app.route("/stock-api/eod-sweep-track-record", methods=["GET"])
