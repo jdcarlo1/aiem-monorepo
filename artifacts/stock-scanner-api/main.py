@@ -302,6 +302,7 @@ _OWNER_EMAIL_SCHEDULE = {
     "microcap":        [(9, 50), (11, 35), (13, 5), (14, 35), (15, 45)],
     "high_conviction": [(9, 52), (11, 37), (13, 7), (14, 37), (15, 47)],
     "smart_money":     [(9, 50), (10, 5), (12, 0), (14, 0), (15, 40)],
+    "accumulation":    [(16, 25)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
@@ -3173,6 +3174,140 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
         print(f"[smart_money_email] error: {_e}\n{traceback.format_exc()}")
 
 
+def _send_accumulation_watch_email() -> None:
+    """Owner email: stocks in a STEADY multi-day accumulation streak — the
+    'staircase' pattern where price climbs day after day on even, institutional-
+    style net buying (e.g. ALOY +95% over a month). Built on the multi-day
+    net-flow scan (cheap daily OHLCV): consecutive positive-net-flow days plus
+    high consistency (even daily loading, NOT a one-day spike). Balanced tuning:
+    streak >= 5 days AND consistency >= 0.40. Tagged CONVICTION (>=10d AND
+    consistency >=0.65) vs BUILDING (forming). Silent when nothing qualifies."""
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        from datetime import datetime as _dt
+        if not smtp_configured():
+            print("[accumulation_email] SMTP not configured — skipping")
+            return
+
+        # Single-flight: share the /net-flow/multiday endpoint's lock+cache so this
+        # after-close run can't collide with a user-triggered tab scan (which would
+        # amplify yfinance rate limits). Force a FRESH scan (a pre-close cache would
+        # miss today's final daily bar), then refresh the cache so the tab serves
+        # this post-close result instead of triggering yet another scan.
+        if not hasattr(app, "_nfmd_lock"):
+            app._nfmd_lock = threading.Lock()
+        with app._nfmd_lock:
+            scan = _run_multiday_flow_scan()
+            app._nfmd_cache = scan
+            app._nfmd_cache_ts = _dt.now()
+        rows = (scan or {}).get("results", []) or []
+        picks = [
+            r for r in rows
+            if int(r.get("streak", 0) or 0) >= 5
+            and float(r.get("consistency", 0) or 0) >= 0.40
+            and float(r.get("total_pct_mktcap", 0) or 0) > 0
+        ]
+        picks.sort(key=lambda r: (
+            -int(r.get("streak", 0) or 0),
+            -float(r.get("consistency", 0) or 0),
+            -float(r.get("total_pct_mktcap", 0) or 0),
+        ))
+        picks = picks[:15]
+        if not picks:
+            print("[accumulation_email] no steady-accumulation names — skipping (quiet window)")
+            return
+
+        date_str = _dt.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
+
+        def _cons_label(c: float) -> str:
+            if c >= 0.65:
+                return "very even daily buying"
+            if c >= 0.50:
+                return "steady daily buying"
+            return "mostly steady buying"
+
+        cards_html = ""
+        sms_lines = []
+        n_conv = 0
+        for i, r in enumerate(picks):
+            ticker  = r.get("ticker", "")
+            price   = float(r.get("price", 0) or 0)
+            streak  = int(r.get("streak", 0) or 0)
+            cons    = float(r.get("consistency", 0) or 0)
+            total_m = float(r.get("total_net_m", 0) or 0)
+            avg_m   = float(r.get("avg_daily_net_m", 0) or 0)
+            pct_mc  = float(r.get("total_pct_mktcap", 0) or 0)
+            mcap_m  = r.get("market_cap_m")
+            tier_cap = (r.get("cap_tier", "") or "").upper()
+
+            is_conv = streak >= 10 and cons >= 0.65
+            if is_conv:
+                n_conv += 1
+            tag       = "CONVICTION" if is_conv else "BUILDING"
+            tag_color = "#ef4444" if is_conv else "#f59e0b"
+            cons_lbl  = _cons_label(cons)
+            medal     = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"#{i+1}")
+            price_str = f"${price:.2f}" if price else "?"
+            mcap_str  = f"${mcap_m:,.0f}M" if mcap_m else "—"
+
+            sms_lines.append(f"${ticker} {streak}d streak · {cons:.2f} steady · +${total_m:.1f}M ({pct_mc:.2f}% mktcap)")
+
+            cards_html += f"""
+            <div style="background:#111827;border:1px solid {tag_color}44;border-left:3px solid {tag_color};border-radius:10px;margin-bottom:14px;overflow:hidden;">
+              <div style="background:#0f172a;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{medal} {ticker}
+                  <span style="font-size:11px;font-weight:500;color:#64748b;margin-left:6px;">{price_str} · {tier_cap}</span>
+                </span>
+                <span style="font-size:10px;font-weight:800;color:{tag_color};background:{tag_color}22;padding:3px 10px;border-radius:4px;letter-spacing:.5px;">{tag}</span>
+              </div>
+              <div style="padding:12px 16px;background:#0d1424;border-bottom:1px solid #1e293b;">
+                <div style="font-size:18px;font-weight:900;color:{tag_color};">{streak} days straight of net buying</div>
+                <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Consistency {cons:.2f} — {cons_lbl} (even daily loading, not a one-day spike)</div>
+              </div>
+              <div style="padding:10px 16px;font-size:12px;color:#cbd5e1;">
+                <div>💰 <b style="color:#22c55e;">+${total_m:.1f}M</b> net bought over the streak · ~${avg_m:.2f}M/day</div>
+                <div style="margin-top:3px;">📊 <b style="color:#f1f5f9;">{pct_mc:.2f}%</b> of its {mcap_str} market cap quietly accumulated</div>
+              </div>
+            </div>"""
+
+        base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
+        n_build = len(picks) - n_conv
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:18px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">📈 Accumulation Watch — Steady Climbers</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Multi-day net-flow engine · {n_conv} CONVICTION · {n_build} BUILDING · {date_str}</span>
+          </div>
+          <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
+            These names have climbed several days in a row on <b>even, steady net buying</b> — the stealth-accumulation footprint that often shows up <b>before</b> a bigger move. CONVICTION = 10+ days &amp; very even loading · BUILDING = pattern still forming.
+          </div>
+          {cards_html}
+          <div style="text-align:center;margin:8px 0 16px;">
+            <a href="{base_url}/stock-scanner/" style="background:#22c55e;color:#0a0f1a;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Open Accumulation Streak →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · Not financial advice. Accumulation can fail or reverse — use stops and size positions.
+          </p>
+        </div>"""
+
+        subject = f"📈 Accumulation Watch: {len(picks)} steady climber(s) · {date_str}"
+        ok = send_email_raw(_OWNER_EMAIL, subject, html)
+        print(f"[accumulation_email] sent={ok} → {len(picks)} ({n_conv} CONVICTION / {n_build} BUILDING)")
+
+        try:
+            _send_ntfy(
+                f"Accumulation Watch: {len(picks)} steady climber(s)",
+                "\n".join(sms_lines),
+                priority="high",
+                tags="chart_with_upwards_trend",
+            )
+        except Exception:
+            pass
+    except Exception as _e:
+        import traceback
+        print(f"[accumulation_email] error: {_e}\n{traceback.format_exc()}")
+
+
 def _send_morning_inflows_email() -> None:
     """
     Morning email with two sections:
@@ -4257,6 +4392,10 @@ def _owner_send_now(kind: str) -> None:
             _send_smart_money_pressure_email(results=None)
         finally:
             _CONVICTION_SCAN_LOCK.release()
+    elif kind == "accumulation":
+        # Daily multi-day accumulation digest. Uses cheap daily OHLCV (no option
+        # chains / conviction engine), so it needs no scan lock.
+        _send_accumulation_watch_email()
 
 
 def _owner_run_due_emails() -> dict:
