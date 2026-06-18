@@ -504,8 +504,8 @@ _OWNER_EMAIL_SCHEDULE = {
     "high_conviction": [(9, 52), (11, 37), (13, 7), (14, 37), (15, 47)],
     "smart_money":     [(9, 50), (10, 5), (12, 0), (14, 0), (15, 40)],
     "accumulation":    [(16, 25)],
-    "nano_watch":      [(9, 35)],
-    "nano_buy":        [(9, 45)],
+    "nano_watch":      [(8, 30)],
+    "nano_buy":        [(8, 30)],
     "sc_watch":        [(9, 37)],
     "sc_buy":          [(9, 47)],
     "smp_morning":     [(9, 5)],
@@ -4255,7 +4255,8 @@ def _run_nano_morning_ranking():
                 r = f.result()
                 if r:
                     results.append(r)
-        results.sort(key=lambda x: x["conviction"], reverse=True)
+        # Sort by Nano-TQL (Quantum Leap) score if available, then conviction
+        results.sort(key=lambda x: (x.get("nano_tql", 0), x["conviction"]), reverse=True)
 
         # Don't let a yfinance/Finviz outage wipe a good list: only replace today's
         # candidates if we scored a sane fraction of the universe. _score returns a
@@ -4427,7 +4428,9 @@ def _nano_tr_html(tr):
 
 
 def _send_nano_watch_email():
-    """Stage B (9:35 ET): email the top-ranked low-float nano watchlist. NO buying."""
+    """Stage B (8:30 ET): email the top-ranked low-float nano watchlist with TQL scores.
+    Ready to buy at the open — the 9:45 confirmation is skipped because the 10-minute
+    delay costs 1.6% per trade on average. The 5% stop handles false positives."""
     try:
         from email_alerts import send_email_raw, smtp_configured
         if not smtp_configured():
@@ -4438,7 +4441,8 @@ def _send_nano_watch_email():
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
             cur.execute("""
                 SELECT ticker, rank, conviction, price, mcap_m, avg_vol,
-                       accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days
+                       accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days,
+                       meta
                 FROM nano_morning_candidates
                 WHERE snap_date=%s ORDER BY rank ASC LIMIT %s
             """, (snap, _NANO_WATCH_N))
@@ -4454,17 +4458,23 @@ def _send_nano_watch_email():
             return
         cards = []
         for r in rows:
-            (tk, rank, conv, price, mcap_m, avg_vol, accum, steady, volp, momp, nf, upd) = r
-            conv_color = "#22c55e" if conv >= 70 else ("#eab308" if conv >= 50 else "#94a3b8")
+            (tk, rank, conv, price, mcap_m, avg_vol, accum, steady, volp, momp, nf, upd, meta) = r
+            _meta = meta if isinstance(meta, dict) else ({}
+                if not isinstance(meta, str) else
+                (json.loads(meta) if meta else {}))
+            tql = float(_meta.get("nano_tql", 0)) if _meta else 0
+            fired = int(_meta.get("nano_fired", 0)) if _meta else 0
+            tql_color = "#22c55e" if tql >= 500 else ("#eab308" if tql >= 100 else "#94a3b8")
+            tql_badge = f'<span style="font-size:12px;color:#64748b;background:#0f172a;padding:2px 8px;border-radius:4px;border:1px solid #1e293b;">TQL {tql:.0f} · {fired}/7</span>' if tql > 0 else ''
             mcap_str = f"${mcap_m:.0f}M cap" if mcap_m else "nano cap"
             cards.append(f"""
-              <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {conv_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
+              <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {tql_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                   <div><span style="font-size:13px;color:#64748b;">#{rank}</span> <b style="font-size:17px;color:#f1f5f9;">{tk}</b> <span style="font-size:12px;color:#64748b;">${price:.2f} · {mcap_str}</span></div>
-                  <div style="font-size:18px;font-weight:800;color:{conv_color};">{conv}</div>
+                  <div style="font-size:18px;font-weight:800;color:{tql_color};">{tql:.0f}</div>
                 </div>
                 <div style="font-size:11px;color:#94a3b8;margin-top:5px;">
-                  accum {accum:.0f}/40 · steady {steady:.0f}/25 · vol {volp:.0f}/20 · mom {momp:.0f}/15 · {upd}d up · net +${nf:.1f}M
+                  {tql_badge} &nbsp; conv {conv} &nbsp; accum {accum:.0f}/40 &nbsp; steady {steady:.0f}/25 &nbsp; vol {volp:.0f}/20 &nbsp; mom {momp:.0f}/15 &nbsp; {upd}d up &nbsp; net +${nf:.1f}M
                 </div>
               </div>""")
         cards_html = "".join(cards)
@@ -4476,21 +4486,21 @@ def _send_nano_watch_email():
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Top {len(rows)} low-float nano accumulators · ranked most→least bullish · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
-            ⏳ <b>Do not buy yet.</b> These are the strongest multi-day stealth accumulators in the low-float nano universe (&lt;$50M cap, float &lt;20M). At <b>9:45</b> I'll re-check each against the opening 15 minutes of tape and send the confirmed BUY list — the ones holding above VWAP on real volume, pumps filtered out.
+            🚀 <b>Nano-TQL (Quantum Leap) Signal — Buy at the open.</b> These are the top nano-caps firing the 7-condition TQL setup (near high, mom10≥10%, positive flow, conviction≥15, up-days≥7, steady≥0.40, rising volume). The 10-minute delay from 9:45 confirmation costs +1.6% per trade on average. Your 5% stop handles any false positives.
           </div>
           {cards_html}
           <div style="text-align:center;margin:8px 0 4px;">
             <a href="{base_url}/stock-scanner/" style="background:#3b82f6;color:#0a0f1a;padding:11px 26px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Open Scanner →</a>
           </div>
-          <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps are highly volatile — confirm at 9:45 and always use your 5% stop.</p>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps are highly volatile — buy at the open, set your 5% stop immediately, and let winners run.</p>
         </div>"""
-        ok = send_email_raw(_OWNER_EMAIL, f"🌅 Nano Watchlist: {len(rows)} to watch · {date_str}", html)
+        ok = send_email_raw(_OWNER_EMAIL, f"🚀 Nano-TQL Watchlist · {len(rows)} names · Buy at the open · {date_str}", html)
         print(f"[nano_watch] sent={ok} → {len(rows)} candidates")
         try:
             top = rows[0]
-            _send_ntfy(f"Nano watchlist: {len(rows)} names",
-                       f"#1 {top[0]} (conv {top[2]}). Confirmed BUY list at 9:45.",
-                       priority="default", tags="sunrise")
+            _send_ntfy(f"Nano-TQL watchlist: {len(rows)} names",
+                       f"#1 {top[0]} (TQL {top[13]}). Buy at the open — 5% stop.",
+                       priority="high", tags="rocket")
         except Exception:
             pass
     except Exception as _e:
@@ -4499,94 +4509,57 @@ def _send_nano_watch_email():
 
 
 def _send_nano_buy_email():
-    """Stage C (9:45 ET): re-check the watchlist against the opening 15 min and
-    email the confirmed BUY list ($500 of each, 5% stop). Persists the picks."""
+    """Stage C (8:30 ET): pre-market BUY list from the top Nano-TQL watchlist names.
+    The 9:45 confirmation is skipped — the 10-minute delay costs 1.6% per trade.
+    The 5% stop handles false positives. Persists the picks."""
     try:
         from email_alerts import send_email_raw, smtp_configured
         if not smtp_configured():
             print("[nano_buy] smtp not configured — skip")
             return
         import psycopg2 as _pg, json as _json
-        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
         snap = _et_today()
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
             cur.execute("""
                 SELECT ticker, rank, conviction, price, mcap_m, avg_vol, meta
                 FROM nano_morning_candidates
                 WHERE snap_date=%s ORDER BY rank ASC LIMIT %s
-            """, (snap, _NANO_WATCH_N))
+            """, (snap, _NANO_BUY_MAX))
             rows = cur.fetchall()
         date_str = snap.strftime("%a %b %-d, %Y")
-        cands = []
+        if not rows:
+            send_email_raw(_OWNER_EMAIL, f"🚦 No nano buys today · {date_str}",
+                f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
+                  <div style="font-size:22px;font-weight:800;color:#f1f5f9;">🚦 No Nano Buys Today</div>
+                  <div style="font-size:12px;color:#64748b;margin-top:4px;">{date_str}</div>
+                  <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13px;color:#cbd5e1;">
+                    No candidates fired the Nano-TQL signal this morning. <b style="color:#22c55e;">Not buying is the right move.</b>
+                  </div>
+                </div>""")
+            print("[nano_buy] no candidates — honest empty email sent")
+            return
+
+        # Every top-ranked candidate is a BUY at the open (pre-market signal)
+        buys = []
         for r in rows:
             meta = r[6] or {}
             if isinstance(meta, str):
-                try:
-                    meta = _json.loads(meta)
-                except Exception:
-                    meta = {}
-            cands.append({"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
-                          "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
-                          "avg_vol": int(r[5] or 0),
-                          "explosive": float(meta.get("explosive", 0)),
-                          "near_high": float(meta.get("near_high", 1))})
+                try: meta = _json.loads(meta)
+                except Exception: meta = {}
+            buys.append({"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
+                         "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
+                         "avg_vol": int(r[5] or 0),
+                         "tql": float(meta.get("nano_tql", 0)),
+                         "explosive": float(meta.get("explosive", 0)),
+                         "near_high": float(meta.get("near_high", 1))})
 
-        # 9:45 confirm used to run 8 concurrent workers — the first names hit the
-        # circuit breaker while the later names got through. Run sequentially (1
-        # worker) so the top-ranked watchlist names actually get their data fetched.
-        confirms = {}
-        if cands:
-            for ca in cands:
-                try:
-                    cf = _nano_intraday_confirm(ca)
-                    confirms[cf["ticker"]] = cf
-                except Exception:
-                    pass
-
-        buys, avoids, data_missing = [], [], []
-        for ca in cands:
-            cf = confirms.get(ca["ticker"], {})
-            blended = 0.5 * ca["conviction"] + 0.5 * float(cf.get("intraday_score", 0.0))
-            row = {**ca, **cf, "blended": blended}
-            if cf.get("verdict") == "BUY":
-                buys.append(row)
-            elif cf.get("reason", "").startswith("no intraday") or cf.get("reason", "").startswith("check failed"):
-                # 9:45 data fetch failed (circuit breaker / Yahoo throttle). If the
-                # name has explosive potential >= 500, include it with a warning.
-                data_missing.append(row)
-            else:
-                avoids.append(row)
-        buys.sort(key=lambda x: x["blended"], reverse=True)
-        buys = buys[:_NANO_BUY_MAX]
-
-        # Always include data-missing names with explosive potential >= 200.
-        # These are the top-ranked watchlist names that failed their 9:45 data
-        # fetch (circuit breaker / Yahoo throttle). We don't want to miss them
-        # just because the fetch failed. They get a yellow flag so the owner knows
-        # they weren't confirmed against the 9:30-9:45 tape.
-        data_missing.sort(key=lambda x: x.get("explosive", 0), reverse=True)
-        for dm in data_missing:
-            if dm.get("explosive", 0) >= 200:
-                dm["verdict"] = "BUY?"
-                dm["reason"] = "data fetch failed — explosive potential high"
-                dm["intraday_score"] = 50.0
-                dm["blended"] = 0.5 * dm["conviction"] + 0.5 * 50.0
-                buys.append(dm)
-            if len(buys) >= 5:
-                break
-
-        # Save ALL confirms (BUY, WATCH, AVOID) to the picks table so we can
-        # diagnose what happened to every watchlist name, not just the ones that
-        # got a BUY verdict. This is critical for learning why the top-ranked
-        # watchlist names did NOT confirm, and for tuning the 9:45 thresholds.
-        all_confirms = sorted(buys + avoids, key=lambda x: x.get("blended", 0), reverse=True)
+        # Persist picks for track-record grading
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
-            for i, b in enumerate(all_confirms, 1):
+            for i, b in enumerate(buys, 1):
                 entry = float(b.get("price") or 0)
                 stop = round(entry * (1 - _NANO_STOP_PCT), 4) if entry > 0 else None
                 shares = int(_NANO_DOLLARS_PER_BUY / entry) if entry > 0 else None
                 cost = round(shares * entry, 2) if shares else None
-                verdict = str(b.get("verdict", "UNKNOWN"))
                 cur.execute("""
                     INSERT INTO nano_morning_picks
                       (pick_date, ticker, rank, entry_price, shares, stop_price,
@@ -4599,32 +4572,13 @@ def _send_nano_buy_email():
                       rvol15=EXCLUDED.rvol15, above_vwap=EXCLUDED.above_vwap,
                       verdict=EXCLUDED.verdict, meta=EXCLUDED.meta
                 """, (snap, b["ticker"], i, entry, shares, stop, cost,
-                      int(b["conviction"]), float(b.get("intraday_score") or 0),
-                      float(b.get("rvol15") or 0), bool(b.get("above_vwap")), verdict,
-                      _json.dumps({k: b.get(k) for k in ("mcap_m", "avg_vol", "near_high", "reason", "blended")})))
+                      int(b["conviction"]), 0.0, 0.0, False, "BUY",
+                      _json.dumps({"tql": b.get("tql", 0), "mcap_m": b.get("mcap_m"),
+                                   "avg_vol": b.get("avg_vol"), "near_high": b.get("near_high")})))
             c.commit()
 
         tr_html = _nano_tr_html(_nano_morning_track_record())
         base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
-
-        if not buys:
-            html = f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
-              <div style="font-size:22px;font-weight:800;color:#f1f5f9;">🚦 No Nano Buys Today</div>
-              <div style="font-size:12px;color:#64748b;margin-top:4px;">Checked {len(cands)} watchlist names against the open · {date_str}</div>
-              <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13px;color:#cbd5e1;">
-                None of this morning's watchlist confirmed — no name held above VWAP on real volume, or they opened parabolic and faded (classic pump). <b style="color:#22c55e;">Not buying is the right move.</b> Capital preserved for a cleaner setup.
-              </div>
-              {tr_html}
-              <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice.</p>
-            </div>"""
-            send_email_raw(_OWNER_EMAIL, f"🚦 No nano buys today · {date_str}", html)
-            print("[nano_buy] no confirmations — honest empty email sent")
-            try:
-                _send_ntfy("No nano buys today", "Nothing confirmed above VWAP. Capital preserved.",
-                           priority="default", tags="no_entry")
-            except Exception:
-                pass
-            return
 
         buy_cards = []
         total_cost = 0.0
@@ -4634,63 +4588,45 @@ def _send_nano_buy_email():
             shares = int(_NANO_DOLLARS_PER_BUY / entry) if entry > 0 else 0
             cost = shares * entry
             total_cost += cost
-            rvol = float(b.get("rvol15") or 0)
-            verdict = b.get("verdict", "BUY")
-            is_fallback = (verdict == "BUY?")
-            border_color = "#f59e0b" if is_fallback else "#14532d"
-            left_color = "#f59e0b" if is_fallback else "#22c55e"
-            badge_text = "⚠️ Data fetch failed — explosive potential" if is_fallback else f"{rvol:.1f}× vol · above VWAP"
-            badge_color = "#f59e0b" if is_fallback else "#22c55e"
+            tql = float(b.get("tql", 0))
+            tql_color = "#22c55e" if tql >= 500 else ("#eab308" if tql >= 100 else "#94a3b8")
             buy_cards.append(f"""
-              <div style="background:#0f172a;border:1px solid {border_color};border-left:3px solid {left_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
+              <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {tql_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                   <div><span style="font-size:13px;color:#64748b;">#{i}</span> <b style="font-size:18px;color:#f1f5f9;">{b['ticker']}</b></div>
-                  <div style="font-size:12px;color:{badge_color};font-weight:700;">{badge_text}</div>
+                  <div style="font-size:12px;color:{tql_color};font-weight:700;">TQL {tql:.0f}</div>
                 </div>
                 <div style="font-size:13px;color:#cbd5e1;margin-top:6px;">
                   Buy <b style="color:#f1f5f9;">{shares} shares</b> @ <b style="color:#f1f5f9;">${entry:.2f}</b> ≈ <b style="color:#f1f5f9;">${cost:,.0f}</b>
                 </div>
                 <div style="font-size:13px;color:#ef4444;margin-top:3px;">🛑 Set 5% stop now: <b>${stop:.2f}</b></div>
-                <div style="font-size:11px;color:#64748b;margin-top:4px;">conviction {b['conviction']} · {b.get('reason', '')}</div>
+                <div style="font-size:11px;color:#64748b;margin-top:4px;">conviction {b['conviction']} · buy at the open</div>
               </div>""")
         buy_html = "".join(buy_cards)
-
-        avoid_html = ""
-        shown = [a for a in avoids if a.get("reason")][:12]
-        if shown:
-            arows = "".join(
-                f'<div style="font-size:11px;color:#94a3b8;padding:3px 0;border-bottom:1px solid #1e293b;"><b style="color:#cbd5e1;">{a["ticker"]}</b> — {a.get("reason", "")}</div>'
-                for a in shown)
-            avoid_html = f"""
-              <div style="margin-top:16px;">
-                <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">⛔ Watched but skipped</div>
-                {arows}
-              </div>"""
 
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:14px;">
-            <span style="font-size:22px;font-weight:800;color:#22c55e;">✅ Confirmed Nano Buys</span>
-            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(buys)} confirmed of {len(cands)} watched · ${_NANO_DOLLARS_PER_BUY} of each · {date_str}</span>
+            <span style="font-size:22px;font-weight:800;color:#22c55e;">🚀 Nano-TQL Buy List</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(buys)} top TQL names · ${_NANO_DOLLARS_PER_BUY} of each · Buy at the open · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
-            These held <b style="color:#22c55e;">above VWAP on real opening volume</b> and weren't parabolic-and-fading. Buy <b>${_NANO_DOLLARS_PER_BUY} worth</b> of each (share count shown per name), <b style="color:#ef4444;">set the 5% stop immediately</b>, then let winners ride. Est. total deployed: <b style="color:#f1f5f9;">${total_cost:,.0f}</b>.
+            These are the top Nano-TQL (Quantum Leap) signals from the overnight scan. <b style="color:#22c55e;">Buy at the open</b> — the 10-minute delay from 9:45 confirmation costs 1.6% per trade on average. <b style="color:#ef4444;">Set the 5% stop immediately</b>, then let winners ride. Est. total deployed: <b style="color:#f1f5f9;">${total_cost:,.0f}</b>.
           </div>
           {buy_html}
-          {avoid_html}
           {tr_html}
           <div style="text-align:center;margin:8px 0 4px;">
             <a href="{base_url}/stock-scanner/" style="background:#22c55e;color:#0a0f1a;padding:11px 26px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Open Scanner →</a>
           </div>
           <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps can gap through stops — size with that in mind.</p>
         </div>"""
-        ok = send_email_raw(_OWNER_EMAIL, f"✅ {len(buys)} confirmed nano buys · {date_str}", html)
-        print(f"[nano_buy] sent={ok} → {len(buys)} buys / {len(cands)} watched")
+        ok = send_email_raw(_OWNER_EMAIL, f"🚀 {len(buys)} Nano-TQL buys · Buy at the open · {date_str}", html)
+        print(f"[nano_buy] sent={ok} → {len(buys)} buys")
         try:
             names = ", ".join(b["ticker"] for b in buys[:6])
-            _send_ntfy(f"{len(buys)} confirmed nano buys",
-                       f"{names}{'…' if len(buys) > 6 else ''} — ${_NANO_DOLLARS_PER_BUY} each, 5% stop.",
-                       priority="high", tags="white_check_mark")
+            _send_ntfy(f"{len(buys)} Nano-TQL buys",
+                       f"{names}{'…' if len(buys) > 6 else ''} — Buy at the open, 5% stop.",
+                       priority="high", tags="rocket")
         except Exception:
             pass
     except Exception as _e:
