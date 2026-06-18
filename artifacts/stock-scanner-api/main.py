@@ -1070,22 +1070,24 @@ try:
         replace_existing=True,
     )
     # Morning inflows emails: fired after each scan wave so DB is fully written
-    # 9:36 AM = 1 min after the 9:35 double-pass scan — double-confirmed early entry
-    # Subsequent: 10:01, 10:16, 10:31 AM for updated confirmation waves
+    # Trimmed to 3 slots (was 6) to reduce 9:30-10:30 burst saturation.
+    # 9:36 AM = 1 min after the 9:35 double-pass scan — double-confirmed early entry.
+    # 10:01 AM = updated confirmation wave. 13:01 PM = midday catch-up.
     def _run_morning_inflows_email():
         try:
             import threading as _thr_mi
             _thr_mi.Thread(target=_send_morning_inflows_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] morning inflows email error: {e}")
-    for _mi_eh, _mi_em in [(9, 36), (10, 1), (10, 16), (10, 31), (13, 1), (14, 1)]:
+    for _mi_eh, _mi_em in [(9, 36), (10, 1), (13, 1)]:
         _scheduler.add_job(
             _run_morning_inflows_email,
             CronTrigger(day_of_week="mon-fri", hour=_mi_eh, minute=_mi_em, timezone=_ET),
             id=f"morning_inflows_email_{_mi_eh}_{_mi_em}",
             replace_existing=True,
         )
-    # Top Pick of the Day: Mon-Fri 9:45 AM ET — #1 conviction setup + specific call option to buy
+    # Top Pick of the Day: Mon-Fri 9:45 AM ET — #1 conviction setup + specific call option to buy.
+    # Single slot (was 9:35, 9:40, 9:45) to reduce burst; the 9:45 slot is when options data is stable.
     def _run_top_pick_email():
         try:
             import threading as _thr_tp
@@ -1094,25 +1096,12 @@ try:
             print(f"[scheduler] top pick email error: {_e_tp}")
     _scheduler.add_job(
         _run_top_pick_email,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=35, timezone=_ET),
-        id="top_pick_email_935",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        _run_top_pick_email,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=40, timezone=_ET),
-        id="top_pick_email_940",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        _run_top_pick_email,
         CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
         id="top_pick_email",
         replace_existing=True,
     )
-    # SMS alert scan: every 5 min Mon-Fri 10:00 AM – 3:45 PM ET
-    # Starts at 10 AM — backtest showed pre-10 AM signals are opening-bell noise (13% hit rate)
-    # Only fires on green SPY days — red days historically lose money regardless of signal quality
+    # SMS alert scan: single 9:45 AM slot (was 9:35, 9:40, 9:45) to reduce burst.
+    # Only fires on green SPY days — red days historically lose money regardless of signal quality.
     def _run_sms_alert_scan():
         try:
             import threading as _thr_sms
@@ -1121,8 +1110,7 @@ try:
             print(f"[scheduler] sms alert scan error: {_e_sms}")
     _scheduler.add_job(
         _run_sms_alert_scan,
-        "cron",
-        hour="9", minute="35,40,45",
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
         id="sms_alert_scan",
         replace_existing=True,
     )
@@ -1608,9 +1596,8 @@ try:
         replace_existing=True,
     )
 
-    # Morning standout inflows: 9:31 → 9:33 → 9:35 → 9:38 → 9:41 → 9:45 AM + later waves
-    # Tight early window: 9:31 catches first movers; 9:33/9:35 confirm with 3-5 min real data
-    # → text arrives by 9:33-9:36 AM, same window hedge funds are accumulating
+    # Morning standout inflows: trimmed to 4 slots (was 9) to reduce burst.
+    # 9:35 = early post-open; 9:45 = first stable data; 10:15 = second wave; 13:00 = midday.
     def _run_morning_inflows():
         try:
             with app.test_request_context("/stock-api/morning-inflows?bust=1"):
@@ -1618,23 +1605,7 @@ try:
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
 
-    # News Catalyst scanner — parallel track, fires '📰 NEWS CATALYST' SMS (separate from ICS)
-    # Runs same tight morning window 9:31–10:30.  Does NOT affect ICS logic.
-    import threading as _thr_nc
-    def _run_news_catalyst():
-        try:
-            _thr_nc.Thread(target=run_news_catalyst_scan, daemon=True).start()
-        except Exception as e:
-            print(f"[scheduler] news catalyst error: {e}")
-    for _nc_h, _nc_m in [(9, 34), (9, 42), (10, 0), (10, 15), (10, 30)]:
-        _scheduler.add_job(
-            _run_news_catalyst,
-            CronTrigger(day_of_week="mon-fri", hour=_nc_h, minute=_nc_m, timezone=_ET),
-            id=f"news_catalyst_{_nc_h}_{_nc_m}",
-            replace_existing=True,
-        )
-
-    for _mi_h, _mi_m in [(9, 32), (9, 38), (9, 45), (10, 0), (10, 15), (10, 30), (12, 0), (13, 0), (14, 0)]:
+    for _mi_h, _mi_m in [(9, 35), (9, 45), (10, 15), (13, 0)]:
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -5475,16 +5446,30 @@ def _send_sc_buy_email():
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
             cur.execute("""
                 SELECT ticker, rank, conviction, price, mcap_m, avg_vol,
-                       opt_pts, double_signal, eod_accum_score
+                       opt_pts, double_signal, eod_accum_score, meta
                 FROM sc_morning_candidates
                 WHERE snap_date=%s ORDER BY rank ASC LIMIT %s
             """, (snap, _SC_WATCH_N))
             rows = cur.fetchall()
         date_str = snap.strftime("%a %b %-d, %Y")
-        cands = [{"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
-                  "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
-                  "avg_vol": int(r[5] or 0), "opt_pts": float(r[6] or 0),
-                  "double_signal": bool(r[7]), "eod_accum_score": r[8]} for r in rows]
+        cands = []
+        for r in rows:
+            _meta_raw = r[9] if len(r) > 9 else "{}"
+            try:
+                _meta = _json.loads(_meta_raw) if isinstance(_meta_raw, str) else {}
+            except Exception:
+                _meta = {}
+            _near = float(_meta.get("near_high", 1) or 1)
+            _flow = float(_meta.get("net_flow_m", 0) or 0)
+            _dist = max(0.01, 1.0 - _near) if _near > 0 else 1.0
+            cands.append({
+                "ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
+                "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
+                "avg_vol": int(r[5] or 0), "opt_pts": float(r[6] or 0),
+                "double_signal": bool(r[7]), "eod_accum_score": r[8],
+                "meta": _meta, "explosive": round(max(0, _flow) / _dist, 1),
+                "near_high": _near,
+            })
 
         if not cands:
             # No watchlist rows for today → the 8:15 ranking didn't complete (a
@@ -5515,26 +5500,49 @@ def _send_sc_buy_email():
                 except Exception:
                     pass
 
-        buys, avoids = [], []
+        buys, avoids, data_missing = [], [], []
         for ca in cands:
             cf = confirms.get(ca["ticker"], {})
             blended = 0.5 * ca["conviction"] + 0.5 * float(cf.get("intraday_score", 0.0))
             row = {**ca, **cf, "blended": blended}
-            (buys if cf.get("verdict") == "BUY" else avoids).append(row)
+            if cf.get("verdict") == "BUY":
+                buys.append(row)
+            elif cf.get("reason", "").startswith("no intraday") or cf.get("reason", "").startswith("check failed"):
+                # 9:47 data fetch failed (circuit breaker / Yahoo throttle). If the
+                # name has explosive potential >= 2000 (small-cap threshold, 10x nano),
+                # include it with a warning.
+                data_missing.append(row)
+            else:
+                avoids.append(row)
         buys.sort(key=lambda x: x["blended"], reverse=True)
         buys = buys[:_SC_BUY_MAX]
 
+        # Always include data-missing names with explosive potential >= 2000.
+        # Small-caps have options, so the bar is higher than nano (200 vs 2000)
+        # to avoid flooding the owner with too many "BUY?" flags.
+        data_missing.sort(key=lambda x: x.get("explosive", 0), reverse=True)
+        for dm in data_missing:
+            if dm.get("explosive", 0) >= 2000:
+                dm["verdict"] = "BUY?"
+                dm["reason"] = "data fetch failed — explosive potential high"
+                dm["intraday_score"] = 50.0
+                dm["blended"] = 0.5 * dm["conviction"] + 0.5 * 50.0
+                buys.append(dm)
+            if len(buys) >= 5:
+                break
+
+        # Save ALL picks (BUY + BUY?) to the table so we can grade them forward.
+        # The BUY? verdicts are the data-missing high-explosive names — they get a
+        # yellow flag but still get $1,000 sizing so we can learn from them.
         if buys:
             with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
-                # This run is authoritative for today's confirmed buys — clear any
-                # rows from an earlier same-day run so a shrunken rerun can't leave
-                # stale picks behind to be graded forward.
                 cur.execute("DELETE FROM sc_morning_picks WHERE pick_date=%s", (snap,))
                 for i, b in enumerate(buys, 1):
                     entry = float(b.get("price") or 0)
-                    stop = round(entry * (1 - _SC_STOP_PCT), 4)
+                    stop = round(entry * (1 - _SC_STOP_PCT), 4) if entry > 0 else None
                     shares = int(_SC_DOLLARS_PER_BUY / entry) if entry > 0 else 0
-                    cost = round(shares * entry, 2)
+                    cost = round(shares * entry, 2) if entry > 0 else 0
+                    _verdict = str(b.get("verdict", "BUY"))
                     cur.execute("""
                         INSERT INTO sc_morning_picks
                           (pick_date, ticker, rank, entry_price, shares, stop_price,
@@ -5551,9 +5559,10 @@ def _send_sc_buy_email():
                     """, (snap, b["ticker"], i, entry, shares, stop, cost,
                           int(b["conviction"]), float(b.get("intraday_score") or 0),
                           float(b.get("rvol15") or 0), bool(b.get("above_vwap")),
-                          float(b.get("opt_pts") or 0), bool(b.get("double_signal")), "BUY",
+                          float(b.get("opt_pts") or 0), bool(b.get("double_signal")),
+                          _verdict,
                           _json.dumps({k: b.get(k) for k in ("mcap_m", "avg_vol", "near_high",
-                                       "reason", "blended", "eod_accum_score")})))
+                                       "reason", "blended", "eod_accum_score", "explosive")})))
                 c.commit()
 
         tr_html = _sc_tr_html(_sc_morning_track_record())
@@ -17855,7 +17864,7 @@ def iv_rank():
     try:
         tkr  = yf.Ticker(ticker)
         hist = tkr.history(period="1y", interval="1d")
-        if len(hist) < 20:
+        if len(hist) < 31:
             return jsonify({"error": "Not enough price history"}), 400
 
         # Calculate historical volatility (annualized) at multiple windows
@@ -17868,8 +17877,16 @@ def iv_rank():
         rolling_hv30 = (
             log_ret.rolling(30).std() * np.sqrt(252) * 100
         ).dropna()
-        hv_min  = float(rolling_hv30.min())
-        hv_max  = float(rolling_hv30.max())
+        if rolling_hv30.empty:
+            return jsonify({"error": "Not enough price history"}), 400
+        hv_min_raw = rolling_hv30.min()
+        hv_max_raw = rolling_hv30.max()
+        # Guard against NaN/Inf from edge-case pandas aggregations
+        import math as _math
+        hv_min = float(hv_min_raw) if not (isinstance(hv_min_raw, float) and (_math.isnan(hv_min_raw) or _math.isinf(hv_min_raw))) else None
+        hv_max = float(hv_max_raw) if not (isinstance(hv_max_raw, float) and (_math.isnan(hv_max_raw) or _math.isinf(hv_max_raw))) else None
+        if hv_min is None or hv_max is None:
+            return jsonify({"error": "Not enough price history"}), 400
         hv_rank = round((hv30 - hv_min) / (hv_max - hv_min) * 100, 1) if hv30 and hv_max > hv_min else None
 
         # Get current IV from options chain (ATM, nearest 30-45d expiry)
@@ -20296,13 +20313,20 @@ def standout_track():
             """)
             _rows = [dict(r) for r in _cu.fetchall()]
 
+        import math as _math_st
         for _r in _rows:
             if hasattr(_r.get("scan_date"), "isoformat"):
                 _r["scan_date"] = _r["scan_date"].isoformat()
             for _k in list(_r.keys()):
                 if _r[_k] is not None:
-                    try: _r[_k] = float(_r[_k]) if isinstance(_r[_k], __import__("decimal").Decimal) else _r[_k]
-                    except Exception: pass
+                    try:
+                        _v = float(_r[_k]) if isinstance(_r[_k], __import__("decimal").Decimal) else _r[_k]
+                        # Guard: NaN/Inf from Decimal-to-float conversion must be None
+                        if isinstance(_v, float) and (_math_st.isnan(_v) or _math_st.isinf(_v)):
+                            _v = None
+                        _r[_k] = _v
+                    except Exception:
+                        pass
 
         def _st_stats(rows):
             graded = [r for r in rows if r.get("open_to_close_pct") is not None]
