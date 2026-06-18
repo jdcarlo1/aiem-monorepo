@@ -4571,14 +4571,14 @@ def _send_nano_buy_email():
         buys.sort(key=lambda x: x["blended"], reverse=True)
         buys = buys[:_NANO_BUY_MAX]
 
-        # Always include data-missing names with explosive potential >= 300.
+        # Always include data-missing names with explosive potential >= 200.
         # These are the top-ranked watchlist names that failed their 9:45 data
         # fetch (circuit breaker / Yahoo throttle). We don't want to miss them
         # just because the fetch failed. They get a yellow flag so the owner knows
         # they weren't confirmed against the 9:30-9:45 tape.
         data_missing.sort(key=lambda x: x.get("explosive", 0), reverse=True)
         for dm in data_missing:
-            if dm.get("explosive", 0) >= 300:
+            if dm.get("explosive", 0) >= 200:
                 dm["verdict"] = "BUY?"
                 dm["reason"] = "data fetch failed — explosive potential high"
                 dm["intraday_score"] = 50.0
