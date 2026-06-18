@@ -307,8 +307,24 @@ _OWNER_EMAIL_SCHEDULE = {
     "nano_buy":        [(9, 45)],
     "sc_watch":        [(9, 37)],
     "sc_buy":          [(9, 47)],
+    "smp_morning":     [(9, 5)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
+
+# ── Morning Smart-Money-Pressure cap-split IDEA emails ───────────────────────
+# One pre-open L1-L8 engine run (9:05 ET, after the 8:30 OI refresh), split by
+# market cap into three SEPARATE owner emails. Idea generation, NOT buy lists:
+# threshold is MODERATE+ (>=4/10) because the pre-open run has no intraday L2
+# gamma yet, so a >=6 bar would suppress the small/mid buckets. The EOD/intraday
+# smart_money email keeps its own >=6 bar (unchanged).
+_SMP_MORNING_MIN_PTS = 4.0
+_SMP_MORNING_MAX     = 15
+# (key, email label, button accent, lo_usd inclusive, hi_usd exclusive | None)
+_SMP_CAP_BUCKETS = [
+    ("small", "Small Cap ($300M–$2B)", "#f59e0b",    300_000_000,  2_000_000_000),
+    ("mid",   "Mid Cap ($2B–$10B)",    "#38bdf8",  2_000_000_000, 10_000_000_000),
+    ("large", "Large Cap ($10B+)",     "#22c55e", 10_000_000_000,          None),
+]
 
 
 def _init_conviction_stack_watchlist():
@@ -3085,6 +3101,90 @@ def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
     return best
 
 
+def _smp_build_cards(signals: list) -> tuple:
+    """Render the per-signal cards + ntfy lines for a list of L1-L8 Smart-Money-
+    Pressure results. Shared by the EOD/intraday smart-money email AND the morning
+    cap-split idea emails so every surface renders a signal identically.
+
+    Option-chain trade lookup (_scan_best_call) only runs for CALL recs, and
+    _expiry_recommendation returns CALL only for score>=6 — so MODERATE (4-5.9)
+    morning ideas never touch the chain API. Returns (cards_html, sms_lines)."""
+    from datetime import datetime as _dt
+    LAYER_LABELS = {
+        "oi_accum": "OI Buildup", "gamma_fir": "Gamma FIR", "charm": "Charm",
+        "short_int": "Short Interest", "dark_pool": "Dark Pool",
+        "float_pressure": "Float Pressure", "far_otm_sweep": "Far-OTM Sweep",
+        "sector_sympathy": "Sector Heat",
+    }
+    cards_html = ""
+    sms_lines = []
+    for i, r in enumerate(signals):
+        ticker = r.get("ticker", "")
+        score = float(r.get("total_pts", 0) or 0)
+        label = (r.get("label", "") or "").replace("🔴 ", "").replace("🟠 ", "").replace("🟡 ", "").replace("🔵 ", "")
+        price = float(r.get("price", 0) or 0)
+        layers = r.get("layers", {}) or {}
+        meta = r.get("meta", {}) or {}
+        dtc = float(meta.get("dtc") or 0)
+
+        tier = "EXTREME" if score >= 8 else "HIGH" if score >= 6 else "MODERATE"
+        tier_color = "#ef4444" if score >= 8 else "#f59e0b" if score >= 6 else "#eab308"
+
+        rec = _expiry_recommendation(score, dtc)
+        if rec["action"] == "CALL":
+            bc = _scan_best_call(ticker, price, target_weeks=rec["weeks"])
+            if bc:
+                exp_fmt = _dt.strptime(bc["exp"], "%Y-%m-%d").strftime("%b %d, %Y")
+                act_wks = max(1, round(bc["days"] / 7))
+                strike_str = f"{bc['strike']:g}"
+                otm_lbl = f"+{bc['otm_pct']:.0f}% OTM" if bc["otm_pct"] > 0 else "ATM"
+                trade_headline = f"BUY ${ticker} ${strike_str} CALL"
+                trade_sub = (f"Expires {exp_fmt} ({bc['days']}d ≈ {act_wks}-week call) · "
+                             f"Mid ${bc['mid']:.2f} (bid ${bc['bid']:.2f} / ask ${bc['ask']:.2f}) · {otm_lbl}")
+                trade_color = "#22c55e"
+                sms_lines.append(f"${ticker} {score:.1f}/10 → ${strike_str}C exp {exp_fmt} (~{act_wks}wk) @ ${bc['mid']:.2f}")
+            else:
+                hold_w = rec.get("weeks", 2)
+                trade_headline = f"BUY ${ticker} STOCK"
+                trade_sub = f"No liquid call found right now — buy shares, hold ~{hold_w} weeks"
+                trade_color = "#f59e0b"
+                sms_lines.append(f"${ticker} {score:.1f}/10 → no liquid calls, buy stock ~{hold_w}wk")
+        else:
+            hold_w = rec.get("hold_weeks", 3)
+            trade_headline = f"BUY ${ticker} STOCK"
+            trade_sub = f"Hold ~{hold_w} weeks — {rec['reason']}"
+            trade_color = "#38bdf8"
+            sms_lines.append(f"${ticker} {score:.1f}/10 → buy stock, hold ~{hold_w}wk")
+
+        top_layers = ", ".join(
+            LAYER_LABELS.get(k, k) for k, v in sorted(layers.items(), key=lambda x: -x[1])[:4] if v
+        )
+        medal = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"#{i+1}")
+        price_str = f"${price:.2f}" if price else "?"
+
+        cards_html += f"""
+            <div style="background:#111827;border:1px solid {tier_color}44;border-left:3px solid {tier_color};border-radius:10px;margin-bottom:14px;overflow:hidden;">
+              <div style="background:#0f172a;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{medal} {ticker}
+                  <span style="font-size:11px;font-weight:500;color:#64748b;margin-left:6px;">{price_str}</span>
+                </span>
+                <span style="display:flex;gap:8px;align-items:center;">
+                  <span style="font-size:10px;font-weight:800;color:{tier_color};background:{tier_color}22;padding:2px 8px;border-radius:4px;letter-spacing:.5px;">{tier}</span>
+                  <span style="font-size:20px;font-weight:900;color:#f1f5f9;">{score:.1f}<span style="font-size:11px;color:#64748b;">/10</span></span>
+                </span>
+              </div>
+              <div style="padding:12px 16px;background:#0d1424;border-bottom:1px solid #1e293b;">
+                <div style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">🎯 What to trade</div>
+                <div style="font-size:16px;font-weight:900;color:{trade_color};">{trade_headline}</div>
+                <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">{trade_sub}</div>
+              </div>
+              <div style="padding:8px 16px;">
+                <span style="font-size:10px;color:#475569;">Layers firing: {top_layers or '—'}</span>
+              </div>
+            </div>"""
+    return cards_html, sms_lines
+
+
 def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) -> None:
     """Owner email: every Smart-Money-Pressure signal scored /10 (L1-L8 engine) —
     EXTREME (8+) and HIGH (6-7.9) — each with a concrete trade next to its score:
@@ -3111,79 +3211,7 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
             return
 
         date_str = _dt.now().strftime("%A, %B %d · %I:%M %p")
-        LAYER_LABELS = {
-            "oi_accum": "OI Buildup", "gamma_fir": "Gamma FIR", "charm": "Charm",
-            "short_int": "Short Interest", "dark_pool": "Dark Pool",
-            "float_pressure": "Float Pressure", "far_otm_sweep": "Far-OTM Sweep",
-            "sector_sympathy": "Sector Heat",
-        }
-
-        cards_html = ""
-        sms_lines = []
-        for i, r in enumerate(signals):
-            ticker = r.get("ticker", "")
-            score = float(r.get("total_pts", 0) or 0)
-            label = (r.get("label", "") or "").replace("🔴 ", "").replace("🟠 ", "").replace("🟡 ", "").replace("🔵 ", "")
-            price = float(r.get("price", 0) or 0)
-            layers = r.get("layers", {}) or {}
-            meta = r.get("meta", {}) or {}
-            dtc = float(meta.get("dtc") or 0)
-
-            tier = "EXTREME" if score >= 8 else "HIGH"
-            tier_color = "#ef4444" if score >= 8 else "#f59e0b"
-
-            rec = _expiry_recommendation(score, dtc)
-            if rec["action"] == "CALL":
-                bc = _scan_best_call(ticker, price, target_weeks=rec["weeks"])
-                if bc:
-                    exp_fmt = _dt.strptime(bc["exp"], "%Y-%m-%d").strftime("%b %d, %Y")
-                    act_wks = max(1, round(bc["days"] / 7))
-                    strike_str = f"{bc['strike']:g}"
-                    otm_lbl = f"+{bc['otm_pct']:.0f}% OTM" if bc["otm_pct"] > 0 else "ATM"
-                    trade_headline = f"BUY ${ticker} ${strike_str} CALL"
-                    trade_sub = (f"Expires {exp_fmt} ({bc['days']}d ≈ {act_wks}-week call) · "
-                                 f"Mid ${bc['mid']:.2f} (bid ${bc['bid']:.2f} / ask ${bc['ask']:.2f}) · {otm_lbl}")
-                    trade_color = "#22c55e"
-                    sms_lines.append(f"${ticker} {score:.1f}/10 → ${strike_str}C exp {exp_fmt} (~{act_wks}wk) @ ${bc['mid']:.2f}")
-                else:
-                    hold_w = rec.get("weeks", 2)
-                    trade_headline = f"BUY ${ticker} STOCK"
-                    trade_sub = f"No liquid call found right now — buy shares, hold ~{hold_w} weeks"
-                    trade_color = "#f59e0b"
-                    sms_lines.append(f"${ticker} {score:.1f}/10 → no liquid calls, buy stock ~{hold_w}wk")
-            else:
-                hold_w = rec.get("hold_weeks", 3)
-                trade_headline = f"BUY ${ticker} STOCK"
-                trade_sub = f"Hold ~{hold_w} weeks — {rec['reason']}"
-                trade_color = "#38bdf8"
-                sms_lines.append(f"${ticker} {score:.1f}/10 → buy stock, hold ~{hold_w}wk")
-
-            top_layers = ", ".join(
-                LAYER_LABELS.get(k, k) for k, v in sorted(layers.items(), key=lambda x: -x[1])[:4] if v
-            )
-            medal = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"#{i+1}")
-            price_str = f"${price:.2f}" if price else "?"
-
-            cards_html += f"""
-            <div style="background:#111827;border:1px solid {tier_color}44;border-left:3px solid {tier_color};border-radius:10px;margin-bottom:14px;overflow:hidden;">
-              <div style="background:#0f172a;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{medal} {ticker}
-                  <span style="font-size:11px;font-weight:500;color:#64748b;margin-left:6px;">{price_str}</span>
-                </span>
-                <span style="display:flex;gap:8px;align-items:center;">
-                  <span style="font-size:10px;font-weight:800;color:{tier_color};background:{tier_color}22;padding:2px 8px;border-radius:4px;letter-spacing:.5px;">{tier}</span>
-                  <span style="font-size:20px;font-weight:900;color:#f1f5f9;">{score:.1f}<span style="font-size:11px;color:#64748b;">/10</span></span>
-                </span>
-              </div>
-              <div style="padding:12px 16px;background:#0d1424;border-bottom:1px solid #1e293b;">
-                <div style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">🎯 What to trade</div>
-                <div style="font-size:16px;font-weight:900;color:{trade_color};">{trade_headline}</div>
-                <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">{trade_sub}</div>
-              </div>
-              <div style="padding:8px 16px;">
-                <span style="font-size:10px;color:#475569;">Layers firing: {top_layers or '—'}</span>
-              </div>
-            </div>"""
+        cards_html, sms_lines = _smp_build_cards(signals)
 
         base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
         n_ext = sum(1 for r in signals if float(r.get("total_pts", 0) or 0) >= 8)
@@ -3222,6 +3250,153 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
     except Exception as _e:
         import traceback
         print(f"[smart_money_email] error: {_e}\n{traceback.format_exc()}")
+
+
+def _smp_market_caps(tickers: list) -> dict:
+    """Return {TICKER: market_cap_usd} for a bounded result set (~<=60 names).
+    Reuse the Finviz _microcap_meta cache when present (only reliably covers
+    sub-$2B names), else a low-parallelism yfinance fast_info.market_cap fetch.
+    Results cache ~30 min on app to survive a repeat invocation in one session.
+    Unknown / zero caps are simply omitted (the caller drops them)."""
+    import time as _time
+    out: dict = {}
+    need: list = []
+    for t in tickers:
+        tu = (t or "").upper()
+        if not tu:
+            continue
+        m = _microcap_meta.get(tu)
+        mc = float((m or {}).get("market_cap") or 0) if m else 0.0
+        if mc > 0:
+            out[tu] = mc
+        else:
+            need.append(tu)
+
+    if not hasattr(app, "_smp_cap_cache"):
+        app._smp_cap_cache = {}
+    cache = app._smp_cap_cache
+    now = _time.time()
+    still: list = []
+    for t in need:
+        c = cache.get(t)
+        if c and (now - c[0]) < 1800 and c[1] > 0:
+            out[t] = c[1]
+        else:
+            still.append(t)
+
+    if still:
+        import yfinance as _yf
+        from concurrent.futures import ThreadPoolExecutor, as_completed as _asc
+
+        def _one(tk):
+            try:
+                v = _yf.Ticker(tk).fast_info.market_cap
+                return tk, (float(v) if v and float(v) > 0 else 0.0)
+            except Exception:
+                return tk, 0.0
+
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            futs = {ex.submit(_one, t): t for t in still}
+            for f in _asc(futs):
+                try:
+                    tk, v = f.result()
+                except Exception:
+                    tk, v = futs[f], 0.0
+                if v > 0:
+                    out[tk] = v
+                    cache[tk] = (now, v)
+    return out
+
+
+def _smp_bucket_by_cap(results: list, caps: dict, min_pts: float) -> dict:
+    """Split conviction results into small/mid/large by market cap, keeping only
+    names at/above min_pts that have a KNOWN cap >= $300M. Nano/micro (<$300M) and
+    unknown-cap names are dropped. Order within each bucket follows the input order
+    (the engine already returns results sorted by conviction, descending)."""
+    buckets: dict = {key: [] for key, *_rest in _SMP_CAP_BUCKETS}
+    for r in results:
+        if float(r.get("total_pts", 0) or 0) < min_pts:
+            continue
+        mc = caps.get((r.get("ticker", "") or "").upper(), 0.0)
+        if not mc or mc < 300_000_000:
+            continue
+        for key, _label, _accent, lo, hi in _SMP_CAP_BUCKETS:
+            if mc >= lo and (hi is None or mc < hi):
+                buckets[key].append(r)
+                break
+    return buckets
+
+
+def _smp_send_morning_bucket(signals: list, label: str, accent: str, date_str: str) -> bool:
+    """Send ONE morning cap-bucket idea email. Reuses the shared L1-L8 card
+    renderer; framed as idea generation (NOT a buy list). Email-only (no ntfy)."""
+    from email_alerts import send_email_raw
+    cards_html, _sms = _smp_build_cards(signals)
+    n_ext  = sum(1 for r in signals if float(r.get("total_pts", 0) or 0) >= 8)
+    n_high = sum(1 for r in signals if 6 <= float(r.get("total_pts", 0) or 0) < 8)
+    n_mod  = len(signals) - n_ext - n_high
+    base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
+    html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:18px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🌅 Morning Smart-Money Ideas — {label}</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">L1-L8 pressure engine · pre-open scan · {n_ext} EXTREME (8+) · {n_high} HIGH (6-7.9) · {n_mod} MODERATE (4-5.9) · {date_str}</span>
+          </div>
+          <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
+            <b style="color:#cbd5e1;">Idea generation, not a buy list.</b> The same Smart Money Pressure engine, scored /10, narrowed to <b>{label}</b> optionable names. Higher score = higher likelihood it works. This is a <b>pre-open</b> read built on fresh premarket open-interest plus prior-day sweep / charm / sector context — intraday gamma builds after the open, so scores firm up through the morning.
+          </div>
+          {cards_html}
+          <div style="text-align:center;margin:8px 0 16px;">
+            <a href="{base_url}/stock-scanner/" style="background:{accent};color:#0a0f1a;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Open Smart Money Pressure →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
+            StockScanner AI · Not financial advice. Options carry substantial risk of loss.
+          </p>
+        </div>"""
+    subject = f"🌅 Morning Ideas — {label}: {len(signals)} scored · {date_str}"
+    ok = send_email_raw(_OWNER_EMAIL, subject, html)
+    print(f"[smp_morning] {label}: sent={ok} ({len(signals)} ideas — {n_ext} EXTREME / {n_high} HIGH / {n_mod} MODERATE)")
+    return bool(ok)
+
+
+def _send_smp_morning() -> None:
+    """Owner MORNING idea emails: ONE pre-open L1-L8 Smart-Money-Pressure engine
+    run, split by market cap into three SEPARATE emails — Small ($300M-$2B), Mid
+    ($2B-$10B), Large ($10B+). Idea generation (MODERATE+, total_pts>=4), NOT a
+    sized buy list. Nano/micro (<$300M) and unknown-cap names are excluded.
+
+    The caller (_owner_send_now, kind == 'smp_morning') ALREADY holds
+    _CONVICTION_SCAN_LOCK — do NOT re-acquire it here (threading.Lock is not
+    reentrant). One slot claim -> one engine run -> up to three emails. Empty
+    buckets stay silent and are logged."""
+    try:
+        from email_alerts import smtp_configured
+        from datetime import datetime as _dt
+        if not smtp_configured():
+            print("[smp_morning] SMTP not configured — skipping")
+            return
+        results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
+        if not results:
+            print("[smp_morning] no engine results — skipping")
+            return
+        caps = _smp_market_caps([r.get("ticker", "") for r in results])
+        buckets = _smp_bucket_by_cap(results, caps, _SMP_MORNING_MIN_PTS)
+        date_str = _dt.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
+        sent = 0
+        for key, label, accent, _lo, _hi in _SMP_CAP_BUCKETS:
+            sigs = buckets.get(key, [])[:_SMP_MORNING_MAX]
+            if not sigs:
+                print(f"[smp_morning] {key}: no ideas >= {_SMP_MORNING_MIN_PTS:.0f}/10 with known cap — silent")
+                continue
+            try:
+                if _smp_send_morning_bucket(sigs, label, accent, date_str):
+                    sent += 1
+            except Exception as _eb:
+                print(f"[smp_morning] {key} send error: {_eb}")
+        print(f"[smp_morning] done — {sent} bucket email(s) sent from {len(results)} scored names")
+    except Exception as _e:
+        import traceback
+        print(f"[smp_morning] error: {_e}\n{traceback.format_exc()}")
 
 
 def _send_accumulation_watch_email() -> None:
@@ -6213,6 +6388,18 @@ def _owner_send_now(kind: str) -> None:
     elif kind == "sc_buy":
         # 9:47 ET small-cap confirmed buy list (opening-15-min VWAP/volume filter).
         _send_sc_buy_email()
+    elif kind == "smp_morning":
+        # 9:05 ET morning cap-split Smart-Money-Pressure idea emails. ONE engine
+        # run, serialized through the conviction scan lock — acquired HERE, never
+        # inside the sender (threading.Lock is not reentrant). If a scan already
+        # holds the lock, skip rather than stack a second concurrent engine run.
+        if not _CONVICTION_SCAN_LOCK.acquire(timeout=90):
+            print("[owner_email] smp_morning scan lock busy — skipping")
+            return
+        try:
+            _send_smp_morning()
+        finally:
+            _CONVICTION_SCAN_LOCK.release()
 
 
 def _owner_run_due_emails() -> dict:
