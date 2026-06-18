@@ -2,6 +2,7 @@
 - [Payment flow fixes](payment-flow-fixes.md) — three critical bugs fixed: webhook URL, success/cancel URL, webhook handler crash
 - [StockScanner AI state](stockscanner-state.md) — full product state: landing page design, Stripe setup, SMS live via email gateway, key files, scheduler times
 - [Alert delivery channel](sms-delivery-solution.md) — alerts are EMAIL-ONLY now (Twilio+tmomail removed); never gate scan logic on a delivery channel's availability
+- [Email test endpoints & recipient safety](email-test-endpoints.md) — test-digest & admin/test-emails BOTH email all active subscribers; no owner-only HTTP path; check alerts/count first
 - [SMS threshold lessons](sms-threshold-lessons.md) — why 1%+tiered-vol beats 10% flat; 10 missed movers June 12 2026 all opened below 3%
 - [Scanner baseline June 2026](scanner-baseline-june2026.md) — Win rate, R:R, EV/trade for all scanners as of June 14, 2026; compare live vs backtest in mid-July 2026
 - [Invention Disclosure](invention-disclosure.md) — StockScanner AI patent doc at STOCKSCANNER_AI_INVENTION_DISCLOSURE.md in project root; 17 sections, 5 patent claims; NEVER delete this file
