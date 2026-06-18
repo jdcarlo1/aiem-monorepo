@@ -27,6 +27,17 @@ full morning scan burst that Autoscale used to skip).
     Timeout/ConnectionError — raising RequestsError when the breaker is open is
     non-transient, so it fails fast.
 
+- **Yahoo also throttles via HTTP 401 "Unauthorized"/"Invalid Crumb" floods —
+  NOT just 429/503.** A 401 is a *returned response* (not an exception, not
+  429/503) that yfinance silently swallows as "no data" (log spam: "$X possibly
+  delisted; no price data found"). So a breaker that only trips on 429/503/timeout
+  NEVER trips under this throttle, and live-scan endpoints churn hundreds of slow
+  401s (~15-20s) → frontend fetch times out → "Load failed" **even though the
+  backend returns HTTP 200** (logs show the 200s; the issue is latency, not 500s).
+  **Rule:** trip the breaker on a *burst* of 401/403 (threshold ~5 within 20s,
+  not a single one — a lone 401 is a benign yfinance crumb refresh). Count hits
+  under a lock in both the `requests` adapter and the `curl_cffi` patch.
+
 - **Never run a live scan synchronously inside a web request.** `daily-top10`
   (Overview tab) called `_compute_daily_top10()` which ran
   `scan_tickers(DEFAULT_LEADERBOARD)` live whenever today's DB row was missing or

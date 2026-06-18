@@ -177,6 +177,28 @@ _YF_BREAKER_COOLDOWN = 30.0  # seconds to stay "open" after a rate-limit hit
 def _yf_breaker_open() -> bool:
     return _time_cb.time() < _YF_BREAKER["until"]
 
+# Yahoo also throttles via HTTP 401 "Unauthorized" / "Invalid Crumb" floods. These
+# are NOT 429/503 and NOT exceptions — they're returned responses that yfinance
+# silently swallows as "no data" (hence the "$X possibly delisted" log spam), so
+# the breaker above never trips and scans churn through hundreds of slow 401s.
+# A single 401 can be a benign crumb refresh, so we only trip on a sustained BURST.
+import threading as _cb_thr
+_YF_AUTH_HITS: list = []          # timestamps of recent Yahoo 401/403 responses
+_YF_AUTH_LOCK = _cb_thr.Lock()
+_YF_AUTH_WINDOW = 20.0            # seconds to remember 401/403 hits
+_YF_AUTH_THRESHOLD = 5           # this many 401/403 within the window trips breaker
+
+def _yf_note_auth_throttle() -> None:
+    now = _time_cb.time()
+    with _YF_AUTH_LOCK:
+        _YF_AUTH_HITS.append(now)
+        _cutoff = now - _YF_AUTH_WINDOW
+        while _YF_AUTH_HITS and _YF_AUTH_HITS[0] < _cutoff:
+            _YF_AUTH_HITS.pop(0)
+        if len(_YF_AUTH_HITS) >= _YF_AUTH_THRESHOLD:
+            _YF_BREAKER["until"] = now + _YF_BREAKER_COOLDOWN
+            _YF_AUTH_HITS.clear()
+
 try:
     import requests as _req_patch
     from requests.adapters import HTTPAdapter as _HTTPAdapter
@@ -198,6 +220,8 @@ try:
             try:
                 if _is_yahoo and _resp.status_code in (429, 503):
                     _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+                elif _is_yahoo and _resp.status_code in (401, 403):
+                    _yf_note_auth_throttle()
             except Exception:
                 pass
             return _resp
@@ -242,8 +266,11 @@ try:
             _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
             raise
         try:
-            if getattr(_resp, "status_code", 0) in (429, 503):
+            _sc = getattr(_resp, "status_code", 0)
+            if _sc in (429, 503):
                 _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+            elif _sc in (401, 403):
+                _yf_note_auth_throttle()
         except Exception:
             pass
         return _resp
