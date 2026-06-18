@@ -4165,12 +4165,14 @@ def _run_nano_morning_ranking():
 
                 # Steadiness (0-25): consistent small gains, low choppiness
                 steady_pts = 0.0
+                steady = 0.0
                 if rets:
                     avg_r = sum(rets) / len(rets)
                     sd = _st.pstdev(rets) if len(rets) > 1 else abs(avg_r)
                     if avg_r > 0:
                         smooth = avg_r / sd if sd > 0 else 2.0
                         steady_pts = 25 * min(1.0, smooth / 1.2)
+                        steady = smooth / 1.2
                 steady_pts = max(0.0, min(25.0, steady_pts))
 
                 # Volume building (0-20): recent 5d vs 20d avg
@@ -4215,6 +4217,20 @@ def _run_nano_morning_ranking():
                 dist = max(0.01, 1.0 - near) if near > 0 else 1.0
                 explosive = round((max(0, net_flow / 1e6) / dist), 1)
 
+                # ── Nano-TQL (Quantum Leap) signal: multi-condition pre-move setup ──
+                nano_conds = [
+                    near     >= 0.85,
+                    mom10    >= 10,
+                    flow_ratio >= 0,
+                    conviction >= 15,
+                    up_days  >= 7,
+                    steady   >= 0.4,
+                    vtrend   >= 1.4,
+                ]
+                nano_fired = sum(nano_conds)
+                nano_tql = (mom10 * near * flow_ratio * conviction * (nano_fired/7.0)
+                            if nano_fired >= 5 else 0.0)
+
                 return {
                     "ticker": ticker, "conviction": conviction, "price": round(price, 4),
                     "mcap_m": mcap_m, "avg_vol": int(vol20),
@@ -4224,7 +4240,8 @@ def _run_nano_morning_ranking():
                     "flow_ratio": round(flow_ratio, 3),
                     "vtrend": round(vtrend, 2), "near_high": round(near, 3),
                     "mom10": round(mom10, 1), "up_ratio": round(up_ratio, 2),
-                    "explosive": explosive,
+                    "explosive": explosive, "steady": round(steady, 3),
+                    "nano_tql": round(nano_tql, 2), "nano_fired": nano_fired,
                 }
             except Exception:
                 return None
