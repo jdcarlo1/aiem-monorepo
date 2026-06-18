@@ -4571,19 +4571,21 @@ def _send_nano_buy_email():
         buys.sort(key=lambda x: x["blended"], reverse=True)
         buys = buys[:_NANO_BUY_MAX]
 
-        # Fallback: if we have fewer than 3 real buys, add data-missing high-explosive
-        # names with a warning flag so the owner knows they weren't confirmed.
-        if len(buys) < 3:
-            data_missing.sort(key=lambda x: x.get("explosive", 0), reverse=True)
-            for dm in data_missing:
-                if dm.get("explosive", 0) >= 500:
-                    dm["verdict"] = "BUY?"
-                    dm["reason"] = "data fetch failed — explosive potential high"
-                    dm["intraday_score"] = 50.0
-                    dm["blended"] = 0.5 * dm["conviction"] + 0.5 * 50.0
-                    buys.append(dm)
-                if len(buys) >= 3:
-                    break
+        # Always include data-missing names with explosive potential >= 300.
+        # These are the top-ranked watchlist names that failed their 9:45 data
+        # fetch (circuit breaker / Yahoo throttle). We don't want to miss them
+        # just because the fetch failed. They get a yellow flag so the owner knows
+        # they weren't confirmed against the 9:30-9:45 tape.
+        data_missing.sort(key=lambda x: x.get("explosive", 0), reverse=True)
+        for dm in data_missing:
+            if dm.get("explosive", 0) >= 300:
+                dm["verdict"] = "BUY?"
+                dm["reason"] = "data fetch failed — explosive potential high"
+                dm["intraday_score"] = 50.0
+                dm["blended"] = 0.5 * dm["conviction"] + 0.5 * 50.0
+                buys.append(dm)
+            if len(buys) >= 5:
+                break
 
         # Save ALL confirms (BUY, WATCH, AVOID) to the picks table so we can
         # diagnose what happened to every watchlist name, not just the ones that
