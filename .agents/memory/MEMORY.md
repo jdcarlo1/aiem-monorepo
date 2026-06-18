@@ -19,4 +19,5 @@
 - [Net Flow tab display rule](netflow-tab-display.md) — tier sections must never render empty when positive rows exist; thresholds are display filters, default to lowest + fall back to top rows
 - [Nano-cap morning explosion signature](nano-open-signature.md) — 9:30-9:45 fingerprint (early rvol + above-VWAP + green open) beats net-flow-ratio for nano runners; validate multi-day before hard-coding
 - [Timezone blank-tabs rule](timezone-blank-tabs.md) — prod session=GMT; raw CURRENT_DATE rolls at 8pm ET → use ET exprs; NEVER change session tz (breaks convention-(b) `AT TIME ZONE 'UTC'` queries)
+- [Small-cap morning system](sc-morning-system.md) — sibling of nano for $300M-$2B optionable; adds options-score (stored logs, not live chain) + double-signal; $1000/name; call_sweep_log legacy schema lacks `conviction`
 - [Nano-cap morning system](nano-morning-system.md) — two-stage 9:35 watch / 9:45 BUY; sizing is $500-WORTH per name (not 500 shares), breadth over size; low-float universe; key guard rationale
