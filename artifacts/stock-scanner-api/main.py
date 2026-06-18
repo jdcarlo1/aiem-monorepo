@@ -4237,6 +4237,13 @@ def _run_nano_morning_ranking():
                 except Exception:
                     pass
 
+                # "Explosive Potential" = net flow ($M) divided by distance from 20d
+                # high. Names with massive buying pressure AND lots of headroom
+                # (below 50% of 20d high) are coiled springs. Capped so near-high
+                # names don't get infinite scores.
+                dist = max(0.01, 1.0 - near) if near > 0 else 1.0
+                explosive = round((max(0, net_flow / 1e6) / dist), 1)
+
                 return {
                     "ticker": ticker, "conviction": conviction, "price": round(price, 4),
                     "mcap_m": mcap_m, "avg_vol": int(vol20),
@@ -4246,6 +4253,7 @@ def _run_nano_morning_ranking():
                     "flow_ratio": round(flow_ratio, 3),
                     "vtrend": round(vtrend, 2), "near_high": round(near, 3),
                     "mom10": round(mom10, 1), "up_ratio": round(up_ratio, 2),
+                    "explosive": explosive,
                 }
             except Exception:
                 return None
@@ -4515,35 +4523,67 @@ def _send_nano_buy_email():
         snap = _et_today()
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
             cur.execute("""
-                SELECT ticker, rank, conviction, price, mcap_m, avg_vol
+                SELECT ticker, rank, conviction, price, mcap_m, avg_vol, meta
                 FROM nano_morning_candidates
                 WHERE snap_date=%s ORDER BY rank ASC LIMIT %s
             """, (snap, _NANO_WATCH_N))
             rows = cur.fetchall()
         date_str = snap.strftime("%a %b %-d, %Y")
-        cands = [{"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
-                  "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
-                  "avg_vol": int(r[5] or 0)} for r in rows]
+        cands = []
+        for r in rows:
+            meta = r[6] or {}
+            if isinstance(meta, str):
+                try:
+                    meta = _json.loads(meta)
+                except Exception:
+                    meta = {}
+            cands.append({"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
+                          "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
+                          "avg_vol": int(r[5] or 0),
+                          "explosive": float(meta.get("explosive", 0)),
+                          "near_high": float(meta.get("near_high", 1))})
 
+        # 9:45 confirm used to run 8 concurrent workers — the first names hit the
+        # circuit breaker while the later names got through. Run sequentially (1
+        # worker) so the top-ranked watchlist names actually get their data fetched.
         confirms = {}
         if cands:
-            with _TPE(max_workers=8) as ex:
-                futs = {ex.submit(_nano_intraday_confirm, ca): ca["ticker"] for ca in cands}
-                for f in _ac(futs):
-                    try:
-                        cf = f.result()
-                        confirms[cf["ticker"]] = cf
-                    except Exception:
-                        pass
+            for ca in cands:
+                try:
+                    cf = _nano_intraday_confirm(ca)
+                    confirms[cf["ticker"]] = cf
+                except Exception:
+                    pass
 
-        buys, avoids = [], []
+        buys, avoids, data_missing = [], [], []
         for ca in cands:
             cf = confirms.get(ca["ticker"], {})
             blended = 0.5 * ca["conviction"] + 0.5 * float(cf.get("intraday_score", 0.0))
             row = {**ca, **cf, "blended": blended}
-            (buys if cf.get("verdict") == "BUY" else avoids).append(row)
+            if cf.get("verdict") == "BUY":
+                buys.append(row)
+            elif cf.get("reason", "").startswith("no intraday") or cf.get("reason", "").startswith("check failed"):
+                # 9:45 data fetch failed (circuit breaker / Yahoo throttle). If the
+                # name has explosive potential >= 500, include it with a warning.
+                data_missing.append(row)
+            else:
+                avoids.append(row)
         buys.sort(key=lambda x: x["blended"], reverse=True)
         buys = buys[:_NANO_BUY_MAX]
+
+        # Fallback: if we have fewer than 3 real buys, add data-missing high-explosive
+        # names with a warning flag so the owner knows they weren't confirmed.
+        if len(buys) < 3:
+            data_missing.sort(key=lambda x: x.get("explosive", 0), reverse=True)
+            for dm in data_missing:
+                if dm.get("explosive", 0) >= 500:
+                    dm["verdict"] = "BUY?"
+                    dm["reason"] = "data fetch failed — explosive potential high"
+                    dm["intraday_score"] = 50.0
+                    dm["blended"] = 0.5 * dm["conviction"] + 0.5 * 50.0
+                    buys.append(dm)
+                if len(buys) >= 3:
+                    break
 
         # Save ALL confirms (BUY, WATCH, AVOID) to the picks table so we can
         # diagnose what happened to every watchlist name, not just the ones that
@@ -4605,11 +4645,17 @@ def _send_nano_buy_email():
             cost = shares * entry
             total_cost += cost
             rvol = float(b.get("rvol15") or 0)
+            verdict = b.get("verdict", "BUY")
+            is_fallback = (verdict == "BUY?")
+            border_color = "#f59e0b" if is_fallback else "#14532d"
+            left_color = "#f59e0b" if is_fallback else "#22c55e"
+            badge_text = "⚠️ Data fetch failed — explosive potential" if is_fallback else f"{rvol:.1f}× vol · above VWAP"
+            badge_color = "#f59e0b" if is_fallback else "#22c55e"
             buy_cards.append(f"""
-              <div style="background:#0f172a;border:1px solid #14532d;border-left:3px solid #22c55e;border-radius:8px;padding:12px 14px;margin-bottom:8px;">
+              <div style="background:#0f172a;border:1px solid {border_color};border-left:3px solid {left_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                   <div><span style="font-size:13px;color:#64748b;">#{i}</span> <b style="font-size:18px;color:#f1f5f9;">{b['ticker']}</b></div>
-                  <div style="font-size:12px;color:#22c55e;font-weight:700;">{rvol:.1f}× vol · above VWAP</div>
+                  <div style="font-size:12px;color:{badge_color};font-weight:700;">{badge_text}</div>
                 </div>
                 <div style="font-size:13px;color:#cbd5e1;margin-top:6px;">
                   Buy <b style="color:#f1f5f9;">{shares} shares</b> @ <b style="color:#f1f5f9;">${entry:.2f}</b> ≈ <b style="color:#f1f5f9;">${cost:,.0f}</b>
@@ -5456,16 +5502,16 @@ def _send_sc_buy_email():
             print("[sc_buy] no candidates for today — scan-didn't-complete email sent")
             return
 
+        # 9:47 confirm runs sequentially (1 worker) instead of 8 concurrent so the
+        # top-ranked watchlist names actually get their data fetched.
         confirms = {}
         if cands:
-            with _TPE(max_workers=8) as ex:
-                futs = {ex.submit(_nano_intraday_confirm, ca): ca["ticker"] for ca in cands}
-                for f in _ac(futs):
-                    try:
-                        cf = f.result()
-                        confirms[cf["ticker"]] = cf
-                    except Exception:
-                        pass
+            for ca in cands:
+                try:
+                    cf = _nano_intraday_confirm(ca)
+                    confirms[cf["ticker"]] = cf
+                except Exception:
+                    pass
 
         buys, avoids = [], []
         for ca in cands:
