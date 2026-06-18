@@ -4217,69 +4217,85 @@ def _run_nano_morning_ranking():
                 dist = max(0.01, 1.0 - near) if near > 0 else 1.0
                 explosive = round((max(0, net_flow / 1e6) / dist), 1)
 
-                # ── Nano-TQL (Quantum Leap) signal: multi-condition pre-move setup ──
-                nano_conds = [
-                    near     >= 0.85,
-                    mom10    >= 10,
-                    flow_ratio >= 0,
-                    conviction >= 15,
-                    up_days  >= 7,
-                    steady   >= 0.4,
-                    vtrend   >= 1.4,
-                ]
-                nano_fired = sum(nano_conds)
-                nano_tql = (mom10 * near * flow_ratio * conviction * (nano_fired/7.0)
-                            if nano_fired >= 5 else 0.0)
+                # ── NEW Nano Scoring: v2 (validated on Jun 17-18) ───────────────────
+                # The old system used flow_ratio + conviction + steady_pts which
+                # rewarded accumulation patterns. But the data shows the real winners
+                # have MODERATE gaps (2-8%) and MODERATE momentum — NOT huge volume
+                # spikes or extreme flow ratios. The losers all had gap >10% or
+                # momentum_open >20%. This v2 system flips the priority:
+                #   1. Gap size (primary) — moderate gap = interest, huge gap = pump
+                #   2. Premarket momentum (secondary) — already ran = danger
+                #   3. Relative volume (tertiary) — 3-30x = healthy, >100x = pump
+                #   4. Price momentum (confirmation) — 10-30% = sweet spot
+                #
+                # Weights: gap=40%, momentum=25%, vol=20%, momentum10=15%
+                #
+                # Data-driven thresholds from Jun 17-18:
+                #   Winners: gap 2-8%, mom_open 4-15%, rel_vol 4-31x
+                #   Losers:  gap 20-100%, mom_open 20-244%, rel_vol >100x
 
-                # ── Stop-Out Predictor: 5-condition risk filter ──
-                # Predicts which TQL names are likely to hit their 5% stop.
-                # Score 3+ = RISKY (skip or use wider stop). Validated on
-                # Jun 17-18: 100% of risky names hit stops / had bad days.
-                _pred_score = 0
-                _pred_reasons = []
-                _hist_len = len(closes)
-                _start = max(0, _hist_len - 5)
+                # 1. Gap score (0-40) — penalize huge, reward moderate
+                _gap = ((closes[-1] / closes[-2]) - 1) * 100 if len(closes) >= 2 else 0
+                _gap_pts = 0
+                if   2 <= _gap < 5:   _gap_pts = 35   # sweet spot
+                elif 5 <= _gap < 8:   _gap_pts = 30   # still good
+                elif 8 <= _gap < 12:  _gap_pts = 15   # getting stretched
+                elif 12 <= _gap < 20: _gap_pts = 5    # danger zone
+                elif 0 <= _gap < 2:   _gap_pts = 10   # no interest
+                elif _gap < 0:        _gap_pts = 5    # gap down
+                # _gap >= 20 gets 0 (pump)
 
-                # 1. 5-day avg range
-                _ranges_5d = []
-                for _i in range(_start, _hist_len):
-                    if highs[_i] > 0 and closes[_i] > 0:
-                        _ranges_5d.append((highs[_i] / closes[_i] - 1) * 100)
-                _avg_5d_range = sum(_ranges_5d) / len(_ranges_5d) if _ranges_5d else 0
+                # 2. Premarket momentum (0-25) — how much it ran overnight
+                # Use the intraday price change as proxy
+                _mom = mom10  # 10-day momentum
+                _mom_pts = 0
+                if   10 <= _mom < 20:  _mom_pts = 22  # sweet spot
+                elif 20 <= _mom < 30:  _mom_pts = 15  # getting stretched
+                elif 5 <= _mom < 10:   _mom_pts = 12  # building
+                elif 30 <= _mom < 50:  _mom_pts = 5   # too hot
+                elif _mom >= 50:       _mom_pts = 0   # pump
+                elif _mom < 0:         _mom_pts = 0   # no momentum
 
-                # 2. Prior day move
-                _prev_move = ((closes[-1] / closes[-2]) - 1) * 100 if len(closes) >= 2 else 0
+                # 3. Volume score (0-20) — 3-30x is healthy, >100x is pump
+                _rvol = (vol5 / vol20) if vol20 > 0 else 1.0
+                _rvol_pts = 0
+                if   5 <= _rvol < 15:  _rvol_pts = 18  # good interest
+                elif 3 <= _rvol < 5:   _rvol_pts = 15  # building
+                elif 15 <= _rvol < 30: _rvol_pts = 12  # hot
+                elif 30 <= _rvol < 60: _rvol_pts = 5   # suspicious
+                elif _rvol >= 60:      _rvol_pts = 0   # pump
+                elif _rvol < 3:        _rvol_pts = 5   # no interest
 
-                # 3. 3-day avg change
-                _avg_3d_chg = 0
-                if len(closes) >= 4:
-                    _chgs = []
-                    for _i in range(len(closes)-3, len(closes)):
-                        if _i > 0 and closes[_i-1] > 0:
-                            _chgs.append((closes[_i] / closes[_i-1] - 1) * 100)
-                    _avg_3d_chg = sum(_chgs) / len(_chgs) if _chgs else 0
+                # 4. 10-day momentum score (0-15) — multi-day confirmation
+                _mom10_pts = 0
+                if   10 <= mom10 < 20:  _mom10_pts = 12
+                elif 5 <= mom10 < 10:   _mom10_pts = 8
+                elif 20 <= mom10 < 30:  _mom10_pts = 5
+                elif mom10 >= 30:       _mom10_pts = 0
+                elif mom10 < 0:         _mom10_pts = 0
 
-                # 4. Position in 5-day range
-                _five_high = max(closes[_start:]) if _start < _hist_len else price
-                _five_low = min(closes[_start:]) if _start < _hist_len else price
-                _pos_in_range = (price - _five_low) / (_five_high - _five_low) if _five_high > _five_low else 0.5
+                # 5. Risk penalty (0-30) — subtract from total
+                # Based on patterns from actual losers Jun 17-18
+                _risk_pts = 0
+                _risk_reasons = []
+                if _gap >= 20:           _risk_pts += 15; _risk_reasons.append("huge_gap")
+                elif _gap >= 12:         _risk_pts += 8;  _risk_reasons.append("big_gap")
+                if _mom >= 50:           _risk_pts += 10; _risk_reasons.append("extreme_mom")
+                elif _mom >= 30:         _risk_pts += 5;  _risk_reasons.append("hot_mom")
+                if _rvol >= 100:         _risk_pts += 8;  _risk_reasons.append("pump_vol")
+                elif _rvol >= 60:        _risk_pts += 4;  _risk_reasons.append("suspicious_vol")
+                if _gap >= 20 and _rvol >= 50:  _risk_pts += 10; _risk_reasons.append("pump_combo")
 
-                # Build score
-                if _prev_move > 5:
-                    _pred_score += 2; _pred_reasons.append("big_gap")
-                if _prev_move > 10:
-                    _pred_score += 2; _pred_reasons.append("huge_gap")
-                if _avg_5d_range > 8:
-                    _pred_score += 1; _pred_reasons.append("high_vol")
-                if _avg_5d_range > 12:
-                    _pred_score += 1; _pred_reasons.append("very_high_vol")
-                if _pos_in_range > 0.95:
-                    _pred_score += 1; _pred_reasons.append("at_high")
-                if _prev_move > 5:
-                    _pred_score += 1; _pred_reasons.append("prior_big_move")
-                if _avg_3d_chg > 15:
-                    _pred_score += 1; _pred_reasons.append("extreme_momentum")
-                _pred_risky = _pred_score >= 3
+                # Total score
+                nano_v2_score = max(0, _gap_pts + _mom_pts + _rvol_pts + _mom10_pts - _risk_pts)
+                nano_v2_max = 100
+                nano_v2_pct = round(nano_v2_score / nano_v2_max * 100, 1)
+
+                # Threshold: 60+ = strong buy, 40-59 = watch, <40 = skip
+                nano_v2_grade = "STRONG" if nano_v2_pct >= 60 else "WATCH" if nano_v2_pct >= 40 else "SKIP"
+
+                # Risk flag (same as predictor but using new thresholds)
+                _risky = _risk_pts >= 15
 
                 return {
                     "ticker": ticker, "conviction": conviction, "price": round(price, 4),
@@ -4291,13 +4307,19 @@ def _run_nano_morning_ranking():
                     "vtrend": round(vtrend, 2), "near_high": round(near, 3),
                     "mom10": round(mom10, 1), "up_ratio": round(up_ratio, 2),
                     "explosive": explosive, "steady": round(steady, 3),
-                    "nano_tql": round(nano_tql, 2), "nano_fired": nano_fired,
-                    "nano_predictor": _pred_score, "nano_predictor_risky": _pred_risky,
-                    "nano_predictor_reasons": _pred_reasons,
-                    "avg_5d_range": round(_avg_5d_range, 2),
-                    "prev_move": round(_prev_move, 2),
-                    "avg_3d_chg": round(_avg_3d_chg, 2),
-                    "pos_in_range": round(_pos_in_range, 3),
+                    "nano_v2_score": nano_v2_score,
+                    "nano_v2_pct": nano_v2_pct,
+                    "nano_v2_grade": nano_v2_grade,
+                    "nano_v2_gap_pts": _gap_pts,
+                    "nano_v2_mom_pts": _mom_pts,
+                    "nano_v2_rvol_pts": _rvol_pts,
+                    "nano_v2_mom10_pts": _mom10_pts,
+                    "nano_v2_risk_pts": _risk_pts,
+                    "nano_v2_risky": _risky,
+                    "nano_v2_risk_reasons": _risk_reasons,
+                    "gap_pct": round(_gap, 2),
+                    "rvol": round(_rvol, 1),
+                    "_10d_mom": round(_mom, 1),
                 }
             except Exception:
                 return None
@@ -4311,8 +4333,8 @@ def _run_nano_morning_ranking():
                 r = f.result()
                 if r:
                     results.append(r)
-        # Sort by Nano-TQL (Quantum Leap) score if available, then conviction
-        results.sort(key=lambda x: (x.get("nano_tql", 0), x["conviction"]), reverse=True)
+        # Sort by new v2 score (primary) then conviction (secondary)
+        results.sort(key=lambda x: (x.get("nano_v2_score", 0), x["conviction"]), reverse=True)
 
         # Don't let a yfinance/Finviz outage wipe a good list: only replace today's
         # candidates if we scored a sane fraction of the universe. _score returns a
@@ -4518,19 +4540,21 @@ def _send_nano_watch_email():
             _meta = meta if isinstance(meta, dict) else ({}
                 if not isinstance(meta, str) else
                 (json.loads(meta) if meta else {}))
-            tql = float(_meta.get("nano_tql", 0)) if _meta else 0
-            fired = int(_meta.get("nano_fired", 0)) if _meta else 0
-            tql_color = "#22c55e" if tql >= 500 else ("#eab308" if tql >= 100 else "#94a3b8")
-            tql_badge = f'<span style="font-size:12px;color:#64748b;background:#0f172a;padding:2px 8px;border-radius:4px;border:1px solid #1e293b;">TQL {tql:.0f} · {fired}/7</span>' if tql > 0 else ''
+            v2 = float(_meta.get("nano_v2_pct", 0)) if _meta else 0
+            grade = str(_meta.get("nano_v2_grade", "SKIP")) if _meta else "SKIP"
+            risky = bool(_meta.get("nano_v2_risky", False)) if _meta else False
+            v2_color = "#22c55e" if grade == "STRONG" else ("#eab308" if grade == "WATCH" else "#94a3b8")
+            grade_badge = f'<span style="font-size:12px;color:#64748b;background:#0f172a;padding:2px 8px;border-radius:4px;border:1px solid #1e293b;">v2 {grade} · {v2:.0f}%</span>' if v2 > 0 else ''
+            risk_badge = f'<span style="font-size:12px;color:#ef4444;background:#0f172a;padding:2px 8px;border-radius:4px;border:1px solid #1e293b;">⚠ RISK</span>' if risky else ''
             mcap_str = f"${mcap_m:.0f}M cap" if mcap_m else "nano cap"
             cards.append(f"""
-              <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {tql_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
+              <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {v2_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                   <div><span style="font-size:13px;color:#64748b;">#{rank}</span> <b style="font-size:17px;color:#f1f5f9;">{tk}</b> <span style="font-size:12px;color:#64748b;">${price:.2f} · {mcap_str}</span></div>
-                  <div style="font-size:18px;font-weight:800;color:{tql_color};">{tql:.0f}</div>
+                  <div style="font-size:18px;font-weight:800;color:{v2_color};">{v2:.0f}</div>
                 </div>
                 <div style="font-size:11px;color:#94a3b8;margin-top:5px;">
-                  {tql_badge} &nbsp; conv {conv} &nbsp; accum {accum:.0f}/40 &nbsp; steady {steady:.0f}/25 &nbsp; vol {volp:.0f}/20 &nbsp; mom {momp:.0f}/15 &nbsp; {upd}d up &nbsp; net +${nf:.1f}M
+                  {grade_badge} {risk_badge} &nbsp; conv {conv} &nbsp; accum {accum:.0f}/40 &nbsp; steady {steady:.0f}/25 &nbsp; vol {volp:.0f}/20 &nbsp; mom {momp:.0f}/15 &nbsp; {upd}d up &nbsp; net +${nf:.1f}M
                 </div>
               </div>""")
         cards_html = "".join(cards)
@@ -4539,10 +4563,10 @@ def _send_nano_watch_email():
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:14px;">
             <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🌅 Nano Watchlist — Get Ready</span>
-            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Top {len(rows)} low-float nano accumulators · ranked most→least bullish · {date_str}</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Top {len(rows)} low-float nano accumulators · ranked by v2 score · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
-            🚀 <b>Nano-TQL (Quantum Leap) Signal — Buy at the open.</b> These are the top nano-caps firing the 7-condition TQL setup (near high, mom10≥10%, positive flow, conviction≥15, up-days≥7, steady≥0.40, rising volume). The 10-minute delay from 9:45 confirmation costs +1.6% per trade on average. Your 5% stop handles any false positives.
+            🚀 <b>Nano v2 Signal — Buy at the open.</b> These are top nano-caps with moderate gaps (2-8%), healthy momentum (10-30%), and strong volume (3-30x). The v2 system penalizes extreme pumps (gap>20%, vol>100x, mom>50%). The 5% stop handles any false positives.
           </div>
           {cards_html}
           <div style="text-align:center;margin:8px 0 4px;">
@@ -4550,12 +4574,12 @@ def _send_nano_watch_email():
           </div>
           <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps are highly volatile — buy at the open, set your 5% stop immediately, and let winners run.</p>
         </div>"""
-        ok = send_email_raw(_OWNER_EMAIL, f"🚀 Nano-TQL Watchlist · {len(rows)} names · Buy at the open · {date_str}", html)
+        ok = send_email_raw(_OWNER_EMAIL, f"🚀 Nano v2 Watchlist · {len(rows)} names · {date_str}", html)
         print(f"[nano_watch] sent={ok} → {len(rows)} candidates")
         try:
             top = rows[0]
-            _send_ntfy(f"Nano-TQL watchlist: {len(rows)} names",
-                       f"#1 {top[0]} (TQL {top[13]}). Buy at the open — 5% stop.",
+            _send_ntfy(f"Nano v2 watchlist: {len(rows)} names",
+                       f"#1 {top[0]} (v2 {top[13]}). Buy at the open — 5% stop.",
                        priority="high", tags="rocket")
         except Exception:
             pass
@@ -4605,7 +4629,10 @@ def _send_nano_buy_email():
             buys.append({"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
                          "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
                          "avg_vol": int(r[5] or 0),
-                         "tql": float(meta.get("nano_tql", 0)),
+                         "v2_score": float(meta.get("nano_v2_score", 0)),
+                         "v2_pct": float(meta.get("nano_v2_pct", 0)),
+                         "v2_grade": str(meta.get("nano_v2_grade", "SKIP")),
+                         "v2_risky": bool(meta.get("nano_v2_risky", False)),
                          "explosive": float(meta.get("explosive", 0)),
                          "near_high": float(meta.get("near_high", 1))})
 
@@ -4629,8 +4656,10 @@ def _send_nano_buy_email():
                       verdict=EXCLUDED.verdict, meta=EXCLUDED.meta
                 """, (snap, b["ticker"], i, entry, shares, stop, cost,
                       int(b["conviction"]), 0.0, 0.0, False, "BUY",
-                      _json.dumps({"tql": b.get("tql", 0), "mcap_m": b.get("mcap_m"),
-                                   "avg_vol": b.get("avg_vol"), "near_high": b.get("near_high")})))
+                      _json.dumps({"v2_score": b.get("v2_score", 0), "v2_pct": b.get("v2_pct", 0),
+                                   "v2_grade": b.get("v2_grade", "SKIP"), "v2_risky": b.get("v2_risky", False),
+                                   "mcap_m": b.get("mcap_m"), "avg_vol": b.get("avg_vol"),
+                                   "near_high": b.get("near_high")})))
             c.commit()
 
         tr_html = _nano_tr_html(_nano_morning_track_record())
@@ -4644,13 +4673,15 @@ def _send_nano_buy_email():
             shares = int(_NANO_DOLLARS_PER_BUY / entry) if entry > 0 else 0
             cost = shares * entry
             total_cost += cost
-            tql = float(b.get("tql", 0))
-            tql_color = "#22c55e" if tql >= 500 else ("#eab308" if tql >= 100 else "#94a3b8")
+            v2 = float(b.get("v2_pct", 0))
+            grade = str(b.get("v2_grade", "SKIP"))
+            risky = bool(b.get("v2_risky", False))
+            v2_color = "#22c55e" if grade == "STRONG" else ("#eab308" if grade == "WATCH" else "#94a3b8")
             buy_cards.append(f"""
-              <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {tql_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
+              <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {v2_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                   <div><span style="font-size:13px;color:#64748b;">#{i}</span> <b style="font-size:18px;color:#f1f5f9;">{b['ticker']}</b></div>
-                  <div style="font-size:12px;color:{tql_color};font-weight:700;">TQL {tql:.0f}</div>
+                  <div style="font-size:12px;color:{v2_color};font-weight:700;">v2 {v2:.0f}% {grade}</div>
                 </div>
                 <div style="font-size:13px;color:#cbd5e1;margin-top:6px;">
                   Buy <b style="color:#f1f5f9;">{shares} shares</b> @ <b style="color:#f1f5f9;">${entry:.2f}</b> ≈ <b style="color:#f1f5f9;">${cost:,.0f}</b>
@@ -4663,11 +4694,11 @@ def _send_nano_buy_email():
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:14px;">
-            <span style="font-size:22px;font-weight:800;color:#22c55e;">🚀 Nano-TQL Buy List</span>
-            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(buys)} top TQL names · ${_NANO_DOLLARS_PER_BUY} of each · Buy at the open · {date_str}</span>
+            <span style="font-size:22px;font-weight:800;color:#22c55e;">🚀 Nano v2 Buy List</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(buys)} top v2 names · ${_NANO_DOLLARS_PER_BUY} of each · Buy at the open · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
-            These are the top Nano-TQL (Quantum Leap) signals from the overnight scan. <b style="color:#22c55e;">Buy at the open</b> — the 10-minute delay from 9:45 confirmation costs 1.6% per trade on average. <b style="color:#ef4444;">Set the 5% stop immediately</b>, then let winners ride. Est. total deployed: <b style="color:#f1f5f9;">${total_cost:,.0f}</b>.
+            These are the top Nano v2 signals from the overnight scan. <b style="color:#22c55e;">Buy at the open</b> — the v2 system targets moderate gaps (2-8%), healthy momentum (10-30%), and strong volume (3-30x). It penalizes extreme pumps (gap>20%, vol>100x, mom>50%). <b style="color:#ef4444;">Set the 5% stop immediately</b>, then let winners ride. Est. total deployed: <b style="color:#f1f5f9;">${total_cost:,.0f}</b>.
           </div>
           {buy_html}
           {tr_html}
@@ -4676,11 +4707,11 @@ def _send_nano_buy_email():
           </div>
           <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps can gap through stops — size with that in mind.</p>
         </div>"""
-        ok = send_email_raw(_OWNER_EMAIL, f"🚀 {len(buys)} Nano-TQL buys · Buy at the open · {date_str}", html)
+        ok = send_email_raw(_OWNER_EMAIL, f"🚀 {len(buys)} Nano v2 buys · Buy at the open · {date_str}", html)
         print(f"[nano_buy] sent={ok} → {len(buys)} buys")
         try:
             names = ", ".join(b["ticker"] for b in buys[:6])
-            _send_ntfy(f"{len(buys)} Nano-TQL buys",
+            _send_ntfy(f"{len(buys)} Nano v2 buys",
                        f"{names}{'…' if len(buys) > 6 else ''} — Buy at the open, 5% stop.",
                        priority="high", tags="rocket")
         except Exception:
@@ -4791,11 +4822,13 @@ def nano_morning_candidates():
                     meta = json.loads(meta)
                 except Exception:
                     meta = {}
-            r["nano_predictor"] = meta.get("nano_predictor", 0) if isinstance(meta, dict) else 0
-            r["nano_predictor_risky"] = meta.get("nano_predictor_risky", False) if isinstance(meta, dict) else False
-            r["nano_predictor_reasons"] = meta.get("nano_predictor_reasons", []) if isinstance(meta, dict) else []
-            r["nano_tql"] = meta.get("nano_tql", 0) if isinstance(meta, dict) else 0
-            r["nano_fired"] = meta.get("nano_fired", 0) if isinstance(meta, dict) else 0
+            r["nano_v2_score"] = meta.get("nano_v2_score", 0) if isinstance(meta, dict) else 0
+            r["nano_v2_pct"] = meta.get("nano_v2_pct", 0) if isinstance(meta, dict) else 0
+            r["nano_v2_grade"] = meta.get("nano_v2_grade", "SKIP") if isinstance(meta, dict) else "SKIP"
+            r["nano_v2_risky"] = meta.get("nano_v2_risky", False) if isinstance(meta, dict) else False
+            r["nano_v2_risk_reasons"] = meta.get("nano_v2_risk_reasons", []) if isinstance(meta, dict) else []
+            r["gap_pct"] = meta.get("gap_pct", 0) if isinstance(meta, dict) else 0
+            r["rvol"] = meta.get("rvol", 0) if isinstance(meta, dict) else 0
         return jsonify({"count": len(rows), "candidates": rows}), 200
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500

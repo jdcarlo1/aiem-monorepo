@@ -14594,15 +14594,15 @@ export default function Dashboard() {
             });
             const [showRisky, setShowRisky] = useState(false);
             const cands = data?.candidates ?? [];
-            const risky = cands.filter(c => c.nano_predictor_risky);
-            const safe = cands.filter(c => !c.nano_predictor_risky);
+            const risky = cands.filter(c => c.nano_v2_risky);
+            const safe = cands.filter(c => !c.nano_v2_risky);
             const date = cands[0]?.snap_date ?? "";
             return (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <div className="text-slate-400 text-sm font-semibold">🚀 Nano-TQL Morning Watchlist</div>
+                      <div className="text-slate-400 text-sm font-semibold">🚀 Nano v2 Morning Watchlist</div>
                       <div className="text-slate-500 text-xs">{date ? new Date(date).toLocaleDateString("en-US", {weekday:"short", month:"short", day:"numeric"}) : ""}</div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -14624,35 +14624,35 @@ export default function Dashboard() {
                             <th className="text-left py-2 px-3">#</th>
                             <th className="text-left py-2 px-3">Ticker</th>
                             <th className="text-right py-2 px-3">Price</th>
-                            <th className="text-right py-2 px-3">TQL</th>
-                            <th className="text-right py-2 px-3">Fired</th>
+                            <th className="text-right py-2 px-3">v2 Score</th>
+                            <th className="text-right py-2 px-3">Grade</th>
                             <th className="text-right py-2 px-3">Conv</th>
-                            <th className="text-right py-2 px-3">Predictor</th>
+                            <th className="text-right py-2 px-3">Gap</th>
                             <th className="text-right py-2 px-3">Risk</th>
                             <th className="text-left py-2 px-3">Flags</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(showRisky ? cands : safe).map((c, i) => (
-                            <tr key={c.ticker} className={`border-b border-slate-800/50 hover:bg-slate-800/30 ${c.nano_predictor_risky ? "bg-red-900/10" : ""}`}>
+                            <tr key={c.ticker} className={`border-b border-slate-800/50 hover:bg-slate-800/30 ${c.nano_v2_risky ? "bg-red-900/10" : ""}`}>
                               <td className="py-2 px-3 text-slate-500">{i+1}</td>
                               <td className="py-2 px-3">
                                 <button onClick={() => onSelectTicker(c.ticker)} className="font-semibold text-white hover:text-blue-400">{c.ticker}</button>
                               </td>
                               <td className="text-right py-2 px-3 text-slate-300">${c.price.toFixed(2)}</td>
-                              <td className="text-right py-2 px-3 font-bold" style={{ color: c.nano_tql >= 500 ? "#22c55e" : c.nano_tql >= 100 ? "#eab308" : "#94a3b8" }}>{c.nano_tql.toFixed(0)}</td>
-                              <td className="text-right py-2 px-3 text-slate-400">{c.nano_fired}/7</td>
+                              <td className="text-right py-2 px-3 font-bold" style={{ color: c.nano_v2_grade === "STRONG" ? "#22c55e" : c.nano_v2_grade === "WATCH" ? "#eab308" : "#94a3b8" }}>{c.nano_v2_pct.toFixed(0)}%</td>
+                              <td className="text-right py-2 px-3 text-slate-400">{c.nano_v2_grade}</td>
                               <td className="text-right py-2 px-3 text-slate-400">{c.conviction}</td>
-                              <td className="text-right py-2 px-3 text-slate-400">{c.nano_predictor}</td>
+                              <td className="text-right py-2 px-3 text-slate-400">{c.gap_pct?.toFixed(1) ?? "—"}%</td>
                               <td className="text-right py-2 px-3">
-                                {c.nano_predictor_risky ? (
+                                {c.nano_v2_risky ? (
                                   <span className="text-red-400 font-bold text-xs">⚠️ RISKY</span>
                                 ) : (
                                   <span className="text-emerald-400 text-xs">OK</span>
                                 )}
                               </td>
                               <td className="text-left py-2 px-3 text-xs text-slate-500">
-                                {c.nano_predictor_reasons?.join(", ") || "—"}
+                                {c.nano_v2_risk_reasons?.join(", ") || "—"}
                               </td>
                             </tr>
                           ))}
@@ -14662,11 +14662,16 @@ export default function Dashboard() {
                   )}
                 </div>
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                  <div className="text-slate-400 text-sm font-semibold mb-3">🛡️ Stop-Out Predictor Legend</div>
+                  <div className="text-slate-400 text-sm font-semibold mb-3">🛡️ v2 Scoring System</div>
                   <div className="text-slate-500 text-xs space-y-1">
-                    <p>Score 3+ = <span className="text-red-400">RISKY</span> — high probability of hitting 5% stop. Skip or use 8% stop.</p>
-                    <p>Conditions: big gap (&gt;5%), huge gap (&gt;10%), high volatility (&gt;8%), very high volatility (&gt;12%), at 5-day high (&gt;95%), prior big move (&gt;5%), extreme momentum (&gt;15% 3d).</p>
-                    <p>Validated: Jun 17-18 — 100% of risky names had bad days. 91% accuracy across 31 test cases.</p>
+                    <p><b className="text-slate-300">v2 Score</b> = gap + momentum + volume + momentum10 - risk_penalty</p>
+                    <p>Gap (0-40): 2-5% = 35pts, 5-8% = 30pts, 8-12% = 15pts, 12%+ = 5pts, 20%+ = 0pts</p>
+                    <p>Momentum (0-25): 10-20% = 22pts, 20-30% = 15pts, 5-10% = 12pts, 50%+ = 0pts</p>
+                    <p>Volume (0-20): 5-15x = 18pts, 3-5x = 15pts, 15-30x = 12pts, 60x+ = 0pts</p>
+                    <p>Momentum10 (0-15): 10-20% = 12pts, 5-10% = 8pts, 30%+ = 0pts</p>
+                    <p>Risk penalty: huge gap +15, extreme mom +10, pump vol +8, combo +10</p>
+                    <p>Grade: 60%+ = STRONG, 40-59% = WATCH, &lt;40% = SKIP</p>
+                    <p className="text-emerald-400 mt-2">Validated: targets moderate setups, penalizes extreme pumps. Data from Jun 17-18.</p>
                   </div>
                 </div>
               </div>
