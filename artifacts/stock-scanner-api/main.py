@@ -4545,29 +4545,34 @@ def _send_nano_buy_email():
         buys.sort(key=lambda x: x["blended"], reverse=True)
         buys = buys[:_NANO_BUY_MAX]
 
-        if buys:
-            with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
-                for i, b in enumerate(buys, 1):
-                    entry = float(b.get("price") or 0)
-                    stop = round(entry * (1 - _NANO_STOP_PCT), 4)
-                    shares = int(_NANO_DOLLARS_PER_BUY / entry) if entry > 0 else 0
-                    cost = round(shares * entry, 2)
-                    cur.execute("""
-                        INSERT INTO nano_morning_picks
-                          (pick_date, ticker, rank, entry_price, shares, stop_price,
-                           cost, conviction, intraday_score, rvol15, above_vwap, verdict, meta)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (pick_date, ticker) DO UPDATE SET
-                          rank=EXCLUDED.rank, entry_price=EXCLUDED.entry_price,
-                          shares=EXCLUDED.shares, stop_price=EXCLUDED.stop_price, cost=EXCLUDED.cost,
-                          conviction=EXCLUDED.conviction, intraday_score=EXCLUDED.intraday_score,
-                          rvol15=EXCLUDED.rvol15, above_vwap=EXCLUDED.above_vwap,
-                          verdict=EXCLUDED.verdict, meta=EXCLUDED.meta
-                    """, (snap, b["ticker"], i, entry, shares, stop, cost,
-                          int(b["conviction"]), float(b.get("intraday_score") or 0),
-                          float(b.get("rvol15") or 0), bool(b.get("above_vwap")), "BUY",
-                          _json.dumps({k: b.get(k) for k in ("mcap_m", "avg_vol", "near_high", "reason", "blended")})))
-                c.commit()
+        # Save ALL confirms (BUY, WATCH, AVOID) to the picks table so we can
+        # diagnose what happened to every watchlist name, not just the ones that
+        # got a BUY verdict. This is critical for learning why the top-ranked
+        # watchlist names did NOT confirm, and for tuning the 9:45 thresholds.
+        all_confirms = sorted(buys + avoids, key=lambda x: x.get("blended", 0), reverse=True)
+        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            for i, b in enumerate(all_confirms, 1):
+                entry = float(b.get("price") or 0)
+                stop = round(entry * (1 - _NANO_STOP_PCT), 4) if entry > 0 else None
+                shares = int(_NANO_DOLLARS_PER_BUY / entry) if entry > 0 else None
+                cost = round(shares * entry, 2) if shares else None
+                verdict = str(b.get("verdict", "UNKNOWN"))
+                cur.execute("""
+                    INSERT INTO nano_morning_picks
+                      (pick_date, ticker, rank, entry_price, shares, stop_price,
+                       cost, conviction, intraday_score, rvol15, above_vwap, verdict, meta)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (pick_date, ticker) DO UPDATE SET
+                      rank=EXCLUDED.rank, entry_price=EXCLUDED.entry_price,
+                      shares=EXCLUDED.shares, stop_price=EXCLUDED.stop_price, cost=EXCLUDED.cost,
+                      conviction=EXCLUDED.conviction, intraday_score=EXCLUDED.intraday_score,
+                      rvol15=EXCLUDED.rvol15, above_vwap=EXCLUDED.above_vwap,
+                      verdict=EXCLUDED.verdict, meta=EXCLUDED.meta
+                """, (snap, b["ticker"], i, entry, shares, stop, cost,
+                      int(b["conviction"]), float(b.get("intraday_score") or 0),
+                      float(b.get("rvol15") or 0), bool(b.get("above_vwap")), verdict,
+                      _json.dumps({k: b.get(k) for k in ("mcap_m", "avg_vol", "near_high", "reason", "blended")})))
+            c.commit()
 
         tr_html = _nano_tr_html(_nano_morning_track_record())
         base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
