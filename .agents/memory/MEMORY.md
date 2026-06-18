@@ -11,6 +11,7 @@
 - [Scanner data-source ceiling](scanner-data-source-ceiling.md) — yfinance polling caps ~1,200 tickers/scan; don't add micro/small (3,800) to morning poll; fix = full-market snapshot API (Polygon)
 - [Paid data feed options](paid-data-feed-options.md) — Alpaca vs Polygon coverage for the score; Alpaca lacks short-interest+dark-pool, OI is EOD-only via contracts endpoint; Polygon has dark pool + full-market snapshot; OI is EOD everywhere
 - [Owner-email scheduler wiring](owner-email-scheduler.md) — add kind to _OWNER_EMAIL_SCHEDULE + branch in _owner_send_now (cron+catch-up auto); dedup via owner_email_log (kind,slot,date); slot claimed before send so failures burn the day; heavy scans must reuse endpoint lock
+- [Owner premarket brief email](market-brief-email.md) — daily 8:30 ET brief is always-send (not silent-when-empty); pre-open aggregators must call option-chain scanners cache/DB-only (unusual-calls ?cache_only=1) so a cold scan can't burn the claimed slot
 - [yfinance fast_info attribute names](yfinance-fastinfo.md) — v1.4.1 uses snake_case: last_price, previous_close, NOT lastPrice/regularMarketPrice/previousClose
 - [Finviz data source](finviz-data-source.md) — Barchart IP-blocked; Finviz is permanent replacement; correct regex is stock\?t=([A-Z]{1,5})& not old screener URL; Yahoo rate-limits when OI snapshot runs concurrently
 - [Bulk scan must run in-process](bulk-scan-in-process.md) — detached bg processes get reaped between tool calls & fresh procs hit yfinance rate limits; long scans run as a daemon thread inside the always-on stock-api

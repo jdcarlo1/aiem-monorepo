@@ -308,6 +308,7 @@ _OWNER_EMAIL_SCHEDULE = {
     "sc_watch":        [(9, 37)],
     "sc_buy":          [(9, 47)],
     "smp_morning":     [(9, 5)],
+    "market_brief":    [(8, 30)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
@@ -3399,6 +3400,208 @@ def _send_smp_morning() -> None:
         print(f"[smp_morning] error: {_e}\n{traceback.format_exc()}")
 
 
+def _brief_fetch(path: str) -> dict:
+    """Call one of our own GET endpoints in-process (reusing that endpoint's cache
+    and single-flight lock) and return parsed JSON. Returns {} on any error so one
+    bad section never breaks the whole brief."""
+    try:
+        with app.test_client() as _c:
+            resp = _c.get(path)
+            if resp.status_code != 200:
+                print(f"[market_brief] {path} -> HTTP {resp.status_code}")
+                return {}
+            return resp.get_json(silent=True) or {}
+    except Exception as _e:
+        print(f"[market_brief] {path} fetch error: {_e}")
+        return {}
+
+
+def _brief_section(title: str, subtitle: str, body_html: str) -> str:
+    return f"""
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;margin-bottom:12px;">
+        <div style="font-size:14px;font-weight:700;color:#f1f5f9;">{title}</div>
+        <div style="font-size:11px;color:#64748b;margin:2px 0 8px;">{subtitle}</div>
+        {body_html}
+      </div>"""
+
+
+def _build_market_brief_html() -> tuple:
+    """Assemble the 8:30 AM premarket brief as (subject, html). Mirrors the manual
+    premarket rundown: premarket movers, gamma pressure, dark-pool accumulation,
+    fresh far-OTM sweeps, convergence, unusual calls, plus a rule-based bottom line.
+    Each signal is pulled from its own GET endpoint via _brief_fetch."""
+    from datetime import datetime as _dt
+    now_et   = _dt.now(_ET_TZ)
+    today    = now_et.strftime("%Y-%m-%d")
+    date_str = now_et.strftime("%A, %B %d · %I:%M %p ET")
+
+    pm   = _brief_fetch("/stock-api/premarket")
+    gp   = _brief_fetch("/stock-api/gamma-pressure")
+    dp   = _brief_fetch("/stock-api/darkpool")
+    fos  = _brief_fetch("/stock-api/far-otm-sweeps")
+    conv = _brief_fetch("/stock-api/convergence")
+    uc   = _brief_fetch("/stock-api/unusual-calls?cache_only=1")
+
+    def _f(v, d=0.0):
+        try:
+            return float(v)
+        except Exception:
+            return d
+
+    sections    = []
+    bottom_bits = []
+
+    # 1. Premarket movers (live)
+    gainers = pm.get("gainers", []) or []
+    losers  = pm.get("losers", []) or []
+    if gainers or losers:
+        def _mv(rows, color):
+            s = ""
+            for r in rows[:6]:
+                cap = r.get("mkt_cap_b")
+                cap_s = f"${cap}B" if cap else "—"
+                s += (f"<tr><td style='padding:3px 6px;color:#e2e8f0;font-weight:600;'>{r.get('ticker','')}</td>"
+                      f"<td style='padding:3px 6px;color:{color};text-align:right;font-weight:600;'>{_f(r.get('change_pct')):+.2f}%</td>"
+                      f"<td style='padding:3px 6px;color:#94a3b8;text-align:right;'>${r.get('price','')}</td>"
+                      f"<td style='padding:3px 6px;color:#64748b;text-align:right;'>{cap_s}</td></tr>")
+            return s
+        t = "<table style='width:100%;border-collapse:collapse;font-size:12px;'>"
+        if gainers:
+            t += ("<tr><td colspan='4' style='padding:5px 6px 2px;color:#22c55e;font-weight:700;font-size:10px;letter-spacing:.5px;'>▲ GAINERS</td></tr>"
+                  + _mv(gainers, "#22c55e"))
+        if losers:
+            t += ("<tr><td colspan='4' style='padding:5px 6px 2px;color:#ef4444;font-weight:700;font-size:10px;letter-spacing:.5px;'>▼ LOSERS</td></tr>"
+                  + _mv(losers, "#ef4444"))
+        t += "</table>"
+        sections.append(_brief_section("📈 Premarket Movers", f"{len(gainers)} up · {len(losers)} down · live now", t))
+        if losers and not gainers and len(losers) >= 4:
+            bottom_bits.append(f"<b>One-sided premarket</b> — every mover is red (led by {losers[0].get('ticker','')} {_f(losers[0].get('change_pct')):+.1f}%).")
+        elif gainers and not losers and len(gainers) >= 4:
+            bottom_bits.append(f"<b>One-sided premarket</b> — every mover is green (led by {gainers[0].get('ticker','')} {_f(gainers[0].get('change_pct')):+.1f}%).")
+
+    # 2. Gamma pressure
+    gsig = gp.get("signals", []) or []
+    if gsig:
+        rows = ""
+        for r in gsig[:5]:
+            exp = str(r.get('top_strike_expiry', ''))[5:]
+            rows += (f"<tr><td style='padding:3px 6px;color:#e2e8f0;font-weight:600;'>{r.get('ticker','')}</td>"
+                     f"<td style='padding:3px 6px;color:#a78bfa;text-align:right;font-weight:700;'>{_f(r.get('score')):.1f}</td>"
+                     f"<td style='padding:3px 6px;color:#94a3b8;text-align:right;'>{_f(r.get('price_change_pct')):+.1f}%</td>"
+                     f"<td style='padding:3px 6px;color:#64748b;text-align:right;'>${r.get('top_strike','')} {exp}</td></tr>")
+        t = "<table style='width:100%;border-collapse:collapse;font-size:12px;'>" + rows + "</table>"
+        adates = sorted({str(r.get('alert_date', '')) for r in gsig if r.get('alert_date')})
+        asof = adates[-1] if adates else "—"
+        sections.append(_brief_section("⚡ Gamma Pressure", f"call-side squeeze pressure · score /10 · as of {asof}", t))
+        top = gsig[0]
+        bottom_bits.append(f"Highest gamma name is <b>{top.get('ticker','')}</b> (score {_f(top.get('score')):.1f}, {_f(top.get('price_change_pct')):+.1f}%).")
+
+    # 3. Dark-pool accumulation
+    dres = dp.get("results", []) or []
+    if dres:
+        rows = ""
+        for r in dres[:6]:
+            rows += (f"<tr><td style='padding:3px 6px;color:#e2e8f0;font-weight:600;'>{r.get('ticker','')}</td>"
+                     f"<td style='padding:3px 6px;color:#22c55e;text-align:right;font-weight:700;'>{_f(r.get('score')):.1f}</td>"
+                     f"<td style='padding:3px 6px;color:#94a3b8;text-align:right;'>{r.get('conviction','')}</td>"
+                     f"<td style='padding:3px 6px;color:#64748b;text-align:right;'>{_f(r.get('short_pct')):.0f}% short</td></tr>")
+        t = "<table style='width:100%;border-collapse:collapse;font-size:12px;'>" + rows + "</table>"
+        asof = dp.get("date") or "—"
+        sections.append(_brief_section("🟢 Dark-Pool Accumulation", f"off-exchange buying pressure · as of {asof}", t))
+        names = ", ".join(r.get('ticker', '') for r in dres[:3] if r.get('ticker'))
+        if names:
+            bottom_bits.append(f"Top dark-pool accumulation: <b>{names}</b>.")
+
+    # 4. Fresh far-OTM sweeps (first seen today)
+    sweeps = fos.get("sweeps", []) or []
+    fresh = [r for r in sweeps if str(r.get("last_seen_et", ""))[:10] == today]
+    fresh.sort(key=lambda x: -_f(x.get("prem")))
+    if fresh:
+        rows = ""
+        for r in fresh[:6]:
+            exp = str(r.get('expiry', ''))[5:]
+            rows += (f"<tr><td style='padding:3px 6px;color:#e2e8f0;font-weight:600;'>{r.get('ticker','')}</td>"
+                     f"<td style='padding:3px 6px;color:#f59e0b;text-align:right;font-weight:700;'>${_f(r.get('prem'))/1e6:.1f}M</td>"
+                     f"<td style='padding:3px 6px;color:#94a3b8;text-align:right;'>${r.get('strike','')} {exp}</td>"
+                     f"<td style='padding:3px 6px;color:#64748b;text-align:right;'>{r.get('urgency','')}</td></tr>")
+        t = "<table style='width:100%;border-collapse:collapse;font-size:12px;'>" + rows + "</table>"
+        sections.append(_brief_section("💰 Fresh Large Sweeps (today)", "big directional call bets first seen today", t))
+        big = fresh[0]
+        bottom_bits.append(f"Biggest fresh sweep: <b>{big.get('ticker','')}</b> ${_f(big.get('prem'))/1e6:.1f}M in calls.")
+
+    # 5. Convergence
+    cres = conv.get("results", []) or []
+    if cres:
+        rows = ""
+        for r in cres[:5]:
+            rows += (f"<tr><td style='padding:3px 6px;color:#e2e8f0;font-weight:600;'>{r.get('ticker','')}</td>"
+                     f"<td style='padding:3px 6px;color:#38bdf8;text-align:right;font-weight:700;'>{_f(r.get('convergence_score')):.1f}</td>"
+                     f"<td style='padding:3px 6px;color:#94a3b8;text-align:right;'>C/P {_f(r.get('call_put_ratio')):.2f}</td>"
+                     f"<td style='padding:3px 6px;color:#64748b;text-align:right;'>${r.get('price','')}</td></tr>")
+        t = "<table style='width:100%;border-collapse:collapse;font-size:12px;'>" + rows + "</table>"
+        sections.append(_brief_section("🎯 Convergence", "unusual volume + unusual call flow on the same name", t))
+
+    # 6. Unusual calls
+    uhits = uc.get("hits", []) or []
+    if uhits:
+        rows = ""
+        for r in uhits[:5]:
+            exp = str(r.get('expiry', ''))[5:]
+            rows += (f"<tr><td style='padding:3px 6px;color:#e2e8f0;font-weight:600;'>{r.get('ticker','')}</td>"
+                     f"<td style='padding:3px 6px;color:#94a3b8;text-align:right;'>${r.get('strike','')} {exp}</td>"
+                     f"<td style='padding:3px 6px;color:#f59e0b;text-align:right;'>{_f(r.get('vol_oi')):.1f}× vol/OI</td>"
+                     f"<td style='padding:3px 6px;color:#64748b;text-align:right;'>${_f(r.get('prem'))/1e3:.0f}K</td></tr>")
+        t = "<table style='width:100%;border-collapse:collapse;font-size:12px;'>" + rows + "</table>"
+        sections.append(_brief_section("🔥 Unusual Call Activity", f"{len(uhits)} near-term bullish call bet(s)", t))
+    else:
+        sections.append(_brief_section("🔥 Unusual Call Activity", "near-term bullish call bets",
+                                       "<div style='font-size:12px;color:#64748b;'>Nothing unusual yet — options aren't active this early in premarket.</div>"))
+
+    if not bottom_bits:
+        bottom_bits.append("Quiet premarket — nothing notable flagged yet.")
+    bottom_html = "".join(f"<li style='margin-bottom:5px;'>{b}</li>" for b in bottom_bits)
+
+    base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
+    html = f"""
+    <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+      <div style="margin-bottom:16px;">
+        <span style="font-size:22px;font-weight:800;color:#f1f5f9;">📊 Premarket Brief</span>
+        <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Your daily market read before the bell · {date_str}</span>
+      </div>
+      <div style="background:#111c33;border:1px solid #1e3a5f;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;color:#93c5fd;letter-spacing:.5px;margin-bottom:6px;">BOTTOM LINE</div>
+        <ul style="margin:0;padding-left:18px;font-size:12px;color:#cbd5e1;line-height:1.5;">{bottom_html}</ul>
+      </div>
+      {''.join(sections)}
+      <div style="text-align:center;margin:14px 0 16px;">
+        <a href="{base_url}/stock-scanner/" style="background:#3b82f6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Open StockScanner →</a>
+      </div>
+      <p style="font-size:10px;color:#334155;text-align:center;margin:0;line-height:1.4;">
+        StockScanner AI · A quick premarket read, not financial advice. Premarket movers are live; gamma, dark-pool and sweep signals reflect the latest end-of-day positioning.
+      </p>
+    </div>"""
+
+    subject = f"📊 Premarket Brief · {now_et.strftime('%a %b %d')}"
+    return subject, html
+
+
+def _send_market_brief_email() -> None:
+    """Owner 8:30 AM daily premarket brief — a plain-English market read sent BEFORE
+    the other alert emails. Always sends (even on a quiet morning) so the owner gets
+    a consistent daily snapshot. Email-only, owner inbox only."""
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        if not smtp_configured():
+            print("[market_brief] SMTP not configured — skipping")
+            return
+        subject, html = _build_market_brief_html()
+        ok = send_email_raw(_OWNER_EMAIL, subject, html)
+        print(f"[market_brief] sent={ok}")
+    except Exception as _e:
+        import traceback
+        print(f"[market_brief] error: {_e}\n{traceback.format_exc()}")
+
+
 def _send_accumulation_watch_email() -> None:
     """Owner email: stocks in a STEADY multi-day accumulation streak — the
     'staircase' pattern where price climbs day after day on even, institutional-
@@ -6400,6 +6603,11 @@ def _owner_send_now(kind: str) -> None:
             _send_smp_morning()
         finally:
             _CONVICTION_SCAN_LOCK.release()
+    elif kind == "market_brief":
+        # 8:30 ET daily premarket brief — a plain-English market read sent before
+        # the other owner alerts. Reads each signal via its own GET endpoint (each
+        # self-caches / single-flights), so no conviction lock is needed.
+        _send_market_brief_email()
 
 
 def _owner_run_due_emails() -> dict:
@@ -9061,6 +9269,21 @@ def far_otm_sweeps_endpoint():
         "filter": "otm_pct > 40% AND vol_oi > 5× AND prem > $200K",
         "note":   "These are directional conviction bets, not hedges. Probability of innocence <3%.",
     })
+
+
+@app.route("/stock-api/admin/send-market-brief", methods=["GET", "POST"])
+def admin_send_market_brief():
+    """Owner/admin: fire (or preview) the daily 8:30 ET premarket brief on demand.
+    ?token=<ADMIN_TOKEN> required. ?dry=1 returns the assembled HTML WITHOUT
+    sending, so the email can be previewed safely."""
+    token = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not token or token != os.getenv("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    if str(request.args.get("dry", "")).lower() in ("1", "true", "yes"):
+        subject, html = _build_market_brief_html()
+        return jsonify({"subject": subject, "html_len": len(html), "html": html})
+    _send_market_brief_email()
+    return jsonify({"status": "sent", "to": _OWNER_EMAIL})
 
 
 @app.route("/stock-api/sector-heat")
@@ -15219,10 +15442,42 @@ def unusual_calls():
     if not hasattr(app, "_uc_lock"):
         app._uc_lock = threading.Lock()
 
+    cache_only = str(request.args.get("cache_only", "")).lower() in ("1", "true", "yes")
+
     _cache = getattr(app, "_unusual_calls_cache", None)
     _ts    = getattr(app, "_unusual_calls_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:
         return jsonify(_cache)
+
+    # Lightweight callers (e.g. the 8:30 premarket brief) pass cache_only=1 to avoid
+    # triggering a cold full option-chain scan: serve the in-memory cache if fresh
+    # (handled above), else TODAY's DB rows (ET day), else empty — never scan live.
+    if cache_only:
+        try:
+            with _psycopg2.connect(_DB_URL) as _co_conn, _co_conn.cursor() as _co_cur:
+                _co_cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry, days_out,
+                           volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                           iv::float, urgency, first_seen
+                    FROM unusual_calls_log
+                    WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                      AND vol_oi >= 3
+                      AND prem >= 500000
+                    ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
+                """)
+                _co_rows = _co_cur.fetchall()
+            _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+            _hits = []
+            for _row in _co_rows:
+                _d = dict(zip(_cols, _row))
+                _fs = _d.get("first_seen")
+                _d["detected_label"] = _detected_label(_fs)
+                _d["first_seen"] = _fs.isoformat() if _fs else None
+                _hits.append(_d)
+            return jsonify({"hits": _hits, "total": len(_hits), "scanned": 0, "cache_only": True})
+        except Exception as _e:
+            return jsonify({"hits": [], "total": 0, "scanned": 0, "cache_only": True, "error": str(_e)})
 
     # Only one scan at a time — concurrent requests block here until the scan
     # finishes, then the re-check returns the fresh cache instead of re-scanning.
