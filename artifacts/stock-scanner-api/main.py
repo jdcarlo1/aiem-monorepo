@@ -3034,7 +3034,7 @@ def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
     return best
 
 
-def _send_smart_money_pressure_email(results: list = None, max_picks: int = 6) -> None:
+def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) -> None:
     """Owner email: every Smart-Money-Pressure signal scored /10 (L1-L8 engine) —
     EXTREME (8+) and HIGH (6-7.9) — each with a concrete trade next to its score:
     a specific call strike + expiration date (and how many weeks out) when the
