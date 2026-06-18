@@ -8810,6 +8810,33 @@ def _get_dark_pool_convergence(tickers: list) -> dict:
     return result
 
 
+def _get_conviction_seed_accum(days_back: int = 3) -> list:
+    """Discovery seed for the conviction stack: recent EOD accumulation picks
+    (late-day institutional buying). These are names being pre-positioned that may
+    NOT yet show OI / charm / gamma, so without this they'd never enter the heavy-
+    fetch set and could never score high. Returns [(ticker, priority)] ranked by
+    accumulation strength. Cheap single DB read; never raises."""
+    import psycopg2 as _pga, os as _osa
+    from datetime import timedelta as _tda
+    out = []
+    try:
+        cutoff = _et_today() - _tda(days=days_back)
+        with _pga.connect(_osa.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, MAX(COALESCE(accum_score, 0))::float AS acc
+                FROM eod_accum_picks
+                WHERE scan_date >= %s
+                GROUP BY ticker
+                ORDER BY acc DESC
+                LIMIT 60
+            """, (cutoff,))
+            for _tk, _acc in cur.fetchall():
+                out.append((str(_tk).upper(), 400.0 + float(_acc or 0)))
+    except Exception:
+        pass
+    return out
+
+
 def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> list:
     """
     Master 5-layer conviction scanner. Runs all signal layers and returns
@@ -8874,12 +8901,64 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
     except Exception:
         pass
 
-    # Only run heavy fetches for tickers we already have OI or charm signals on
-    active = [t for t in scores if scores[t]["pts"]][:max_tickers * 3]
-    # Force-scored tickers (on-demand single lookup) get heavy-layer coverage even
-    # without an OI/charm/gamma signal — seed an empty row + ensure they're active.
+    # ── Widen the discovery funnel ────────────────────────────────────────────
+    # Beyond OI / charm / gamma, pull candidates from the OTHER deterministic daily
+    # signals we already collect — far-OTM call sweeps and EOD accumulation picks —
+    # so a stock being pre-positioned via options / dark flow (but NOT yet showing
+    # OI build) still gets FULL L4-L8 enrichment instead of only its single sweep or
+    # sector point. `seed_priority` decides who gets the bounded heavy-fetch budget
+    # first, so the strongest pre-positioned names land in the top slots that L4
+    # short-interest (first 50) and L6 float (first 30) actually fetch.
+    # `far_sweeps` / `sweep_by_ticker` are initialised here so Layer 7 can reuse
+    # them even if the widening below fails — a seed error must never abort a scan.
+    seed_priority: dict = {}
+    far_sweeps: list = []
+    sweep_by_ticker: dict = {}
+    for _t, _d in scores.items():
+        # Names with a real OI / charm / gamma point already rank highest.
+        seed_priority[_t] = 1000.0 + sum(_d["pts"].values())
+
+    try:
+        # Far-OTM sweeps — fetched ONCE here and reused as Layer 7 below.
+        far_sweeps = _get_far_otm_sweeps(days_back=3)
+        for _r in far_sweeps:
+            _tk = _r["ticker"]
+            if _tk not in sweep_by_ticker or _r["prem"] > sweep_by_ticker[_tk]["prem"]:
+                sweep_by_ticker[_tk] = _r
+        for _tk, _sw in sweep_by_ticker.items():
+            scores.setdefault(_tk, {"price": float(_sw.get("price") or 0), "pts": {}, "meta": {}})
+            _pr = 500.0 + min(float(_sw.get("vol_oi", 0) or 0), 30.0) + float(_sw.get("prem", 0) or 0) / 1e6
+            seed_priority[_tk] = max(seed_priority.get(_tk, 0.0), _pr)
+            if "sweep" not in scores[_tk]["meta"].setdefault("seed_src", []):
+                scores[_tk]["meta"]["seed_src"].append("sweep")
+
+        # EOD accumulation picks — late-day institutional buying, pre-positioned names.
+        for _tk, _prio in _get_conviction_seed_accum(days_back=3):
+            scores.setdefault(_tk, {"price": 0, "pts": {}, "meta": {}})
+            seed_priority[_tk] = max(seed_priority.get(_tk, 0.0), _prio)
+            if "accum" not in scores[_tk]["meta"].setdefault("seed_src", []):
+                scores[_tk]["meta"]["seed_src"].append("accum")
+    except Exception:
+        pass
+
+    # Force-scored tickers (on-demand single lookup) must get FULL heavy-layer
+    # coverage, so give them TOP priority — L4 (first 50) and L6 (first 30) only
+    # read the FRONT of `active`, so a forced ticker appended at the tail could
+    # silently miss short-interest / float enrichment once the set is large.
     for _ft in _force:
         scores.setdefault(_ft, {"price": 0, "pts": {}, "meta": {}})
+        seed_priority[_ft] = 1e9
+
+    # Heavy fetches run on the highest-priority candidates: forced tickers first,
+    # then real OI / charm / gamma signals, then the strongest sweep / accumulation
+    # seeds. Bounded so we never blow the per-ticker rate limits — short-interest
+    # and float are already internally capped at 50 / 30, so this mainly controls
+    # dark-pool coverage.
+    _heavy_cap = max(max_tickers * 3, min(240, max_tickers * 4))
+    active = sorted(scores.keys(),
+                    key=lambda _t: seed_priority.get(_t, 0.0),
+                    reverse=True)[:_heavy_cap]
+    for _ft in _force:
         if _ft not in active:
             active.append(_ft)
 
@@ -8918,12 +8997,8 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
             scores[ticker]["meta"]["call_oi"]            = fp["call_oi"]
 
     # ── Layer 7: Far-OTM Sweep Detector ──────────────────────────────────────
-    far_sweeps = _get_far_otm_sweeps(days_back=3)
-    sweep_by_ticker: dict = {}
-    for r in far_sweeps:
-        tk = r["ticker"]
-        if tk not in sweep_by_ticker or r["prem"] > sweep_by_ticker[tk]["prem"]:
-            sweep_by_ticker[tk] = r
+    # `far_sweeps` / `sweep_by_ticker` were already built above (reused as a
+    # discovery seed) — score them here without re-querying.
     for ticker, sweep in sweep_by_ticker.items():
         if ticker not in scores:
             scores[ticker] = {"price": float(sweep.get("price") or 0), "pts": {}, "meta": {}}
