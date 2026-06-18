@@ -59,6 +59,7 @@ import {
   fetchFarOtmSweeps, FarOtmSweepRow, FarOtmSweepResult,
   fetchSectorHeat, HotSector, SectorHeatResult,
   fetchFloatPressure, FloatPressureRow, FloatPressureResult,
+  fetchNanoMorningCandidates, NanoMorningCandidate,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -13798,7 +13799,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -13957,6 +13958,7 @@ export default function Dashboard() {
     { id: "marketpress",    label: "📰 MARKET PRESS" },
     { id: "earningscal",    label: "📅 EARNINGS CALENDAR" },
     { id: "squeezeradar",   label: "🩳 SQUEEZE RADAR" },
+    { id: "nanomorning",   label: "🚀 NANO MORNING" },
     { id: "ics",            label: "🎯 CONVICTION SCORE" },
   ] as const;
 
@@ -14580,6 +14582,98 @@ export default function Dashboard() {
         {tab === "standoutflow"   && <StandoutFlowTab    onSelectTicker={selectTicker} />}
         {tab === "standouttrack"  && <StandoutTrackTab />}
         {tab === "ics"            && <InstitutionalConvictionScore />}
+        {tab === "nanomorning"    && <NanoMorningTab onSelectTicker={selectTicker} />}
+
+        {/* ── Nano Morning Tab Component ── */}
+        {(() => {
+          function NanoMorningTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+            const { data, isLoading } = useQuery({
+              queryKey: ["nano-morning"],
+              queryFn: fetchNanoMorningCandidates,
+              refetchInterval: 60_000,
+            });
+            const [showRisky, setShowRisky] = useState(false);
+            const cands = data?.candidates ?? [];
+            const risky = cands.filter(c => c.nano_predictor_risky);
+            const safe = cands.filter(c => !c.nano_predictor_risky);
+            const date = cands[0]?.snap_date ?? "";
+            return (
+              <div className="space-y-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <div className="text-slate-400 text-sm font-semibold">🚀 Nano-TQL Morning Watchlist</div>
+                      <div className="text-slate-500 text-xs">{date ? new Date(date).toLocaleDateString("en-US", {weekday:"short", month:"short", day:"numeric"}) : ""}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400">Total: {cands.length}</span>
+                      <span className="text-xs text-emerald-400">Safe: {safe.length}</span>
+                      <span className="text-xs text-red-400">Risky: {risky.length}</span>
+                      <button onClick={() => setShowRisky(!showRisky)} className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded">
+                        {showRisky ? "Hide Risky" : "Show Risky"}
+                      </button>
+                    </div>
+                  </div>
+                  {isLoading && <div className="flex items-center justify-center py-16 gap-3 text-slate-400"><Spinner /> Loading nano watchlist…</div>}
+                  {cands.length === 0 && !isLoading && <div className="text-center py-16 text-slate-500">No nano morning candidates found. Run the 8 AM scan first.</div>}
+                  {cands.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                            <th className="text-left py-2 px-3">#</th>
+                            <th className="text-left py-2 px-3">Ticker</th>
+                            <th className="text-right py-2 px-3">Price</th>
+                            <th className="text-right py-2 px-3">TQL</th>
+                            <th className="text-right py-2 px-3">Fired</th>
+                            <th className="text-right py-2 px-3">Conv</th>
+                            <th className="text-right py-2 px-3">Predictor</th>
+                            <th className="text-right py-2 px-3">Risk</th>
+                            <th className="text-left py-2 px-3">Flags</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(showRisky ? cands : safe).map((c, i) => (
+                            <tr key={c.ticker} className={`border-b border-slate-800/50 hover:bg-slate-800/30 ${c.nano_predictor_risky ? "bg-red-900/10" : ""}`}>
+                              <td className="py-2 px-3 text-slate-500">{i+1}</td>
+                              <td className="py-2 px-3">
+                                <button onClick={() => onSelectTicker(c.ticker)} className="font-semibold text-white hover:text-blue-400">{c.ticker}</button>
+                              </td>
+                              <td className="text-right py-2 px-3 text-slate-300">${c.price.toFixed(2)}</td>
+                              <td className="text-right py-2 px-3 font-bold" style={{ color: c.nano_tql >= 500 ? "#22c55e" : c.nano_tql >= 100 ? "#eab308" : "#94a3b8" }}>{c.nano_tql.toFixed(0)}</td>
+                              <td className="text-right py-2 px-3 text-slate-400">{c.nano_fired}/7</td>
+                              <td className="text-right py-2 px-3 text-slate-400">{c.conviction}</td>
+                              <td className="text-right py-2 px-3 text-slate-400">{c.nano_predictor}</td>
+                              <td className="text-right py-2 px-3">
+                                {c.nano_predictor_risky ? (
+                                  <span className="text-red-400 font-bold text-xs">⚠️ RISKY</span>
+                                ) : (
+                                  <span className="text-emerald-400 text-xs">OK</span>
+                                )}
+                              </td>
+                              <td className="text-left py-2 px-3 text-xs text-slate-500">
+                                {c.nano_predictor_reasons?.join(", ") || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <div className="text-slate-400 text-sm font-semibold mb-3">🛡️ Stop-Out Predictor Legend</div>
+                  <div className="text-slate-500 text-xs space-y-1">
+                    <p>Score 3+ = <span className="text-red-400">RISKY</span> — high probability of hitting 5% stop. Skip or use 8% stop.</p>
+                    <p>Conditions: big gap (&gt;5%), huge gap (&gt;10%), high volatility (&gt;8%), very high volatility (&gt;12%), at 5-day high (&gt;95%), prior big move (&gt;5%), extreme momentum (&gt;15% 3d).</p>
+                    <p>Validated: Jun 17-18 — 100% of risky names had bad days. 91% accuracy across 31 test cases.</p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
       </div>
       </main>

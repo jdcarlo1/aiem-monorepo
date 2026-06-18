@@ -2109,3 +2109,32 @@ export interface CrossScannerData {
 export function fetchCrossScanner() {
   return fetchJson<CrossScannerData>("/cross-scanner");
 }
+
+export interface NanoMorningCandidate {
+  snap_date: string;
+  ticker: string;
+  rank: number;
+  conviction: number;
+  price: number;
+  mcap_m: number;
+  avg_vol: number;
+  accum_pts: number;
+  steady_pts: number;
+  vol_pts: number;
+  mom_pts: number;
+  net_flow_m: number;
+  up_days: number;
+  nano_tql: number;
+  nano_fired: number;
+  nano_predictor: number;
+  nano_predictor_risky: boolean;
+  nano_predictor_reasons: string[];
+  meta: Record<string, any>;
+}
+export interface NanoMorningData {
+  count: number;
+  candidates: NanoMorningCandidate[];
+}
+export function fetchNanoMorningCandidates() {
+  return fetchJson<NanoMorningData>("/nano-morning/candidates");
+}

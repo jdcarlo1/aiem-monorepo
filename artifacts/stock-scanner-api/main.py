@@ -1596,8 +1596,8 @@ try:
         replace_existing=True,
     )
 
-    # Morning standout inflows: trimmed to 4 slots (was 9) to reduce burst.
-    # 9:35 = early post-open; 9:45 = first stable data; 10:15 = second wave; 13:00 = midday.
+    # Morning standout inflows: trimmed to 3 slots (was 9, then 4) to reduce burst.
+    # 9:35 = early post-open; 10:15 = second wave; 13:00 = midday.
     def _run_morning_inflows():
         try:
             with app.test_request_context("/stock-api/morning-inflows?bust=1"):
@@ -1605,7 +1605,7 @@ try:
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
 
-    for _mi_h, _mi_m in [(9, 35), (9, 45), (10, 15), (13, 0)]:
+    for _mi_h, _mi_m in [(9, 35), (10, 15), (13, 0)]:
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -4231,6 +4231,56 @@ def _run_nano_morning_ranking():
                 nano_tql = (mom10 * near * flow_ratio * conviction * (nano_fired/7.0)
                             if nano_fired >= 5 else 0.0)
 
+                # ── Stop-Out Predictor: 5-condition risk filter ──
+                # Predicts which TQL names are likely to hit their 5% stop.
+                # Score 3+ = RISKY (skip or use wider stop). Validated on
+                # Jun 17-18: 100% of risky names hit stops / had bad days.
+                _pred_score = 0
+                _pred_reasons = []
+                _hist_len = len(closes)
+                _start = max(0, _hist_len - 5)
+
+                # 1. 5-day avg range
+                _ranges_5d = []
+                for _i in range(_start, _hist_len):
+                    if highs[_i] > 0 and closes[_i] > 0:
+                        _ranges_5d.append((highs[_i] / closes[_i] - 1) * 100)
+                _avg_5d_range = sum(_ranges_5d) / len(_ranges_5d) if _ranges_5d else 0
+
+                # 2. Prior day move
+                _prev_move = ((closes[-1] / closes[-2]) - 1) * 100 if len(closes) >= 2 else 0
+
+                # 3. 3-day avg change
+                _avg_3d_chg = 0
+                if len(closes) >= 4:
+                    _chgs = []
+                    for _i in range(len(closes)-3, len(closes)):
+                        if _i > 0 and closes[_i-1] > 0:
+                            _chgs.append((closes[_i] / closes[_i-1] - 1) * 100)
+                    _avg_3d_chg = sum(_chgs) / len(_chgs) if _chgs else 0
+
+                # 4. Position in 5-day range
+                _five_high = max(closes[_start:]) if _start < _hist_len else price
+                _five_low = min(closes[_start:]) if _start < _hist_len else price
+                _pos_in_range = (price - _five_low) / (_five_high - _five_low) if _five_high > _five_low else 0.5
+
+                # Build score
+                if _prev_move > 5:
+                    _pred_score += 2; _pred_reasons.append("big_gap")
+                if _prev_move > 10:
+                    _pred_score += 2; _pred_reasons.append("huge_gap")
+                if _avg_5d_range > 8:
+                    _pred_score += 1; _pred_reasons.append("high_vol")
+                if _avg_5d_range > 12:
+                    _pred_score += 1; _pred_reasons.append("very_high_vol")
+                if _pos_in_range > 0.95:
+                    _pred_score += 1; _pred_reasons.append("at_high")
+                if _prev_move > 5:
+                    _pred_score += 1; _pred_reasons.append("prior_big_move")
+                if _avg_3d_chg > 15:
+                    _pred_score += 1; _pred_reasons.append("extreme_momentum")
+                _pred_risky = _pred_score >= 3
+
                 return {
                     "ticker": ticker, "conviction": conviction, "price": round(price, 4),
                     "mcap_m": mcap_m, "avg_vol": int(vol20),
@@ -4242,6 +4292,12 @@ def _run_nano_morning_ranking():
                     "mom10": round(mom10, 1), "up_ratio": round(up_ratio, 2),
                     "explosive": explosive, "steady": round(steady, 3),
                     "nano_tql": round(nano_tql, 2), "nano_fired": nano_fired,
+                    "nano_predictor": _pred_score, "nano_predictor_risky": _pred_risky,
+                    "nano_predictor_reasons": _pred_reasons,
+                    "avg_5d_range": round(_avg_5d_range, 2),
+                    "prev_move": round(_prev_move, 2),
+                    "avg_3d_chg": round(_avg_3d_chg, 2),
+                    "pos_in_range": round(_pos_in_range, 3),
                 }
             except Exception:
                 return None
@@ -4728,6 +4784,18 @@ def nano_morning_candidates():
         for r in rows:
             if r.get("snap_date"):
                 r["snap_date"] = r["snap_date"].isoformat()
+            meta = r.get("meta", {}) or {}
+            if isinstance(meta, str):
+                try:
+                    import json
+                    meta = json.loads(meta)
+                except Exception:
+                    meta = {}
+            r["nano_predictor"] = meta.get("nano_predictor", 0) if isinstance(meta, dict) else 0
+            r["nano_predictor_risky"] = meta.get("nano_predictor_risky", False) if isinstance(meta, dict) else False
+            r["nano_predictor_reasons"] = meta.get("nano_predictor_reasons", []) if isinstance(meta, dict) else []
+            r["nano_tql"] = meta.get("nano_tql", 0) if isinstance(meta, dict) else 0
+            r["nano_fired"] = meta.get("nano_fired", 0) if isinstance(meta, dict) else 0
         return jsonify({"count": len(rows), "candidates": rows}), 200
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
