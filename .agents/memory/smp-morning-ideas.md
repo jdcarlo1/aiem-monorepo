@@ -47,6 +47,15 @@ for the day (acceptable; same as smart_money).
 `_microcap_meta` first (only reliably covers sub-$2B), else yfinance `fast_info.market_cap`
 (snake_case — see yfinance-fastinfo.md), 10 workers, ~30min `app._smp_cap_cache`.
 
+## Do NOT add a nano/micro bucket to this family — it's covered separately
+**Owner-confirmed (June 2026):** nano-caps are intentionally NOT a 4th bucket here. The
+SMP engine ranks by OPTIONS activity (OI/charm/gamma) and nano/micro names have no listed
+options, so this engine would never surface them. Nano is covered by its OWN dedicated
+morning system (nano_watch 9:35 + nano_buy 9:45) scored on non-options metrics — stealth
+accumulation + volume + momentum + low float (see nano-morning-system.md). If asked to
+"add the nano tab" to the morning emails, the answer is: it already exists as a separate
+email; do NOT bolt a nano bucket onto smp_morning.
+
 ## Option-chain cost guard
 `_scan_best_call` (live chain lookup) only fires for CALL recs, and `_expiry_recommendation`
 returns CALL only for score>=6. So MODERATE (4-5.9) morning ideas never touch the chain API —
