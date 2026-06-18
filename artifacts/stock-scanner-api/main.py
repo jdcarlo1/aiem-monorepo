@@ -301,7 +301,7 @@ _BEST_CALL_TTL = 2700  # seconds (45 min)
 _OWNER_EMAIL_SCHEDULE = {
     "microcap":        [(9, 50), (11, 35), (13, 5), (14, 35), (15, 45)],
     "high_conviction": [(9, 52), (11, 37), (13, 7), (14, 37), (15, 47)],
-    "smart_money":     [(10, 5), (12, 0), (14, 0), (15, 40)],
+    "smart_money":     [(9, 50), (10, 5), (12, 0), (14, 0), (15, 40)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
