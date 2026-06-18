@@ -2636,7 +2636,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
 
 function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
-  const [data, setData]       = useState<{ hits: UnusualCall[]; total: number; scanned: number } | null>(null);
+  const [data, setData]       = useState<{ hits: UnusualCall[]; total: number; scanned: number; stale?: boolean; note?: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved]     = useState<Record<string, boolean>>({});
   const [filter, setFilter]   = useState<"ALL"|"EXPIRING"|"NEAR"|"SHORT">("ALL");
@@ -2720,6 +2720,14 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
         Vol/OI = today's volume ÷ existing open interest. A ratio ≥3x means more contracts traded today than exist in the market — someone is aggressively opening <em>new</em> positions.
         Only OTM/slightly-ITM calls (not deep ITM hedges) · ≤30 day expiry = high conviction, short timeframe.
       </div>
+
+      {/* Stale fallback notice — most-recent saved names shown when today is quiet */}
+      {!loading && data?.stale && data?.note && (
+        <div style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.25)", borderRadius: 12, padding: "10px 16px", marginBottom: 20,
+          fontFamily: BB_F, fontSize: 11.5, color: "#facc15", lineHeight: 1.6 }}>
+          ⏳ {data.note} <span style={{ color: "#94a3b8" }}>Each row shows the date it was detected.</span>
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (

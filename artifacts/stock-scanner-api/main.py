@@ -15895,7 +15895,8 @@ def unusual_calls():
                     _d["detected_label"] = _detected_label(_fs)
                     _d["first_seen"] = _fs.isoformat() if _fs else None
                     all_hits.append(_d)
-                out = {"hits": all_hits, "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
+                out = {"hits": all_hits, "total": len(all_hits),
+                       "scanned": len(DEFAULT_LEADERBOARD), "stale": False}
                 app._unusual_calls_cache    = out
                 app._unusual_calls_cache_ts = _dt.now()
                 return jsonify(out)
@@ -15918,7 +15919,11 @@ def unusual_calls():
         all_hits.sort(key=lambda x: x["vol_oi"], reverse=True)
 
         # If live scan returned nothing (rate limited / cold start), fall back to
-        # TODAY's DB rows only (ET calendar day) — never yesterday's.
+        # saved DB rows so the tab is never blank: prefer TODAY's rows; if today is
+        # also empty (e.g. the data feed was throttled all morning), show the most
+        # recent saved activity (last 7 days) flagged as stale. Each row keeps its
+        # real detected-date label, so older names are clearly dated.
+        _stale_fallback = False
         if not all_hits:
             try:
                 with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
@@ -15932,8 +15937,27 @@ def unusual_calls():
                           AND prem >= 100000
                         ORDER BY vol_oi DESC LIMIT 80
                     """)
+                    _fb_rows = _cur.fetchall()
+                    if len(_fb_rows) < 5:
+                        # Today is empty — or only a sparse row or two slipped in
+                        # (the prod blank-tab failure mode) — so show the most recent
+                        # saved names instead of a near-blank tab. The 7-day query is
+                        # ORDER BY last_seen DESC, so any of today's rows still sort to
+                        # the top. Flagged stale; never re-saved (would corrupt dates).
+                        _cur.execute("""
+                            SELECT ticker, price::float, strike::float, expiry, days_out,
+                                   volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                                   iv::float, urgency, first_seen
+                            FROM unusual_calls_log
+                            WHERE last_seen >= NOW() - INTERVAL '7 days'
+                              AND vol_oi >= 3
+                              AND prem >= 100000
+                            ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
+                        """)
+                        _fb_rows = _cur.fetchall()
+                        _stale_fallback = bool(_fb_rows)
                     _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
-                    for _row in _cur.fetchall():
+                    for _row in _fb_rows:
                         _d = dict(zip(_cols, _row))
                         _d["is_etf"] = _d["ticker"] in _ETF_SET
                         _fs = _d.get("first_seen")
@@ -15946,11 +15970,23 @@ def unusual_calls():
         # Save FIRST so each hit dict is stamped in-place with first_seen /
         # detected_label, THEN build + cache out — otherwise a concurrent request
         # could read a cached response before the date badges are attached.
-        if all_hits:
+        # NEVER re-save the stale (older-day) fallback rows — that would re-stamp
+        # last_seen to today and corrupt the "detected" dates.
+        if all_hits and not _stale_fallback:
             _save_unusual_calls_to_db(all_hits)
-        out = {"hits": all_hits[:80], "total": len(all_hits), "scanned": len(DEFAULT_LEADERBOARD)}
+        out = {"hits": all_hits[:80], "total": len(all_hits),
+               "scanned": len(DEFAULT_LEADERBOARD), "stale": _stale_fallback}
+        if _stale_fallback:
+            out["note"] = ("No new unusual calls have come through yet today (data feed quiet) — "
+                           "showing the most recent saved activity.")
         app._unusual_calls_cache    = out
         app._unusual_calls_cache_ts = _dt.now()
+        if _stale_fallback:
+            # Expire the stale cache quickly (~3 min) so fresh same-day rows replace
+            # the "recent activity" names as soon as the data feed recovers, instead
+            # of holding stale names for the full 15-min TTL.
+            from datetime import timedelta as _td
+            app._unusual_calls_cache_ts = _dt.now() - _td(seconds=720)
         return jsonify(out)
 
 
@@ -16723,11 +16759,14 @@ def conviction_calls():
                   AND strike  >= price * 0.97
                 ORDER BY last_seen DESC, vol_oi DESC
             """
-        # By default show TODAY only. Falling back to yesterday's window is the
-        # reason this tab showed "yesterday's names" every morning before the
-        # first scan ran — so the older window is now strictly opt-in via
-        # ?fallback=1 (surfaced as a "Show last 24h" button in the UI).
-        allow_fallback = request.args.get("fallback") == "1"
+        # Auto-fallback (default ON): when today has no sweeps yet — e.g. a morning
+        # where the data feed (Yahoo) was throttled and the scan collected nothing —
+        # automatically show the most recent saved names (last 24h, then 7d) so the
+        # tab is never blank. Each row keeps its real date label and the response is
+        # flagged `stale` so the UI can say "showing recent activity". Pass
+        # ?fallback=0 for strict today-only (jobs that must not treat older names
+        # as today's).
+        allow_fallback = request.args.get("fallback", "1") != "0"
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute(_base_sql.format(interval="(now() AT TIME ZONE 'America/New_York')::date::timestamp AT TIME ZONE 'America/New_York'"))
             rows_today = cur.fetchall()
@@ -16839,7 +16878,12 @@ def conviction_calls():
             "generated_at": _dt.now().isoformat(),
             "total":        len(results),
             "window":       window_label,
+            "stale":        window_label != "today",
         }
+        if window_label != "today":
+            out["note"] = ("No new high-conviction sweeps have come through yet today "
+                           "(data feed quiet) — showing the most recent saved names from the "
+                           + ("last 24 hours." if window_label == "24h" else "last 7 days."))
         app._conv_calls_cache    = out
         app._conv_calls_cache_ts = _dt.now()
         return jsonify(out)
