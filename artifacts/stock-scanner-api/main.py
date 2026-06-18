@@ -3330,6 +3330,834 @@ def _send_accumulation_watch_email() -> None:
         print(f"[accumulation_email] error: {_e}\n{traceback.format_exc()}")
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# NANO-CAP MORNING CONVICTION SYSTEM  (two-stage: 9:35 watch → 9:45 confirmed buy)
+# ════════════════════════════════════════════════════════════════════════════
+# Owner's daily workflow for explosive low-float nano-caps (<$50M cap, float <20M):
+#   Stage A  8:00 ET  rank the whole low-float nano universe (~770 names) for
+#                     multi-day stealth accumulation → nano_morning_candidates
+#   Stage B  9:35 ET  email the top 20 ranked watchlist ("get ready", NO buying)
+#   Stage C  9:45 ET  re-check those 20 vs the first 15 min of tape (relative
+#                     volume, holding VWAP, not parabolic) → up to 20 confirmed
+#                     BUYs, $500 of each, hard 5% stop; persist the picks
+#   Stage D 16:10 ET  grade confirmed buys forward (5% stop, winners ride) →
+#                     nano_morning_outcomes (live win-rate / EV scorecard)
+# The universe is float-gated to <20M shares on Finviz, so every candidate is a
+# low-float name. A fixed $500-per-name size = more shots on goal (breadth beats
+# size for fat-tailed nano payoffs) and keeps fills realistic even on thin tape.
+
+# Position sizing is a FIXED DOLLAR amount per name (shares = $500 / entry price),
+# NOT a fixed share count — so a $1 stock gets ~500 sh and a $4 stock gets ~125 sh.
+_NANO_DOLLARS_PER_BUY = 500
+_NANO_STOP_PCT = 0.05
+_NANO_WATCH_N = 20
+_NANO_BUY_MAX = 20
+_NANO_UNIVERSE_FILTER = "cap_nano,sh_float_u20,sh_price_o0.5,sh_avgvol_o20"
+
+
+def _init_nano_morning_tables():
+    import psycopg2 as _pg
+    with _pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS nano_morning_candidates (
+                id             SERIAL PRIMARY KEY,
+                snap_date      DATE NOT NULL,
+                ticker         VARCHAR(10) NOT NULL,
+                rank           INT,
+                conviction     INT,
+                price          FLOAT,
+                mcap_m         FLOAT,
+                avg_vol        BIGINT,
+                accum_pts      FLOAT,
+                steady_pts     FLOAT,
+                vol_pts        FLOAT,
+                mom_pts        FLOAT,
+                net_flow_m     FLOAT,
+                up_days        INT,
+                meta           JSONB,
+                universe_count INT,
+                captured_at    TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (snap_date, ticker)
+            )
+        """)
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS nano_morning_picks (
+                id             SERIAL PRIMARY KEY,
+                pick_date      DATE NOT NULL,
+                ticker         VARCHAR(10) NOT NULL,
+                rank           INT,
+                entry_price    FLOAT,
+                shares         INT,
+                stop_price     FLOAT,
+                cost           FLOAT,
+                conviction     INT,
+                intraday_score FLOAT,
+                rvol15         FLOAT,
+                above_vwap     BOOLEAN,
+                verdict        VARCHAR(12),
+                meta           JSONB,
+                created_at     TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (pick_date, ticker)
+            )
+        """)
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS nano_morning_outcomes (
+                id             SERIAL PRIMARY KEY,
+                pick_date      DATE NOT NULL,
+                ticker         VARCHAR(10) NOT NULL,
+                entry_price    FLOAT,
+                stop_price     FLOAT,
+                days_held      INT,
+                max_high       FLOAT,
+                max_gain_pct   FLOAT,
+                stopped_out    BOOLEAN,
+                final_price    FLOAT,
+                final_chg_pct  FLOAT,
+                outcome        VARCHAR(8),
+                graded_at      TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (pick_date, ticker)
+            )
+        """)
+        _c.commit()
+    if not hasattr(app, "_nano_morning_lock"):
+        app._nano_morning_lock = _threading.Lock()
+
+
+try:
+    _init_nano_morning_tables()
+except Exception as _e:
+    print(f"[nano_morning] table init error: {_e}")
+
+
+def _nano_universe():
+    """Full low-float nano-cap universe from Finviz (cap <$50M, float <20M,
+    price >$0.50, avg vol >20K). ~770 names. Returns a deduped ticker list."""
+    import requests as _req, re as _re, time as _time
+    _hdr = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    syms = []
+    for _start in range(1, 1200, 20):
+        try:
+            _r = _req.get(
+                f"https://finviz.com/screener.ashx?v=111"
+                f"&f={_NANO_UNIVERSE_FILTER}&o=-volume&r={_start}",
+                headers=_hdr, timeout=12,
+            )
+            _page = list(dict.fromkeys(_re.findall(r"stock\?t=([A-Z]{1,6})&", _r.text)))
+            _new = [s for s in _page if s not in syms]
+            if not _new:
+                break
+            syms.extend(_new)
+            _time.sleep(0.2)
+        except Exception as _pe:
+            print(f"[nano_morning] universe page {_start}: {_pe}")
+            break
+    out = list(dict.fromkeys(syms))
+    print(f"[nano_morning] universe: {len(out)} low-float nano-cap tickers")
+    return out
+
+
+def _run_nano_morning_ranking():
+    """Stage A (pre-market): score the whole low-float nano universe for multi-day
+    stealth accumulation and persist today's ranked candidate list."""
+    _lock = getattr(app, "_nano_morning_lock", None)
+    if _lock is not None and not _lock.acquire(blocking=False):
+        print("[nano_morning] ranking already running — skip")
+        return
+    try:
+        import yfinance as _yf, psycopg2 as _pg, json as _json, statistics as _st
+        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+        universe = _nano_universe()
+        if not universe:
+            print("[nano_morning] empty universe — abort ranking")
+            return
+        ucount = len(universe)
+
+        def _score(ticker):
+            try:
+                tk = _yf.Ticker(ticker)
+                hist = tk.history(period="40d", interval="1d")
+                if hist is None or len(hist) < 10:
+                    return None
+                closes = hist["Close"].dropna().tolist()
+                vols   = hist["Volume"].dropna().tolist()
+                highs  = hist["High"].dropna().tolist()
+                if len(closes) < 10 or closes[-1] <= 0:
+                    return None
+                closes = closes[-25:]; vols = vols[-25:]; highs = highs[-25:]
+                price = closes[-1]
+
+                # Signed-dollar net flow + total dollar volume + up-day counting
+                net_flow = 0.0
+                dollar_vol = 0.0
+                up_days = 0
+                rets = []
+                for i in range(1, len(closes)):
+                    chg = closes[i] - closes[i - 1]
+                    if closes[i - 1] > 0:
+                        rets.append(chg / closes[i - 1])
+                    sign = 1 if chg > 0 else (-1 if chg < 0 else 0)
+                    dv = closes[i] * (vols[i] if i < len(vols) else 0)
+                    net_flow += sign * dv
+                    dollar_vol += dv
+                    if chg > 0:
+                        up_days += 1
+                n = len(closes) - 1
+                up_ratio = up_days / n if n else 0
+                # Signed flow as a share of total dollar volume (-1..1): the actual
+                # INTENSITY of net buying, not just its sign.
+                flow_ratio = (net_flow / dollar_vol) if dollar_vol > 0 else 0.0
+
+                # Accumulation (0-40): magnitude-weighted. Net BUYING intensity is
+                # the dominant driver (22) so steady drift on no real net flow does
+                # NOT score like genuine stealth accumulation; up-close consistency
+                # is secondary (18).
+                accum = 0.0
+                if net_flow > 0 and flow_ratio > 0:
+                    accum += 22 * min(1.0, flow_ratio / 0.35)
+                    accum += 12 * min(1.0, up_ratio / 0.65)
+                    accum += 6 * min(1.0, up_ratio)
+                accum_pts = max(0.0, min(40.0, accum))
+
+                # Steadiness (0-25): consistent small gains, low choppiness
+                steady_pts = 0.0
+                if rets:
+                    avg_r = sum(rets) / len(rets)
+                    sd = _st.pstdev(rets) if len(rets) > 1 else abs(avg_r)
+                    if avg_r > 0:
+                        smooth = avg_r / sd if sd > 0 else 2.0
+                        steady_pts = 25 * min(1.0, smooth / 1.2)
+                steady_pts = max(0.0, min(25.0, steady_pts))
+
+                # Volume building (0-20): recent 5d vs 20d avg
+                vol5  = sum(vols[-5:]) / 5 if len(vols) >= 5 else (sum(vols) / len(vols) if vols else 0)
+                vol20 = sum(vols[-20:]) / 20 if len(vols) >= 20 else (sum(vols) / len(vols) if vols else 0)
+                vtrend = (vol5 / vol20) if vol20 > 0 else 1.0
+                if   vtrend >= 2.5:  vol_pts = 20
+                elif vtrend >= 1.8:  vol_pts = 16
+                elif vtrend >= 1.4:  vol_pts = 12
+                elif vtrend >= 1.15: vol_pts = 7
+                elif vtrend >= 1.0:  vol_pts = 3
+                else:                vol_pts = 0
+
+                # Momentum / near-highs (0-15)
+                high20 = max(highs[-20:]) if len(highs) >= 20 else max(highs)
+                near = price / high20 if high20 > 0 else 0
+                p10 = closes[-11] if len(closes) >= 11 else closes[0]
+                mom10 = (price - p10) / p10 * 100 if p10 > 0 else 0
+                mom_pts = 0.0
+                if   near >= 0.97: mom_pts += 8
+                elif near >= 0.90: mom_pts += 5
+                elif near >= 0.80: mom_pts += 2
+                if   mom10 >= 15: mom_pts += 7
+                elif mom10 >= 7:  mom_pts += 5
+                elif mom10 >= 2:  mom_pts += 3
+                elif mom10 >= 0:  mom_pts += 1
+                mom_pts = max(0.0, min(15.0, mom_pts))
+
+                conviction = int(round(accum_pts + steady_pts + vol_pts + mom_pts))
+
+                mcap_m = 0.0
+                try:
+                    fi = tk.fast_info
+                    mcap_m = round(float(getattr(fi, "market_cap", 0) or 0) / 1e6, 1)
+                except Exception:
+                    pass
+
+                return {
+                    "ticker": ticker, "conviction": conviction, "price": round(price, 4),
+                    "mcap_m": mcap_m, "avg_vol": int(vol20),
+                    "accum_pts": round(accum_pts, 1), "steady_pts": round(steady_pts, 1),
+                    "vol_pts": round(float(vol_pts), 1), "mom_pts": round(mom_pts, 1),
+                    "net_flow_m": round(net_flow / 1e6, 2), "up_days": up_days,
+                    "flow_ratio": round(flow_ratio, 3),
+                    "vtrend": round(vtrend, 2), "near_high": round(near, 3),
+                    "mom10": round(mom10, 1), "up_ratio": round(up_ratio, 2),
+                }
+            except Exception:
+                return None
+
+        # Keep names even if mcap is unknown (Finviz already gated them to nano).
+        # Only drop names that fail to produce a usable price history (None above).
+        results = []
+        with _TPE(max_workers=10) as ex:
+            futs = {ex.submit(_score, t): t for t in universe}
+            for f in _ac(futs):
+                r = f.result()
+                if r:
+                    results.append(r)
+        results.sort(key=lambda x: x["conviction"], reverse=True)
+
+        # Don't let a yfinance/Finviz outage wipe a good list: only replace today's
+        # candidates if we scored a sane fraction of the universe. _score returns a
+        # row for every name with usable history (regardless of conviction), so a
+        # thin count means the data source failed, not that "few qualified."
+        floor = max(25, ucount // 10)
+        if len(results) < floor:
+            print(f"[nano_morning] only {len(results)}/{ucount} scored (< floor {floor}) "
+                  f"— likely a data-source issue; keeping any prior candidates, not overwriting")
+            return
+
+        snap = _et_today()
+        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.execute("DELETE FROM nano_morning_candidates WHERE snap_date=%s", (snap,))
+            for i, r in enumerate(results, 1):
+                cur.execute("""
+                    INSERT INTO nano_morning_candidates
+                      (snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
+                       accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days,
+                       meta, universe_count)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (snap_date, ticker) DO UPDATE SET
+                      rank=EXCLUDED.rank, conviction=EXCLUDED.conviction,
+                      price=EXCLUDED.price, mcap_m=EXCLUDED.mcap_m, avg_vol=EXCLUDED.avg_vol,
+                      accum_pts=EXCLUDED.accum_pts, steady_pts=EXCLUDED.steady_pts,
+                      vol_pts=EXCLUDED.vol_pts, mom_pts=EXCLUDED.mom_pts,
+                      net_flow_m=EXCLUDED.net_flow_m, up_days=EXCLUDED.up_days,
+                      meta=EXCLUDED.meta, universe_count=EXCLUDED.universe_count
+                """, (snap, r["ticker"], i, r["conviction"], r["price"], r["mcap_m"],
+                      r["avg_vol"], r["accum_pts"], r["steady_pts"], r["vol_pts"],
+                      r["mom_pts"], r["net_flow_m"], r["up_days"], _json.dumps(r), ucount))
+            c.commit()
+        print(f"[nano_morning] ranked {len(results)}/{ucount} candidates for {snap}")
+    except Exception as _e:
+        import traceback
+        print(f"[nano_morning] ranking error: {_e}\n{traceback.format_exc()}")
+    finally:
+        if _lock is not None:
+            try:
+                _lock.release()
+            except Exception:
+                pass
+
+
+def _nano_intraday_confirm(cand):
+    """Re-check a candidate against the first 15 min of trading (9:30-9:45 ET):
+    relative volume, holding above VWAP, not parabolic. Returns a verdict dict."""
+    import yfinance as _yf
+    ticker = cand["ticker"]
+    avg_vol = float(cand.get("avg_vol") or 0)
+    out = {"ticker": ticker, "verdict": "WATCH", "intraday_score": 0.0,
+           "rvol15": 0.0, "above_vwap": False, "price": cand.get("price"), "reason": ""}
+    try:
+        tk = _yf.Ticker(ticker)
+        intr = tk.history(period="1d", interval="1m")
+        if intr is None or len(intr) == 0:
+            out["reason"] = "no intraday data yet"
+            return out
+        try:
+            idx = intr.index
+            if idx.tz is None:
+                idx = idx.tz_localize("UTC").tz_convert("America/New_York")
+            else:
+                idx = idx.tz_convert("America/New_York")
+            intr = intr.copy()
+            intr.index = idx
+        except Exception:
+            pass
+        win = intr.between_time("09:30", "09:45")
+        if win is None or len(win) == 0:
+            out["reason"] = "no 9:30-9:45 bars yet"
+            return out
+        o = win["Open"].tolist(); h = win["High"].tolist()
+        c = win["Close"].tolist(); v = win["Volume"].tolist()
+        open_px = o[0] if o else 0
+        last_px = c[-1] if c else 0
+        win_high = max(h) if h else 0
+        vol15 = sum(v)
+        out["price"] = round(last_px, 4)
+
+        exp15 = (avg_vol * 15.0 / 390.0) if avg_vol > 0 else 0
+        rvol15 = (vol15 / exp15) if exp15 > 0 else 0
+        out["rvol15"] = round(rvol15, 2)
+        tpv = sum(c[i] * v[i] for i in range(len(c)))
+        vwap = (tpv / vol15) if vol15 > 0 else last_px
+        above = last_px >= vwap
+        out["above_vwap"] = bool(above)
+        green = (last_px >= open_px) if open_px else False
+        spike = (win_high / vwap) if vwap > 0 else 1.0
+        faded = (last_px < vwap) and (spike >= 1.15)
+
+        score = 0.0
+        if   rvol15 >= 3.0: score += 45
+        elif rvol15 >= 2.0: score += 36
+        elif rvol15 >= 1.3: score += 26
+        elif rvol15 >= 0.8: score += 14
+        if above: score += 30
+        if green: score += 15
+        if win_high > 0 and last_px >= win_high * 0.985: score += 10
+        out["intraday_score"] = round(max(0.0, min(100.0, score)), 1)
+
+        if faded:
+            out["verdict"] = "AVOID"; out["reason"] = "parabolic then faded back through VWAP (pump risk)"
+        elif not above:
+            out["verdict"] = "AVOID"; out["reason"] = "below VWAP (sellers in control)"
+        elif rvol15 < 0.8:
+            out["verdict"] = "AVOID"; out["reason"] = "no volume — not in play this morning"
+        elif rvol15 >= 1.3 and above and green:
+            out["verdict"] = "BUY"; out["reason"] = f"{rvol15:.1f}x vol, holding above VWAP"
+        else:
+            out["verdict"] = "WATCH"; out["reason"] = "mixed — volume or trend not confirmed"
+        return out
+    except Exception as _e:
+        out["reason"] = f"check failed: {_e}"
+        return out
+
+
+def _nano_morning_track_record(days=45):
+    """Win-rate / EV scorecard from graded nano picks over the last N days."""
+    import psycopg2 as _pg
+    tr = {"n": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+          "avg_win": 0.0, "avg_loss": 0.0, "ev_pct": 0.0, "best": 0.0}
+    try:
+        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.execute("""
+                SELECT outcome, max_gain_pct, final_chg_pct
+                FROM nano_morning_outcomes
+                WHERE outcome IN ('WIN','LOSS')
+                  AND pick_date >= CURRENT_DATE - (%s || ' days')::interval
+            """, (str(int(days)),))
+            rows = cur.fetchall()
+        if not rows:
+            return tr
+        wins = [r for r in rows if r[0] == "WIN"]
+        losses = [r for r in rows if r[0] == "LOSS"]
+        n = len(rows)
+        win_chgs = [float(r[2] or 0) for r in wins]
+        loss_chgs = [float(r[2] or 0) for r in losses]
+        tr["n"] = n
+        tr["wins"] = len(wins)
+        tr["losses"] = len(losses)
+        tr["win_rate"] = round(100.0 * len(wins) / n, 1) if n else 0.0
+        tr["avg_win"] = round(sum(win_chgs) / len(win_chgs), 1) if win_chgs else 0.0
+        tr["avg_loss"] = round(sum(loss_chgs) / len(loss_chgs), 1) if loss_chgs else 0.0
+        tr["ev_pct"] = round(sum(float(r[2] or 0) for r in rows) / n, 2) if n else 0.0
+        tr["best"] = round(max(float(r[1] or 0) for r in rows), 1) if rows else 0.0
+        return tr
+    except Exception as _e:
+        print(f"[nano_morning] track record error: {_e}")
+        return tr
+
+
+def _nano_tr_html(tr):
+    if not tr or tr.get("n", 0) == 0:
+        return ('<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;'
+                'padding:10px 14px;margin:14px 0;font-size:11px;color:#64748b;">'
+                'Live track record builds here as confirmed buys are graded forward.</div>')
+    wr = tr["win_rate"]
+    wr_color = "#22c55e" if wr >= 50 else ("#eab308" if wr >= 40 else "#ef4444")
+    ev_color = "#22c55e" if tr["ev_pct"] > 0 else "#ef4444"
+    return f"""
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;margin:14px 0;">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Live track record · last {tr['n']} graded buys</div>
+        <div style="font-size:13px;color:#cbd5e1;line-height:1.9;">
+          Win rate <b style="color:{wr_color};">{wr:.0f}%</b> &nbsp;·&nbsp; Avg winner <b style="color:#22c55e;">+{tr['avg_win']:.0f}%</b> &nbsp;·&nbsp; Avg loser <b style="color:#ef4444;">{tr['avg_loss']:.0f}%</b><br>
+          EV/trade <b style="color:{ev_color};">{tr['ev_pct']:+.1f}%</b> &nbsp;·&nbsp; Best run <b style="color:#22c55e;">+{tr['best']:.0f}%</b>
+        </div>
+      </div>"""
+
+
+def _send_nano_watch_email():
+    """Stage B (9:35 ET): email the top-ranked low-float nano watchlist. NO buying."""
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        if not smtp_configured():
+            print("[nano_watch] smtp not configured — skip")
+            return
+        import psycopg2 as _pg
+        snap = _et_today()
+        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, rank, conviction, price, mcap_m, avg_vol,
+                       accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days
+                FROM nano_morning_candidates
+                WHERE snap_date=%s ORDER BY rank ASC LIMIT %s
+            """, (snap, _NANO_WATCH_N))
+            rows = cur.fetchall()
+        date_str = snap.strftime("%a %b %-d, %Y")
+        if not rows:
+            html = f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;color:#cbd5e1;">
+              <div style="font-size:20px;font-weight:800;color:#f1f5f9;">🌅 Nano Watchlist — {date_str}</div>
+              <p style="font-size:13px;color:#94a3b8;margin-top:14px;">No ranked candidates this morning — the pre-market scan found nothing that cleared the accumulation bar. No watchlist today; cash is a position.</p>
+            </div>"""
+            send_email_raw(_OWNER_EMAIL, f"🌅 Nano Watchlist: nothing qualified · {date_str}", html)
+            print("[nano_watch] no candidates — honest empty email sent")
+            return
+        cards = []
+        for r in rows:
+            (tk, rank, conv, price, mcap_m, avg_vol, accum, steady, volp, momp, nf, upd) = r
+            conv_color = "#22c55e" if conv >= 70 else ("#eab308" if conv >= 50 else "#94a3b8")
+            mcap_str = f"${mcap_m:.0f}M cap" if mcap_m else "nano cap"
+            cards.append(f"""
+              <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {conv_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <div><span style="font-size:13px;color:#64748b;">#{rank}</span> <b style="font-size:17px;color:#f1f5f9;">{tk}</b> <span style="font-size:12px;color:#64748b;">${price:.2f} · {mcap_str}</span></div>
+                  <div style="font-size:18px;font-weight:800;color:{conv_color};">{conv}</div>
+                </div>
+                <div style="font-size:11px;color:#94a3b8;margin-top:5px;">
+                  accum {accum:.0f}/40 · steady {steady:.0f}/25 · vol {volp:.0f}/20 · mom {momp:.0f}/15 · {upd}d up · net +${nf:.1f}M
+                </div>
+              </div>""")
+        cards_html = "".join(cards)
+        base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:14px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🌅 Nano Watchlist — Get Ready</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Top {len(rows)} low-float nano accumulators · ranked most→least bullish · {date_str}</span>
+          </div>
+          <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
+            ⏳ <b>Do not buy yet.</b> These are the strongest multi-day stealth accumulators in the low-float nano universe (&lt;$50M cap, float &lt;20M). At <b>9:45</b> I'll re-check each against the opening 15 minutes of tape and send the confirmed BUY list — the ones holding above VWAP on real volume, pumps filtered out.
+          </div>
+          {cards_html}
+          <div style="text-align:center;margin:8px 0 4px;">
+            <a href="{base_url}/stock-scanner/" style="background:#3b82f6;color:#0a0f1a;padding:11px 26px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Open Scanner →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps are highly volatile — confirm at 9:45 and always use your 5% stop.</p>
+        </div>"""
+        ok = send_email_raw(_OWNER_EMAIL, f"🌅 Nano Watchlist: {len(rows)} to watch · {date_str}", html)
+        print(f"[nano_watch] sent={ok} → {len(rows)} candidates")
+        try:
+            top = rows[0]
+            _send_ntfy(f"Nano watchlist: {len(rows)} names",
+                       f"#1 {top[0]} (conv {top[2]}). Confirmed BUY list at 9:45.",
+                       priority="default", tags="sunrise")
+        except Exception:
+            pass
+    except Exception as _e:
+        import traceback
+        print(f"[nano_watch] error: {_e}\n{traceback.format_exc()}")
+
+
+def _send_nano_buy_email():
+    """Stage C (9:45 ET): re-check the watchlist against the opening 15 min and
+    email the confirmed BUY list ($500 of each, 5% stop). Persists the picks."""
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        if not smtp_configured():
+            print("[nano_buy] smtp not configured — skip")
+            return
+        import psycopg2 as _pg, json as _json
+        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+        snap = _et_today()
+        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, rank, conviction, price, mcap_m, avg_vol
+                FROM nano_morning_candidates
+                WHERE snap_date=%s ORDER BY rank ASC LIMIT %s
+            """, (snap, _NANO_WATCH_N))
+            rows = cur.fetchall()
+        date_str = snap.strftime("%a %b %-d, %Y")
+        cands = [{"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
+                  "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
+                  "avg_vol": int(r[5] or 0)} for r in rows]
+
+        confirms = {}
+        if cands:
+            with _TPE(max_workers=8) as ex:
+                futs = {ex.submit(_nano_intraday_confirm, ca): ca["ticker"] for ca in cands}
+                for f in _ac(futs):
+                    try:
+                        cf = f.result()
+                        confirms[cf["ticker"]] = cf
+                    except Exception:
+                        pass
+
+        buys, avoids = [], []
+        for ca in cands:
+            cf = confirms.get(ca["ticker"], {})
+            blended = 0.5 * ca["conviction"] + 0.5 * float(cf.get("intraday_score", 0.0))
+            row = {**ca, **cf, "blended": blended}
+            (buys if cf.get("verdict") == "BUY" else avoids).append(row)
+        buys.sort(key=lambda x: x["blended"], reverse=True)
+        buys = buys[:_NANO_BUY_MAX]
+
+        if buys:
+            with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+                for i, b in enumerate(buys, 1):
+                    entry = float(b.get("price") or 0)
+                    stop = round(entry * (1 - _NANO_STOP_PCT), 4)
+                    shares = int(_NANO_DOLLARS_PER_BUY / entry) if entry > 0 else 0
+                    cost = round(shares * entry, 2)
+                    cur.execute("""
+                        INSERT INTO nano_morning_picks
+                          (pick_date, ticker, rank, entry_price, shares, stop_price,
+                           cost, conviction, intraday_score, rvol15, above_vwap, verdict, meta)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (pick_date, ticker) DO UPDATE SET
+                          rank=EXCLUDED.rank, entry_price=EXCLUDED.entry_price,
+                          shares=EXCLUDED.shares, stop_price=EXCLUDED.stop_price, cost=EXCLUDED.cost,
+                          conviction=EXCLUDED.conviction, intraday_score=EXCLUDED.intraday_score,
+                          rvol15=EXCLUDED.rvol15, above_vwap=EXCLUDED.above_vwap,
+                          verdict=EXCLUDED.verdict, meta=EXCLUDED.meta
+                    """, (snap, b["ticker"], i, entry, shares, stop, cost,
+                          int(b["conviction"]), float(b.get("intraday_score") or 0),
+                          float(b.get("rvol15") or 0), bool(b.get("above_vwap")), "BUY",
+                          _json.dumps({k: b.get(k) for k in ("mcap_m", "avg_vol", "near_high", "reason", "blended")})))
+                c.commit()
+
+        tr_html = _nano_tr_html(_nano_morning_track_record())
+        base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
+
+        if not buys:
+            html = f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
+              <div style="font-size:22px;font-weight:800;color:#f1f5f9;">🚦 No Nano Buys Today</div>
+              <div style="font-size:12px;color:#64748b;margin-top:4px;">Checked {len(cands)} watchlist names against the open · {date_str}</div>
+              <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13px;color:#cbd5e1;">
+                None of this morning's watchlist confirmed — no name held above VWAP on real volume, or they opened parabolic and faded (classic pump). <b style="color:#22c55e;">Not buying is the right move.</b> Capital preserved for a cleaner setup.
+              </div>
+              {tr_html}
+              <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice.</p>
+            </div>"""
+            send_email_raw(_OWNER_EMAIL, f"🚦 No nano buys today · {date_str}", html)
+            print("[nano_buy] no confirmations — honest empty email sent")
+            try:
+                _send_ntfy("No nano buys today", "Nothing confirmed above VWAP. Capital preserved.",
+                           priority="default", tags="no_entry")
+            except Exception:
+                pass
+            return
+
+        buy_cards = []
+        total_cost = 0.0
+        for i, b in enumerate(buys, 1):
+            entry = float(b.get("price") or 0)
+            stop = entry * (1 - _NANO_STOP_PCT)
+            shares = int(_NANO_DOLLARS_PER_BUY / entry) if entry > 0 else 0
+            cost = shares * entry
+            total_cost += cost
+            rvol = float(b.get("rvol15") or 0)
+            buy_cards.append(f"""
+              <div style="background:#0f172a;border:1px solid #14532d;border-left:3px solid #22c55e;border-radius:8px;padding:12px 14px;margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <div><span style="font-size:13px;color:#64748b;">#{i}</span> <b style="font-size:18px;color:#f1f5f9;">{b['ticker']}</b></div>
+                  <div style="font-size:12px;color:#22c55e;font-weight:700;">{rvol:.1f}× vol · above VWAP</div>
+                </div>
+                <div style="font-size:13px;color:#cbd5e1;margin-top:6px;">
+                  Buy <b style="color:#f1f5f9;">{shares} shares</b> @ <b style="color:#f1f5f9;">${entry:.2f}</b> ≈ <b style="color:#f1f5f9;">${cost:,.0f}</b>
+                </div>
+                <div style="font-size:13px;color:#ef4444;margin-top:3px;">🛑 Set 5% stop now: <b>${stop:.2f}</b></div>
+                <div style="font-size:11px;color:#64748b;margin-top:4px;">conviction {b['conviction']} · {b.get('reason', '')}</div>
+              </div>""")
+        buy_html = "".join(buy_cards)
+
+        avoid_html = ""
+        shown = [a for a in avoids if a.get("reason")][:12]
+        if shown:
+            arows = "".join(
+                f'<div style="font-size:11px;color:#94a3b8;padding:3px 0;border-bottom:1px solid #1e293b;"><b style="color:#cbd5e1;">{a["ticker"]}</b> — {a.get("reason", "")}</div>'
+                for a in shown)
+            avoid_html = f"""
+              <div style="margin-top:16px;">
+                <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">⛔ Watched but skipped</div>
+                {arows}
+              </div>"""
+
+        html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:14px;">
+            <span style="font-size:22px;font-weight:800;color:#22c55e;">✅ Confirmed Nano Buys</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(buys)} confirmed of {len(cands)} watched · ${_NANO_DOLLARS_PER_BUY} of each · {date_str}</span>
+          </div>
+          <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
+            These held <b style="color:#22c55e;">above VWAP on real opening volume</b> and weren't parabolic-and-fading. Buy <b>${_NANO_DOLLARS_PER_BUY} worth</b> of each (share count shown per name), <b style="color:#ef4444;">set the 5% stop immediately</b>, then let winners ride. Est. total deployed: <b style="color:#f1f5f9;">${total_cost:,.0f}</b>.
+          </div>
+          {buy_html}
+          {avoid_html}
+          {tr_html}
+          <div style="text-align:center;margin:8px 0 4px;">
+            <a href="{base_url}/stock-scanner/" style="background:#22c55e;color:#0a0f1a;padding:11px 26px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Open Scanner →</a>
+          </div>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps can gap through stops — size with that in mind.</p>
+        </div>"""
+        ok = send_email_raw(_OWNER_EMAIL, f"✅ {len(buys)} confirmed nano buys · {date_str}", html)
+        print(f"[nano_buy] sent={ok} → {len(buys)} buys / {len(cands)} watched")
+        try:
+            names = ", ".join(b["ticker"] for b in buys[:6])
+            _send_ntfy(f"{len(buys)} confirmed nano buys",
+                       f"{names}{'…' if len(buys) > 6 else ''} — ${_NANO_DOLLARS_PER_BUY} each, 5% stop.",
+                       priority="high", tags="white_check_mark")
+        except Exception:
+            pass
+    except Exception as _e:
+        import traceback
+        print(f"[nano_buy] error: {_e}\n{traceback.format_exc()}")
+
+
+def _run_nano_morning_outcomes():
+    """Stage D (16:10 ET): grade confirmed buys forward. 5% stop walk-forward,
+    winners ride. Day 0 (entry day) is excluded from the forward walk."""
+    try:
+        import yfinance as _yf, psycopg2 as _pg
+        from datetime import timedelta as _td
+        snap = _et_today()
+        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT pick_date FROM nano_morning_picks
+                WHERE pick_date < %s
+                  AND pick_date >= CURRENT_DATE - INTERVAL '60 days'
+                ORDER BY pick_date
+            """, (snap,))
+            pick_dates = [r[0] for r in cur.fetchall()]
+        graded = 0
+        for pd_ in pick_dates:
+            with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+                cur.execute("""
+                    SELECT ticker, entry_price, stop_price
+                    FROM nano_morning_picks WHERE pick_date=%s
+                    ORDER BY rank ASC LIMIT %s
+                """, (pd_, _NANO_BUY_MAX))
+                picks = cur.fetchall()
+            for (tk, entry, stop) in picks:
+                try:
+                    entry = float(entry or 0); stop = float(stop or 0)
+                    if entry <= 0:
+                        continue
+                    t = _yf.Ticker(tk)
+                    hist = t.history(start=(pd_ + _td(days=1)).isoformat(), interval="1d")
+                    if hist is None or len(hist) == 0:
+                        continue
+                    highs = hist["High"].dropna().tolist()
+                    lows = hist["Low"].dropna().tolist()
+                    closes = hist["Close"].dropna().tolist()
+                    days_held = 0
+                    stopped = False
+                    max_high = entry
+                    final_price = entry
+                    for i in range(len(closes)):
+                        days_held = i + 1
+                        if highs[i] > max_high:
+                            max_high = highs[i]
+                        final_price = closes[i]
+                        if lows[i] <= stop:
+                            stopped = True
+                            final_price = stop
+                            break
+                    max_gain = (max_high - entry) / entry * 100 if entry else 0
+                    final_chg = (final_price - entry) / entry * 100 if entry else 0
+                    outcome = "LOSS" if (stopped or final_chg <= 0) else "WIN"
+                    with _pg.connect(os.environ["DATABASE_URL"]) as c2, c2.cursor() as cur2:
+                        cur2.execute("""
+                            INSERT INTO nano_morning_outcomes
+                              (pick_date, ticker, entry_price, stop_price, days_held,
+                               max_high, max_gain_pct, stopped_out, final_price,
+                               final_chg_pct, outcome)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (pick_date, ticker) DO UPDATE SET
+                              days_held=EXCLUDED.days_held, max_high=EXCLUDED.max_high,
+                              max_gain_pct=EXCLUDED.max_gain_pct, stopped_out=EXCLUDED.stopped_out,
+                              final_price=EXCLUDED.final_price, final_chg_pct=EXCLUDED.final_chg_pct,
+                              outcome=EXCLUDED.outcome, graded_at=NOW()
+                        """, (pd_, tk, entry, stop, days_held, round(max_high, 4),
+                              round(max_gain, 2), stopped, round(final_price, 4),
+                              round(final_chg, 2), outcome))
+                        c2.commit()
+                    graded += 1
+                except Exception as _te:
+                    print(f"[nano_outcomes] {tk}: {_te}")
+        print(f"[nano_morning] graded {graded} forward outcomes")
+    except Exception as _e:
+        import traceback
+        print(f"[nano_morning] outcomes error: {_e}\n{traceback.format_exc()}")
+
+
+@app.route("/stock-api/nano-morning/candidates", methods=["GET"])
+def nano_morning_candidates():
+    import psycopg2 as _pg
+    try:
+        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.execute("""
+                SELECT snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
+                       accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days, universe_count
+                FROM nano_morning_candidates
+                WHERE snap_date = (SELECT MAX(snap_date) FROM nano_morning_candidates)
+                ORDER BY rank ASC
+            """)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        for r in rows:
+            if r.get("snap_date"):
+                r["snap_date"] = r["snap_date"].isoformat()
+        return jsonify({"count": len(rows), "candidates": rows}), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/nano-morning/picks", methods=["GET"])
+def nano_morning_picks_route():
+    import psycopg2 as _pg
+    try:
+        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+            cur.execute("""
+                SELECT p.pick_date, p.ticker, p.rank, p.entry_price, p.shares,
+                       p.stop_price, p.cost, p.conviction, p.intraday_score, p.rvol15,
+                       p.above_vwap, o.outcome, o.max_gain_pct, o.final_chg_pct,
+                       o.days_held, o.stopped_out
+                FROM nano_morning_picks p
+                LEFT JOIN nano_morning_outcomes o
+                  ON o.pick_date=p.pick_date AND o.ticker=p.ticker
+                WHERE p.pick_date >= CURRENT_DATE - INTERVAL '45 days'
+                ORDER BY p.pick_date DESC, p.rank ASC
+            """)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        for r in rows:
+            if r.get("pick_date"):
+                r["pick_date"] = r["pick_date"].isoformat()
+        return jsonify({"count": len(rows), "picks": rows,
+                        "track_record": _nano_morning_track_record()}), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+def _nano_admin_ok():
+    """Gate for the nano side-effect POST routes — they send the owner real
+    financial-action (buy/watch) emails and write DB rows, so they must NOT be
+    publicly triggerable on the live site. Fail-CLOSED: requires ADMIN_TOKEN to be
+    set in the environment AND matched via the X-Admin-Token header or ?token=.
+    The scheduled flow calls these functions directly (not over HTTP), so it is
+    unaffected whether or not ADMIN_TOKEN is configured."""
+    want = os.environ.get("ADMIN_TOKEN", "")
+    if not want:
+        return False
+    got = request.headers.get("X-Admin-Token", "") or request.args.get("token", "")
+    return bool(got) and got == want
+
+
+@app.route("/stock-api/nano-morning/run-ranking", methods=["POST"])
+def nano_morning_run_ranking():
+    if not _nano_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    _threading.Thread(target=_run_nano_morning_ranking, daemon=True).start()
+    return jsonify({"status": "started", "stage": "ranking"}), 202
+
+
+@app.route("/stock-api/nano-morning/send-watch", methods=["POST"])
+def nano_morning_send_watch():
+    if not _nano_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    _threading.Thread(target=_send_nano_watch_email, daemon=True).start()
+    return jsonify({"status": "started", "stage": "watch_email"}), 202
+
+
+@app.route("/stock-api/nano-morning/send-buy", methods=["POST"])
+def nano_morning_send_buy():
+    if not _nano_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    _threading.Thread(target=_send_nano_buy_email, daemon=True).start()
+    return jsonify({"status": "started", "stage": "buy_email"}), 202
+
+
+@app.route("/stock-api/nano-morning/grade", methods=["POST"])
+def nano_morning_grade():
+    if not _nano_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    _threading.Thread(target=_run_nano_morning_outcomes, daemon=True).start()
+    return jsonify({"status": "started", "stage": "grade"}), 202
+
+
 def _send_morning_inflows_email() -> None:
     """
     Morning email with two sections:
