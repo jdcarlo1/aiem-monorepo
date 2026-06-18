@@ -5216,6 +5216,87 @@ def _run_sc_morning_ranking():
                     conviction += _SC_DOUBLE_BONUS
                 conviction = int(round(max(0.0, min(100.0, conviction))))
 
+                # ============ SECRET SIGNALS (NOVEL INDICATORS) ============
+                # These signals detect "invisible accumulation" — when momentum
+                # is building but flow is still quiet. Nobody else measures this.
+
+                # TQL — "The Quantum Leap": fires when stars align
+                tql_conditions = [
+                    near >= 0.90,
+                    mom10 >= 15,
+                    abs(flow_ratio) < 0.30,
+                    conviction >= 35,
+                    up_days >= 10,
+                    steady >= 0.5,
+                    vol_pts < 5,
+                ]
+                tql_fired = sum(tql_conditions)
+                if tql_fired >= 5:
+                    tql = mom10 * near * (1 - abs(flow_ratio)) * conviction * (tql_fired / 7.0)
+                else:
+                    tql = 0.0
+
+                # TCT — "The Coil Tightness": how compressed before breakout
+                if near > 0.80 and abs(flow_ratio) < 0.50 and conviction > 0:
+                    tct = (near / (1 - abs(flow_ratio) + 0.01)) * (mom10 / max(1, conviction)) * up_days
+                else:
+                    tct = 0.0
+
+                # TAC — "The Acceleration Curve": exponential momentum
+                if mom10 > 10:
+                    import math as _math
+                    tac = mom10 * _math.log(mom10 + 1) * (1 - abs(flow_ratio)) * near
+                else:
+                    tac = 0.0
+
+                # TSM — "The Stealth Momentum": momentum without volume spikes
+                if mom10 > 10 and vol_pts < 3 and steady > 0.5:
+                    tsm = mom10 * (3 - vol_pts) * steady * near * conviction
+                else:
+                    tsm = 0.0
+
+                # TPA — "The Phantom Accumulation": steady accumulation invisible to crowd
+                if steady > 0.5 and vol_pts < 5 and accum > 15:
+                    tpa = (accum + steady) * (5 - vol_pts) * near * up_days / 10.0
+                else:
+                    tpa = 0.0
+
+                # TCG — "The Conviction Gap": engine sees hidden value
+                if conviction > mom10 * 2 and conviction >= 30:
+                    tcg = (conviction - mom10) * near * (1 - abs(flow_ratio)) * up_days / 10.0
+                else:
+                    tcg = 0.0
+
+                # TPD — "The Pre-Detonation": fuse is lit but hasn't exploded
+                if near > 0.85 and mom10 > 10 and abs(flow_ratio) < 0.30 and up_days > 10:
+                    tpd = (near - 0.85) * mom10 * (1 - abs(flow_ratio)) * (up_days / 10.0) * conviction
+                else:
+                    tpd = 0.0
+
+                # TAP — "The Alpha Pulse": weighted ensemble of all secret signals
+                tap = (
+                    tql * 0.30 +
+                    tct * 0.15 +
+                    tac * 0.15 +
+                    tsm * 0.15 +
+                    tpa * 0.10 +
+                    tcg * 0.05 +
+                    tpd * 0.10
+                )
+
+                # TRES — "The Resonance": how many signals fire together
+                signals_firing = sum(1 for s in [tql, tct, tac, tsm, tpa, tcg, tpd] if s > 0)
+                if signals_firing >= 3:
+                    tres = tap * (signals_firing / 5.0)
+                else:
+                    tres = 0.0
+
+                # Add the secret signal to the candidate score
+                # This is a hidden bonus that elevates names with invisible accumulation
+                secret_boost = min(15.0, tres / 50.0)  # cap at 15 points
+                conviction += secret_boost
+                conviction = int(round(max(0.0, min(100.0, conviction))))
+
                 mcap_m = 0.0
                 try:
                     fi = tk.fast_info
@@ -5234,6 +5315,11 @@ def _run_sc_morning_ranking():
                     "mom10": round(mom10, 1), "up_ratio": round(up_ratio, 2),
                     "double_signal": double_signal, "eod_accum_score": eod_accum_score,
                     "opt": (om or None),
+                    # Secret signals (novel indicators)
+                    "tql": round(tql, 2), "tct": round(tct, 2), "tac": round(tac, 2),
+                    "tsm": round(tsm, 2), "tpa": round(tpa, 2), "tcg": round(tcg, 2),
+                    "tpd": round(tpd, 2), "tap": round(tap, 2), "tres": round(tres, 2),
+                    "secret_boost": round(secret_boost, 1),
                 }
             except Exception:
                 return None
@@ -5361,13 +5447,13 @@ def _send_sc_watch_email():
         if not smtp_configured():
             print("[sc_watch] smtp not configured — skip")
             return
-        import psycopg2 as _pg
+        import psycopg2 as _pg, json as _json
         snap = _et_today()
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
             cur.execute("""
                 SELECT ticker, rank, conviction, price, mcap_m, avg_vol,
                        accum_pts, steady_pts, vol_pts, mom_pts, opt_pts, net_flow_m,
-                       up_days, double_signal, eod_accum_score
+                       up_days, double_signal, eod_accum_score, meta
                 FROM sc_morning_candidates
                 WHERE snap_date=%s ORDER BY rank ASC LIMIT %s
             """, (snap, _SC_WATCH_N))
@@ -5388,7 +5474,18 @@ def _send_sc_watch_email():
         cards = []
         for r in rows:
             (tk, rank, conv, price, mcap_m, avg_vol, accum, steady, volp, momp,
-             optp, nf, upd, double_signal, eod_sc) = r
+             optp, nf, upd, double_signal, eod_sc, _meta_raw) = r
+            # Parse secret signals from meta
+            try:
+                _meta = _json.loads(_meta_raw) if isinstance(_meta_raw, str) and _meta_raw else {}
+            except Exception:
+                _meta = {}
+            _tql = float(_meta.get("tql", 0) or 0)
+            _tres = float(_meta.get("tres", 0) or 0)
+            _secret_boost = float(_meta.get("secret_boost", 0) or 0)
+            _mom10 = float(_meta.get("mom10", 0) or 0)
+            _near = float(_meta.get("near_high", 1) or 1)
+            _flow = float(_meta.get("flow_ratio", 0) or 0)
             conv_color = "#22c55e" if conv >= 70 else ("#eab308" if conv >= 50 else "#94a3b8")
             mcap_str = f"${mcap_m/1000:.2f}B cap" if (mcap_m and mcap_m >= 1000) else (f"${mcap_m:.0f}M cap" if mcap_m else "small cap")
             badges = ""
@@ -5396,19 +5493,31 @@ def _send_sc_watch_email():
                 badges += '<span style="display:inline-block;background:#3b0764;color:#e9d5ff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">⚡ DOUBLE SIGNAL</span>'
             if optp and optp > 0:
                 badges += '<span style="display:inline-block;background:#0c2d48;color:#7dd3fc;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">📈 unusual calls</span>'
+            # Secret signal badges
+            secret_badges = ""
+            if _tql > 500:
+                secret_badges += '<span style="display:inline-block;background:#1a3a1a;color:#86efac;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🔮 TQL</span>'
+            if _tres > 50:
+                secret_badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🎯 RESONANCE</span>'
+            if _secret_boost > 5:
+                secret_badges += '<span style="display:inline-block;background:#1a1a3a;color:#c4b5fd;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🔒 SECRET BOOST</span>'
             ds_line = ""
             if double_signal:
                 ds_line = f'<div style="font-size:11px;color:#c4b5fd;margin-top:4px;">⚡ Also on yesterday\'s EOD accumulation list (EOD score {float(eod_sc or 0):.0f}) — accumulating into the close <b>and</b> showing morning strength.</div>'
+            secret_line = ""
+            if _tql > 0 or _tres > 0:
+                secret_line = f'<div style="font-size:11px;color:#86efac;margin-top:3px;">🔮 Secret signals: TQL={_tql:.0f} · Resonance={_tres:.0f} · mom10={_mom10:.1f} · near={_near:.2f} · flow={_flow:.3f}</div>'
             cards.append(f"""
               <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {conv_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                  <div><span style="font-size:13px;color:#64748b;">#{rank}</span> <b style="font-size:17px;color:#f1f5f9;">{tk}</b> <span style="font-size:12px;color:#64748b;">${price:.2f} · {mcap_str}</span>{badges}</div>
+                  <div><span style="font-size:13px;color:#64748b;">#{rank}</span> <b style="font-size:17px;color:#f1f5f9;">{tk}</b> <span style="font-size:12px;color:#64748b;">${price:.2f} · {mcap_str}</span>{badges}{secret_badges}</div>
                   <div style="font-size:18px;font-weight:800;color:{conv_color};">{conv}</div>
                 </div>
                 <div style="font-size:11px;color:#94a3b8;margin-top:5px;">
                   accum {accum:.0f}/30 · opt {optp:.0f}/25 · vol {volp:.0f}/20 · mom {momp:.0f}/15 · steady {steady:.0f}/10 · {upd}d up · net +${nf:.1f}M
                 </div>
                 {ds_line}
+                {secret_line}
               </div>""")
         cards_html = "".join(cards)
         base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
@@ -5471,6 +5580,11 @@ def _send_sc_buy_email():
             _near = float(_meta.get("near_high", 1) or 1)
             _flow = float(_meta.get("net_flow_m", 0) or 0)
             _dist = max(0.01, 1.0 - _near) if _near > 0 else 1.0
+            # Extract secret signals from stored meta
+            _tres = float(_meta.get("tres", 0) or 0)
+            _tql = float(_meta.get("tql", 0) or 0)
+            _tap = float(_meta.get("tap", 0) or 0)
+            _secret_boost = float(_meta.get("secret_boost", 0) or 0)
             cands.append({
                 "ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
                 "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
@@ -5478,6 +5592,8 @@ def _send_sc_buy_email():
                 "double_signal": bool(r[7]), "eod_accum_score": r[8],
                 "meta": _meta, "explosive": round(max(0, _flow) / _dist, 1),
                 "near_high": _near,
+                "tres": _tres, "tql": _tql, "tap": _tap,
+                "secret_boost": _secret_boost,
             })
 
         if not cands:
@@ -5611,6 +5727,19 @@ def _send_sc_buy_email():
                 badges += '<span style="display:inline-block;background:#3b0764;color:#e9d5ff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">⚡ DOUBLE SIGNAL</span>'
             if optp > 0:
                 badges += '<span style="display:inline-block;background:#0c2d48;color:#7dd3fc;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">📈 unusual calls</span>'
+            # Secret signal badges in buy confirmation
+            _tql_b = float(b.get("tql", 0) or 0)
+            _tres_b = float(b.get("tres", 0) or 0)
+            _sb_b = float(b.get("secret_boost", 0) or 0)
+            if _tql_b > 500:
+                badges += '<span style="display:inline-block;background:#1a3a1a;color:#86efac;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🔮 TQL</span>'
+            if _tres_b > 50:
+                badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🎯 RESONANCE</span>'
+            if _sb_b > 5:
+                badges += '<span style="display:inline-block;background:#1a1a3a;color:#c4b5fd;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🔒 SECRET BOOST</span>'
+            secret_line = ""
+            if _tql_b > 0 or _tres_b > 0:
+                secret_line = f'<div style="font-size:11px;color:#86efac;margin-top:3px;">🔮 Secret signals: TQL={_tql_b:.0f} · Resonance={_tres_b:.0f} · secret boost +{_sb_b:.0f} pts</div>'
             buy_cards.append(f"""
               <div style="background:#0f172a;border:1px solid #14532d;border-left:3px solid #22c55e;border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -5622,6 +5751,7 @@ def _send_sc_buy_email():
                 </div>
                 <div style="font-size:13px;color:#ef4444;margin-top:3px;">🛑 Set 5% stop now: <b>${stop:.2f}</b></div>
                 <div style="font-size:11px;color:#64748b;margin-top:4px;">conviction {b['conviction']} · opt {optp:.0f}/25 · {b.get('reason', '')}</div>
+                {secret_line}
               </div>""")
         buy_html = "".join(buy_cards)
 
@@ -5747,13 +5877,13 @@ def _run_sc_morning_outcomes():
 
 @app.route("/stock-api/sc-morning/candidates", methods=["GET"])
 def sc_morning_candidates():
-    import psycopg2 as _pg
+    import psycopg2 as _pg, json as _json
     try:
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
             cur.execute("""
                 SELECT snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
                        accum_pts, steady_pts, vol_pts, mom_pts, opt_pts, net_flow_m,
-                       up_days, double_signal, eod_accum_score, universe_count
+                       up_days, double_signal, eod_accum_score, universe_count, meta
                 FROM sc_morning_candidates
                 WHERE snap_date = (SELECT MAX(snap_date) FROM sc_morning_candidates)
                 ORDER BY rank ASC
@@ -5763,6 +5893,16 @@ def sc_morning_candidates():
         for r in rows:
             if r.get("snap_date"):
                 r["snap_date"] = r["snap_date"].isoformat()
+            # Parse meta JSON to expose secret signals in the API
+            if r.get("meta"):
+                try:
+                    meta = r["meta"] if isinstance(r["meta"], dict) else _json.loads(r["meta"])
+                    # Include secret signals in the response
+                    for key in ["tql", "tct", "tac", "tsm", "tpa", "tcg", "tpd", "tap", "tres", "secret_boost", "tql_fired"]:
+                        if key in meta:
+                            r[key] = meta[key]
+                except Exception:
+                    pass
         return jsonify({"count": len(rows), "candidates": rows}), 200
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
