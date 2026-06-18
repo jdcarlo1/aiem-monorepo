@@ -2738,6 +2738,8 @@ def _send_top_pick_email() -> None:
 
         # ── Scan live options to find best call to buy ────────────────────────
         best_call = None
+        chains_read = 0   # how many option chains we actually read — lets us tell
+                          # "feed throttled, couldn't check" apart from "checked, nothing liquid"
         try:
             tk = _yf.Ticker(ticker)
             info = tk.info
@@ -2755,6 +2757,7 @@ def _send_top_pick_email() -> None:
                     if days < 4 or days > 60:
                         continue
                     chain = tk.option_chain(exp).calls
+                    chains_read += 1
                     for _, row in chain.iterrows():
                         try:
                             vol = int(row.get("volume") or 0)
@@ -2903,11 +2906,60 @@ def _send_top_pick_email() -> None:
             call_sms = f"\n🎯 BUY: ${ticker} ${c['strike']:.0f}C exp {exp_fmt} @ ${c['mid']:.2f}\n📅 {wk}-WEEK CALL — {erec['reason']}"
         else:
             hold_w = erec.get("weeks", 2)
-            call_html = f"""
-            <div style="margin:20px 0;padding:14px 18px;background:#1e293b;border-radius:8px;color:#94a3b8;font-size:13px;">
-              ⚠️ No liquid calls found. <b style="color:#fbbf24;">Buy ${ticker} stock instead, hold {hold_w} weeks.</b>
+            _sweep_voi = meta.get("sweep_voi")
+            if _sweep_voi:
+                # We couldn't confirm a fresh, tradable quote (the free feed throttles
+                # the LIVE option-chain lookup), but Layer 7 already recorded a real
+                # far-OTM sweep on this name — so never claim "no calls exist." Show
+                # the swept contract as evidence and recommend stock as the safe play.
+                _sw_strike = meta.get("sweep_strike") or 0
+                _sw_exp    = meta.get("sweep_expiry") or ""
+                _sw_prem   = meta.get("sweep_prem") or 0
+                _sw_otm    = float(meta.get("sweep_otm") or 0)
+                try:
+                    _exp_fmt = _dt.strptime(_sw_exp, "%Y-%m-%d").strftime("%b %d") if _sw_exp else ""
+                except Exception:
+                    _exp_fmt = _sw_exp
+                _ps = f"${_sw_prem/1000:.0f}K" if _sw_prem < 1_000_000 else f"${_sw_prem/1_000_000:.1f}M"
+                _strike_txt = f"${_sw_strike:.0f}C" if _sw_strike else "call"
+                _exp_txt = f" exp {_exp_fmt}" if _exp_fmt else ""
+                _sw_seen = meta.get("sweep_seen") or ""
+                try:
+                    _seen_dt = _dt.fromisoformat(_sw_seen)
+                    if _seen_dt.tzinfo is not None:
+                        _seen_dt = _seen_dt.astimezone(_ET_TZ)   # stored UTC → ET date
+                    _seen_lbl = "today" if _seen_dt.date() == _et_today() else _seen_dt.strftime("%b %d")
+                except Exception:
+                    _seen_lbl = ""
+                _seen_txt = f", seen {_seen_lbl}" if _seen_lbl else ""
+                call_html = f"""
+            <div style="margin:20px 0;padding:16px 18px;background:#1a1f2e;border:2px solid #f59e0b;border-radius:8px;">
+              <div style="color:#f59e0b;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">📈 TRADE RECOMMENDATION — BUY STOCK</div>
+              <div style="color:#f1f5f9;font-size:22px;font-weight:900;">BUY ${ticker} STOCK</div>
+              <div style="color:#94a3b8;font-size:14px;margin-top:6px;">Hold for <b style="color:#fbbf24;">{hold_w} weeks</b></div>
+              <div style="margin-top:10px;color:#38bdf8;font-size:12px;">
+                🐳 A far-OTM call sweep hit the {_strike_txt}{_exp_txt}{_seen_txt} ({_ps} premium · {_sw_otm:.0f}% OTM) — that's the bullish signal. A clean, tight-spread call to buy couldn't be confirmed on the live chain right now, so stock is the safer entry.
+              </div>
+              <div style="margin-top:8px;color:#64748b;font-size:11px;">
+                Entry: market open or first pullback · Stop: 7-8% below entry · Target: 10-20% gain
+              </div>
             </div>"""
-            call_sms = f"\n📈 No liquid calls — BUY ${ticker} STOCK, hold {hold_w} weeks"
+                call_sms = f"\n📈 BUY ${ticker} STOCK, hold {hold_w} weeks\n🐳 Sweep hit {_strike_txt}{_exp_txt}{_seen_txt} ({_ps}) — no live tradable call confirmed, stock safer"
+            elif chains_read == 0:
+                # The live option chain was unreachable (feed throttled) — say so
+                # honestly instead of asserting there are no liquid calls.
+                call_html = f"""
+            <div style="margin:20px 0;padding:14px 18px;background:#1e293b;border-radius:8px;color:#94a3b8;font-size:13px;">
+              ⚠️ Couldn't read a live option chain right now. <b style="color:#fbbf24;">Buy ${ticker} stock instead, hold {hold_w} weeks.</b>
+            </div>"""
+                call_sms = f"\n📈 Live option chain unavailable — BUY ${ticker} STOCK, hold {hold_w} weeks"
+            else:
+                # We DID read the chain and nothing met the liquidity bar — genuine.
+                call_html = f"""
+            <div style="margin:20px 0;padding:14px 18px;background:#1e293b;border-radius:8px;color:#94a3b8;font-size:13px;">
+              ⚠️ No liquid near-money calls right now (thin volume / wide spreads). <b style="color:#fbbf24;">Buy ${ticker} stock instead, hold {hold_w} weeks.</b>
+            </div>"""
+                call_sms = f"\n📈 No liquid calls — BUY ${ticker} STOCK, hold {hold_w} weeks"
 
         badge_color = "#ef4444" if "EXTREME" in label else "#f97316" if "HIGH" in label else "#eab308"
         label_clean = label.replace("🔴 ","").replace("🟠 ","").replace("🟡 ","").replace("🔵 ","")
@@ -9009,6 +9061,8 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
         scores[ticker]["meta"]["sweep_prem"]      = int(sweep.get("prem", 0))
         scores[ticker]["meta"]["sweep_otm"]       = round(float(sweep.get("otm_pct", 0)), 0)
         scores[ticker]["meta"]["sweep_expiry"]    = str(sweep.get("expiry", ""))
+        scores[ticker]["meta"]["sweep_strike"]    = round(float(sweep.get("strike", 0) or 0), 2)
+        scores[ticker]["meta"]["sweep_seen"]      = str(sweep.get("last_seen_et", "") or "")
 
     # ── Layer 8: Sector Theme Correlation ─────────────────────────────────────
     sector_heat = _get_sector_heat(days_back=2)
