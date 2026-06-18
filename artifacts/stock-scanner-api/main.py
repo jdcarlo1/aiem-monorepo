@@ -35,6 +35,34 @@ import composite_scan
 app = Flask(__name__)
 CORS(app)
 
+# ── NaN/Inf-safe JSON ─────────────────────────────────────────────────────────
+# Postgres float columns and numpy computations can yield NaN/Infinity. Python's
+# default json emits the literal tokens `NaN`/`Infinity`, which are INVALID JSON —
+# the browser's JSON.parse throws and the tab spins forever ("Load failed"). This
+# provider recursively replaces NaN/Inf with null so every response is valid JSON.
+# Wrapped in try/except so it can never itself break a response.
+import math as _math_san
+from flask.json.provider import DefaultJSONProvider as _DefaultJSONProvider
+
+def _json_sanitize(o):
+    if isinstance(o, float):
+        return None if (_math_san.isnan(o) or _math_san.isinf(o)) else o
+    if isinstance(o, dict):
+        return {k: _json_sanitize(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_sanitize(v) for v in o]
+    return o
+
+class _SafeJSONProvider(_DefaultJSONProvider):
+    def dumps(self, obj, **kwargs):
+        try:
+            obj = _json_sanitize(obj)
+        except Exception:
+            pass
+        return super().dumps(obj, **kwargs)
+
+app.json = _SafeJSONProvider(app)
+
 
 @app.after_request
 def _no_store_api(resp):
@@ -137,14 +165,42 @@ def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell"
 # timeouts, so rate-limited calls hang forever and block Flask worker threads.
 # Patching Session.__init__ here ensures every Session (including yfinance's)
 # mounts an adapter that enforces an 8-second timeout on each HTTP call.
+# Yahoo Finance circuit breaker: when Yahoo rate-limits (HTTP 429/503), trip a
+# short global cooldown so subsequent yfinance HTTP calls fail FAST instead of
+# hanging (and piling up on Flask worker threads). Tab endpoints then fall back
+# to cached/DB snapshots quickly rather than spinning forever. Scoped to Yahoo
+# hosts only — OpenAI/Anthropic/Stripe/Finviz traffic is untouched.
+import time as _time_cb
+_YF_BREAKER = {"until": 0.0}
+_YF_BREAKER_COOLDOWN = 30.0  # seconds to stay "open" after a rate-limit hit
+
+def _yf_breaker_open() -> bool:
+    return _time_cb.time() < _YF_BREAKER["until"]
+
 try:
     import requests as _req_patch
     from requests.adapters import HTTPAdapter as _HTTPAdapter
+    from requests.exceptions import ConnectionError as _ReqConnErr
 
     class _TimeoutAdapter(_HTTPAdapter):
-        def send(self, *args, **kwargs):
-            kwargs.setdefault("timeout", 8)
-            return super().send(*args, **kwargs)
+        def send(self, request, *args, **kwargs):
+            _url = getattr(request, "url", "") or ""
+            _is_yahoo = "yahoo.com" in _url
+            if _is_yahoo:
+                if _yf_breaker_open():
+                    # Fail fast — do not even attempt the call while cooling down.
+                    raise _ReqConnErr("yfinance circuit breaker open (Yahoo rate-limited)")
+                if kwargs.get("timeout") is None:
+                    kwargs["timeout"] = 8
+            else:
+                kwargs.setdefault("timeout", 8)
+            _resp = super().send(request, *args, **kwargs)
+            try:
+                if _is_yahoo and _resp.status_code in (429, 503):
+                    _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+            except Exception:
+                pass
+            return _resp
 
     _orig_session_init = _req_patch.Session.__init__
     def _patched_session_init(self, *args, **kwargs):
@@ -152,9 +208,50 @@ try:
         self.mount("https://", _TimeoutAdapter())
         self.mount("http://",  _TimeoutAdapter())
     _req_patch.Session.__init__ = _patched_session_init
-    print("[startup] global requests timeout adapter installed (8s per call)")
+    print("[startup] global requests timeout adapter + Yahoo circuit breaker installed")
 except Exception as _tpe:
     print(f"[startup] timeout adapter failed (non-fatal): {_tpe}")
+
+# yfinance 1.4.1 fetches from Yahoo via curl_cffi (browser TLS impersonation),
+# NOT requests — so the adapter above does NOT cover it. yfinance also hard-codes
+# timeout=30s per call, so when Yahoo is slow the dashboard tabs hang ~30s and the
+# spinner never resolves. This patch wraps curl_cffi's Session.request to, for
+# yahoo.com URLs only: (a) cap the per-call timeout to 8s, and (b) trip the shared
+# global circuit breaker on rate-limit (429/503) or timeout so that subsequent
+# Yahoo calls fail INSTANTLY for a short cooldown — endpoints then fall back to
+# cached/DB data in <1s instead of spinning. Non-Yahoo curl_cffi traffic (if any)
+# is passed through untouched.
+try:
+    from curl_cffi import requests as _cffi_req
+    from curl_cffi.requests import RequestsError as _CffiErr
+    _YF_YAHOO_TIMEOUT = 8.0
+    _cffi_orig_request = _cffi_req.Session.request
+
+    def _cffi_patched_request(self, method, url, *args, **kwargs):
+        _u = str(url or "")
+        if "yahoo.com" not in _u:
+            return _cffi_orig_request(self, method, url, *args, **kwargs)
+        if _yf_breaker_open():
+            raise _CffiErr("yfinance circuit breaker open (Yahoo rate-limited)")
+        _t = kwargs.get("timeout", None)
+        if not (isinstance(_t, (int, float)) and not isinstance(_t, bool) and _t <= _YF_YAHOO_TIMEOUT):
+            kwargs["timeout"] = _YF_YAHOO_TIMEOUT
+        try:
+            _resp = _cffi_orig_request(self, method, url, *args, **kwargs)
+        except Exception:
+            _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+            raise
+        try:
+            if getattr(_resp, "status_code", 0) in (429, 503):
+                _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+        except Exception:
+            pass
+        return _resp
+
+    _cffi_req.Session.request = _cffi_patched_request
+    print("[startup] curl_cffi Yahoo timeout cap (8s) + circuit breaker installed")
+except Exception as _ce:
+    print(f"[startup] curl_cffi patch failed (non-fatal): {_ce}")
 
 # ── Scan result cache (pre-warmed every 15 min during market hours) ───────────
 import threading as _threading
@@ -578,7 +675,19 @@ try:
         except Exception as e:
             print(f"[scheduler] EOD scan error: {e}")
 
-    _scheduler = BackgroundScheduler(timezone=_ET)
+    # Bounded executor + safe job defaults. Without these APScheduler defaults to a
+    # 10-worker pool with misfire_grace_time=1s and coalesce=False, so the morning
+    # burst (many heavy yfinance scans firing 9:30-9:45) saturates CPU + Yahoo and
+    # piles up ("Run time of job X was missed by N min"), starving the Flask HTTP
+    # threads that serve the dashboard tabs. max_workers=4 caps concurrent scans;
+    # coalesce + max_instances=1 stop the same job stacking; misfire_grace_time lets
+    # a delayed job still run instead of being skipped after 1 second.
+    from apscheduler.executors.pool import ThreadPoolExecutor as _APThreadPool
+    _scheduler = BackgroundScheduler(
+        timezone=_ET,
+        executors={"default": _APThreadPool(max_workers=4)},
+        job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 600},
+    )
     # Pre-market: Mon-Fri 9:00 AM ET  (overnight OI — who loaded up positions yesterday)
     _scheduler.add_job(
         _run_premarket_scan,
@@ -1413,7 +1522,7 @@ try:
             _thr_nc.Thread(target=run_news_catalyst_scan, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] news catalyst error: {e}")
-    for _nc_h, _nc_m in [(9, 31), (9, 33), (9, 35), (9, 38), (9, 41), (9, 45), (10, 0), (10, 15), (10, 30)]:
+    for _nc_h, _nc_m in [(9, 34), (9, 42), (10, 0), (10, 15), (10, 30)]:
         _scheduler.add_job(
             _run_news_catalyst,
             CronTrigger(day_of_week="mon-fri", hour=_nc_h, minute=_nc_m, timezone=_ET),
@@ -1421,7 +1530,7 @@ try:
             replace_existing=True,
         )
 
-    for _mi_h, _mi_m in [(9, 31), (9, 33), (9, 35), (9, 38), (9, 41), (9, 45), (10, 0), (10, 15), (10, 30), (12, 0), (13, 0), (14, 0)]:
+    for _mi_h, _mi_m in [(9, 32), (9, 38), (9, 45), (10, 0), (10, 15), (10, 30), (12, 0), (13, 0), (14, 0)]:
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -1839,7 +1948,7 @@ try:
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
           "options warmer (all tabs): 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
-          "morning inflows: 9:31 + 9:33 + 9:35 + 9:38 + 9:41 + 9:45 AM + 10:00 AM + 10:15 AM + 10:30 AM + 12:00 PM + 1:00 PM + 2:00 PM | "
+          "morning inflows: 9:32 + 9:38 + 9:45 AM + 10:00 AM + 10:15 AM + 10:30 AM + 12:00 PM + 1:00 PM + 2:00 PM | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
@@ -7345,6 +7454,8 @@ import psycopg2 as _psycopg2
 
 _DB_URL = os.getenv("DATABASE_URL", "")
 _daily_top10_mem: dict = {"date": None, "data": None}
+_daily_top10_refreshing: dict = {"active": False}
+_daily_top10_refresh_lock = _threading.Lock()
 
 
 def _init_daily_top10_table():
@@ -7397,6 +7508,45 @@ def _save_top10_to_db(today: str, payload: dict):
         print(f"[daily_top10] db save error: {e}")
 
 
+def _refresh_daily_top10_bg(today: str):
+    """Run the live leaderboard scan in a background thread and persist the result.
+    Keeps the web request non-blocking: the route serves stale/cached data instantly
+    while fresh numbers are computed off the HTTP thread. Guarded so only one refresh
+    runs at a time."""
+    with _daily_top10_refresh_lock:
+        if _daily_top10_refreshing["active"]:
+            return
+        _daily_top10_refreshing["active"] = True
+
+    def _work():
+        try:
+            try:
+                import yfinance as yf
+                try:
+                    yf.utils.get_crumb(reuse_session=False)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            results = scan_tickers(DEFAULT_LEADERBOARD)
+            scored  = [r for r in results if not r.get("error") and r.get("score") is not None and (r.get("score") or 0) >= 8]
+            scored.sort(key=lambda r: r["score"], reverse=True)
+            top10 = scored[:15]
+            for i, r in enumerate(top10):
+                r["rank"] = i + 1
+            if top10:
+                payload = {"top10": top10, "date": today, "total_scanned": len(DEFAULT_LEADERBOARD)}
+                _daily_top10_mem["date"] = today
+                _daily_top10_mem["data"] = payload
+                _save_top10_to_db(today, payload)
+        except Exception as e:
+            print(f"[daily_top10] bg refresh error: {e}")
+        finally:
+            _daily_top10_refreshing["active"] = False
+
+    _threading.Thread(target=_work, daemon=True).start()
+
+
 def _compute_daily_top10():
     """Return today's top 10. Checks memory → DB → fresh scan."""
     from datetime import date as _date
@@ -7406,40 +7556,27 @@ def _compute_daily_top10():
     if _daily_top10_mem["date"] == today and _daily_top10_mem["data"]:
         return _daily_top10_mem["data"]
 
-    # 2. DB cache (survives server restarts)
+    # 2. DB cache (survives server restarts). Serve immediately even when the only
+    #    data available is stale (a prior day's) so the web request NEVER blocks on
+    #    a live scan — instead trigger a non-blocking background refresh. This is
+    #    what kept the Overview tab spinning ~35s at market open before today's
+    #    snapshot existed.
     db_payload = _load_top10_from_db(today)
-    if db_payload and not db_payload.get("stale") and db_payload.get("top10"):
-        _daily_top10_mem["date"] = today
-        _daily_top10_mem["data"] = db_payload
+    if db_payload and db_payload.get("top10"):
+        if not db_payload.get("stale"):
+            _daily_top10_mem["date"] = today
+            _daily_top10_mem["data"] = db_payload
+            return db_payload
+        _refresh_daily_top10_bg(today)
         return db_payload
 
-    # 3. Fresh scan — clear yfinance cache first to fix crumb issues
-    try:
-        import yfinance as yf
-        try:
-            yf.utils.get_crumb(reuse_session=False)
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    results = scan_tickers(DEFAULT_LEADERBOARD)
-    scored  = [r for r in results if not r.get("error") and r.get("score") is not None and (r.get("score") or 0) >= 8]
-    scored.sort(key=lambda r: r["score"], reverse=True)
-    top10 = scored[:15]
-    for i, r in enumerate(top10):
-        r["rank"] = i + 1
-
-    if not top10 and db_payload and db_payload.get("top10"):
-        # Scan failed entirely — serve stale DB data rather than empty list
-        print("[daily_top10] scan returned empty, serving stale DB data")
-        return db_payload
-
-    payload = {"top10": top10, "date": today, "total_scanned": len(DEFAULT_LEADERBOARD)}
-    _daily_top10_mem["date"] = today
-    _daily_top10_mem["data"] = payload
-    _save_top10_to_db(today, payload)
-    return payload
+    # 3. No cache at all (e.g. cold prod DB on the very first request of the day).
+    #    NEVER run a live scan_tickers() synchronously in the HTTP thread — that is
+    #    the ~35s hang that kept the Overview tab spinning. Kick off the scan in the
+    #    background and return a fast, graceful "building" payload. Subsequent
+    #    requests pick up the result from memory/DB once the refresh completes.
+    _refresh_daily_top10_bg(today)
+    return {"top10": [], "date": today, "total_scanned": len(DEFAULT_LEADERBOARD), "building": True}
 
 
 _init_daily_top10_table()
@@ -17603,7 +17740,14 @@ def iv_rank():
             "expiry_used": best_exp,
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # Graceful: never hard-500 the tab. Return a valid, empty-shaped payload so
+        # the UI shows "no data" instead of a failed fetch / infinite spinner.
+        return jsonify({
+            "ticker": ticker, "price": None, "day_chg": None,
+            "hv30": None, "hv60": None, "hv90": None, "hv_min": None, "hv_max": None,
+            "hv_rank": None, "iv30": None, "iv_rank": None, "iv_hv_ratio": None,
+            "expiry_used": None, "error": str(e),
+        })
 
 
 IV_SCAN_TICKERS = [
