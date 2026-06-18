@@ -303,6 +303,8 @@ _OWNER_EMAIL_SCHEDULE = {
     "high_conviction": [(9, 52), (11, 37), (13, 7), (14, 37), (15, 47)],
     "smart_money":     [(9, 50), (10, 5), (12, 0), (14, 0), (15, 40)],
     "accumulation":    [(16, 25)],
+    "nano_watch":      [(9, 35)],
+    "nano_buy":        [(9, 45)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
@@ -1551,6 +1553,26 @@ try:
         _run_eod_accum_outcomes,
         CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=_ET),
         id="eod_accum_outcomes_fetcher",
+        replace_existing=True,
+    )
+
+    # ── Nano morning conviction system ────────────────────────────────────
+    # Stage A (8:00 ET pre-market): rank the full nano-cap universe for multi-day
+    # stealth accumulation → candidate list. The 9:35 watchlist + 9:45 buy emails
+    # are fired by the owner-email scheduler (kinds nano_watch / nano_buy).
+    # Stage D (16:10 ET): grade confirmed buys forward (5% stop, winners ride).
+    # Lambdas defer the name lookup (the functions are defined later, module-level)
+    # and run the heavy work on a daemon thread so the scheduler pool isn't blocked.
+    _scheduler.add_job(
+        (lambda: threading.Thread(target=_run_nano_morning_ranking, daemon=True).start()),
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=0, timezone=_ET),
+        id="nano_morning_ranking",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        (lambda: threading.Thread(target=_run_nano_morning_outcomes, daemon=True).start()),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=_ET),
+        id="nano_morning_outcomes",
         replace_existing=True,
     )
 
@@ -4396,6 +4418,12 @@ def _owner_send_now(kind: str) -> None:
         # Daily multi-day accumulation digest. Uses cheap daily OHLCV (no option
         # chains / conviction engine), so it needs no scan lock.
         _send_accumulation_watch_email()
+    elif kind == "nano_watch":
+        # 9:35 ET nano-cap "get ready" watchlist (reads the pre-market ranking).
+        _send_nano_watch_email()
+    elif kind == "nano_buy":
+        # 9:45 ET nano-cap confirmed buy list (opening-15-min VWAP/volume filter).
+        _send_nano_buy_email()
 
 
 def _owner_run_due_emails() -> dict:
