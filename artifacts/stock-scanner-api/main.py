@@ -171,20 +171,78 @@ def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell"
 # to cached/DB snapshots quickly rather than spinning forever. Scoped to Yahoo
 # hosts only — OpenAI/Anthropic/Stripe/Finviz traffic is untouched.
 import time as _time_cb
-_YF_BREAKER = {"until": 0.0}
-_YF_BREAKER_COOLDOWN = 30.0  # seconds to stay "open" after a rate-limit hit
+# ── Yahoo circuit breaker with half-open recovery (single-probe) ─────────────
+# When Yahoo throttles, the breaker trips → all calls fail fast for a cooldown.
+# When cooldown expires, it enters "half-open" and allows ONE probe call.
+# If the probe succeeds, the breaker closes fully. If it fails, it reopens.
+# This prevents the "all threads rush at once" spiral that keeps the breaker
+# stuck open all day.
+
+_YF_BREAKER = {"state": "closed", "until": 0.0, "probing": False}
+_YF_BREAKER_COOLDOWN = 60.0  # seconds to stay "open" after a rate-limit hit
+_YF_BREAKER_LOCK = threading.Lock()
+
+def _yf_breaker_state() -> str:
+    """Return current breaker state: 'closed', 'open', or 'half-open'."""
+    now = _time_cb.time()
+    with _YF_BREAKER_LOCK:
+        state = _YF_BREAKER["state"]
+        if state == "closed":
+            return "closed"
+        if state == "open" and now < _YF_BREAKER["until"]:
+            return "open"
+        if state == "open" and now >= _YF_BREAKER["until"]:
+            # Transition to half-open: exactly one probe allowed
+            _YF_BREAKER["state"] = "half-open"
+            _YF_BREAKER["probing"] = False
+            return "half-open"
+        if state == "half-open":
+            return "half-open"
+        # Fallback to closed
+        _YF_BREAKER["state"] = "closed"
+        return "closed"
+
+def _yf_breaker_acquire_probe() -> bool:
+    """In half-open: grant the single probe token to one caller. Thread-safe."""
+    with _YF_BREAKER_LOCK:
+        if _YF_BREAKER["state"] != "half-open":
+            return False
+        if _YF_BREAKER["probing"]:
+            return False  # Another thread is already probing
+        _YF_BREAKER["probing"] = True
+        return True
+
+def _yf_breaker_probe_success() -> None:
+    """Probe call succeeded → breaker fully closes."""
+    with _YF_BREAKER_LOCK:
+        _YF_BREAKER["state"] = "closed"
+        _YF_BREAKER["probing"] = False
+
+def _yf_breaker_probe_failure() -> None:
+    """Probe call failed → breaker reopens for cooldown."""
+    with _YF_BREAKER_LOCK:
+        _YF_BREAKER["state"] = "open"
+        _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+        _YF_BREAKER["probing"] = False
+
+def _yf_breaker_trip() -> None:
+    """Force trip the breaker (rate-limit hit, 401 burst, etc.)."""
+    with _YF_BREAKER_LOCK:
+        _YF_BREAKER["state"] = "open"
+        _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+        _YF_BREAKER["probing"] = False
 
 def _yf_breaker_open() -> bool:
-    return _time_cb.time() < _YF_BREAKER["until"]
+    """Legacy compatibility: returns True if breaker is NOT closed."""
+    return _yf_breaker_state() != "closed"
 
 # Yahoo also throttles via HTTP 401 "Unauthorized" / "Invalid Crumb" floods. These
 # are NOT 429/503 and NOT exceptions — they're returned responses that yfinance
 # silently swallows as "no data" (hence the "$X possibly delisted" log spam), so
 # the breaker above never trips and scans churn through hundreds of slow 401s.
 # A single 401 can be a benign crumb refresh, so we only trip on a sustained BURST.
-import threading as _cb_thr
 _YF_AUTH_HITS: list = []          # timestamps of recent Yahoo 401/403 responses
-_YF_AUTH_LOCK = _cb_thr.Lock()
+_YF_AUTH_LOCK = threading.Lock()
 _YF_AUTH_WINDOW = 20.0            # seconds to remember 401/403 hits
 _YF_AUTH_THRESHOLD = 5           # this many 401/403 within the window trips breaker
 
@@ -196,7 +254,7 @@ def _yf_note_auth_throttle() -> None:
         while _YF_AUTH_HITS and _YF_AUTH_HITS[0] < _cutoff:
             _YF_AUTH_HITS.pop(0)
         if len(_YF_AUTH_HITS) >= _YF_AUTH_THRESHOLD:
-            _YF_BREAKER["until"] = now + _YF_BREAKER_COOLDOWN
+            _yf_breaker_trip()
             _YF_AUTH_HITS.clear()
 
 try:
@@ -208,24 +266,35 @@ try:
         def send(self, request, *args, **kwargs):
             _url = getattr(request, "url", "") or ""
             _is_yahoo = "yahoo.com" in _url
+            _state = None
             if _is_yahoo:
-                if _yf_breaker_open():
+                _state = _yf_breaker_state()
+                if _state == "open":
                     # Breaker open: back off briefly (releasing the GIL) before
-                    # failing, so 30+ scan worker threads don't hot-loop through the
-                    # whole universe and starve the Flask HTTP threads of CPU. This
-                    # keeps dashboard tabs responsive while Yahoo is throttling.
+                    # failing, so scan worker threads don't hot-loop through the
+                    # whole universe and starve the Flask HTTP threads of CPU.
                     _time_cb.sleep(0.05)
                     raise _ReqConnErr("yfinance circuit breaker open (Yahoo rate-limited)")
+                if _state == "half-open":
+                    # Exactly one probe thread allowed through; others wait.
+                    _is_probe = _yf_breaker_acquire_probe()
+                    if not _is_probe:
+                        _time_cb.sleep(0.05)
+                        raise _ReqConnErr("yfinance circuit breaker half-open (probe in progress)")
                 if kwargs.get("timeout") is None:
                     kwargs["timeout"] = 8
             else:
                 kwargs.setdefault("timeout", 8)
             _resp = super().send(request, *args, **kwargs)
             try:
-                if _is_yahoo and _resp.status_code in (429, 503):
-                    _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
-                elif _is_yahoo and _resp.status_code in (401, 403):
-                    _yf_note_auth_throttle()
+                if _is_yahoo:
+                    _sc = _resp.status_code
+                    if _sc in (429, 503):
+                        _yf_breaker_trip()
+                    elif _sc in (401, 403):
+                        _yf_note_auth_throttle()
+                    elif _state == "half-open" and _sc < 400:
+                        _yf_breaker_probe_success()
             except Exception:
                 pass
             return _resp
