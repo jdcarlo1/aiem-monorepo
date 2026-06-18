@@ -210,7 +210,11 @@ try:
             _is_yahoo = "yahoo.com" in _url
             if _is_yahoo:
                 if _yf_breaker_open():
-                    # Fail fast — do not even attempt the call while cooling down.
+                    # Breaker open: back off briefly (releasing the GIL) before
+                    # failing, so 30+ scan worker threads don't hot-loop through the
+                    # whole universe and starve the Flask HTTP threads of CPU. This
+                    # keeps dashboard tabs responsive while Yahoo is throttling.
+                    _time_cb.sleep(0.05)
                     raise _ReqConnErr("yfinance circuit breaker open (Yahoo rate-limited)")
                 if kwargs.get("timeout") is None:
                     kwargs["timeout"] = 8
@@ -256,6 +260,10 @@ try:
         if "yahoo.com" not in _u:
             return _cffi_orig_request(self, method, url, *args, **kwargs)
         if _yf_breaker_open():
+            # Back off (releasing the GIL) so scan worker threads don't hot-loop
+            # and starve the Flask HTTP threads while Yahoo is throttling — keeps
+            # the dashboard tabs loading from cache/DB instead of erroring out.
+            _time_cb.sleep(0.05)
             raise _CffiErr("yfinance circuit breaker open (Yahoo rate-limited)")
         _t = kwargs.get("timeout", None)
         if not (isinstance(_t, (int, float)) and not isinstance(_t, bool) and _t <= _YF_YAHOO_TIMEOUT):

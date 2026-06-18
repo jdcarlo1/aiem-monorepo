@@ -38,6 +38,21 @@ full morning scan burst that Autoscale used to skip).
   not a single one — a lone 401 is a benign yfinance crumb refresh). Count hits
   under a lock in both the `requests` adapter and the `curl_cffi` patch.
 
+- **An OPEN breaker can STILL starve the process — fast-fail must YIELD the GIL.**
+  When the breaker is open, scan worker pools (`ThreadPoolExecutor(max_workers=30)`)
+  hot-loop through thousands of tickers (check breaker → raise → catch → next) with
+  no GIL yield, pinning the single Flask process so HTTP request threads can't be
+  scheduled. Symptom: dashboard tabs return a **non-JSON proxy 500 "Internal Server
+  Error"** (frontend `api.ts` falls back to `res.statusText`), most visibly **right
+  after a restart/publish during market hours** when the boot catch-up scan + warmers
+  fire. Self-recovers once scans ease. **Rule:** add a tiny GIL-yielding back-off
+  (`_time_cb.sleep(0.05)`) **before** raising the breaker exception in BOTH patched
+  fetch paths (`requests` adapter + `curl_cffi` patch). Do NOT early-return without
+  sleeping (e.g. in `_scan_one`) — that just re-introduces the hot-loop. Cost: a live
+  endpoint doing N sequential Yahoo calls during throttle adds ~N*50ms (acceptable;
+  it was already failing during throttle). Optional follow-up: delay the boot
+  catch-up scan ~60-120s / skip it while breaker open.
+
 - **Never run a live scan synchronously inside a web request.** `daily-top10`
   (Overview tab) called `_compute_daily_top10()` which ran
   `scan_tickers(DEFAULT_LEADERBOARD)` live whenever today's DB row was missing or
