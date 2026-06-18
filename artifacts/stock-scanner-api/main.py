@@ -179,7 +179,7 @@ import time as _time_cb
 # stuck open all day.
 
 _YF_BREAKER = {"state": "closed", "until": 0.0, "probing": False}
-_YF_BREAKER_COOLDOWN = 60.0  # seconds to stay "open" after a rate-limit hit
+_YF_BREAKER_COOLDOWN = 180.0  # seconds to stay "open" after a rate-limit hit (3 min, up from 60s)
 _YF_BREAKER_LOCK = threading.Lock()
 
 def _yf_breaker_state() -> str:
@@ -5239,12 +5239,21 @@ def _run_sc_morning_ranking():
                 return None
 
         results = []
-        with _TPE(max_workers=8) as ex:
-            futs = {ex.submit(_score, t): t for t in universe}
-            for f in _ac(futs):
-                r = f.result()
-                if r:
-                    results.append(r)
+        # Sequential scoring (was 8 concurrent workers) to avoid tripping Yahoo's
+        # rate limit when the circuit breaker is already warm from other scans.
+        # A small sleep between calls reduces the chance of the 401/429 burst that
+        # trips the breaker for the entire universe.
+        for _sc_t in universe:
+            try:
+                _r = _score(_sc_t)
+                if _r:
+                    results.append(_r)
+            except Exception:
+                pass
+            # Brief pause to keep the call rate below Yahoo's threshold
+            if len(results) % 5 == 0:
+                import time as _sc_ti
+                _sc_ti.sleep(0.1)
         results.sort(key=lambda x: x["conviction"], reverse=True)
 
         # Don't let a yfinance/Finviz outage wipe a good list (same floor guard as nano):
