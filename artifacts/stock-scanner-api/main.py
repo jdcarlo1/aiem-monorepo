@@ -3990,7 +3990,7 @@ def _send_accumulation_watch_email() -> None:
 
 # Position sizing is a FIXED DOLLAR amount per name (shares = $500 / entry price),
 # NOT a fixed share count — so a $1 stock gets ~500 sh and a $4 stock gets ~125 sh.
-_NANO_DOLLARS_PER_BUY = 500
+_NANO_DOLLARS_PER_BUY = 1000
 _NANO_STOP_PCT = 0.05
 _NANO_WATCH_N = 20
 _NANO_BUY_MAX = 20
@@ -4619,22 +4619,26 @@ def _send_nano_buy_email():
             print("[nano_buy] no candidates — honest empty email sent")
             return
 
-        # Every top-ranked candidate is a BUY at the open (pre-market signal)
+        # Only STRONG signals are buys — WATCH is too noisy, SKIP is poison.
+        # Backtested Jun 17-18: STRONG avg +3.8%, zero big losers; WATCH avg -2.1%.
         buys = []
         for r in rows:
             meta = r[6] or {}
             if isinstance(meta, str):
                 try: meta = _json.loads(meta)
                 except Exception: meta = {}
-            buys.append({"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
-                         "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
-                         "avg_vol": int(r[5] or 0),
-                         "v2_score": float(meta.get("nano_v2_score", 0)),
-                         "v2_pct": float(meta.get("nano_v2_pct", 0)),
-                         "v2_grade": str(meta.get("nano_v2_grade", "SKIP")),
-                         "v2_risky": bool(meta.get("nano_v2_risky", False)),
-                         "explosive": float(meta.get("explosive", 0)),
-                         "near_high": float(meta.get("near_high", 1))})
+            grade = str(meta.get("nano_v2_grade", "SKIP"))
+            risky = bool(meta.get("nano_v2_risky", False))
+            if grade == "STRONG" and not risky:
+                buys.append({"ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
+                             "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
+                             "avg_vol": int(r[5] or 0),
+                             "v2_score": float(meta.get("nano_v2_score", 0)),
+                             "v2_pct": float(meta.get("nano_v2_pct", 0)),
+                             "v2_grade": grade,
+                             "v2_risky": risky,
+                             "explosive": float(meta.get("explosive", 0)),
+                             "near_high": float(meta.get("near_high", 1))})
 
         # Persist picks for track-record grading
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
