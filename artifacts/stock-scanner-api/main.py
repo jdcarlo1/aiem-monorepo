@@ -889,7 +889,7 @@ try:
             print(f"[scheduler] {label} scan universe: {len(_earnings)} earnings + "
                   f"{len(_movers)} movers + core = {len(_universe)} total")
             all_hits = []
-            with ThreadPoolExecutor(max_workers=30) as ex:
+            with ThreadPoolExecutor(max_workers=8) as ex:
                 futs = {ex.submit(_scan_one, t): t for t in _universe}
                 for fut in _asc(futs, timeout=180):
                     try:
@@ -2018,12 +2018,13 @@ try:
 
     _scheduler.start()
     print("[scheduler] APScheduler started — "
-          "scans: 9:30/10:00 AM, 11:30 AM, 1:00/2:30/3:30/4:00/4:15 PM ET | "
+          "scans: 9:00/9:45 AM, 11:30 AM, 1:00/2:30/3:30/4:00 PM ET | "
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
-          "early warmer (Pre-Market/Dark Pool/Convergence): 8:00 AM | "
-          "options warmer (all tabs): 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
-          "morning inflows: 9:32 + 9:38 + 9:45 AM + 10:00 AM + 10:15 AM + 10:30 AM + 12:00 PM + 1:00 PM + 2:00 PM | "
+          "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
+          "sc (stealth): 8:15 AM ranking, 9:37 watch, 9:47 buy | "
+          "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
+          "morning inflows: 9:36 + 10:01 + 13:01 | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
@@ -5274,86 +5275,133 @@ def _run_sc_morning_ranking():
                     conviction += _SC_DOUBLE_BONUS
                 conviction = int(round(max(0.0, min(100.0, conviction))))
 
-                # ============ SECRET SIGNALS (NOVEL INDICATORS) ============
-                # These signals detect "invisible accumulation" — when momentum
-                # is building but flow is still quiet. Nobody else measures this.
+                # ============ STEALTH BREAKOUT SCORING (v1) ============
+                # Based on June 18 pattern analysis: 30 small-cap runners that were
+                # up 7-28% all shared the same pre-breakout signature.
+                #
+                # The pattern: NEAR 20-DAY HIGHS (96% >= 70%), MILD GAP (avg 0.2%),
+                # LOW VOLUME (1.2x avg), POSITIVE MOMENTUM (79%), STEADINESS (89%).
+                # The real move happens AFTER 9:45 AM — not an explosive open.
+                #
+                # This is the OPPOSITE of what retail scanners look for. We're
+                # buying the coiled spring, not the explosion.
 
-                # TQL — "The Quantum Leap": fires when stars align
-                tql_conditions = [
-                    near >= 0.90,
-                    mom10 >= 15,
-                    abs(flow_ratio) < 0.30,
-                    conviction >= 35,
-                    up_days >= 10,
-                    steady >= 0.5,
-                    vol_pts < 5,
-                ]
-                tql_fired = sum(tql_conditions)
-                if tql_fired >= 5:
-                    tql = mom10 * near * (1 - abs(flow_ratio)) * conviction * (tql_fired / 7.0)
+                # 1. NEAR-HIGH POSITION (0-30 points) — THE MOST IMPORTANT
+                near_high_pts = 0.0
+                if   near >= 0.95:  near_high_pts = 30
+                elif near >= 0.90:  near_high_pts = 25
+                elif near >= 0.85:  near_high_pts = 20
+                elif near >= 0.80:  near_high_pts = 15
+                elif near >= 0.70:  near_high_pts = 10
+                elif near >= 0.60:  near_high_pts = 5
+                else:               near_high_pts = 0
+
+                # 2. GAP QUALITY (0-20 points)
+                # Small-caps need a mild gap to show interest, but not too hot
+                # Get pre-market data for gap calculation
+                gap_pct = 0.0
+                try:
+                    pm = tk.history(period="2d", interval="1d")
+                    if pm is not None and len(pm) >= 2:
+                        prev_close = float(pm["Close"].iloc[-2])
+                        if prev_close > 0:
+                            gap_pct = (price - prev_close) / prev_close * 100
+                except:
+                    pass
+                
+                gap_pts = 0.0
+                if   0.5 <= gap_pct < 3.0:   gap_pts = 20
+                elif 3.0 <= gap_pct < 5.0:   gap_pts = 15
+                elif 5.0 <= gap_pct < 8.0:   gap_pts = 10
+                elif gap_pct >= 8.0:         gap_pts = 5
+                elif 0.0 <= gap_pct < 0.5:   gap_pts = 10
+                else:                          gap_pts = 0
+
+                # 3. STEADINESS (0-20 points) — consistent trend wins
+                # Based on 20-day smoothness (Sharpe-like)
+                if rets:
+                    avg_r = sum(rets) / len(rets)
+                    sd = _st.pstdev(rets) if len(rets) > 1 else abs(avg_r)
+                    if avg_r > 0 and sd > 0:
+                        sharpe = avg_r / sd
+                        if   sharpe >= 1.0:   steady_pts = 20
+                        elif sharpe >= 0.7:   steady_pts = 15
+                        elif sharpe >= 0.4:   steady_pts = 10
+                        elif sharpe >= 0.2:   steady_pts = 5
+                        else:                 steady_pts = 0
+                    elif avg_r > 0:
+                        steady_pts = 5
+                    else:
+                        steady_pts = 0
                 else:
-                    tql = 0.0
+                    steady_pts = 0
 
-                # TCT — "The Coil Tightness": how compressed before breakout
-                if near > 0.80 and abs(flow_ratio) < 0.50 and conviction > 0:
-                    tct = (near / (1 - abs(flow_ratio) + 0.01)) * (mom10 / max(1, conviction)) * up_days
+                # 4. VOLUME CLARITY (0-15 points) — STEALTH is the key
+                # We want LOW volume, not high volume (opposite of everything)
+                if   0.8 <= vtrend < 1.5:  vol_pts = 15  # Quiet — perfect
+                elif 1.5 <= vtrend < 2.0:  vol_pts = 10  # Slight uptick
+                elif 2.0 <= vtrend < 3.0:  vol_pts = 5   # Getting noticed
+                elif vtrend >= 3.0:        vol_pts = 0   # Too hot
+                elif vtrend < 0.8:        vol_pts = 5   # Very quiet
+                else:                      vol_pts = 0
+
+                # 5. MOMENTUM (0-15 points)
+                if   mom10 >= 10:    mom_pts = 15
+                elif mom10 >= 5:     mom_pts = 10
+                elif mom10 >= 2:     mom_pts = 5
+                elif mom10 >= 0:     mom_pts = 2
+                else:                mom_pts = 0
+
+                # 6. OPTIONS ACTIVITY (0-20 points) — bonus, not required
+                om = opt_map.get(ticker.upper())
+                opt_pts = 0.0
+                if om:
+                    vol_oi = float(om.get("vol_oi_ratio", 0) or 0)
+                    if   vol_oi >= 3.0:  opt_pts = 20
+                    elif vol_oi >= 2.0:  opt_pts = 15
+                    elif vol_oi >= 1.5:  opt_pts = 10
+                    elif vol_oi >= 1.0:  opt_pts = 5
+
+                # 7. DOUBLE SIGNAL (0-10 points) — EOD accumulation + morning strength
+                ds = double_map.get(ticker.upper())
+                double_signal = ds is not None
+                eod_accum_score = float(ds) if ds is not None else None
+                double_pts = 10 if double_signal else 0
+
+                # Calculate base score
+                stealth_score = (near_high_pts + gap_pts + steady_pts +
+                                vol_pts + mom_pts + opt_pts + double_pts)
+
+                # RISK PENALTY (subtract from total)
+                # These are the things that break the stealth pattern
+                risk_penalty = 0.0
+                if gap_pct >= 10:           risk_penalty += 15
+                elif gap_pct >= 8:          risk_penalty += 10
+                elif gap_pct >= 5:           risk_penalty += 5
+                if vtrend >= 5.0:           risk_penalty += 10
+                elif vtrend >= 3.0:          risk_penalty += 5
+                if mom10 >= 20:             risk_penalty += 10
+                elif mom10 >= 15:            risk_penalty += 5
+                # 20-day range > 100% = too volatile
+                low20 = min(lows[-20:]) if len(lows) >= 20 else min(lows)
+                range20 = ((high20 - low20) / low20 * 100) if low20 > 0 else 0
+                if range20 > 100:           risk_penalty += 10
+                elif range20 > 80:           risk_penalty += 5
+
+                # Final score
+                stealth_score = max(0.0, min(100.0, stealth_score - risk_penalty))
+                conviction = int(round(stealth_score))
+
+                # GRADES
+                if stealth_score >= 70:
+                    grade = "STRONG"
+                elif stealth_score >= 50:
+                    grade = "WATCH"
                 else:
-                    tct = 0.0
+                    grade = "SKIP"
 
-                # TAC — "The Acceleration Curve": exponential momentum
-                if mom10 > 10:
-                    import math as _math
-                    tac = mom10 * _math.log(mom10 + 1) * (1 - abs(flow_ratio)) * near
-                else:
-                    tac = 0.0
-
-                # TSM — "The Stealth Momentum": momentum without volume spikes
-                if mom10 > 10 and vol_pts < 3 and steady > 0.5:
-                    tsm = mom10 * (3 - vol_pts) * steady * near * conviction
-                else:
-                    tsm = 0.0
-
-                # TPA — "The Phantom Accumulation": steady accumulation invisible to crowd
-                if steady > 0.5 and vol_pts < 5 and accum > 15:
-                    tpa = (accum + steady) * (5 - vol_pts) * near * up_days / 10.0
-                else:
-                    tpa = 0.0
-
-                # TCG — "The Conviction Gap": engine sees hidden value
-                if conviction > mom10 * 2 and conviction >= 30:
-                    tcg = (conviction - mom10) * near * (1 - abs(flow_ratio)) * up_days / 10.0
-                else:
-                    tcg = 0.0
-
-                # TPD — "The Pre-Detonation": fuse is lit but hasn't exploded
-                if near > 0.85 and mom10 > 10 and abs(flow_ratio) < 0.30 and up_days > 10:
-                    tpd = (near - 0.85) * mom10 * (1 - abs(flow_ratio)) * (up_days / 10.0) * conviction
-                else:
-                    tpd = 0.0
-
-                # TAP — "The Alpha Pulse": weighted ensemble of all secret signals
-                tap = (
-                    tql * 0.30 +
-                    tct * 0.15 +
-                    tac * 0.15 +
-                    tsm * 0.15 +
-                    tpa * 0.10 +
-                    tcg * 0.05 +
-                    tpd * 0.10
-                )
-
-                # TRES — "The Resonance": how many signals fire together
-                signals_firing = sum(1 for s in [tql, tct, tac, tsm, tpa, tcg, tpd] if s > 0)
-                if signals_firing >= 3:
-                    tres = tap * (signals_firing / 5.0)
-                else:
-                    tres = 0.0
-
-                # Add the secret signal to the candidate score
-                # This is a hidden bonus that elevates names with invisible accumulation
-                secret_boost = min(15.0, tres / 50.0)  # cap at 15 points
-                conviction += secret_boost
-                conviction = int(round(max(0.0, min(100.0, conviction))))
+                # RISKY flag — extreme characteristics
+                risky = (gap_pct >= 15 or vtrend >= 10 or mom10 >= 30 or range20 > 150)
 
                 mcap_m = 0.0
                 try:
@@ -5365,19 +5413,23 @@ def _run_sc_morning_ranking():
                 return {
                     "ticker": ticker, "conviction": conviction, "price": round(price, 4),
                     "mcap_m": mcap_m, "avg_vol": int(vol20),
-                    "accum_pts": round(accum_pts, 1), "steady_pts": round(steady_pts, 1),
-                    "vol_pts": round(float(vol_pts), 1), "mom_pts": round(mom_pts, 1),
-                    "opt_pts": round(opt_pts, 1), "net_flow_m": round(net_flow / 1e6, 2),
-                    "up_days": up_days, "flow_ratio": round(flow_ratio, 3),
-                    "vtrend": round(vtrend, 2), "near_high": round(near, 3),
-                    "mom10": round(mom10, 1), "up_ratio": round(up_ratio, 2),
+                    "stealth_score": round(stealth_score, 1),
+                    "grade": grade, "risky": risky,
+                    "near_high_pts": round(near_high_pts, 1),
+                    "gap_pts": round(gap_pts, 1),
+                    "steady_pts": round(steady_pts, 1),
+                    "vol_pts": round(vol_pts, 1),
+                    "mom_pts": round(mom_pts, 1),
+                    "opt_pts": round(opt_pts, 1),
+                    "double_pts": round(double_pts, 1),
+                    "risk_penalty": round(risk_penalty, 1),
+                    "gap_pct": round(gap_pct, 2),
+                    "near_high": round(near, 3),
+                    "mom10": round(mom10, 1),
+                    "vtrend": round(vtrend, 2),
+                    "range20": round(range20, 1),
                     "double_signal": double_signal, "eod_accum_score": eod_accum_score,
                     "opt": (om or None),
-                    # Secret signals (novel indicators)
-                    "tql": round(tql, 2), "tct": round(tct, 2), "tac": round(tac, 2),
-                    "tsm": round(tsm, 2), "tpa": round(tpa, 2), "tcg": round(tcg, 2),
-                    "tpd": round(tpd, 2), "tap": round(tap, 2), "tres": round(tres, 2),
-                    "secret_boost": round(secret_boost, 1),
                 }
             except Exception:
                 return None
@@ -5533,17 +5585,16 @@ def _send_sc_watch_email():
         for r in rows:
             (tk, rank, conv, price, mcap_m, avg_vol, accum, steady, volp, momp,
              optp, nf, upd, double_signal, eod_sc, _meta_raw) = r
-            # Parse secret signals from meta
+            # Parse stealth breakout meta fields
             try:
                 _meta = _json.loads(_meta_raw) if isinstance(_meta_raw, str) and _meta_raw else {}
             except Exception:
                 _meta = {}
-            _tql = float(_meta.get("tql", 0) or 0)
-            _tres = float(_meta.get("tres", 0) or 0)
-            _secret_boost = float(_meta.get("secret_boost", 0) or 0)
+            _grade = _meta.get("grade", "")
+            _risky = _meta.get("risky", False)
+            _gap_pct = float(_meta.get("gap_pct", 0) or 0)
+            _near_high = float(_meta.get("near_high", 0) or 0)
             _mom10 = float(_meta.get("mom10", 0) or 0)
-            _near = float(_meta.get("near_high", 1) or 1)
-            _flow = float(_meta.get("flow_ratio", 0) or 0)
             conv_color = "#22c55e" if conv >= 70 else ("#eab308" if conv >= 50 else "#94a3b8")
             mcap_str = f"${mcap_m/1000:.2f}B cap" if (mcap_m and mcap_m >= 1000) else (f"${mcap_m:.0f}M cap" if mcap_m else "small cap")
             badges = ""
@@ -5551,31 +5602,38 @@ def _send_sc_watch_email():
                 badges += '<span style="display:inline-block;background:#3b0764;color:#e9d5ff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">⚡ DOUBLE SIGNAL</span>'
             if optp and optp > 0:
                 badges += '<span style="display:inline-block;background:#0c2d48;color:#7dd3fc;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">📈 unusual calls</span>'
-            # Secret signal badges
-            secret_badges = ""
-            if _tql > 500:
-                secret_badges += '<span style="display:inline-block;background:#1a3a1a;color:#86efac;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🔮 TQL</span>'
-            if _tres > 50:
-                secret_badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🎯 RESONANCE</span>'
-            if _secret_boost > 5:
-                secret_badges += '<span style="display:inline-block;background:#1a1a3a;color:#c4b5fd;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🔒 SECRET BOOST</span>'
+            if _grade == "STRONG":
+                badges += '<span style="display:inline-block;background:#1a3a1a;color:#86efac;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">💪 STRONG</span>'
+            elif _grade == "WATCH":
+                badges += '<span style="display:inline-block;background:#3a3a1a;color:#fcd34d;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">👀 WATCH</span>'
+            if _risky:
+                badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">⚠️ RISKY</span>'
             ds_line = ""
             if double_signal:
                 ds_line = f'<div style="font-size:11px;color:#c4b5fd;margin-top:4px;">⚡ Also on yesterday\'s EOD accumulation list (EOD score {float(eod_sc or 0):.0f}) — accumulating into the close <b>and</b> showing morning strength.</div>'
-            secret_line = ""
-            if _tql > 0 or _tres > 0:
-                secret_line = f'<div style="font-size:11px;color:#86efac;margin-top:3px;">🔮 Secret signals: TQL={_tql:.0f} · Resonance={_tres:.0f} · mom10={_mom10:.1f} · near={_near:.2f} · flow={_flow:.3f}</div>'
+            stealth_line = ""
+            if _meta:
+                _nh = float(_meta.get("near_high_pts", 0) or 0)
+                _gp = float(_meta.get("gap_pts", 0) or 0)
+                _sp = float(_meta.get("steady_pts", 0) or 0)
+                _vp = float(_meta.get("vol_pts", 0) or 0)
+                _mp = float(_meta.get("mom_pts", 0) or 0)
+                _op = float(_meta.get("opt_pts", 0) or 0)
+                _rp = float(_meta.get("risk_penalty", 0) or 0)
+                stealth_line = (f'<div style="font-size:11px;color:#94a3b8;margin-top:3px;">'
+                                f'Stealth: near-high {_nh:.0f} · gap {_gp:.0f} · steady {_sp:.0f} · vol {_vp:.0f} · mom {_mp:.0f} · opt {_op:.0f}'
+                                f'{" · risk -" + str(int(_rp)) if _rp > 0 else ""}</div>')
             cards.append(f"""
               <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid {conv_color};border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                  <div><span style="font-size:13px;color:#64748b;">#{rank}</span> <b style="font-size:17px;color:#f1f5f9;">{tk}</b> <span style="font-size:12px;color:#64748b;">${price:.2f} · {mcap_str}</span>{badges}{secret_badges}</div>
+                  <div><span style="font-size:13px;color:#64748b;">#{rank}</span> <b style="font-size:17px;color:#f1f5f9;">{tk}</b> <span style="font-size:12px;color:#64748b;">${price:.2f} · {mcap_str}</span>{badges}</div>
                   <div style="font-size:18px;font-weight:800;color:{conv_color};">{conv}</div>
                 </div>
                 <div style="font-size:11px;color:#94a3b8;margin-top:5px;">
-                  accum {accum:.0f}/30 · opt {optp:.0f}/25 · vol {volp:.0f}/20 · mom {momp:.0f}/15 · steady {steady:.0f}/10 · {upd}d up · net +${nf:.1f}M
+                  gap {_gap_pct:.1f}% · near-high {_near_high:.0%} · mom10 {_mom10:.1f}% · {upd}d up
                 </div>
                 {ds_line}
-                {secret_line}
+                {stealth_line}
               </div>""")
         cards_html = "".join(cards)
         base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
@@ -5638,11 +5696,12 @@ def _send_sc_buy_email():
             _near = float(_meta.get("near_high", 1) or 1)
             _flow = float(_meta.get("net_flow_m", 0) or 0)
             _dist = max(0.01, 1.0 - _near) if _near > 0 else 1.0
-            # Extract secret signals from stored meta
-            _tres = float(_meta.get("tres", 0) or 0)
-            _tql = float(_meta.get("tql", 0) or 0)
-            _tap = float(_meta.get("tap", 0) or 0)
-            _secret_boost = float(_meta.get("secret_boost", 0) or 0)
+            # Extract stealth breakout fields from stored meta
+            _grade = _meta.get("grade", "")
+            _risky = _meta.get("risky", False)
+            _stealth_score = float(_meta.get("stealth_score", 0) or 0)
+            _gap_pct = float(_meta.get("gap_pct", 0) or 0)
+            _range20 = float(_meta.get("range20", 0) or 0)
             cands.append({
                 "ticker": r[0], "rank": r[1], "conviction": int(r[2] or 0),
                 "price": float(r[3] or 0), "mcap_m": float(r[4] or 0),
@@ -5650,8 +5709,9 @@ def _send_sc_buy_email():
                 "double_signal": bool(r[7]), "eod_accum_score": r[8],
                 "meta": _meta, "explosive": round(max(0, _flow) / _dist, 1),
                 "near_high": _near,
-                "tres": _tres, "tql": _tql, "tap": _tap,
-                "secret_boost": _secret_boost,
+                "grade": _grade, "risky": _risky,
+                "stealth_score": _stealth_score, "gap_pct": _gap_pct,
+                "range20": _range20,
             })
 
         if not cands:
@@ -5785,19 +5845,28 @@ def _send_sc_buy_email():
                 badges += '<span style="display:inline-block;background:#3b0764;color:#e9d5ff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">⚡ DOUBLE SIGNAL</span>'
             if optp > 0:
                 badges += '<span style="display:inline-block;background:#0c2d48;color:#7dd3fc;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">📈 unusual calls</span>'
-            # Secret signal badges in buy confirmation
-            _tql_b = float(b.get("tql", 0) or 0)
-            _tres_b = float(b.get("tres", 0) or 0)
-            _sb_b = float(b.get("secret_boost", 0) or 0)
-            if _tql_b > 500:
-                badges += '<span style="display:inline-block;background:#1a3a1a;color:#86efac;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🔮 TQL</span>'
-            if _tres_b > 50:
-                badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🎯 RESONANCE</span>'
-            if _sb_b > 5:
-                badges += '<span style="display:inline-block;background:#1a1a3a;color:#c4b5fd;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">🔒 SECRET BOOST</span>'
-            secret_line = ""
-            if _tql_b > 0 or _tres_b > 0:
-                secret_line = f'<div style="font-size:11px;color:#86efac;margin-top:3px;">🔮 Secret signals: TQL={_tql_b:.0f} · Resonance={_tres_b:.0f} · secret boost +{_sb_b:.0f} pts</div>'
+            # Stealth Breakout badges in buy confirmation
+            _grade_b = b.get("grade", "")
+            _risky_b = b.get("risky", False)
+            _stealth_b = float(b.get("stealth_score", 0) or 0)
+            if _grade_b == "STRONG":
+                badges += '<span style="display:inline-block;background:#1a3a1a;color:#86efac;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">💪 STRONG</span>'
+            elif _grade_b == "WATCH":
+                badges += '<span style="display:inline-block;background:#3a3a1a;color:#fcd34d;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">👀 WATCH</span>'
+            if _risky_b:
+                badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">⚠️ RISKY</span>'
+            stealth_line = ""
+            if _stealth_b > 0:
+                _nh_b = float(b.get("near_high_pts", 0) or 0)
+                _gp_b = float(b.get("gap_pts", 0) or 0)
+                _sp_b = float(b.get("steady_pts", 0) or 0)
+                _vp_b = float(b.get("vol_pts", 0) or 0)
+                _mp_b = float(b.get("mom_pts", 0) or 0)
+                _op_b = float(b.get("opt_pts", 0) or 0)
+                _rp_b = float(b.get("risk_penalty", 0) or 0)
+                stealth_line = (f'<div style="font-size:11px;color:#94a3b8;margin-top:3px;">'
+                                f'Stealth score {_stealth_b:.0f}: near-high {_nh_b:.0f} · gap {_gp_b:.0f} · steady {_sp_b:.0f} · vol {_vp_b:.0f} · mom {_mp_b:.0f} · opt {_op_b:.0f}'
+                                f'{" · risk -" + str(int(_rp_b)) if _rp_b > 0 else ""}</div>')
             buy_cards.append(f"""
               <div style="background:#0f172a;border:1px solid #14532d;border-left:3px solid #22c55e;border-radius:8px;padding:12px 14px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -12623,10 +12692,10 @@ def convergence():
         except Exception:
             return None
 
-    _ex_cv = ThreadPoolExecutor(max_workers=8)
+    _ex_cv = ThreadPoolExecutor(max_workers=4)
     futures = {_ex_cv.submit(_check, t): t for t in tickers}
     try:
-        for fut in as_completed(futures, timeout=22):
+        for fut in as_completed(futures, timeout=8):
             try:
                 r = fut.result()
                 if r:
@@ -18084,15 +18153,15 @@ def iv_rank():
         rolling_hv30 = (
             log_ret.rolling(30).std() * np.sqrt(252) * 100
         ).dropna()
-        if rolling_hv30.empty:
+        if rolling_hv30.empty or len(rolling_hv30) < 2:
             return jsonify({"error": "Not enough price history"}), 400
-        hv_min_raw = rolling_hv30.min()
-        hv_max_raw = rolling_hv30.max()
         # Guard against NaN/Inf from edge-case pandas aggregations
         import math as _math
+        hv_min_raw = rolling_hv30.min()
+        hv_max_raw = rolling_hv30.max()
         hv_min = float(hv_min_raw) if not (isinstance(hv_min_raw, float) and (_math.isnan(hv_min_raw) or _math.isinf(hv_min_raw))) else None
         hv_max = float(hv_max_raw) if not (isinstance(hv_max_raw, float) and (_math.isnan(hv_max_raw) or _math.isinf(hv_max_raw))) else None
-        if hv_min is None or hv_max is None:
+        if hv_min is None or hv_max is None or hv_min == hv_max:
             return jsonify({"error": "Not enough price history"}), 400
         hv_rank = round((hv30 - hv_min) / (hv_max - hv_min) * 100, 1) if hv30 and hv_max > hv_min else None
 
@@ -18149,19 +18218,26 @@ def iv_rank():
             iv_rank_val = round((iv30 - hv_min) / (hv_max - hv_min) * 100, 1)
             iv_rank_val = min(max(iv_rank_val, 0), 100)
 
+        # NaN guard: round() on NaN returns NaN → jsonify with allow_nan=False → 500
+        import math as _m
+        def _n(v, d=1):
+            if v is None: return None
+            if isinstance(v, float) and (_m.isnan(v) or _m.isinf(v)): return None
+            return round(v, d)
+
         return jsonify({
             "ticker":      ticker,
-            "price":       round(price, 2),
-            "day_chg":     day_chg,
-            "hv30":        round(hv30, 1)  if hv30  else None,
-            "hv60":        round(hv60, 1)  if hv60  else None,
-            "hv90":        round(hv90, 1)  if hv90  else None,
-            "hv_min":      round(hv_min, 1),
-            "hv_max":      round(hv_max, 1),
-            "hv_rank":     hv_rank,
-            "iv30":        iv30,
-            "iv_rank":     iv_rank_val,
-            "iv_hv_ratio": iv_hv_ratio,
+            "price":       _n(price, 2),
+            "day_chg":     _n(day_chg, 2),
+            "hv30":        _n(hv30, 1),
+            "hv60":        _n(hv60, 1),
+            "hv90":        _n(hv90, 1),
+            "hv_min":      _n(hv_min, 1),
+            "hv_max":      _n(hv_max, 1),
+            "hv_rank":     _n(hv_rank, 1),
+            "iv30":        _n(iv30, 1),
+            "iv_rank":     _n(iv_rank_val, 1),
+            "iv_hv_ratio": _n(iv_hv_ratio, 2),
             "expiry_used": best_exp,
         })
     except Exception as e:
@@ -18698,9 +18774,9 @@ def morning_runners():
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=20) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {ex.submit(_scan_mr, t): t for t in DEFAULT_LEADERBOARD}
-        for fut in as_completed(futures):
+        for fut in as_completed(futures, timeout=8):
             r = fut.result()
             if r:
                 results.append(r)
@@ -20528,12 +20604,17 @@ def standout_track():
                 if _r[_k] is not None:
                     try:
                         _v = float(_r[_k]) if isinstance(_r[_k], __import__("decimal").Decimal) else _r[_k]
-                        # Guard: NaN/Inf from Decimal-to-float conversion must be None
+                        # Guard: NaN/Inf from Decimal-to-float or raw float NaN must be None
                         if isinstance(_v, float) and (_math_st.isnan(_v) or _math_st.isinf(_v)):
                             _v = None
                         _r[_k] = _v
                     except Exception:
                         pass
+            # Also scrub any NaN values from the dict itself (if _rows had floats already)
+            for _k in list(_r.keys()):
+                _v = _r[_k]
+                if isinstance(_v, float) and (_math_st.isnan(_v) or _math_st.isinf(_v)):
+                    _r[_k] = None
 
         def _st_stats(rows):
             graded = [r for r in rows if r.get("open_to_close_pct") is not None]
@@ -20543,10 +20624,14 @@ def standout_track():
             winners = [r for r in graded if (r.get("open_to_close_pct") or 0) > 0]
             o2c = [r["open_to_close_pct"] for r in graded if r.get("open_to_close_pct") is not None]
             o2h = [r["open_to_high_pct"]  for r in graded if r.get("open_to_high_pct")  is not None]
+            # NaN guard: round() returns NaN for NaN input → jsonify with allow_nan=False explodes
+            import math as _st_math
+            o2c = [v for v in o2c if v is not None and not (_st_math.isnan(v) or _st_math.isinf(v))]
+            o2h = [v for v in o2h if v is not None and not (_st_math.isnan(v) or _st_math.isinf(v))]
             return {
                 "picks":         len(rows),
                 "graded":        len(graded),
-                "hit_rate_pct":  round(len(winners) / len(graded) * 100, 1),
+                "hit_rate_pct":  round(len(winners) / len(graded) * 100, 1) if graded else None,
                 "avg_close_pct": round(sum(o2c) / len(o2c), 2) if o2c else None,
                 "avg_high_pct":  round(sum(o2h) / len(o2h), 2) if o2h else None,
                 "best_high_pct": round(max(o2h), 2) if o2h else None,
