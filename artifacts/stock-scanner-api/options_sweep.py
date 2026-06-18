@@ -90,7 +90,7 @@ def _already_sweep_alerted(ticker: str, strike: float, expiry: str) -> bool:
             with con.cursor() as cur:
                 cur.execute("""
                     SELECT 1 FROM call_sweep_log
-                    WHERE ticker=%s AND strike=%s AND expiry=%s AND sweep_date=CURRENT_DATE
+                    WHERE ticker=%s AND strike=%s AND expiry=%s AND sweep_date=(now() AT TIME ZONE 'America/New_York')::date
                     LIMIT 1
                 """, (ticker, strike, expiry))
                 return cur.fetchone() is not None
@@ -125,8 +125,8 @@ def _get_repeat_sweep_days(ticker: str) -> int:
                 cur.execute("""
                     SELECT COUNT(DISTINCT sweep_date) FROM call_sweep_log
                     WHERE ticker=%s
-                      AND sweep_date >= CURRENT_DATE - INTERVAL '4 days'
-                      AND sweep_date < CURRENT_DATE
+                      AND sweep_date >= (now() AT TIME ZONE 'America/New_York')::date - 4
+                      AND sweep_date < (now() AT TIME ZONE 'America/New_York')::date
                 """, (ticker,))
                 row = cur.fetchone()
                 return int(row[0]) if row else 0
@@ -444,7 +444,7 @@ def _get_sms_alerted_today() -> list[str]:
             with con.cursor() as cur:
                 cur.execute("""
                     SELECT DISTINCT ticker FROM sms_alerts_log
-                    WHERE alert_date = CURRENT_DATE
+                    WHERE alert_date = (now() AT TIME ZONE 'America/New_York')::date
                 """)
                 return [r[0] for r in cur.fetchall()]
     except Exception:

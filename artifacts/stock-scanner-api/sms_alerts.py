@@ -72,7 +72,7 @@ def _should_skip_alert(ticker: str, current_chg: float) -> bool:
             with con.cursor() as cur:
                 cur.execute("""
                     SELECT chg_pct, sent_at FROM sms_alerts_log
-                    WHERE ticker=%s AND alert_date=CURRENT_DATE
+                    WHERE ticker=%s AND alert_date=(now() AT TIME ZONE 'America/New_York')::date
                     ORDER BY sent_at DESC LIMIT 1
                 """, (ticker,))
                 row = cur.fetchone()
@@ -360,7 +360,7 @@ def run_sms_alert_scan():
             with con.cursor() as cur:
                 cur.execute("""
                     SELECT payload FROM morning_inflows_cache
-                    WHERE scan_date = CURRENT_DATE
+                    WHERE scan_date = (now() AT TIME ZONE 'America/New_York')::date
                     ORDER BY saved_at DESC LIMIT 1
                 """)
                 row = cur.fetchone()
@@ -701,7 +701,7 @@ def _already_exit_alerted(ticker: str) -> bool:
             with con.cursor() as cur:
                 cur.execute("""
                     SELECT 1 FROM sms_exit_log
-                    WHERE ticker=%s AND exit_date=CURRENT_DATE LIMIT 1
+                    WHERE ticker=%s AND exit_date=(now() AT TIME ZONE 'America/New_York')::date LIMIT 1
                 """, (ticker,))
                 return cur.fetchone() is not None
     except Exception:
@@ -714,7 +714,7 @@ def _already_profit_alerted(ticker: str) -> bool:
             with con.cursor() as cur:
                 cur.execute("""
                     SELECT 1 FROM sms_profit_log
-                    WHERE ticker=%s AND profit_date=CURRENT_DATE LIMIT 1
+                    WHERE ticker=%s AND profit_date=(now() AT TIME ZONE 'America/New_York')::date LIMIT 1
                 """, (ticker,))
                 return cur.fetchone() is not None
     except Exception:
@@ -755,7 +755,7 @@ def _get_today_alerted_tickers() -> list:
                 cur.execute("""
                     SELECT DISTINCT ON (ticker) ticker, price, chg_pct
                     FROM sms_alerts_log
-                    WHERE alert_date = CURRENT_DATE
+                    WHERE alert_date = (now() AT TIME ZONE 'America/New_York')::date
                     ORDER BY ticker, sent_at ASC
                 """)
                 return cur.fetchall()
@@ -880,7 +880,7 @@ def _already_midday_alerted(ticker: str, alert_type: str) -> bool:
             with con.cursor() as cur:
                 cur.execute("""
                     SELECT 1 FROM sms_midday_log
-                    WHERE ticker=%s AND alert_date=CURRENT_DATE AND alert_type=%s LIMIT 1
+                    WHERE ticker=%s AND alert_date=(now() AT TIME ZONE 'America/New_York')::date AND alert_type=%s LIMIT 1
                 """, (ticker, alert_type))
                 return cur.fetchone() is not None
     except Exception:
@@ -1475,7 +1475,7 @@ def run_steady_grinder_scan():
                             cur.execute("""
                                 SELECT 1 FROM unusual_calls_log
                                 WHERE ticker=%s
-                                AND DATE(first_seen AT TIME ZONE 'UTC')=CURRENT_DATE
+                                AND (first_seen AT TIME ZONE 'America/New_York')::date=(now() AT TIME ZONE 'America/New_York')::date
                                 LIMIT 1
                             """, (ticker,))
                             has_call_sweep = cur.fetchone() is not None

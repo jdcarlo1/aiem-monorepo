@@ -317,7 +317,7 @@ def run_vwap_reclaim_scan():
         with con.cursor() as cur:
             cur.execute("""
                 SELECT DISTINCT ticker FROM sms_alerts_log
-                WHERE alert_date = CURRENT_DATE
+                WHERE alert_date = (now() AT TIME ZONE 'America/New_York')::date
             """)
             tickers = [r[0] for r in cur.fetchall()]
         con.close()

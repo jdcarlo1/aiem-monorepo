@@ -248,6 +248,25 @@ _init_conviction_outcomes_table()
 from zoneinfo import ZoneInfo as _ZoneInfo
 _ET_TZ = _ZoneInfo("America/New_York")
 
+
+def _et_today():
+    """Today's calendar date in US/Eastern as a `datetime.date`.
+
+    The server clock runs in UTC, so the stdlib `date.today()` rolls over to the
+    next day at 8 PM ET (00:00 UTC). Any scan tab that filters on
+    `scan_date = date.today()` therefore goes blank every evening because it
+    starts asking for *tomorrow's* date. Always derive "today" from Eastern time
+    so reads and writes line up with the US market day.
+    """
+    import datetime as _dt_et
+    return _dt_et.datetime.now(_ET_TZ).date()
+
+
+def _et_today_iso():
+    """Today's US/Eastern calendar date as an ISO 'YYYY-MM-DD' string."""
+    return _et_today().isoformat()
+
+
 # Shared cap for the L1-L8 money-pressure engine, used by BOTH the live
 # /conviction-stack endpoint and snapshot_conviction_stack() so the universe the
 # tab shows matches the universe that gets logged. The frontend reads the
@@ -1048,7 +1067,7 @@ try:
                         data = resp.get_json() if hasattr(resp, "get_json") else {}
                         picks = data.get("picks", [])
                         if picks:
-                            _save_ai_short_calls_to_log(picks, str(_dt2.now().date()))
+                            _save_ai_short_calls_to_log(picks, _et_today_iso())
                             print(f"[scheduler] AI short calls saved {len(picks)} picks")
                             # HIGH conviction only — 91% WR vs 59% for MEDIUM (backtest Jun 1-13)
                             high = [p for p in picks if p.get("conviction") == "HIGH"]
@@ -1470,7 +1489,7 @@ try:
             import psycopg2 as _pg_eao
             import pytz as _pytz_eao
             _et_eao = _pytz_eao.timezone("America/New_York")
-            _today  = _dt_eao.date.today()
+            _today  = _et_today()
             # Most recent prior trading day
             _pick_day = _today - _dt_eao.timedelta(days=1)
             while _pick_day.weekday() >= 5:
@@ -1544,7 +1563,7 @@ try:
             import datetime as _dt_eod
             import yfinance as _yf_eod
             import psycopg2 as _pg_eod
-            _today = _dt_eod.date.today().isoformat()
+            _today = _et_today().isoformat()
             with _pg_eod.connect(_DB_URL) as _c, _c.cursor() as _cu:
                 # Get unique tickers flagged today with their best standout_score + fade_risk
                 _cu.execute("""
@@ -1768,7 +1787,7 @@ def _fetch_earnings_today() -> list:
     try:
         import requests as _r
         from datetime import date
-        today = date.today().strftime("%Y-%m-%d")
+        today = _et_today().strftime("%Y-%m-%d")
         url = (
             f"https://query1.finance.yahoo.com/v1/finance/earnings"
             f"?day={today}&region=US&lang=en-US"
@@ -2028,7 +2047,7 @@ def _save_and_send_conviction_snapshot() -> None:
                        vol_oi::float, prem::bigint, otm_pct::float, iv::float,
                        urgency, last_seen
                 FROM unusual_calls_log
-                WHERE last_seen >= CURRENT_DATE
+                WHERE (last_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date
                   AND days_out BETWEEN 1 AND 30
                   AND vol_oi  >= 5
                   AND prem    >= 500000
@@ -2461,7 +2480,7 @@ def _send_eod_accum_email() -> None:
             SELECT ticker, accum_score, close_price, price_chg_pct,
                    eod_rel_vol, late_flow, closing_range, mkt_cap_m, signal_type
             FROM eod_accum_picks
-            WHERE scan_date = CURRENT_DATE
+            WHERE scan_date = (now() AT TIME ZONE 'America/New_York')::date
             ORDER BY accum_score DESC
             LIMIT 25
         """)
@@ -2491,7 +2510,7 @@ def _send_eod_accum_email() -> None:
                     return ticker, None
                 import datetime as _dtt
                 ed = _dtt.datetime.fromtimestamp(ts).date()
-                today = _dtt.date.today()
+                today = _et_today()
                 days = (ed - today).days
                 if days == 0:
                     return ticker, "TODAY"
@@ -2660,7 +2679,7 @@ def _send_top_pick_email() -> None:
             mc = float(info.get("marketCap") or 0)
             name = info.get("shortName") or info.get("longName") or ticker
 
-            today = _date.today()
+            today = _et_today()
             candidates = []
             for exp in (tk.options or [])[:8]:
                 try:
@@ -2962,7 +2981,7 @@ def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
     best = None
     try:
         tk = _yf.Ticker(ticker)
-        today = _date.today()
+        today = _et_today()
         candidates = []
         for exp in (tk.options or [])[:8]:
             try:
@@ -3193,7 +3212,7 @@ def _send_morning_inflows_email() -> None:
         # ── 2. Today's morning standouts ─────────────────────────────────────
         cur.execute("""
             SELECT payload FROM morning_inflows_cache
-            WHERE scan_date = CURRENT_DATE
+            WHERE scan_date = (now() AT TIME ZONE 'America/New_York')::date
             ORDER BY saved_at DESC LIMIT 1
         """)
         mi_row = cur.fetchone()
@@ -3692,8 +3711,8 @@ def _send_unusual_calls_email() -> None:
                            volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
                            iv::float, urgency
                     FROM unusual_calls_log
-                    WHERE last_seen >= CURRENT_DATE
-                      AND expiry::date > CURRENT_DATE
+                    WHERE (last_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date
+                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                       AND vol_oi >= 3 AND prem >= 100000
                     ORDER BY prem DESC LIMIT 80
                 """)
@@ -3846,8 +3865,8 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
                    volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
                    iv::float, urgency, cap_tier
             FROM unusual_calls_microcap_log
-            WHERE last_seen >= CURRENT_DATE
-              AND expiry::date > CURRENT_DATE
+            WHERE (last_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date
+              AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
               AND vol_oi >= 1.5
             ORDER BY prem DESC
             LIMIT 150
@@ -4013,7 +4032,7 @@ def _send_high_conviction_email(owner_only: bool = False) -> None:
                        urgency, last_seen
                 FROM unusual_calls_log
                 WHERE last_seen >= NOW() - INTERVAL '24 hours'
-                  AND expiry::date > CURRENT_DATE
+                  AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                   AND vol_oi >= 3 AND prem >= 100000
                 ORDER BY vol_oi DESC LIMIT 300
             """)
@@ -4540,9 +4559,9 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT
-                  COUNT(*) FILTER (WHERE last_seen >= CURRENT_DATE)            AS today,
-                  COUNT(*) FILTER (WHERE last_seen >= CURRENT_DATE - INTERVAL '2 days'
-                                   AND last_seen <  CURRENT_DATE)              AS yesterday
+                  COUNT(*) FILTER (WHERE (last_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date)            AS today,
+                  COUNT(*) FILTER (WHERE (last_seen AT TIME ZONE 'America/New_York')::date >= (now() AT TIME ZONE 'America/New_York')::date - 2
+                                   AND (last_seen AT TIME ZONE 'America/New_York')::date <  (now() AT TIME ZONE 'America/New_York')::date)              AS yesterday
                 FROM unusual_calls_log WHERE ticker = %s
             """, (ticker,))
             today_cnt, yest_cnt = cur.fetchone()
@@ -4978,7 +4997,7 @@ def _save_top10_to_db(today: str, payload: dict):
 def _compute_daily_top10():
     """Return today's top 10. Checks memory → DB → fresh scan."""
     from datetime import date as _date
-    today = str(_date.today())
+    today = str(_et_today())
 
     # 1. In-memory cache (fastest)
     if _daily_top10_mem["date"] == today and _daily_top10_mem["data"]:
@@ -5269,7 +5288,7 @@ def _update_eod_sweep_outcomes():
                 SELECT id, ticker, signal_date, price_at_signal
                 FROM eod_sweep_log
                 WHERE (close_t1 IS NULL OR close_t3 IS NULL OR close_t5 IS NULL)
-                  AND signal_date < CURRENT_DATE
+                  AND signal_date < (now() AT TIME ZONE 'America/New_York')::date
                   AND price_at_signal IS NOT NULL
                 ORDER BY signal_date DESC LIMIT 80
             """)
@@ -6280,7 +6299,7 @@ def _get_oi_accumulation_signals(days_back: int = 1) -> list:
     import psycopg2, os as _os
     from datetime import date as _date, timedelta as _td
 
-    today  = _date.today()
+    today  = _et_today()
     day1   = today - _td(days=days_back)
     day2   = today - _td(days=days_back + 1)
     try:
@@ -6485,7 +6504,7 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
             scores[ticker]["meta"]["days_out"] = int(days)
 
     # ── Layer 2: Gamma FIR (today's alerts table) ─────────────────────────────
-    today_str = str(_date.today())
+    today_str = str(_et_today())
     try:
         with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -7579,7 +7598,7 @@ def _save_daily_vol_snapshot():
     """Store today's vol signals for IV skew + short interest percentile tracking."""
     from datetime import date as _dvs_date
     import psycopg2 as _pg2_snap
-    today = _dvs_date.today()
+    today = _et_today()
     vc = getattr(app, "_vc_cache", None)
     if not vc:
         print("[daily_vol_snapshots] no vol-crush cache — skipping")
@@ -7610,7 +7629,7 @@ def _save_daily_vol_snapshot():
 def _save_signal_snapshot():
     """Snapshot today's composite + call-intent + darkpool signals for persistence tracking."""
     from datetime import date as _snap_date
-    today = _snap_date.today()
+    today = _et_today()
     cs = getattr(app, "_cs_cache", None)
     ci = getattr(app, "_ci_cache", None)
     dp = getattr(app, "_dp_cache", None)
@@ -8012,7 +8031,7 @@ def bull_flow_top10():
     def _get_row(ticker):
         try:
             from datetime import date, datetime
-            today      = date.today()
+            today      = _et_today()
             today_str  = today.isoformat()
 
             opts = fetch_options_data(ticker)
@@ -8102,7 +8121,7 @@ def bull_flow_top10():
                     volume, oi, vol_oi::float, prem::bigint
                 FROM unusual_calls_log
                 WHERE last_seen  >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
-                  AND expiry::date > CURRENT_DATE
+                  AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                   AND prem >= 100000
                 ORDER BY ticker, prem DESC
             """)
@@ -8163,7 +8182,7 @@ def bull_flow_persistence():
                    call_put_ratio, premium_m, strike, expiry
             FROM signal_outcomes
             WHERE call_put_ratio >= 2
-              AND signal_date >= CURRENT_DATE - INTERVAL '14 days'
+              AND signal_date >= (now() AT TIME ZONE 'America/New_York')::date - 14
             ORDER BY ticker, signal_date DESC
         """)
         rows = cur.fetchall()
@@ -9093,7 +9112,7 @@ def market_overview():
 
     _cache = getattr(app, "_mo_cache", None)
     _ts    = getattr(app, "_mo_cache_ts", None)
-    if _cache and _ts and _ts == date.today().isoformat():
+    if _cache and _ts and _ts == _et_today().isoformat():
         return jsonify(_cache)
 
     SECTORS = [
@@ -9164,9 +9183,9 @@ def market_overview():
         "sectors": sectors,
         "indices": indices,
         "advance_decline": {"up": ad_up, "down": ad_down, "unchanged": ad_unch},
-        "as_of": date.today().isoformat(),
+        "as_of": _et_today().isoformat(),
     }
-    app._mo_cache = out; app._mo_cache_ts = date.today().isoformat()
+    app._mo_cache = out; app._mo_cache_ts = _et_today().isoformat()
     return jsonify(out)
 
 
@@ -10515,7 +10534,7 @@ def vol_crush():
             _cur_vc.execute("""
                 SELECT ticker, iv_skew, short_float, pc_oi_ratio
                 FROM daily_vol_snapshots
-                WHERE ticker = ANY(%s) AND snap_date >= CURRENT_DATE - INTERVAL '252 days'
+                WHERE ticker = ANY(%s) AND snap_date >= (now() AT TIME ZONE 'America/New_York')::date - 252
                 ORDER BY ticker, snap_date
             """, (_snap_tickers,))
             _snap_rows = _cur_vc.fetchall()
@@ -11312,7 +11331,7 @@ def _ai_trades_worker():
     # 13. Macro calendar — days to next key market events
     def _macro_context():
         from datetime import date as _date
-        today = _date.today()
+        today = _et_today()
         FED_DATES_2026 = [
             _date(2026, 1, 29), _date(2026, 3, 19), _date(2026, 5, 7),
             _date(2026, 6, 18), _date(2026, 7, 29), _date(2026, 9, 17),
@@ -11353,7 +11372,7 @@ def _ai_trades_worker():
                        COUNT(DISTINCT signal_date) AS days,
                        AVG(comp_score)              AS avg_score
                 FROM signal_history
-                WHERE signal_date >= CURRENT_DATE - INTERVAL '5 days'
+                WHERE signal_date >= (now() AT TIME ZONE 'America/New_York')::date - 5
                   AND (comp_score >= 60
                        OR call_verdict IN ('HEAVY_ACCUMULATION','STRONG_ACCUMULATION','ACCUMULATION'))
                 GROUP BY ticker
@@ -11414,7 +11433,7 @@ def _ai_trades_worker():
                 SELECT ticker, signal_date, dp_prem_m
                 FROM signal_history
                 WHERE dp_prem_m IS NOT NULL AND dp_prem_m > 0
-                  AND signal_date >= CURRENT_DATE - INTERVAL '5 days'
+                  AND signal_date >= (now() AT TIME ZONE 'America/New_York')::date - 5
                 ORDER BY ticker, signal_date
             """)
             _dpt_rows = _dpt_cur.fetchall()
@@ -11977,7 +11996,7 @@ def _ai_trades_worker():
         "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities; VIX_TermStructure=BACKWARDATION → event risk priced, vol may spike further.\n"
         "12. sector_corr=IDIOSYNCRATIC (<0.5) → ticker moves on its own; prefer over highly correlated names.\n"
         "13. news=BEARISH_NEWS with BULL_TREND → fade the news; news=BULLISH_NEWS with momentum = confirmation.\n"
-        f"14. EXPIRY RULE: TODAY'S REAL DATE IS {str(_date.today())}. ALL expiry dates you output MUST be in YYYY-MM-DD format AND must fall between {str(_date.today() + _timedelta(days=21))} (earliest) and {str(_date.today() + _timedelta(days=90))} (latest). NEVER output a date from 2024 or any year other than the current year/next year. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry — this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
+        f"14. EXPIRY RULE: TODAY'S REAL DATE IS {str(_et_today())}. ALL expiry dates you output MUST be in YYYY-MM-DD format AND must fall between {str(_et_today() + _timedelta(days=21))} (earliest) and {str(_et_today() + _timedelta(days=90))} (latest). NEVER output a date from 2024 or any year other than the current year/next year. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry — this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
         "15. EARNINGS PROXIMITY: If earn_in≤7d (IMMINENT), prefer STRADDLE or avoid entirely unless conviction is extreme. If earn_in=8-30d (SOON), IV is likely elevated — check iv_rv; if RICH, sell spreads; if CHEAP, buy vol. impl_earn_move shows the options market's expected ±% move into earnings — compare to earn_beat history.\n"
         "16. ANALYST CONSENSUS: analyst_tgt=STRONG_BUY_CONSENSUS (>25% upside) combined with institutional accumulation (accum_pct≥60%) = highest fundamental + flow alignment. analyst_tgt=FULLY_VALUED (<0% upside) is a headwind for LONG CALL setups.\n"
         "17. PUT/CALL OI RATIO: pc_oi_ratio>1.5 (HEAVY_PUT_OI) = institutions are hedged/bearish positioned; <0.6 (HEAVY_CALL_OI) = bullish positioning. Use as directional confirmation or contrarian signal in conjunction with other factors.\n"
@@ -12011,7 +12030,7 @@ def _ai_trades_worker():
         "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."
     )
 
-    user_msg = f"""⚠ TODAY IS {str(_date.today())}. All expiry dates in your JSON response MUST be after {str(_date.today())} and formatted as YYYY-MM-DD. Do not use any date from 2024 or earlier.
+    user_msg = f"""⚠ TODAY IS {str(_et_today())}. All expiry dates in your JSON response MUST be after {str(_et_today())} and formatted as YYYY-MM-DD. Do not use any date from 2024 or earlier.
 
 SOURCES ({len(active_sources)}): {', '.join(active_sources)}
 TICKERS SCANNED: {len(rich)}
@@ -12150,7 +12169,7 @@ JSON array only. No markdown. Start immediately with ["""
 
         # Validate expiry dates — catch and fix any past dates the AI hallucinated
         import datetime as _dtfix
-        _today_fix = _dtfix.date.today()
+        _today_fix = _et_today()
         _fallback_exp = str(_today_fix + _dtfix.timedelta(days=45))
         for _tr in trades:
             try:
@@ -12893,7 +12912,7 @@ def _check_insider_outcomes():
     """
     import datetime as _dto
     import yfinance as _yfo
-    today = _dto.date.today()
+    today = _et_today()
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -13161,7 +13180,7 @@ def unusual_calls():
                            iv::float, urgency, first_seen
                     FROM unusual_calls_log
                     WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
-                      AND expiry::date > CURRENT_DATE
+                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                       AND vol_oi >= 3
                       AND prem >= 500000
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
@@ -13265,7 +13284,7 @@ def unusual_calls_microcap():
                last_seen  AT TIME ZONE 'UTC' AS last_seen
         FROM unusual_calls_microcap_log
         WHERE {_window_clause}
-          AND expiry::date > CURRENT_DATE
+          AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
           AND cap_tier IN ('nano', 'micro', 'small')
         ORDER BY prem DESC
         LIMIT 1000
@@ -13394,7 +13413,7 @@ def gamma_pressure_endpoint():
                            call_volume, avg_delta, vol_oi, top_strike, top_strike_expiry,
                            score, sms_sent, alerted_at::TEXT, alert_date::TEXT
                     FROM gamma_pressure_alerts
-                    WHERE alert_date >= CURRENT_DATE - INTERVAL '3 days'
+                    WHERE alert_date >= (now() AT TIME ZONE 'America/New_York')::date - 3
                     ORDER BY score DESC LIMIT %s
                 """, (limit,))
 
@@ -13404,7 +13423,7 @@ def gamma_pressure_endpoint():
             cur.execute("""
                 SELECT MAX(alerted_at)::TEXT
                 FROM gamma_pressure_alerts
-                WHERE alert_date = CURRENT_DATE
+                WHERE alert_date = (now() AT TIME ZONE 'America/New_York')::date
             """)
             last_scan = (cur.fetchone() or [None])[0]
 
@@ -13585,7 +13604,7 @@ def etf_calls():
     ]
     _etf_set = list(dict.fromkeys(_ETF_TICKERS))
     placeholders = ",".join(["%s"] * len(_etf_set))
-    date_filter = "AND DATE(last_seen AT TIME ZONE 'UTC') = CURRENT_DATE" if today_only else ""
+    date_filter = "AND (last_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date" if today_only else ""
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute(f"""
@@ -13638,7 +13657,7 @@ def eod_sweeps():
                        vol_oi::float, prem::bigint, otm_pct::float, iv::float,
                        urgency, last_seen
                 FROM unusual_calls_log
-                WHERE last_seen::date = CURRENT_DATE
+                WHERE (last_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date
                   AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 14 AND 23
                   AND days_out BETWEEN 1 AND 15
                   AND vol_oi  >= 5
@@ -14011,7 +14030,7 @@ def conviction_calls():
         # ?fallback=1 (surfaced as a "Show last 24h" button in the UI).
         allow_fallback = request.args.get("fallback") == "1"
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-            cur.execute(_base_sql.format(interval="CURRENT_DATE"))
+            cur.execute(_base_sql.format(interval="(now() AT TIME ZONE 'America/New_York')::date::timestamp AT TIME ZONE 'America/New_York'"))
             rows_today = cur.fetchall()
             today_tickers = len(set(r[0] for r in rows_today))
             if rows_today:
@@ -15706,7 +15725,7 @@ _EC_WATCHLIST = [
 def _check_earnings(ticker):
     import datetime as _dt_ec
     import yfinance as yf
-    today = _dt_ec.date.today()
+    today = _et_today()
     cutoff = today + _dt_ec.timedelta(days=30)
     try:
         tk = yf.Ticker(ticker)
@@ -15817,7 +15836,7 @@ def earnings_calendar():
                 results.append(r)
     results.sort(key=lambda x: (x["earnings_date"], -(x["mkt_cap_b"] or 0)))
     out = {"earnings": results, "count": len(results),
-           "as_of": _dt_ec2.date.today().isoformat(), "window_days": 30}
+           "as_of": _et_today().isoformat(), "window_days": 30}
     with _ec_lock:
         _ec_cache, _ec_cache_ts = out, _dt_ec2.datetime.now()
     return jsonify(out)
@@ -15852,13 +15871,25 @@ def morning_inflows():
     # This means the morning results stay visible all day even after a restart.
     if not bust and _DB_URL:
         try:
-            _today_mi = _dt_mi.date.today().isoformat()
+            _today_mi = _et_today_iso()
             with _psycopg2.connect(_DB_URL) as _c_mi, _c_mi.cursor() as _cu_mi:
                 _cu_mi.execute(
                     "SELECT payload FROM morning_inflows_cache WHERE scan_date = %s",
                     (_today_mi,)
                 )
                 _db_mi_row = _cu_mi.fetchone()
+                if not (_db_mi_row and _db_mi_row[0].get("standouts")):
+                    # No row for ET-today yet (pre-market, or weekend/holiday).
+                    # Serve the most recent scan from the last 5 days so the tab
+                    # never goes blank while genuinely fresh data still exists.
+                    _cutoff_mi = (_dt_mi.date.fromisoformat(_today_mi)
+                                  - _dt_mi.timedelta(days=5)).isoformat()
+                    _cu_mi.execute(
+                        "SELECT payload FROM morning_inflows_cache "
+                        "WHERE scan_date >= %s ORDER BY scan_date DESC LIMIT 1",
+                        (_cutoff_mi,)
+                    )
+                    _db_mi_row = _cu_mi.fetchone()
             if _db_mi_row and _db_mi_row[0].get("standouts"):
                 _db_mi_payload = _db_mi_row[0]
                 app._mi_cache    = _db_mi_payload
@@ -15966,7 +15997,7 @@ def morning_inflows():
                     SELECT ticker FROM morning_watchlist
                     UNION
                     SELECT ticker FROM nano_breakout_watchlist
-                     WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
+                     WHERE scan_date >= (now() AT TIME ZONE 'America/New_York')::date - 3
                 ) combined
             """)
             _tracked = [r[0] for r in _cur.fetchall()]
@@ -16243,7 +16274,7 @@ def morning_inflows():
         "extreme_pumps": _extreme_pumps[:10],
         "total_found":   len(results),
         "scanned":       len(universe),
-        "generated_at":  _dt_mi.datetime.now().strftime("%I:%M %p ET"),
+        "generated_at":  _dt_mi.datetime.now(_ET_TZ).strftime("%I:%M %p ET"),
         "criteria":      "price ≥+5% · projected vol ≥5× avg (first 30 min) · flow ratio ≥2:1",
     }
 
@@ -16254,7 +16285,7 @@ def morning_inflows():
     if results and _DB_URL:
         import json as _json_mi2
         import time as _time_mi2
-        _today_mi2 = _dt_mi.date.today().isoformat()
+        _today_mi2 = _et_today_iso()
         for _attempt_mi2 in range(3):
             try:
                 with _psycopg2.connect(_DB_URL) as _c_mi2, _c_mi2.cursor() as _cu_mi2:
@@ -16278,7 +16309,7 @@ def morning_inflows():
     # Tracks alerted tickers in app._mi_alerted_tickers so we only push NEW
     # movers discovered since the last scan, not repeats across the 9:31–14:00 runs.
     try:
-        _today_ntfy = _dt_mi.date.today().isoformat()
+        _today_ntfy = _et_today_iso()
         if getattr(app, '_mi_alerted_date', None) != _today_ntfy:
             app._mi_alerted_date     = _today_ntfy
             app._mi_alerted_tickers  = set()
@@ -16328,7 +16359,7 @@ def morning_inflows():
     if results and _DB_URL:
         import time as _time_sh
         _scan_ts   = _dt_mi.datetime.now()
-        _scan_date = _scan_ts.date().isoformat()
+        _scan_date = _et_today_iso()
         _saved_sh  = 0
         _failed_sh = []
         for _rank, _r in enumerate(results, 1):
@@ -16372,15 +16403,25 @@ def morning_inflows():
             print(f"[scan_history] SAVE FAILED for: {', '.join(_failed_sh)}")
     elif bust and not results and _DB_URL:
         # Bust/refresh after hours — don't replace good morning data with 0 results.
-        # Fall back to today's DB data if it exists.
+        # Fall back to today's DB data (ET), or the most recent scan in the last
+        # 5 days, so a forced refresh in the evening never blanks the tab.
         try:
-            _today_mi3 = _dt_mi.date.today().isoformat()
+            _today_mi3 = _et_today_iso()
             with _psycopg2.connect(_DB_URL) as _c_mi3, _c_mi3.cursor() as _cu_mi3:
                 _cu_mi3.execute(
                     "SELECT payload FROM morning_inflows_cache WHERE scan_date = %s",
                     (_today_mi3,)
                 )
                 _db_mi3 = _cu_mi3.fetchone()
+                if not (_db_mi3 and _db_mi3[0].get("standouts")):
+                    _cutoff_mi3 = (_dt_mi.date.fromisoformat(_today_mi3)
+                                   - _dt_mi.timedelta(days=5)).isoformat()
+                    _cu_mi3.execute(
+                        "SELECT payload FROM morning_inflows_cache "
+                        "WHERE scan_date >= %s ORDER BY scan_date DESC LIMIT 1",
+                        (_cutoff_mi3,)
+                    )
+                    _db_mi3 = _cu_mi3.fetchone()
             if _db_mi3 and _db_mi3[0].get("standouts"):
                 out = _db_mi3[0]
                 print(f"[morning_inflows] bust found 0 results (after hours) — serving {len(out['standouts'])} from DB")
@@ -16685,7 +16726,7 @@ def eod_accumulation():
                            closing_range, price_chg_pct, mkt_cap_m, news_type, news_headline,
                            COALESCE(signal_type, 'accum') AS signal_type, scanned_at
                     FROM eod_accum_picks
-                    WHERE scan_date = CURRENT_DATE
+                    WHERE scan_date = (now() AT TIME ZONE 'America/New_York')::date
                     ORDER BY accum_score DESC
                     LIMIT 30
                 """)
@@ -16745,7 +16786,7 @@ def eod_accumulation():
     try:
         with _pg_ea.connect(_DB_URL) as _c_ea2, _c_ea2.cursor() as _cu_ea2:
             _cu_ea2.execute(
-                "SELECT DISTINCT ticker FROM unusual_calls_log WHERE DATE(first_seen) = CURRENT_DATE"
+                "SELECT DISTINCT ticker FROM unusual_calls_log WHERE (first_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date"
             )
             for _r in _cu_ea2.fetchall(): _ticker_set.add(_r[0])
     except Exception as _e_ea2:
@@ -16980,7 +17021,7 @@ def eod_accumulation():
         list(_ex_short.map(_enrich_ea, _enrich_pool))
 
     # ── Persist today's top picks to DB ────────────────────────────────────
-    _scan_date_ea = _dt_ea.date.today().isoformat()
+    _scan_date_ea = _et_today().isoformat()
     _persist_ea = (_accum_ea[:15] + _squeeze_ea[:10])
     try:
         with _pg_ea.connect(_DB_URL) as _c_sv, _c_sv.cursor() as _cu_sv:
@@ -17108,7 +17149,7 @@ def cross_scanner():
     import psycopg2.extras as _ext_cs
 
     try:
-        _today = _dt_cs.date.today()
+        _today = _dt_cs.datetime.now(_ET_TZ).date()
         # Build last 3 trading days as valid EOD-accum lookback dates
         _prev_days = []
         _d = _today - _dt_cs.timedelta(days=1)
@@ -17166,7 +17207,7 @@ def cross_scanner():
                     AND ea.ticker = sh.ticker
                 LEFT JOIN eod_outcomes o
                     ON o.trade_date = sh.scan_date AND o.ticker = sh.ticker
-                WHERE sh.scan_date >= CURRENT_DATE - INTERVAL '60 days'
+                WHERE sh.scan_date >= (now() AT TIME ZONE 'America/New_York')::date - 60
                     AND sh.standout_score >= 5
                 ORDER BY sh.scan_date DESC, sh.standout_score DESC
                 LIMIT 100
@@ -17230,7 +17271,7 @@ def short_squeeze_radar():
     import concurrent.futures as _cf_sq
 
     try:
-        _today_sq    = _dt_sq.date.today()
+        _today_sq    = _et_today()
         _lookback_sq = (_today_sq - _dt_sq.timedelta(days=5)).isoformat()
 
         with _pg_sq.connect(_DB_URL) as _c_sq, _c_sq.cursor() as _cu_sq:
@@ -17478,7 +17519,7 @@ def insider_radar():
         def _earn_90d(ticker):
             import datetime as _d2
             import yfinance as _yf2
-            today  = _d2.date.today()
+            today  = _et_today()
             cutoff = today + _d2.timedelta(days=90)
             try:
                 tk  = _yf2.Ticker(ticker)
@@ -17733,7 +17774,7 @@ def _startup_scan_if_needed():
             return
         with _psycopg2.connect(_DB_URL) as _sc, _sc.cursor() as _scur:
             _scur.execute(
-                "SELECT COUNT(*), MAX(last_seen) FROM unusual_calls_log WHERE last_seen >= CURRENT_DATE"
+                "SELECT COUNT(*), MAX(last_seen) FROM unusual_calls_log WHERE (last_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date"
             )
             _row = _scur.fetchone()
             _count, _last_seen = _row[0], _row[1]
@@ -17824,7 +17865,7 @@ def run_nano_cap_breakout_scan():
     from concurrent.futures import ThreadPoolExecutor as _TPE_nb, as_completed as _ac_nb
 
     _DB = _os_nb.getenv("DATABASE_URL", "")
-    _today = _dt_nb.date.today().isoformat()
+    _today = _et_today().isoformat()
     _hdr = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "en-US,en;q=0.9",
@@ -18001,7 +18042,7 @@ def run_nano_cap_breakout_scan():
         _lines.append(f"+ {_saved} total nano-caps now on morning watch")
         _lines.append("nclexai.org/stock-scanner/")
         _send_ntfy(
-            f"🔭 {len(_top)} Nano-Cap Setups for {_dt_nb.date.today().strftime('%b %d')}",
+            f"🔭 {len(_top)} Nano-Cap Setups for {_et_today().strftime('%b %d')}",
             "\n".join(_lines),
             priority="default",
             tags="mag,chart_with_upwards_trend",

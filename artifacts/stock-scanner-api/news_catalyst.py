@@ -79,7 +79,7 @@ def _already_alerted(ticker: str) -> bool:
     try:
         with psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM news_catalyst_log WHERE ticker=%s AND alert_date=CURRENT_DATE LIMIT 1",
+                "SELECT 1 FROM news_catalyst_log WHERE ticker=%s AND alert_date=(now() AT TIME ZONE 'America/New_York')::date LIMIT 1",
                 (ticker,),
             )
             return cur.fetchone() is not None

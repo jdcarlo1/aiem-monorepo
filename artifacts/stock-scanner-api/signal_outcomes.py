@@ -6,8 +6,18 @@ T+3, T+5, T+10 trading-day price outcomes using yfinance.
 
 import os
 from datetime import date, timedelta
+from zoneinfo import ZoneInfo
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+_ET_TZ = ZoneInfo("America/New_York")
+
+
+def _et_today() -> date:
+    """Today's date in US/Eastern. The server clock runs in UTC, so the stdlib
+    date.today() rolls to tomorrow after 8 PM ET (00:00 UTC) and would store/query
+    signals under the wrong market day — blanking the track-record tab each evening."""
+    from datetime import datetime
+    return datetime.now(_ET_TZ).date()
 
 
 def _connect():
@@ -49,7 +59,7 @@ def store_bull_flow_signals(results: list, session: str = "manual"):
     """Persist bull-flow rows (C/P >= 2 only) to the outcomes table."""
     if not DATABASE_URL or not results:
         return
-    today = date.today().isoformat()
+    today = _et_today().isoformat()
     stored = 0
     try:
         conn = _connect()
@@ -120,7 +130,7 @@ def get_signal_outcomes(limit: int = 60) -> list:
 
         conn = _connect()
         cur = conn.cursor()
-        cutoff = (date.today() - timedelta(days=45)).isoformat()
+        cutoff = (_et_today() - timedelta(days=45)).isoformat()
         cur.execute("""
             SELECT DISTINCT ON (ticker, signal_date)
                 ticker, signal_date, price_at_signal,
@@ -134,7 +144,7 @@ def get_signal_outcomes(limit: int = 60) -> list:
         cur.close()
         conn.close()
 
-        today = date.today()
+        today = _et_today()
         outcomes = []
 
         for ticker, sig_date, price_at_signal, cpr, premium_m, strike, expiry in rows:

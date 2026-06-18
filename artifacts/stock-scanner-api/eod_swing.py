@@ -237,7 +237,7 @@ def _get_today_intraday_alerts() -> set:
             with con.cursor() as cur:
                 cur.execute("""
                     SELECT DISTINCT ticker FROM sms_alerts_log
-                    WHERE alert_date = CURRENT_DATE
+                    WHERE alert_date = (now() AT TIME ZONE 'America/New_York')::date
                 """)
                 return {row[0] for row in cur.fetchall()}
     except Exception as e:
