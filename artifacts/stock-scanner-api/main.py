@@ -7922,7 +7922,7 @@ def analyze():
         return jsonify({"error": "ticker is required"}), 400
     result = analyze_ticker(ticker)
     if "error" in result:
-        return jsonify(result), 404
+        return jsonify(result), 200
     return jsonify(result)
 
 
@@ -12823,7 +12823,7 @@ def darkpool():
         for code in ["FNSQ", "FNYX"]:
             url = f"https://cdn.finra.org/equity/regsho/daily/{code}shvol{date_str}.txt"
             try:
-                r = _req.get(url, timeout=12)
+                r = _req.get(url, timeout=5)
                 if r.status_code != 200:
                     continue
                 for line in r.text.strip().split("\n")[1:]:
