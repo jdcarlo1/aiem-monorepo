@@ -67,7 +67,7 @@ export default function Flyer() {
             "✓  NGN drag & drop question formats",
             "✓  59 nursing school categories",
             "✓  Created by a Registered Nurse",
-            "✓  $15/mo or $49 one-time lifetime access",
+            "✓  $20/mo or $100 one-time lifetime access",
           ].map((item) => (
             <p key={item} className="text-sm text-gray-700 font-medium">{item}</p>
           ))}

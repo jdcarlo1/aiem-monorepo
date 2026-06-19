@@ -914,7 +914,7 @@ export default function NursingSchool() {
             <div className="mt-4 flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20">
               <Lock className="w-5 h-5 text-primary shrink-0" />
               <p className="text-sm text-foreground">
-                <span className="font-semibold">Premium feature.</span> Unlock all {totalCategories} question banks with a $49 lifetime plan.{" "}
+                <span className="font-semibold">Premium feature.</span> Unlock all {totalCategories} question banks with a $100 lifetime plan.{" "}
                 <button onClick={handleLockClick} className="text-primary font-semibold underline underline-offset-2 hover:no-underline">
                   Unlock now →
                 </button>
