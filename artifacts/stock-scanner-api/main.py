@@ -800,6 +800,9 @@ try:
 
     def _do_scan_and_save(session: str) -> None:
         """Run a Smart Money scan, save scores to history, then email subscribers."""
+        if not _intraday_scan_allowed():
+            print(f"[scheduler] {session} scan skipped — market closed (holiday/weekend)")
+            return
         result  = scan_smart_money(DEFAULT_LEADERBOARD)
         signals = result.get("leaderboard", [])
         # Persist every scan so historical performance can build up over time
@@ -878,6 +881,9 @@ try:
     # EOD unusual-calls auto-scan — populates unusual_calls_log so the EOD SWEEP tab
     # has data without a user needing to manually open the Unusual Calls tab first.
     def _run_unusual_calls_scan(label: str):
+        if not _intraday_scan_allowed():
+            print(f"[scheduler] unusual-calls ({label}) skipped — market closed (holiday/weekend)")
+            return
         try:
             import yfinance as yf
             from concurrent.futures import ThreadPoolExecutor, as_completed as _asc
@@ -1039,6 +1045,8 @@ try:
     )
     # Outcomes: Mon-Fri 4:30 PM ET — after market close, fetch closing prices for open AI trade log entries
     def _run_outcomes_update():
+        if not _intraday_scan_allowed():
+            return
         try:
             _update_ai_trade_outcomes()
         except Exception as e:
@@ -1051,6 +1059,8 @@ try:
     )
     # Signal snapshot: Mon-Fri 4:00 PM ET — snapshot today's signals for multi-day persistence tracking
     def _run_signal_snapshot():
+        if not _intraday_scan_allowed():
+            return
         try:
             _save_signal_snapshot()
         except Exception as e:
@@ -1063,6 +1073,8 @@ try:
     )
     # Daily vol snapshot: Mon-Fri 4:05 PM ET — store IV skew + short interest for future percentile ranking
     def _run_daily_vol_snapshot():
+        if not _intraday_scan_allowed():
+            return
         try:
             _save_daily_vol_snapshot()
         except Exception as e:
@@ -1075,6 +1087,8 @@ try:
     )
     # SPY cache refresh: Mon-Fri 9:05 AM ET — pre-warm SPY 1y cache before market opens
     def _run_spy_cache_refresh():
+        if not _intraday_scan_allowed():
+            return
         try:
             _refresh_spy_1y_cache()
         except Exception as e:
@@ -1087,6 +1101,8 @@ try:
     )
     # Micro-cap net flow pre-warm: every 30 min during market hours (9:45 AM – 3:30 PM ET)
     def _run_microcap_prewarm():
+        if not _intraday_scan_allowed():
+            return
         try:
             # Route through the same locked single-flight worker the endpoint uses
             # so a prewarm and an on-demand refresh can never run two heavy scans
@@ -1108,6 +1124,8 @@ try:
     # Micro-cap options scan: Mon-Fri at 10:30 AM, 3:30 PM, 4:00 PM, 4:15 PM ET
     # EOD runs are the richest — rate limits relax after close, full day's volume captured
     def _run_microcap_options_auto():
+        if not _intraday_scan_allowed():
+            return
         try:
             hits = _run_microcap_options_scan()
             _save_microcap_calls_to_db(hits)
@@ -1123,6 +1141,8 @@ try:
         )
     # AI Trades auto-generation: Mon-Fri 10:00 AM ET — caches are warm after 9:45 AM morning scan
     def _run_ai_trades_auto():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr
             if not getattr(app, "_ait_generating", False):
@@ -1141,6 +1161,8 @@ try:
     # 9:36 AM = 1 min after the 9:35 double-pass scan — double-confirmed early entry.
     # 10:01 AM = updated confirmation wave. 13:01 PM = midday catch-up.
     def _run_morning_inflows_email():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_mi
             _thr_mi.Thread(target=_send_morning_inflows_email, daemon=True).start()
@@ -1156,6 +1178,8 @@ try:
     # Top Pick of the Day: Mon-Fri 9:45 AM ET — #1 conviction setup + specific call option to buy.
     # Single slot (was 9:35, 9:40, 9:45) to reduce burst; the 9:45 slot is when options data is stable.
     def _run_top_pick_email():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_tp
             _thr_tp.Thread(target=_send_top_pick_email, daemon=True).start()
@@ -1170,6 +1194,8 @@ try:
     # SMS alert scan: 9:55 AM (staggered from 9:45 to give morning_scan a clear 10-min head start).
     # Only fires on green SPY days — red days historically lose money regardless of signal quality.
     def _run_sms_alert_scan():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_sms
             _thr_sms.Thread(target=run_sms_alert_scan, daemon=True).start()
@@ -1293,6 +1319,8 @@ try:
 
     # EOD accum picks email: 3:46 PM ET — 1 min after the 3:45 PM scan saves picks
     def _run_eod_accum_email_job():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_ea
             _thr_ea.Thread(target=_send_eod_accum_email, daemon=True).start()
@@ -1308,6 +1336,8 @@ try:
     # all tickers via yfinance, so SMS lands ~2:20-2:30 PM = 90 min to analyze
     # and buy before close. Daily OHLCV data is fully available by 2 PM.
     def _run_eod_swing_job():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_sw
             from eod_swing import send_swing_digest
@@ -1323,6 +1353,8 @@ try:
     )
     # Unusual Calls email: 9:47 AM (after options warmer at 9:45) + 4:20 PM EOD
     def _run_unusual_calls_email():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_uc
             _thr_uc.Thread(target=_send_unusual_calls_email, daemon=True).start()
@@ -1337,6 +1369,8 @@ try:
         )
     # Small & Growth (Microcap) Calls email: 10:32 AM + 4:17 PM (after scans)
     def _run_microcap_calls_email():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_mc
             _thr_mc.Thread(target=_send_microcap_calls_email, daemon=True).start()
@@ -1351,6 +1385,8 @@ try:
         )
     # High Conviction Calls email: 9:48 AM (after unusual calls scan) + 4:22 PM EOD
     def _run_hc_calls_email():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_hc
             _thr_hc.Thread(target=_send_high_conviction_email, daemon=True).start()
@@ -1365,6 +1401,8 @@ try:
         )
     # AI Short Calls auto-generation: Mon-Fri 10:15 AM ET — after scanner caches warm
     def _run_ai_short_calls_auto():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr2
             from datetime import datetime as _dt2
@@ -1399,6 +1437,8 @@ try:
     )
     # AI Short Calls outcomes: Mon-Fri 4:32 PM ET — alongside AI trade outcomes
     def _run_sc_outcomes():
+        if not _intraday_scan_allowed():
+            return
         try:
             _update_ai_short_call_outcomes()
         except Exception as e:
@@ -1411,6 +1451,8 @@ try:
     )
     # Position monitor: poll Gmail for TRADE: emails every 15 min (market hours)
     def _run_poll_trade_emails():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_pt
             _thr_pt.Thread(target=_poll_trade_emails, daemon=True).start()
@@ -1428,6 +1470,8 @@ try:
             )
     # Position monitor: check exit signals every 30 min (market hours)
     def _run_monitor_positions():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_mp
             _thr_mp.Thread(target=_monitor_open_positions, daemon=True).start()
@@ -1445,6 +1489,8 @@ try:
             )
     # Signal outcomes: Mon-Fri 4:33 PM ET — fills stored T+3/T+5/T+10 prices (no live fetch on page load)
     def _run_signal_outcomes():
+        if not _intraday_scan_allowed():
+            return
         try:
             update_signal_outcome_prices()
         except Exception as e:
@@ -1457,6 +1503,8 @@ try:
     )
     # EOD sweep outcomes: Mon-Fri 4:35 PM ET — fills T+1/T+3/T+5 closing prices
     def _run_eod_sweep_outcomes():
+        if not _intraday_scan_allowed():
+            return
         try:
             _update_eod_sweep_outcomes()
         except Exception as e:
@@ -1470,6 +1518,8 @@ try:
     # EOD sweep auto-log: Mon-Fri 4:20 PM ET — ensures track record is populated without
     # anyone needing to visit the tab.  Busts the cache then calls the route directly.
     def _auto_log_eod_sweeps():
+        if not _intraday_scan_allowed():
+            return
         try:
             if hasattr(app, "_eod_sweeps_cache"):
                 app._eod_sweeps_cache    = None
@@ -1488,6 +1538,8 @@ try:
     # Conviction calls snapshot: 4:25 PM ET — after EOD unusual-calls scans finish,
     # snapshot EXTREME+HIGH picks to DB and send email + SMS digest.
     def _run_conviction_snapshot():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_cs
             _thr_cs.Thread(target=_save_and_send_conviction_snapshot, daemon=True).start()
@@ -1501,6 +1553,8 @@ try:
     )
     # Conviction outcomes: 4:32 PM ET — fill D+1/D+3/D+5 prices for past snapshots
     def _run_conviction_outcomes():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_co
             _thr_co.Thread(target=_fill_conviction_outcomes, daemon=True).start()
@@ -1514,6 +1568,8 @@ try:
     )
     # Morning Gamma Watchlist SMS: 8:45 AM ET — yesterday's unusual calls = today's squeeze list
     def _run_morning_gamma_watchlist():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_mgw
             _thr_mgw.Thread(target=_send_morning_gamma_watchlist_sms, daemon=True).start()
@@ -1528,6 +1584,8 @@ try:
     # Intraday Gamma Pressure Scanner: every 5 min, 9:35 AM–3:30 PM ET
     # FIR > 2% = MMs are forced to buy >2% of float — deterministic squeeze signal
     def _run_gamma_pressure_job():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_gps
             _thr_gps.Thread(target=_run_gamma_pressure_scan, daemon=True).start()
@@ -1542,6 +1600,8 @@ try:
     # OI Accumulation Snapshot: 4:30 PM ET — captures final EOD OI for all tickers
     # Compared to prior day at morning SMS time to detect multi-day smart-money loading
     def _run_oi_snapshot_job():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_ois
             _thr_ois.Thread(target=_run_oi_snapshot, daemon=True).start()
@@ -1556,6 +1616,8 @@ try:
     # Pre-market OI refresh: 8:30 AM ET — pulls fresh Barchart/Yahoo small-cap movers
     # and runs OI snapshot on them so the 9:45 AM conviction email has real squeeze candidates
     def _run_premarket_oi_refresh():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_pmoi
             _thr_pmoi.Thread(target=_run_oi_snapshot, daemon=True).start()
@@ -1570,6 +1632,8 @@ try:
     )
     # Whale + High Conviction crossover alert — every 30 min, 10 AM–3:30 PM ET
     def _run_whale_hc_cross():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_wh
             _thr_wh.Thread(target=_check_whale_hc_crossover, daemon=True).start()
@@ -1590,7 +1654,7 @@ try:
             _wday = _et_now.weekday()          # 0=Mon … 4=Fri
             _h, _m = _et_now.hour, _et_now.minute
             _mins = _h * 60 + _m
-            if _wday > 4 or _mins < 570 or _mins > 970:   # 9:30 AM (570) – 4:10 PM (970) ET
+            if not _intraday_scan_allowed():
                 return
             print("[cache_warmer] pre-warming smart money scan…")
             _warm_result = scan_smart_money(DEFAULT_LEADERBOARD)
@@ -1639,6 +1703,8 @@ try:
     # Pre-Market (4 AM pre-market prices), Dark Pool (FINRA data published overnight),
     # Convergence (price/momentum — no live vol needed)
     def _run_early_warmer():
+        if not _intraday_scan_allowed():
+            return
         import threading as _ethr
         def _w():
             _call_route("Pre-Market", "/stock-api/premarket")
@@ -1658,6 +1724,8 @@ try:
     # Wave 3 — 11:30 AM ET: second pass with more mature intraday vol/OI
     # Wave 4 — 4:18 PM ET:  EOD — freshest data of the day after close
     def _run_options_warmer():
+        if not _intraday_scan_allowed():
+            return
         import threading as _othr
         def _w():
             _call_route("Bull Flow",      "/stock-api/bull-flow/top10",   "POST", b"{}")
@@ -1683,6 +1751,8 @@ try:
 
     # Insider outcomes: Mon-Fri 4:37 PM ET — check post-earnings prices for flagged alerts
     def _run_insider_outcomes():
+        if not _intraday_scan_allowed():
+            return
         try:
             _check_insider_outcomes()
         except Exception as e:
@@ -1697,6 +1767,8 @@ try:
     # Morning standout inflows: trimmed to 3 slots (was 9, then 4) to reduce burst.
     # 9:35 = early post-open; 10:15 = second wave; 13:00 = midday.
     def _run_morning_inflows():
+        if not _intraday_scan_allowed():
+            return
         try:
             with app.test_request_context("/stock-api/morning-inflows?bust=1"):
                 morning_inflows()
@@ -1713,6 +1785,8 @@ try:
 
     # ── Nano-cap breakout scanner — EOD + pre-market ─────────────────────
     def _run_nano_breakout():
+        if not _intraday_scan_allowed():
+            return
         try:
             import threading as _thr_nb
             _thr_nb.Thread(target=run_nano_cap_breakout_scan, daemon=True).start()
