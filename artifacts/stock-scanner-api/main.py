@@ -923,7 +923,7 @@ try:
             print(f"[scheduler] {label} scan universe: {len(_earnings)} earnings + "
                   f"{len(_movers)} movers + core = {len(_universe)} total")
             all_hits = []
-            with ThreadPoolExecutor(max_workers=8) as ex:
+            with ThreadPoolExecutor(max_workers=4) as ex:
                 futs = {ex.submit(_scan_one, t): t for t in _universe}
                 for fut in _asc(futs, timeout=180):
                     try:
@@ -1130,11 +1130,11 @@ try:
             print(f"[scheduler] top pick email error: {_e_tp}")
     _scheduler.add_job(
         _run_top_pick_email,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=50, timezone=_ET),
         id="top_pick_email",
         replace_existing=True,
     )
-    # SMS alert scan: single 9:45 AM slot (was 9:35, 9:40, 9:45) to reduce burst.
+    # SMS alert scan: 9:55 AM (staggered from 9:45 to give morning_scan a clear 10-min head start).
     # Only fires on green SPY days — red days historically lose money regardless of signal quality.
     def _run_sms_alert_scan():
         try:
@@ -1144,7 +1144,7 @@ try:
             print(f"[scheduler] sms alert scan error: {_e_sms}")
     _scheduler.add_job(
         _run_sms_alert_scan,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=55, timezone=_ET),
         id="sms_alert_scan",
         replace_existing=True,
     )
