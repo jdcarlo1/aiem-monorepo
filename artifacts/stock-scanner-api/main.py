@@ -5275,133 +5275,103 @@ def _run_sc_morning_ranking():
                     conviction += _SC_DOUBLE_BONUS
                 conviction = int(round(max(0.0, min(100.0, conviction))))
 
-                # ============ STEALTH BREAKOUT SCORING (v1) ============
-                # Based on June 18 pattern analysis: 30 small-cap runners that were
-                # up 7-28% all shared the same pre-breakout signature.
+                # ============ PRECOIL SCORE (same-day predictor) ============
+                # PreCoil predicts the probability of a SAME-DAY intraday move
+                # by recombining the existing signals into a new formula.
                 #
-                # The pattern: NEAR 20-DAY HIGHS (96% >= 70%), MILD GAP (avg 0.2%),
-                # LOW VOLUME (1.2x avg), POSITIVE MOMENTUM (79%), STEADINESS (89%).
-                # The real move happens AFTER 9:45 AM — not an explosive open.
+                # The existing score (conviction) is optimized for multi-day accumulation.
+                # PreCoil is optimized for: "will this move today?"
                 #
-                # This is the OPPOSITE of what retail scanners look for. We're
-                # buying the coiled spring, not the explosion.
+                # Key insight: the components that predict same-day moves are:
+                # 1. Momentum (mom10) — strongest predictor
+                # 2. Accumulation (accum_pts) — smart money is already in
+                # 3. Options activity (opt_pts) — the catalyst
+                # 4. Near 20-day high — breakout setup
+                # 5. Gap — overnight sentiment
 
-                # 1. NEAR-HIGH POSITION (0-30 points) — THE MOST IMPORTANT
-                near_high_pts = 0.0
-                if   near >= 0.95:  near_high_pts = 30
-                elif near >= 0.90:  near_high_pts = 25
-                elif near >= 0.85:  near_high_pts = 20
-                elif near >= 0.80:  near_high_pts = 15
-                elif near >= 0.70:  near_high_pts = 10
-                elif near >= 0.60:  near_high_pts = 5
-                else:               near_high_pts = 0
+                # Compute precoil components
+                _mom_pts = 0.0
+                if   mom10 >= 20:  _mom_pts = 25
+                elif mom10 >= 15:  _mom_pts = 22
+                elif mom10 >= 10:  _mom_pts = 18
+                elif mom10 >= 5:   _mom_pts = 12
+                elif mom10 >= 0:   _mom_pts = 5
+                else:              _mom_pts = 0
 
-                # 2. GAP QUALITY (0-20 points)
-                # Small-caps need a mild gap to show interest, but not too hot
-                # Get pre-market data for gap calculation
-                gap_pct = 0.0
+                _accum_pts = 0.0
+                if   accum_pts >= 25:  _accum_pts = 20
+                elif accum_pts >= 20:  _accum_pts = 15
+                elif accum_pts >= 15:  _accum_pts = 10
+                elif accum_pts >= 10:  _accum_pts = 5
+                else:                  _accum_pts = 0
+
+                _opt_pts = 0.0
+                if   opt_pts >= 20:  _opt_pts = 20
+                elif opt_pts >= 15:  _opt_pts = 15
+                elif opt_pts >= 10:  _opt_pts = 10
+                elif opt_pts >= 5:   _opt_pts = 5
+                else:                _opt_pts = 0
+
+                _near_pts = 0.0
+                if   near >= 0.98:  _near_pts = 15
+                elif near >= 0.95:  _near_pts = 12
+                elif near >= 0.90:  _near_pts = 8
+                elif near >= 0.85:  _near_pts = 5
+                else:               _near_pts = 0
+
+                _vol_pts = 0.0
+                if   1.5 <= vtrend < 3.0:  _vol_pts = 10
+                elif 1.0 <= vtrend < 1.5:  _vol_pts = 7
+                elif 3.0 <= vtrend < 5.0:  _vol_pts = 5
+                else:                      _vol_pts = 0
+
+                _double_pts = 10.0 if double_signal else 0.0
+
+                # Gap bonus (pre-market sentiment)
+                _gap_pct = 0.0
                 try:
                     pm = tk.history(period="2d", interval="1d")
                     if pm is not None and len(pm) >= 2:
-                        prev_close = float(pm["Close"].iloc[-2])
-                        if prev_close > 0:
-                            gap_pct = (price - prev_close) / prev_close * 100
+                        prev_close_pm = float(pm["Close"].iloc[-2])
+                        if prev_close_pm > 0:
+                            _gap_pct = (price - prev_close_pm) / prev_close_pm * 100
                 except:
                     pass
-                
-                gap_pts = 0.0
-                if   0.5 <= gap_pct < 3.0:   gap_pts = 20
-                elif 3.0 <= gap_pct < 5.0:   gap_pts = 15
-                elif 5.0 <= gap_pct < 8.0:   gap_pts = 10
-                elif gap_pct >= 8.0:         gap_pts = 5
-                elif 0.0 <= gap_pct < 0.5:   gap_pts = 10
-                else:                          gap_pts = 0
 
-                # 3. STEADINESS (0-20 points) — consistent trend wins
-                # Based on 20-day smoothness (Sharpe-like)
-                if rets:
-                    avg_r = sum(rets) / len(rets)
-                    sd = _st.pstdev(rets) if len(rets) > 1 else abs(avg_r)
-                    if avg_r > 0 and sd > 0:
-                        sharpe = avg_r / sd
-                        if   sharpe >= 1.0:   steady_pts = 20
-                        elif sharpe >= 0.7:   steady_pts = 15
-                        elif sharpe >= 0.4:   steady_pts = 10
-                        elif sharpe >= 0.2:   steady_pts = 5
-                        else:                 steady_pts = 0
-                    elif avg_r > 0:
-                        steady_pts = 5
-                    else:
-                        steady_pts = 0
+                _gap_pts = 0.0
+                if   2.0 <= _gap_pct < 8.0:  _gap_pts = 8
+                elif 0.0 <= _gap_pct < 2.0:  _gap_pts = 5
+                elif _gap_pct < 0:           _gap_pts = 3
+                else:                        _gap_pts = 0
+
+                # Risk penalty
+                _risk = 0.0
+                if _gap_pct >= 15:           _risk += 15
+                elif _gap_pct >= 10:         _risk += 8
+                if range20 > 100:            _risk += 10
+                elif range20 > 80:           _risk += 5
+                if mom10 >= 40:              _risk += 5
+                if vtrend >= 5:              _risk += 3
+
+                # Total PreCoil score
+                precoil_score = (_mom_pts + _accum_pts + _opt_pts + _near_pts +
+                                 _vol_pts + _double_pts + _gap_pts - _risk)
+                precoil_score = int(round(max(0.0, min(100.0, precoil_score))))
+
+                # PreCoil grade
+                if precoil_score >= 65:
+                    precoil_grade = "STRONG"
+                elif precoil_score >= 45:
+                    precoil_grade = "WATCH"
                 else:
-                    steady_pts = 0
+                    precoil_grade = "SKIP"
 
-                # 4. VOLUME CLARITY (0-15 points) — STEALTH is the key
-                # We want LOW volume, not high volume (opposite of everything)
-                if   0.8 <= vtrend < 1.5:  vol_pts = 15  # Quiet — perfect
-                elif 1.5 <= vtrend < 2.0:  vol_pts = 10  # Slight uptick
-                elif 2.0 <= vtrend < 3.0:  vol_pts = 5   # Getting noticed
-                elif vtrend >= 3.0:        vol_pts = 0   # Too hot
-                elif vtrend < 0.8:        vol_pts = 5   # Very quiet
-                else:                      vol_pts = 0
-
-                # 5. MOMENTUM (0-15 points)
-                if   mom10 >= 10:    mom_pts = 15
-                elif mom10 >= 5:     mom_pts = 10
-                elif mom10 >= 2:     mom_pts = 5
-                elif mom10 >= 0:     mom_pts = 2
-                else:                mom_pts = 0
-
-                # 6. OPTIONS ACTIVITY (0-20 points) — bonus, not required
-                om = opt_map.get(ticker.upper())
-                opt_pts = 0.0
-                if om:
-                    vol_oi = float(om.get("vol_oi_ratio", 0) or 0)
-                    if   vol_oi >= 3.0:  opt_pts = 20
-                    elif vol_oi >= 2.0:  opt_pts = 15
-                    elif vol_oi >= 1.5:  opt_pts = 10
-                    elif vol_oi >= 1.0:  opt_pts = 5
-
-                # 7. DOUBLE SIGNAL (0-10 points) — EOD accumulation + morning strength
-                ds = double_map.get(ticker.upper())
-                double_signal = ds is not None
-                eod_accum_score = float(ds) if ds is not None else None
-                double_pts = 10 if double_signal else 0
-
-                # Calculate base score
-                stealth_score = (near_high_pts + gap_pts + steady_pts +
-                                vol_pts + mom_pts + opt_pts + double_pts)
-
-                # RISK PENALTY (subtract from total)
-                # These are the things that break the stealth pattern
-                risk_penalty = 0.0
-                if gap_pct >= 10:           risk_penalty += 15
-                elif gap_pct >= 8:          risk_penalty += 10
-                elif gap_pct >= 5:           risk_penalty += 5
-                if vtrend >= 5.0:           risk_penalty += 10
-                elif vtrend >= 3.0:          risk_penalty += 5
-                if mom10 >= 20:             risk_penalty += 10
-                elif mom10 >= 15:            risk_penalty += 5
-                # 20-day range > 100% = too volatile
-                low20 = min(lows[-20:]) if len(lows) >= 20 else min(lows)
-                range20 = ((high20 - low20) / low20 * 100) if low20 > 0 else 0
-                if range20 > 100:           risk_penalty += 10
-                elif range20 > 80:           risk_penalty += 5
-
-                # Final score
-                stealth_score = max(0.0, min(100.0, stealth_score - risk_penalty))
-                conviction = int(round(stealth_score))
-
-                # GRADES
-                if stealth_score >= 70:
-                    grade = "STRONG"
-                elif stealth_score >= 50:
-                    grade = "WATCH"
-                else:
-                    grade = "SKIP"
-
-                # RISKY flag — extreme characteristics
-                risky = (gap_pct >= 15 or vtrend >= 10 or mom10 >= 30 or range20 > 150)
+                # Keep the existing conviction score too
+                # (the multi-day accumulation score)
+                conviction = accum_pts + opt_pts + vol_pts + mom_pts + steady_pts
+                if double_signal:
+                    conviction += _SC_DOUBLE_BONUS
+                conviction = int(round(max(0.0, min(100.0, conviction))))
 
                 mcap_m = 0.0
                 try:
@@ -5413,22 +5383,26 @@ def _run_sc_morning_ranking():
                 return {
                     "ticker": ticker, "conviction": conviction, "price": round(price, 4),
                     "mcap_m": mcap_m, "avg_vol": int(vol20),
-                    "stealth_score": round(stealth_score, 1),
-                    "grade": grade, "risky": risky,
-                    "near_high_pts": round(near_high_pts, 1),
-                    "gap_pts": round(gap_pts, 1),
-                    "steady_pts": round(steady_pts, 1),
-                    "vol_pts": round(vol_pts, 1),
-                    "mom_pts": round(mom_pts, 1),
-                    "opt_pts": round(opt_pts, 1),
-                    "double_pts": round(double_pts, 1),
-                    "risk_penalty": round(risk_penalty, 1),
-                    "gap_pct": round(gap_pct, 2),
-                    "near_high": round(near, 3),
-                    "mom10": round(mom10, 1),
-                    "vtrend": round(vtrend, 2),
+                    "accum_pts": round(accum_pts, 1), "steady_pts": round(steady_pts, 1),
+                    "vol_pts": round(float(vol_pts), 1), "mom_pts": round(mom_pts, 1),
+                    "opt_pts": round(opt_pts, 1), "net_flow_m": round(net_flow / 1e6, 2),
+                    "up_days": up_days, "flow_ratio": round(flow_ratio, 3),
+                    "vtrend": round(vtrend, 2), "near_high": round(near, 3),
+                    "mom10": round(mom10, 1), "up_ratio": round(up_ratio, 2),
+                    "steady": round(steady, 3), "double_signal": double_signal,
+                    "eod_accum_score": eod_accum_score,
+                    "precoil_score": precoil_score,
+                    "precoil_grade": precoil_grade,
+                    "precoil_mom_pts": round(_mom_pts, 1),
+                    "precoil_accum_pts": round(_accum_pts, 1),
+                    "precoil_opt_pts": round(_opt_pts, 1),
+                    "precoil_near_pts": round(_near_pts, 1),
+                    "precoil_vol_pts": round(_vol_pts, 1),
+                    "precoil_double_pts": round(_double_pts, 1),
+                    "precoil_gap_pts": round(_gap_pts, 1),
+                    "precoil_risk": round(_risk, 1),
+                    "gap_pct": round(_gap_pct, 2),
                     "range20": round(range20, 1),
-                    "double_signal": double_signal, "eod_accum_score": eod_accum_score,
                     "opt": (om or None),
                 }
             except Exception:
@@ -5468,8 +5442,9 @@ def _run_sc_morning_ranking():
                     INSERT INTO sc_morning_candidates
                       (snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
                        accum_pts, steady_pts, vol_pts, mom_pts, opt_pts, net_flow_m,
-                       up_days, double_signal, eod_accum_score, meta, universe_count)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       up_days, double_signal, eod_accum_score, meta, universe_count,
+                       precoil_score, precoil_grade)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (snap_date, ticker) DO UPDATE SET
                       rank=EXCLUDED.rank, conviction=EXCLUDED.conviction,
                       price=EXCLUDED.price, mcap_m=EXCLUDED.mcap_m, avg_vol=EXCLUDED.avg_vol,
@@ -5477,11 +5452,13 @@ def _run_sc_morning_ranking():
                       vol_pts=EXCLUDED.vol_pts, mom_pts=EXCLUDED.mom_pts, opt_pts=EXCLUDED.opt_pts,
                       net_flow_m=EXCLUDED.net_flow_m, up_days=EXCLUDED.up_days,
                       double_signal=EXCLUDED.double_signal, eod_accum_score=EXCLUDED.eod_accum_score,
-                      meta=EXCLUDED.meta, universe_count=EXCLUDED.universe_count
+                      meta=EXCLUDED.meta, universe_count=EXCLUDED.universe_count,
+                      precoil_score=EXCLUDED.precoil_score, precoil_grade=EXCLUDED.precoil_grade
                 """, (snap, r["ticker"], i, r["conviction"], r["price"], r["mcap_m"],
                       r["avg_vol"], r["accum_pts"], r["steady_pts"], r["vol_pts"],
                       r["mom_pts"], r["opt_pts"], r["net_flow_m"], r["up_days"],
-                      r["double_signal"], r["eod_accum_score"], _json.dumps(r), ucount))
+                      r["double_signal"], r["eod_accum_score"], _json.dumps(r), ucount,
+                      r.get("precoil_score", 0), r.get("precoil_grade", "SKIP")))
             c.commit()
         dcount = sum(1 for r in results if r["double_signal"])
         print(f"[sc_morning] ranked {len(results)}/{ucount} candidates for {snap} "
@@ -6010,7 +5987,8 @@ def sc_morning_candidates():
             cur.execute("""
                 SELECT snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
                        accum_pts, steady_pts, vol_pts, mom_pts, opt_pts, net_flow_m,
-                       up_days, double_signal, eod_accum_score, universe_count, meta
+                       up_days, double_signal, eod_accum_score, universe_count, meta,
+                       precoil_score, precoil_grade
                 FROM sc_morning_candidates
                 WHERE snap_date = (SELECT MAX(snap_date) FROM sc_morning_candidates)
                 ORDER BY rank ASC
