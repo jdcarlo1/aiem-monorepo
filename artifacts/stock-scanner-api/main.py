@@ -10904,7 +10904,13 @@ def _refresh_spy_1y_cache():
     except Exception as _e:
         print(f"[spy_cache] refresh error: {_e}")
 
-_refresh_spy_1y_cache()
+# Background thread — fetching 1y of SPY data from Yahoo can take 10-30s in
+# production on a cold start. Running it synchronously here blocks Flask from
+# binding to its port and causes every health-check to return 500 until it
+# finishes. The cache starts empty (None) and fills within a few seconds; any
+# endpoint that needs it already guards for None.
+import threading as _spy_cache_thr
+_spy_cache_thr.Thread(target=_refresh_spy_1y_cache, daemon=True).start()
 
 
 def _save_daily_vol_snapshot():
