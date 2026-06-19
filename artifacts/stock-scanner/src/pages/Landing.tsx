@@ -232,6 +232,28 @@ export default function Landing() {
             <span style={{ color: "#4ade80", textShadow: "0 0 160px rgba(74,222,128,0.5)" }}>We show the pattern.</span>
           </h1>
 
+          {/* ── PROPRIETARY SIGNAL STRIP ── */}
+          <div className="mb-10">
+            <p className="text-slate-500 text-xs uppercase tracking-widest font-bold mb-4">6 signals you won't find on any other platform</p>
+            <div className="flex flex-wrap justify-center gap-3">
+              {[
+                { code: "FIR", label: "Float Impact Ratio", desc: "Forces MMs to buy", color: "#4ade80", glow: "34,197,94" },
+                { code: "CHARM Δ", label: "Charm Acceleration", desc: "Time-powered squeeze", color: "#60a5fa", glow: "96,165,250" },
+                { code: "GEX", label: "Dealer Gamma Exposure", desc: "Breakout amplifier", color: "#a78bfa", glow: "167,139,250" },
+                { code: "OI BUILD", label: "Consecutive OI Buildup", desc: "10 days = someone knows", color: "#fbbf24", glow: "251,191,36" },
+                { code: "SMP 8-LAYER", label: "Smart Money Pressure", desc: "8 forces converging", color: "#fb923c", glow: "251,146,60" },
+                { code: "CONV-STACK", label: "Conviction Stack 0–16", desc: "≥8 = ELITE threshold", color: "#34d399", glow: "52,211,153" },
+              ].map(sig => (
+                <div key={sig.code} className="flex items-center gap-2 px-4 py-2.5 rounded-xl" style={{ background: `rgba(${sig.glow},0.07)`, border: `1px solid rgba(${sig.glow},0.3)` }}>
+                  <span className="font-black text-sm" style={{ color: sig.color, fontFamily: "monospace", letterSpacing: "0.04em" }}>{sig.code}</span>
+                  <span className="text-slate-500 text-xs hidden sm:inline">·</span>
+                  <span className="text-slate-400 text-xs hidden sm:inline">{sig.desc}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-slate-600 text-xs mt-3 italic">Unusual Whales doesn't have these. FlowAlgo doesn't. BlackBox doesn't. No one does.</p>
+          </div>
+
           <p className="mx-auto mb-6 text-slate-300" style={{ fontSize: "clamp(1.1rem,2.5vw,1.4rem)", maxWidth: "680px", lineHeight: 1.75 }}>
             Right now there's a stock where OI has been quietly building for 4 days. Gamma pressure is mathematically locked in. A far-OTM sweep just fired. Dark pool printed $2M overnight. Shorts are trapped. The sector is rotating in. That's 6 of 8 signals converging on the same name — and Unusual Whales is showing you only the sweep. FlowAlgo only the flow. <strong className="text-white">Nobody is showing you the convergence.</strong> StockScanner AI reads all 73 data points simultaneously, scores every ticker across 8 independent signals, and outputs 5 ELITE trade setups every morning — with strike, expiry, and a full written thesis — before the move starts.
           </p>
