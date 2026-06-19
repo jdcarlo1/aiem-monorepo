@@ -17761,8 +17761,10 @@ def ai_short_calls():
                         SELECT
                             ticker,
                             MAX(ROUND(
-                                (oi * 100.0 * GREATEST(0, 20.0 - ABS(otm_pct)))
-                                / (GREATEST(1, days_out) * 10.0)
+                                (
+                                    (oi * 100.0 * GREATEST(0, 20.0 - ABS(otm_pct)))
+                                    / (GREATEST(1, days_out) * 10.0)
+                                )::NUMERIC
                             , 1)) AS charm_score,
                             MIN(days_out) AS nearest_days
                         FROM oi_daily_snapshot
@@ -18923,77 +18925,103 @@ def sector_rotation():
 @app.route("/stock-api/squeeze-setup", methods=["GET"])
 def squeeze_setup():
     """High-conviction short squeeze + low-float breakout scanner."""
-    import yfinance as yf
+    import threading as _sq_thr
     from datetime import datetime as _sq_dt
 
     _cache = getattr(app, "_sq_cache", None)
     _ts    = getattr(app, "_sq_cache_ts", None)
-    if _cache and _ts and (_sq_dt.now() - _ts).total_seconds() < 900:
+    _fresh = _cache and _ts and (_sq_dt.now() - _ts).total_seconds() < 900
+
+    if _fresh:
         return jsonify(_cache)
 
-    results = []
-
-    def _scan_sq(ticker):
+    # Return stale cache immediately while background thread refreshes
+    def _bg_sq():
+        if getattr(app, "_sq_scanning", False):
+            return
+        app._sq_scanning = True
         try:
-            tkr  = yf.Ticker(ticker)
-            fi   = tkr.fast_info
-            info = tkr.info
+            import yfinance as yf
+            results = []
 
-            price = float(getattr(fi, "last_price", 0) or 0)
-            if price <= 0:
-                return None
+            def _scan_sq(ticker):
+                try:
+                    if not _yahoo_breaker.allow():
+                        return None
+                    tkr  = yf.Ticker(ticker)
+                    fi   = tkr.fast_info
+                    info = tkr.info
 
-            sfp     = float(info.get("shortPercentOfFloat", 0) or 0) * 100
-            dtc     = float(info.get("shortRatio",          0) or 0)
-            float_sh = float(info.get("floatShares",        0) or 0)
-            mkt_cap  = float(info.get("marketCap",          0) or 0) or float(getattr(fi, "market_cap", 0) or 0)
-            mkt_cap_b = round(mkt_cap / 1e9, 2) if mkt_cap else None
+                    price = float(getattr(fi, "last_price", 0) or 0)
+                    if price <= 0:
+                        return None
 
-            avg_vol   = float(getattr(fi, "three_month_average_volume", 1) or 1)
-            today_vol = float(getattr(fi, "last_volume", 0) or 0)
-            rel_vol   = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
+                    sfp      = float(info.get("shortPercentOfFloat", 0) or 0) * 100
+                    dtc      = float(info.get("shortRatio",          0) or 0)
+                    float_sh = float(info.get("floatShares",         0) or 0)
+                    mkt_cap  = float(info.get("marketCap",           0) or 0) or float(getattr(fi, "market_cap", 0) or 0)
+                    mkt_cap_b = round(mkt_cap / 1e9, 2) if mkt_cap else None
 
-            vol_pct_float = round(today_vol / float_sh * 100, 2) if float_sh > 0 else None
-            float_m       = round(float_sh / 1e6, 2) if float_sh > 0 else None
+                    avg_vol   = float(getattr(fi, "three_month_average_volume", 1) or 1)
+                    today_vol = float(getattr(fi, "last_volume", 0) or 0)
+                    rel_vol   = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
 
-            is_squeeze   = sfp >= 15 and dtc >= 5
-            is_low_float = float_m is not None and float_m <= 20 and (vol_pct_float or 0) >= 8
+                    vol_pct_float = round(today_vol / float_sh * 100, 2) if float_sh > 0 else None
+                    float_m       = round(float_sh / 1e6, 2) if float_sh > 0 else None
 
-            if not is_squeeze and not is_low_float:
-                return None
+                    is_squeeze   = sfp >= 15 and dtc >= 5
+                    is_low_float = float_m is not None and float_m <= 20 and (vol_pct_float or 0) >= 8
 
-            signal_type = "BOTH" if (is_squeeze and is_low_float) else ("SQUEEZE" if is_squeeze else "LOW_FLOAT")
-            sq_comp  = min(sfp * dtc, 200)      if is_squeeze   else 0
-            lf_comp  = min((vol_pct_float or 0) * rel_vol * 5, 200) if is_low_float else 0
-            score    = round(sq_comp + lf_comp, 1)
+                    if not is_squeeze and not is_low_float:
+                        return None
 
-            return {
-                "ticker":          ticker,
-                "price":           round(price, 2),
-                "signal_type":     signal_type,
-                "short_float_pct": round(sfp, 1),
-                "days_to_cover":   round(dtc, 1),
-                "float_m":         float_m,
-                "vol_pct_float":   vol_pct_float,
-                "rel_vol":         rel_vol,
-                "mkt_cap_b":       mkt_cap_b,
-                "score":           score,
-            }
-        except Exception:
-            return None
+                    signal_type = "BOTH" if (is_squeeze and is_low_float) else ("SQUEEZE" if is_squeeze else "LOW_FLOAT")
+                    sq_comp = min(sfp * dtc, 200)      if is_squeeze   else 0
+                    lf_comp = min((vol_pct_float or 0) * rel_vol * 5, 200) if is_low_float else 0
+                    score   = round(sq_comp + lf_comp, 1)
 
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {ex.submit(_scan_sq, t): t for t in DEFAULT_LEADERBOARD}
-        for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                results.append(r)
+                    _yahoo_breaker.record_success()
+                    return {
+                        "ticker":          ticker,
+                        "price":           round(price, 2),
+                        "signal_type":     signal_type,
+                        "short_float_pct": round(sfp, 1),
+                        "days_to_cover":   round(dtc, 1),
+                        "float_m":         float_m,
+                        "vol_pct_float":   vol_pct_float,
+                        "rel_vol":         rel_vol,
+                        "mkt_cap_b":       mkt_cap_b,
+                        "score":           score,
+                    }
+                except Exception as _e:
+                    err = str(_e).lower()
+                    if any(x in err for x in ["401", "crumb", "unauthorized", "429", "rate"]):
+                        _yahoo_breaker.record_failure()
+                    return None
 
-    results.sort(key=lambda x: x["score"], reverse=True)
-    out = {"setups": results[:40], "total": len(results), "scanned": len(DEFAULT_LEADERBOARD)}
-    app._sq_cache    = out
-    app._sq_cache_ts = _sq_dt.now()
-    return jsonify(out)
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                futures = {ex.submit(_scan_sq, t): t for t in DEFAULT_LEADERBOARD}
+                for fut in as_completed(futures):
+                    r = fut.result()
+                    if r:
+                        results.append(r)
+
+            results.sort(key=lambda x: x["score"], reverse=True)
+            out = {"setups": results[:40], "total": len(results), "scanned": len(DEFAULT_LEADERBOARD)}
+            app._sq_cache    = out
+            app._sq_cache_ts = _sq_dt.now()
+        except Exception as _bge:
+            print(f"[squeeze_setup] bg scan error: {_bge}", file=_sys.stderr)
+        finally:
+            app._sq_scanning = False
+
+    _sq_thr.Thread(target=_bg_sq, daemon=True).start()
+
+    if _cache:
+        stale = dict(_cache)
+        stale["stale"] = True
+        return jsonify(stale)
+    return jsonify({"setups": [], "total": 0, "scanned": 0, "generating": True})
 
 
 @app.route("/stock-api/squeeze-setup/ai-signal", methods=["POST"])
