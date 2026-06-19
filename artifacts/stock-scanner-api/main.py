@@ -833,11 +833,15 @@ try:
     # coalesce + max_instances=1 stop the same job stacking; misfire_grace_time lets
     # a delayed job still run instead of being skipped after 1 second.
     from apscheduler.executors.pool import ThreadPoolExecutor as _APThreadPool
+    from datetime import datetime as _dt_sched, timedelta as _td_sched
     _scheduler = BackgroundScheduler(
         timezone=_ET,
         executors={"default": _APThreadPool(max_workers=4)},
         job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 600},
     )
+    # Delay first run of all "interval" jobs by 3 min so they don't burst-compete
+    # with Flask startup + health checks right after a restart or fresh deploy.
+    _sched_start_delay = _dt_sched.now(_ET) + _td_sched(minutes=3)
     # Pre-market: Mon-Fri 9:00 AM ET  (overnight OI — who loaded up positions yesterday)
     _scheduler.add_job(
         _run_premarket_scan,
@@ -1179,6 +1183,7 @@ try:
         _run_exit_alert_scan,
         "interval",
         minutes=15,
+        start_date=_sched_start_delay,
         id="exit_alert_scan",
         replace_existing=True,
     )
@@ -1196,6 +1201,7 @@ try:
         _run_midday_breakout_scan,
         "interval",
         minutes=5,
+        start_date=_sched_start_delay,
         id="midday_breakout_scan",
         replace_existing=True,
     )
@@ -1213,6 +1219,7 @@ try:
         _run_gap_recovery_scan,
         "interval",
         minutes=5,
+        start_date=_sched_start_delay,
         id="gap_recovery_scan",
         replace_existing=True,
     )
@@ -1232,6 +1239,7 @@ try:
         _run_steady_grinder_scan,
         "interval",
         minutes=30,
+        start_date=_sched_start_delay,
         id="steady_grinder_scan",
         replace_existing=True,
     )
@@ -1249,6 +1257,7 @@ try:
         _run_vwap_reclaim_scan,
         "interval",
         minutes=5,
+        start_date=_sched_start_delay,
         id="vwap_reclaim_scan",
         replace_existing=True,
     )
@@ -1266,6 +1275,7 @@ try:
         _run_call_sweep_scan,
         "interval",
         minutes=15,
+        start_date=_sched_start_delay,
         id="call_sweep_scan",
         replace_existing=True,
     )
@@ -1584,6 +1594,7 @@ try:
         _warm_sm_cache,
         "interval",
         minutes=15,
+        start_date=_sched_start_delay,
         id="sm_cache_warmer",
         replace_existing=True,
     )
@@ -22037,7 +22048,12 @@ def nano_watchlist():
         return jsonify({"error": str(_e), "watchlist": []}), 500
 
 
-_startup_scan_if_needed()
+# Run startup DB check in the background so Flask binds to its port immediately.
+# Without this, the synchronous DB query here blocks app.run() by several seconds,
+# causing the production health-check to time out and SIGTERM the process on every
+# fresh deploy (e.g. after publishing the NCLEX site on the same VM).
+import threading as _startup_thr
+_startup_thr.Thread(target=_startup_scan_if_needed, daemon=True).start()
 
 
 @app.route("/stock-api/composite-scan/trigger", methods=["POST"])
