@@ -17744,16 +17744,20 @@ Return a JSON array of exactly 20 objects. Sort by conviction (HIGH first). JSON
             app._aisc_scanning = False
 
     # Single-flight: force always restarts; normal load skips if already running
-    if force or not getattr(app, "_aisc_scanning", False):
+    _scanning = getattr(app, "_aisc_scanning", False)
+    if force or not _scanning:
         app._aisc_scanning = True
+        _scanning = True
         import threading as _aisc_thr
         _aisc_thr.Thread(target=_bg_aisc, daemon=True).start()
 
-    # Return best available data immediately — never block on the AI call
+    # Return best available data immediately — never block on the AI call.
+    # Always include "generating" while the bg thread is live so the frontend
+    # keeps polling every 15s until fresh picks land.
     if _cache:
-        return jsonify({**_cache, "generating": True} if force else _cache)
+        return jsonify({**_cache, "generating": True} if _scanning else _cache)
     if _db_picks:
-        return jsonify({**_db_picks, "stale": True})
+        return jsonify({**_db_picks, "stale": True, "generating": _scanning})
     return jsonify({"picks": [], "generated_at": None, "signals_evaluated": 0, "generating": True})
 
 

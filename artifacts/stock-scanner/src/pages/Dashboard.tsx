@@ -3908,12 +3908,8 @@ function AIShortCallsTab() {
         setPicks(newPicks);
         setGeneratedAt(d.generated_at);
         setSignalsEvaluated(d.signals_evaluated || 0);
-        // Server is running AI in background — poll until picks arrive
-        if (d.generating && newPicks.length === 0) {
-          setBgGenerating(true);
-        } else {
-          setBgGenerating(false);
-        }
+        // Server is running AI in background — poll until fresh picks land
+        setBgGenerating(!!d.generating);
       }
     } catch (e: any) {
       setError(e.message || "Request failed");
@@ -3957,10 +3953,10 @@ function AIShortCallsTab() {
         </div>
         <button
           onClick={() => run(true)}
-          disabled={loading}
-          style={{ fontSize: 10, fontFamily: BB_FONT, background: loading ? "#111" : BB_ORANGE, color: loading ? BB_DIM : "#000", border: "none", borderRadius: 3, padding: "5px 12px", cursor: loading ? "default" : "pointer", fontWeight: 700 }}
+          disabled={loading || bgGenerating}
+          style={{ fontSize: 10, fontFamily: BB_FONT, background: (loading || bgGenerating) ? "#111" : BB_ORANGE, color: (loading || bgGenerating) ? BB_DIM : "#000", border: "none", borderRadius: 3, padding: "5px 12px", cursor: (loading || bgGenerating) ? "default" : "pointer", fontWeight: 700 }}
         >
-          {loading ? "GENERATING…" : "↻ REGENERATE"}
+          {loading ? "GENERATING…" : bgGenerating ? "⟳ REFRESHING…" : "↻ REGENERATE"}
         </button>
       </div>
 
