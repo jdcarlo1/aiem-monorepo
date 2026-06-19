@@ -17,11 +17,11 @@ description: How the affiliate payout logic is structured — important for avoi
 - `artifacts/api-server/src/webhookHandlers.ts` — `sendAffiliateTransfer()` helper + payout logic
 - `artifacts/api-server/src/routes/stripe.ts` — referralCode validated + stored on session at checkout
 - `artifacts/nclex-prep/src/pages/admin-affiliates.tsx` — admin UI at /admin/affiliates
-- `artifacts/nclex-prep/src/pages/paywall.tsx` — referral code input + ?ref=CODE URL param auto-fill
+- `artifacts/nclex-prep/src/pages/paywall.tsx` — referral code input always visible + ?ref=CODE URL param auto-fill
 
 ## Admin access
-URL: /admin/affiliates  
-Password: stored as ADMIN_SECRET constant in both frontend and backend (`nclexai-admin-2026`)
+URL: /admin/affiliates
+Auth: password typed by admin at login; validated server-side against ADMIN_TOKEN env secret (never hardcoded)
 
 ## Stripe Connect
 - Express accounts (fastest onboarding)

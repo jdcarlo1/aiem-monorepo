@@ -224,7 +224,8 @@ router.post("/stripe/restore-access", async (req, res) => {
 
 router.post("/admin/seed-questions", async (req, res) => {
   const secret = req.headers["x-admin-secret"];
-  if (secret !== "nclexai-admin-2026") {
+  const expected = process.env.ADMIN_TOKEN;
+  if (!expected || secret !== expected) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -260,7 +261,8 @@ router.post("/admin/seed-questions", async (req, res) => {
 
 router.post("/admin/fix-sessions", async (req, res) => {
   const secret = req.headers["x-admin-secret"];
-  if (secret !== "nclexai-admin-2026") {
+  const expected = process.env.ADMIN_TOKEN;
+  if (!expected || secret !== expected) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -359,7 +361,8 @@ router.post("/stock-scanner/manage", async (req, res) => {
 
 router.post("/admin/activate-sessions", async (req, res) => {
   const secret = req.headers["x-admin-secret"];
-  if (secret !== "nclexai-admin-2026") {
+  const expected = process.env.ADMIN_TOKEN;
+  if (!expected || secret !== expected) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }

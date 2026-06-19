@@ -2,8 +2,6 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Brain, Copy, Check, RefreshCw, ExternalLink, Users, Plus } from "lucide-react";
 
-const ADMIN_SECRET = "nclexai-admin-2026";
-
 interface Affiliate {
   id: number;
   code: string;
@@ -40,6 +38,7 @@ function CopyButton({ value }: { value: string }) {
 export default function AdminAffiliates() {
   const [authed, setAuthed] = useState(false);
   const [secretInput, setSecretInput] = useState("");
+  const [adminToken, setAdminToken] = useState("");
   const [affiliates, setAffiliates] = useState<Affiliate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,13 +52,13 @@ export default function AdminAffiliates() {
   const [refreshLinks, setRefreshLinks] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState<string | null>(null);
 
-  const headers = { "Content-Type": "application/json", "x-admin-secret": ADMIN_SECRET };
+  const headers = (token: string) => ({ "Content-Type": "application/json", "x-admin-secret": token });
 
-  const load = async () => {
+  const load = async (token = adminToken) => {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch("/api/admin/affiliates", { headers });
+      const r = await fetch("/api/admin/affiliates", { headers: headers(token) });
       if (!r.ok) { setError("Failed to load affiliates"); return; }
       const data = await r.json();
       setAffiliates(data.affiliates ?? []);
@@ -72,9 +71,21 @@ export default function AdminAffiliates() {
 
   useEffect(() => { if (authed) load(); }, [authed]);
 
-  const handleAuth = () => {
-    if (secretInput === ADMIN_SECRET) setAuthed(true);
-    else setError("Wrong password");
+  const handleAuth = async () => {
+    setError(null);
+    try {
+      const r = await fetch("/api/admin/affiliates", { headers: headers(secretInput) });
+      if (r.ok) {
+        setAdminToken(secretInput);
+        const data = await r.json();
+        setAffiliates(data.affiliates ?? []);
+        setAuthed(true);
+      } else {
+        setError("Wrong password");
+      }
+    } catch {
+      setError("Network error");
+    }
   };
 
   const handleCreate = async () => {
@@ -85,7 +96,7 @@ export default function AdminAffiliates() {
     try {
       const r = await fetch("/api/admin/affiliates", {
         method: "POST",
-        headers,
+        headers: headers(adminToken),
         body: JSON.stringify({ code: newCode, name: newName, commissionPct: parseInt(newPct) }),
       });
       const data = await r.json();
@@ -103,7 +114,7 @@ export default function AdminAffiliates() {
   const handleRefreshLink = async (code: string) => {
     setRefreshing(code);
     try {
-      const r = await fetch(`/api/admin/affiliates/${code}/refresh-link`, { method: "POST", headers });
+      const r = await fetch(`/api/admin/affiliates/${code}/refresh-link`, { method: "POST", headers: headers(adminToken) });
       const data = await r.json();
       if (r.ok) setRefreshLinks(prev => ({ ...prev, [code]: data.onboardingUrl }));
     } finally {

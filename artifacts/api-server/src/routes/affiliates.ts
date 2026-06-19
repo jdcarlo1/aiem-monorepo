@@ -5,11 +5,10 @@ import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
 
-const ADMIN_SECRET = "nclexai-admin-2026";
-
 function requireAdmin(req: any, res: any): boolean {
   const secret = req.headers["x-admin-secret"];
-  if (secret !== ADMIN_SECRET) {
+  const expected = process.env.ADMIN_TOKEN;
+  if (!expected || secret !== expected) {
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }

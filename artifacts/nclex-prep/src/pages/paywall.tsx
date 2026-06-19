@@ -24,7 +24,6 @@ export default function Paywall() {
   const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
   const [autoRestoring, setAutoRestoring] = useState(false);
   const [referralCode, setReferralCode] = useState("");
-  const [showReferral, setShowReferral] = useState(false);
   const [referralValid, setReferralValid] = useState<boolean | null>(null);
   const sessionId = useSessionId();
   const [, setLocation] = useLocation();
@@ -36,7 +35,6 @@ export default function Paywall() {
     const ref = params.get("ref");
     if (ref) {
       setReferralCode(ref.toUpperCase());
-      setShowReferral(true);
     }
   }, [search]);
 
@@ -218,34 +216,28 @@ export default function Paywall() {
           </div>
         )}
 
-        {/* Referral code */}
+        {/* Referral code — always visible */}
         <div className="mb-4">
-          {!showReferral ? (
-            <button
-              onClick={() => setShowReferral(true)}
-              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground flex items-center gap-1"
-            >
-              <Tag className="w-3 h-3" /> Have a referral code?
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Enter code (e.g. JOHN50)"
-                value={referralCode}
-                onChange={e => {
-                  setReferralCode(e.target.value.toUpperCase());
-                  setReferralValid(null);
-                }}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              {referralCode && (
-                <span className="text-xs px-2 py-1 rounded-lg bg-primary/10 text-primary font-semibold">
-                  Applied
-                </span>
-              )}
-            </div>
-          )}
+          <label className="text-xs text-muted-foreground font-medium flex items-center gap-1 mb-1.5">
+            <Tag className="w-3 h-3" /> Referral code <span className="text-muted-foreground/60">(optional)</span>
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="e.g. JOHN50"
+              value={referralCode}
+              onChange={e => {
+                setReferralCode(e.target.value.toUpperCase());
+                setReferralValid(null);
+              }}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            {referralCode && (
+              <span className="text-xs px-2 py-1 rounded-lg bg-primary/10 text-primary font-semibold">
+                Applied ✓
+              </span>
+            )}
+          </div>
         </div>
 
         <p className="text-center text-xs text-muted-foreground mb-3">⭐⭐⭐⭐⭐ &nbsp;"The questions looked identical to what I saw on test day." — Sarah M., BSN · Florida</p>
