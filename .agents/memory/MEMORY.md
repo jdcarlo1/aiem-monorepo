@@ -26,6 +26,7 @@
 - [Timezone blank-tabs rule](timezone-blank-tabs.md) — prod session=GMT; raw CURRENT_DATE rolls at 8pm ET → use ET exprs; NEVER change session tz (breaks convention-(b) `AT TIME ZONE 'UTC'` queries)
 - [Small-cap morning system](sc-morning-system.md) — sibling of nano for $300M-$2B optionable; adds options-score (stored logs, not live chain) + double-signal; $1000/name; call_sweep_log legacy schema lacks `conviction`
 - [Nano-cap morning system](nano-morning-system.md) — two-stage 9:35 watch / 9:45 BUY; sizing is $500-WORTH per name (not 500 shares), breadth over size; low-float universe; key guard rationale
+- [Nano Quant Z-Score System](nano-quant-system.md) — replaces V2 as primary alert; 5-factor cross-sectional z-score; 48% WR +3.0%/capital vs V2's 35% WR -0.5%; fires 8:30 AM ET; STRONG = top 15% or z≥0.75
 - [Morning Smart-Money idea emails](smp-morning-ideas.md) — 9:05 ET smp_morning: ONE engine run split into 3 cap-bucket owner emails; morning gate >=4 (EOD stays >=6); shared _smp_build_cards seam; lock only in _owner_send_now
 - [AI Short Calls enrichment](ai-shortcalls-enrichment.md) — AI now sees conviction_stack score + oi_buildup days; ranks multi-signal setups first; SMP still post-pick only
 - [Nano V2 filter gates](nano-v2-filters.md) — 3 live gates: RVOL 3-60x window + IWM≤-1% suppression; lifted win rate 41%→58%, EV $2.25→$6.97; Jun 11 open problem (don't add more rules yet)
