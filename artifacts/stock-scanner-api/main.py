@@ -734,6 +734,31 @@ def get_conviction_stack_track_record(days: int = 120) -> dict:
     }
 
 
+def _intraday_scan_allowed() -> bool:
+    """Return True only during NYSE market hours on trading days (excl. holidays)."""
+    from datetime import datetime as _dti, date as _di
+    import pytz as _pzi
+    _US_MARKET_HOLIDAYS_2026 = frozenset({
+        _di(2026, 1, 1),   # New Year's Day
+        _di(2026, 1, 19),  # MLK Day
+        _di(2026, 2, 16),  # Presidents' Day
+        _di(2026, 4, 3),   # Good Friday
+        _di(2026, 5, 25),  # Memorial Day
+        _di(2026, 6, 19),  # Juneteenth
+        _di(2026, 7, 3),   # Independence Day (observed)
+        _di(2026, 9, 7),   # Labor Day
+        _di(2026, 11, 26), # Thanksgiving
+        _di(2026, 12, 25), # Christmas
+    })
+    _now = _dti.now(_pzi.timezone("America/New_York"))
+    if _now.weekday() > 4:
+        return False
+    if _now.date() in _US_MARKET_HOLIDAYS_2026:
+        return False
+    _mins = _now.hour * 60 + _now.minute
+    return 570 <= _mins <= 990  # 9:30 AM – 4:30 PM ET
+
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -1116,9 +1141,7 @@ try:
     )
     # Exit alert scan: every 15 min — watches stocks alerted today for VWAP breaks
     def _run_exit_alert_scan():
-        from datetime import datetime as _dtg; import pytz as _ptzg
-        _et = _dtg.now(_ptzg.timezone("America/New_York"))
-        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+        if not _intraday_scan_allowed():
             return
         try:
             import threading as _thr_exit
@@ -1135,9 +1158,7 @@ try:
     # Mid-Day Breakout scan: every 5 min 10:30 AM – 3:30 PM ET
     # Confirmed trend + above VWAP + 15-min momentum — lower risk than morning entry
     def _run_midday_breakout_scan():
-        from datetime import datetime as _dtg; import pytz as _ptzg
-        _et = _dtg.now(_ptzg.timezone("America/New_York"))
-        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+        if not _intraday_scan_allowed():
             return
         try:
             import threading as _thr_md
@@ -1154,9 +1175,7 @@ try:
     # Gap Recovery scan: every 5 min 10:30 AM – 1:00 PM ET
     # Big gapper (20%+) that sold off then reclaimed VWAP with momentum
     def _run_gap_recovery_scan():
-        from datetime import datetime as _dtg; import pytz as _ptzg
-        _et = _dtg.now(_ptzg.timezone("America/New_York"))
-        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+        if not _intraday_scan_allowed():
             return
         try:
             import threading as _thr_gr
@@ -1175,9 +1194,7 @@ try:
     # Low RVOL (1-3x) but sustained uptrend confirmed by dual 45-min trend check
     # avg vol ≥ 1M, above VWAP, within 2% of HOD, has options
     def _run_steady_grinder_scan():
-        from datetime import datetime as _dtg; import pytz as _ptzg
-        _et = _dtg.now(_ptzg.timezone("America/New_York"))
-        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+        if not _intraday_scan_allowed():
             return
         try:
             import threading as _thr_sg
@@ -1193,9 +1210,7 @@ try:
     )
     # VWAP Reclaim scan: every 5 min — immediate SMS when alerted stock reclaims VWAP
     def _run_vwap_reclaim_scan():
-        from datetime import datetime as _dtg; import pytz as _ptzg
-        _et = _dtg.now(_ptzg.timezone("America/New_York"))
-        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+        if not _intraday_scan_allowed():
             return
         try:
             import threading as _thr_vr
@@ -1213,9 +1228,7 @@ try:
 
     # Call sweep scan: every 15 min — watches alerted tickers for bullish options sweeps above VWAP
     def _run_call_sweep_scan():
-        from datetime import datetime as _dtg; import pytz as _ptzg
-        _et = _dtg.now(_ptzg.timezone("America/New_York"))
-        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+        if not _intraday_scan_allowed():
             return
         try:
             import threading as _thr_cs
