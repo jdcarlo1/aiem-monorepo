@@ -4317,6 +4317,11 @@ def _run_nano_morning_ranking():
 
                 # 3. Volume score (0-20) — 3-30x is healthy, >100x is pump
                 _rvol = (vol5 / vol20) if vol20 > 0 else 1.0
+                # Hard gate: no real volume interest = not a signal, skip entirely
+                # Backtest Jun 9-13 2026 showed low-RVOL names polluted STRONG list
+                # with 14-45% win rates; gating at 3x cuts noise without losing winners
+                if _rvol < 3.0:
+                    return None
                 _rvol_pts = 0
                 if   5 <= _rvol < 15:  _rvol_pts = 18  # good interest
                 elif 3 <= _rvol < 5:   _rvol_pts = 15  # building
@@ -4677,6 +4682,33 @@ def _send_nano_buy_email():
                 </div>""")
             print("[nano_buy] no candidates — honest empty email sent")
             return
+
+        # Market-regime gate: if IWM (small-cap ETF) is down >1% at open,
+        # nano-caps face broad headwind — suppress the buy list for the day.
+        # Backtest Jun 9-13 2026: Jun 11 was -5.1% avg, IWM was down that morning.
+        try:
+            import yfinance as _yf2
+            _iwm = _yf2.Ticker("IWM")
+            _iwm_info = _iwm.fast_info
+            _iwm_prev = float(_iwm_info.previous_close or 0)
+            _iwm_last = float(_iwm_info.last_price or 0)
+            _iwm_chg  = ((_iwm_last / _iwm_prev) - 1) * 100 if _iwm_prev > 0 else 0
+            if _iwm_chg <= -1.0:
+                send_email_raw(_OWNER_EMAIL, f"🚫 Nano buys suppressed — IWM down {_iwm_chg:.1f}% · {date_str}",
+                    f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
+                      <div style="font-size:22px;font-weight:800;color:#ef4444;">🚫 Nano Buys Suppressed</div>
+                      <div style="font-size:12px;color:#64748b;margin-top:4px;">{date_str}</div>
+                      <div style="background:#0f172a;border:1px solid #ef4444;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13px;color:#cbd5e1;">
+                        IWM is down <b style="color:#ef4444;">{_iwm_chg:.1f}%</b> at the open — broad small-cap headwind.
+                        Nano signals historically fail on down-IWM days (backtest: 14% win rate vs 57% on up days).
+                        <b style="color:#fbbf24;">Sitting out today is the right move.</b>
+                      </div>
+                    </div>""")
+                print(f"[nano_buy] IWM regime gate triggered ({_iwm_chg:.1f}%) — buy list suppressed")
+                return
+            print(f"[nano_buy] IWM regime OK ({_iwm_chg:+.1f}%) — proceeding with buys")
+        except Exception as _iwm_e:
+            print(f"[nano_buy] IWM regime check failed ({_iwm_e}) — proceeding anyway")
 
         # Only STRONG signals are buys — WATCH is too noisy, SKIP is poison.
         # Backtested Jun 17-18: STRONG avg +3.8%, zero big losers; WATCH avg -2.1%.
