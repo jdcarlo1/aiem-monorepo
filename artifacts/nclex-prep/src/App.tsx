@@ -19,6 +19,7 @@ import SignInPage from "@/pages/sign-in";
 import SignUpPage from "@/pages/sign-up";
 import Landing from "@/pages/landing";
 import Flyer from "@/pages/flyer";
+import AdminAffiliates from "@/pages/admin-affiliates";
 
 const queryClient = new QueryClient();
 
@@ -127,6 +128,7 @@ function Router() {
       <Route path="/interview-prep" component={InterviewPrep} />
       <Route path="/home" component={Home} />
       <Route path="/flyer" component={Flyer} />
+      <Route path="/admin/affiliates" component={AdminAffiliates} />
       <Route path="/sign-in/*?" component={SignInPage} />
       <Route path="/sign-up/*?" component={SignUpPage} />
       <Route component={NotFound} />

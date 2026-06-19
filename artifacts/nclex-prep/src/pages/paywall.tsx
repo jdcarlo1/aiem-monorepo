@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useSessionId } from "@/hooks/useSessionId";
 import { getPaymentEmail, setPaymentEmail } from "@/lib/session";
 import { Button } from "@/components/ui/button";
-import { Brain, Check, Lock, ShieldCheck, Zap, Loader2 } from "lucide-react";
+import { Brain, Check, Lock, ShieldCheck, Zap, Loader2, Tag } from "lucide-react";
 
 const features = [
   "Unlimited NCLEX Prep — 2,000+ questions with NGN (Next Generation NCLEX Test) formats",
@@ -23,8 +23,22 @@ export default function Paywall() {
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
   const [autoRestoring, setAutoRestoring] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+  const [showReferral, setShowReferral] = useState(false);
+  const [referralValid, setReferralValid] = useState<boolean | null>(null);
   const sessionId = useSessionId();
   const [, setLocation] = useLocation();
+  const search = useSearch();
+
+  // Auto-fill referral code from URL ?ref=CODE
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const ref = params.get("ref");
+    if (ref) {
+      setReferralCode(ref.toUpperCase());
+      setShowReferral(true);
+    }
+  }, [search]);
 
   // Auto-restore on mount if we have a stored payment email
   useEffect(() => {
@@ -85,7 +99,11 @@ export default function Paywall() {
       const resp = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, plan: selectedPlan }),
+        body: JSON.stringify({
+          sessionId,
+          plan: selectedPlan,
+          ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
+        }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -199,6 +217,36 @@ export default function Paywall() {
             {error}
           </div>
         )}
+
+        {/* Referral code */}
+        <div className="mb-4">
+          {!showReferral ? (
+            <button
+              onClick={() => setShowReferral(true)}
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground flex items-center gap-1"
+            >
+              <Tag className="w-3 h-3" /> Have a referral code?
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Enter code (e.g. JOHN50)"
+                value={referralCode}
+                onChange={e => {
+                  setReferralCode(e.target.value.toUpperCase());
+                  setReferralValid(null);
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {referralCode && (
+                <span className="text-xs px-2 py-1 rounded-lg bg-primary/10 text-primary font-semibold">
+                  Applied
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
         <p className="text-center text-xs text-muted-foreground mb-3">⭐⭐⭐⭐⭐ &nbsp;"The questions looked identical to what I saw on test day." — Sarah M., BSN · Florida</p>
 
