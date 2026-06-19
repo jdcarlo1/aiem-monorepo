@@ -17675,6 +17675,82 @@ def ai_short_calls():
                 print(f"[ai_short_calls] oi_buildup lookup error: {_oie}", file=_sys.stderr)
             # ─────────────────────────────────────────────────────────────
 
+            # 3. FIR (Float Impact Ratio) from gamma_pressure_alerts DB
+            #    FIR > 2% = market makers are mechanically forced to buy shares
+            _fir_map = {}
+            try:
+                with _psycopg2.connect(_DB_URL) as _fe, _fe.cursor() as _fc:
+                    _fc.execute("""
+                        SELECT DISTINCT ON (ticker)
+                               ticker, fir, score
+                        FROM gamma_pressure_alerts
+                        WHERE ticker = ANY(%s)
+                          AND alert_date >= (CURRENT_DATE - INTERVAL '2 days')
+                        ORDER BY ticker, alert_date DESC, alerted_at DESC
+                    """, (_unique_tickers,))
+                    for _row in _fc.fetchall():
+                        _fir_map[_row[0]] = {"fir": round(float(_row[1] or 0), 2), "score": round(float(_row[2] or 0), 1)}
+            except Exception as _fire:
+                print(f"[ai_short_calls] fir lookup error: {_fire}", file=_sys.stderr)
+
+            # 4. Multi-signal hit count from in-memory scanner caches (no yfinance, instant)
+            #    Each cache is already populated by background scans — just check membership
+            _ms_count_map = {}
+            try:
+                def _cache_tickers(attr, *keys):
+                    data = getattr(app, attr, None) or {}
+                    for k in keys:
+                        items = data.get(k)
+                        if items:
+                            return set(r.get("ticker", "") for r in items if r.get("ticker"))
+                    return set()
+
+                _dp_set   = _cache_tickers("_dp_cache",            "results")
+                _mr_set   = _cache_tickers("_mr_cache",            "runners", "results")
+                _sq_set   = _cache_tickers("_sq_cache",            "results", "hits")
+                _bf_set   = _cache_tickers("_bf_cache",            "results", "top10")
+                _wh_set   = _cache_tickers("_whale_cache",         "blocks", "results")
+                _gw_set   = _cache_tickers("_gw_cache",            "results")
+                _vc_set   = _cache_tickers("_vc_cache",            "results")
+                _oi_set   = _cache_tickers("_oi_cache",            "results")
+                _mp_map_r = {r["ticker"]: r for r in (getattr(app, "_mp_cache", None) or {}).get("results", []) if r.get("ticker") and r.get("max_pain")}
+                _ivs_cheap = set(
+                    r.get("ticker", "") for r in (getattr(app, "_ivs_cache", None) or {}).get("rows", [])
+                    if r.get("setup") == "CHEAP_OPTIONS" and r.get("ticker")
+                )
+                _cs_top25 = set(
+                    r.get("ticker", "") for r in sorted(
+                        (getattr(app, "_cs_cache", None) or {}).get("results", []),
+                        key=lambda x: x.get("score", 0), reverse=True
+                    )[:25] if r.get("ticker")
+                )
+
+                for _t in _unique_tickers:
+                    _hits_list = []
+                    if _t in _dp_set:   _hits_list.append("dark_pool")
+                    if _t in _mr_set:   _hits_list.append("morning_runner")
+                    if _t in _sq_set:   _hits_list.append("squeeze_setup")
+                    if _t in _bf_set:   _hits_list.append("bull_flow")
+                    if _t in _wh_set:   _hits_list.append("whale")
+                    if _t in _gw_set:   _hits_list.append("gamma_wall")
+                    if _t in _vc_set:   _hits_list.append("vol_crush")
+                    if _t in _oi_set:   _hits_list.append("oi_accum")
+                    if _t in _ivs_cheap: _hits_list.append("cheap_iv")
+                    if _t in _cs_top25: _hits_list.append("top_quant")
+                    _mp_r = _mp_map_r.get(_t)
+                    if _mp_r:
+                        try:
+                            _mp_val = float(_mp_r["max_pain"])
+                            _pr_val = float(_mp_r.get("price") or 0)
+                            if _pr_val > 0 and _pr_val < _mp_val * 1.03:
+                                _hits_list.append("max_pain_pull")
+                        except Exception:
+                            pass
+                    _ms_count_map[_t] = {"count": len(_hits_list), "labels": _hits_list}
+            except Exception as _mse:
+                print(f"[ai_short_calls] multi_signal cache error: {_mse}", file=_sys.stderr)
+            # ─────────────────────────────────────────────────────────────
+
             oai = _OAI(
                 base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
                 api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
@@ -17682,18 +17758,28 @@ def ai_short_calls():
             )
 
             def _enrich_line(i, h):
+                tk = h["ticker"]
                 base = (
-                    f"{i+1}. {h['ticker']} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
+                    f"{i+1}. {tk} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
                     f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | {'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
                     f"IV={h.get('iv',0)}% | urgency={h['urgency']} | stock_price=${h['price']:.2f}"
                 )
-                cs = _cs_map.get(h["ticker"])
+                cs = _cs_map.get(tk)
                 if cs:
                     base += f" | conviction_stack={cs['pts']}/10 ({cs['layers']})"
                 else:
                     base += " | conviction_stack=NO_DATA"
-                bd = _oi_map.get(h["ticker"], 0)
+                bd = _oi_map.get(tk, 0)
                 base += f" | oi_buildup={bd}d"
+                fir = _fir_map.get(tk)
+                if fir:
+                    base += f" | FIR={fir['fir']}% (gamma_squeeze_pressure)"
+                else:
+                    base += " | FIR=NO_DATA"
+                ms = _ms_count_map.get(tk, {})
+                ms_count = ms.get("count", 0)
+                ms_labels = "+".join(ms.get("labels", [])) or "none"
+                base += f" | other_scanners={ms_count}/11 ({ms_labels})"
                 return base
 
             signals_text = "\n".join(_enrich_line(i, h) for i, h in enumerate(hits))
@@ -17705,13 +17791,17 @@ def ai_short_calls():
 Select the 20 BEST short-term call trade opportunities from this list. Rank by conviction.
 Criteria (in order of importance):
 1. conviction_stack score — if ≥8/10 with multiple layers (dark_pool+short_int+sweep), this is the strongest signal; prioritize heavily
-2. oi_buildup days — 3+ days of OI building before today's sweep = smart money was pre-positioning; strongly prefer these
-3. Vol/OI ratio — fresh institutional buying pressure
-4. Premium size — commitment level
-5. OTM% — closer to ATM = more realistic target
-6. urgency tier and days_out
+2. FIR (Float Impact Ratio) — if FIR >2%, market makers are mechanically FORCED to buy shares as delta rises; this creates a self-reinforcing squeeze loop; FIR >5% is explosive; prioritize any sweep where FIR data exists
+3. other_scanners count — how many of 11 independent scanners (dark_pool, whale, squeeze, morning_runner, gamma_wall, vol_crush, etc.) also flagged this ticker today; ≥4/11 = very high probability, ≥7/11 = near-certain institutional play
+4. oi_buildup days — 3+ days of OI building before today's sweep = smart money was pre-positioning; strongly prefer these
+5. Vol/OI ratio — fresh institutional buying pressure
+6. Premium size — commitment level
+7. OTM% — closer to ATM is more realistic target; avoid >15% OTM unless all other signals are very strong
+8. urgency tier and days_out
 
-A sweep with conviction_stack=NO_DATA or oi_buildup=0d is lower probability — rank it below confirmed multi-signal setups.
+Ranking logic: A ticker with conviction_stack ≥8 + FIR >2% + other_scanners ≥4 is an ELITE pick — rank it #1-5 regardless of Vol/OI.
+A sweep with conviction_stack=NO_DATA + FIR=NO_DATA + other_scanners=0/11 is noise — rank it #16-20 or exclude.
+The goal is to identify sweeps where MULTIPLE independent systems all confirm the same thesis on the same day.
 
 For each pick output a JSON object with ALL these fields:
 - ticker (string)
