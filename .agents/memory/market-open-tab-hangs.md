@@ -1,6 +1,6 @@
 ---
 name: Market-open tab hangs (StockScanner)
-description: Why ~55 dashboard tabs spun forever / "Load failed" at market open and the layered fix (scheduler, curl_cffi breaker, lazy-scan-in-request, NaN JSON)
+description: Why ~55 dashboard tabs spun forever / "Load failed" at market open and the layered fix (scheduler, curl_cffi breaker, lazy-scan-in-request, NaN JSON, background pattern)
 ---
 
 # Market-open dashboard tab hangs — root cause + fix pattern
@@ -61,6 +61,50 @@ full morning scan burst that Autoscale used to skip).
   **Rule:** serve cached/stale DB data immediately and refresh in a daemon thread
   (guarded against stacking). HTTP threads must never block on `scan_tickers`.
 
+- **Background pattern for ALL live-yfinance endpoints (June 2026 full sweep).**
+  19 endpoints were doing synchronous yfinance fetches inside the request thread,
+  causing 5-30s hangs. Fix: convert every such endpoint to the fire-and-forget
+  background pattern. All endpoints now return in <200ms.
+  **The pattern:**
+  ```python
+  def my_endpoint():
+      _cache = getattr(app, "_xxx_cache", None)
+      _ts    = getattr(app, "_xxx_ts", None)
+      if _cache and _ts and (dt.now() - _ts).total_seconds() < TTL:
+          return jsonify(_cache)           # fast path: fresh cache
+      def _bg():
+          if getattr(app, "_xxx_scanning", False): return
+          app._xxx_scanning = True
+          try:
+              # ... do the long yfinance work ...
+              app._xxx_cache = out
+              app._xxx_ts    = dt.now()
+          except Exception as e:
+              print(f"[xxx] bg error: {e}", file=sys.stderr)
+          finally:
+              app._xxx_scanning = False
+      import threading as _t; _t.Thread(target=_bg, daemon=True).start()
+      if _cache: return jsonify({**_cache, "stale": True})   # cold: serve stale
+      return jsonify({"results": [], "generating": True})     # first ever call
+  ```
+  **Endpoints converted:** market/overview, convergence, call-intent, max-pain,
+  squeeze-setup, 52week-breakout, composite-score, multi-signal (scan + macro
+  refresh), earnings-calendar, conviction-stack, sector-rotation, darkpool,
+  eod-accumulation, morning-runners, ai-short-calls, options-intent, insider/trades,
+  daily-top10, insider-radar.
+
+  **Multi-signal macro fetch special case:** the macro signals (SPY/VIX/VIX3M/HYG)
+  were fetched synchronously BEFORE starting the background scan thread. Fix: always
+  read from `app._ms_macro_cache` immediately (use False/0.0 defaults on cold start),
+  fire a separate background thread to refresh macro cache if >1h stale. The
+  `_check()` function uses whatever macro values were in cache at call time — safe
+  because macro signals only need hourly precision.
+
+  **Darkpool special case:** FINRA CDN HTTP fetch tries up to 6 days back with
+  5s timeout per URL × 2 exchanges = up to 60s potential blocking. Entire FINRA
+  fetch loop + OBV yfinance enrichment moved into `_bg_dp()`. `_fetch_date()` helper
+  stays in outer scope so `_bg_dp()` can call it via closure.
+
 - **APScheduler defaults cause morning pileup.** Default pool is 10 workers,
   `misfire_grace_time=1s`, `coalesce=False`. The 9:30–9:45 burst saturates CPU +
   Yahoo and starves Flask HTTP threads.
@@ -95,3 +139,7 @@ spam, a Neon "SSL SYSCALL error: EOF detected" DB drop, then **logs go silent**.
   Run sequentially with a small gap; rapid-fire self-DOSes Yahoo.
 - Tabs are React state (default "lookup"), NOT URL-addressable → use the testing
   (Playwright) skill to click a specific tab and screenshot it.
+- After background-pattern conversion: ALL 29 monitored endpoints return 200 in
+  <200ms on warm cache; 3 DB-heavy endpoints (eod-accumulation, unusual-calls,
+  insider-radar) return 2-4s on cold start (acceptable, no yfinance). iv-rank
+  returns 400 (known non-critical; was 500 before).

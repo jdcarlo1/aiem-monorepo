@@ -12755,28 +12755,43 @@ def convergence():
         except Exception:
             return None
 
-    _ex_cv = ThreadPoolExecutor(max_workers=4)
-    futures = {_ex_cv.submit(_check, t): t for t in tickers}
-    try:
-        for fut in as_completed(futures, timeout=8):
+    def _bg_conv():
+        if getattr(app, "_conv_scanning", False):
+            return
+        app._conv_scanning = True
+        try:
+            _res = []
+            _ex_cv = ThreadPoolExecutor(max_workers=4)
+            _futs = {_ex_cv.submit(_check, t): t for t in tickers}
             try:
-                r = fut.result()
-                if r:
-                    results.append(r)
+                for fut in as_completed(_futs, timeout=15):
+                    try:
+                        r = fut.result()
+                        if r:
+                            _res.append(r)
+                    except Exception:
+                        pass
             except Exception:
                 pass
-    except Exception:
-        pass
-    finally:
-        _ex_cv.shutdown(wait=False, cancel_futures=True)
+            finally:
+                _ex_cv.shutdown(wait=False, cancel_futures=True)
+            _res.sort(key=lambda x: x["convergence_score"], reverse=True)
+            for i, r in enumerate(_res[:15]):
+                r["rank"] = i + 1
+            _out = {"results": _res[:15], "scanned": len(tickers)}
+            if _res:
+                app._conv_cache = _out; app._conv_cache_ts = _cvdt.now()
+        except Exception as _e:
+            print(f"[convergence] bg error: {_e}", file=_sys.stderr)
+        finally:
+            app._conv_scanning = False
 
-    results.sort(key=lambda x: x["convergence_score"], reverse=True)
-    for i, r in enumerate(results[:15]):
-        r["rank"] = i + 1
-    out = {"results": results[:15], "scanned": len(tickers)}
-    if results:
-        app._conv_cache = out; app._conv_cache_ts = _cvdt.now()
-    return jsonify(out)
+    import threading as _conv_thr
+    if not getattr(app, "_conv_scanning", False):
+        _conv_thr.Thread(target=_bg_conv, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True})
+    return jsonify({"results": [], "scanned": len(tickers), "generating": True})
 
 
 @app.route("/stock-api/premarket", methods=["GET"])
@@ -12871,143 +12886,140 @@ def darkpool():
                 continue
         return combined
 
-    raw = {}
-    date_used = None
-    now = datetime.now()
-    for days_back in range(6):
-        d = now - timedelta(days=days_back)
-        if d.weekday() >= 5:
-            continue
-        date_str = d.strftime("%Y%m%d")
-        raw = _fetch_date(date_str)
-        if raw:
-            date_used = d.strftime("%b %d, %Y")
-            break
-
-    if not raw:
-        return jsonify({"results": [], "date": None, "total_in_db": 0})
-
-    candidates = []
-    for ticker in DEFAULT_LEADERBOARD:
-        if ticker not in raw:
-            continue
-        d = raw[ticker]
-        tv = d["tv"]; sv = d["sv"]
-        if tv < 50000:
-            continue
-        pct = sv / tv * 100
-        if pct < 50:
-            continue
-        score = min(round(max(pct - 40, 0) / 40 * 10, 1), 10.0)
-        if pct >= 70:
-            signal = "EXTREME"
-        elif pct >= 62:
-            signal = "HIGH"
-        elif pct >= 54:
-            signal = "ELEVATED"
-        else:
-            signal = "NOTABLE"
-        candidates.append({
-            "ticker": ticker,
-            "short_vol": sv,
-            "total_vol": tv,
-            "short_pct": round(pct, 1),
-            "score": score,
-            "signal": signal,
-            "call_put_ratio": None,
-            "bias": "UNKNOWN",
-        })
-
-    # Cross-reference options C/P ratio AND OBV trend for full accumulation/distribution picture
-    def _get_signals(ticker):
-        import yfinance as yf
-        cp = None; bias = "UNKNOWN"; flow = "UNKNOWN"
+    def _bg_dp():
+        if getattr(app, "_dp_scanning", False):
+            return
+        app._dp_scanning = True
         try:
-            opts = fetch_options_data(ticker)
-            if opts:
-                cp_raw = float(opts.get("call_put_ratio", 0))
-                cp = round(cp_raw, 2)
-                bias = "BULLISH" if cp_raw >= 1.5 else "BEARISH" if cp_raw <= 0.7 else "NEUTRAL"
-        except Exception:
-            pass
-        try:
-            hist = yf.Ticker(ticker).history(period="20d")
-            closes = hist["Close"].tolist()
-            vols   = hist["Volume"].tolist()
-            if len(closes) >= 10:
-                obv = 0; obv_series = [0]
-                for i in range(1, len(closes)):
-                    if closes[i] > closes[i - 1]:
-                        obv += vols[i]
-                    elif closes[i] < closes[i - 1]:
-                        obv -= vols[i]
-                    obv_series.append(obv)
-                recent = obv_series[-10:]
-                denom = max(abs(recent[0]), 1)
-                slope = (recent[-1] - recent[0]) / denom
-                flow = "INFLOW" if slope > 0.03 else "OUTFLOW" if slope < -0.03 else "NEUTRAL"
-        except Exception:
-            pass
-        return cp, bias, flow
+            _raw = {}
+            _date_used = None
+            _now_dp = datetime.now()
+            for _db in range(6):
+                _d = _now_dp - timedelta(days=_db)
+                if _d.weekday() >= 5:
+                    continue
+                _ds = _d.strftime("%Y%m%d")
+                _raw = _fetch_date(_ds)
+                if _raw:
+                    _date_used = _d.strftime("%b %d, %Y")
+                    break
+            if not _raw:
+                app._dp_cache = {"results": [], "date": None, "total_in_db": 0}
+                app._dp_cache_ts = datetime.now()
+                return
+            _cands = []
+            for _ticker in DEFAULT_LEADERBOARD:
+                if _ticker not in _raw:
+                    continue
+                _dv = _raw[_ticker]
+                _tv = _dv["tv"]; _sv = _dv["sv"]
+                if _tv < 50000:
+                    continue
+                _pct = _sv / _tv * 100
+                if _pct < 50:
+                    continue
+                _score = min(round(max(_pct - 40, 0) / 40 * 10, 1), 10.0)
+                if _pct >= 70:   _sig = "EXTREME"
+                elif _pct >= 62: _sig = "HIGH"
+                elif _pct >= 54: _sig = "ELEVATED"
+                else:            _sig = "NOTABLE"
+                _cands.append({
+                    "ticker": _ticker, "short_vol": _sv, "total_vol": _tv,
+                    "short_pct": round(_pct, 1), "score": _score, "signal": _sig,
+                    "call_put_ratio": None, "bias": "UNKNOWN", "flow": "UNKNOWN",
+                })
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_get_signals, r["ticker"]): r for r in candidates}
-        for fut in as_completed(futures):
-            row = futures[fut]
-            cp, bias, flow = fut.result()
-            row["call_put_ratio"] = cp
-            row["bias"] = bias
-            row["flow"] = flow
+            def _get_signals(_t):
+                import yfinance as _yf2
+                _cp = None; _bias = "UNKNOWN"; _flow = "UNKNOWN"
+                try:
+                    _opts = fetch_options_data(_t)
+                    if _opts:
+                        _cp_raw = float(_opts.get("call_put_ratio", 0))
+                        _cp = round(_cp_raw, 2)
+                        _bias = "BULLISH" if _cp_raw >= 1.5 else "BEARISH" if _cp_raw <= 0.7 else "NEUTRAL"
+                except Exception: pass
+                try:
+                    _hist = _yf2.Ticker(_t).history(period="20d")
+                    _closes = _hist["Close"].tolist(); _vols = _hist["Volume"].tolist()
+                    if len(_closes) >= 10:
+                        _obv = 0; _obv_s = [0]
+                        for _i in range(1, len(_closes)):
+                            if _closes[_i] > _closes[_i-1]:   _obv += _vols[_i]
+                            elif _closes[_i] < _closes[_i-1]: _obv -= _vols[_i]
+                            _obv_s.append(_obv)
+                        _rec = _obv_s[-10:]; _den = max(abs(_rec[0]), 1)
+                        _sl = (_rec[-1] - _rec[0]) / _den
+                        _flow = "INFLOW" if _sl > 0.03 else "OUTFLOW" if _sl < -0.03 else "NEUTRAL"
+                except Exception: pass
+                return _cp, _bias, _flow
 
-    # Cross-reference unusual_calls_log: tickers with strong call sweeps in DB = confirmed BULLISH
-    try:
-        with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
-            _cur.execute("""
-                SELECT DISTINCT ticker FROM unusual_calls_log
-                WHERE last_seen >= NOW() - INTERVAL '5 days'
-                  AND vol_oi >= 5 AND prem >= 300000
-            """)
-            _sweep_bullish = {row[0] for row in _cur.fetchall()}
-    except Exception:
-        _sweep_bullish = set()
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                _futs = {ex.submit(_get_signals, r["ticker"]): r for r in _cands}
+                for _fut in as_completed(_futs):
+                    _row = _futs[_fut]
+                    _cp2, _bias2, _flow2 = _fut.result()
+                    _row["call_put_ratio"] = _cp2
+                    _row["bias"] = _bias2
+                    _row["flow"] = _flow2
 
-    for r in candidates:
-        if r["ticker"] in _sweep_bullish:
-            r["bias"] = "BULLISH"
-            if r["flow"] == "UNKNOWN":
-                r["flow"] = "INFLOW"
+            try:
+                with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
+                    _cur.execute("""
+                        SELECT DISTINCT ticker FROM unusual_calls_log
+                        WHERE last_seen >= NOW() - INTERVAL '5 days'
+                          AND vol_oi >= 5 AND prem >= 300000
+                    """)
+                    _sweep_b = {_row2[0] for _row2 in _cur.fetchall()}
+            except Exception:
+                _sweep_b = set()
 
-    def _bullish_score(r):
-        s = 0
-        if r["flow"]  == "INFLOW":   s += 30
-        elif r["flow"] == "OUTFLOW": s -= 30
-        if r["bias"]  == "BULLISH":  s += 20
-        elif r["bias"] == "BEARISH": s -= 20
-        s += r["short_pct"]
-        return s
+            for _r in _cands:
+                if _r["ticker"] in _sweep_b:
+                    _r["bias"] = "BULLISH"
+                    if _r.get("flow") == "UNKNOWN":
+                        _r["flow"] = "INFLOW"
 
-    def _conviction(r):
-        b = r["bias"]; f = r["flow"]
-        if b == "BULLISH"  and f == "INFLOW":  return "STRONG BUY"
-        if b == "BULLISH"  and f != "OUTFLOW": return "BUY"
-        if b != "BEARISH"  and f == "INFLOW":  return "INFLOW"
-        if b == "BEARISH"  and f == "OUTFLOW": return "STRONG SELL"
-        if b == "BEARISH"  and f != "INFLOW":  return "SELL"
-        if b != "BULLISH"  and f == "OUTFLOW": return "OUTFLOW"
-        return "WATCH"
+            def _bscore(_r):
+                _s = 0
+                if _r["flow"] == "INFLOW":   _s += 30
+                elif _r["flow"] == "OUTFLOW": _s -= 30
+                if _r["bias"] == "BULLISH":   _s += 20
+                elif _r["bias"] == "BEARISH": _s -= 20
+                _s += _r["short_pct"]
+                return _s
 
-    for r in candidates:
-        r["conviction"] = _conviction(r)
-    results = sorted(candidates, key=_bullish_score, reverse=True)
-    # Only BULLISH — confirmed via live C/P ratio OR unusual_calls_log sweep in last 5 days
-    bullish_only = [r for r in results if r["bias"] == "BULLISH"]
-    for i, r in enumerate(bullish_only[:25]):
-        r["rank"] = i + 1
+            def _conv(_r):
+                _b2 = _r["bias"]; _f2 = _r["flow"]
+                if _b2 == "BULLISH"  and _f2 == "INFLOW":  return "STRONG BUY"
+                if _b2 == "BULLISH"  and _f2 != "OUTFLOW": return "BUY"
+                if _b2 != "BEARISH"  and _f2 == "INFLOW":  return "INFLOW"
+                if _b2 == "BEARISH"  and _f2 == "OUTFLOW": return "STRONG SELL"
+                if _b2 == "BEARISH"  and _f2 != "INFLOW":  return "SELL"
+                if _b2 != "BULLISH"  and _f2 == "OUTFLOW": return "OUTFLOW"
+                return "WATCH"
 
-    out = {"results": bullish_only[:25], "date": date_used, "total_in_db": len(raw), "total_candidates": len(candidates)}
-    app._dp_cache = out
-    app._dp_cache_ts = datetime.now()
-    return jsonify(out)
+            for _r in _cands:
+                _r["conviction"] = _conv(_r)
+            _results = sorted(_cands, key=_bscore, reverse=True)
+            _bullish_only = [_r for _r in _results if _r["bias"] == "BULLISH"]
+            for _i, _r in enumerate(_bullish_only[:25]):
+                _r["rank"] = _i + 1
+            _out = {"results": _bullish_only[:25], "date": _date_used,
+                    "total_in_db": len(_raw), "total_candidates": len(_cands)}
+            app._dp_cache = _out
+            app._dp_cache_ts = datetime.now()
+        except Exception as _e:
+            print(f"[darkpool] bg error: {_e}", file=_sys.stderr)
+        finally:
+            app._dp_scanning = False
+
+    import threading as _dp_thr
+    if not getattr(app, "_dp_scanning", False):
+        _dp_thr.Thread(target=_bg_dp, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True})
+    return jsonify({"results": [], "date": None, "total_in_db": 0, "generating": True})
 
 
 @app.route("/stock-api/options-intent", methods=["GET"])
@@ -15738,13 +15750,38 @@ def composite_score():
                     "components": components, "nearest_exp": exps[0]}
         except Exception: return None
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(_score, t): t for t in DEFAULT_LEADERBOARD}
-        rows = [r for f in as_completed(futs) if (r := f.result()) is not None]
-    rows.sort(key=lambda x: x["score"], reverse=True)
-    out = {"results": rows, "scanned": len(DEFAULT_LEADERBOARD)}
-    app._cs_cache = out; app._cs_cache_ts = now
-    return jsonify(out)
+    def _bg_cs():
+        if getattr(app, "_cs_scanning", False):
+            return
+        app._cs_scanning = True
+        try:
+            _rows = []
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                futs = {ex.submit(_score, t): t for t in DEFAULT_LEADERBOARD}
+                try:
+                    for f in as_completed(futs, timeout=25):
+                        try:
+                            r = f.result()
+                            if r is not None:
+                                _rows.append(r)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            _rows.sort(key=lambda x: x["score"], reverse=True)
+            _out = {"results": _rows, "scanned": len(DEFAULT_LEADERBOARD)}
+            app._cs_cache = _out; app._cs_cache_ts = now
+        except Exception as _e:
+            print(f"[composite-score] bg error: {_e}", file=_sys.stderr)
+        finally:
+            app._cs_scanning = False
+
+    import threading as _cs_thr
+    if not getattr(app, "_cs_scanning", False):
+        _cs_thr.Thread(target=_bg_cs, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True})
+    return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
 @app.route("/stock-api/ai-trade-log", methods=["GET"])
@@ -16732,14 +16769,33 @@ def conviction_stack_endpoint():
     Returns tickers ranked by multi-signal squeeze probability score (0-10 pts).
     8+ pts = ~90% confidence the stock is being positioned for a squeeze.
     """
-    try:
-        results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
-        return jsonify({"results": results, "count": len(results),
-                        "source": "free_yfinance", "universe_count": len(results)})
-    except Exception as e:
-        import traceback
-        return jsonify({"results": [], "count": 0, "error": str(e),
-                        "trace": traceback.format_exc()}), 500
+    from datetime import datetime as _stk_dt
+    _cs_stk_cache = getattr(app, "_cs_stk_cache", None)
+    _cs_stk_ts    = getattr(app, "_cs_stk_ts",    None)
+    if _cs_stk_cache and _cs_stk_ts and (_stk_dt.now() - _cs_stk_ts).total_seconds() < 600:
+        return jsonify(_cs_stk_cache)
+
+    def _bg_stk():
+        if getattr(app, "_stk_scanning", False):
+            return
+        app._stk_scanning = True
+        try:
+            _results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
+            _out = {"results": _results, "count": len(_results),
+                    "source": "free_yfinance", "universe_count": len(_results)}
+            app._cs_stk_cache = _out
+            app._cs_stk_ts    = _stk_dt.now()
+        except Exception as _e:
+            print(f"[conviction-stack] bg error: {_e}", file=_sys.stderr)
+        finally:
+            app._stk_scanning = False
+
+    import threading as _stk_thr
+    if not getattr(app, "_stk_scanning", False):
+        _stk_thr.Thread(target=_bg_stk, daemon=True).start()
+    if _cs_stk_cache:
+        return jsonify({**_cs_stk_cache, "stale": True})
+    return jsonify({"results": [], "count": 0, "generating": True})
 
 
 @app.route("/stock-api/conviction-stack/score/<ticker>", methods=["GET"])
@@ -18199,36 +18255,48 @@ def multi_signal_convergence():
         "bottom": {"ticker": bottom_sector["ticker"], "name": bottom_sector["name"], "day_chg": bottom_sector["day_chg"], "flow": bottom_sector["flow"]} if bottom_sector else None,
     }
 
-    # ── Global macro signals (computed once for all tickers) ─────────────────
-    market_regime_on   = False
-    spy_return_3mo_ref = 0.0
-    vix_contango       = False
-    hyg_healthy        = True
-    try:
-        _spy = yf.Ticker("SPY").history(period="70d")["Close"]
-        _vix = yf.Ticker("^VIX").history(period="5d")["Close"]
-        _spy_now  = float(_spy.iloc[-1])
-        _spy_50ma = float(_spy.rolling(50).mean().iloc[-1])
-        _vix_now  = float(_vix.iloc[-1])
-        market_regime_on   = (_spy_now > _spy_50ma) and (_vix_now < 25)
-        _idx = max(0, len(_spy) - 63)
-        spy_return_3mo_ref = (_spy_now - float(_spy.iloc[_idx])) / float(_spy.iloc[_idx]) if float(_spy.iloc[_idx]) > 0 else 0
-    except Exception:
-        pass
-    try:
-        _vix3m_h = yf.Ticker("^VIX3M").history(period="5d")["Close"]
-        _vixs_h  = yf.Ticker("^VIX").history(period="5d")["Close"]
-        vix_contango = float(_vixs_h.iloc[-1]) < float(_vix3m_h.iloc[-1])
-    except Exception:
-        pass
-    try:
-        _hyg20 = yf.Ticker("HYG").history(period="20d")["Close"]
-        _spy20 = yf.Ticker("SPY").history(period="20d")["Close"]
-        _h_ret = (float(_hyg20.iloc[-1]) - float(_hyg20.iloc[0])) / (float(_hyg20.iloc[0]) or 1)
-        _s_ret = (float(_spy20.iloc[-1]) - float(_spy20.iloc[0])) / (float(_spy20.iloc[0]) or 1)
-        hyg_healthy = _h_ret > _s_ret - 0.02
-    except Exception:
-        pass
+    # ── Global macro signals — 1-hour cache to avoid re-fetching on every call ──
+    _mc_prev = getattr(app, "_ms_macro_cache", None)
+    _mc_ts   = getattr(app, "_ms_macro_ts", None)
+    # Read macro from cache instantly; never block the request thread
+    market_regime_on   = _mc_prev["market_regime_on"]   if _mc_prev else False
+    spy_return_3mo_ref = _mc_prev["spy_return_3mo_ref"] if _mc_prev else 0.0
+    vix_contango       = _mc_prev["vix_contango"]        if _mc_prev else False
+    hyg_healthy        = _mc_prev["hyg_healthy"]         if _mc_prev else True
+    if not _mc_prev or not _mc_ts or (_ms_dt.now() - _mc_ts).total_seconds() > 3600:
+        def _refresh_macro():
+            try:
+                _mr_on = False; _spy_r = 0.0; _vix_c = False; _hyg_h = True
+                try:
+                    _spy2 = yf.Ticker("SPY").history(period="70d")["Close"]
+                    _vix2 = yf.Ticker("^VIX").history(period="5d")["Close"]
+                    _sn = float(_spy2.iloc[-1]); _s50 = float(_spy2.rolling(50).mean().iloc[-1])
+                    _vn = float(_vix2.iloc[-1])
+                    _mr_on = (_sn > _s50) and (_vn < 25)
+                    _idx2 = max(0, len(_spy2) - 63)
+                    _spy_r = (_sn - float(_spy2.iloc[_idx2])) / float(_spy2.iloc[_idx2]) if float(_spy2.iloc[_idx2]) > 0 else 0
+                except Exception: pass
+                try:
+                    _v3h = yf.Ticker("^VIX3M").history(period="5d")["Close"]
+                    _vsh = yf.Ticker("^VIX").history(period="5d")["Close"]
+                    _vix_c = float(_vsh.iloc[-1]) < float(_v3h.iloc[-1])
+                except Exception: pass
+                try:
+                    _hyg2 = yf.Ticker("HYG").history(period="20d")["Close"]
+                    _sp2  = yf.Ticker("SPY").history(period="20d")["Close"]
+                    _hr = (float(_hyg2.iloc[-1]) - float(_hyg2.iloc[0])) / (float(_hyg2.iloc[0]) or 1)
+                    _sr = (float(_sp2.iloc[-1])  - float(_sp2.iloc[0]))  / (float(_sp2.iloc[0])  or 1)
+                    _hyg_h = _hr > _sr - 0.02
+                except Exception: pass
+                app._ms_macro_cache = {
+                    "market_regime_on":   _mr_on,
+                    "spy_return_3mo_ref": _spy_r,
+                    "vix_contango":       _vix_c,
+                    "hyg_healthy":        _hyg_h,
+                }
+                app._ms_macro_ts = _ms_dt.now()
+            except Exception: pass
+        import threading as _mmr_thr; _mmr_thr.Thread(target=_refresh_macro, daemon=True).start()
 
     results = []
 
@@ -18417,47 +18485,69 @@ def multi_signal_convergence():
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=25) as ex:
-        futures = {ex.submit(_check, t): t for t in DEFAULT_LEADERBOARD}
-        for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                results.append(r)
+    def _bg_ms():
+        if getattr(app, "_ms_scanning", False):
+            return
+        app._ms_scanning = True
+        try:
+            _res = []
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futs = {ex.submit(_check, t): t for t in DEFAULT_LEADERBOARD}
+                try:
+                    for fut in as_completed(futs, timeout=25):
+                        try:
+                            r = fut.result()
+                            if r:
+                                _res.append(r)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            _res.sort(key=lambda x: (x["score"], x["rel_vol"]), reverse=True)
+            signal_defs_map = {s[0]: {"id": s[0], "label": s[1], "desc": s[2]} for s in SIGNAL_DEFS}
+            _out = {
+                "hits":           _res[:40],
+                "total":          len(_res),
+                "scanned":        len(DEFAULT_LEADERBOARD),
+                "signal_defs":    signal_defs_map,
+                "max_signals":    len(SIGNAL_DEFS),
+                "sector_context": sector_context,
+                "cache_status": {
+                    "dark_pool":       len(dp_tickers),
+                    "unusual_calls":   len(uc_tickers),
+                    "morning_runners": len(mr_tickers),
+                    "squeeze":         len(sq_tickers),
+                    "bull_flow":       len(bf_tickers),
+                    "whale":           len(whale_tickers),
+                    "ai_trades":       len(ait_tickers),
+                    "cheap_iv":        len(cheap_iv_tickers),
+                    "quant_score":     len(high_quant_tickers),
+                    "gamma_wall":      len(gw_tickers),
+                    "vol_crush":       len(vc_tickers),
+                    "call_intent":     len(oi_tickers),
+                    "max_pain":        len(mp_map),
+                    "market_regime":   1 if market_regime_on else 0,
+                    "vix_contango":    1 if vix_contango else 0,
+                    "hyg_healthy":     1 if hyg_healthy else 0,
+                },
+                "market_regime_on": market_regime_on,
+                "vix_contango":      vix_contango,
+                "hyg_healthy":       hyg_healthy,
+            }
+            app._ms_cache    = _out
+            app._ms_cache_ts = _ms_dt.now()
+        except Exception as _e:
+            print(f"[multi_signal] bg error: {_e}", file=_sys.stderr)
+        finally:
+            app._ms_scanning = False
 
-    results.sort(key=lambda x: (x["score"], x["rel_vol"]), reverse=True)
-    signal_defs_map = {s[0]: {"id": s[0], "label": s[1], "desc": s[2]} for s in SIGNAL_DEFS}
-    out = {
-        "hits":           results[:40],
-        "total":          len(results),
-        "scanned":        len(DEFAULT_LEADERBOARD),
-        "signal_defs":    signal_defs_map,
-        "max_signals":    len(SIGNAL_DEFS),
-        "sector_context": sector_context,
-        "cache_status": {
-            "dark_pool":       len(dp_tickers),
-            "unusual_calls":   len(uc_tickers),
-            "morning_runners": len(mr_tickers),
-            "squeeze":         len(sq_tickers),
-            "bull_flow":       len(bf_tickers),
-            "whale":           len(whale_tickers),
-            "ai_trades":       len(ait_tickers),
-            "cheap_iv":        len(cheap_iv_tickers),
-            "quant_score":     len(high_quant_tickers),
-            "gamma_wall":      len(gw_tickers),
-            "vol_crush":       len(vc_tickers),
-            "call_intent":     len(oi_tickers),
-            "max_pain":        len(mp_map),
-            "market_regime":   1 if market_regime_on else 0,
-            "vix_contango":    1 if vix_contango else 0,
-            "hyg_healthy":     1 if hyg_healthy else 0,
-        },
-        "market_regime_on":  market_regime_on,
-        "vix_contango":       vix_contango,
-        "hyg_healthy":        hyg_healthy,
-    }
-    app._ms_cache    = out
-    app._ms_cache_ts = _ms_dt.now()
-    return jsonify(out)
+    import threading as _ms_thr
+    if not getattr(app, "_ms_scanning", False):
+        _ms_thr.Thread(target=_bg_ms, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True})
+    return jsonify({"hits": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD),
+                    "signal_defs": {}, "max_signals": 0, "generating": True})
 
 
 @app.route("/stock-api/multi-signal/ai-thesis", methods=["POST"])
@@ -18827,18 +18917,39 @@ def breakout_52week():
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=20) as ex:
-        futures = {ex.submit(_scan_bk, t): t for t in DEFAULT_LEADERBOARD}
-        for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                results.append(r)
+    def _bg_bk():
+        if getattr(app, "_bk_scanning", False):
+            return
+        app._bk_scanning = True
+        try:
+            _res = []
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futs = {ex.submit(_scan_bk, t): t for t in DEFAULT_LEADERBOARD}
+                try:
+                    for fut in as_completed(futs, timeout=25):
+                        try:
+                            r = fut.result()
+                            if r:
+                                _res.append(r)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            _res.sort(key=lambda x: x["score"], reverse=True)
+            _out = {"hits": _res[:40], "total": len(_res), "scanned": len(DEFAULT_LEADERBOARD)}
+            app._bk_cache    = _out
+            app._bk_cache_ts = _bk_dt.now()
+        except Exception as _e:
+            print(f"[52week-breakout] bg error: {_e}", file=_sys.stderr)
+        finally:
+            app._bk_scanning = False
 
-    results.sort(key=lambda x: x["score"], reverse=True)
-    out = {"hits": results[:40], "total": len(results), "scanned": len(DEFAULT_LEADERBOARD)}
-    app._bk_cache    = out
-    app._bk_cache_ts = _bk_dt.now()
-    return jsonify(out)
+    import threading as _bk_thr
+    if not getattr(app, "_bk_scanning", False):
+        _bk_thr.Thread(target=_bg_bk, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True})
+    return jsonify({"hits": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
 @app.route("/stock-api/sector-rotation", methods=["GET"])
@@ -18866,85 +18977,89 @@ def sector_rotation():
         ("XLC",  "Communication"),
     ]
 
-    results = []
     ticker_names = {t: n for t, n in SECTORS}
     tickers_list = [t for t, n in SECTORS]
 
-    # Batch download 1-year daily data (1 API call for all 11 ETFs — avoids rate limiting)
-    try:
-        batch = yf.download(
-            tickers_list, period="1y", interval="1d",
-            auto_adjust=True, progress=False, threads=True
-        )
-        # Multi-ticker download returns multi-level columns: (field, ticker)
-        for ticker in tickers_list:
+    def _bg_sr():
+        if getattr(app, "_sr_scanning", False):
+            return
+        app._sr_scanning = True
+        try:
+            _results = []
             try:
-                name = ticker_names[ticker]
-                if len(tickers_list) > 1:
-                    close  = batch["Close"][ticker].dropna()
-                    volume = batch["Volume"][ticker].dropna()
-                    high_s = batch["High"][ticker].dropna()
-                    low_s  = batch["Low"][ticker].dropna()
-                else:
-                    close  = batch["Close"].dropna()
-                    volume = batch["Volume"].dropna()
-                    high_s = batch["High"].dropna()
-                    low_s  = batch["Low"].dropna()
-
-                if len(close) < 2:
-                    continue
-
-                price      = float(close.iloc[-1])
-                prev_close = float(close.iloc[-2])
-                if price <= 0 or prev_close <= 0:
-                    continue
-
-                high52 = float(high_s.max())
-                low52  = float(low_s.min())
-                today_vol = float(volume.iloc[-1]) if len(volume) > 0 else 0
-                # 3-month average volume (~63 trading days)
-                avg_vol = float(volume.iloc[-63:].mean()) if len(volume) >= 10 else float(volume.mean())
-                avg_vol = max(avg_vol, 1)
-
-                day_chg   = round((price - prev_close) / prev_close * 100, 2)
-                rel_vol   = round(today_vol / avg_vol, 2)
-                range_pos = round((price - low52) / (high52 - low52) * 100, 1) if high52 > low52 else 50
-
-                wk1_chg = round((price - float(close.iloc[-5])) / float(close.iloc[-5]) * 100, 2) if len(close) >= 5 else None
-                mo1_chg = round((price - float(close.iloc[-21])) / float(close.iloc[-21]) * 100, 2) if len(close) >= 21 else None
-
-                if day_chg > 0 and rel_vol >= 1.1:
-                    flow = "INFLOW"
-                elif day_chg < 0 and rel_vol >= 1.1:
-                    flow = "OUTFLOW"
-                elif day_chg > 0:
-                    flow = "RISING"
-                elif day_chg < 0:
-                    flow = "FALLING"
-                else:
-                    flow = "NEUTRAL"
-
-                results.append({
-                    "ticker":    ticker,
-                    "name":      name,
-                    "price":     round(price, 2),
-                    "day_chg":   day_chg,
-                    "wk1_chg":   wk1_chg,
-                    "mo1_chg":   mo1_chg,
-                    "rel_vol":   rel_vol,
-                    "range_pos": range_pos,
-                    "flow":      flow,
-                })
+                batch = yf.download(
+                    tickers_list, period="1y", interval="1d",
+                    auto_adjust=True, progress=False, threads=True
+                )
+                for _ticker in tickers_list:
+                    try:
+                        _name = ticker_names[_ticker]
+                        if len(tickers_list) > 1:
+                            _close  = batch["Close"][_ticker].dropna()
+                            _volume = batch["Volume"][_ticker].dropna()
+                            _high_s = batch["High"][_ticker].dropna()
+                            _low_s  = batch["Low"][_ticker].dropna()
+                        else:
+                            _close  = batch["Close"].dropna()
+                            _volume = batch["Volume"].dropna()
+                            _high_s = batch["High"].dropna()
+                            _low_s  = batch["Low"].dropna()
+                        if len(_close) < 2:
+                            continue
+                        _price      = float(_close.iloc[-1])
+                        _prev_close = float(_close.iloc[-2])
+                        if _price <= 0 or _prev_close <= 0:
+                            continue
+                        _high52    = float(_high_s.max())
+                        _low52     = float(_low_s.min())
+                        _today_vol = float(_volume.iloc[-1]) if len(_volume) > 0 else 0
+                        _avg_vol   = float(_volume.iloc[-63:].mean()) if len(_volume) >= 10 else float(_volume.mean())
+                        _avg_vol   = max(_avg_vol, 1)
+                        _day_chg   = round((_price - _prev_close) / _prev_close * 100, 2)
+                        _rel_vol   = round(_today_vol / _avg_vol, 2)
+                        _range_pos = round((_price - _low52) / (_high52 - _low52) * 100, 1) if _high52 > _low52 else 50
+                        _wk1_chg = round((_price - float(_close.iloc[-5])) / float(_close.iloc[-5]) * 100, 2) if len(_close) >= 5 else None
+                        _mo1_chg = round((_price - float(_close.iloc[-21])) / float(_close.iloc[-21]) * 100, 2) if len(_close) >= 21 else None
+                        if _day_chg > 0 and _rel_vol >= 1.1:
+                            _flow = "INFLOW"
+                        elif _day_chg < 0 and _rel_vol >= 1.1:
+                            _flow = "OUTFLOW"
+                        elif _day_chg > 0:
+                            _flow = "RISING"
+                        elif _day_chg < 0:
+                            _flow = "FALLING"
+                        else:
+                            _flow = "NEUTRAL"
+                        _results.append({
+                            "ticker":    _ticker,
+                            "name":      _name,
+                            "price":     round(_price, 2),
+                            "day_chg":   _day_chg,
+                            "wk1_chg":   _wk1_chg,
+                            "mo1_chg":   _mo1_chg,
+                            "rel_vol":   _rel_vol,
+                            "range_pos": _range_pos,
+                            "flow":      _flow,
+                        })
+                    except Exception:
+                        continue
             except Exception:
-                continue
-    except Exception:
-        pass
+                pass
+            _results.sort(key=lambda x: x["day_chg"], reverse=True)
+            _out = {"sectors": _results, "scanned": len(SECTORS)}
+            app._sr_cache    = _out
+            app._sr_cache_ts = _sr_dt.now()
+        except Exception as _e:
+            print(f"[sector-rotation] bg error: {_e}", file=_sys.stderr)
+        finally:
+            app._sr_scanning = False
 
-    results.sort(key=lambda x: x["day_chg"], reverse=True)
-    out = {"sectors": results, "scanned": len(SECTORS)}
-    app._sr_cache    = out
-    app._sr_cache_ts = _sr_dt.now()
-    return jsonify(out)
+    import threading as _sr_thr
+    if not getattr(app, "_sr_scanning", False):
+        _sr_thr.Thread(target=_bg_sr, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True})
+    return jsonify({"sectors": [], "scanned": len(SECTORS), "generating": True})
 
 
 @app.route("/stock-api/squeeze-setup", methods=["GET"])
@@ -19434,17 +19549,38 @@ def earnings_calendar():
     with _ec_lock:
         if _ec_cache and _ec_cache_ts and (_dt_ec2.datetime.now() - _ec_cache_ts).total_seconds() < _EC_TTL:
             return jsonify(_ec_cache)
-    results = []
-    with ThreadPoolExecutor(max_workers=20) as ex:
-        for r in ex.map(_check_earnings, _EC_WATCHLIST):
-            if r:
-                results.append(r)
-    results.sort(key=lambda x: (x["earnings_date"], -(x["mkt_cap_b"] or 0)))
-    out = {"earnings": results, "count": len(results),
-           "as_of": _et_today().isoformat(), "window_days": 30}
+    def _bg_ec():
+        if getattr(app, "_ec_scanning", False):
+            return
+        app._ec_scanning = True
+        try:
+            _res = []
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                try:
+                    for r in ex.map(_check_earnings, _EC_WATCHLIST, timeout=25):
+                        if r:
+                            _res.append(r)
+                except Exception:
+                    pass
+            _res.sort(key=lambda x: (x["earnings_date"], -(x["mkt_cap_b"] or 0)))
+            _out = {"earnings": _res, "count": len(_res),
+                    "as_of": _et_today().isoformat(), "window_days": 30}
+            with _ec_lock:
+                global _ec_cache, _ec_cache_ts
+                _ec_cache, _ec_cache_ts = _out, _dt_ec2.datetime.now()
+        except Exception as _e:
+            print(f"[earnings-calendar] bg error: {_e}", file=_sys.stderr)
+        finally:
+            app._ec_scanning = False
+
+    import threading as _ec_thr
+    if not getattr(app, "_ec_scanning", False):
+        _ec_thr.Thread(target=_bg_ec, daemon=True).start()
     with _ec_lock:
-        _ec_cache, _ec_cache_ts = out, _dt_ec2.datetime.now()
-    return jsonify(out)
+        _stale = _ec_cache
+    if _stale:
+        return jsonify({**_stale, "stale": True})
+    return jsonify({"earnings": [], "count": 0, "generating": True})
 
 
 @app.route("/stock-api/morning-inflows", methods=["GET"])
