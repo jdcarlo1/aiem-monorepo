@@ -170,7 +170,7 @@ export default function Paywall() {
             </div>
             <p className="text-sm font-semibold text-muted-foreground mb-1">Lifetime</p>
             <div className="flex items-baseline gap-1 mb-1">
-              <span className="text-4xl font-extrabold text-foreground">$49</span>
+              <span className="text-4xl font-extrabold text-foreground">$100</span>
               <span className="text-muted-foreground font-medium">one-time</span>
             </div>
             <p className="text-xs text-muted-foreground">Pay once, access forever</p>
@@ -211,7 +211,7 @@ export default function Paywall() {
           {loading
             ? "Redirecting to checkout..."
             : selectedPlan === "lifetime"
-            ? "Get Lifetime Access — $49"
+            ? "Get Lifetime Access — $100"
             : "Start Monthly Plan — $15/mo"}
         </Button>
 
