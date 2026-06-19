@@ -1,3 +1,4 @@
+- [Market-open tab spinners](market-open-spinners.md) — _yahoo_breaker NameError killed market_overview+squeeze_setup; 5 endpoints missing breaker guard; breaker conventions
 - [NCLEX Prep project state](nclex-prep-state.md) — question bank counts, categories, next question number, stack, and key constraints
 - [Payment flow fixes](payment-flow-fixes.md) — three critical bugs fixed: webhook URL, success/cancel URL, webhook handler crash
 - [StockScanner AI state](stockscanner-state.md) — full product state: landing page design, Stripe setup, SMS live via email gateway, key files, scheduler times

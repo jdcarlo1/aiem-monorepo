@@ -248,6 +248,17 @@ def _yf_breaker_open() -> bool:
     """Legacy compatibility: returns True if breaker is NOT closed."""
     return _yf_breaker_state() != "closed"
 
+class _YFBreakerCompat:
+    """Thin shim so _yahoo_breaker.allow() / .record_success() / .record_failure()
+    calls route through the single shared _YF_BREAKER state.  Previously these
+    names were used in market_overview and squeeze_setup background threads but
+    never defined — causing a silent NameError that prevented both scans from ever
+    completing (tabs spun forever)."""
+    def allow(self) -> bool:  return not _yf_breaker_open()
+    def record_success(self): _yf_breaker_probe_success()
+    def record_failure(self): _yf_breaker_trip()
+_yahoo_breaker = _YFBreakerCompat()
+
 # Yahoo also throttles via HTTP 401 "Unauthorized" / "Invalid Crumb" floods. These
 # are NOT 429/503 and NOT exceptions — they're returned responses that yfinance
 # silently swallows as "no data" (hence the "$X possibly delisted" log spam), so
@@ -12995,6 +13006,9 @@ def convergence():
         finally:
             app._conv_scanning = False
 
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "scanned": len(tickers), "stale": True})
     import threading as _conv_thr
     if not getattr(app, "_conv_scanning", False):
         _conv_thr.Thread(target=_bg_conv, daemon=True).start()
@@ -15985,6 +15999,9 @@ def composite_score():
         finally:
             app._cs_scanning = False
 
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     import threading as _cs_thr
     if not getattr(app, "_cs_scanning", False):
         _cs_thr.Thread(target=_bg_cs, daemon=True).start()
@@ -18750,6 +18767,10 @@ def multi_signal_convergence():
         finally:
             app._ms_scanning = False
 
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"hits": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD),
+                        "signal_defs": {}, "max_signals": 0, "stale": True})
     import threading as _ms_thr
     if not getattr(app, "_ms_scanning", False):
         _ms_thr.Thread(target=_bg_ms, daemon=True).start()
@@ -19164,6 +19185,9 @@ def breakout_52week():
         finally:
             app._bk_scanning = False
 
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"hits": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     import threading as _bk_thr
     if not getattr(app, "_bk_scanning", False):
         _bk_thr.Thread(target=_bg_bk, daemon=True).start()
@@ -19793,6 +19817,11 @@ def earnings_calendar():
         finally:
             app._ec_scanning = False
 
+    if _yf_breaker_open():
+        with _ec_lock:
+            _stale = _ec_cache
+        if _stale: return jsonify({**_stale, "stale": True})
+        return jsonify({"earnings": [], "count": 0, "stale": True})
     import threading as _ec_thr
     if not getattr(app, "_ec_scanning", False):
         _ec_thr.Thread(target=_bg_ec, daemon=True).start()
