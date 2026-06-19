@@ -7,6 +7,7 @@ import adaptiveRouter from "./adaptive";
 import analyzeRouter from "./analyze";
 import catalystRouter from "./catalyst";
 import morningBriefRouter from "./morning-brief";
+import affiliatesRouter from "./affiliates";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(adaptiveRouter);
 router.use(analyzeRouter);
 router.use(catalystRouter);
 router.use(morningBriefRouter);
+router.use(affiliatesRouter);
 
 export default router;

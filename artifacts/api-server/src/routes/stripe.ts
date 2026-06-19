@@ -1,12 +1,16 @@
 import { Router } from "express";
-import { db, sessionsTable, questionsTable } from "@workspace/db";
+import { db, sessionsTable, questionsTable, affiliatesTable } from "@workspace/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
 
 router.post("/stripe/checkout", async (req, res) => {
-  const { sessionId, plan } = req.body as { sessionId: string; plan: "monthly" | "lifetime" };
+  const { sessionId, plan, referralCode } = req.body as {
+    sessionId: string;
+    plan: "monthly" | "lifetime";
+    referralCode?: string;
+  };
 
   if (!sessionId || !plan) {
     res.status(400).json({ error: "sessionId and plan are required" });
@@ -44,6 +48,25 @@ router.post("/stripe/checkout", async (req, res) => {
     }
   }
 
+  // Validate referral code if provided
+  let validatedCode: string | null = null;
+  if (referralCode) {
+    const upper = referralCode.trim().toUpperCase();
+    const [affiliate] = await db
+      .select()
+      .from(affiliatesTable)
+      .where(eq(affiliatesTable.code, upper))
+      .limit(1);
+    if (affiliate) {
+      validatedCode = upper;
+      // Store on session immediately so renewal webhooks can find it
+      await db
+        .update(sessionsTable)
+        .set({ referralCode: validatedCode })
+        .where(eq(sessionsTable.sessionId, sessionId));
+    }
+  }
+
   const baseUrl = process.env.SITE_URL ?? "https://nclexai.org";
 
   if (plan === "monthly") {
@@ -69,7 +92,7 @@ router.post("/stripe/checkout", async (req, res) => {
       mode: "subscription",
       success_url: `${baseUrl}/subscribe-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/paywall`,
-      metadata: { sessionId },
+      metadata: { sessionId, ...(validatedCode ? { referralCode: validatedCode } : {}) },
     });
 
     res.json({ url: checkoutSession.url });
@@ -96,7 +119,7 @@ router.post("/stripe/checkout", async (req, res) => {
       mode: "payment",
       success_url: `${baseUrl}/subscribe-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/paywall`,
-      metadata: { sessionId },
+      metadata: { sessionId, ...(validatedCode ? { referralCode: validatedCode } : {}) },
     });
 
     res.json({ url: checkoutSession.url });
@@ -123,7 +146,6 @@ router.post("/stripe/verify-checkout", async (req, res) => {
     const customerId = typeof checkoutSession.customer === "string" ? checkoutSession.customer : null;
     const customerEmail = checkoutSession.customer_details?.email ?? null;
 
-    // Save email onto the Stripe customer record so restore-access can find them later
     if (customerId && customerEmail) {
       try {
         await stripe.customers.update(customerId, { email: customerEmail });
@@ -163,7 +185,6 @@ router.post("/stripe/restore-access", async (req, res) => {
     }
   }
 
-  // Strategy 1: Search checkout sessions directly by customer_details.email
   try {
     const searchResults = await stripe.checkout.sessions.search({
       query: `customer_details.email:"${normalizedEmail}" AND status:"complete"`,
@@ -175,7 +196,6 @@ router.post("/stripe/restore-access", async (req, res) => {
       const customerId = typeof cs.customer === "string" ? cs.customer : "";
       const subscriptionId = typeof cs.subscription === "string" ? cs.subscription : null;
 
-      // Also update customer record email for future lookups
       if (customerId) {
         try { await stripe.customers.update(customerId, { email: normalizedEmail }); } catch (_) {}
       }
@@ -186,7 +206,6 @@ router.post("/stripe/restore-access", async (req, res) => {
     }
   } catch (_) {}
 
-  // Strategy 2: Look up customer by email (works if email was saved to customer record)
   const customers = await stripe.customers.list({ email: normalizedEmail, limit: 10 });
 
   for (const customer of customers.data) {
@@ -228,7 +247,6 @@ router.post("/admin/seed-questions", async (req, res) => {
     return;
   }
 
-  // Insert in batches of 50
   const batchSize = 50;
   let inserted = 0;
   for (let i = 0; i < questions.length; i += batchSize) {
@@ -289,7 +307,6 @@ router.post("/stock-scanner/checkout", async (req, res) => {
     return;
   }
 
-  // Find or create customer so email is attached to checkout
   const existingCustomers = await stripe.customers.list({ email: email.trim().toLowerCase(), limit: 1 });
   let customerId: string;
   if (existingCustomers.data.length > 0) {
