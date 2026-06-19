@@ -27,3 +27,4 @@
 - [Small-cap morning system](sc-morning-system.md) — sibling of nano for $300M-$2B optionable; adds options-score (stored logs, not live chain) + double-signal; $1000/name; call_sweep_log legacy schema lacks `conviction`
 - [Nano-cap morning system](nano-morning-system.md) — two-stage 9:35 watch / 9:45 BUY; sizing is $500-WORTH per name (not 500 shares), breadth over size; low-float universe; key guard rationale
 - [Morning Smart-Money idea emails](smp-morning-ideas.md) — 9:05 ET smp_morning: ONE engine run split into 3 cap-bucket owner emails; morning gate >=4 (EOD stays >=6); shared _smp_build_cards seam; lock only in _owner_send_now
+- [AI Short Calls enrichment](ai-shortcalls-enrichment.md) — AI now sees conviction_stack score + oi_buildup days; ranks multi-signal setups first; SMP still post-pick only

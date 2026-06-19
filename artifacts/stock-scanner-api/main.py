@@ -17628,25 +17628,90 @@ def ai_short_calls():
 
             hits = hits[:30]
 
+            # ── Enrich hits with conviction stack + OI buildup ────────────
+            _unique_tickers = list(dict.fromkeys(h["ticker"] for h in hits))
+
+            # 1. Conviction stack: most recent score per ticker
+            _cs_map = {}
+            try:
+                with _psycopg2.connect(_DB_URL) as _ce, _ce.cursor() as _cc:
+                    _cc.execute("""
+                        SELECT DISTINCT ON (ticker)
+                               ticker, total_pts, label, layers
+                        FROM conviction_stack_watchlist
+                        WHERE ticker = ANY(%s)
+                        ORDER BY ticker, snap_date DESC
+                    """, (_unique_tickers,))
+                    for _row in _cc.fetchall():
+                        _tk, _pts, _lbl, _lyrs = _row
+                        _layer_names = []
+                        if isinstance(_lyrs, list):
+                            _layer_names = [str(l) for l in _lyrs]
+                        elif isinstance(_lyrs, dict):
+                            _layer_names = [k for k, v in _lyrs.items() if v]
+                        _cs_map[_tk] = {
+                            "pts": round(float(_pts or 0), 1),
+                            "label": _lbl or "",
+                            "layers": "+".join(_layer_names[:4]) if _layer_names else "sweep_only",
+                        }
+            except Exception as _cse:
+                print(f"[ai_short_calls] conviction_stack lookup error: {_cse}", file=_sys.stderr)
+
+            # 2. OI buildup: count distinct snapshot days in last 5 trading days
+            _oi_map = {}
+            try:
+                with _psycopg2.connect(_DB_URL) as _oe, _oe.cursor() as _oc:
+                    _oc.execute("""
+                        SELECT ticker, COUNT(DISTINCT snapshot_date) AS buildup_days
+                        FROM oi_daily_snapshot
+                        WHERE ticker = ANY(%s)
+                          AND snapshot_date >= (CURRENT_DATE - INTERVAL '7 days')
+                          AND days_out BETWEEN 1 AND 35
+                        GROUP BY ticker
+                    """, (_unique_tickers,))
+                    for _row in _oc.fetchall():
+                        _oi_map[_row[0]] = int(_row[1])
+            except Exception as _oie:
+                print(f"[ai_short_calls] oi_buildup lookup error: {_oie}", file=_sys.stderr)
+            # ─────────────────────────────────────────────────────────────
+
             oai = _OAI(
                 base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
                 api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
                 timeout=90.0,
             )
 
-            signals_text = "\n".join([
-                f"{i+1}. {h['ticker']} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
-                f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | {'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
-                f"IV={h.get('iv',0)}% | urgency={h['urgency']} | stock_price=${h['price']:.2f}"
-                for i, h in enumerate(hits)
-            ])
+            def _enrich_line(i, h):
+                base = (
+                    f"{i+1}. {h['ticker']} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
+                    f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | {'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
+                    f"IV={h.get('iv',0)}% | urgency={h['urgency']} | stock_price=${h['price']:.2f}"
+                )
+                cs = _cs_map.get(h["ticker"])
+                if cs:
+                    base += f" | conviction_stack={cs['pts']}/10 ({cs['layers']})"
+                else:
+                    base += " | conviction_stack=NO_DATA"
+                bd = _oi_map.get(h["ticker"], 0)
+                base += f" | oi_buildup={bd}d"
+                return base
+
+            signals_text = "\n".join(_enrich_line(i, h) for i, h in enumerate(hits))
 
             user_msg = f"""These are today's unusual call signals (Vol/OI ≥3x, ≤30 day expiry, OTM/near-ATM calls only):
 
 {signals_text}
 
 Select the 20 BEST short-term call trade opportunities from this list. Rank by conviction.
-Criteria: highest Vol/OI (fresh institutional buying), reasonable OTM% (not too far), premium size (commitment), days_out (urgency), urgency tier.
+Criteria (in order of importance):
+1. conviction_stack score — if ≥8/10 with multiple layers (dark_pool+short_int+sweep), this is the strongest signal; prioritize heavily
+2. oi_buildup days — 3+ days of OI building before today's sweep = smart money was pre-positioning; strongly prefer these
+3. Vol/OI ratio — fresh institutional buying pressure
+4. Premium size — commitment level
+5. OTM% — closer to ATM = more realistic target
+6. urgency tier and days_out
+
+A sweep with conviction_stack=NO_DATA or oi_buildup=0d is lower probability — rank it below confirmed multi-signal setups.
 
 For each pick output a JSON object with ALL these fields:
 - ticker (string)
