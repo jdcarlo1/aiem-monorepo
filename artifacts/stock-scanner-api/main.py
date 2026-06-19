@@ -12217,86 +12217,111 @@ Return ONLY valid JSON, zero markdown fences or extra text:
 
 @app.route("/stock-api/market/overview", methods=["GET"])
 def market_overview():
-    import yfinance as yf
-    from datetime import date
+    import threading as _mo_thr
+    from datetime import datetime as _mo_dt
 
     _cache = getattr(app, "_mo_cache", None)
     _ts    = getattr(app, "_mo_cache_ts", None)
-    if _cache and _ts and _ts == _et_today().isoformat():
+    _fresh = _cache and _ts and _ts == _et_today().isoformat()
+
+    if _fresh:
         return jsonify(_cache)
 
-    SECTORS = [
-        ("XLK",  "Technology"),
-        ("XLF",  "Financials"),
-        ("XLE",  "Energy"),
-        ("XLV",  "Healthcare"),
-        ("XLY",  "Cons. Disc."),
-        ("XLP",  "Cons. Staples"),
-        ("XLI",  "Industrials"),
-        ("XLB",  "Materials"),
-        ("XLRE", "Real Estate"),
-        ("XLU",  "Utilities"),
-        ("XLC",  "Comm. Services"),
-    ]
-    INDICES = [
-        ("SPY", "S&P 500"),
-        ("QQQ", "Nasdaq 100"),
-        ("DIA", "Dow Jones"),
-        ("IWM", "Russell 2000"),
-        ("VIX", "VIX"),
-    ]
-
-    def get_chg(ticker):
+    def _bg_mo():
+        if getattr(app, "_mo_scanning", False):
+            return
+        app._mo_scanning = True
         try:
-            t = yf.Ticker(ticker)
-            hist = t.history(period="5d")
-            if len(hist) < 2:
-                return None
-            prev  = float(hist["Close"].iloc[-2])
-            close = float(hist["Close"].iloc[-1])
-            chg   = round((close - prev) / prev * 100, 2)
-            return {"price": round(close, 2), "change_pct": chg}
-        except Exception:
-            return None
+            import yfinance as yf
 
-    sectors = []
-    with ThreadPoolExecutor(max_workers=12) as ex:
-        futs = {ex.submit(get_chg, sym): (sym, name) for sym, name in SECTORS}
-        for fut, (sym, name) in futs.items():
-            r = fut.result()
-            if r:
-                sectors.append({"ticker": sym, "name": name, **r})
-    sectors.sort(key=lambda x: x["change_pct"], reverse=True)
+            SECTORS = [
+                ("XLK",  "Technology"),    ("XLF",  "Financials"),
+                ("XLE",  "Energy"),        ("XLV",  "Healthcare"),
+                ("XLY",  "Cons. Disc."),   ("XLP",  "Cons. Staples"),
+                ("XLI",  "Industrials"),   ("XLB",  "Materials"),
+                ("XLRE", "Real Estate"),   ("XLU",  "Utilities"),
+                ("XLC",  "Comm. Services"),
+            ]
+            INDICES = [
+                ("SPY", "S&P 500"), ("QQQ", "Nasdaq 100"),
+                ("DIA", "Dow Jones"), ("IWM", "Russell 2000"), ("^VIX", "VIX"),
+            ]
 
-    indices = []
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        futs = {ex.submit(get_chg, sym): (sym, label) for sym, label in INDICES}
-        for fut, (sym, label) in futs.items():
-            r = fut.result()
-            if r:
-                indices.append({"ticker": sym, "label": label, **r})
-    idx_order = {sym: i for i, (sym, _) in enumerate(INDICES)}
-    indices.sort(key=lambda x: idx_order.get(x["ticker"], 99))
+            def get_chg(ticker):
+                try:
+                    if not _yahoo_breaker.allow():
+                        return None
+                    t    = yf.Ticker(ticker)
+                    hist = t.history(period="5d")
+                    if len(hist) < 2:
+                        return None
+                    prev  = float(hist["Close"].iloc[-2])
+                    close = float(hist["Close"].iloc[-1])
+                    chg   = round((close - prev) / prev * 100, 2)
+                    _yahoo_breaker.record_success()
+                    return {"price": round(close, 2), "change_pct": chg}
+                except Exception as _e:
+                    err = str(_e).lower()
+                    if any(x in err for x in ["401", "crumb", "unauthorized", "429", "rate"]):
+                        _yahoo_breaker.record_failure()
+                    return None
 
-    # Advance / Decline using DEFAULT_LEADERBOARD
-    ad_up, ad_down, ad_unch = 0, 0, 0
-    with ThreadPoolExecutor(max_workers=16) as ex:
-        futs = {ex.submit(get_chg, t): t for t in DEFAULT_LEADERBOARD}
-        for fut in as_completed(futs):
-            r = fut.result()
-            if r:
-                if r["change_pct"] > 0.1:   ad_up   += 1
-                elif r["change_pct"] < -0.1: ad_down += 1
-                else:                        ad_unch += 1
+            sectors = []
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                futs = {ex.submit(get_chg, sym): (sym, name) for sym, name in SECTORS}
+                for fut, (sym, name) in futs.items():
+                    r = fut.result()
+                    if r:
+                        sectors.append({"ticker": sym, "name": name, **r})
+            sectors.sort(key=lambda x: x["change_pct"], reverse=True)
 
-    out = {
-        "sectors": sectors,
-        "indices": indices,
-        "advance_decline": {"up": ad_up, "down": ad_down, "unchanged": ad_unch},
+            indices = []
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                futs = {ex.submit(get_chg, sym): (sym, label) for sym, label in INDICES}
+                for fut, (sym, label) in futs.items():
+                    r = fut.result()
+                    if r:
+                        indices.append({"ticker": sym, "label": label, **r})
+            idx_order = {sym: i for i, (sym, _) in enumerate(INDICES)}
+            indices.sort(key=lambda x: idx_order.get(x["ticker"], 99))
+
+            # Advance/Decline — cap at 200 tickers to avoid Yahoo saturation
+            ad_up, ad_down, ad_unch = 0, 0, 0
+            _ad_universe = DEFAULT_LEADERBOARD[:200]
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futs = {ex.submit(get_chg, t): t for t in _ad_universe}
+                for fut in as_completed(futs):
+                    r = fut.result()
+                    if r:
+                        if r["change_pct"] > 0.1:    ad_up   += 1
+                        elif r["change_pct"] < -0.1: ad_down += 1
+                        else:                        ad_unch += 1
+
+            out = {
+                "sectors": sectors,
+                "indices": indices,
+                "advance_decline": {"up": ad_up, "down": ad_down, "unchanged": ad_unch},
+                "as_of": _et_today().isoformat(),
+            }
+            app._mo_cache    = out
+            app._mo_cache_ts = _et_today().isoformat()
+        except Exception as _moe:
+            print(f"[market_overview] bg scan error: {_moe}", file=_sys.stderr)
+        finally:
+            app._mo_scanning = False
+
+    _mo_thr.Thread(target=_bg_mo, daemon=True).start()
+
+    if _cache:
+        stale = dict(_cache)
+        stale["stale"] = True
+        return jsonify(stale)
+    return jsonify({
+        "sectors": [], "indices": [],
+        "advance_decline": {"up": 0, "down": 0, "unchanged": 0},
         "as_of": _et_today().isoformat(),
-    }
-    app._mo_cache = out; app._mo_cache_ts = _et_today().isoformat()
-    return jsonify(out)
+        "generating": True,
+    })
 
 
 @app.route("/stock-api/ai-analyze", methods=["POST"])
