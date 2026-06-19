@@ -47,6 +47,18 @@ from flask.json.provider import DefaultJSONProvider as _DefaultJSONProvider
 def _json_sanitize(o):
     if isinstance(o, float):
         return None if (_math_san.isnan(o) or _math_san.isinf(o)) else o
+    # numpy scalars (float32/float64) inherit from float above, but Decimal does not.
+    # psycopg2 NUMERIC/FLOAT8 columns can carry Decimal("NaN") — convert and check.
+    try:
+        import decimal as _dec_san
+        if isinstance(o, _dec_san.Decimal):
+            try:
+                f = float(o)
+                return None if (_math_san.isnan(f) or _math_san.isinf(f)) else f
+            except Exception:
+                return None
+    except Exception:
+        pass
     if isinstance(o, dict):
         return {k: _json_sanitize(v) for k, v in o.items()}
     if isinstance(o, (list, tuple)):
@@ -940,12 +952,16 @@ try:
             import traceback
             print(f"[scheduler] {label} unusual-calls scan error: {e}\n{traceback.format_exc()}")
 
-    # 9:30 AM — right at market open: scan earnings stocks + movers first, then
-    # send an instant email alert if any hit Vol/OI >= 5x with prem >= $500K.
-    # This is the scan that would have caught CBRL call activity at open.
+    # 10:02 AM — moved from 9:30 to clear the critical 9:30-9:55 window.
+    # The 9:30 slot was the single biggest driver of market-open CPU+yfinance
+    # saturation: it fires a 500-ticker option-chain scan simultaneously with
+    # nano/sc morning ranking, owner emails, and the microcap prewarm burst.
+    # 10:02 is after all critical morning systems have completed and the
+    # APScheduler pool has headroom again. Earnings + movers are still caught —
+    # option flow doesn't move in the first 90 seconds anyway.
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("market-open"),
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=30, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=2, timezone=_ET),
         id="market_open_unusual_calls",
         replace_existing=True,
     )
@@ -1066,9 +1082,11 @@ try:
             print(f"[scheduler] micro-cap pre-warm → scanned {out.get('scanned', 0)} tickers, {positive} micro/small positive")
         except Exception as e:
             print(f"[scheduler] micro-cap pre-warm error: {e}")
+    # Start at 10:00, not 9:00 — removes the 9:00 and 9:30 prewarm slots that
+    # collide with the morning ranking scans and owner emails.
     _scheduler.add_job(
         _run_microcap_prewarm,
-        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/30", timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour="10-15", minute="*/30", timezone=_ET),
         id="microcap_prewarm",
         replace_existing=True,
     )
@@ -18653,35 +18671,46 @@ Be direct, specific, and professional. No disclaimers."""
 @app.route("/stock-api/iv-rank", methods=["GET"])
 def iv_rank():
     """IV rank (volatility rank) for a single ticker using options + historical price data."""
-    import yfinance as yf, numpy as np
     ticker = (request.args.get("ticker") or "AAPL").upper().strip()
     try:
+        import yfinance as yf, numpy as np, math as _math
+        # _clean_float: safely convert any numeric scalar (numpy, Decimal, plain float)
+        # to a Python float, returning None for NaN/Inf/non-numeric.
+        def _clean_float(v):
+            if v is None: return None
+            try:
+                f = float(v)
+                return None if (_math.isnan(f) or _math.isinf(f)) else f
+            except Exception:
+                return None
+
         tkr  = yf.Ticker(ticker)
         hist = tkr.history(period="1y", interval="1d")
-        if len(hist) < 31:
+        if hist is None or hist.empty or len(hist) < 31:
             return jsonify({"error": "Not enough price history"}), 400
+
+        # Ensure "Close" is a 1-D Series (guard against MultiIndex edge cases)
+        close_s = hist["Close"]
+        if hasattr(close_s, "squeeze"):
+            close_s = close_s.squeeze()
 
         # Calculate historical volatility (annualized) at multiple windows
-        log_ret = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
-        hv30  = float(log_ret[-30:].std()  * np.sqrt(252) * 100) if len(log_ret) >= 30  else None
-        hv60  = float(log_ret[-60:].std()  * np.sqrt(252) * 100) if len(log_ret) >= 60  else None
-        hv90  = float(log_ret[-90:].std()  * np.sqrt(252) * 100) if len(log_ret) >= 90  else None
+        log_ret = np.log(close_s / close_s.shift(1)).dropna()
+        hv30 = _clean_float(log_ret[-30:].std() * np.sqrt(252) * 100) if len(log_ret) >= 30 else None
+        hv60 = _clean_float(log_ret[-60:].std() * np.sqrt(252) * 100) if len(log_ret) >= 60 else None
+        hv90 = _clean_float(log_ret[-90:].std() * np.sqrt(252) * 100) if len(log_ret) >= 90 else None
 
         # Rolling 30-day HV for each day in the past year → used for HV rank
-        rolling_hv30 = (
-            log_ret.rolling(30).std() * np.sqrt(252) * 100
-        ).dropna()
+        rolling_hv30 = (log_ret.rolling(30).std() * np.sqrt(252) * 100).dropna()
         if rolling_hv30.empty or len(rolling_hv30) < 2:
             return jsonify({"error": "Not enough price history"}), 400
-        # Guard against NaN/Inf from edge-case pandas aggregations
-        import math as _math
-        hv_min_raw = rolling_hv30.min()
-        hv_max_raw = rolling_hv30.max()
-        hv_min = float(hv_min_raw) if not (isinstance(hv_min_raw, float) and (_math.isnan(hv_min_raw) or _math.isinf(hv_min_raw))) else None
-        hv_max = float(hv_max_raw) if not (isinstance(hv_max_raw, float) and (_math.isnan(hv_max_raw) or _math.isinf(hv_max_raw))) else None
-        if hv_min is None or hv_max is None or hv_min == hv_max:
+        hv_min = _clean_float(rolling_hv30.min())
+        hv_max = _clean_float(rolling_hv30.max())
+        # NaN == NaN is False in Python; guard explicitly
+        if (hv_min is None or hv_max is None
+                or not (hv_max > hv_min)):
             return jsonify({"error": "Not enough price history"}), 400
-        hv_rank = round((hv30 - hv_min) / (hv_max - hv_min) * 100, 1) if hv30 and hv_max > hv_min else None
+        hv_rank = _clean_float((hv30 - hv_min) / (hv_max - hv_min) * 100) if hv30 is not None else None
 
         # Get current IV from options chain (ATM, nearest 30-45d expiry)
         iv30 = None
