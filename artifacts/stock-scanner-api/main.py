@@ -1116,6 +1116,10 @@ try:
     )
     # Exit alert scan: every 15 min — watches stocks alerted today for VWAP breaks
     def _run_exit_alert_scan():
+        from datetime import datetime as _dtg; import pytz as _ptzg
+        _et = _dtg.now(_ptzg.timezone("America/New_York"))
+        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+            return
         try:
             import threading as _thr_exit
             _thr_exit.Thread(target=run_exit_alert_scan, daemon=True).start()
@@ -1131,6 +1135,10 @@ try:
     # Mid-Day Breakout scan: every 5 min 10:30 AM – 3:30 PM ET
     # Confirmed trend + above VWAP + 15-min momentum — lower risk than morning entry
     def _run_midday_breakout_scan():
+        from datetime import datetime as _dtg; import pytz as _ptzg
+        _et = _dtg.now(_ptzg.timezone("America/New_York"))
+        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+            return
         try:
             import threading as _thr_md
             _thr_md.Thread(target=run_midday_breakout_scan, daemon=True).start()
@@ -1146,6 +1154,10 @@ try:
     # Gap Recovery scan: every 5 min 10:30 AM – 1:00 PM ET
     # Big gapper (20%+) that sold off then reclaimed VWAP with momentum
     def _run_gap_recovery_scan():
+        from datetime import datetime as _dtg; import pytz as _ptzg
+        _et = _dtg.now(_ptzg.timezone("America/New_York"))
+        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+            return
         try:
             import threading as _thr_gr
             _thr_gr.Thread(target=run_gap_recovery_scan, daemon=True).start()
@@ -1163,6 +1175,10 @@ try:
     # Low RVOL (1-3x) but sustained uptrend confirmed by dual 45-min trend check
     # avg vol ≥ 1M, above VWAP, within 2% of HOD, has options
     def _run_steady_grinder_scan():
+        from datetime import datetime as _dtg; import pytz as _ptzg
+        _et = _dtg.now(_ptzg.timezone("America/New_York"))
+        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+            return
         try:
             import threading as _thr_sg
             _thr_sg.Thread(target=run_steady_grinder_scan, daemon=True).start()
@@ -1177,6 +1193,10 @@ try:
     )
     # VWAP Reclaim scan: every 5 min — immediate SMS when alerted stock reclaims VWAP
     def _run_vwap_reclaim_scan():
+        from datetime import datetime as _dtg; import pytz as _ptzg
+        _et = _dtg.now(_ptzg.timezone("America/New_York"))
+        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+            return
         try:
             import threading as _thr_vr
             from holy_grail import run_vwap_reclaim_scan
@@ -1193,6 +1213,10 @@ try:
 
     # Call sweep scan: every 15 min — watches alerted tickers for bullish options sweeps above VWAP
     def _run_call_sweep_scan():
+        from datetime import datetime as _dtg; import pytz as _ptzg
+        _et = _dtg.now(_ptzg.timezone("America/New_York"))
+        if _et.weekday() > 4 or (_et.hour * 60 + _et.minute) < 570 or (_et.hour * 60 + _et.minute) > 990:
+            return
         try:
             import threading as _thr_cs
             _thr_cs.Thread(target=run_call_sweep_scan, daemon=True).start()
