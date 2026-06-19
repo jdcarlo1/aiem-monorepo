@@ -257,7 +257,7 @@ export default function Paywall() {
 
         <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground font-medium">
           <ShieldCheck className="w-4 h-4" />
-          Secure payment via Stripe · 30-day money-back guarantee
+          Secure payment via Stripe · No refunds · Monthly plan can be cancelled anytime
         </div>
 
         <div className="mt-6 pt-6 border-t border-border text-center">
