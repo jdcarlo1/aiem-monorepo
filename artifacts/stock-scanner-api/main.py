@@ -17749,6 +17749,69 @@ def ai_short_calls():
                     _ms_count_map[_t] = {"count": len(_hits_list), "labels": _hits_list}
             except Exception as _mse:
                 print(f"[ai_short_calls] multi_signal cache error: {_mse}", file=_sys.stderr)
+
+            # 5. Charm Cascade — calculated using the SAME formula as your scanner:
+            #    charm_score = OI × 100 × max(0, 20 - |otm_pct|) / (days_out × 10)
+            #    Higher score = more forced dealer buying per day as expiry approaches.
+            #    Only fires for options ≤10 days out within 20% OTM (where charm peaks).
+            _charm_map = {}
+            try:
+                with _psycopg2.connect(_DB_URL) as _chc, _chc.cursor() as _chcur:
+                    _chcur.execute("""
+                        SELECT
+                            ticker,
+                            MAX(ROUND(
+                                (oi * 100.0 * GREATEST(0, 20.0 - ABS(otm_pct)))
+                                / (GREATEST(1, days_out) * 10.0)
+                            , 1)) AS charm_score,
+                            MIN(days_out) AS nearest_days
+                        FROM oi_daily_snapshot
+                        WHERE ticker = ANY(%s)
+                          AND snapshot_date = (SELECT MAX(snapshot_date) FROM oi_daily_snapshot)
+                          AND days_out BETWEEN 1 AND 10
+                          AND ABS(otm_pct) < 20
+                          AND oi >= 100
+                        GROUP BY ticker
+                        ORDER BY charm_score DESC
+                    """, (_unique_tickers,))
+                    for _row in _chcur.fetchall():
+                        _charm_map[_row[0]] = {
+                            "score": float(_row[1] or 0),
+                            "nearest_days": int(_row[2] or 0),
+                        }
+            except Exception as _charme:
+                print(f"[ai_short_calls] charm_cascade calc error: {_charme}", file=_sys.stderr)
+
+            # 6. Insider alerts + earnings date from insider_alerts table
+            #    suspicion_score >= 60 = your scanner flagged pre-positioning
+            _insider_map = {}
+            _earnings_map = {}
+            try:
+                with _psycopg2.connect(_DB_URL) as _iac, _iac.cursor() as _iacur:
+                    _iacur.execute("""
+                        SELECT DISTINCT ON (ticker)
+                               ticker, suspicion_score, verdict,
+                               pre_positioned, earnings_date, days_to_earnings
+                        FROM insider_alerts
+                        WHERE ticker = ANY(%s)
+                          AND detected_at >= NOW() - INTERVAL '30 days'
+                        ORDER BY ticker, suspicion_score DESC
+                    """, (_unique_tickers,))
+                    for _row in _iacur.fetchall():
+                        _tk, _ss, _vrd, _pp, _ed, _dte = _row
+                        if _ss and int(_ss) >= 60:
+                            _insider_map[_tk] = {
+                                "score": int(_ss),
+                                "verdict": _vrd or "",
+                                "pre_positioned": bool(_pp),
+                            }
+                        if _ed:
+                            _earnings_map[_tk] = {
+                                "date": str(_ed),
+                                "days_out": int(_dte or 0),
+                            }
+            except Exception as _iae:
+                print(f"[ai_short_calls] insider/earnings lookup error: {_iae}", file=_sys.stderr)
             # ─────────────────────────────────────────────────────────────
 
             oai = _OAI(
@@ -17780,6 +17843,25 @@ def ai_short_calls():
                 ms_count = ms.get("count", 0)
                 ms_labels = "+".join(ms.get("labels", [])) or "none"
                 base += f" | other_scanners={ms_count}/11 ({ms_labels})"
+                # Charm cascade — actual calculated score from oi_daily_snapshot
+                ch = _charm_map.get(tk)
+                if ch and ch["score"] > 0:
+                    base += f" | charm_cascade={ch['score']} (expires_in={ch['nearest_days']}d — dealer_forced_buying_accelerates)"
+                else:
+                    base += " | charm_cascade=NO_NEAR_EXPIRY_OI"
+                # Insider radar
+                ins = _insider_map.get(tk)
+                if ins:
+                    pp = "PRE_POSITIONED" if ins["pre_positioned"] else ins["verdict"]
+                    base += f" | insider_radar=FLAGGED (suspicion={ins['score']}/100, {pp})"
+                else:
+                    base += " | insider_radar=CLEAN"
+                # Earnings date — critical context for IV crush risk vs catalyst setup
+                ea = _earnings_map.get(tk)
+                if ea:
+                    base += f" | earnings={ea['date']} ({ea['days_out']}d away)"
+                else:
+                    base += " | earnings=NONE_KNOWN"
                 return base
 
             signals_text = "\n".join(_enrich_line(i, h) for i, h in enumerate(hits))
@@ -17798,10 +17880,16 @@ Criteria (in order of importance):
 6. Premium size — commitment level
 7. OTM% — closer to ATM is more realistic target; avoid >15% OTM unless all other signals are very strong
 8. urgency tier and days_out
+9. charm_cascade score — CALCULATED by the system using real OI data: score = OI × 100 × max(0, 20 - |otm_pct|) / (days_out × 10). Higher = more forced dealer buying per day. A high charm score with 1-5 days left = mechanical buying pressure that ACCELERATES every day. Prioritize sweeps where charm_cascade is high and expiry is close.
+10. insider_radar — if FLAGGED, your scanner detected suspicious pre-positioning. Sweep + insider flag = someone almost certainly knows something. Prioritize heavily.
+11. earnings — if earnings are within 7 days: this is a catalyst play (high reward but IV crush risk after); if earnings are 8-30 days away: ideal window (sweep before catalyst, time for move); if NONE_KNOWN: direction play only, no binary event.
 
-Ranking logic: A ticker with conviction_stack ≥8 + FIR >2% + other_scanners ≥4 is an ELITE pick — rank it #1-5 regardless of Vol/OI.
-A sweep with conviction_stack=NO_DATA + FIR=NO_DATA + other_scanners=0/11 is noise — rank it #16-20 or exclude.
-The goal is to identify sweeps where MULTIPLE independent systems all confirm the same thesis on the same day.
+Ranking logic:
+- ELITE pick: conviction_stack ≥8 + FIR >2% + other_scanners ≥4 + charm_cascade score >0 → rank #1-5
+- STRONG pick: insider_radar=FLAGGED + sweep → rank #1-10 regardless of other scores (someone knows something)
+- AVOID: earnings within 3 days + far OTM → IV crush will kill the call even if direction is right
+- NOISE: conviction_stack=NO_DATA + FIR=NO_DATA + other_scanners=0 + charm_cascade=NO_NEAR_EXPIRY_OI → rank #16-20
+The goal is sweeps where MULTIPLE independent systems — options flow, dealer mechanics, smart money, AND scanner cross-reference — all confirm the same thesis on the same day.
 
 For each pick output a JSON object with ALL these fields:
 - ticker (string)
