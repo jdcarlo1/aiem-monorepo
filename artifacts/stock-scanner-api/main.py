@@ -4317,18 +4317,16 @@ def _run_nano_morning_ranking():
 
                 # 3. Volume score (0-20) — 3-30x is healthy, >100x is pump
                 _rvol = (vol5 / vol20) if vol20 > 0 else 1.0
-                # Hard gate: no real volume interest = not a signal, skip entirely
-                # Backtest Jun 9-13 2026 showed low-RVOL names polluted STRONG list
-                # with 14-45% win rates; gating at 3x cuts noise without losing winners
-                if _rvol < 3.0:
+                # Hard gates — two-sided RVOL filter:
+                #   < 3x  = no real interest (low-RVOL names had 14-45% win rate Jun 9-13 2026)
+                #   > 60x = pump-and-dump signature (EBON 230x, -9.9% Jun 11; extreme vol = exit, not entry)
+                if _rvol < 3.0 or _rvol > 60.0:
                     return None
                 _rvol_pts = 0
                 if   5 <= _rvol < 15:  _rvol_pts = 18  # good interest
                 elif 3 <= _rvol < 5:   _rvol_pts = 15  # building
                 elif 15 <= _rvol < 30: _rvol_pts = 12  # hot
                 elif 30 <= _rvol < 60: _rvol_pts = 5   # suspicious
-                elif _rvol >= 60:      _rvol_pts = 0   # pump
-                elif _rvol < 3:        _rvol_pts = 5   # no interest
 
                 # 4. 10-day momentum score (0-15) — multi-day confirmation
                 _mom10_pts = 0
