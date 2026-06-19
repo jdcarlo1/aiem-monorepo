@@ -19,7 +19,7 @@ from email_alerts import (
     send_daily_digest, smtp_configured, subscriber_count,
 )
 from historical_performance import init_score_history_table, save_scan_scores
-from signal_outcomes import init_signal_outcomes_table, store_bull_flow_signals, get_signal_outcomes
+from signal_outcomes import init_signal_outcomes_table, store_bull_flow_signals, get_signal_outcomes, update_signal_outcome_prices
 from sms_alerts import (init_sms_log_table, init_exit_log_table,
                         init_midday_log_table,
                         run_sms_alert_scan, run_exit_alert_scan,
@@ -378,6 +378,15 @@ composite_scan.init_composite_table()
 composite_scan.init_meta_table()
 composite_scan.init_watchlist_table()
 init_signal_outcomes_table()
+# Backfill T+3/T+5/T+10 prices for any existing rows that haven't been filled yet.
+# Runs once at startup in a background thread — won't block the server or affect any tab.
+def _backfill_signal_outcomes():
+    try:
+        update_signal_outcome_prices()
+    except Exception as _e_bso:
+        print(f"[signal_outcomes] startup backfill error: {_e_bso}")
+import threading as _thr_bso
+_thr_bso.Thread(target=_backfill_signal_outcomes, daemon=True).start()
 init_sms_log_table()
 init_exit_log_table()
 init_call_sweep_log_table()
@@ -1395,6 +1404,18 @@ try:
                 id=f"monitor_positions_{_mo_h}_{_mo_m}",
                 replace_existing=True,
             )
+    # Signal outcomes: Mon-Fri 4:33 PM ET — fills stored T+3/T+5/T+10 prices (no live fetch on page load)
+    def _run_signal_outcomes():
+        try:
+            update_signal_outcome_prices()
+        except Exception as e:
+            print(f"[scheduler] signal outcomes error: {e}")
+    _scheduler.add_job(
+        _run_signal_outcomes,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=33, timezone=_ET),
+        id="signal_outcomes_update",
+        replace_existing=True,
+    )
     # EOD sweep outcomes: Mon-Fri 4:35 PM ET — fills T+1/T+3/T+5 closing prices
     def _run_eod_sweep_outcomes():
         try:

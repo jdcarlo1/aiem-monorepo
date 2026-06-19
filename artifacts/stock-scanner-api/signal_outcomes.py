@@ -2,6 +2,7 @@
 Signal Outcome Tracker
 Stores bullish options signals when scanned, then calculates
 T+3, T+5, T+10 trading-day price outcomes using yfinance.
+Outcomes are stored in the DB once daily (not recomputed on every page load).
 """
 
 import os
@@ -47,6 +48,19 @@ def init_signal_outcomes_table():
                 UNIQUE(ticker, signal_date, session)
             )
         """)
+        for col, typ in [
+            ("t3_price",  "REAL"),
+            ("t5_price",  "REAL"),
+            ("t10_price", "REAL"),
+            ("t3_pct",    "REAL"),
+            ("t5_pct",    "REAL"),
+            ("t10_pct",   "REAL"),
+            ("t3_win",    "BOOLEAN"),
+            ("t5_win",    "BOOLEAN"),
+            ("t10_win",   "BOOLEAN"),
+            ("outcomes_updated_at", "TIMESTAMP"),
+        ]:
+            cur.execute(f"ALTER TABLE signal_outcomes ADD COLUMN IF NOT EXISTS {col} {typ}")
         conn.commit()
         cur.close()
         conn.close()
@@ -118,49 +132,47 @@ def _closest_close(hist, target: date):
     return None
 
 
-def get_signal_outcomes(limit: int = 60) -> list:
+def update_signal_outcome_prices():
     """
-    Return stored signals with T+3, T+5, T+10 price outcomes.
-    Only returns signals where at least T+3 trading days have elapsed.
+    Fill stored T+3/T+5/T+10 prices for any row where that date has now passed
+    and the price column is still NULL. Runs once daily at 4:33 PM ET — never
+    called on page load so Yahoo throttling never blocks the Outcomes tab.
     """
     if not DATABASE_URL:
-        return []
+        return
     try:
         import yfinance as yf
+        today = _et_today()
 
         conn = _connect()
         cur = conn.cursor()
-        cutoff = (_et_today() - timedelta(days=45)).isoformat()
+        cutoff = (today - timedelta(days=45)).isoformat()
+
         cur.execute("""
-            SELECT DISTINCT ON (ticker, signal_date)
-                ticker, signal_date, price_at_signal,
-                call_put_ratio, premium_m, strike, expiry
+            SELECT id, ticker, signal_date, price_at_signal
             FROM signal_outcomes
-            WHERE signal_date >= %s AND call_put_ratio >= 2
-            ORDER BY ticker, signal_date, call_put_ratio DESC
-            LIMIT %s
-        """, (cutoff, limit))
+            WHERE signal_date >= %s
+              AND call_put_ratio >= 2
+              AND t3_price IS NULL
+            ORDER BY signal_date ASC
+            LIMIT 500
+        """, (cutoff,))
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
 
-        today = _et_today()
-        outcomes = []
-
-        for ticker, sig_date, price_at_signal, cpr, premium_m, strike, expiry in rows:
-            t3 = _add_trading_days(sig_date, 3)
-            t5 = _add_trading_days(sig_date, 5)
+        updated = 0
+        for row_id, ticker, sig_date, price_at_signal in rows:
+            t3  = _add_trading_days(sig_date, 3)
+            t5  = _add_trading_days(sig_date, 5)
             t10 = _add_trading_days(sig_date, 10)
 
             if today < t3:
                 continue
 
             try:
-                hist_end = (today + timedelta(days=1)).isoformat()
                 hist = yf.download(
                     ticker,
                     start=sig_date.isoformat(),
-                    end=hist_end,
+                    end=(today + timedelta(days=1)).isoformat(),
                     progress=False,
                     auto_adjust=True,
                 )
@@ -176,33 +188,91 @@ def get_signal_outcomes(limit: int = 60) -> list:
                 t10_p = _closest_close(hist, t10) if today >= t10 else None
 
                 def pct(p):
-                    if p is None:
+                    if p is None or not base:
                         return None
                     return round((p - base) / base * 100, 2)
 
-                outcomes.append({
-                    "ticker":          ticker,
-                    "signal_date":     sig_date.isoformat(),
-                    "price_at_signal": round(base, 2),
-                    "call_put_ratio":  round(cpr, 2),
-                    "premium_m":       round(premium_m, 2) if premium_m else None,
-                    "strike":          strike,
-                    "expiry":          expiry,
-                    "t3_price":  t3_p,
-                    "t5_price":  t5_p,
-                    "t10_price": t10_p,
-                    "t3_pct":   pct(t3_p),
-                    "t5_pct":   pct(t5_p),
-                    "t10_pct":  pct(t10_p),
-                    "t3_win":   (t3_p  > base) if t3_p  is not None else None,
-                    "t5_win":   (t5_p  > base) if t5_p  is not None else None,
-                    "t10_win":  (t10_p > base) if t10_p is not None else None,
-                })
+                cur.execute("""
+                    UPDATE signal_outcomes
+                    SET t3_price=%s, t5_price=%s, t10_price=%s,
+                        t3_pct=%s,   t5_pct=%s,   t10_pct=%s,
+                        t3_win=%s,   t5_win=%s,   t10_win=%s,
+                        outcomes_updated_at=NOW()
+                    WHERE id=%s
+                """, (
+                    t3_p, t5_p, t10_p,
+                    pct(t3_p), pct(t5_p), pct(t10_p),
+                    (t3_p > base) if t3_p is not None else None,
+                    (t5_p > base) if t5_p is not None else None,
+                    (t10_p > base) if t10_p is not None else None,
+                    row_id,
+                ))
+                updated += 1
             except Exception as e:
                 print(f"[signal_outcomes] {ticker} price lookup error: {e}")
                 continue
 
-        outcomes.sort(key=lambda x: x["signal_date"], reverse=True)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"[signal_outcomes] outcomes filled for {updated} rows")
+    except Exception as e:
+        print(f"[signal_outcomes] update_signal_outcome_prices error: {e}")
+
+
+def get_signal_outcomes(limit: int = 60) -> list:
+    """
+    Return stored signals with T+3, T+5, T+10 price outcomes.
+    Reads from pre-computed DB columns — no live yfinance calls.
+    Only returns signals where at least T+3 trading days have elapsed
+    AND t3_price has been filled by the daily updater.
+    """
+    if not DATABASE_URL:
+        return []
+    try:
+        conn = _connect()
+        cur = conn.cursor()
+        cutoff = (_et_today() - timedelta(days=45)).isoformat()
+        cur.execute("""
+            SELECT ticker, signal_date, price_at_signal,
+                   call_put_ratio, premium_m, strike, expiry,
+                   t3_price, t5_price, t10_price,
+                   t3_pct, t5_pct, t10_pct,
+                   t3_win, t5_win, t10_win
+            FROM signal_outcomes
+            WHERE signal_date >= %s
+              AND call_put_ratio >= 2
+              AND t3_price IS NOT NULL
+            ORDER BY signal_date DESC
+            LIMIT %s
+        """, (cutoff, limit))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        outcomes = []
+        for (ticker, sig_date, price_at_signal, cpr, premium_m, strike, expiry,
+             t3_p, t5_p, t10_p, t3_pct, t5_pct, t10_pct,
+             t3_win, t5_win, t10_win) in rows:
+            outcomes.append({
+                "ticker":          ticker,
+                "signal_date":     sig_date.isoformat(),
+                "price_at_signal": round(float(price_at_signal), 2) if price_at_signal else None,
+                "call_put_ratio":  round(float(cpr), 2),
+                "premium_m":       round(float(premium_m), 2) if premium_m else None,
+                "strike":          strike,
+                "expiry":          expiry,
+                "t3_price":  t3_p,
+                "t5_price":  t5_p,
+                "t10_price": t10_p,
+                "t3_pct":    t3_pct,
+                "t5_pct":    t5_pct,
+                "t10_pct":   t10_pct,
+                "t3_win":    t3_win,
+                "t5_win":    t5_win,
+                "t10_win":   t10_win,
+            })
+
         return outcomes
 
     except Exception as e:
