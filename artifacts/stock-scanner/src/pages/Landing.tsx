@@ -728,6 +728,132 @@ export default function Landing() {
         </div>
       </div>
 
+      {/* ── SIGNALS NOBODY ELSE TRACKS ── */}
+      <div className="px-6 pb-24 max-w-6xl mx-auto">
+        <div className="rounded-3xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.07)", background: "#070e18" }}>
+          <div className="px-8 sm:px-12 pt-14 pb-10 text-center" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black mb-6" style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>
+              ⚠ INSTITUTIONAL SIGNALS — NOT AVAILABLE ON ANY RETAIL PLATFORM
+            </div>
+            <h2 className="font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.4rem)", letterSpacing: "-0.04em" }}>
+              Signals you've never heard of.<br />
+              <span style={{ color: "#4ade80" }}>Because no one else tracks them.</span>
+            </h2>
+            <p className="text-slate-400 mx-auto" style={{ maxWidth: "620px", fontSize: "1.05rem", lineHeight: 1.7 }}>
+              Unusual Whales shows you flow. FlowAlgo shows you flow. Cheddar shows you flow.
+              Below are six signals that have nothing to do with flow — and everything to do with why a stock is about to move whether you're watching or not.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                code: "FIR",
+                full: "Float Impact Ratio",
+                badge: "MATHEMATICAL FORCING FUNCTION",
+                badgeColor: "#4ade80",
+                badgeGlow: "rgba(34,197,94,0.12)",
+                them: "\"Strong call flow today.\"",
+                us: "When gamma-weighted call delta obligations exceed 2% of the entire share float — market makers are not predicting a move. They are legally required to make one. They must buy shares to stay hedged. Every tick up forces more buying. The move isn't a signal. It's mechanics.",
+                stamp: "FIR > 2% = mechanically forced buying. No prediction involved.",
+                accent: "#4ade80",
+              },
+              {
+                code: "CHARM Δ",
+                full: "Charm Acceleration",
+                badge: "THE SLOW-MOTION SQUEEZE NO CHART SHOWS",
+                badgeColor: "#60a5fa",
+                badgeGlow: "rgba(96,165,250,0.12)",
+                them: "\"Elevated open interest.\"",
+                us: "Everyone knows delta. Some know gamma. Almost no one in retail has heard of charm — the rate at which delta changes as time passes, not as price moves. A call chain loaded with 50,000 contracts expiring in 14 days GAINS delta every single day as expiry approaches, forcing market makers to buy more stock every morning — with zero price catalyst. A time-powered squeeze, invisible on every chart.",
+                stamp: "Charm squeeze = buying pressure that builds silently, daily, until expiry.",
+                accent: "#60a5fa",
+              },
+              {
+                code: "GEX",
+                full: "Dealer Gamma Exposure",
+                badge: "AMPLIFIER OR SUPPRESSOR?",
+                badgeColor: "#a78bfa",
+                badgeGlow: "rgba(167,139,250,0.12)",
+                them: "\"It broke out — should I buy?\"",
+                us: "GEX is the net gamma position of ALL options market makers across every open strike, summed into one number. Short gamma regime: dealers trade in the same direction as every move to hedge — amplifying breakouts into runs. Long gamma regime: dealers fade every move — turning breakouts into traps. GEX tells you which world you're in before the first tick.",
+                stamp: "Negative GEX = breakouts run. Positive GEX = breakouts fade. Know before you enter.",
+                accent: "#a78bfa",
+              },
+              {
+                code: "OI BUILD",
+                full: "Consecutive OI Buildup Days",
+                badge: "1 DAY = RETAIL. 10 DAYS = INSTITUTION.",
+                badgeColor: "#fbbf24",
+                badgeGlow: "rgba(251,191,36,0.12)",
+                them: "\"Big OI on this strike today.\"",
+                us: "Today's open interest tells you almost nothing. Eleven consecutive days of the same strike quietly accumulating open interest — same strike, same direction, every day for two weeks — tells you everything. That's not retail chasing a move. That's an institution building a position one day at a time, slowly, without moving the price, before anyone else notices.",
+                stamp: "3+ consecutive days of OI buildup on the same strike = pre-positioned smart money.",
+                accent: "#fbbf24",
+              },
+              {
+                code: "SMP",
+                full: "Smart Money Pressure Score",
+                badge: "8 LAYERS. ONE NUMBER. NEAR ZERO CHANCE OF COINCIDENCE.",
+                badgeColor: "#fb923c",
+                badgeGlow: "rgba(251,146,60,0.12)",
+                them: "\"Unusual volume on the calls.\"",
+                us: "8 independent pressure signals scored simultaneously on the same ticker: OI loading (L1), gamma lockup (L2), charm acceleration (L3), short squeeze fuel (L4), dark pool accumulation (L5), float demand math (L6), far-OTM sweep conviction (L7), sector heat alignment (L8). Score 4+/8: mechanics are pulling in the same direction. Score 7+/8: we've rarely seen this not move.",
+                stamp: "L1–L8 all firing = the probability of coincidence approaches zero.",
+                accent: "#fb923c",
+              },
+              {
+                code: "CONV-STACK",
+                full: "Conviction Stack Score",
+                badge: "THE NUMBER THAT RANKS EVERYTHING ELSE",
+                badgeColor: "#34d399",
+                badgeGlow: "rgba(52,211,153,0.12)",
+                them: "\"HIGH conviction\" (on everything, always)",
+                us: "16 possible points. 8 signals. Each worth 0–2. Score below 8: might be noise. Score 8–11: rare enough to act on. Score 12+: near-certain institutional play. Score 14+: in all our backtesting, we've almost never seen this not move. Every ELITE pick is scored here first. No vague labels. One number. You decide what it means.",
+                stamp: "Conviction Stack ≥ 8 + FIR > 2% + 4+ scanners = ELITE threshold.",
+                accent: "#34d399",
+              },
+            ].map((sig, idx) => (
+              <div key={sig.code} className="p-7 flex flex-col gap-4" style={{
+                borderRight: (idx % 3 !== 2) ? "1px solid rgba(255,255,255,0.05)" : "none",
+                borderBottom: idx < 3 ? "1px solid rgba(255,255,255,0.05)" : "none",
+              }}>
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div>
+                    <div className="font-black text-white mb-0.5" style={{ fontSize: "1.5rem", letterSpacing: "-0.03em", fontFamily: "monospace" }}>{sig.code}</div>
+                    <div className="text-slate-600 text-xs font-semibold">{sig.full}</div>
+                  </div>
+                  <div className="text-xs font-black px-2 py-1 rounded-md shrink-0" style={{ background: sig.badgeGlow, color: sig.accent, border: `1px solid ${sig.accent}33`, letterSpacing: "0.03em" }}>{sig.badge}</div>
+                </div>
+                <div className="rounded-lg px-4 py-3" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.1)" }}>
+                  <div className="text-xs font-bold text-slate-600 uppercase tracking-widest mb-1">What every other platform gives you</div>
+                  <div className="text-slate-500 text-sm italic">{sig.them}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: sig.accent }}>What this actually shows you</div>
+                  <div className="text-slate-300 text-sm leading-relaxed">{sig.us}</div>
+                </div>
+                <div className="mt-auto pt-3" style={{ borderTop: `1px solid ${sig.accent}20` }}>
+                  <div className="text-xs font-black leading-relaxed" style={{ color: sig.accent }}>→ {sig.stamp}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="px-8 sm:px-12 py-7 flex flex-col sm:flex-row items-center justify-between gap-4" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(34,197,94,0.03)" }}>
+            <div>
+              <div className="font-black text-white text-base mb-1">All six compute on every ticker, every trading day. Automatically.</div>
+              <div className="text-slate-500 text-sm">No other retail platform — at any price — calculates FIR, Charm Acceleration, or GEX per ticker. Not Unusual Whales. Not FlowAlgo. Not BlackBox. Not Trade Ideas.</div>
+            </div>
+            <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+              className="shrink-0 font-black px-8 py-4 rounded-xl text-base whitespace-nowrap transition-all"
+              style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", boxShadow: "0 8px 32px rgba(34,197,94,0.35)" }}>
+              Get Access →
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* ── COMPARISON TABLE ── */}
       <div className="px-6 pb-20 max-w-6xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">vs. the competition</p>
