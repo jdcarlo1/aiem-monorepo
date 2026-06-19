@@ -224,20 +224,20 @@ export default function Landing() {
         <div className="relative max-w-5xl mx-auto">
           <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold mb-10" style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80" }}>
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-            The only platform that reads every signal source — and tells you what they mean together
+            Right now, 8 signals are firing on the same ticker. You're not seeing all of them.
           </div>
 
           <h1 className="font-black leading-none mb-8" style={{ fontSize: "clamp(3.2rem,9vw,7.5rem)", letterSpacing: "-0.055em", lineHeight: 0.92 }}>
-            73 data points.<br />
-            <span style={{ color: "#4ade80", textShadow: "0 0 160px rgba(74,222,128,0.5)" }}>One AI thesis.</span>
+            You're seeing<br />fragments.<br />
+            <span style={{ color: "#4ade80", textShadow: "0 0 160px rgba(74,222,128,0.5)" }}>We show the pattern.</span>
           </h1>
 
-          <p className="mx-auto mb-6 text-slate-300" style={{ fontSize: "clamp(1.1rem,2.5vw,1.4rem)", maxWidth: "660px", lineHeight: 1.75 }}>
-            Every other platform shows you signals in separate tabs and leaves the thinking to you. <strong className="text-white">StockScanner AI feeds all 73 data points into one AI simultaneously</strong> — dark pool, smart money, options flow, IV rank, gamma walls, max pain, market regime, dealer gamma exposure, volatility surface, macro cross-asset context, institutional whale blocks, MACD momentum, support &amp; resistance levels, volume profile POC, VWAP, and more — and outputs 5 complete, written trade setups every day.
+          <p className="mx-auto mb-6 text-slate-300" style={{ fontSize: "clamp(1.1rem,2.5vw,1.4rem)", maxWidth: "680px", lineHeight: 1.75 }}>
+            Right now there's a stock where OI has been quietly building for 4 days. Gamma pressure is mathematically locked in. A far-OTM sweep just fired. Dark pool printed $2M overnight. Shorts are trapped. The sector is rotating in. That's 6 of 8 signals converging on the same name — and Unusual Whales is showing you only the sweep. FlowAlgo only the flow. <strong className="text-white">Nobody is showing you the convergence.</strong> StockScanner AI reads all 73 data points simultaneously, scores every ticker across 8 independent signals, and outputs 5 ELITE trade setups every morning — with strike, expiry, and a full written thesis — before the move starts.
           </p>
 
           <p className="mx-auto mb-12 font-bold" style={{ fontSize: "1.05rem", maxWidth: "580px", color: "#fbbf24" }}>
-            No other platform does this. Not Unusual Whales. Not FlowAlgo. Not Trade Ideas.
+            That convergence you're not seeing? It's in here. Every single day.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-6">
@@ -260,16 +260,16 @@ export default function Landing() {
       <div className="px-6 pb-20 max-w-4xl mx-auto text-center">
         <p className="text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">The problem with every competitor</p>
         <h2 className="font-black mb-6" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>
-          They show you signals.<br /><span className="text-slate-500">You still have to figure out what they mean.</span>
+          They show you one signal.<br /><span className="text-slate-500">The move requires 8 agreeing.</span>
         </h2>
-        <p className="text-slate-400 mx-auto mb-14" style={{ maxWidth: "600px", fontSize: "1.1rem", lineHeight: 1.75 }}>
-          Unusual Whales shows you dark pool flow in one tab. Options flow in another. Smart money in another. Congress trades somewhere else. Then you close 6 tabs, open a chart, and try to connect the dots yourself. That's not a tool — that's homework.
+        <p className="text-slate-400 mx-auto mb-14" style={{ maxWidth: "640px", fontSize: "1.1rem", lineHeight: 1.75 }}>
+          Unusual Whales shows you the sweep. FlowAlgo shows you the flow. Smart money shows you a score. But when OI buildup, gamma pressure, charm acceleration, squeeze fuel, dark pool, float demand, far-OTM sweep, and sector heat all fire on the same ticker on the same day — that convergence is the signal that moves stocks 20–40%. Other platforms are showing you fragments of it. You're closing 6 tabs and still missing the picture.
         </p>
         <div className="grid sm:grid-cols-3 gap-4 text-left">
           {[
-            { before: "You open 6 different tabs trying to figure out if signals agree.", after: "One AI reads all 73 data points together and tells you exactly what they say — combined.", icon: "🗂️" },
-            { before: "You see heavy put volume and don't know if it's a hedge or a real bearish bet.", after: "Put Intent Decoder classifies every put: hedge vs directional bet. Nobody else does this.", icon: "🎯" },
-            { before: "You get a signal score. No entry, no strike, no expiry, no thesis.", after: "You get: ticker, direction, entry strike, expiry, target, stop loss, and a written thesis. Ready to execute.", icon: "📋" },
+            { before: "8 signals are converging on one ticker right now. You have no way to see them together.", after: "Smart Money Pressure scores all 8 convergence layers on one ticker, in one view, automatically. 4+ firing = the mechanics nearly force the move.", icon: "🗂️" },
+            { before: "You see heavy put volume and don't know if it's a hedge or a real bearish bet.", after: "Put Intent Decoder classifies every put instantly: hedge vs directional bet. The distinction that changes whether a signal is bullish or bearish.", icon: "🎯" },
+            { before: "You get a signal score. No entry, no strike, no expiry, no thesis.", after: "You get: ticker, direction, entry strike, expiry, target, stop loss, and a written thesis — for 5 ELITE setups every morning. Ready to execute.", icon: "📋" },
           ].map(p => (
             <div key={p.before} className="rounded-2xl p-6" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
               <div className="text-3xl mb-4">{p.icon}</div>
@@ -848,8 +848,26 @@ export default function Landing() {
             { icon: "📐", title: "IV Skew & Volatility Surface ★ Quant", desc: "Measures put vs call implied vol gap (fear premium) plus near-term vs far-term IV structure. When institutions buy crash protection, IV skew spikes — the AI reads this before every setup." },
             { icon: "⚙️", title: "Dealer Gamma Exposure ★ Quant", desc: "Computes net market-maker gamma across every open strike. SHORT_GAMMA regimes amplify moves; LONG_GAMMA suppresses them. The AI knows whether a breakout will run or reverse before suggesting a trade." },
             { icon: "🌐", title: "Macro Cross-Asset Context ★ Quant", desc: "Yield curve, USD strength, HY vs IG credit spreads, crude oil, and gold — all read by the AI before every trade. Setups that look good on flow alone but break macro context get filtered out." },
-            { icon: "🔥", title: "Smart Money Pressure ★ Exclusive", desc: "8 independent pressure signals converging on one ticker: OI Build, Gamma Squeeze, Charm Acceleration, Short Squeeze Fuel, Dark Pool Accumulation, Float Overload, Far-OTM Sweep, and Sector Heat. When 4+ layers fire simultaneously, the mechanics nearly force a move. 8+ / 10 pts = ~90% probability of explosive move." },
-            { icon: "🎯", title: "8-Layer Conviction Stack ★ Exclusive", desc: "Every ticker gets scored across 8 deterministic squeeze signals — each worth 0–2 pts, max 16 pts. OI Build · Gamma Force · Charm · Short Interest · Dark Pool · Float Demand · Far-OTM Sweep · Sector Heat. Scores 8+ put the stock in rare company. Nobody computes this. Nobody publishes it." },
+            { icon: "🔥", title: "Smart Money Pressure ★ Exclusive", desc: "8 independent pressure signals converging on one ticker. When 4+ layers fire simultaneously, the mechanics nearly force the move. 8+ / 10 pts = ~90% probability of explosive move.", layers: [
+              { label: "L1 OI Build", sub: "Smart money loading calls over multiple days" },
+              { label: "L2 Gamma", sub: "Market makers forced to buy as price rises" },
+              { label: "L3 Charm", sub: "Delta increasing daily as expiry ticks down" },
+              { label: "L4 Squeeze Fuel", sub: "Trapped shorts must buy to cover" },
+              { label: "L5 Dark Pool", sub: "Institutions accumulating off-exchange" },
+              { label: "L6 Float OD", sub: "Delta obligations exceed 2% of float — math forces it" },
+              { label: "L7 Sweep", sub: "Conviction bet at extreme strike — someone knows" },
+              { label: "L8 Sector", sub: "Hot sector theme pulling this name along" },
+            ]},
+            { icon: "🎯", title: "8-Layer Conviction Stack ★ Exclusive", desc: "Every ticker scored across 8 deterministic signals, each worth 0–2 pts. Score 8+ = rare convergence. Nobody computes this. Nobody publishes it.", layers: [
+              { label: "L1 OI Build", sub: "0–2 pts · Call accumulation days" },
+              { label: "L2 γ FIR", sub: "0–2 pts · Float Impact Ratio > 2%" },
+              { label: "L3 Charm", sub: "0–2 pts · Delta accelerating to expiry" },
+              { label: "L4 Short Int", sub: "0–2 pts · Squeeze fuel loaded" },
+              { label: "L5 Dark Pool", sub: "0–2 pts · Off-exchange institutional prints" },
+              { label: "L6 Float OD", sub: "0–2 pts · Float demand math kicks in" },
+              { label: "L7 Sweep", sub: "0–2 pts · Far-OTM conviction bet placed" },
+              { label: "L8 Sector", sub: "0–2 pts · Sector tailwind confirmed" },
+            ]},
             { icon: "💥", title: "Short Squeeze Radar ★ New", desc: "Composite squeeze risk score: short float %, days-to-cover, borrow cost, and unusual call flow — all combined. Catches the setup before the squeeze starts, not after it's on CNBC." },
             { icon: "🔻", title: "AI Short Calls ★ New", desc: "The bearish counterpart to AI Trade Synthesis. AI scans for tickers where put flow, IV skew, dark pool selling, and deteriorating fundamentals all align — and outputs the highest-conviction short setups with strike, expiry, and written thesis." },
           ].map(f => (
@@ -858,9 +876,61 @@ export default function Landing() {
               onMouseLeave={e => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.07)")}>
               <div className="text-4xl mb-4">{f.icon}</div>
               <div className="font-black text-white text-lg mb-2">{f.title}</div>
-              <div className="text-slate-400 text-base leading-relaxed">{f.desc}</div>
+              <div className="text-slate-400 text-sm leading-relaxed">{f.desc}</div>
+              {f.layers && (
+                <div className="grid grid-cols-2 gap-1.5 mt-4">
+                  {f.layers.map(l => (
+                    <div key={l.label} className="rounded-lg px-2.5 py-2" style={{ background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)" }}>
+                      <div className="font-black text-xs mb-0.5" style={{ color: "#4ade80" }}>{l.label}</div>
+                      <div className="text-slate-500 text-xs leading-snug">{l.sub}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* ── ELITE RANKING METHODOLOGY ── */}
+      <div className="px-6 pb-20 max-w-5xl mx-auto">
+        <div className="rounded-3xl p-8 sm:p-10 relative overflow-hidden" style={{ background: "linear-gradient(135deg, rgba(251,191,36,0.06), rgba(6,12,20,1))", border: "2px solid rgba(251,191,36,0.25)", boxShadow: "0 0 60px rgba(251,191,36,0.05)" }}>
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black mb-6" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}>
+            ⚡ HOW THE AI DECIDES WHAT'S ELITE
+          </div>
+          <h2 className="font-black mb-4" style={{ fontSize: "clamp(1.8rem,4vw,2.8rem)", letterSpacing: "-0.04em" }}>
+            Not every setup is an ELITE pick.<br />Here's exactly how the AI ranks them.
+          </h2>
+          <p className="text-slate-400 mb-8" style={{ maxWidth: "680px", fontSize: "1.05rem", lineHeight: 1.75 }}>
+            A sweep alone isn't enough. The AI cross-references 4 independent confirmation signals before ranking any setup in the top 5. A sweep with zero confirmation goes to positions #16–20. All 4 confirming goes to #1–5. Now you know what you've been missing.
+          </p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {[
+              { num: "01", label: "Conviction Stack Score", desc: "8-layer scoring across dark pool, short interest, sweeps, OI buildup, charm, gamma, float demand, and sector heat. Score ≥ 8 out of 16 = rare convergence. Nobody else computes this." },
+              { num: "02", label: "OI Buildup Days", desc: "How many consecutive days was open interest quietly growing before today's sweep? 3+ days = pre-positioned smart money, not a one-day retail spike." },
+              { num: "03", label: "FIR — Float Impact Ratio", desc: "If FIR > 2%, market makers are mathematically forced to buy shares as the stock rises — a self-reinforcing loop. This isn't a probability. It's pure mechanics." },
+              { num: "04", label: "Multi-Scanner Count", desc: "How many of 11 independent scanners also flagged the same ticker today? 0/11 = probably noise. 6/11 = institutional play. The AI knows the difference." },
+            ].map(s => (
+              <div key={s.num} className="rounded-2xl p-5" style={{ background: "rgba(6,12,20,0.8)", border: "1px solid rgba(251,191,36,0.15)" }}>
+                <div className="font-black text-4xl mb-3" style={{ color: "rgba(251,191,36,0.2)", letterSpacing: "-0.04em" }}>{s.num}</div>
+                <div className="font-black text-white text-sm mb-2">{s.label}</div>
+                <div className="text-slate-500 text-xs leading-relaxed">{s.desc}</div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4" style={{ background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.2)" }}>
+            <span className="text-2xl shrink-0">⚡</span>
+            <div>
+              <div className="font-black text-white mb-1">The ELITE pick rule</div>
+              <div className="text-slate-300 text-sm leading-relaxed">
+                Conviction Stack ≥ 8 <span className="text-slate-600 mx-1">+</span> FIR &gt; 2% <span className="text-slate-600 mx-1">+</span> 4+ scanners confirming
+                <span className="font-black mx-2" style={{ color: "#fbbf24" }}>→</span> positions #1–5.
+                <span className="text-slate-500 ml-3">Sweep-only, no confirmation</span>
+                <span className="font-black mx-2" style={{ color: "#fbbf24" }}>→</span> positions #16–20.
+                <span className="text-slate-400 ml-2">You deserve to know the difference.</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
