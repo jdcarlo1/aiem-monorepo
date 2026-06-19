@@ -12447,6 +12447,8 @@ def squeeze_detector():
 
 @app.route("/stock-api/insider/trades", methods=["GET"])
 def insider_trades_route():
+    if _yf_breaker_open():
+        return jsonify({"trades": [], "count": 0, "stale": True})
     days    = int(request.args.get("days", 30))
     tickers = DEFAULT_LEADERBOARD
     trades  = fetch_insider_trades(tickers, days=days)
@@ -13055,28 +13057,40 @@ def options_intent():
         except Exception:
             return None
 
-    _ex_oi = ThreadPoolExecutor(max_workers=8)
-    futures = {_ex_oi.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-    rows = []
-    try:
-        for fut in as_completed(futures, timeout=22):
+    def _bg_oi():
+        try:
+            _ex_oi = ThreadPoolExecutor(max_workers=8)
+            futures = {_ex_oi.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+            rows = []
             try:
-                r = fut.result()
-                if r is not None:
-                    rows.append(r)
+                for fut in as_completed(futures, timeout=22):
+                    try:
+                        r = fut.result()
+                        if r is not None:
+                            rows.append(r)
+                    except Exception:
+                        pass
             except Exception:
                 pass
-    except Exception:
-        pass
-    finally:
-        _ex_oi.shutdown(wait=False, cancel_futures=True)
+            finally:
+                _ex_oi.shutdown(wait=False, cancel_futures=True)
+            rows.sort(key=lambda x: x["bear_prem_m"], reverse=True)
+            out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+            app._oi_cache = out
+            app._oi_cache_ts = _dt.now()
+        except Exception:
+            pass
+        finally:
+            app._oi_scanning = False
 
-    rows.sort(key=lambda x: x["bear_prem_m"], reverse=True)
-    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    if rows:
-        app._oi_cache = out
-        app._oi_cache_ts = _dt.now()
-    return jsonify(out)
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
+    if not getattr(app, "_oi_scanning", False):
+        app._oi_scanning = True
+        import threading as _toi; _toi.Thread(target=_bg_oi, daemon=True).start()
+    if _cache: return jsonify({**_cache, "generating": True})
+    return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
 @app.route("/stock-api/vol-crush", methods=["GET"])
@@ -13089,6 +13103,10 @@ def vol_crush():
     _ts    = getattr(app, "_vc_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
+
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
 
     def _analyze(ticker):
         try:
@@ -13772,26 +13790,39 @@ def call_intent():
                     "leaps_whale": leaps_whale if leaps_whale["strike"] else None}
         except Exception: return None
 
-    _ex_ci = ThreadPoolExecutor(max_workers=8)
-    futures = {_ex_ci.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-    rows = []
-    try:
-        for fut in as_completed(futures, timeout=22):
+    def _bg_ci():
+        try:
+            _ex_ci = ThreadPoolExecutor(max_workers=8)
+            futures = {_ex_ci.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+            rows = []
             try:
-                r = fut.result()
-                if r is not None:
-                    rows.append(r)
+                for fut in as_completed(futures, timeout=22):
+                    try:
+                        r = fut.result()
+                        if r is not None:
+                            rows.append(r)
+                    except Exception:
+                        pass
             except Exception:
                 pass
-    except Exception:
-        pass
-    finally:
-        _ex_ci.shutdown(wait=False, cancel_futures=True)
-    rows.sort(key=lambda x: x["accum_prem_m"], reverse=True)
-    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    if rows:
-        app._ci_cache = out; app._ci_cache_ts = _dt.now()
-    return jsonify(out)
+            finally:
+                _ex_ci.shutdown(wait=False, cancel_futures=True)
+            rows.sort(key=lambda x: x["accum_prem_m"], reverse=True)
+            out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+            app._ci_cache = out; app._ci_cache_ts = _dt.now()
+        except Exception:
+            pass
+        finally:
+            app._ci_scanning = False
+
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
+    if not getattr(app, "_ci_scanning", False):
+        app._ci_scanning = True
+        import threading as _tci; _tci.Thread(target=_bg_ci, daemon=True).start()
+    if _cache: return jsonify({**_cache, "generating": True})
+    return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
 @app.route("/stock-api/smart-vs-retail", methods=["GET"])
@@ -13847,26 +13878,39 @@ def smart_vs_retail():
                     "smart_cp": s_cp, "retail_cp": r_cp, "divergence": div, "signal_strength": strength}
         except Exception: return None
 
-    _ex_svr = ThreadPoolExecutor(max_workers=8)
-    futures = {_ex_svr.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-    rows = []
-    try:
-        for fut in as_completed(futures, timeout=22):
+    def _bg_svr():
+        try:
+            _ex_svr = ThreadPoolExecutor(max_workers=8)
+            futures = {_ex_svr.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+            rows = []
             try:
-                r = fut.result()
-                if r is not None:
-                    rows.append(r)
+                for fut in as_completed(futures, timeout=22):
+                    try:
+                        r = fut.result()
+                        if r is not None:
+                            rows.append(r)
+                    except Exception:
+                        pass
             except Exception:
                 pass
-    except Exception:
-        pass
-    finally:
-        _ex_svr.shutdown(wait=False, cancel_futures=True)
-    rows.sort(key=lambda x: (x["signal_strength"] == "STRONG", x["smart_prem_m"]), reverse=True)
-    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    if rows:
-        app._svr_cache = out; app._svr_cache_ts = _dt.now()
-    return jsonify(out)
+            finally:
+                _ex_svr.shutdown(wait=False, cancel_futures=True)
+            rows.sort(key=lambda x: (x["signal_strength"] == "STRONG", x["smart_prem_m"]), reverse=True)
+            out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+            app._svr_cache = out; app._svr_cache_ts = _dt.now()
+        except Exception:
+            pass
+        finally:
+            app._svr_scanning = False
+
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
+    if not getattr(app, "_svr_scanning", False):
+        app._svr_scanning = True
+        import threading as _tsvr; _tsvr.Thread(target=_bg_svr, daemon=True).start()
+    if _cache: return jsonify({**_cache, "generating": True})
+    return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
 @app.route("/stock-api/max-pain", methods=["GET"])
@@ -13912,26 +13956,39 @@ def max_pain():
                     "nearest_expiry": exp, "days_to_exp": days}
         except Exception: return None
 
-    _ex_mp = ThreadPoolExecutor(max_workers=8)
-    futures = {_ex_mp.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-    rows = []
-    try:
-        for fut in as_completed(futures, timeout=22):
+    def _bg_mp():
+        try:
+            _ex_mp = ThreadPoolExecutor(max_workers=8)
+            futures = {_ex_mp.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+            rows = []
             try:
-                r = fut.result()
-                if r is not None:
-                    rows.append(r)
+                for fut in as_completed(futures, timeout=22):
+                    try:
+                        r = fut.result()
+                        if r is not None:
+                            rows.append(r)
+                    except Exception:
+                        pass
             except Exception:
                 pass
-    except Exception:
-        pass
-    finally:
-        _ex_mp.shutdown(wait=False, cancel_futures=True)
-    rows.sort(key=lambda x: abs(x["distance_pct"]), reverse=True)
-    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    if rows:
-        app._mp_cache = out; app._mp_cache_ts = _dt.now()
-    return jsonify(out)
+            finally:
+                _ex_mp.shutdown(wait=False, cancel_futures=True)
+            rows.sort(key=lambda x: abs(x["distance_pct"]), reverse=True)
+            out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+            app._mp_cache = out; app._mp_cache_ts = _dt.now()
+        except Exception:
+            pass
+        finally:
+            app._mp_scanning = False
+
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
+    if not getattr(app, "_mp_scanning", False):
+        app._mp_scanning = True
+        import threading as _tmp; _tmp.Thread(target=_bg_mp, daemon=True).start()
+    if _cache: return jsonify({**_cache, "generating": True})
+    return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
 @app.route("/stock-api/gamma-wall", methods=["GET"])
@@ -18810,22 +18867,31 @@ def morning_runners():
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(_scan_mr, t): t for t in DEFAULT_LEADERBOARD}
-        for fut in as_completed(futures, timeout=8):
-            r = fut.result()
-            if r:
-                results.append(r)
+    def _bg_mr():
+        try:
+            _results = []
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                futures = {ex.submit(_scan_mr, t): t for t in DEFAULT_LEADERBOARD}
+                for fut in as_completed(futures, timeout=8):
+                    try:
+                        r = fut.result()
+                        if r: _results.append(r)
+                    except Exception: pass
+            _results.sort(key=lambda x: x["score"], reverse=True)
+            out = {"runners": _results[:40], "total": len(_results), "scanned": len(DEFAULT_LEADERBOARD)}
+            app._mr_cache = out
+            app._mr_cache_ts = _mr_dt.now()
+        except Exception: pass
+        finally: app._mr_scanning = False
 
-    results.sort(key=lambda x: x["score"], reverse=True)
-    out = {
-        "runners": results[:40],
-        "total":   len(results),
-        "scanned": len(DEFAULT_LEADERBOARD),
-    }
-    app._mr_cache    = out
-    app._mr_cache_ts = _mr_dt.now()
-    return jsonify(out)
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        return jsonify({"runners": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
+    if not getattr(app, "_mr_scanning", False):
+        app._mr_scanning = True
+        import threading as _tmr; _tmr.Thread(target=_bg_mr, daemon=True).start()
+    if _cache: return jsonify({**_cache, "generating": True})
+    return jsonify({"runners": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
 import xml.etree.ElementTree as _ET_xml

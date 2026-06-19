@@ -3958,6 +3958,13 @@ function AIShortCallsTab() {
         </div>
       )}
 
+      {loading && (
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, marginBottom: 8 }}>⚡ Analyzing signals with AI...</div>
+          <div style={{ fontSize: 11, color: BB_DIM }}>Evaluating unusual call flow · typically 30–60s on first load</div>
+        </div>
+      )}
+
       {!loading && !error && picks.length === 0 && (
         <div style={{ textAlign: "center", color: BB_DIM, fontSize: 11, padding: 40 }}>
           No picks generated yet. Hit Regenerate to run.
@@ -14112,13 +14119,13 @@ export default function Dashboard() {
                     <div>
                       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
                         <span style={{ color: BB_ORANGE, fontSize: 26, fontWeight: 900, letterSpacing: "0.05em" }}>{analysis.ticker}</span>
-                        <span style={{ color: BB_LABEL, fontSize: 12, letterSpacing: "0.05em" }}>{analysis.info.name || ""}</span>
+                        <span style={{ color: BB_LABEL, fontSize: 12, letterSpacing: "0.05em" }}>{analysis.info?.name || ""}</span>
                       </div>
                       <div style={{ display: "flex", gap: 16, marginTop: 5, flexWrap: "wrap" }}>
-                        {analysis.info.sector && <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>{analysis.info.sector.toUpperCase()}</span>}
-                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>CAP: {fmtMktCap(analysis.info.market_cap)}</span>
-                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>P/E: {fmt(analysis.info.pe_ratio)}</span>
-                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>BETA: {fmt(analysis.info.beta)}</span>
+                        {analysis.info?.sector && <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>{analysis.info.sector.toUpperCase()}</span>}
+                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>CAP: {fmtMktCap(analysis.info?.market_cap)}</span>
+                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>P/E: {fmt(analysis.info?.pe_ratio)}</span>
+                        <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>BETA: {fmt(analysis.info?.beta)}</span>
                         <span style={{ color: "#444", fontSize: 9, letterSpacing: "0.08em" }}>52W: ${fmt(ind?.low_52w)} – ${fmt(ind?.high_52w)}</span>
                       </div>
                     </div>
