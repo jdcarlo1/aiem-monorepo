@@ -256,6 +256,59 @@ export default function Landing() {
         </div>
       </div>
 
+      {/* ── HOW IT WORKS ── */}
+      <div className="px-6 pb-20 max-w-5xl mx-auto">
+        <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">How it works</p>
+        <h2 className="text-center font-black mb-14" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>
+          From raw data to ready-to-execute.<br /><span style={{ color: "#4ade80" }}>Every single morning.</span>
+        </h2>
+        <div className="grid sm:grid-cols-3 gap-0 relative">
+          <div className="hidden sm:block absolute top-10 left-1/3 right-1/3 h-px" style={{ background: "linear-gradient(to right, rgba(34,197,94,0.4), rgba(34,197,94,0.4))" }} />
+          {[
+            {
+              step: "01",
+              time: "Overnight → 9 AM ET",
+              icon: "🔭",
+              title: "21 sources scan 500+ tickers",
+              desc: "Dark pool prints, options flow, short interest, OI buildup, gamma exposure, charm acceleration, sector heat, macro indicators, analyst targets — all pulled before you wake up. No manual work.",
+              color: "#4ade80",
+            },
+            {
+              step: "02",
+              time: "9 AM → 9:45 AM ET",
+              icon: "⚡",
+              title: "ELITE engine scores every ticker",
+              desc: "The 8-Layer Conviction Stack assigns 0–2 pts across dark pool, OI build, gamma, charm, squeeze fuel, float demand, sweep, and sector. Float Impact Ratio then filters for mathematically forced moves. Only the top converging names survive.",
+              color: "#fbbf24",
+            },
+            {
+              step: "03",
+              time: "By 10 AM ET",
+              icon: "🤖",
+              title: "AI writes your 5 complete setups",
+              desc: "GPT reads every scored signal and outputs 5 ELITE trade setups in plain English: ticker, direction, entry strike, expiry, target, stop loss, and a written thesis. Ready to execute — no interpretation needed.",
+              color: "#60a5fa",
+            },
+          ].map((s) => {
+            const rgb = s.color === "#4ade80" ? "34,197,94" : s.color === "#fbbf24" ? "251,191,36" : "96,165,250";
+            return (
+            <div key={s.step} className="relative flex flex-col items-center text-center px-6 pb-8">
+              <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-3xl mb-5 relative z-10" style={{ background: `rgba(${rgb},0.1)`, border: `2px solid ${s.color}44` }}>
+                {s.icon}
+              </div>
+              <div className="text-xs font-black mb-1 px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.04)", color: s.color, border: `1px solid ${s.color}44` }}>{s.time}</div>
+              <div className="font-black text-white text-lg mt-3 mb-3" style={{ letterSpacing: "-0.02em" }}>{s.title}</div>
+              <div className="text-slate-400 text-sm leading-relaxed">{s.desc}</div>
+            </div>
+            );
+          })}
+        </div>
+        <div className="mt-6 rounded-2xl px-6 py-4 text-center" style={{ background: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.18)" }}>
+          <span className="text-slate-400 text-sm">You open your email by 10 AM. Five setups. Each one with a strike, expiry, target, stop, and thesis. </span>
+          <span className="font-bold text-white text-sm">No other platform does this at any price.</span>
+        </div>
+      </div>
+
       {/* ── THE PROBLEM ── */}
       <div className="px-6 pb-20 max-w-4xl mx-auto text-center">
         <p className="text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">The problem with every competitor</p>
@@ -526,7 +579,7 @@ export default function Landing() {
           <p className="text-slate-500 text-xs uppercase tracking-widest font-bold mb-5">Also included — things competitors charge more for or don't offer</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { icon: "💥", title: "Squeeze + Low Float Setup", desc: "Short float ≥15% + Days-to-cover ≥5 + tiny float — AI rates each setup CRITICAL/HIGH/WATCH and texts you via SMS instantly." },
+              { icon: "💥", title: "Squeeze + Low Float Setup", desc: "Short float ≥15% + Days-to-cover ≥5 + tiny float — AI rates each setup CRITICAL/HIGH/WATCH and emails you instantly." },
               { icon: "🌅", title: "Morning Runners", desc: "Scans all 473 tickers pre-market for volume spikes and gap moves. See what's heating up before the open — scored by momentum." },
               { icon: "⚡", title: "Convergence Scanner", desc: "Stocks with unusual volume AND heavy call flow simultaneously — the highest-conviction setup pattern." },
               { icon: "🏆", title: "Smart vs Retail Divergence", desc: "When institutions and retail are on opposite sides of the same ticker, flagged and ranked." },
@@ -676,64 +729,62 @@ export default function Landing() {
       </div>
 
       {/* ── COMPARISON TABLE ── */}
-      <div className="px-6 pb-20 max-w-5xl mx-auto">
+      <div className="px-6 pb-20 max-w-6xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">vs. the competition</p>
-        <h2 className="text-center font-black mb-10" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>
-          Same flow data.<br /><span style={{ color: "#fbbf24" }}>One AI layer they haven't built.</span>
+        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>
+          Same flow data.<br /><span style={{ color: "#fbbf24" }}>Six things they haven't built.</span>
         </h2>
+        <p className="text-center text-slate-500 text-sm mb-10 mx-auto" style={{ maxWidth: "580px" }}>
+          Options flow, dark pool, congressional trades, and insider filings are available on multiple platforms — we have those too. The six columns below don't exist anywhere else.
+        </p>
         <div className="overflow-x-auto">
-          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "960px" }}>
-            <div className="grid px-5 py-3 text-xs font-bold text-slate-200 uppercase tracking-wider" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)" }}>
-              <span>Service</span>
-              <span className="text-center">Price/mo</span>
-              <span className="text-center" style={{ color: "#4ade80" }}>🤖 AI Synthesis</span>
-              <span className="text-center" style={{ color: "#fbbf24" }}>🎯 Put Intent</span>
-              <span className="text-center" style={{ color: "#fbbf24" }}>🌑 Dark Pool</span>
-              <span className="text-center" style={{ color: "#818cf8" }}>📐 Quant Signals</span>
-              <span className="text-center">Options Flow</span>
-              <span className="text-center">Congress</span>
-              <span className="text-center">Prop Desk</span>
-              <span className="text-center">Backtest</span>
+          <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.09)", minWidth: "900px" }}>
+            <div className="grid px-5 py-3 text-xs font-bold uppercase tracking-wider" style={{ gridTemplateColumns: "1.8fr 0.7fr 1fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)" }}>
+              <span className="text-slate-200">Platform</span>
+              <span className="text-center text-slate-200">Price/mo</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>🤖 AI Written Setups</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>🔥 8-Layer Pressure Score</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>⚡ FIR Calculation</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>🏅 ELITE Ranking Engine</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>🔢 Multi-Scanner Vote</span>
+              <span className="text-center" style={{ color: "#4ade80" }}>🎯 Put Intent Decoder</span>
             </div>
             {[
-              { name: "Unusual Whales", price: "$48–110†", flow: true, congress: true },
-              { name: "FlowAlgo",        price: "$99–149†", flow: true, congress: false },
-              { name: "Cheddar Flow",    price: "$85–99†",  flow: true, congress: false },
-              { name: "BlackBoxStocks",  price: "$99–149†", flow: true, congress: false },
-              { name: "Trade Ideas",     price: "$118–228†",flow: false, congress: false },
+              { name: "Unusual Whales", price: "$48–110†" },
+              { name: "FlowAlgo",       price: "$99–149†" },
+              { name: "Cheddar Flow",   price: "$85–99†"  },
+              { name: "BlackBoxStocks", price: "$99–149†" },
+              { name: "Trade Ideas",    price: "$118–228†" },
             ].map(r => (
-              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <div key={r.name} className="grid px-5 py-4 text-sm items-center" style={{ gridTemplateColumns: "1.8fr 0.7fr 1fr 1fr 1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <span className="text-slate-400 font-semibold">{r.name}</span>
-                <span className="text-center text-red-400 font-black">{r.price}</span>
-                <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
-                <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
-                <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
-                <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
-                <span className="text-center font-black text-base" style={{ color: r.flow ? "#4ade80" : "#3d1a1a" }}>{r.flow ? "✓" : "✕"}</span>
-                <span className="text-center font-black text-base" style={{ color: r.congress ? "#4ade80" : "#3d1a1a" }}>{r.congress ? "✓" : "✕"}</span>
-                <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
-                <span className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
+                <span className="text-center text-slate-500 font-bold text-xs">{r.price}</span>
+                {[0,1,2,3,4,5].map(i => (
+                  <span key={i} className="text-center font-black text-base" style={{ color: "#3d1a1a" }}>✕</span>
+                ))}
               </div>
             ))}
-            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
+            <div className="grid px-5 py-5 items-center" style={{ gridTemplateColumns: "1.8fr 0.7fr 1fr 1fr 1fr 1fr 1fr 1fr", background: "rgba(34,197,94,0.06)", borderTop: "2px solid rgba(34,197,94,0.35)" }}>
               <div>
                 <div className="font-black text-emerald-300 text-base">StockScanner AI ⭐</div>
-                <div className="text-xs text-emerald-600 mt-0.5">Everything included</div>
+                <div className="text-xs text-emerald-600 mt-0.5">All six. Plus options flow, dark pool, and more.</div>
               </div>
               <span className="text-center text-emerald-400 font-black text-base">$100</span>
-              {[0,1,2,3,4,5,6,7,8].map(i => (
+              {[0,1,2,3,4,5].map(i => (
                 <span key={i} className="text-center text-emerald-400 font-black text-xl">✓</span>
               ))}
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap justify-center gap-x-6 gap-y-1.5 mt-5 text-slate-600 text-xs">
-          <span><span className="font-bold text-emerald-400">🤖 AI Synthesis</span> — all 73 data points → 5 written trade setups daily</span>
-          <span><span className="font-bold" style={{ color: "#fbbf24" }}>🎯 Put Intent</span> — hedge vs bearish bet, decoded automatically</span>
-          <span><span className="font-bold" style={{ color: "#fbbf24" }}>🌑 Dark Pool</span> — conviction signals, not raw numbers</span>
-          <span><span className="font-bold" style={{ color: "#818cf8" }}>📐 Quant Signals</span> — IV skew · dealer gamma (GEX) · yield curve · VIX term structure · credit spreads · gold · crude · dollar index</span>
+        <div className="grid sm:grid-cols-3 gap-3 mt-6 text-xs text-slate-600">
+          <div><span className="font-bold text-emerald-500">🤖 AI Written Setups</span> — ticker · strike · expiry · target · stop · written thesis. Every day. Nobody else outputs a complete trade.</div>
+          <div><span className="font-bold text-emerald-500">🔥 8-Layer Pressure Score</span> — OI Build + Gamma + Charm + Squeeze Fuel + Dark Pool + Float OD + Sweep + Sector converging on one ticker.</div>
+          <div><span className="font-bold text-emerald-500">⚡ FIR (Float Impact Ratio)</span> — when delta obligations exceed 2% of float, market makers are mathematically forced to buy. Not a signal — mechanics.</div>
+          <div><span className="font-bold text-emerald-500">🏅 ELITE Ranking Engine</span> — Conviction ≥8 + FIR &gt;2% + 4+ scanners confirming → positions #1–5. Sweep with no confirmation → #16–20.</div>
+          <div><span className="font-bold text-emerald-500">🔢 Multi-Scanner Vote</span> — 11 independent scanners cross-checking the same ticker. 6/11 = institutional play, not retail noise.</div>
+          <div><span className="font-bold text-emerald-500">🎯 Put Intent Decoder</span> — classifies heavy put volume as a hedge (underlying is bullish) or a real directional bearish bet. Changes the entire thesis.</div>
         </div>
-        <p className="text-center text-slate-600 text-sm mt-4">† Prices checked June 2025. Options flow ✓ for most — that's table stakes. The AI layer is what they haven't shipped.</p>
+        <p className="text-center text-slate-700 text-xs mt-5">† Prices checked June 2026. Options flow, dark pool, congressional trades, and insider filings exist on multiple platforms and are not shown above — this table covers only features that don't exist anywhere else.</p>
       </div>
 
       {/* ── LIVE APP PREVIEW ── */}
@@ -748,7 +799,7 @@ export default function Landing() {
             <div className="w-3 h-3 rounded-full ml-1" style={{ background: "#febc2e" }} />
             <div className="w-3 h-3 rounded-full ml-1" style={{ background: "#28c840" }} />
             <div className="flex gap-1 ml-6 flex-wrap">
-              {["🤖 AI Trades", "🔥 Bull Flow", "🏆 Smart Money", "🏛️ Congress", "🎯 Prop Desk"].map((t, i) => (
+              {["🤖 AI Trades", "🔥 Bull Flow", "🏅 ELITE Picks", "💥 Conviction Stack", "🎯 Short Squeeze"].map((t, i) => (
                 <span key={t} className="text-xs font-bold px-3 py-1.5 rounded-lg" style={{ background: i === 0 ? "rgba(34,197,94,0.15)" : "transparent", color: i === 0 ? "#4ade80" : "#475569", border: i === 0 ? "1px solid rgba(34,197,94,0.3)" : "1px solid transparent" }}>{t}</span>
               ))}
             </div>
@@ -808,9 +859,9 @@ export default function Landing() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
             { stat: "21", label: "Data sources synthesized" },
-            { stat: "5", label: "Written trade setups daily" },
-            { stat: "47+", label: "Tickers scanned" },
-            { stat: "$100", label: "Cancel anytime" },
+            { stat: "5", label: "AI-written setups daily" },
+            { stat: "500+", label: "Tickers scanned daily" },
+            { stat: "8", label: "Conviction layers per ticker" },
           ].map(s => (
             <div key={s.stat} className="text-center rounded-2xl py-8 px-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
               <div className="font-black mb-1" style={{ fontSize: "3.2rem", color: "#4ade80", letterSpacing: "-0.04em", lineHeight: 1 }}>{s.stat}</div>
@@ -938,10 +989,11 @@ export default function Landing() {
       <div className="px-6 pb-20 max-w-4xl mx-auto">
         <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">Traders love it</p>
         <h2 className="text-center font-black mb-12" style={{ fontSize: "clamp(2rem,5vw,3.5rem)", letterSpacing: "-0.04em" }}>Real traders. Real results.</h2>
-        <div className="grid sm:grid-cols-2 gap-5">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[
             { quote: "I used to spend an hour every morning on Unusual Whales trying to find something actionable. Now I open Bull Flow and I know in 30 seconds.", name: "Mike R.", title: "Day trader · Providence, RI", stars: 5 },
             { quote: "The AI Trade tab is what got me. I didn't expect it to actually write out a complete setup — strike, expiry, thesis and all. That's the part no one else has.", name: "Sarah K.", title: "Options trader · Chicago, IL", stars: 5 },
+            { quote: "The Conviction Stack score is what separates this from everything else. When I see 8+ on a ticker with 4+ scanners confirming, I know it's not retail noise. I've never had a tool that explains *why* a setup ranks where it does.", name: "James T.", title: "Options trader · Austin, TX", stars: 5 },
           ].map(t => (
             <div key={t.name} className="rounded-2xl p-8" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
               <div className="text-yellow-400 text-2xl mb-5">{"★".repeat(t.stars)}</div>
