@@ -369,6 +369,32 @@ export default function Landing() {
             <p className="text-slate-300 mb-8" style={{ maxWidth: "620px", fontSize: "1.1rem", lineHeight: 1.75 }}>
               Every day, our AI reads all 73 data points simultaneously — including signals no other platform tracks: <strong className="text-white">Float Impact Ratio (FIR)</strong>, the mathematical forcing function that makes market makers legally required to buy; <strong className="text-white">Charm Acceleration</strong>, the time-decaying squeeze that builds buying pressure every single day without a price catalyst; and <strong className="text-white">Dealer Gamma Exposure (GEX)</strong>, which tells you whether a breakout will run or fade before you enter. On top of those: dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime, OI buildup days, consecutive accumulation streaks, short squeeze fuel, MACD momentum, VWAP, VIX term structure, HYG credit health, and more. Then it outputs 5 ELITE trade setups, written in plain English, ranked from most bullish to most bearish.
             </p>
+            {/* ── SMP L1–L8 BREAKDOWN ── */}
+            <div className="rounded-2xl p-5 mb-8" style={{ background: "rgba(251,146,60,0.05)", border: "1px solid rgba(251,146,60,0.2)" }}>
+              <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: "#fb923c" }}>Smart Money Pressure Score — 8 independent layers firing simultaneously</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { layer: "L1", name: "OI Buildup", desc: "Consecutive days loading the same strike" },
+                  { layer: "L2", name: "Gamma Lockup", desc: "MM delta obligations locking in forced buying" },
+                  { layer: "L3", name: "Charm Accel", desc: "Time-decay squeeze building daily" },
+                  { layer: "L4", name: "Squeeze Fuel", desc: "Short float + days-to-cover + borrow rate" },
+                  { layer: "L5", name: "Dark Pool", desc: "Institutional block prints off-exchange" },
+                  { layer: "L6", name: "Float Demand (FIR)", desc: "Gamma obligations vs total share float" },
+                  { layer: "L7", name: "Far-OTM Sweep", desc: "Aggressive conviction far out-of-the-money" },
+                  { layer: "L8", name: "Sector Heat", desc: "Macro + sector rotation aligned" },
+                ].map(l => (
+                  <div key={l.layer} className="rounded-lg p-3" style={{ background: "rgba(251,146,60,0.06)", border: "1px solid rgba(251,146,60,0.12)" }}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-black px-1.5 py-0.5 rounded" style={{ background: "rgba(251,146,60,0.2)", color: "#fb923c" }}>{l.layer}</span>
+                      <span className="text-white text-xs font-bold">{l.name}</span>
+                    </div>
+                    <p className="text-slate-500 text-xs leading-snug">{l.desc}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs mt-4 font-bold" style={{ color: "#fb923c" }}>Score 4+/8: mechanics are aligned. Score 7+/8: we've rarely seen this not move. No other platform scores all 8 simultaneously.</p>
+            </div>
+
             <div className="grid sm:grid-cols-2 gap-6 mb-8">
               <div>
                 <p className="text-slate-500 text-xs uppercase tracking-widest font-bold mb-3">What you get from competitors</p>
