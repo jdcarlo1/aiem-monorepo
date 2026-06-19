@@ -3886,6 +3886,7 @@ function AIShortCallsTab() {
   const [signalsEvaluated, setSignalsEvaluated] = useState(0);
   const [expanded, setExpanded]   = useState<number | null>(null);
   const [saved, setSaved]         = useState<Record<number, boolean>>({});
+  const [bgGenerating, setBgGenerating] = useState(false);
 
   const handleSave = async (e: React.MouseEvent, p: AIShortCall, i: number) => {
     e.stopPropagation();
@@ -3900,9 +3901,20 @@ function AIShortCallsTab() {
     setLoading(true);
     setError(null);
     try {
-      const d = await fetchAIShortCalls(force);
+      const d = await fetchAIShortCalls(force) as any;
       if (d.error) { setError(d.error); setPicks([]); }
-      else { setPicks(d.picks || []); setGeneratedAt(d.generated_at); setSignalsEvaluated(d.signals_evaluated || 0); }
+      else {
+        const newPicks = d.picks || [];
+        setPicks(newPicks);
+        setGeneratedAt(d.generated_at);
+        setSignalsEvaluated(d.signals_evaluated || 0);
+        // Server is running AI in background — poll until picks arrive
+        if (d.generating && newPicks.length === 0) {
+          setBgGenerating(true);
+        } else {
+          setBgGenerating(false);
+        }
+      }
     } catch (e: any) {
       setError(e.message || "Request failed");
     } finally {
@@ -3911,6 +3923,13 @@ function AIShortCallsTab() {
   };
 
   useEffect(() => { run(false); }, []);
+
+  // Auto-poll every 15s while background AI generation is in flight
+  useEffect(() => {
+    if (!bgGenerating) return;
+    const t = setTimeout(() => run(false), 15000);
+    return () => clearTimeout(t);
+  }, [bgGenerating, picks.length]);
 
   const urgencyColor = (u: string) => {
     if (!u) return BB_DIM;
@@ -3958,14 +3977,14 @@ function AIShortCallsTab() {
         </div>
       )}
 
-      {loading && (
+      {(loading || (bgGenerating && picks.length === 0)) && (
         <div style={{ textAlign: "center", padding: 40 }}>
           <div style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, marginBottom: 8 }}>⚡ Analyzing signals with AI...</div>
           <div style={{ fontSize: 11, color: BB_DIM }}>Evaluating unusual call flow · typically 30–60s on first load</div>
         </div>
       )}
 
-      {!loading && !error && picks.length === 0 && (
+      {!loading && !bgGenerating && !error && picks.length === 0 && (
         <div style={{ textAlign: "center", color: BB_DIM, fontSize: 11, padding: 40 }}>
           No picks generated yet. Hit Regenerate to run.
         </div>

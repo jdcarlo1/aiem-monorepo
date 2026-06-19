@@ -17531,7 +17531,6 @@ def ai_short_calls():
     """5 AI-picked short-term call plays (≤30d expiry) drawn from the Unusual Calls scanner."""
     import sys
     from datetime import datetime as _dt
-    from openai import OpenAI
 
     force  = request.args.get("force") == "1"
     _cache = getattr(app, "_aisc_cache", None)
@@ -17539,80 +17538,110 @@ def ai_short_calls():
     if not force and _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
         return jsonify(_cache)
 
-    # 1. Try in-memory live cache — but ONLY if it was built TODAY (ET). A cache
-    #    left over from yesterday's last scan would feed Claude stale rows under
-    #    the "today's signals" prompt, so treat a stale-date cache as empty.
-    uc    = getattr(app, "_unusual_calls_cache", None)
-    uc_ts = getattr(app, "_unusual_calls_cache_ts", None)
-    hits  = []
-    if uc and uc_ts:
+    # Load today's AI picks from DB log as an immediate warm fallback so a cold
+    # server restart never returns "Load failed" — show yesterday's/this-morning's
+    # picks instantly while the background OpenAI regen runs.
+    def _load_db_picks():
         try:
-            from zoneinfo import ZoneInfo as _ZI
-            from datetime import timezone as _tzc
-            _et = _ZI("America/New_York")
-            _cache_et = uc_ts.replace(tzinfo=_tzc.utc).astimezone(_et).date()
-            _today_et = _dt.now(_tzc.utc).astimezone(_et).date()
-            if _cache_et == _today_et:
-                hits = uc.get("hits") or []
-        except Exception:
-            hits = []
-
-    # 2. Fall back to DB if live cache is empty — TODAY's signals only (ET).
-    if not hits:
-        try:
-            _db_sql = """
-                SELECT ticker, strike, expiry, days_out, vol_oi, prem, otm_pct, iv, urgency, price
-                FROM unusual_calls_log
-                WHERE last_seen >= {interval}
-                  AND days_out BETWEEN 1 AND 30
-                  AND prem >= 500000
-                  AND otm_pct BETWEEN -2 AND 30
-                  AND strike >= price * 0.97
-                ORDER BY last_seen DESC, vol_oi DESC
-                LIMIT 25
-            """
-            # ET calendar day only. NO silent fallback to yesterday: the AI prompt
-            # below tells Claude these are "today's" signals, so feeding it
-            # yesterday's rows would mislabel stale data as today's picks.
-            _et_today = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+            _et_floor = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
                          "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
-            with _psycopg2.connect(_DB_URL) as conn_fb, conn_fb.cursor() as cur_fb:
-                cur_fb.execute(_db_sql.format(interval=_et_today))
-                rows = cur_fb.fetchall()
-            hits = [
-                {"ticker": r[0], "strike": r[1], "expiry": str(r[2]), "days_out": r[3],
-                 "vol_oi": float(r[4]), "prem": int(r[5]), "otm_pct": float(r[6]),
-                 "iv": float(r[7]) if r[7] else 0.0, "urgency": r[8], "price": float(r[9])}
-                for r in rows
-            ]
+            with _psycopg2.connect(_DB_URL) as _dc, _dc.cursor() as _dcc:
+                _dcc.execute(f"""
+                    SELECT ticker, strike, expiry, days_out, vol_oi, prem,
+                           stock_price, otm_pct, breakeven, conviction, urgency,
+                           thesis, why_it_stands_out, created_at
+                    FROM ai_short_calls_log
+                    WHERE created_at >= {_et_floor}
+                    ORDER BY rank ASC NULLS LAST
+                    LIMIT 25
+                """)
+                _rows = _dcc.fetchall()
+            if not _rows:
+                return None
+            _cols = ["ticker","strike","expiry","days_out","vol_oi","prem",
+                     "stock_price","otm_pct","breakeven","conviction","urgency",
+                     "thesis","why_it_stands_out","created_at"]
+            _picks = []
+            for _r in _rows:
+                _p = dict(zip(_cols, _r))
+                _p["created_at"] = _p["created_at"].isoformat() if _p.get("created_at") else None
+                _p["smp_score"] = 0.0; _p["smp_label"] = ""; _p["smp_layers"] = []
+                _picks.append(_p)
+            return {"picks": _picks,
+                    "generated_at": _picks[0].get("created_at"),
+                    "signals_evaluated": len(_picks)}
         except Exception as _dbe:
-            print(f"[ai_short_calls] DB fallback error: {_dbe}", file=sys.stderr)
+            print(f"[ai_short_calls] db_load error: {_dbe}", file=sys.stderr)
+            return None
 
-    if not hits:
-        return jsonify({
-            "error": "No unusual calls data available. Run a scan in the 🚨 Unusual Calls tab first, then come back.",
-            "picks": [], "generated_at": None
-        })
+    _db_picks = _load_db_picks() if not _cache else None
 
-    hits = hits[:30]
+    def _bg_aisc():
+        import sys as _sys
+        from openai import OpenAI as _OAI
+        try:
+            # -- Load unusual call signals ---------------------------------
+            uc    = getattr(app, "_unusual_calls_cache", None)
+            uc_ts = getattr(app, "_unusual_calls_cache_ts", None)
+            hits  = []
+            if uc and uc_ts:
+                try:
+                    from zoneinfo import ZoneInfo as _ZI
+                    from datetime import timezone as _tzc
+                    _et = _ZI("America/New_York")
+                    _cache_et = uc_ts.replace(tzinfo=_tzc.utc).astimezone(_et).date()
+                    _today_et = _dt.now(_tzc.utc).astimezone(_et).date()
+                    if _cache_et == _today_et:
+                        hits = uc.get("hits") or []
+                except Exception:
+                    hits = []
 
-    try:
-        oai = OpenAI(
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-            timeout=90.0,
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+            if not hits:
+                try:
+                    _db_sql = """
+                        SELECT ticker, strike, expiry, days_out, vol_oi, prem, otm_pct, iv, urgency, price
+                        FROM unusual_calls_log
+                        WHERE last_seen >= {interval}
+                          AND days_out BETWEEN 1 AND 30
+                          AND prem >= 500000
+                          AND otm_pct BETWEEN -2 AND 30
+                          AND strike >= price * 0.97
+                        ORDER BY last_seen DESC, vol_oi DESC
+                        LIMIT 25
+                    """
+                    _et_today = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                                 "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
+                    with _psycopg2.connect(_DB_URL) as conn_fb, conn_fb.cursor() as cur_fb:
+                        cur_fb.execute(_db_sql.format(interval=_et_today))
+                        rows = cur_fb.fetchall()
+                    hits = [
+                        {"ticker": r[0], "strike": r[1], "expiry": str(r[2]), "days_out": r[3],
+                         "vol_oi": float(r[4]), "prem": int(r[5]), "otm_pct": float(r[6]),
+                         "iv": float(r[7]) if r[7] else 0.0, "urgency": r[8], "price": float(r[9])}
+                        for r in rows
+                    ]
+                except Exception as _dbe:
+                    print(f"[ai_short_calls] DB fallback error: {_dbe}", file=_sys.stderr)
 
-    signals_text = "\n".join([
-        f"{i+1}. {h['ticker']} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
-        f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | {'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
-        f"IV={h.get('iv',0)}% | urgency={h['urgency']} | stock_price=${h['price']:.2f}"
-        for i, h in enumerate(hits)
-    ])
+            if not hits:
+                return  # nothing to feed the AI — skip silently
 
-    user_msg = f"""These are today's unusual call signals (Vol/OI ≥3x, ≤30 day expiry, OTM/near-ATM calls only):
+            hits = hits[:30]
+
+            oai = _OAI(
+                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
+                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
+                timeout=90.0,
+            )
+
+            signals_text = "\n".join([
+                f"{i+1}. {h['ticker']} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
+                f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | {'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
+                f"IV={h.get('iv',0)}% | urgency={h['urgency']} | stock_price=${h['price']:.2f}"
+                for i, h in enumerate(hits)
+            ])
+
+            user_msg = f"""These are today's unusual call signals (Vol/OI ≥3x, ≤30 day expiry, OTM/near-ATM calls only):
 
 {signals_text}
 
@@ -17636,94 +17665,96 @@ For each pick output a JSON object with ALL these fields:
 
 Return a JSON array of exactly 20 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
 
-    system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."
+            system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."
 
-    def _stream_ai():
-        chunks = []
-        finish = "unknown"
-        stream = oai.chat.completions.create(
-            model="gpt-4o-mini",
-            max_completion_tokens=4000,
-            stream=True,
-            messages=[
-                {"role": "system", "content": system_msg},
-                {"role": "user",   "content": user_msg},
-            ],
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content if chunk.choices else None
-            if delta:
-                chunks.append(delta)
-            if chunk.choices and chunk.choices[0].finish_reason:
-                finish = chunk.choices[0].finish_reason
-        return "".join(chunks).strip(), finish
+            def _stream_ai():
+                chunks = []
+                finish = "unknown"
+                stream = oai.chat.completions.create(
+                    model="gpt-4o-mini",
+                    max_completion_tokens=4000,
+                    stream=True,
+                    messages=[
+                        {"role": "system", "content": system_msg},
+                        {"role": "user",   "content": user_msg},
+                    ],
+                )
+                for chunk in stream:
+                    delta = chunk.choices[0].delta.content if chunk.choices else None
+                    if delta:
+                        chunks.append(delta)
+                    if chunk.choices and chunk.choices[0].finish_reason:
+                        finish = chunk.choices[0].finish_reason
+                return "".join(chunks).strip(), finish
 
-    def _extract_json(raw):
-        if "```" in raw:
-            for part in raw.split("```"):
-                stripped = part.lstrip("json").strip()
-                if stripped.startswith("["):
-                    return stripped
-        if not raw.startswith("["):
-            s = raw.find("["); e2 = raw.rfind("]") + 1
-            if s >= 0 and e2 > s:
-                return raw[s:e2]
-        return raw
+            def _extract_json(raw):
+                if "```" in raw:
+                    for part in raw.split("```"):
+                        stripped = part.lstrip("json").strip()
+                        if stripped.startswith("["):
+                            return stripped
+                if not raw.startswith("["):
+                    s = raw.find("["); e2 = raw.rfind("]") + 1
+                    if s >= 0 and e2 > s:
+                        return raw[s:e2]
+                return raw
 
-    try:
-        import time as _time
-        raw, finish = _stream_ai()
-        raw = _extract_json(raw)
-
-        if not raw:
-            print("[ai_short_calls] empty on first attempt — retrying in 6s", file=sys.stderr, flush=True)
-            _time.sleep(6)
+            import time as _time
             raw, finish = _stream_ai()
             raw = _extract_json(raw)
+            if not raw:
+                print("[ai_short_calls] empty on first attempt — retrying in 6s", file=_sys.stderr, flush=True)
+                _time.sleep(6)
+                raw, finish = _stream_ai()
+                raw = _extract_json(raw)
+            if not raw:
+                print(f"[ai_short_calls] AI returned no content (finish={finish})", file=_sys.stderr, flush=True)
+                return
 
-        if not raw:
-            return jsonify({"error": f"AI returned no content (finish={finish}). Hit Regenerate to try again.", "picks": []}), 500
+            try:
+                picks = _json.loads(raw)
+            except Exception:
+                from json_repair import repair_json as _rj
+                picks = _json.loads(_rj(raw))
 
-        try:
-            picks = _json.loads(raw)
-        except Exception:
-            from json_repair import repair_json as _rj
-            picks = _json.loads(_rj(raw))
+            # Enrich with SMP conviction scores
+            try:
+                _smp_map = _get_smp_scores_batch([p.get("ticker", "") for p in picks])
+                for p in picks:
+                    smp = _smp_map.get(p.get("ticker", ""), {})
+                    p["smp_score"]  = smp.get("smp_score", 0.0)
+                    p["smp_label"]  = smp.get("smp_label", "NO DATA")
+                    p["smp_layers"] = smp.get("smp_layers", [])
+            except Exception:
+                pass
 
-        # Enrich each pick with SMP conviction score
-        try:
-            _smp_map = _get_smp_scores_batch([p.get("ticker", "") for p in picks])
-            for p in picks:
-                smp = _smp_map.get(p.get("ticker", ""), {})
-                p["smp_score"]  = smp.get("smp_score", 0.0)
-                p["smp_label"]  = smp.get("smp_label", "NO DATA")
-                p["smp_layers"] = smp.get("smp_layers", [])
-        except Exception:
-            pass
+            out = {"picks": picks, "generated_at": _dt.now().isoformat(), "signals_evaluated": len(hits)}
+            app._aisc_cache    = out
+            app._aisc_cache_ts = _dt.now()
+            try:
+                import threading as _scl_thr
+                _scl_thr.Thread(target=_save_ai_short_calls_to_log,
+                                args=(picks, _dt.now().strftime("%Y-%m-%d")), daemon=True).start()
+            except Exception as _sle:
+                print(f"[ai_short_calls] log save error: {_sle}", file=_sys.stderr)
+        except Exception as _e:
+            import traceback
+            print(f"[ai_short_calls] bg error: {_e}\n{traceback.format_exc()}", file=sys.stderr, flush=True)
+        finally:
+            app._aisc_scanning = False
 
-        out = {
-            "picks": picks,
-            "generated_at": _dt.now().isoformat(),
-            "signals_evaluated": len(hits),
-        }
-        app._aisc_cache    = out
-        app._aisc_cache_ts = _dt.now()
-        # Persist to daily log (skips if already saved today)
-        try:
-            import threading as _scl_thr
-            _today_str = _dt.now().strftime("%Y-%m-%d")
-            _scl_thr.Thread(
-                target=_save_ai_short_calls_to_log,
-                args=(picks, _today_str),
-                daemon=True,
-            ).start()
-        except Exception as _sle:
-            print(f"[ai_short_calls] log save error: {_sle}", file=sys.stderr)
-        return jsonify(out)
-    except Exception as e:
-        import traceback
-        print(f"[ai_short_calls] error: {e}\n{traceback.format_exc()}", file=sys.stderr, flush=True)
-        return jsonify({"error": str(e), "picks": []}), 500
+    # Single-flight: force always restarts; normal load skips if already running
+    if force or not getattr(app, "_aisc_scanning", False):
+        app._aisc_scanning = True
+        import threading as _aisc_thr
+        _aisc_thr.Thread(target=_bg_aisc, daemon=True).start()
+
+    # Return best available data immediately — never block on the AI call
+    if _cache:
+        return jsonify({**_cache, "generating": True} if force else _cache)
+    if _db_picks:
+        return jsonify({**_db_picks, "stale": True})
+    return jsonify({"picks": [], "generated_at": None, "signals_evaluated": 0, "generating": True})
 
 
 @app.route("/stock-api/ai-short-calls-log", methods=["GET"])
