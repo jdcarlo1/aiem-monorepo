@@ -222,6 +222,10 @@ export default function Landing() {
       <div className="relative text-center overflow-hidden" style={{ padding: "100px 24px 80px" }}>
         <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "900px", height: "600px", background: "radial-gradient(ellipse at 50% 0%, rgba(34,197,94,0.18) 0%, transparent 70%)", pointerEvents: "none" }} />
         <div className="relative max-w-5xl mx-auto">
+          <div className="inline-flex items-center px-6 py-2.5 rounded-full font-black text-sm uppercase tracking-widest mb-5" style={{ background: "#22c55e", color: "#0b1a0e", letterSpacing: "0.08em" }}>
+            Pure Call Options — Exclusively
+          </div>
+          <br />
           <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold mb-10" style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80" }}>
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
             Right now, 8 signals are firing on the same ticker. You're not seeing all of them.
