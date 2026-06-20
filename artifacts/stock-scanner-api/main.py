@@ -807,6 +807,49 @@ def _intraday_scan_allowed() -> bool:
     return 570 <= _mins <= 990  # 9:30 AM – 4:30 PM ET
 
 
+def _save_scan_cache(endpoint: str, payload: dict) -> None:
+    """Save a tab's scan result to DB so it survives restarts and is visible on weekends."""
+    try:
+        import json as _scj
+        from datetime import date as _scd
+        with _psycopg2.connect(_DB_URL) as _scc, _scc.cursor() as _sccu:
+            _sccu.execute("""
+                CREATE TABLE IF NOT EXISTS scan_result_cache (
+                    endpoint   TEXT NOT NULL,
+                    scan_date  DATE NOT NULL,
+                    payload    JSONB NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (endpoint, scan_date)
+                )
+            """)
+            _sccu.execute("""
+                INSERT INTO scan_result_cache (endpoint, scan_date, payload)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (endpoint, scan_date) DO UPDATE SET
+                    payload = EXCLUDED.payload, updated_at = NOW()
+            """, (endpoint, _scd.today(), _scj.dumps(payload)))
+            _scc.commit()
+    except Exception as _sce:
+        print(f"[scan_cache] save error for {endpoint}: {_sce}")
+
+
+def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
+    """Load the most recent cached scan result (up to days_back calendar days)."""
+    try:
+        from datetime import date as _lcd, timedelta as _lctd
+        _cutoff = _lcd.today() - _lctd(days=days_back)
+        with _psycopg2.connect(_DB_URL) as _lcc, _lcc.cursor() as _lccu:
+            _lccu.execute("""
+                SELECT payload FROM scan_result_cache
+                WHERE endpoint = %s AND scan_date >= %s
+                ORDER BY scan_date DESC LIMIT 1
+            """, (endpoint, _cutoff))
+            _row = _lccu.fetchone()
+            return _row[0] if _row else None
+    except Exception:
+        return None
+
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -18674,6 +18717,17 @@ def multi_signal_convergence():
     if _cache and _ts and (_ms_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
 
+    # Market closed — serve last Friday's scan from DB
+    if not _intraday_scan_allowed():
+        _ms_db = _load_scan_cache("multi-signal")
+        if _ms_db:
+            app._ms_cache = _ms_db; app._ms_cache_ts = _ms_dt.now()
+            return jsonify({**_ms_db, "stale": True})
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "market closed — no scan data yet for this week"})
+
     SIGNAL_DEFS = [
         # ── Quant / price-action signals (computed live) ──────────────────
         ("VOLUME_SURGE",       "🔥 Volume Surge",        "Relative volume ≥ 3× average"),
@@ -19044,6 +19098,8 @@ def multi_signal_convergence():
             }
             app._ms_cache    = _out
             app._ms_cache_ts = _ms_dt.now()
+            if _out.get("results"):
+                _save_scan_cache("multi-signal", _out)
         except Exception as _e:
             print(f"[multi_signal] bg error: {_e}", file=_sys.stderr)
         finally:
@@ -19608,6 +19664,17 @@ def squeeze_setup():
     if _fresh:
         return jsonify(_cache)
 
+    # Market closed — serve last Friday's scan from DB
+    if not _intraday_scan_allowed():
+        _sq_db = _load_scan_cache("squeeze-setup")
+        if _sq_db:
+            app._sq_cache = _sq_db; app._sq_cache_ts = _sq_dt.now()
+            return jsonify({**_sq_db, "stale": True})
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "market closed — no scan data yet for this week"})
+
     # Return stale cache immediately while background thread refreshes
     def _bg_sq():
         if getattr(app, "_sq_scanning", False):
@@ -19683,6 +19750,8 @@ def squeeze_setup():
             out = {"setups": results[:40], "total": len(results), "scanned": len(DEFAULT_LEADERBOARD)}
             app._sq_cache    = out
             app._sq_cache_ts = _sq_dt.now()
+            if results:
+                _save_scan_cache("squeeze-setup", out)
         except Exception as _bge:
             print(f"[squeeze_setup] bg scan error: {_bge}", file=_sys.stderr)
         finally:
@@ -19808,6 +19877,17 @@ def morning_runners():
     if _cache and _ts and (_mr_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
 
+    # Market closed — serve last Friday's scan from DB rather than an empty live result
+    if not _intraday_scan_allowed():
+        _mr_db = _load_scan_cache("morning-runners")
+        if _mr_db:
+            app._mr_cache = _mr_db; app._mr_cache_ts = _mr_dt.now()
+            return jsonify({**_mr_db, "stale": True})
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "market closed — no scan data yet for this week"})
+
     results = []
 
     def _scan_mr(ticker):
@@ -19860,6 +19940,8 @@ def morning_runners():
             out = {"runners": _results[:40], "total": len(_results), "scanned": len(DEFAULT_LEADERBOARD)}
             app._mr_cache = out
             app._mr_cache_ts = _mr_dt.now()
+            if _results:
+                _save_scan_cache("morning-runners", out)
         except Exception: pass
         finally: app._mr_scanning = False
 
