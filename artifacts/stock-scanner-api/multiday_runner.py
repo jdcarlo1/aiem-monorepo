@@ -344,8 +344,9 @@ def run_intraday_d1_scan() -> dict:
                 if not (above_vwap and top30 and vol_ok):
                     continue
 
-                is_strong = pct >= strong_pct
-                stop      = round(cand["prev_close"] * 0.98, 4)  # 2% below prior close
+                is_strong  = pct >= strong_pct
+                _stop_mult = {"large": 0.97, "mid": 0.96, "small": 0.95}.get(tier_key, 0.97)
+                stop       = round(cand["prev_close"] * _stop_mult, 4)  # tier-specific: large 3%, mid 4%, small 5%
 
                 row = {
                     "ticker":      tkr,
@@ -811,71 +812,108 @@ def build_intraday_d1_email_html(results: dict) -> str:
         return ""
 
     TIER_ORDER = [
-        ("large", "#22c55e", "🟢 LARGE CAP ($10B+)", "≥3%"),
-        ("mid",   "#38bdf8", "🔵 MID CAP ($2B–$10B)", "≥4%"),
-        ("small", "#f59e0b", "🟡 SMALL CAP ($300M–$2B)", "≥5%"),
+        ("large", "#22c55e", "🟢 LARGE CAP ($10B+)",    "≥3%", "≥5%"),
+        ("mid",   "#38bdf8", "🔵 MID CAP ($2B–$10B)",   "≥4%", "≥7%"),
+        ("small", "#f59e0b", "🟡 SMALL CAP ($300M–$2B)","≥5%", "≥10%"),
     ]
 
-    sections = ""
-    for tier_key, color, tier_label, threshold in TIER_ORDER:
-        tier_rows = [r for r in all_rows if r.get("cap_tier") == tier_key]
-        if not tier_rows:
-            continue
-        ticker_rows = ""
-        for r in tier_rows[:10]:
-            strong = '<span style="background:#f59e0b;color:#000;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:800;margin-left:6px">STRONG</span>' if r.get("is_strong") else ''
-            ticker_rows += f"""
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.06)">
-              <td style="padding:10px 8px;font-weight:900;font-size:18px;color:#fff">{r['ticker']}{strong}</td>
-              <td style="padding:10px 8px;color:{color};font-weight:700;font-size:16px">+{r['pct_so_far']:.1f}%</td>
+    # Stop loss by tier
+    STOPS = {"large": "3%", "mid": "4%", "small": "5%"}
+
+    def _ticker_table(rows, highlight_color, stop_pct):
+        html = ""
+        for r in rows[:10]:
+            bg = "rgba(245,158,11,0.12)" if r.get("is_strong") else "transparent"
+            html += f"""
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.06);background:{bg}">
+              <td style="padding:10px 8px;font-weight:900;font-size:17px;color:#fff">{r['ticker']}</td>
+              <td style="padding:10px 8px;color:{highlight_color};font-weight:700;font-size:16px">+{r['pct_so_far']:.1f}%</td>
               <td style="padding:10px 8px;color:#fff;font-weight:700">${r['entry_price']:.2f}</td>
-              <td style="padding:10px 8px;color:#f87171">${r['stop_price']:.2f}</td>
+              <td style="padding:10px 8px;color:#f87171">${r['stop_price']:.2f} <span style="font-size:10px;color:#64748b">({stop_pct} below prev close)</span></td>
               <td style="padding:10px 8px;color:#a78bfa">{r['adj_rvol']:.1f}x</td>
               <td style="padding:10px 8px;color:#94a3b8">{int(r['range_pos'])}%</td>
             </tr>"""
-        sections += f"""
-        <div style="margin-bottom:24px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-            <div style="width:4px;height:18px;background:{color};border-radius:2px"></div>
-            <span style="color:{color};font-weight:800;font-size:12px;letter-spacing:.08em;text-transform:uppercase">{tier_label} — {len(tier_rows)} signal{'s' if len(tier_rows)!=1 else ''} ({threshold})</span>
+        return html
+
+    sections = ""
+    for tier_key, color, tier_label, threshold, strong_threshold in TIER_ORDER:
+        tier_rows = [r for r in all_rows if r.get("cap_tier") == tier_key]
+        if not tier_rows:
+            continue
+        stop_pct  = STOPS[tier_key]
+        strong_rows  = [r for r in tier_rows if r.get("is_strong")]
+        regular_rows = [r for r in tier_rows if not r.get("is_strong")]
+
+        strong_block = ""
+        if strong_rows:
+            strong_block = f"""
+        <div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="background:#f59e0b;color:#000;padding:3px 12px;border-radius:5px;font-size:11px;font-weight:900;letter-spacing:.06em">🔥 STRONG SIGNAL</span>
+            <span style="color:#f59e0b;font-size:12px;font-weight:700">{strong_threshold} gain — 69.6% win rate · +4.1% avg (D1→D5)</span>
           </div>
           <table style="width:100%;border-collapse:collapse">
             <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:#64748b">TICKER</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:#64748b">GAIN</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:#64748b">ENTRY</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:#64748b">STOP</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:#64748b">RVOL</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:#64748b">RANGE</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">TICKER</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">GAIN</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">ENTRY</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">STOP</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">RVOL</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">RANGE</th>
             </tr></thead>
-            <tbody>{ticker_rows}</tbody>
+            <tbody>{_ticker_table(strong_rows, "#f59e0b", stop_pct)}</tbody>
           </table>
         </div>"""
 
+        regular_block = ""
+        if regular_rows:
+            regular_block = f"""
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:3px 12px;border-radius:5px;font-size:11px;font-weight:800;border:1px solid rgba(34,197,94,0.3)">✅ CONFIRMED SIGNAL</span>
+            <span style="color:#94a3b8;font-size:12px;font-weight:600">{threshold} gain — 59.7% win rate · +2.2% avg (D1→D5)</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">TICKER</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">GAIN</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">ENTRY</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">STOP</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">RVOL</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b">RANGE</th>
+            </tr></thead>
+            <tbody>{_ticker_table(regular_rows, color, stop_pct)}</tbody>
+          </table>
+        </div>"""
+
+        sections += f"""
+        <div style="margin-bottom:28px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <div style="width:4px;height:18px;background:{color};border-radius:2px"></div>
+            <span style="color:{color};font-weight:800;font-size:12px;letter-spacing:.08em;text-transform:uppercase">{tier_label} — {len(tier_rows)} signal{'s' if len(tier_rows)!=1 else ''}</span>
+          </div>
+          {strong_block}{regular_block}
+        </div>"""
+
     return f"""<!DOCTYPE html><html><body style="background:#0f1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fff;margin:0;padding:0">
-<div style="max-width:640px;margin:0 auto;padding:32px 24px">
+<div style="max-width:660px;margin:0 auto;padding:32px 24px">
   <div style="text-align:center;margin-bottom:24px">
     <div style="display:inline-block;background:#22c55e;color:#000;padding:6px 20px;border-radius:6px;font-size:12px;font-weight:800;letter-spacing:.1em">📈 DAY 1 BUY SIGNAL — 2:00 PM ET</div>
     <h1 style="font-size:26px;font-weight:900;margin:14px 0 4px">Multi-Day Runner Alert</h1>
-    <p style="color:#64748b;font-size:13px;margin:0">{len(all_rows)} confirmed across {len([t for t in ['large','mid','small'] if results.get(t)])} cap tiers · VWAP hold + top-of-range + RVOL ≥ 2x</p>
+    <p style="color:#64748b;font-size:13px;margin:0">{len(all_rows)} confirmed · VWAP hold + top-of-range + RVOL ≥ 2x</p>
   </div>
-  <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:16px 20px;margin-bottom:24px">
-    <p style="margin:0;font-size:14px;color:#94a3b8;line-height:1.7">
-      These stocks met <strong style="color:#fff">all 4 Day 1 conditions</strong> right now at 2 PM:
-      up the required %, still <strong style="color:#22c55e">above VWAP</strong> all session,
-      price in the <strong style="color:#22c55e">top 30% of the day's range</strong>,
-      and volume <strong style="color:#22c55e">2x+ normal</strong>.<br><br>
-      <strong style="color:#fff">Enter at market before 3:45 PM ET.  Exit at Day 5 close.</strong>
-      Stop = 2% below yesterday's close.
+  <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:16px 20px;margin-bottom:28px">
+    <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.8">
+      <strong style="color:#fff">Enter at market before 3:45 PM ET.  Exit at Day 5 close.</strong><br>
+      🔥 <strong style="color:#f59e0b">STRONG</strong> = extra-large Day 1 move — <strong style="color:#f59e0b">69.6% win rate</strong>, prioritize these.<br>
+      ✅ <strong style="color:#22c55e">CONFIRMED</strong> = standard signal — <strong style="color:#22c55e">59.7% win rate</strong>, still valid.<br>
+      Stop losses are tier-specific (Large 3% · Mid 4% · Small 5% below prev close).
     </p>
   </div>
   {sections}
-  <div style="padding:14px 16px;background:rgba(255,255,255,0.04);border-radius:8px;margin-top:8px">
-    <p style="margin:0;font-size:12px;color:#475569;line-height:1.7">
-      <strong style="color:#94a3b8">60-day large-cap backtest · D1 entry → D5 exit:</strong><br>
-      D1 ≥3% confirmed → <strong style="color:#22c55e">59.7% win rate, +2.2% avg (D1→D5)</strong><br>
-      D1 ≥5% STRONG   → <strong style="color:#f59e0b">69.6% win rate, +4.1% avg gain</strong><br>
-      Not a guarantee. Use the stop.
+  <div style="padding:14px 16px;background:rgba(255,255,255,0.03);border-radius:8px;margin-top:4px;border:1px solid rgba(255,255,255,0.06)">
+    <p style="margin:0;font-size:11px;color:#475569;line-height:1.7">
+      60-day large-cap backtest · D1 entry → D5 exit · Not a guarantee · Always use the stop loss.
     </p>
   </div>
 </div></body></html>"""
