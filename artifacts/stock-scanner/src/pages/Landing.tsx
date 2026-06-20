@@ -259,7 +259,7 @@ export default function Landing() {
           </div>
 
           <p className="mx-auto mb-6 text-slate-300" style={{ fontSize: "clamp(1.1rem,2.5vw,1.4rem)", maxWidth: "680px", lineHeight: 1.75 }}>
-            Right now there's a stock where OI has been quietly building for 4 days. Gamma pressure is mathematically locked in. A far-OTM sweep just fired. Dark pool printed $2M overnight. Shorts are trapped. The sector is rotating in. That's 6 of 8 signals converging on the same name — and Unusual Whales is showing you only the sweep. FlowAlgo only the flow. <strong className="text-white">Nobody is showing you the convergence.</strong> StockScanner AI reads all 73 data points simultaneously, scores every ticker across 8 independent signals, and outputs 5 ELITE trade setups every morning — with strike, expiry, and a full written thesis — before the move starts.
+            Right now there's a stock where OI has been quietly building for 4 days. Gamma pressure is mathematically locked in. A far-OTM sweep just fired. Dark pool printed $2M overnight. Shorts are trapped. The sector is rotating in. That's 6 of 8 signals converging on the same name — and Unusual Whales is showing you only the sweep. FlowAlgo only the flow. <strong className="text-white">Nobody is showing you the convergence.</strong> StockScanner AI runs 28 signals simultaneously — 20 ICS scoring signals plus an 8-layer conviction stack — and outputs 5 ELITE trade setups every morning with the exact strike, expiry, and a full written thesis, before the move starts.
           </p>
 
           <p className="mx-auto mb-12 font-bold" style={{ fontSize: "1.05rem", maxWidth: "580px", color: "#fbbf24" }}>
@@ -371,7 +371,7 @@ export default function Landing() {
               AI Trade Synthesis
             </h2>
             <p className="text-slate-300 mb-8" style={{ maxWidth: "620px", fontSize: "1.1rem", lineHeight: 1.75 }}>
-              Every day, our AI reads all 73 data points simultaneously — including signals no other platform tracks: <strong className="text-white">Float Impact Ratio (FIR)</strong>, the mathematical forcing function that makes market makers legally required to buy; <strong className="text-white">Charm Acceleration</strong>, the time-decaying squeeze that builds buying pressure every single day without a price catalyst; and <strong className="text-white">Dealer Gamma Exposure (GEX)</strong>, which tells you whether a breakout will run or fade before you enter. On top of those: dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime, OI buildup days, consecutive accumulation streaks, short squeeze fuel, MACD momentum, VWAP, VIX term structure, HYG credit health, and more. Then it outputs 5 ELITE trade setups, written in plain English, ranked from most bullish to most bearish.
+              Every day, our AI runs all 28 signals simultaneously — including signals no other platform tracks: <strong className="text-white">Float Impact Ratio (FIR)</strong>, the mathematical forcing function that makes market makers legally required to buy; <strong className="text-white">Charm Acceleration</strong>, the time-decaying squeeze that builds buying pressure every single day without a price catalyst; and <strong className="text-white">Dealer Gamma Exposure (GEX)</strong>, which tells you whether a breakout will run or fade before you enter. On top of those: dark pool flow, smart money vs retail divergence, options flow, IV rank, gamma walls, max pain, market regime, OI buildup days, consecutive accumulation streaks, short squeeze fuel, MACD momentum, VWAP, VIX term structure, HYG credit health, and more. Then it outputs 5 ELITE trade setups, written in plain English, ranked from most bullish to most bearish.
             </p>
             {/* ── SMP L1–L8 BREAKDOWN ── */}
             <div className="rounded-2xl p-5 mb-8" style={{ background: "rgba(251,146,60,0.05)", border: "1px solid rgba(251,146,60,0.2)" }}>
@@ -420,7 +420,7 @@ export default function Landing() {
                 <p className="text-xs uppercase tracking-widest font-bold mb-3" style={{ color: "#4ade80" }}>What you get from StockScanner AI</p>
                 <div className="space-y-2">
                   {[
-                    "All 73 data points → fed to AI together",
+                    "All 28 signals → fed to AI together",
                     "5 picks → sorted most bullish to bearish",
                     "Entry strike + expiry + target + stop",
                     "Written thesis: why these signals align",
