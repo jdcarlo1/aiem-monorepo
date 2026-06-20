@@ -2138,3 +2138,39 @@ export interface NanoMorningData {
 export function fetchNanoMorningCandidates() {
   return fetchJson<NanoMorningData>("/nano-morning/candidates");
 }
+
+export interface MultidayRunnerRow {
+  ticker: string;
+  d1_date: string;
+  d2_date?: string;
+  d1_pct: number;
+  d2_pct?: number;
+  d1_close?: number;
+  d1_rvol?: number;
+  d1_strong?: boolean;
+  confirmed?: boolean;
+  entry_price?: number;
+  stop_price?: number;
+  d2_close_pos?: number;
+  status?: string;
+  exit_pct?: number;
+}
+
+export interface MultidayRunnersData {
+  watch: MultidayRunnerRow[];
+  confirmed: MultidayRunnerRow[];
+  active: MultidayRunnerRow[];
+  stats: {
+    total_confirmed?: number;
+    wins?: number;
+    losses?: number;
+    avg_gain?: number;
+    best_gain?: number;
+    worst_loss?: number;
+  };
+  as_of?: string;
+}
+
+export function fetchMultidayRunners() {
+  return fetchJson<MultidayRunnersData>("/multiday-runners");
+}

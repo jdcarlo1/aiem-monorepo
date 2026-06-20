@@ -60,6 +60,7 @@ import {
   fetchSectorHeat, HotSector, SectorHeatResult,
   fetchFloatPressure, FloatPressureRow, FloatPressureResult,
   fetchNanoMorningCandidates, NanoMorningCandidate,
+  fetchMultidayRunners, MultidayRunnersData, MultidayRunnerRow,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -13821,7 +13822,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -13982,6 +13983,7 @@ export default function Dashboard() {
     { id: "squeezeradar",   label: "🩳 SQUEEZE RADAR" },
     { id: "nanomorning",   label: "🚀 NANO MORNING" },
     { id: "ics",            label: "🎯 CONVICTION SCORE" },
+    { id: "multidayrunner", label: "📈 MULTI-DAY RUNNER" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -14605,6 +14607,181 @@ export default function Dashboard() {
         {tab === "standouttrack"  && <StandoutTrackTab />}
         {tab === "ics"            && <InstitutionalConvictionScore />}
         {tab === "nanomorning"    && <NanoMorningTab onSelectTicker={selectTicker} />}
+        {tab === "multidayrunner" && <MultidayRunnerTab onSelectTicker={selectTicker} />}
+
+        {/* ── Multi-Day Runner Tab Component ── */}
+        {(() => {
+          function MultidayRunnerTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+            const { data, isLoading, refetch } = useQuery({
+              queryKey: ["multiday-runners"],
+              queryFn: fetchMultidayRunners,
+              refetchInterval: 120_000,
+            });
+
+            const confirmed = data?.confirmed ?? [];
+            const watch     = data?.watch ?? [];
+            const active    = data?.active ?? [];
+            const stats     = data?.stats ?? {};
+
+            const Section = ({ title, color, children }: { title: string; color: string; children: React.ReactNode }) => (
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <div style={{ width: 4, height: 18, background: color, borderRadius: 2 }} />
+                  <span style={{ color, fontWeight: 800, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase" }}>{title}</span>
+                </div>
+                {children}
+              </div>
+            );
+
+            const TickerCard = ({ r, accent }: { r: MultidayRunnerRow; accent: string }) => (
+              <div
+                onClick={() => onSelectTicker(r.ticker)}
+                style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${accent}33`, borderRadius: 12,
+                         padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center",
+                         gap: 14, flexWrap: "wrap" as const }}
+              >
+                <div style={{ minWidth: 60 }}>
+                  <div style={{ fontWeight: 900, fontSize: 20, color: "#fff" }}>{r.ticker}</div>
+                  {r.d1_strong && <div style={{ background: "#f59e0b", color: "#000", fontSize: 10, fontWeight: 800, padding: "1px 6px", borderRadius: 4, display: "inline-block", marginTop: 2 }}>STRONG</div>}
+                </div>
+                <div style={{ textAlign: "center" as const }}>
+                  <div style={{ color: "#22c55e", fontWeight: 700, fontSize: 16 }}>+{r.d1_pct?.toFixed(1)}%</div>
+                  <div style={{ color: "#64748b", fontSize: 10 }}>D1 gain</div>
+                </div>
+                {r.d2_pct != null && (
+                  <div style={{ textAlign: "center" as const }}>
+                    <div style={{ color: "#38bdf8", fontWeight: 700, fontSize: 16 }}>+{r.d2_pct?.toFixed(1)}%</div>
+                    <div style={{ color: "#64748b", fontSize: 10 }}>D2 so far</div>
+                  </div>
+                )}
+                {r.entry_price != null && (
+                  <div style={{ textAlign: "center" as const }}>
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>${r.entry_price?.toFixed(2)}</div>
+                    <div style={{ color: "#64748b", fontSize: 10 }}>entry</div>
+                  </div>
+                )}
+                {r.stop_price != null && (
+                  <div style={{ textAlign: "center" as const }}>
+                    <div style={{ color: "#f87171", fontWeight: 700, fontSize: 14 }}>${r.stop_price?.toFixed(2)}</div>
+                    <div style={{ color: "#64748b", fontSize: 10 }}>stop</div>
+                  </div>
+                )}
+                {r.d2_close_pos != null && (
+                  <div style={{ textAlign: "center" as const }}>
+                    <div style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600 }}>{(r.d2_close_pos * 100).toFixed(0)}%</div>
+                    <div style={{ color: "#64748b", fontSize: 10 }}>of range</div>
+                  </div>
+                )}
+                {r.d1_rvol != null && (
+                  <div style={{ textAlign: "center" as const }}>
+                    <div style={{ color: "#a78bfa", fontSize: 13, fontWeight: 600 }}>{r.d1_rvol?.toFixed(1)}x</div>
+                    <div style={{ color: "#64748b", fontSize: 10 }}>RVOL</div>
+                  </div>
+                )}
+                {r.exit_pct != null && (
+                  <div style={{ textAlign: "center" as const, marginLeft: "auto" }}>
+                    <div style={{ color: r.exit_pct > 0 ? "#22c55e" : "#f87171", fontWeight: 800, fontSize: 16 }}>{r.exit_pct > 0 ? "+" : ""}{r.exit_pct?.toFixed(1)}%</div>
+                    <div style={{ color: "#64748b", fontSize: 10 }}>outcome</div>
+                  </div>
+                )}
+              </div>
+            );
+
+            return (
+              <div style={{ padding: "24px 20px", maxWidth: 860, margin: "0 auto" }}>
+                {/* Header */}
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" as const, gap: 12 }}>
+                    <div>
+                      <h2 style={{ fontSize: 22, fontWeight: 900, color: "#fff", margin: 0, letterSpacing: "-0.02em" }}>
+                        📈 Multi-Day Runner
+                      </h2>
+                      <p style={{ color: "#64748b", fontSize: 13, margin: "4px 0 0" }}>
+                        Large-cap 5-day continuation · Enter D2 · Hold D3–D5
+                      </p>
+                    </div>
+                    <button onClick={() => refetch()} style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", color: "#22c55e", padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                      Refresh
+                    </button>
+                  </div>
+                  {data?.as_of && <p style={{ color: "#334155", fontSize: 11, margin: "8px 0 0" }}>As of {data.as_of}</p>}
+                </div>
+
+                {/* Stats bar */}
+                {stats.total_confirmed != null && stats.total_confirmed > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8, marginBottom: 24 }}>
+                    {[
+                      { label: "Confirmed (60d)", val: stats.total_confirmed, color: "#94a3b8" },
+                      { label: "Win rate", val: stats.total_confirmed ? `${Math.round(((stats.wins ?? 0) / stats.total_confirmed) * 100)}%` : "—", color: "#22c55e" },
+                      { label: "Avg gain", val: stats.avg_gain != null ? `${stats.avg_gain > 0 ? "+" : ""}${stats.avg_gain}%` : "—", color: stats.avg_gain && stats.avg_gain > 0 ? "#22c55e" : "#f87171" },
+                      { label: "Best D2→D5", val: stats.best_gain != null ? `+${stats.best_gain}%` : "—", color: "#f59e0b" },
+                    ].map(s => (
+                      <div key={s.label} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "10px 12px", textAlign: "center" as const }}>
+                        <div style={{ color: s.color, fontWeight: 800, fontSize: 18 }}>{String(s.val)}</div>
+                        <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {isLoading && <div style={{ color: "#64748b", textAlign: "center" as const, padding: "48px 0" }}>Loading...</div>}
+
+                {/* BUY SIGNAL — confirmed today */}
+                {confirmed.length > 0 && (
+                  <Section title={`🟢 BUY SIGNAL — ${confirmed.length} confirmed today`} color="#22c55e">
+                    <div style={{ background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
+                      These passed the Day 2 rule: trading above yesterday's close <strong style={{ color: "#fff" }}>and</strong> in the top half of today's range at 2:45 PM.
+                      Enter before 3:45 PM ET. Stop = 2% below yesterday's close. Target = hold through Day 5.
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+                      {confirmed.map(r => <TickerCard key={r.ticker + r.d1_date} r={r} accent="#22c55e" />)}
+                    </div>
+                  </Section>
+                )}
+
+                {/* WATCHLIST — today's Day 1 ignitions */}
+                {watch.length > 0 && (
+                  <Section title={`👁 WATCHING — ${watch.length} Day 1 ignitions today`} color="#f59e0b">
+                    <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
+                      These gained ≥3% today. Tomorrow at 2:45 PM they'll be checked for Day 2 confirmation.
+                      STRONG (≥5%) entries have historically confirmed at <strong style={{ color: "#f59e0b" }}>69.6% win rate, +4.1% avg D2→D5</strong>.
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+                      {watch.map(r => <TickerCard key={r.ticker + r.d1_date} r={r} accent="#f59e0b" />)}
+                    </div>
+                  </Section>
+                )}
+
+                {/* ACTIVE HOLDS */}
+                {active.length > 0 && (
+                  <Section title={`🔄 ACTIVE HOLDS — ${active.length} in progress`} color="#38bdf8">
+                    <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+                      {active.map(r => <TickerCard key={r.ticker + r.d1_date} r={r} accent="#38bdf8" />)}
+                    </div>
+                  </Section>
+                )}
+
+                {/* Empty state */}
+                {!isLoading && confirmed.length === 0 && watch.length === 0 && active.length === 0 && (
+                  <div style={{ textAlign: "center" as const, padding: "60px 0", color: "#334155" }}>
+                    <div style={{ fontSize: 36, marginBottom: 12 }}>📈</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#475569", marginBottom: 8 }}>No runners yet today</div>
+                    <div style={{ fontSize: 13, color: "#334155", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
+                      The Day 1 scan runs at <strong style={{ color: "#64748b" }}>4:05 PM ET</strong> and catches large-cap stocks that gained ≥3%.
+                      The Day 2 confirm runs at <strong style={{ color: "#64748b" }}>2:45 PM ET</strong> with live BUY signals.
+                    </div>
+                    <div style={{ marginTop: 20, padding: "12px 16px", background: "rgba(255,255,255,0.04)", borderRadius: 8, display: "inline-block", fontSize: 12, color: "#475569", textAlign: "left" as const }}>
+                      <strong style={{ color: "#94a3b8" }}>60-day large-cap backtest:</strong><br/>
+                      D1 ≥3% + D2 confirmed → <strong style={{ color: "#22c55e" }}>59.7% win rate, +2.2% EV/trade</strong><br/>
+                      D1 ≥5% + D2 confirmed → <strong style={{ color: "#f59e0b" }}>69.6% win rate, +4.1% avg gain</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* ── Nano Morning Tab Component ── */}
         {(() => {

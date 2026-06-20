@@ -31,6 +31,14 @@ from news_catalyst import init_news_catalyst_log, run_news_catalyst_scan
 import execution
 import pnl
 import composite_scan
+from multiday_runner import (
+    init_multiday_runner_tables,
+    run_day1_scan,
+    run_day2_confirm_scan,
+    get_multiday_runners_data,
+    build_day1_email_html,
+    build_day2_email_html,
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -415,6 +423,7 @@ init_exit_log_table()
 init_call_sweep_log_table()
 init_news_catalyst_log()
 init_midday_log_table()
+init_multiday_runner_tables()
 
 def _init_conviction_snapshot_table():
     import psycopg2 as _pg2
@@ -542,6 +551,8 @@ _OWNER_EMAIL_SCHEDULE = {
     "sc_buy":          [(9, 47)],
     "smp_morning":     [(9, 5)],
     "market_brief":    [(8, 30)],
+    "multiday_watch":  [(16, 5)],
+    "multiday_confirm":[(14, 45)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
@@ -1083,6 +1094,40 @@ try:
         _run_daily_vol_snapshot,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=5, timezone=_ET),
         id="daily_vol_snapshot",
+        replace_existing=True,
+    )
+    # Multi-Day Runner — Day 1 watch scan: Mon-Fri 4:05 PM ET
+    # Scans large-cap universe for ≥3% ignitions, saves to DB, emails owner watchlist.
+    def _run_multiday_day1():
+        try:
+            rows = run_day1_scan()
+            if rows:
+                _owner_scheduled_fire("multiday_watch", "16:05")
+            else:
+                print("[scheduler] multiday day1: no ignitions today")
+        except Exception as e:
+            print(f"[scheduler] multiday day1 error: {e}")
+    _scheduler.add_job(
+        _run_multiday_day1,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=5, timezone=_ET),
+        id="multiday_day1_scan",
+        replace_existing=True,
+    )
+    # Multi-Day Runner — Day 2 confirm: Mon-Fri 2:45 PM ET
+    # Checks yesterday's watch list live, sends BUY SIGNAL email for confirmed entries.
+    def _run_multiday_day2():
+        try:
+            confirmed = run_day2_confirm_scan()
+            if confirmed:
+                _owner_scheduled_fire("multiday_confirm", "14:45")
+            else:
+                print("[scheduler] multiday day2: no confirmations today")
+        except Exception as e:
+            print(f"[scheduler] multiday day2 error: {e}")
+    _scheduler.add_job(
+        _run_multiday_day2,
+        CronTrigger(day_of_week="mon-fri", hour=14, minute=45, timezone=_ET),
+        id="multiday_day2_confirm",
         replace_existing=True,
     )
     # SPY cache refresh: Mon-Fri 9:05 AM ET — pre-warm SPY 1y cache before market opens
@@ -7535,6 +7580,14 @@ def _owner_send_now(kind: str) -> None:
         # the other owner alerts. Reads each signal via its own GET endpoint (each
         # self-caches / single-flights), so no conviction lock is needed.
         _send_market_brief_email()
+    elif kind == "multiday_watch":
+        # 4:05 PM ET — scan large-cap universe for today's ≥3% Day 1 ignitions.
+        # Saves to DB and emails the owner a watchlist for tomorrow's D2 confirm.
+        _send_multiday_day1_email()
+    elif kind == "multiday_confirm":
+        # 2:45 PM ET — check yesterday's watch list with live prices.
+        # Emails the owner confirmed BUY entries (D2 above D1 close + top-half range).
+        _send_multiday_day2_email()
 
 
 def _owner_run_due_emails() -> dict:
@@ -22213,3 +22266,54 @@ def composite_track_record():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
+
+
+# ── Multi-Day Runner email senders ─────────────────────────────────────────
+def _send_multiday_day1_email():
+    """4:05 PM ET: email owner the Day 1 large-cap watch list."""
+    from email_alerts import send_email_raw, smtp_configured
+    if not smtp_configured():
+        print("[multiday_runner] SMTP not configured — skip day1 email")
+        return
+    try:
+        rows = run_day1_scan()
+        if not rows:
+            print("[multiday_runner] day1 email: no ignitions — skipping")
+            return
+        html = build_day1_email_html(rows)
+        strong_ct = sum(1 for r in rows if r.get("d1_strong"))
+        subject = f"📈 Day 1 Watch List — {len(rows)} large-cap ignitions ({strong_ct} STRONG ≥5%)"
+        ok = send_email_raw(_OWNER_EMAIL, subject, html)
+        print(f"[multiday_runner] day1 email sent={ok} → {len(rows)} tickers ({strong_ct} strong)")
+    except Exception as e:
+        print(f"[multiday_runner] day1 email error: {e}\n{traceback.format_exc()}")
+
+
+def _send_multiday_day2_email():
+    """2:45 PM ET: email owner confirmed Day 2 BUY entries."""
+    from email_alerts import send_email_raw, smtp_configured
+    if not smtp_configured():
+        print("[multiday_runner] SMTP not configured — skip day2 email")
+        return
+    try:
+        confirmed = run_day2_confirm_scan()
+        if not confirmed:
+            print("[multiday_runner] day2 email: no confirmations — skipping")
+            return
+        html = build_day2_email_html(confirmed)
+        strong_ct = sum(1 for r in confirmed if r.get("d1_strong"))
+        subject = f"🟢 BUY SIGNAL — {len(confirmed)} Day 2 confirmed ({strong_ct} STRONG)"
+        ok = send_email_raw(_OWNER_EMAIL, subject, html)
+        print(f"[multiday_runner] day2 email sent={ok} → {len(confirmed)} confirmed entries")
+    except Exception as e:
+        print(f"[multiday_runner] day2 email error: {e}\n{traceback.format_exc()}")
+
+
+# ── Multi-Day Runner API endpoint ──────────────────────────────────────────
+@app.route("/stock-api/multiday-runners", methods=["GET"])
+def multiday_runners_endpoint():
+    try:
+        data = get_multiday_runners_data()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e), "watch": [], "confirmed": [], "active": [], "stats": {}}), 200
