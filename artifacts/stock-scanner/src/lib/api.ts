@@ -2174,3 +2174,42 @@ export interface MultidayRunnersData {
 export function fetchMultidayRunners() {
   return fetchJson<MultidayRunnersData>("/multiday-runners");
 }
+
+export interface RunnerSignalRow {
+  ticker: string;
+  d1_date: string;
+  cap_tier: string;
+  d1_pct: number;
+  d1_strong?: boolean;
+  intraday_hit?: boolean;
+  intraday_entry?: number;
+  entry_price?: number;
+  d3_pct?: number;
+  d5_pct?: number;
+  d10_pct?: number;
+  confirmed?: boolean;
+  status?: string;
+}
+
+export interface RunnerTierStat {
+  cap_tier: string;
+  total: number;
+  graded_d5: number;
+  avg_d3?: number;
+  avg_d5?: number;
+  avg_d10?: number;
+  wins_d5: number;
+  losses_d5: number;
+  best_d5?: number;
+  worst_d5?: number;
+}
+
+export interface RunnerOutcomesData {
+  signals: RunnerSignalRow[];
+  tier_stats: RunnerTierStat[];
+  as_of?: string;
+}
+
+export function fetchRunnerOutcomes() {
+  return fetchJson<RunnerOutcomesData>("/runner-outcomes");
+}

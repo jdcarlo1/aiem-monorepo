@@ -61,6 +61,7 @@ import {
   fetchFloatPressure, FloatPressureRow, FloatPressureResult,
   fetchNanoMorningCandidates, NanoMorningCandidate,
   fetchMultidayRunners, MultidayRunnersData, MultidayRunnerRow,
+  fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -13822,7 +13823,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -13984,6 +13985,7 @@ export default function Dashboard() {
     { id: "nanomorning",   label: "🚀 NANO MORNING" },
     { id: "ics",            label: "🎯 CONVICTION SCORE" },
     { id: "multidayrunner", label: "📈 MULTI-DAY RUNNER" },
+    { id: "runneroutcomes", label: "📊 RUNNER OUTCOMES" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -14608,6 +14610,185 @@ export default function Dashboard() {
         {tab === "ics"            && <InstitutionalConvictionScore />}
         {tab === "nanomorning"    && <NanoMorningTab onSelectTicker={selectTicker} />}
         {tab === "multidayrunner" && <MultidayRunnerTab onSelectTicker={selectTicker} />}
+        {tab === "runneroutcomes" && <RunnerOutcomesTab onSelectTicker={selectTicker} />}
+
+        {/* ── Runner Outcomes Tab Component ── */}
+        {(() => {
+          function RunnerOutcomesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+            const { data, isLoading, refetch } = useQuery({
+              queryKey: ["runner-outcomes"],
+              queryFn: fetchRunnerOutcomes,
+              refetchInterval: 300_000,
+            });
+
+            const signals   = data?.signals    ?? [];
+            const tierStats = data?.tier_stats ?? [];
+
+            const TIER_META: Record<string, { label: string; color: string; emoji: string }> = {
+              large: { label: "Large Cap ($10B+)",    color: "#22c55e", emoji: "🟢" },
+              mid:   { label: "Mid Cap ($2B–$10B)",   color: "#38bdf8", emoji: "🔵" },
+              small: { label: "Small Cap ($300M–$2B)", color: "#f59e0b", emoji: "🟡" },
+            };
+
+            const pctColor = (v?: number | null) => {
+              if (v == null) return "#475569";
+              return v > 0 ? "#22c55e" : v < 0 ? "#f87171" : "#94a3b8";
+            };
+            const pctFmt = (v?: number | null) =>
+              v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
+
+            // Summary stats card
+            const StatCard = ({ label, value, color }: { label: string; value: string; color: string }) => (
+              <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "12px 14px", textAlign: "center" as const }}>
+                <div style={{ color, fontWeight: 800, fontSize: 20 }}>{value}</div>
+                <div style={{ color: "#475569", fontSize: 10, marginTop: 3 }}>{label}</div>
+              </div>
+            );
+
+            const allGradedD5 = signals.filter(s => s.d5_pct != null);
+            const allWins     = allGradedD5.filter(s => (s.d5_pct ?? 0) > 0).length;
+            const allAvgD5    = allGradedD5.length
+              ? allGradedD5.reduce((a, s) => a + (s.d5_pct ?? 0), 0) / allGradedD5.length
+              : null;
+
+            return (
+              <div style={{ padding: "24px 20px", maxWidth: 900, margin: "0 auto" }}>
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" as const, gap: 12, marginBottom: 24 }}>
+                  <div>
+                    <h2 style={{ fontSize: 22, fontWeight: 900, color: "#fff", margin: 0, letterSpacing: "-0.02em" }}>
+                      📊 Runner Outcomes
+                    </h2>
+                    <p style={{ color: "#64748b", fontSize: 13, margin: "4px 0 0" }}>
+                      Every 2 PM Day 1 signal tracked to D+3, D+5, D+10 · Strategy: buy D1, sell D5 close
+                    </p>
+                  </div>
+                  <button onClick={() => refetch()} style={{ background: "rgba(56,189,248,0.1)", border: "1px solid rgba(56,189,248,0.3)", color: "#38bdf8", padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                    Refresh
+                  </button>
+                </div>
+
+                {/* Overall stats bar */}
+                {allGradedD5.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8, marginBottom: 28 }}>
+                    <StatCard label="Total signals" value={String(signals.length)} color="#94a3b8" />
+                    <StatCard label="Graded (D5)" value={String(allGradedD5.length)} color="#94a3b8" />
+                    <StatCard label="Win rate D5" value={allGradedD5.length ? `${Math.round(allWins / allGradedD5.length * 100)}%` : "—"} color="#22c55e" />
+                    <StatCard label="Avg gain D5" value={allAvgD5 != null ? pctFmt(allAvgD5) : "—"} color={pctColor(allAvgD5)} />
+                    <StatCard label="Hold target" value="5 days" color="#f59e0b" />
+                  </div>
+                )}
+
+                {/* Per-tier breakdown */}
+                {tierStats.length > 0 && (
+                  <div style={{ marginBottom: 28 }}>
+                    <div style={{ color: "#475569", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" as const, marginBottom: 10 }}>By Cap Tier</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>
+                      {["large","mid","small"].map(tk => {
+                        const ts = tierStats.find(t => t.cap_tier === tk);
+                        if (!ts) return null;
+                        const meta = TIER_META[tk] ?? { label: tk, color: "#94a3b8", emoji: "●" };
+                        const wr = ts.graded_d5 > 0 ? Math.round(ts.wins_d5 / ts.graded_d5 * 100) : null;
+                        return (
+                          <div key={tk} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${meta.color}22`, borderRadius: 12, padding: "16px 18px" }}>
+                            <div style={{ color: meta.color, fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta.emoji} {meta.label}</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                              {[
+                                { label: "Signals", val: String(ts.total), c: "#94a3b8" },
+                                { label: "Win rate", val: wr != null ? `${wr}%` : "—", c: "#22c55e" },
+                                { label: "Avg D5", val: pctFmt(ts.avg_d5), c: pctColor(ts.avg_d5) },
+                                { label: "Avg D3", val: pctFmt(ts.avg_d3), c: pctColor(ts.avg_d3) },
+                                { label: "Best D5", val: pctFmt(ts.best_d5), c: "#f59e0b" },
+                                { label: "Worst", val: pctFmt(ts.worst_d5), c: "#f87171" },
+                              ].map(s => (
+                                <div key={s.label} style={{ textAlign: "center" as const }}>
+                                  <div style={{ color: s.c, fontWeight: 700, fontSize: 15 }}>{s.val}</div>
+                                  <div style={{ color: "#334155", fontSize: 10 }}>{s.label}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {isLoading && <div style={{ color: "#64748b", textAlign: "center" as const, padding: "48px 0" }}>Loading...</div>}
+
+                {/* Signal history table */}
+                {signals.length > 0 && (
+                  <div>
+                    <div style={{ color: "#475569", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" as const, marginBottom: 10 }}>Signal History</div>
+                    <div style={{ overflowX: "auto" as const }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                            {["Date","Ticker","Tier","D1 %","Entry","D+3","D+5 ★","D+10","Status"].map(h => (
+                              <th key={h} style={{ padding: "8px 10px", textAlign: "left" as const, color: "#475569", fontSize: 10, letterSpacing: "0.06em", whiteSpace: "nowrap" as const }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {signals.map((s, i) => {
+                            const meta = TIER_META[s.cap_tier] ?? { label: s.cap_tier, color: "#94a3b8", emoji: "●" };
+                            const entry = s.intraday_entry ?? s.entry_price;
+                            return (
+                              <tr key={i} onClick={() => onSelectTicker(s.ticker)}
+                                style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", cursor: "pointer" }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                              >
+                                <td style={{ padding: "9px 10px", color: "#64748b", whiteSpace: "nowrap" as const }}>{s.d1_date}</td>
+                                <td style={{ padding: "9px 10px", fontWeight: 800, color: "#fff" }}>
+                                  {s.ticker}
+                                  {s.d1_strong && <span style={{ marginLeft: 5, background: "#f59e0b", color: "#000", fontSize: 9, fontWeight: 800, padding: "1px 5px", borderRadius: 3 }}>STR</span>}
+                                  {s.intraday_hit && <span style={{ marginLeft: 4, background: "#22c55e22", color: "#22c55e", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3 }}>D1</span>}
+                                </td>
+                                <td style={{ padding: "9px 10px", color: meta.color, fontSize: 11, whiteSpace: "nowrap" as const }}>{meta.emoji} {s.cap_tier}</td>
+                                <td style={{ padding: "9px 10px", color: "#22c55e", fontWeight: 700 }}>+{s.d1_pct?.toFixed(1)}%</td>
+                                <td style={{ padding: "9px 10px", color: "#94a3b8" }}>{entry ? `$${entry.toFixed(2)}` : "—"}</td>
+                                <td style={{ padding: "9px 10px", color: pctColor(s.d3_pct), fontWeight: 600 }}>{pctFmt(s.d3_pct)}</td>
+                                <td style={{ padding: "9px 10px", color: pctColor(s.d5_pct), fontWeight: 800, fontSize: 14 }}>{pctFmt(s.d5_pct)}</td>
+                                <td style={{ padding: "9px 10px", color: pctColor(s.d10_pct), fontWeight: 600 }}>{pctFmt(s.d10_pct)}</td>
+                                <td style={{ padding: "9px 10px" }}>
+                                  <span style={{ background: s.d5_pct == null ? "rgba(255,255,255,0.06)" : s.d5_pct > 0 ? "rgba(34,197,94,0.15)" : "rgba(248,113,113,0.15)", color: s.d5_pct == null ? "#475569" : s.d5_pct > 0 ? "#22c55e" : "#f87171", padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700 }}>
+                                    {s.d5_pct == null ? "pending" : s.d5_pct > 0 ? "WIN" : "LOSS"}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {!isLoading && signals.length === 0 && (
+                  <div style={{ textAlign: "center" as const, padding: "60px 0", color: "#334155" }}>
+                    <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#475569", marginBottom: 8 }}>No signals recorded yet</div>
+                    <div style={{ fontSize: 13, color: "#334155", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
+                      Once the 2 PM intraday scan starts firing, every signal will be tracked here with D+3, D+5, and D+10 outcomes.
+                      The table fills in automatically every day at 4:30 PM.
+                    </div>
+                    <div style={{ marginTop: 20, padding: "12px 16px", background: "rgba(255,255,255,0.04)", borderRadius: 8, display: "inline-block", fontSize: 12, color: "#475569", textAlign: "left" as const }}>
+                      <strong style={{ color: "#94a3b8" }}>Strategy reminder:</strong><br/>
+                      Buy at 2 PM Day 1 signal · Sell at Day 5 close<br/>
+                      <strong style={{ color: "#22c55e" }}>Large cap target: 59.7% win, +2.2% avg</strong><br/>
+                      STRONG tier (≥5%): <strong style={{ color: "#f59e0b" }}>69.6% win, +4.1% avg</strong>
+                    </div>
+                  </div>
+                )}
+
+                {data?.as_of && <p style={{ color: "#1e293b", fontSize: 11, margin: "16px 0 0", textAlign: "center" as const }}>Updated {data.as_of}</p>}
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* ── Multi-Day Runner Tab Component ── */}
         {(() => {

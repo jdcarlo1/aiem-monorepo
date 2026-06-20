@@ -32,3 +32,4 @@
 - [AI Short Calls enrichment](ai-shortcalls-enrichment.md) — AI now sees conviction_stack score + oi_buildup days; ranks multi-signal setups first; SMP still post-pick only
 - [Nano V2 filter gates](nano-v2-filters.md) — 3 live gates: RVOL 3-60x window + IWM≤-1% suppression; lifted win rate 41%→58%, EV $2.25→$6.97; Jun 11 open problem (don't add more rules yet)
 - [NCLEX affiliate system](nclex-affiliate-system.md) — Stripe Connect Express; transfer logic split: lifetime in checkout.session.completed, monthly in invoice.payment_succeeded (never both)
+- [Routes after app.run() silently 404](routes-after-apprun.md) — Flask routes defined after `if __name__ == "__main__": app.run()` never register; app.run() blocks so nothing below it executes

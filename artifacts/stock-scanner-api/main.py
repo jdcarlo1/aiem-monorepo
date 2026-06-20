@@ -33,9 +33,13 @@ import pnl
 import composite_scan
 from multiday_runner import (
     init_multiday_runner_tables,
+    run_intraday_d1_scan,
     run_day1_scan,
     run_day2_confirm_scan,
+    run_outcomes_update,
     get_multiday_runners_data,
+    get_runner_outcomes_data,
+    build_intraday_d1_email_html,
     build_day1_email_html,
     build_day2_email_html,
 )
@@ -551,6 +555,7 @@ _OWNER_EMAIL_SCHEDULE = {
     "sc_buy":          [(9, 47)],
     "smp_morning":     [(9, 5)],
     "market_brief":    [(8, 30)],
+    "multiday_intraday":[(14, 0)],
     "multiday_watch":  [(16, 5)],
     "multiday_confirm":[(14, 45)],
 }
@@ -1128,6 +1133,33 @@ try:
         _run_multiday_day2,
         CronTrigger(day_of_week="mon-fri", hour=14, minute=45, timezone=_ET),
         id="multiday_day2_confirm",
+        replace_existing=True,
+    )
+    # Multi-Day Runner — Intraday D1 signal: Mon-Fri 2:00 PM ET
+    # Checks all 3 cap tiers: VWAP hold + top-30%-range + RVOL ≥ 2x → BUY NOW email
+    def _run_multiday_intraday():
+        try:
+            _owner_scheduled_fire("multiday_intraday", "14:00")
+        except Exception as e:
+            print(f"[scheduler] multiday intraday error: {e}")
+    _scheduler.add_job(
+        _run_multiday_intraday,
+        CronTrigger(day_of_week="mon-fri", hour=14, minute=0, timezone=_ET),
+        id="multiday_intraday_scan",
+        replace_existing=True,
+    )
+    # Multi-Day Runner — Outcomes updater: Mon-Fri 4:30 PM ET
+    # Fills D+3 / D+5 / D+10 returns on past signals for the outcomes tab
+    def _run_multiday_outcomes():
+        try:
+            import threading as _thr_mo
+            _thr_mo.Thread(target=run_outcomes_update, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] multiday outcomes error: {e}")
+    _scheduler.add_job(
+        _run_multiday_outcomes,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone=_ET),
+        id="multiday_outcomes_update",
         replace_existing=True,
     )
     # SPY cache refresh: Mon-Fri 9:05 AM ET — pre-warm SPY 1y cache before market opens
@@ -7580,13 +7612,15 @@ def _owner_send_now(kind: str) -> None:
         # the other owner alerts. Reads each signal via its own GET endpoint (each
         # self-caches / single-flights), so no conviction lock is needed.
         _send_market_brief_email()
+    elif kind == "multiday_intraday":
+        # 2:00 PM ET — intraday D1 signal: VWAP hold + top-30%-range + RVOL ≥ 2x.
+        # All 3 cap tiers. BUY NOW signal — enter same day, exit Day 5 close.
+        _send_multiday_intraday_email()
     elif kind == "multiday_watch":
-        # 4:05 PM ET — scan large-cap universe for today's ≥3% Day 1 ignitions.
-        # Saves to DB and emails the owner a watchlist for tomorrow's D2 confirm.
+        # 4:05 PM ET — EOD Day 1 watch list across all 3 cap tiers.
         _send_multiday_day1_email()
     elif kind == "multiday_confirm":
-        # 2:45 PM ET — check yesterday's watch list with live prices.
-        # Emails the owner confirmed BUY entries (D2 above D1 close + top-half range).
+        # 2:45 PM ET — Day 2 second-chance entry confirmation.
         _send_multiday_day2_email()
 
 
@@ -12823,7 +12857,14 @@ def insider_trades_route():
         return jsonify({"trades": [], "count": 0, "stale": True})
     days    = int(request.args.get("days", 30))
     tickers = DEFAULT_LEADERBOARD
-    trades  = fetch_insider_trades(tickers, days=days)
+    from concurrent.futures import ThreadPoolExecutor as _TPE_it, TimeoutError as _TOE_it
+    with _TPE_it(max_workers=1) as _ex_it:
+        _fut_it = _ex_it.submit(fetch_insider_trades, tickers, days)
+        try:
+            trades = _fut_it.result(timeout=5.0)
+        except _TOE_it:
+            return jsonify({"trades": [], "count": 0, "stale": True,
+                            "note": "fetch timeout — serving empty; Yahoo may be throttled"})
     return jsonify({"trades": trades, "count": len(trades)})
 
 
@@ -14027,8 +14068,11 @@ def vol_crush():
     _ex_vc = ThreadPoolExecutor(max_workers=8)
     futures = {_ex_vc.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
     rows = []
+    _vc_deadline = _dt.now().timestamp() + 5.0   # hard 5s wall-clock budget
     try:
         for fut in as_completed(futures, timeout=22):
+            if _dt.now().timestamp() > _vc_deadline:
+                break  # budget exhausted — return whatever we have so far
             try:
                 r = fut.result()
                 if r is not None:
@@ -16704,6 +16748,37 @@ def unusual_calls():
         if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:
             return jsonify(_cache)
 
+        # Breaker open → serve DB snapshot immediately instead of a live scan
+        if _yf_breaker_open():
+            try:
+                with _psycopg2.connect(_DB_URL) as _ub_conn, _ub_conn.cursor() as _ub_cur:
+                    _ub_cur.execute("""
+                        SELECT ticker, price::float, strike::float, expiry, days_out,
+                               volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                               iv::float, urgency, first_seen
+                        FROM unusual_calls_log
+                        WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                                           AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+                          AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                          AND vol_oi >= 2
+                          AND prem >= 200000
+                        ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
+                    """)
+                    _ub_rows = _ub_cur.fetchall()
+                _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+                _ub_hits = []
+                for _row in _ub_rows:
+                    _d = dict(zip(_cols, _row))
+                    _fs = _d.get("first_seen")
+                    _d["detected_label"] = _detected_label(_fs)
+                    _d["first_seen"] = _fs.isoformat() if _fs else None
+                    _ub_hits.append(_d)
+                return jsonify({"hits": _ub_hits, "total": len(_ub_hits), "scanned": 0,
+                                "note": "stale — Yahoo throttled, serving DB snapshot", "stale": True})
+            except Exception as _ube:
+                return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
+                                "note": f"breaker open, DB fallback failed: {_ube}"})
+
         now = _dt.now()
 
         # ETF tickers get calibrated thresholds: lower vol/OI (they carry massive OI) and
@@ -18981,6 +19056,13 @@ Be direct, specific, and professional. No disclaimers."""
 def iv_rank():
     """IV rank (volatility rank) for a single ticker using options + historical price data."""
     ticker = (request.args.get("ticker") or "AAPL").upper().strip()
+    if _yf_breaker_open():
+        return jsonify({
+            "ticker": ticker, "price": None, "day_chg": None,
+            "hv30": None, "hv60": None, "hv90": None, "hv_min": None, "hv_max": None,
+            "hv_rank": None, "iv30": None, "iv_rank": None, "iv_hv_ratio": None,
+            "expiry_used": None, "stale": True,
+        })
     try:
         import yfinance as yf, numpy as np, math as _math
         # _clean_float: safely convert any numeric scalar (numpy, Decimal, plain float)
@@ -20892,6 +20974,16 @@ def eod_accumulation():
             app._eod_accum_cache_ts = _dt_ea.datetime.now()
             return jsonify(_out_db_ea)
 
+    # After market close and DB has no data for today (weekend / holiday / cold start):
+    # return empty immediately — a live intraday scan won't find EOD accumulation data anyway.
+    if _after_close:
+        _empty_eod = {"candidates": [], "squeeze_setups": [], "total_found": 0, "scanned": 0,
+                      "generated_at": "No EOD scan today",
+                      "note": "EOD accumulation scan runs at 3:45 PM ET on trading days"}
+        app._eod_accum_cache    = _empty_eod
+        app._eod_accum_cache_ts = _dt_ea.datetime.now()
+        return jsonify(_empty_eod)
+
     # Build universe: watchlist + unusual calls today + Yahoo top-movers screener
     _ticker_set = set()
     try:
@@ -22264,13 +22356,32 @@ def composite_track_record():
     return jsonify(composite_scan.get_track_record(days))
 
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
-
-
 # ── Multi-Day Runner email senders ─────────────────────────────────────────
+def _send_multiday_intraday_email():
+    """2:00 PM ET: BUY NOW signal — all 3 cap tiers, intraday D1 confirmed."""
+    from email_alerts import send_email_raw, smtp_configured
+    if not smtp_configured():
+        print("[multiday_runner] SMTP not configured — skip intraday email")
+        return
+    try:
+        results = run_intraday_d1_scan()
+        total = len(results.get("all", []))
+        if not total:
+            print("[multiday_runner] intraday email: no signals — skipping")
+            return
+        html = build_intraday_d1_email_html(results)
+        lg = len(results.get("large", []))
+        md = len(results.get("mid",   []))
+        sm = len(results.get("small", []))
+        subject = f"📈 DAY 1 BUY SIGNAL — {total} runners ({lg}L/{md}M/{sm}S) · Enter now, exit D5"
+        ok = send_email_raw(_OWNER_EMAIL, subject, html)
+        print(f"[multiday_runner] intraday email sent={ok} → {total} total ({lg}L/{md}M/{sm}S)")
+    except Exception as e:
+        print(f"[multiday_runner] intraday email error: {e}\n{traceback.format_exc()}")
+
+
 def _send_multiday_day1_email():
-    """4:05 PM ET: email owner the Day 1 large-cap watch list."""
+    """4:05 PM ET: EOD Day 1 watch list — all 3 cap tiers."""
     from email_alerts import send_email_raw, smtp_configured
     if not smtp_configured():
         print("[multiday_runner] SMTP not configured — skip day1 email")
@@ -22282,15 +22393,15 @@ def _send_multiday_day1_email():
             return
         html = build_day1_email_html(rows)
         strong_ct = sum(1 for r in rows if r.get("d1_strong"))
-        subject = f"📈 Day 1 Watch List — {len(rows)} large-cap ignitions ({strong_ct} STRONG ≥5%)"
+        subject = f"📋 EOD Watch List — {len(rows)} ignitions across cap tiers ({strong_ct} STRONG)"
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
-        print(f"[multiday_runner] day1 email sent={ok} → {len(rows)} tickers ({strong_ct} strong)")
+        print(f"[multiday_runner] day1 EOD email sent={ok} → {len(rows)} tickers ({strong_ct} strong)")
     except Exception as e:
         print(f"[multiday_runner] day1 email error: {e}\n{traceback.format_exc()}")
 
 
 def _send_multiday_day2_email():
-    """2:45 PM ET: email owner confirmed Day 2 BUY entries."""
+    """2:45 PM ET: Day 2 second-chance BUY entry email — all 3 cap tiers."""
     from email_alerts import send_email_raw, smtp_configured
     if not smtp_configured():
         print("[multiday_runner] SMTP not configured — skip day2 email")
@@ -22302,14 +22413,14 @@ def _send_multiday_day2_email():
             return
         html = build_day2_email_html(confirmed)
         strong_ct = sum(1 for r in confirmed if r.get("d1_strong"))
-        subject = f"🟢 BUY SIGNAL — {len(confirmed)} Day 2 confirmed ({strong_ct} STRONG)"
+        subject = f"🟢 D2 BUY SIGNAL — {len(confirmed)} confirmed ({strong_ct} STRONG) · Enter before 3:45 PM"
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[multiday_runner] day2 email sent={ok} → {len(confirmed)} confirmed entries")
     except Exception as e:
         print(f"[multiday_runner] day2 email error: {e}\n{traceback.format_exc()}")
 
 
-# ── Multi-Day Runner API endpoint ──────────────────────────────────────────
+# ── Multi-Day Runner API endpoints ─────────────────────────────────────────
 @app.route("/stock-api/multiday-runners", methods=["GET"])
 def multiday_runners_endpoint():
     try:
@@ -22317,3 +22428,16 @@ def multiday_runners_endpoint():
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e), "watch": [], "confirmed": [], "active": [], "stats": {}}), 200
+
+
+@app.route("/stock-api/runner-outcomes", methods=["GET"])
+def runner_outcomes_endpoint():
+    try:
+        data = get_runner_outcomes_data()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e), "signals": [], "tier_stats": []}), 200
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
