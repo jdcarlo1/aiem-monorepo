@@ -12858,13 +12858,15 @@ def insider_trades_route():
     days    = int(request.args.get("days", 30))
     tickers = DEFAULT_LEADERBOARD
     from concurrent.futures import ThreadPoolExecutor as _TPE_it, TimeoutError as _TOE_it
-    with _TPE_it(max_workers=1) as _ex_it:
-        _fut_it = _ex_it.submit(fetch_insider_trades, tickers, days)
-        try:
-            trades = _fut_it.result(timeout=5.0)
-        except _TOE_it:
-            return jsonify({"trades": [], "count": 0, "stale": True,
-                            "note": "fetch timeout — serving empty; Yahoo may be throttled"})
+    _ex_it  = _TPE_it(max_workers=1)
+    _fut_it = _ex_it.submit(fetch_insider_trades, tickers, days)
+    try:
+        trades = _fut_it.result(timeout=5.0)
+    except _TOE_it:
+        _ex_it.shutdown(wait=False, cancel_futures=True)
+        return jsonify({"trades": [], "count": 0, "stale": True,
+                        "note": "fetch timeout — serving empty; Yahoo may be throttled"})
+    _ex_it.shutdown(wait=False)
     return jsonify({"trades": trades, "count": len(trades)})
 
 
@@ -16738,6 +16740,41 @@ def unusual_calls():
             return jsonify({"hits": _hits, "total": len(_hits), "scanned": 0, "cache_only": True})
         except Exception as _e:
             return jsonify({"hits": [], "total": 0, "scanned": 0, "cache_only": True, "error": str(_e)})
+
+    # Outside market hours (weekends/after-hours) there is no live option chain data
+    # to scan — serve from DB directly instead of hanging on Yahoo.
+    if not _intraday_scan_allowed():
+        try:
+            with _psycopg2.connect(_DB_URL) as _nh_conn, _nh_conn.cursor() as _nh_cur:
+                _nh_cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry, days_out,
+                           volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                           iv::float, urgency, first_seen
+                    FROM unusual_calls_log
+                    WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                                       AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                      AND vol_oi >= 3 AND prem >= 500000
+                    ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
+                """)
+                _nh_rows = _nh_cur.fetchall()
+            _nh_cols = ["ticker","price","strike","expiry","days_out","volume","oi",
+                        "vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+            _nh_hits = []
+            for _row in _nh_rows:
+                _d = dict(zip(_nh_cols, _row))
+                _fs = _d.get("first_seen")
+                _d["detected_label"] = _detected_label(_fs)
+                _d["first_seen"] = _fs.isoformat() if _fs else None
+                _nh_hits.append(_d)
+            _nh_out = {"hits": _nh_hits, "total": len(_nh_hits), "scanned": 0,
+                       "stale": True, "note": "market closed — showing last logged sweep data"}
+            app._unusual_calls_cache    = _nh_out
+            app._unusual_calls_cache_ts = _dt.now()
+            return jsonify(_nh_out)
+        except Exception as _nh_e:
+            return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
+                            "error": str(_nh_e)})
 
     # Only one scan at a time — concurrent requests block here until the scan
     # finishes, then the re-check returns the fresh cache instead of re-scanning.
