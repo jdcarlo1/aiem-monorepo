@@ -485,7 +485,7 @@ def run_day1_scan() -> list:
         rows_saved = []
         try:
             data = yf.download(
-                universe, period="6d", interval="1d",
+                universe, period="25d", interval="1d",
                 group_by="ticker", auto_adjust=True, progress=False,
             )
         except Exception as e:
@@ -503,6 +503,9 @@ def run_day1_scan() -> list:
                 highs   = df["High"].values.astype(float)
                 lows    = df["Low"].values.astype(float)
 
+                if len(closes) < 8:   # need history for ATR + vol-trend
+                    continue
+
                 d0c     = closes[-2]
                 d1c     = closes[-1]
                 d1_open = opens[-1]
@@ -513,6 +516,21 @@ def run_day1_scan() -> list:
 
                 avg_vol  = float(pd.Series(volumes[:-1]).mean()) if len(volumes) > 1 else float(volumes[-1])
                 d1_rvol  = float(volumes[-1]) / avg_vol if avg_vol > 0 else 1.0
+
+                # ── Pre-compute new indicators ─────────────────────────────
+                # 5-day ATR (True Range of last 5 trading days before D1)
+                _atr_vals = []
+                for _j in range(-7, -2):   # 5 rows ending at D0
+                    _h = highs[_j]; _lo = lows[_j]; _pc = closes[_j - 1]
+                    _atr_vals.append(max(_h - _lo, abs(_h - _pc), abs(_lo - _pc)))
+                _atr5 = sum(_atr_vals) / len(_atr_vals) if _atr_vals else 0
+                _d1_range = highs[-1] - lows[-1]
+                _atr_mult = _d1_range / _atr5 if _atr5 > 0 else 1.0
+
+                # Pre-D1 volume trend: % change from 3 days ago → D0
+                _vol_trend = 0.0
+                if len(volumes) >= 5 and volumes[-4] > 0:
+                    _vol_trend = (volumes[-2] - volumes[-4]) / volumes[-4] * 100
 
                 # ── Quality filters (data-validated) ──────────────────────
                 # 1. Monday filter — EXCEPTION: gap-down opens are genuine
