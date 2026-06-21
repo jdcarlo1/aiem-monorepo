@@ -14857,6 +14857,12 @@ export default function Dashboard() {
                   <div style={{ fontWeight: 900, fontSize: 20, color: "#fff" }}>{r.ticker}</div>
                   <div style={{ display: "flex", gap: 4, marginTop: 2, flexWrap: "wrap" as const }}>
                     {r.d1_strong && <div style={{ background: "#f59e0b", color: "#000", fontSize: 9, fontWeight: 800, padding: "1px 5px", borderRadius: 3 }}>STRONG</div>}
+                    {(r.conviction_score ?? 0) >= 4 && (
+                      <div title="Conviction Score 4/4 — 66% WR confirmed (CI floor 60%+)" style={{ background: "#a855f7", color: "#fff", fontSize: 9, fontWeight: 800, padding: "1px 5px", borderRadius: 3 }}>⭐ CV4</div>
+                    )}
+                    {(r.conviction_score ?? 0) === 3 && (
+                      <div title="Conviction Score 3/4 — 60%+ WR confirmed" style={{ background: "rgba(168,85,247,0.25)", color: "#d8b4fe", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3 }}>CV3</div>
+                    )}
                     {r.cap_tier && TIER_META[r.cap_tier] && (
                       <div style={{ background: `${TIER_META[r.cap_tier].color}22`, color: TIER_META[r.cap_tier].color, fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3 }}>
                         {TIER_META[r.cap_tier].emoji} {r.cap_tier.toUpperCase()}

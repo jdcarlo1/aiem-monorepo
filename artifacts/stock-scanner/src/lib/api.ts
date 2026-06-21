@@ -2154,6 +2154,7 @@ export interface MultidayRunnerRow {
   d1_close?: number;
   d1_rvol?: number;
   d1_strong?: boolean;
+  conviction_score?: number;
   intraday_hit?: boolean;
   intraday_entry?: number;
   confirmed?: boolean;
