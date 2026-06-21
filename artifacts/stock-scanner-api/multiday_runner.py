@@ -280,29 +280,44 @@ def run_intraday_d1_scan() -> dict:
                                 continue
                             prev_close = float(df["Close"].iloc[-2])
                             cur_close  = float(df["Close"].iloc[-1])
+                            cur_open   = float(df["Open"].iloc[-1])
                             if prev_close <= 0:
                                 continue
-                            pct = (cur_close - prev_close) / prev_close * 100
+                            pct     = (cur_close - prev_close) / prev_close * 100
+                            gap_pct = (cur_open  - prev_close) / prev_close * 100
                             if pct >= min_pct:
                                 # ── Quality filters (data-validated) ────────
-                                # 1. Monday filter
+                                # 1. Monday filter — EXCEPTION: gap-down opens on Monday
+                                #    are genuine intraday signals (not weekend news).
+                                #    Gap-down Monday WR=60-68% vs 37-53% for gap-ups.
                                 if today.weekday() == 0:
-                                    continue
-                                # 2. Extreme gain cap (binary event / exhaustion)
-                                if pct > EXTREME_CAP.get(tier_key, 999):
-                                    print(f"[multiday_runner] intraday skip {tkr}: "
-                                          f"extreme gain {pct:.1f}% > {EXTREME_CAP[tier_key]}% cap")
-                                    continue
+                                    if gap_pct >= 0:   # gapped UP/flat → weekend news → skip
+                                        continue
+                                    # gap-down on Monday → intraday recovery → allow through
+
+                                # 2. Extreme gain cap — EXCEPTION for small cap: slow-burn
+                                #    moves with small gap (0-2%) pass to stage 2 where
+                                #    RVOL≥4x is confirmed. WR=55% vs 40% base.
+                                _ecap = EXTREME_CAP.get(tier_key, 999)
+                                _is_extreme = pct > _ecap
+                                if _is_extreme:
+                                    if not (tier_key == "small" and 0 <= gap_pct < 2):
+                                        print(f"[multiday_runner] intraday skip {tkr}: "
+                                              f"extreme gain {pct:.1f}%")
+                                        continue
+
                                 # 3. Weak price zone for mid/small cap
                                 _wpz = WEAK_PRICE_ZONE.get(tier_key)
                                 if _wpz and _wpz[0] <= cur_close < _wpz[1]:
                                     print(f"[multiday_runner] intraday skip {tkr}: "
-                                          f"price ${cur_close:.2f} in weak zone ${_wpz[0]}-${_wpz[1]}")
+                                          f"price ${cur_close:.2f} in weak zone")
                                     continue
                                 candidates.append({
                                     "ticker":     tkr,
                                     "pct_so_far": round(pct, 2),
                                     "prev_close": round(prev_close, 4),
+                                    "gap_pct":    round(gap_pct, 2),
+                                    "is_extreme": _is_extreme,
                                 })
                         except Exception:
                             pass
@@ -386,6 +401,11 @@ def run_intraday_d1_scan() -> dict:
                 vol_ok     = adj_rvol >= 2.0 or today_vol > avg_vol * 1.2  # relaxed for small/mid
 
                 if not (above_vwap and top30 and vol_ok):
+                    continue
+
+                # Extreme gain rescue gate: small cap slow-burn needs RVOL≥4x
+                if cand.get("is_extreme") and adj_rvol < 4.0:
+                    print(f"[multiday_runner] intraday skip {tkr}: extreme gain but RVOL={adj_rvol:.1f}x < 4x rescue threshold")
                     continue
 
                 is_strong  = pct >= strong_pct
@@ -478,35 +498,48 @@ def run_day1_scan() -> list:
                 if len(df) < 2:
                     continue
                 closes  = df["Close"].values.astype(float)
+                opens   = df["Open"].values.astype(float)
                 volumes = df["Volume"].values.astype(float)
                 highs   = df["High"].values.astype(float)
                 lows    = df["Low"].values.astype(float)
 
-                d0c    = closes[-2]
-                d1c    = closes[-1]
-                d1_pct = (d1c - d0c) / d0c * 100
+                d0c     = closes[-2]
+                d1c     = closes[-1]
+                d1_open = opens[-1]
+                d1_pct  = (d1c - d0c) / d0c * 100
+                gap_pct = (d1_open - d0c) / d0c * 100
                 if d1_pct < min_pct:
                     continue
 
+                avg_vol  = float(pd.Series(volumes[:-1]).mean()) if len(volumes) > 1 else float(volumes[-1])
+                d1_rvol  = float(volumes[-1]) / avg_vol if avg_vol > 0 else 1.0
+
                 # ── Quality filters (data-validated) ──────────────────────
-                # 1. Monday filter: poor continuation across all tiers
+                # 1. Monday filter — EXCEPTION: gap-down opens are genuine
+                #    intraday signals (not weekend news). WR=60-68% vs 37-53%.
                 if today.weekday() == 0:
-                    continue
-                # 2. Extreme gain cap: binary events (earnings/FDA/M&A) reverse
+                    if gap_pct >= 0:   # gapped UP/flat → weekend news → skip
+                        continue
+                    # gap-down on Monday → intraday recovery → allow through
+
+                # 2. Extreme gain cap — EXCEPTION for small cap: slow-burn
+                #    momentum with small gap (0-2%) + RVOL≥4x. WR=55% vs 40%.
                 _ecap = EXTREME_CAP.get(tier_key, 999)
                 if d1_pct > _ecap:
-                    print(f"[multiday_runner] day1 skip {ticker}: "
-                          f"extreme gain {d1_pct:.1f}% > {_ecap}% cap")
-                    continue
+                    rescue = (tier_key == "small"
+                              and 0 <= gap_pct < 2
+                              and d1_rvol >= 4.0)
+                    if not rescue:
+                        print(f"[multiday_runner] day1 skip {ticker}: "
+                              f"extreme gain {d1_pct:.1f}% (no rescue)")
+                        continue
+
                 # 3. Weak price zone: $15-$50 mid/small have overhead supply
                 _wpz = WEAK_PRICE_ZONE.get(tier_key)
                 if _wpz and _wpz[0] <= d1c < _wpz[1]:
                     print(f"[multiday_runner] day1 skip {ticker}: "
                           f"price ${d1c:.2f} in weak zone ${_wpz[0]}-${_wpz[1]}")
                     continue
-
-                avg_vol  = float(pd.Series(volumes[:-1]).mean()) if len(volumes) > 1 else float(volumes[-1])
-                d1_rvol  = float(volumes[-1]) / avg_vol if avg_vol > 0 else 1.0
                 d1_strong = d1_pct >= strong_pct
 
                 row = {
