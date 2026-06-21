@@ -14811,6 +14811,13 @@ export default function Dashboard() {
             const active    = data?.active ?? [];
             const stats     = data?.stats ?? {};
 
+            const TIER_META: Record<string, { label: string; color: string; emoji: string; d1: string; strong: string; stop: string }> = {
+              large: { label: "Large Cap ($10B+)",     color: "#22c55e", emoji: "🟢", d1: "≥3%",  strong: "≥5%",  stop: "3%" },
+              mid:   { label: "Mid Cap ($2B–$10B)",    color: "#38bdf8", emoji: "🔵", d1: "≥4%",  strong: "≥7%",  stop: "4%" },
+              small: { label: "Small Cap ($300M–$2B)", color: "#f59e0b", emoji: "🟡", d1: "≥5%",  strong: "≥10%", stop: "5%" },
+            };
+            const TIER_ORDER = ["large", "mid", "small"] as const;
+
             const Section = ({ title, color, children }: { title: string; color: string; children: React.ReactNode }) => (
               <div style={{ marginBottom: 28 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
@@ -14821,7 +14828,25 @@ export default function Dashboard() {
               </div>
             );
 
-            const TickerCard = ({ r, accent }: { r: MultidayRunnerRow; accent: string }) => (
+            const TierGroup = ({ rows, accent, tierKey }: { rows: MultidayRunnerRow[]; accent: string; tierKey: string }) => {
+              const meta = TIER_META[tierKey];
+              if (!rows.length) return null;
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: meta.color }}>{meta.emoji} {meta.label}</span>
+                    <span style={{ fontSize: 10, color: "#334155", background: "rgba(255,255,255,0.05)", padding: "1px 7px", borderRadius: 4 }}>
+                      D1 {meta.d1} · STRONG {meta.strong} · Stop {meta.stop}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+                    {rows.map(r => <TickerCard key={r.ticker + r.d1_date} r={r} accent={accent} tierColor={meta.color} />)}
+                  </div>
+                </div>
+              );
+            };
+
+            const TickerCard = ({ r, accent, tierColor }: { r: MultidayRunnerRow; accent: string; tierColor?: string }) => (
               <div
                 onClick={() => onSelectTicker(r.ticker)}
                 style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${accent}33`, borderRadius: 12,
@@ -14830,7 +14855,14 @@ export default function Dashboard() {
               >
                 <div style={{ minWidth: 60 }}>
                   <div style={{ fontWeight: 900, fontSize: 20, color: "#fff" }}>{r.ticker}</div>
-                  {r.d1_strong && <div style={{ background: "#f59e0b", color: "#000", fontSize: 10, fontWeight: 800, padding: "1px 6px", borderRadius: 4, display: "inline-block", marginTop: 2 }}>STRONG</div>}
+                  <div style={{ display: "flex", gap: 4, marginTop: 2, flexWrap: "wrap" as const }}>
+                    {r.d1_strong && <div style={{ background: "#f59e0b", color: "#000", fontSize: 9, fontWeight: 800, padding: "1px 5px", borderRadius: 3 }}>STRONG</div>}
+                    {r.cap_tier && TIER_META[r.cap_tier] && (
+                      <div style={{ background: `${TIER_META[r.cap_tier].color}22`, color: TIER_META[r.cap_tier].color, fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3 }}>
+                        {TIER_META[r.cap_tier].emoji} {r.cap_tier.toUpperCase()}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div style={{ textAlign: "center" as const }}>
                   <div style={{ color: "#22c55e", fontWeight: 700, fontSize: 16 }}>+{r.d1_pct?.toFixed(1)}%</div>
@@ -14885,7 +14917,7 @@ export default function Dashboard() {
                         📈 Multi-Day Runner
                       </h2>
                       <p style={{ color: "#64748b", fontSize: 13, margin: "4px 0 0" }}>
-                        Signal fires Day 1 at 2 PM ET · BUY at signal · Hold through Day 5 close
+                        Signal at 2 PM ET across Large, Mid &amp; Small Cap · BUY at signal · Hold through Day 5 close
                       </p>
                     </div>
                     <button onClick={() => refetch()} style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", color: "#22c55e", padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
@@ -14918,12 +14950,13 @@ export default function Dashboard() {
                 {confirmed.length > 0 && (
                   <Section title={`🟢 BUY SIGNAL — ${confirmed.length} confirmed today`} color="#22c55e">
                     <div style={{ background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                      These passed the Day 2 rule: trading above yesterday's close <strong style={{ color: "#fff" }}>and</strong> in the top half of today's range at 2:45 PM.
-                      Enter before 3:45 PM ET. Stop = 2% below yesterday's close. Target = hold through Day 5.
+                      Signal fired at <strong style={{ color: "#22c55e" }}>2:00 PM ET</strong> — VWAP hold + top 30% of range + RVOL ≥ 2x confirmed.
+                      Enter same day. Stop and hold period vary by cap tier below. Target = hold through Day 5 close.
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
-                      {confirmed.map(r => <TickerCard key={r.ticker + r.d1_date} r={r} accent="#22c55e" />)}
-                    </div>
+                    {TIER_ORDER.map(tk => (
+                      <TierGroup key={tk} tierKey={tk} accent="#22c55e"
+                        rows={confirmed.filter(r => (r.cap_tier ?? "large") === tk)} />
+                    ))}
                   </Section>
                 )}
 
@@ -14931,43 +14964,55 @@ export default function Dashboard() {
                 {watch.length > 0 && (
                   <Section title={`👁 WATCHING — ${watch.length} Day 1 ignitions today`} color="#f59e0b">
                     <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#94a3b8", lineHeight: 1.6 }}>
-                      These gained ≥3% today. Tomorrow at 2:45 PM they'll be checked for Day 2 confirmation.
-                      STRONG (≥5%) entries have historically confirmed at <strong style={{ color: "#f59e0b" }}>69.6% win rate, +4.1% avg D2→D5</strong>.
+                      These hit their Day 1 gain threshold. A 2 PM signal may still fire today, or they move to the D2 confirm tomorrow at 2:45 PM.
+                      STRONG tier entries have the highest historical win rates.
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
-                      {watch.map(r => <TickerCard key={r.ticker + r.d1_date} r={r} accent="#f59e0b" />)}
-                    </div>
+                    {TIER_ORDER.map(tk => (
+                      <TierGroup key={tk} tierKey={tk} accent="#f59e0b"
+                        rows={watch.filter(r => (r.cap_tier ?? "large") === tk)} />
+                    ))}
                   </Section>
                 )}
 
                 {/* ACTIVE HOLDS */}
                 {active.length > 0 && (
                   <Section title={`🔄 ACTIVE HOLDS — ${active.length} in progress`} color="#38bdf8">
-                    <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
-                      {active.map(r => <TickerCard key={r.ticker + r.d1_date} r={r} accent="#38bdf8" />)}
-                    </div>
+                    {TIER_ORDER.map(tk => (
+                      <TierGroup key={tk} tierKey={tk} accent="#38bdf8"
+                        rows={active.filter(r => (r.cap_tier ?? "large") === tk)} />
+                    ))}
                   </Section>
                 )}
 
                 {/* Empty state */}
                 {!isLoading && confirmed.length === 0 && watch.length === 0 && active.length === 0 && (
-                  <div style={{ textAlign: "center" as const, padding: "60px 0", color: "#334155" }}>
+                  <div style={{ textAlign: "center" as const, padding: "48px 0", color: "#334155" }}>
                     <div style={{ fontSize: 36, marginBottom: 12 }}>📈</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#475569", marginBottom: 8 }}>No runners yet today</div>
-                    <div style={{ fontSize: 13, color: "#334155", maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>
-                      At <strong style={{ color: "#22c55e" }}>2:00 PM ET every trading day</strong>, the scanner checks large-cap stocks
-                      holding VWAP, in the top 30% of their day's range, with RVOL ≥ 2x.
+                    <div style={{ fontSize: 13, color: "#334155", maxWidth: 420, margin: "0 auto", lineHeight: 1.6 }}>
+                      At <strong style={{ color: "#22c55e" }}>2:00 PM ET every trading day</strong>, the scanner checks stocks across
+                      all three cap tiers — holding VWAP, top 30% of range, RVOL ≥ 2x.
                       When those line up → <strong style={{ color: "#fff" }}>BUY signal fires. Enter same day. Hold through Day 5 close.</strong>
                     </div>
-                    <div style={{ marginTop: 16, padding: "12px 16px", background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 8, display: "inline-block", fontSize: 12, color: "#475569", textAlign: "left" as const }}>
-                      <strong style={{ color: "#94a3b8" }}>What the scanner looks for at 2 PM:</strong><br/>
-                      📍 Holding above VWAP<br/>
-                      📍 Price in top 30% of today's range<br/>
-                      📍 Relative volume ≥ 2x average<br/>
-                      📍 Day 1 gain ≥ 3% (STRONG tier ≥ 5%)<br/><br/>
+                    <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8, maxWidth: 660, margin: "16px auto 0" }}>
+                      {TIER_ORDER.map(tk => {
+                        const m = TIER_META[tk];
+                        return (
+                          <div key={tk} style={{ padding: "12px 14px", background: `${m.color}0d`, border: `1px solid ${m.color}22`, borderRadius: 10, textAlign: "left" as const, fontSize: 12 }}>
+                            <div style={{ color: m.color, fontWeight: 800, marginBottom: 6 }}>{m.emoji} {m.label}</div>
+                            <div style={{ color: "#64748b", lineHeight: 1.7 }}>
+                              D1 gain: <strong style={{ color: "#94a3b8" }}>{m.d1}</strong><br/>
+                              STRONG: <strong style={{ color: "#f59e0b" }}>{m.strong}</strong><br/>
+                              Stop loss: <strong style={{ color: "#f87171" }}>{m.stop} below prev close</strong>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ marginTop: 16, padding: "10px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 8, display: "inline-block", fontSize: 11, color: "#475569", textAlign: "left" as const }}>
                       <strong style={{ color: "#94a3b8" }}>60-day large-cap backtest:</strong><br/>
-                      ≥3% Day 1 → <strong style={{ color: "#22c55e" }}>59.7% win rate, +2.2% avg D1→D5</strong><br/>
-                      ≥5% Day 1 → <strong style={{ color: "#f59e0b" }}>69.6% win rate, +4.1% avg D1→D5</strong>
+                      ≥3% D1 → <strong style={{ color: "#22c55e" }}>59.7% win rate, +2.2% avg D1→D5</strong> &nbsp;·&nbsp;
+                      ≥5% D1 → <strong style={{ color: "#f59e0b" }}>69.6% win rate, +4.1% avg</strong>
                     </div>
                   </div>
                 )}

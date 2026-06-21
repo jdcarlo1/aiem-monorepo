@@ -2148,11 +2148,14 @@ export interface MultidayRunnerRow {
   ticker: string;
   d1_date: string;
   d2_date?: string;
+  cap_tier?: string;
   d1_pct: number;
   d2_pct?: number;
   d1_close?: number;
   d1_rvol?: number;
   d1_strong?: boolean;
+  intraday_hit?: boolean;
+  intraday_entry?: number;
   confirmed?: boolean;
   entry_price?: number;
   stop_price?: number;
