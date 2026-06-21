@@ -631,7 +631,7 @@ export interface DarkPoolRow {
 }
 
 export function fetchDarkPool() {
-  return fetchJson<{ results: DarkPoolRow[]; date: string | null; total_in_db: number }>("/darkpool");
+  return fetchJson<{ results: DarkPoolRow[]; date: string | null; total_in_db: number; generating?: boolean; stale?: boolean }>("/darkpool");
 }
 
 export interface PutIntentRow {

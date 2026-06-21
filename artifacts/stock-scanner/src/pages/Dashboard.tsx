@@ -4682,16 +4682,21 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [totalInDb, setTotalInDb] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
 
-  const run = async () => {
-    setLoading(true);
+  const run = async (isRetry = false) => {
+    if (!isRetry) setLoading(true);
     try {
       const data = await fetchDarkPool();
       setResults(data.results);
       setDate(data.date);
       setTotalInDb(data.total_in_db);
       setLastRun(new Date());
+      // Backend is still generating — poll once more after 8 seconds
+      if (data.generating && data.results.length === 0) {
+        setTimeout(() => run(true), 8000);
+        return;
+      }
     } catch {}
-    finally { setLoading(false); }
+    finally { if (!isRetry) setLoading(false); }
   };
 
   useEffect(() => { run(); }, []);
@@ -5424,7 +5429,14 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
         </div>
       </div>
       {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Analyzing call chains across {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~30s · cached 30 min</div></div>}
-      {!loading && results.length === 0 && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No significant call activity found.</div>}
+      {!loading && results.length === 0 && lastRun && (
+        <div className="text-center py-16 text-slate-500 text-sm">
+          {[0, 6].includes(new Date().getDay())
+            ? <><div className="text-2xl mb-3">📅</div><div className="font-semibold text-slate-400 mb-1">Markets are closed</div><div className="text-xs text-slate-600">Call Intent needs live option chain prices to classify buying intent.<br/>Results will appear Monday morning when the market opens.</div></>
+            : "No significant call activity found — try refreshing after market open."
+          }
+        </div>
+      )}
       {results.length > 0 && (
         <div className="space-y-2">
           {results.map((r, i) => (
