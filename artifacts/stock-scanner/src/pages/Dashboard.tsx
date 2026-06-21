@@ -14885,7 +14885,7 @@ export default function Dashboard() {
                         📈 Multi-Day Runner
                       </h2>
                       <p style={{ color: "#64748b", fontSize: 13, margin: "4px 0 0" }}>
-                        Large-cap 5-day continuation · Enter D2 · Hold D3–D5
+                        Signal fires Day 1 at 2 PM ET · BUY at signal · Hold through Day 5 close
                       </p>
                     </div>
                     <button onClick={() => refetch()} style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", color: "#22c55e", padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
@@ -14954,14 +14954,20 @@ export default function Dashboard() {
                   <div style={{ textAlign: "center" as const, padding: "60px 0", color: "#334155" }}>
                     <div style={{ fontSize: 36, marginBottom: 12 }}>📈</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#475569", marginBottom: 8 }}>No runners yet today</div>
-                    <div style={{ fontSize: 13, color: "#334155", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
-                      The Day 1 scan runs at <strong style={{ color: "#64748b" }}>4:05 PM ET</strong> and catches large-cap stocks that gained ≥3%.
-                      The Day 2 confirm runs at <strong style={{ color: "#64748b" }}>2:45 PM ET</strong> with live BUY signals.
+                    <div style={{ fontSize: 13, color: "#334155", maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>
+                      At <strong style={{ color: "#22c55e" }}>2:00 PM ET every trading day</strong>, the scanner checks large-cap stocks
+                      holding VWAP, in the top 30% of their day's range, with RVOL ≥ 2x.
+                      When those line up → <strong style={{ color: "#fff" }}>BUY signal fires. Enter same day. Hold through Day 5 close.</strong>
                     </div>
-                    <div style={{ marginTop: 20, padding: "12px 16px", background: "rgba(255,255,255,0.04)", borderRadius: 8, display: "inline-block", fontSize: 12, color: "#475569", textAlign: "left" as const }}>
+                    <div style={{ marginTop: 16, padding: "12px 16px", background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 8, display: "inline-block", fontSize: 12, color: "#475569", textAlign: "left" as const }}>
+                      <strong style={{ color: "#94a3b8" }}>What the scanner looks for at 2 PM:</strong><br/>
+                      📍 Holding above VWAP<br/>
+                      📍 Price in top 30% of today's range<br/>
+                      📍 Relative volume ≥ 2x average<br/>
+                      📍 Day 1 gain ≥ 3% (STRONG tier ≥ 5%)<br/><br/>
                       <strong style={{ color: "#94a3b8" }}>60-day large-cap backtest:</strong><br/>
-                      D1 ≥3% + D2 confirmed → <strong style={{ color: "#22c55e" }}>59.7% win rate, +2.2% EV/trade</strong><br/>
-                      D1 ≥5% + D2 confirmed → <strong style={{ color: "#f59e0b" }}>69.6% win rate, +4.1% avg gain</strong>
+                      ≥3% Day 1 → <strong style={{ color: "#22c55e" }}>59.7% win rate, +2.2% avg D1→D5</strong><br/>
+                      ≥5% Day 1 → <strong style={{ color: "#f59e0b" }}>69.6% win rate, +4.1% avg D1→D5</strong>
                     </div>
                   </div>
                 )}
