@@ -14,11 +14,20 @@ _ET_TZ = ZoneInfo("America/New_York")
 
 
 def _et_today() -> date:
-    """Today's date in US/Eastern. The server clock runs in UTC, so the stdlib
-    date.today() rolls to tomorrow after 8 PM ET (00:00 UTC) and would store/query
-    signals under the wrong market day — blanking the track-record tab each evening."""
+    """Most recent trading day in US/Eastern.
+    - The server clock runs in UTC, so date.today() rolls to tomorrow after
+      8 PM ET and would label signals under the wrong market day.
+    - If ET is Saturday or Sunday (weekend scan / late-Friday refresh after
+      midnight), roll back to the most recent Friday — options markets are
+      closed on weekends so no valid signals can originate on those days."""
     from datetime import datetime
-    return datetime.now(_ET_TZ).date()
+    d = datetime.now(_ET_TZ).date()
+    # Saturday=5, Sunday=6 → roll back to Friday
+    if d.weekday() == 5:   # Saturday
+        d -= timedelta(days=1)
+    elif d.weekday() == 6: # Sunday
+        d -= timedelta(days=2)
+    return d
 
 
 def _connect():
