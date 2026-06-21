@@ -36,3 +36,4 @@
 - [Routes after app.run() silently 404](routes-after-apprun.md) — Flask routes defined after `if __name__ == "__main__": app.run()` never register; app.run() blocks so nothing below it executes
 - [Insider Radar earnings timeout](insider-radar-fix.md) — ex.map earnings lookup needs timeout=3.0 or it blocks 30s+ on first auto-load
 - [Multi-Day Runner quality filters](multiday-quality-filters.md) — 3 data-validated filters: Monday skip + extreme gain cap (15%/15%/17%) + $15-$50 mid/small price zone; projected WR lift ~3-7pp per tier
+- [In-memory-only endpoints break on redeploy](in-memory-fallback-rule.md) — any endpoint serving only from app._cache shows 0 after every restart; must add DB fallback; conviction-stack and short-squeeze both fixed this way

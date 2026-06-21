@@ -17375,6 +17375,39 @@ def conviction_stack_endpoint():
         _stk_thr.Thread(target=_bg_stk, daemon=True).start()
     if _cs_stk_cache:
         return jsonify({**_cs_stk_cache, "stale": True})
+    # No in-memory cache — serve last stored snapshot from DB while live scan runs
+    try:
+        import psycopg2 as _pg_cs_fb
+        with _pg_cs_fb.connect(_DB_URL) as _c_cs_fb, _c_cs_fb.cursor() as _cu_cs_fb:
+            _cu_cs_fb.execute("""
+                SELECT ticker, total_pts, conviction_pct, label, price,
+                       layers, meta, rank, universe_count, source, snap_date
+                FROM conviction_stack_watchlist
+                ORDER BY snap_date DESC, rank ASC
+                LIMIT 150
+            """)
+            _cs_cols_fb = [d[0] for d in _cu_cs_fb.description]
+            _cs_rows_fb = _cu_cs_fb.fetchall()
+        if _cs_rows_fb:
+            _cs_db_results = []
+            for _r_fb in _cs_rows_fb:
+                _d_fb = dict(zip(_cs_cols_fb, _r_fb))
+                _cs_db_results.append({
+                    "ticker":         _d_fb["ticker"],
+                    "total_pts":      float(_d_fb["total_pts"] or 0),
+                    "conviction_pct": int(_d_fb["conviction_pct"] or 0),
+                    "label":          _d_fb["label"] or "",
+                    "price":          float(_d_fb["price"] or 0),
+                    "layers":         _d_fb["layers"] if isinstance(_d_fb["layers"], dict) else {},
+                    "meta":           _d_fb["meta"]   if isinstance(_d_fb["meta"],   dict) else {},
+                    "rank":           int(_d_fb["rank"] or 0),
+                    "source":         "db",
+                    "snap_date":      str(_d_fb["snap_date"]) if _d_fb["snap_date"] else None,
+                })
+            return jsonify({"results": _cs_db_results, "count": len(_cs_db_results),
+                            "stale": True, "generating": True, "source": "db"})
+    except Exception as _e_cs_fb:
+        print(f"[conviction-stack] db fallback error: {_e_cs_fb}", file=_sys.stderr)
     return jsonify({"results": [], "count": 0, "generating": True})
 
 
@@ -21677,6 +21710,12 @@ def short_squeeze_radar():
     import psycopg2 as _pg_sq
     import concurrent.futures as _cf_sq
 
+    # ── 60-min in-memory cache so repeated tab-opens don't re-score every time ──
+    _sq_rad_cache = getattr(app, "_sq_rad_cache", None)
+    _sq_rad_ts    = getattr(app, "_sq_rad_ts",    None)
+    if _sq_rad_cache and _sq_rad_ts and (_dt_sq.datetime.now() - _sq_rad_ts).total_seconds() < 3600:
+        return jsonify(_sq_rad_cache)
+
     try:
         _today_sq    = _et_today()
         _lookback_sq = (_today_sq - _dt_sq.timedelta(days=5)).isoformat()
@@ -21696,6 +21735,15 @@ def short_squeeze_radar():
         if not _tickers_sq:
             return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
                             "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET")})
+
+        # Fail-fast when Yahoo throttled — don't hang 15 threads for 15s each
+        if _yf_breaker_open():
+            _stale_sq = _sq_rad_cache or {
+                "candidates": [], "total_found": 0, "scanned": len(_tickers_sq),
+                "stale": True, "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET"),
+                "note": "Yahoo temporarily throttled — try again in a few minutes",
+            }
+            return jsonify(_stale_sq)
 
         def _score_sq(ticker):
             sd  = _get_short_data(ticker)
@@ -21781,12 +21829,15 @@ def short_squeeze_radar():
 
         _cands_sq.sort(key=lambda x: -x["squeeze_score"])
 
-        return jsonify({
+        _sq_rad_out = {
             "candidates":  _cands_sq[:20],
             "total_found": len(_cands_sq),
             "scanned":     len(_tickers_sq),
             "as_of":       _dt_sq.datetime.now().strftime("%I:%M %p ET"),
-        })
+        }
+        app._sq_rad_cache = _sq_rad_out
+        app._sq_rad_ts    = _dt_sq.datetime.now()
+        return jsonify(_sq_rad_out)
 
     except Exception as _e_sq:
         print(f"[short_squeeze] error: {_e_sq}")
