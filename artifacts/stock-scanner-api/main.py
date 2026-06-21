@@ -21945,9 +21945,12 @@ def insider_radar():
             except Exception: return None
 
         earnings_map = {}
-        with _TPE(max_workers=12) as ex:
-            for r in ex.map(_earn_90d, unique_by_prem):
-                if r: earnings_map[r["ticker"]] = r
+        try:
+            with _TPE(max_workers=12) as ex:
+                for r in ex.map(_earn_90d, unique_by_prem, timeout=3.0):
+                    if r: earnings_map[r["ticker"]] = r
+        except Exception:
+            pass  # earnings lookup timed out; scores still work without it
 
         # Multi-factor suspicion score (0-100)
         def _score(s):
