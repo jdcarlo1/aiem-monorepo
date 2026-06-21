@@ -2129,6 +2129,11 @@ export interface NanoMorningCandidate {
   nano_predictor: number;
   nano_predictor_risky: boolean;
   nano_predictor_reasons: string[];
+  nano_v2_risky?: boolean;
+  nano_v2_grade?: string;
+  nano_v2_pct?: number;
+  nano_v2_risk_reasons?: string[];
+  gap_pct?: number;
   meta: Record<string, any>;
 }
 export interface NanoMorningData {

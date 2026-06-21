@@ -14619,7 +14619,6 @@ export default function Dashboard() {
         {tab === "standoutflow"   && <StandoutFlowTab    onSelectTicker={selectTicker} />}
         {tab === "standouttrack"  && <StandoutTrackTab />}
         {tab === "ics"            && <InstitutionalConvictionScore />}
-        {tab === "nanomorning"    && <NanoMorningTab onSelectTicker={selectTicker} />}
         {/* ── Runner Outcomes Tab Component ── */}
         {(() => {
           function RunnerOutcomesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
@@ -14795,7 +14794,7 @@ export default function Dashboard() {
               </div>
             );
           }
-          return null;
+          return tab === "runneroutcomes" ? <RunnerOutcomesTab onSelectTicker={selectTicker} /> : null;
         })()}
 
         {/* ── Multi-Day Runner Tab Component ── */}
@@ -14969,7 +14968,7 @@ export default function Dashboard() {
               </div>
             );
           }
-          return null;
+          return tab === "multidayrunner" ? <MultidayRunnerTab onSelectTicker={selectTicker} /> : null;
         })()}
 
         {/* ── Nano Morning Tab Component ── */}
@@ -15028,7 +15027,7 @@ export default function Dashboard() {
                                 <button onClick={() => onSelectTicker(c.ticker)} className="font-semibold text-white hover:text-blue-400">{c.ticker}</button>
                               </td>
                               <td className="text-right py-2 px-3 text-slate-300">${c.price.toFixed(2)}</td>
-                              <td className="text-right py-2 px-3 font-bold" style={{ color: c.nano_v2_grade === "STRONG" ? "#22c55e" : c.nano_v2_grade === "WATCH" ? "#eab308" : "#94a3b8" }}>{c.nano_v2_pct.toFixed(0)}%</td>
+                              <td className="text-right py-2 px-3 font-bold" style={{ color: c.nano_v2_grade === "STRONG" ? "#22c55e" : c.nano_v2_grade === "WATCH" ? "#eab308" : "#94a3b8" }}>{(c.nano_v2_pct ?? 0).toFixed(0)}%</td>
                               <td className="text-right py-2 px-3 text-slate-400">{c.nano_v2_grade}</td>
                               <td className="text-right py-2 px-3 text-slate-400">{c.conviction}</td>
                               <td className="text-right py-2 px-3 text-slate-400">{c.gap_pct?.toFixed(1) ?? "—"}%</td>
@@ -15065,7 +15064,7 @@ export default function Dashboard() {
               </div>
             );
           }
-          return null;
+          return tab === "nanomorning" ? <NanoMorningTab onSelectTicker={selectTicker} /> : null;
         })()}
 
       </div>
