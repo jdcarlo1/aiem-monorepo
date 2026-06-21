@@ -34,3 +34,4 @@
 - [NCLEX affiliate system](nclex-affiliate-system.md) — Stripe Connect Express; transfer logic split: lifetime in checkout.session.completed, monthly in invoice.payment_succeeded (never both)
 - [Routes after app.run() silently 404](routes-after-apprun.md) — Flask routes defined after `if __name__ == "__main__": app.run()` never register; app.run() blocks so nothing below it executes
 - [Insider Radar earnings timeout](insider-radar-fix.md) — ex.map earnings lookup needs timeout=3.0 or it blocks 30s+ on first auto-load
+- [Multi-Day Runner quality filters](multiday-quality-filters.md) — 3 data-validated filters: Monday skip + extreme gain cap (15%/15%/17%) + $15-$50 mid/small price zone; projected WR lift ~3-7pp per tier

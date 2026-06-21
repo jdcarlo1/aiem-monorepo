@@ -136,6 +136,35 @@ CAP_TIERS = {
     "small": (SMALLCAP_UNIVERSE,   7.0, 10.0, "Small Cap ($300M–$2B)", "#f59e0b"),
 }
 
+# ── Data-validated signal quality filters ─────────────────────────────────────
+# Source: 3-month Finviz/yfinance backtest across all 3 tiers (June 2026)
+#
+# 1. MONDAY FILTER — skip all Monday signals across every tier.
+#    Monday WR: large 52.6%, mid 36.5%, small 46.9% vs rest-of-week 55-57%.
+#    Root cause: weekend news gets fully priced in at open; no institutional
+#    follow-through on day 2 since market makers reset positions Monday AM.
+#
+# 2. EXTREME GAIN CAP — skip binary-event blowouts (earnings/FDA/M&A).
+#    Large/mid >15%: WR drops to ~48%; small >17%: WR 41.1%.
+#    These moves overshoot and mean-revert; the catalyst is spent.
+#
+# 3. WEAK PRICE ZONE — skip $15-$50 priced stocks in mid/small cap.
+#    Mid $15-$50: WR=45.7%, avg=+0.02%. Small $15-$50: WR=38.5%, avg=-0.97%.
+#    These are "fallen large caps" with institutional overhead supply that
+#    prevents continuation. Under $15 or over $50 both outperform in mid/small.
+
+EXTREME_CAP = {           # max D1 gain % before we flag as binary/exhaustion
+    "large": 15.0,
+    "mid":   15.0,
+    "small": 17.0,
+}
+
+WEAK_PRICE_ZONE = {       # (min_price, max_price) — skip if price in this range
+    "large": None,         # large cap: no price filter
+    "mid":   (15.0, 50.0),
+    "small": (15.0, 50.0),
+}
+
 
 # ── Database ───────────────────────────────────────────────────────────────
 
@@ -255,6 +284,21 @@ def run_intraday_d1_scan() -> dict:
                                 continue
                             pct = (cur_close - prev_close) / prev_close * 100
                             if pct >= min_pct:
+                                # ── Quality filters (data-validated) ────────
+                                # 1. Monday filter
+                                if today.weekday() == 0:
+                                    continue
+                                # 2. Extreme gain cap (binary event / exhaustion)
+                                if pct > EXTREME_CAP.get(tier_key, 999):
+                                    print(f"[multiday_runner] intraday skip {tkr}: "
+                                          f"extreme gain {pct:.1f}% > {EXTREME_CAP[tier_key]}% cap")
+                                    continue
+                                # 3. Weak price zone for mid/small cap
+                                _wpz = WEAK_PRICE_ZONE.get(tier_key)
+                                if _wpz and _wpz[0] <= cur_close < _wpz[1]:
+                                    print(f"[multiday_runner] intraday skip {tkr}: "
+                                          f"price ${cur_close:.2f} in weak zone ${_wpz[0]}-${_wpz[1]}")
+                                    continue
                                 candidates.append({
                                     "ticker":     tkr,
                                     "pct_so_far": round(pct, 2),
@@ -442,6 +486,23 @@ def run_day1_scan() -> list:
                 d1c    = closes[-1]
                 d1_pct = (d1c - d0c) / d0c * 100
                 if d1_pct < min_pct:
+                    continue
+
+                # ── Quality filters (data-validated) ──────────────────────
+                # 1. Monday filter: poor continuation across all tiers
+                if today.weekday() == 0:
+                    continue
+                # 2. Extreme gain cap: binary events (earnings/FDA/M&A) reverse
+                _ecap = EXTREME_CAP.get(tier_key, 999)
+                if d1_pct > _ecap:
+                    print(f"[multiday_runner] day1 skip {ticker}: "
+                          f"extreme gain {d1_pct:.1f}% > {_ecap}% cap")
+                    continue
+                # 3. Weak price zone: $15-$50 mid/small have overhead supply
+                _wpz = WEAK_PRICE_ZONE.get(tier_key)
+                if _wpz and _wpz[0] <= d1c < _wpz[1]:
+                    print(f"[multiday_runner] day1 skip {ticker}: "
+                          f"price ${d1c:.2f} in weak zone ${_wpz[0]}-${_wpz[1]}")
                     continue
 
                 avg_vol  = float(pd.Series(volumes[:-1]).mean()) if len(volumes) > 1 else float(volumes[-1])

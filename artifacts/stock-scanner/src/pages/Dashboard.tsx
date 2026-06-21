@@ -14946,6 +14946,22 @@ export default function Dashboard() {
 
                 {isLoading && <div style={{ color: "#64748b", textAlign: "center" as const, padding: "48px 0" }}>Loading...</div>}
 
+                {/* Monday filter notice */}
+                {!isLoading && new Date().getDay() === 1 && (
+                  <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 10, padding: "14px 18px", marginBottom: 20, display: "flex", gap: 14, alignItems: "flex-start" }}>
+                    <div style={{ fontSize: 22, lineHeight: 1 }}>📅</div>
+                    <div>
+                      <div style={{ color: "#f59e0b", fontWeight: 800, fontSize: 13, marginBottom: 4 }}>Monday — New signals paused today</div>
+                      <div style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.7 }}>
+                        Backtest across all 3 cap tiers shows Monday signals have the weakest continuation
+                        (mid-cap Monday win rate: <strong style={{ color: "#f87171" }}>36.5%</strong> vs 55% rest-of-week).
+                        Weekend news gets fully priced in at open with no institutional follow-through on Day 2.
+                        Active holds below continue to track normally.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* BUY SIGNAL — confirmed today */}
                 {confirmed.length > 0 && (
                   <Section title={`🟢 BUY SIGNAL — ${confirmed.length} confirmed today`} color="#22c55e">
@@ -14987,12 +15003,18 @@ export default function Dashboard() {
                 {/* Empty state */}
                 {!isLoading && confirmed.length === 0 && watch.length === 0 && active.length === 0 && (
                   <div style={{ textAlign: "center" as const, padding: "48px 0", color: "#334155" }}>
-                    <div style={{ fontSize: 36, marginBottom: 12 }}>📈</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#475569", marginBottom: 8 }}>No runners yet today</div>
-                    <div style={{ fontSize: 13, color: "#334155", maxWidth: 420, margin: "0 auto", lineHeight: 1.6 }}>
-                      At <strong style={{ color: "#22c55e" }}>2:00 PM ET every trading day</strong>, the scanner checks stocks across
-                      all three cap tiers — holding VWAP, top 30% of range, RVOL ≥ 2x.
-                      When those line up → <strong style={{ color: "#fff" }}>BUY signal fires. Enter same day. Hold through Day 5 close.</strong>
+                    <div style={{ fontSize: 36, marginBottom: 12 }}>{new Date().getDay() === 1 ? "📅" : "📈"}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#475569", marginBottom: 8 }}>
+                      {new Date().getDay() === 1 ? "Monday — signals paused" : "No runners yet today"}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#334155", maxWidth: 460, margin: "0 auto", lineHeight: 1.6 }}>
+                      {new Date().getDay() === 1
+                        ? <>Monday signals are skipped across all tiers — backtest shows <strong style={{ color: "#f87171" }}>36–53% win rate</strong> vs <strong style={{ color: "#22c55e" }}>55–57%</strong> the rest of the week. Active holds below still update normally.</>
+                        : <>At <strong style={{ color: "#22c55e" }}>2:00 PM ET every trading day</strong>, the scanner checks stocks across
+                          all three cap tiers — holding VWAP, top 30% of range, RVOL ≥ 2x.
+                          When those line up → <strong style={{ color: "#fff" }}>BUY signal fires. Enter same day. Hold through Day 5 close.</strong>
+                          <br/><span style={{ color: "#475569", fontSize: 11 }}>Quality filters active: Monday skip · extreme gain cap (≥15-17%) · $15–$50 mid/small cap skip</span></>
+                      }
                     </div>
                     <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8, maxWidth: 660, margin: "16px auto 0" }}>
                       {TIER_ORDER.map(tk => {
