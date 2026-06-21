@@ -1199,6 +1199,8 @@ export function fetchMultiSignal() {
     vix_contango: boolean;
     hyg_healthy: boolean;
     generating?: boolean;
+    stale?: boolean;
+    note?: string;
   }>("/multi-signal");
 }
 
@@ -1391,6 +1393,8 @@ export interface OiAccumResult {
   signals:        OiAccumRow[];
   count:          number;
   snapshot_dates: string[];
+  compared_day1?: string | null;
+  compared_day2?: string | null;
 }
 
 export function fetchOiAccumulation(days = 1) {

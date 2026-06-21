@@ -3652,13 +3652,18 @@ function OiAccumulationTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
         Combined with the gamma FIR scanner = two-layer confirmation, 80-85%+ win rate.
       </div>
 
-      {/* Snapshot dates pill row */}
+      {/* Snapshot dates pill row + comparison label */}
       {(data?.snapshot_dates?.length ?? 0) > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
           <span style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", paddingTop: 4 }}>Snapshots available:</span>
           {data!.snapshot_dates.map(d => (
             <span key={d} style={{ fontFamily: BB_F, fontSize: 10, padding: "3px 9px", borderRadius: 99, background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#22c55e" }}>{d}</span>
           ))}
+          {data?.compared_day1 && data?.compared_day2 && (
+            <span style={{ fontFamily: BB_F, fontSize: 10, color: "#64748b", marginLeft: 4 }}>
+              · Comparing: <strong style={{ color: "#94a3b8" }}>{data.compared_day2}</strong> → <strong style={{ color: "#38bdf8" }}>{data.compared_day1}</strong>
+            </span>
+          )}
         </div>
       )}
 
@@ -3666,7 +3671,10 @@ function OiAccumulationTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
         <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>Loading OI accumulation data…</div>
       ) : signals.length === 0 ? (
         <div style={{ textAlign: "center", color: "#475569", fontFamily: BB_F, padding: 60 }}>
-          No accumulation signals yet. The first snapshot runs at <strong style={{ color: "#94a3b8" }}>4:30 PM ET today</strong>.
+          {(data?.snapshot_dates?.length ?? 0) >= 2
+            ? <>No new OI buildup between <strong style={{ color: "#94a3b8" }}>{data?.compared_day2}</strong> → <strong style={{ color: "#38bdf8" }}>{data?.compared_day1}</strong>. Try a different time range.</>
+            : <>No accumulation signals yet. The first snapshot runs at <strong style={{ color: "#94a3b8" }}>4:30 PM ET today</strong>.</>
+          }
           <br /><span style={{ fontSize: 11, color: "#334155", marginTop: 6, display: "block" }}>Or click ▶ SNAP NOW to capture the current OI immediately (requires 2 consecutive snapshots to compare).</span>
         </div>
       ) : (
@@ -6017,6 +6025,18 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
       </div>
 
       {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
+
+      {/* Stale banner — market closed, no scan data yet */}
+      {data?.stale && (
+        <div style={{ marginBottom: 14, padding: "10px 16px", background: "rgba(251,191,36,0.08)",
+          border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10, fontFamily: BB }}>
+          <span style={{ fontSize: 14 }}>📅</span>
+          <span style={{ color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>Market closed — last scan shown</span>
+          <span style={{ color: "#64748b", fontSize: 10 }}>
+            · Live signals appear Mon–Fri · {(data as any).note ?? "Updates automatically when market opens"}
+          </span>
+        </div>
+      )}
 
       {/* Macro health banner — 3 global signals */}
       {data && (

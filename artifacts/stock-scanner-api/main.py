@@ -1556,9 +1556,10 @@ try:
         replace_existing=True,
     )
     # AI Short Calls outcomes: Mon-Fri 4:32 PM ET — alongside AI trade outcomes
+    # NOTE: no _intraday_scan_allowed() guard here — outcome lookups are historical
+    # yfinance fetches and must run AFTER market close. The old guard closed at 4:30 PM
+    # (990 mins) while this job fires at 4:32 PM (992 mins), silently skipping every day.
     def _run_sc_outcomes():
-        if not _intraday_scan_allowed():
-            return
         try:
             _update_ai_short_call_outcomes()
         except Exception as e:
@@ -9653,6 +9654,15 @@ def _run_oi_snapshot() -> None:
                 ORDER BY ticker LIMIT 100
             """)
             priority = [r[0] for r in cur.fetchall()]
+            # Always re-scan yesterday's tickers so consecutive snapshots share
+            # ticker overlap — without this, rotating priority pools produce 0 shared
+            # tickers between days and OI accumulation signals always show 0.
+            cur.execute("""
+                SELECT DISTINCT ticker FROM oi_daily_snapshot
+                WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM oi_daily_snapshot)
+            """)
+            _prev_tickers = [r[0] for r in cur.fetchall()]
+            priority = list(dict.fromkeys(priority + _prev_tickers))
     except Exception:
         pass
 
@@ -9730,19 +9740,28 @@ def _run_oi_snapshot() -> None:
         print(f"[oi_snapshot] DB error: {e}\n{traceback.format_exc()}")
 
 
-def _get_oi_accumulation_signals(days_back: int = 1) -> list:
+def _get_oi_accumulation_signals(days_back: int = 1) -> tuple:
     """
-    Compare OI from `days_back` trading days ago vs one day prior.
-    Returns tickers where OI grew ≥20% AND ≥100 new contracts on OTM calls.
+    Compare OI from the N-th most recent snapshot vs the (N+1)-th most recent.
+    Returns (signals_list, day1_str, day2_str).
+    Uses actual DB snapshot dates — NOT calendar arithmetic — so weekends/holidays
+    never produce empty results by looking for dates that don't exist.
     """
     import psycopg2, os as _os
-    from datetime import date as _date, timedelta as _td
 
-    today  = _et_today()
-    day1   = today - _td(days=days_back)
-    day2   = today - _td(days=days_back + 1)
     try:
         with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Step 1: find the actual N-th and (N+1)-th most recent snapshot dates
+            cur.execute("""
+                SELECT DISTINCT snapshot_date FROM oi_daily_snapshot
+                ORDER BY snapshot_date DESC LIMIT %s
+            """, (days_back + 1,))
+            _snap_dates = [r[0] for r in cur.fetchall()]
+            if len(_snap_dates) < days_back + 1:
+                return [], None, None
+            day1 = _snap_dates[days_back - 1]  # N-th most recent
+            day2 = _snap_dates[days_back]        # (N+1)-th most recent
+
             cur.execute("""
                 SELECT
                     t.ticker, t.price, t.strike, t.expiry::TEXT,
@@ -9762,9 +9781,9 @@ def _get_oi_accumulation_signals(days_back: int = 1) -> list:
                 ORDER BY (t.oi - y.oi) DESC
                 LIMIT 10
             """, (day1, day2))
-            return cur.fetchall()
+            return cur.fetchall(), str(day1), str(day2)
     except Exception:
-        return []
+        return [], None, None
 
 
 _init_oi_snapshot_table()
@@ -17317,7 +17336,13 @@ def oi_accumulation_endpoint():
     """
     try:
         days_back = int(request.args.get("days", 1))
-        rows = _get_oi_accumulation_signals(days_back=days_back)
+        rows, day1, day2 = _get_oi_accumulation_signals(days_back=days_back)
+        # If the default comparison (most recent pair) has 0 overlap due to rotating
+        # priority pools, auto-fall back one period to find the nearest pair with data.
+        if not rows and days_back == 1:
+            rows2, day1_2, day2_2 = _get_oi_accumulation_signals(days_back=2)
+            if rows2:
+                rows, day1, day2 = rows2, day1_2, day2_2
         signals = []
         for r in rows:
             ticker, price, strike, expiry, oi_t, oi_y, oi_chg, oi_pct, otm, days = r
@@ -17328,7 +17353,7 @@ def oi_accumulation_endpoint():
                 "oi_change": int(oi_chg), "oi_pct_change": float(oi_pct or 0),
                 "otm_pct": float(otm or 0), "days_out": int(days or 0),
             })
-        # Also return snapshot dates available
+        # Return snapshot dates and the specific dates being compared
         import psycopg2, os as _os
         with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -17337,7 +17362,10 @@ def oi_accumulation_endpoint():
                 ORDER BY snapshot_date DESC LIMIT 10
             """)
             dates = [r[0] for r in cur.fetchall()]
-        return jsonify({"signals": signals, "count": len(signals), "snapshot_dates": dates})
+        return jsonify({
+            "signals": signals, "count": len(signals), "snapshot_dates": dates,
+            "compared_day1": day1, "compared_day2": day2,
+        })
     except Exception as e:
         return jsonify({"signals": [], "count": 0, "snapshot_dates": [], "error": str(e)}), 500
 
@@ -21137,7 +21165,11 @@ def eod_accumulation():
     _h_ea = _now_et_ea.hour
     _m_ea = _now_et_ea.minute
     # Market is open 9:30 AM – 4:00 PM ET. Outside that window, serve from DB.
+    # Weekends and holidays are also "after close" — a live intraday scan on a non-trading
+    # day will hang on yfinance indefinitely. _intraday_scan_allowed() covers weekends,
+    # market holidays, pre-9:30 AM, and post-4:30 PM, so it's the single authoritative gate.
     _after_close = (
+        not _intraday_scan_allowed() or    # weekends, holidays, pre-9:30, post-4:30
         (_h_ea == 16 and _m_ea >= 5) or   # 4:05 – 4:59 PM
         _h_ea >= 17 or                     # 5 PM – midnight
         _h_ea < 9 or                       # midnight – 8:59 AM
