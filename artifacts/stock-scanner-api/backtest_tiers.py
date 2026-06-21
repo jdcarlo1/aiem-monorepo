@@ -1,123 +1,197 @@
 """
-backtest_tiers.py
-=================
-4-week backtest for Multi-Day Runner mid-cap and small-cap thresholds.
-Downloads daily price history, finds every D1 gain event, measures D+5 return.
-Compares multiple threshold levels to find the optimal cutoff.
+backtest_tiers.py  —  Multi-Day Runner threshold backtest
+=========================================================
+Step 1: Pull liquid, optionable tickers for each cap tier from Finviz.
+Step 2: Download 3 months of daily OHLCV from yfinance.
+Step 3: Find every D1 gain event at multiple threshold levels.
+Step 4: Measure D1-close → D5-close return and report win rates.
 
 Run:  python3 artifacts/stock-scanner-api/backtest_tiers.py
 """
 
-import sys, math, statistics
-from datetime import date, timedelta
+import re, sys, time, math, statistics
 from collections import defaultdict
 
+try:
+    import requests
+except ImportError:
+    print("requests not installed"); sys.exit(1)
 try:
     import yfinance as yf
 except ImportError:
     print("yfinance not installed"); sys.exit(1)
 
-# ── Universes (representative subsets — liquid, optionable) ──────────────────
 
-MIDCAP_SAMPLE = [
-    # Tech
-    "BILL","ZI","DOCN","GTLB","BRZE","PCOR","FSLY","PUBM","POWI","COHU",
-    # Financials
-    "ESNT","RDN","MTG","PNFP","BOKF","UMBF","FFIN","INDB","TBK","TCBI",
-    # Healthcare
-    "ACAD","ITCI","KRTX","ARWR","ALNY","IONS","EXEL","FATE","RVMD","ROIV",
-    # Energy
-    "CIVI","SM","MTDR","NOG","VTLE","FLNC","KOS","SBOW","MNRL",
-    # Consumer
-    "CROX","DECK","SKX","YETI","TXRH","SHAK","WING","PTON","BOOT","BJRI",
-    # Industrials
-    "GNRC","TREX","AZEK","BLDR","UFPI","BECN","IBP","GMS",
-    # Additional liquid
-    "VIRT","HUBB","WBS","IHG","AER","MTRN",
-]
+# ── Finviz helpers (copied from main.py pattern) ──────────────────────────────
 
-SMALLCAP_SAMPLE = [
-    # Well-known optionable small caps
-    "KODK","LAZR","LFMD","LGIH","MOMO","RCII","SDRL","SMCI","WOLF","WOOF",
-    # Biotech (optionable)
-    "ADMA","AKRO","ARVN","AXSM","BEAM","BPMC","BHVN","BCRX","IMVT","ARQT",
-    # Energy small
-    "AMPY","CDEV","DNOW","ENPH","GPRE","FLNG","GATO","NOG","SBOW",
-    # Consumer
-    "BLNK","BOOT","RCII","LOOP","LOVE","JACK","RUTH","CAKE","FAT","NATH",
-    # Tech small
-    "INPX","OOMA","RBBN","CRNT","EVLV","LIQT","DMRC","CLFD",
-    # Industrial small
-    "DXPE","FWRD","GLDD","GRBK","HEES","JJSF","LCII","LDOS",
-    # Additional
-    "AAON","ACNB","ADTN","ZION","ZEUS","ZETA","SMBC","MSTR",
-]
+_FV_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
-LARGE_CAP_SAMPLE = [
-    "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AMD","NFLX","CRM",
-    "ORCL","ADBE","QCOM","TXN","MU","AVGO","AMAT","MRVL","PANW","CRWD",
-    "NET","SNOW","PLTR","COIN","JPM","BAC","GS","MS","V","MA",
-    "JNJ","PFE","ABBV","LLY","AMGN","ISRG","UNH","XOM","CVX","COP",
-    "HD","LOW","COST","WMT","MCD","SBUX","NKE","DIS","F","GM",
-]
 
-# ── Config ───────────────────────────────────────────────────────────────────
+def _parse_cap(s: str) -> float:
+    s = (s or "").strip().upper()
+    if not s or s == "-":
+        return 0.0
+    mult = 1.0
+    if s.endswith("B"):
+        mult, s = 1e9, s[:-1]
+    elif s.endswith("M"):
+        mult, s = 1e6, s[:-1]
+    elif s.endswith("K"):
+        mult, s = 1e3, s[:-1]
+    try:
+        return float(s.replace(",", "")) * mult
+    except Exception:
+        return 0.0
 
-LOOKBACK_DAYS   = 40    # calendar days (~28 trading days)
-D5_HOLD         = 5     # hold through D+5 close
-THRESHOLDS      = [2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0]
-DOWNLOAD_PERIOD = "3mo"  # yfinance period string
 
-# ── Download ─────────────────────────────────────────────────────────────────
+def finviz_universe(filters: str, max_pages: int = 5, min_price: float = 2.0,
+                    min_vol: int = 100_000) -> list[str]:
+    """
+    Pull optionable tickers from the Finviz screener for a given filter string.
+    Returns a list of ticker symbols, sorted by volume (biggest movers first).
+    """
+    tickers: list[str] = []
+    seen: set = set()
 
-def download_prices(tickers: list[str]) -> dict[str, list[tuple]]:
-    """Return {ticker: [(date, close), ...]} sorted by date, last 40 days."""
-    print(f"  Downloading {len(tickers)} tickers...", flush=True)
-    raw = yf.download(
-        tickers, period=DOWNLOAD_PERIOD, interval="1d",
-        auto_adjust=True, progress=False, threads=True,
-    )
-    if raw.empty:
+    for pg in range(max_pages):
+        start = pg * 20 + 1
+        url = (
+            f"https://finviz.com/screener.ashx?v=111"
+            f"&f={filters}&o=-volume&r={start}"
+        )
+        try:
+            r = requests.get(url, headers=_FV_HEADERS, timeout=15)
+            if not r.ok:
+                print(f"  Finviz page {pg+1}: HTTP {r.status_code} — stopping")
+                break
+
+            new_this_page = 0
+            for chunk in re.split(r'<tr class="styled-row', r.text)[1:]:
+                cells = [
+                    re.sub(r"<[^>]+>", "", c).strip()
+                    for c in re.findall(r"<td[^>]*>(.*?)</td>", chunk, re.S)
+                ]
+                if len(cells) < 11:
+                    continue
+                tk = cells[1].upper().strip()
+                if not tk or len(tk) > 5 or "." in tk or tk in seen:
+                    continue
+                try:
+                    px = float(cells[8].replace(",", ""))
+                except Exception:
+                    px = 0.0
+                try:
+                    vol = int(cells[10].replace(",", ""))
+                except Exception:
+                    vol = 0
+
+                if px < min_price or vol < min_vol:
+                    continue
+
+                seen.add(tk)
+                tickers.append(tk)
+                new_this_page += 1
+
+            if new_this_page == 0:
+                break   # past last page
+
+            time.sleep(0.4)   # be polite to Finviz
+
+        except Exception as e:
+            print(f"  Finviz page {pg+1} error: {e}")
+            break
+
+    return tickers
+
+
+# ── Price download ────────────────────────────────────────────────────────────
+
+def download_prices(tickers: list[str], period: str = "3mo") -> dict[str, list[tuple]]:
+    """
+    Return {ticker: [(date, open, close), ...]} for each ticker.
+    Uses yfinance bulk download for speed.
+    """
+    print(f"  Downloading {len(tickers)} tickers ({period})...", flush=True)
+    if not tickers:
         return {}
 
-    cutoff = date.today() - timedelta(days=LOOKBACK_DAYS)
-    result: dict[str, list[tuple]] = {}
+    # Batch in groups of 100 to avoid yfinance URL-length limits
+    all_prices: dict[str, list[tuple]] = {}
+    batch_size = 100
 
-    for tkr in tickers:
+    for i in range(0, len(tickers), batch_size):
+        batch = tickers[i:i + batch_size]
         try:
-            if len(tickers) == 1:
-                closes = raw["Close"].dropna()
-            else:
-                closes = raw["Close"][tkr].dropna()
-            rows = [(pd_idx.date(), float(v)) for pd_idx, v in closes.items()
-                    if pd_idx.date() >= cutoff]
-            if len(rows) >= 6:
-                result[tkr] = sorted(rows, key=lambda x: x[0])
-        except Exception:
-            pass
-    print(f"  Got data for {len(result)}/{len(tickers)} tickers", flush=True)
-    return result
+            raw = yf.download(
+                batch, period=period, interval="1d",
+                auto_adjust=True, progress=False, threads=True,
+            )
+            if raw.empty:
+                continue
 
-# ── Backtest engine ──────────────────────────────────────────────────────────
+            for tkr in batch:
+                try:
+                    if len(batch) == 1:
+                        closes = raw["Close"].dropna()
+                        opens  = raw["Open"].dropna()
+                    else:
+                        closes = raw["Close"][tkr].dropna()
+                        opens  = raw["Open"][tkr].dropna()
 
-def run_backtest(prices: dict[str, list[tuple]], label: str) -> dict:
+                    rows = []
+                    for idx in closes.index:
+                        if idx in opens.index:
+                            rows.append((
+                                idx.date(),
+                                float(opens[idx]),
+                                float(closes[idx]),
+                            ))
+                    if len(rows) >= 10:
+                        all_prices[tkr] = sorted(rows, key=lambda x: x[0])
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"  Download batch error: {e}")
+
+        if i + batch_size < len(tickers):
+            time.sleep(1)   # pause between batches
+
+    print(f"  Got data for {len(all_prices)}/{len(tickers)} tickers", flush=True)
+    return all_prices
+
+
+# ── Backtest engine ───────────────────────────────────────────────────────────
+
+THRESHOLDS = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0]
+D5_HOLD    = 5   # hold through D+5 close
+
+
+def run_backtest(prices: dict[str, list[tuple]]) -> dict[float, list[float]]:
     """
-    For each ticker, find every day with gain >= each threshold.
-    Measure the D+5 close return from that entry.
+    For each ticker, find every day where the close gained >= threshold% vs prev close.
+    Measure the next D+5 close return (entry = D1 close, exit = D5 close).
+    Returns {threshold: [d5_return, ...]}.
     """
-    events: dict[float, list[float]] = defaultdict(list)   # threshold -> list of D5 returns
+    events: dict[float, list[float]] = defaultdict(list)
 
     for tkr, rows in prices.items():
         for i in range(1, len(rows) - D5_HOLD):
-            d0_date, d0_close = rows[i - 1]
-            d1_date, d1_close = rows[i]
-            d5_date, d5_close = rows[i + D5_HOLD - 1] if i + D5_HOLD - 1 < len(rows) else (None, None)
+            d0_close = rows[i - 1][2]
+            d1_close = rows[i][2]
+            d5_close = rows[i + D5_HOLD - 1][2]
 
-            if d5_close is None or d0_close <= 0:
+            if d0_close <= 0 or d1_close <= 0 or d5_close <= 0:
                 continue
 
             d1_gain = (d1_close - d0_close) / d0_close * 100
-            d5_ret  = (d5_close - d1_close) / d1_close * 100   # entry = D1 close, exit = D5 close
+            d5_ret  = (d5_close - d1_close)  / d1_close  * 100   # D1-close entry → D5-close exit
 
             for thr in THRESHOLDS:
                 if d1_gain >= thr:
@@ -125,77 +199,129 @@ def run_backtest(prices: dict[str, list[tuple]], label: str) -> dict:
 
     return events
 
-# ── Report ───────────────────────────────────────────────────────────────────
 
-def report(events: dict, tier_label: str, current_threshold: float, current_strong: float):
-    print(f"\n{'='*64}")
+# ── Report ────────────────────────────────────────────────────────────────────
+
+def report(events: dict, tier_label: str, current_thr: float, current_strong: float):
+    print(f"\n{'═'*72}")
     print(f"  {tier_label}")
-    print(f"  Current config: D1 ≥{current_threshold}% | STRONG ≥{current_strong}%")
-    print(f"{'='*64}")
-    print(f"  {'Threshold':>10}  {'Signals':>8}  {'Win Rate':>9}  {'Avg D5%':>9}  {'EV':>9}  Verdict")
-    print(f"  {'-'*60}")
+    print(f"  Current scanner config: D1 ≥{current_thr}%  |  STRONG ≥{current_strong}%")
+    print(f"{'═'*72}")
+    print(f"  {'Threshold':>11}  {'Signals':>8}  {'Win Rate':>9}  {'Avg D5%':>9}  {'Median':>8}  {'Sharpe~':>8}")
+    print(f"  {'─'*68}")
 
-    best_ev = -999
-    best_thr = current_threshold
+    best_avg = -999.0
+    best_thr = current_thr
 
     for thr in THRESHOLDS:
         rets = events.get(thr, [])
         n = len(rets)
-        if n < 5:
-            print(f"  {f'≥{thr}%':>10}  {n:>8}  {'—':>9}  {'—':>9}  {'—':>9}  (too few)")
+        if n < 10:
+            print(f"  {f'≥{thr}%':>11}  {n:>8}  {'—':>9}  {'—':>9}  {'—':>8}  {'—':>8}  (too few)")
             continue
+
         wins     = sum(1 for r in rets if r > 0)
-        win_rate = wins / n * 100
+        wr       = wins / n * 100
         avg_ret  = statistics.mean(rets)
-        ev       = win_rate / 100 * avg_ret + (1 - win_rate / 100) * statistics.mean([r for r in rets if r <= 0] or [0])
+        med_ret  = statistics.median(rets)
+        try:
+            sharpe = avg_ret / statistics.stdev(rets) if len(rets) > 1 else 0
+        except Exception:
+            sharpe = 0
 
         marker = ""
-        if thr == current_threshold:
-            marker = " ← CURRENT"
-        elif thr == best_thr:
-            marker = " ← BEST EV"
+        if thr == current_thr:
+            marker = "  ← CURRENT"
+        if thr == current_strong:
+            marker += "  (STRONG)"
 
-        if avg_ret > best_ev:
-            best_ev = avg_ret
+        if avg_ret > best_avg and n >= 20:
+            best_avg = avg_ret
             best_thr = thr
 
-        print(f"  {f'≥{thr}%':>10}  {n:>8}  {win_rate:>8.1f}%  {avg_ret:>+8.1f}%  {ev:>+8.1f}%{marker}")
+        print(f"  {f'≥{thr}%':>11}  {n:>8}  {wr:>8.1f}%  {avg_ret:>+8.2f}%  {med_ret:>+7.2f}%  {sharpe:>+7.3f}{marker}")
 
     print()
-    if best_thr != current_threshold:
-        print(f"  ⚠️  RECOMMENDATION: Change threshold from ≥{current_threshold}% → ≥{best_thr}%")
+    if best_thr != current_thr:
+        print(f"  ⚡ DATA SAYS: Optimal threshold is ≥{best_thr}%  (current is ≥{current_thr}%)")
     else:
-        print(f"  ✅  Current threshold ≥{current_threshold}% is optimal in this dataset")
+        print(f"  ✅  Current threshold ≥{current_thr}% holds up — data validates it")
+    return best_thr
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+TIER_CONFIGS = [
+    {
+        "label":          "LARGE CAP  ($10B+)",
+        "finviz_filter":  "cap_large,sh_opt_option",
+        "min_vol":        500_000,
+        "pages":          6,
+        "current_thr":    3.0,
+        "current_strong": 5.0,
+    },
+    {
+        "label":          "MID CAP  ($2B – $10B)",
+        "finviz_filter":  "cap_mid,sh_opt_option",
+        "min_vol":        200_000,
+        "pages":          6,
+        "current_thr":    4.0,
+        "current_strong": 7.0,
+    },
+    {
+        "label":          "SMALL CAP  ($300M – $2B)",
+        "finviz_filter":  "cap_small,sh_opt_option",
+        "min_vol":        100_000,
+        "pages":          6,
+        "current_thr":    5.0,
+        "current_strong": 10.0,
+    },
+]
+
 
 def main():
-    print("\n" + "="*64)
-    print("  MULTI-DAY RUNNER — 4-WEEK THRESHOLD BACKTEST")
-    print(f"  Period: last {LOOKBACK_DAYS} calendar days | Hold: D1 entry → D{D5_HOLD} close")
-    print("="*64)
+    print("\n" + "═"*72)
+    print("  MULTI-DAY RUNNER — FINVIZ UNIVERSE × 3-MONTH THRESHOLD BACKTEST")
+    print(f"  Strategy: BUY at D1 close  →  EXIT at D{D5_HOLD} close")
+    print(f"  Thresholds tested: {THRESHOLDS}")
+    print("═"*72)
 
-    # Large cap (control group — we know ≥3% works)
-    print("\n[1/3] Large Cap (control group)...")
-    lg_prices = download_prices(LARGE_CAP_SAMPLE)
-    lg_events = run_backtest(lg_prices, "large")
-    report(lg_events, "LARGE CAP ($10B+) — control", 3.0, 5.0)
+    recommendations: list[tuple[str, float, float]] = []
 
-    # Mid cap
-    print("\n[2/3] Mid Cap...")
-    mid_prices = download_prices(MIDCAP_SAMPLE)
-    mid_events = run_backtest(mid_prices, "mid")
-    report(mid_events, "MID CAP ($2B–$10B)", 4.0, 7.0)
+    for cfg in TIER_CONFIGS:
+        print(f"\n{'─'*72}")
+        print(f"  [{cfg['label']}]  Pulling Finviz universe...")
 
-    # Small cap
-    print("\n[3/3] Small Cap...")
-    sm_prices = download_prices(SMALLCAP_SAMPLE)
-    sm_events = run_backtest(sm_prices, "small")
-    report(sm_events, "SMALL CAP ($300M–$2B)", 5.0, 10.0)
+        tickers = finviz_universe(
+            cfg["finviz_filter"],
+            max_pages=cfg["pages"],
+            min_vol=cfg["min_vol"],
+        )
+        print(f"  Finviz returned {len(tickers)} tickers")
 
-    print("\n" + "="*64)
-    print("  BACKTEST COMPLETE")
-    print("="*64 + "\n")
+        if len(tickers) < 10:
+            print("  ⚠️  Too few tickers — skipping tier")
+            continue
+
+        prices = download_prices(tickers, period="3mo")
+
+        if len(prices) < 5:
+            print("  ⚠️  Too few price series — skipping tier")
+            continue
+
+        events = run_backtest(prices)
+        best = report(events, cfg["label"], cfg["current_thr"], cfg["current_strong"])
+        recommendations.append((cfg["label"], cfg["current_thr"], best))
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    print("\n\n" + "═"*72)
+    print("  SUMMARY — RECOMMENDED THRESHOLDS")
+    print("═"*72)
+    for label, cur, rec in recommendations:
+        changed = "✅ keep" if rec == cur else f"⚡ CHANGE  ≥{cur}% → ≥{rec}%"
+        print(f"  {label:<32}  {changed}")
+    print("═"*72 + "\n")
+
 
 if __name__ == "__main__":
     main()
