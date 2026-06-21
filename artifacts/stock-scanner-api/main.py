@@ -11548,12 +11548,13 @@ def bull_flow_top10():
         tickers = DEFAULT_LEADERBOARD
     tickers = [t.strip().upper() for t in tickers[:150]]
 
-    # 5-minute cache — prevents concurrent tab-open requests from hammering yfinance
+    # Cache: 30 min when market closed (data doesn't change), 5 min during live hours
+    _bf_cache_ttl = 1800 if not _intraday_scan_allowed() else 300
     _bf_cache = getattr(app, "_bf_cache", None)
     _bf_ts    = getattr(app, "_bf_cache_ts", None)
     _bf_key   = getattr(app, "_bf_cache_key", None)
     if (_bf_cache and _bf_ts and _bf_key == tickers
-            and (_dt.now() - _bf_ts).total_seconds() < 300):
+            and (_dt.now() - _bf_ts).total_seconds() < _bf_cache_ttl):
         return jsonify(_bf_cache)
 
     # Outside market hours: skip live scan, serve last trading day's DB data directly.
