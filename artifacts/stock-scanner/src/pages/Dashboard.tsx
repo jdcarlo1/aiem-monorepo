@@ -14813,8 +14813,8 @@ export default function Dashboard() {
 
             const TIER_META: Record<string, { label: string; color: string; emoji: string; d1: string; strong: string; stop: string }> = {
               large: { label: "Large Cap ($10B+)",     color: "#22c55e", emoji: "🟢", d1: "≥3%",  strong: "≥5%",  stop: "3%" },
-              mid:   { label: "Mid Cap ($2B–$10B)",    color: "#38bdf8", emoji: "🔵", d1: "≥4%",  strong: "≥7%",  stop: "4%" },
-              small: { label: "Small Cap ($300M–$2B)", color: "#f59e0b", emoji: "🟡", d1: "≥5%",  strong: "≥10%", stop: "5%" },
+              mid:   { label: "Mid Cap ($2B–$10B)",    color: "#38bdf8", emoji: "🔵", d1: "≥5%",  strong: "≥7%",  stop: "4%" },
+              small: { label: "Small Cap ($300M–$2B)", color: "#f59e0b", emoji: "🟡", d1: "≥7%",  strong: "≥10%", stop: "5%" },
             };
             const TIER_ORDER = ["large", "mid", "small"] as const;
 

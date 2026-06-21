@@ -131,9 +131,9 @@ SMALLCAP_UNIVERSE = list(dict.fromkeys([
 
 # Cap tier configs: (universe, min_gain_pct, strong_gain_pct, label, color_hex)
 CAP_TIERS = {
-    "large": (LARGE_CAP_UNIVERSE,  3.0, 5.0, "Large Cap ($10B+)",     "#22c55e"),
-    "mid":   (MIDCAP_UNIVERSE,     4.0, 7.0, "Mid Cap ($2B–$10B)",    "#38bdf8"),
-    "small": (SMALLCAP_UNIVERSE,   5.0, 10.0, "Small Cap ($300M–$2B)", "#f59e0b"),
+    "large": (LARGE_CAP_UNIVERSE,  3.0, 5.0,  "Large Cap ($10B+)",     "#22c55e"),
+    "mid":   (MIDCAP_UNIVERSE,     5.0, 7.0,  "Mid Cap ($2B–$10B)",    "#38bdf8"),
+    "small": (SMALLCAP_UNIVERSE,   7.0, 10.0, "Small Cap ($300M–$2B)", "#f59e0b"),
 }
 
 
