@@ -12886,16 +12886,36 @@ Be direct and specific. No fluff. Write like a desk analyst briefing a PM."""
         return jsonify({"error": str(e)}), 500
 
 
+_SQUEEZE_UNIVERSE = [
+    # ── Meme / retail favorites ────────────────────────────────────────────────
+    "GME", "AMC", "BBWI", "CLOV", "SPCE", "NKLA", "BYND",
+    # ── EV / clean energy (chronically short) ─────────────────────────────────
+    "RIVN", "LCID", "CHPT", "BLNK", "PLUG", "FCEL", "BE", "NKLA",
+    # ── High-growth / unprofitable tech ───────────────────────────────────────
+    "UPST", "AFRM", "OPEN", "LMND", "ROOT", "HIMS", "PRGO", "W", "ETSY",
+    "CHWY", "ZM", "DOCU", "PTON", "SNAP", "LYFT", "HOOD", "COIN", "SOFI",
+    # ── AI / speculative tech ─────────────────────────────────────────────────
+    "AI", "BBAI", "IONQ", "ACHR", "SMCI", "MSTR",
+    # ── Biotech high-SI ───────────────────────────────────────────────────────
+    "SAVA", "ARWR", "FATE", "BEAM", "EDIT", "BLUE", "RARE", "EXEL",
+    "ACAD", "SAGE", "GERN", "DNLI", "ARQT", "PRTA",
+    # ── Mid-cap shorts ────────────────────────────────────────────────────────
+    "CVNA", "MANU", "RELY", "BARK", "BIGC", "LAZR", "LIDR",
+    # ── Options-active high-SI names ──────────────────────────────────────────
+    "MRNA", "RIVN", "TLRY", "SNDL", "FFIE", "MULN", "WKHS", "GOEV",
+]
+_SQUEEZE_UNIVERSE = list(dict.fromkeys(_SQUEEZE_UNIVERSE))  # dedupe, preserve order
+
 @app.route("/stock-api/squeeze/detector", methods=["POST"])
 def squeeze_detector():
     import yfinance as yf
     from smart_money import fetch_options_data, _f
 
     body    = request.get_json(silent=True) or {}
-    tickers = body.get("tickers", DEFAULT_LEADERBOARD)
+    tickers = body.get("tickers") or []
     if not isinstance(tickers, list) or not tickers:
-        tickers = DEFAULT_LEADERBOARD
-    tickers = [t.strip().upper() for t in tickers[:50]]
+        tickers = _SQUEEZE_UNIVERSE
+    tickers = [t.strip().upper() for t in tickers[:60]]
 
     def _get_squeeze_row(ticker):
         try:
