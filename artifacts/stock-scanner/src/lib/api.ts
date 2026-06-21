@@ -1,10 +1,16 @@
 const BASE = "/stock-api";
 
 export async function fetchJson<T>(path: string, opts?: RequestInit): Promise<T> {
-  // cache: "no-store" guarantees the browser never serves a stale cached
-  // response — without it, identical GET URLs (e.g. /conviction-calls?force=1)
-  // get served from disk cache and the UI shows yesterday's data.
-  const res = await fetch(`${BASE}${path}`, { ...opts, cache: "no-store" });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { ...opts, cache: "no-store", signal: controller.signal });
+  } catch (e: any) {
+    clearTimeout(timer);
+    throw new Error(e.name === "AbortError" ? "Request timed out — server is busy, retry in a moment" : (e.message || "Network error"));
+  }
+  clearTimeout(timer);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || res.statusText);

@@ -384,6 +384,32 @@ function DailyTop10Banner({ onSelect }: { onSelect: (t: string) => void }) {
   );
 }
 
+// ---- Shared: load-failed fallback shown instead of blank screen ----------
+
+function TabLoadFailed({ msg, onRetry }: { msg: string; onRetry: () => void }) {
+  return (
+    <div style={{ textAlign: "center", padding: "60px 20px" }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+      <div style={{ color: "#f87171", fontFamily: "JetBrains Mono, monospace", fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+        Failed to load data
+      </div>
+      <div style={{ color: "#475569", fontFamily: "JetBrains Mono, monospace", fontSize: 11, marginBottom: 20 }}>
+        {msg}
+      </div>
+      <button
+        onClick={onRetry}
+        style={{
+          background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.35)",
+          color: "#f87171", borderRadius: 10, padding: "8px 20px",
+          fontFamily: "JetBrains Mono, monospace", fontSize: 12, fontWeight: 700, cursor: "pointer",
+        }}
+      >
+        ↻ Retry
+      </button>
+    </div>
+  );
+}
+
 // ---- Analytics Tab -------------------------------------------------------
 
 function AnalyticsTab() {
@@ -424,7 +450,7 @@ function AnalyticsTab() {
           <input value={tickerInput} onChange={e => setTickerInput(e.target.value.toUpperCase())}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
         </div>
-        <button onClick={run} disabled={loading}
+        <button onClick={() => run()} disabled={loading}
           className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2">
           {loading && <Spinner />}
           {loading ? "Analyzing history… (30–90 s)" : "Run Analytics"}
@@ -654,7 +680,7 @@ function BacktestTab() {
           <div><label className="text-xs text-slate-400 block mb-1">Sell when score ≤</label><input type="number" min={1} max={10} step={0.5} value={sellThresh} onChange={e => setSellThresh(parseFloat(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
           <div><label className="text-xs text-slate-400 block mb-1">Starting Cash ($)</label><input type="number" value={cash} onChange={e => setCash(parseFloat(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
         </div>
-        <button onClick={run} disabled={loading} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2">
+        <button onClick={() => run()} disabled={loading} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2">
           {loading && <Spinner />}{loading ? "Running backtest…" : "Run Backtest"}
         </button>
         {error && <div className="mt-3 text-red-400 text-sm">{error}</div>}
@@ -1864,7 +1890,7 @@ function BreakoutTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
             </p>
           </div>
           <button
-            onClick={run} disabled={loading}
+            onClick={() => run()} disabled={loading}
             className="shrink-0 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
           >
             {loading ? <><Spinner /> Scanning…</> : "🚀 Run Scan"}
@@ -2017,7 +2043,7 @@ function SqueezeTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
             </p>
           </div>
           <button
-            onClick={run} disabled={loading}
+            onClick={() => run()} disabled={loading}
             className="shrink-0 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
           >
             {loading ? <><Spinner /> Scanning…</> : "💥 Run Scan"}
@@ -4624,7 +4650,7 @@ function ConvergenceTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
         </div>
         <div className="flex items-center gap-3">
           {lastRun && <span className="text-slate-600 text-xs">{results.length} signals · {scanned} scanned</span>}
-          <button onClick={run} disabled={loading}
+          <button onClick={() => run()} disabled={loading}
             className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
             style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
             {loading ? "Scanning…" : "↻ Scan Now"}
@@ -4681,9 +4707,10 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [date, setDate] = useState<string | null>(null);
   const [totalInDb, setTotalInDb] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const run = async (isRetry = false) => {
-    if (!isRetry) setLoading(true);
+    if (!isRetry) { setLoading(true); setLoadErr(null); }
     try {
       const data = await fetchDarkPool();
       setResults(data.results);
@@ -4695,7 +4722,7 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         setTimeout(() => run(true), 8000);
         return;
       }
-    } catch {}
+    } catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { if (!isRetry) setLoading(false); }
   };
 
@@ -4718,7 +4745,7 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         </div>
         <div className="flex items-center gap-3">
           {date && <span className="text-slate-600 text-xs">Data: {date} · {results.length} signals</span>}
-          <button onClick={run} disabled={loading}
+          <button onClick={() => run()} disabled={loading}
             className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
             style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.25)", color: "#a78bfa" }}>
             {loading ? "Loading…" : "↻ Refresh"}
@@ -4737,9 +4764,10 @@ function DarkPoolTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         <div className="text-center py-16 text-slate-500 text-sm">Fetching FINRA dark pool data…</div>
       )}
 
-      {!loading && results.length === 0 && lastRun && (
+      {!loading && results.length === 0 && !loadErr && lastRun && (
         <div className="text-center py-16 text-slate-500 text-sm">No elevated dark pool signals in the watchlist right now.</div>
       )}
+      {!loading && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => run()} />}
 
       {results.length > 0 && (
         <div className="overflow-x-auto -mx-2 px-2">
@@ -5157,7 +5185,7 @@ function SignalFeedTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
         </div>
         <div className="flex items-center gap-3">
           {generatedAt && <span className="text-slate-600 text-xs">{new Date(generatedAt).toLocaleTimeString()} · auto-refreshes every 5 min</span>}
-          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", color: "#4ade80" }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
+          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", color: "#4ade80" }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
         </div>
       </div>
 
@@ -5226,7 +5254,7 @@ function CompositeBoardTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
         </div>
         <div className="flex items-center gap-3">
           {scanned > 0 && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
-          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.25)", color: "#60a5fa" }}>{loading ? "Scoring…" : "↻ Refresh"}</button>
+          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.25)", color: "#60a5fa" }}>{loading ? "Scoring…" : "↻ Refresh"}</button>
         </div>
       </div>
 
@@ -5320,14 +5348,16 @@ function VolCrushTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const run = async (isRetry = false) => {
-    if (!isRetry) setLoading(true);
+    if (!isRetry) { setLoading(true); setLoadErr(null); }
     try {
       const d = await fetchVolCrush();
       setResults(d.results); setScanned(d.scanned); setLastRun(new Date());
       if (d.generating && d.results.length === 0) { setTimeout(() => run(true), 10000); return; }
     }
-    catch {} finally { if (!isRetry) setLoading(false); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
+    finally { if (!isRetry) setLoading(false); }
   };
   useEffect(() => { run(); }, []);
   const vColor = (v: string) => v === "HIGH FEAR" ? "#f87171" : v === "ELEVATED" ? "#fb923c" : v === "NORMAL" ? "#60a5fa" : "#4ade80";
@@ -5341,7 +5371,7 @@ function VolCrushTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         </div>
         <div className="flex items-center gap-3">
           {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
-          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.25)", color: "#f87171" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
+          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.25)", color: "#f87171" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
         </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -5353,7 +5383,8 @@ function VolCrushTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         ))}
       </div>
       {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Fetching IV & price history for {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~30s · cached 30 min</div></div>}
-      {!loading && results.length === 0 && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No data available.</div>}
+      {!loading && results.length === 0 && !loadErr && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No data available.</div>}
+      {!loading && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => run()} />}
       {results.length > 0 && (
         <div className="space-y-2">
           {results.map((r, i) => (
@@ -5393,8 +5424,9 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
   const [scanned, setScanned] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
   const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const run = async (isRetry = false) => {
-    if (!isRetry) setLoading(true);
+    if (!isRetry) { setLoading(true); setLoadErr(null); }
     try {
       const d = await fetchCallIntent();
       setResults(d.results);
@@ -5405,7 +5437,8 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
         return;
       }
     }
-    catch {} finally { if (!isRetry) setLoading(false); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
+    finally { if (!isRetry) setLoading(false); }
   };
   useEffect(() => { run(); }, []);
   const handleSave = async (e: React.MouseEvent, r: CallIntentRow) => {
@@ -5428,7 +5461,7 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
         </div>
         <div className="flex items-center gap-3">
           {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
-          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", color: "#4ade80" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
+          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", color: "#4ade80" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 mb-6">
@@ -5442,7 +5475,7 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
         </div>
       </div>
       {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Analyzing call chains across {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~30s · cached 30 min</div></div>}
-      {!loading && results.length === 0 && lastRun && (
+      {!loading && results.length === 0 && !loadErr && lastRun && (
         <div className="text-center py-16 text-slate-500 text-sm">
           {[0, 6].includes(new Date().getDay())
             ? <><div className="text-2xl mb-3">📅</div><div className="font-semibold text-slate-400 mb-1">Markets are closed</div><div className="text-xs text-slate-600">Call Intent needs live option chain prices to classify buying intent.<br/>Results will appear Monday morning when the market opens.</div></>
@@ -5450,6 +5483,7 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
           }
         </div>
       )}
+      {!loading && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => run()} />}
       {results.length > 0 && (
         <div className="space-y-2">
           {results.map((r, i) => (
@@ -5544,7 +5578,7 @@ function SmartVsRetailTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         </div>
         <div className="flex items-center gap-3">
           {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
-          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.25)", color: "#a78bfa" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
+          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.25)", color: "#a78bfa" }}>{loading ? "Analyzing…" : "↻ Refresh"}</button>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 mb-6">
@@ -5598,10 +5632,12 @@ function MaxPainTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const run = async () => {
-    setLoading(true);
+    setLoading(true); setLoadErr(null);
     try { const d = await fetchMaxPain(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
-    catch {} finally { setLoading(false); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
+    finally { setLoading(false); }
   };
   useEffect(() => { run(); }, []);
   return (
@@ -5613,7 +5649,7 @@ function MaxPainTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
         </div>
         <div className="flex items-center gap-3">
           {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
-          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.25)", color: "#60a5fa" }}>{loading ? "Calculating…" : "↻ Refresh"}</button>
+          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.25)", color: "#60a5fa" }}>{loading ? "Calculating…" : "↻ Refresh"}</button>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 mb-6">
@@ -5627,7 +5663,8 @@ function MaxPainTab({ onSelectTicker }: { onSelectTicker: (t: string) => void })
         </div>
       </div>
       {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Computing max pain across {scanned || "50+"} tickers…<div className="text-xs text-slate-600 mt-2">First load ~30s · cached 30 min</div></div>}
-      {!loading && results.length === 0 && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No max pain data available.</div>}
+      {!loading && results.length === 0 && !loadErr && lastRun && <div className="text-center py-16 text-slate-500 text-sm">No max pain data available.</div>}
+      {!loading && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => run()} />}
       {results.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[560px]">
@@ -5692,7 +5729,7 @@ function GammaWallTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
         </div>
         <div className="flex items-center gap-3">
           {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers analyzed</span>}
-          <button onClick={run} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>{loading ? "Loading…" : "↻ Refresh"}</button>
         </div>
       </div>
       {loading && results.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">Fetching OI by strike for major tickers…<div className="text-xs text-slate-600 mt-2">First load ~20s · cached 30 min</div></div>}
@@ -5794,7 +5831,7 @@ function PutIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
         </div>
         <div className="flex items-center gap-3">
           {lastRun && <span className="text-slate-600 text-xs">{results.length} tickers · {scanned} scanned</span>}
-          <button onClick={run} disabled={loading}
+          <button onClick={() => run()} disabled={loading}
             className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
             style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24" }}>
             {loading ? "Analyzing…" : "↻ Refresh"}
@@ -5878,6 +5915,7 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
   const [watchlist, setWatchlist]         = useState<string[]>([]);
   const [thesisHistory, setThesisHistory] = useState<Record<string, { thesis: string; timestamp: number; score: number }>>({});
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -5889,12 +5927,12 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
   }, []);
 
   const load = async (isRetry = false) => {
-    if (!isRetry) setLoading(true);
+    if (!isRetry) { setLoading(true); setLoadErr(null); }
     try {
       const d = await fetchMultiSignal();
       setData(d);
       if (d.generating && (!d.hits || d.hits.length === 0)) { setTimeout(() => load(true), 10000); return; }
-    } catch {}
+    } catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { if (!isRetry) setLoading(false); }
   };
   useEffect(() => { load(); const t = setInterval(load, 600_000); return () => clearInterval(t); }, []);
@@ -5971,12 +6009,14 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
             {maxSig} signal conditions · {data?.scanned ?? "—"} tickers · {data?.total ?? "—"} multi-signal hits · click any row for AI thesis
           </p>
         </div>
-        <button onClick={load} disabled={loading} style={{
+        <button onClick={() => load()} disabled={loading} style={{
           background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.3)",
           color: "#a78bfa", borderRadius: 10, padding: "8px 18px",
           fontFamily: BB, fontSize: 12, fontWeight: 700, cursor: "pointer",
         }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
       </div>
+
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
 
       {/* Macro health banner — 3 global signals */}
       {data && (
@@ -6505,10 +6545,12 @@ function Breakout52WeekTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
   const [data, setData]     = useState<{ hits: BreakoutRow[]; total: number; scanned: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter]   = useState<FilterType>("ALL");
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const load = async () => {
-    setLoading(true);
-    try { setData(await fetch52WeekBreakout()); } catch {}
+    setLoading(true); setLoadErr(null);
+    try { setData(await fetch52WeekBreakout()); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); const t = setInterval(load, 900_000); return () => clearInterval(t); }, []);
@@ -6536,7 +6578,7 @@ function Breakout52WeekTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
             Stocks at or above their 52-week high with above-average volume · {data?.scanned ?? "—"} tickers · 15min cache
           </p>
         </div>
-        <button onClick={load} disabled={loading} style={{
+        <button onClick={() => load()} disabled={loading} style={{
           background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)",
           color: "#fbbf24", borderRadius: 10, padding: "8px 18px",
           fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
@@ -6576,6 +6618,7 @@ function Breakout52WeekTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
           Scanning 473 tickers for 52-week breakouts… ~25s
         </div>
       )}
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
       {!loading && data && filtered.length === 0 && (
         <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
           No breakouts in this filter right now. Try "All" or refresh during market hours.
@@ -6675,10 +6718,12 @@ function SectorRotationTab() {
   const BB_F = "JetBrains Mono, monospace";
   const [data, setData]     = useState<{ sectors: SectorRow[]; scanned: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const load = async () => {
-    setLoading(true);
-    try { setData(await fetchSectorRotation()); } catch {}
+    setLoading(true); setLoadErr(null);
+    try { setData(await fetchSectorRotation()); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); const t = setInterval(load, 1_800_000); return () => clearInterval(t); }, []);
@@ -6704,7 +6749,7 @@ function SectorRotationTab() {
             All 11 SPDR sector ETFs · flow direction, relative volume, and range position · refreshes every 30min
           </p>
         </div>
-        <button onClick={load} disabled={loading} style={{
+        <button onClick={() => load()} disabled={loading} style={{
           background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.3)",
           color: "#60a5fa", borderRadius: 10, padding: "8px 18px",
           fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
@@ -6732,6 +6777,7 @@ function SectorRotationTab() {
           Fetching all 11 sector ETFs… ~10s
         </div>
       )}
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
 
       {data && (
         <>
@@ -6840,10 +6886,12 @@ function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError]   = useState<string | null>(null);
   const [smsSent, setSmsSent]   = useState<string[]>([]);
+  const [loadErr, setLoadErr]   = useState<string | null>(null);
 
   const load = async () => {
-    setLoading(true);
-    try { setData(await fetchSqueezeSetup()); } catch {}
+    setLoading(true); setLoadErr(null);
+    try { setData(await fetchSqueezeSetup()); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
 
@@ -6905,7 +6953,7 @@ function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={load} disabled={loading} style={{
+          <button onClick={() => load()} disabled={loading} style={{
             background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)",
             color: "#f87171", borderRadius: 10, padding: "8px 18px",
             fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
@@ -6973,6 +7021,7 @@ function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
           No setups match this filter. Try "All Setups" or refresh during market hours.
         </div>
       )}
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
 
       {/* Setup cards */}
       {filtered.length > 0 && (
@@ -7374,10 +7423,12 @@ function MorningRunnersTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
   const [data, setData]     = useState<{ runners: MorningRunnerRow[]; total: number; scanned: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter]  = useState<FilterType>("ALL");
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const load = async () => {
-    setLoading(true);
-    try { setData(await fetchMorningRunners()); } catch {}
+    setLoading(true); setLoadErr(null);
+    try { setData(await fetchMorningRunners()); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
 
@@ -7423,7 +7474,7 @@ function MorningRunnersTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
             Pre-market volume spikes + gap moves across {data?.scanned ?? "—"} tickers · score = rel-vol × (|gap%|+1) · refreshes every 2min
           </p>
         </div>
-        <button onClick={load} disabled={loading} style={{
+        <button onClick={() => load()} disabled={loading} style={{
           background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)",
           color: "#fbbf24", borderRadius: 10, padding: "8px 18px",
           fontFamily: BB_F, fontSize: 12, fontWeight: 700, cursor: "pointer",
@@ -7481,6 +7532,7 @@ function MorningRunnersTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
           No runners match this filter right now. Markets may be closed or quiet — try "All Runners".
         </div>
       )}
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
 
       {/* Runner cards */}
       {filtered.length > 0 && (
@@ -7568,10 +7620,12 @@ function EodAccumulationTab() {
   const [data, setData]     = useState<EodAccumData | null>(null);
   const [loading, setLoading] = useState(false);
   const [newsFilter, setNewsFilter] = useState<"all" | "no-hard" | "pure">("all");
+  const [loadErr, setLoadErr]       = useState<string | null>(null);
 
   const load = async (bust = false) => {
-    setLoading(true);
-    try { setData(await fetchEodAccumulation(bust)); } catch {}
+    setLoading(true); setLoadErr(null);
+    try { setData(await fetchEodAccumulation(bust)); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
 
@@ -7676,6 +7730,8 @@ function EodAccumulationTab() {
           As of {data.generated_at} · {data.total_found} candidate{data.total_found !== 1 ? "s" : ""} found
         </div>}
       </div>
+
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
 
       {/* Divider */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -8040,10 +8096,12 @@ function EodAccumTrackTab() {
   const [data, setData]     = useState<EodAccumTrackData | null>(null);
   const [loading, setLoading] = useState(false);
   const [typeFilter, setTypeFilter] = useState<"all" | "none" | "soft" | "hard">("all");
+  const [loadErr, setLoadErr]       = useState<string | null>(null);
 
   const load = async () => {
-    setLoading(true);
-    try { setData(await fetchEodAccumTrack()); } catch {}
+    setLoading(true); setLoadErr(null);
+    try { setData(await fetchEodAccumTrack()); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
@@ -8103,6 +8161,8 @@ function EodAccumTrackTab() {
             borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>↻ REFRESH</button>
         </div>
       </div>
+
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
 
       {data && (
         <>
@@ -8224,10 +8284,12 @@ function StandoutTrackTab() {
   const [data, setData]     = useState<StandoutTrackData | null>(null);
   const [loading, setLoading] = useState(false);
   const [tierFilter, setTierFilter] = useState<"all" | "extreme" | "high" | "standard">("all");
+  const [loadErr, setLoadErr]       = useState<string | null>(null);
 
   const load = async () => {
-    setLoading(true);
-    try { setData(await fetchStandoutTrack()); } catch {}
+    setLoading(true); setLoadErr(null);
+    try { setData(await fetchStandoutTrack()); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
@@ -8291,6 +8353,8 @@ function StandoutTrackTab() {
             borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>↻ REFRESH</button>
         </div>
       </div>
+
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
 
       {/* Strategy note */}
       <div style={{ fontFamily: BB_F, fontSize: 11, color: "#475569", marginBottom: 20, lineHeight: 1.6,
@@ -8422,10 +8486,12 @@ function StandoutTrackTab() {
 function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData] = useState<{ gainers: PremarketRow[]; losers: PremarketRow[]; scanned: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const load = async () => {
-    setLoading(true);
-    try { setData(await fetchPremarket()); } catch {}
+    setLoading(true); setLoadErr(null);
+    try { setData(await fetchPremarket()); }
+    catch(e: any) { setLoadErr(e?.message ?? "Failed to load"); }
     finally { setLoading(false); }
   };
 
@@ -8456,7 +8522,7 @@ function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
           <h2 className="text-xl font-black text-white tracking-tight">Pre-Market Flow</h2>
           <p className="text-slate-500 text-sm mt-0.5">Biggest movers before the open · refreshes every 60s</p>
         </div>
-        <button onClick={load} disabled={loading}
+        <button onClick={() => load()} disabled={loading}
           className="px-4 py-2 rounded-lg text-sm font-bold"
           style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
           {loading ? "Loading…" : "↻ Refresh"}
@@ -8464,6 +8530,7 @@ function PremarketTab({ onSelectTicker }: { onSelectTicker: (t: string) => void 
       </div>
 
       {loading && !data && <div className="text-center py-16 text-slate-500 text-sm">Fetching pre-market prices…</div>}
+      {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
 
       {data && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -9908,7 +9975,7 @@ function ShortCallRecordTab() {
             Every daily AI short-call pick logged · WIN = stock closed ≥ breakeven price at expiry
           </div>
         </div>
-        <button onClick={load} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
+        <button onClick={() => load()} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
           {loading ? "LOADING…" : "REFRESH"}
         </button>
       </div>
@@ -10106,7 +10173,7 @@ function TrackRecordTab() {
             Every daily AI pick logged · Win/loss measured at options expiry date
           </div>
         </div>
-        <button onClick={load} disabled={loading} style={{
+        <button onClick={() => load()} disabled={loading} style={{
           background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL,
           padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em",
           opacity: loading ? 0.5 : 1,
@@ -10467,7 +10534,7 @@ function OutcomesTab() {
               Smart money positions for moves 3-10 days out — this is how you measure edge.
             </p>
           </div>
-          <button onClick={load} disabled={loading}
+          <button onClick={() => load()} disabled={loading}
             className="shrink-0 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
             {loading ? <><Spinner /> Loading…</> : "↻ Refresh"}
           </button>
@@ -13129,7 +13196,7 @@ function MarketPressTab() {
             {data ? `${data.count} STORIES · UPDATED ${new Date(data.fetched_at).toLocaleTimeString("en-US", { hour12: false })}` : "LIVE FINANCIAL NEWS"}
           </div>
         </div>
-        <button onClick={load} disabled={loading} style={{ background: loading ? BB_BORDER : BB_GREEN, color: "#000", border: "none", padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9, fontWeight: 700, cursor: loading ? "default" : "pointer", letterSpacing: "0.08em" }}>
+        <button onClick={() => load()} disabled={loading} style={{ background: loading ? BB_BORDER : BB_GREEN, color: "#000", border: "none", padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9, fontWeight: 700, cursor: loading ? "default" : "pointer", letterSpacing: "0.08em" }}>
           {loading ? "LOADING..." : "↻ REFRESH"}
         </button>
       </div>
@@ -13233,7 +13300,7 @@ function EarningsCalendarTab({ onSelectTicker }: { onSelectTicker: (t: string) =
             {data ? `${data.count} REPORTS · NEXT ${data.window_days} DAYS · AS OF ${data.as_of}` : "UPCOMING EARNINGS + IMPLIED MOVE"}
           </div>
         </div>
-        <button onClick={load} disabled={loading} style={{ background: loading ? BB_BORDER : BB_GREEN, color: "#000", border: "none", padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9, fontWeight: 700, cursor: loading ? "default" : "pointer", letterSpacing: "0.08em" }}>
+        <button onClick={() => load()} disabled={loading} style={{ background: loading ? BB_BORDER : BB_GREEN, color: "#000", border: "none", padding: "6px 14px", fontFamily: BB_FONT, fontSize: 9, fontWeight: 700, cursor: loading ? "default" : "pointer", letterSpacing: "0.08em" }}>
           {loading ? "LOADING..." : "↻ REFRESH"}
         </button>
       </div>

@@ -1861,7 +1861,10 @@ try:
         _othr.Thread(target=_w, daemon=True).start()
         print("[warmer] options wave started (all tabs)")
 
-    for _ow_hour, _ow_min in [(9, 45), (10, 45), (11, 30), (16, 18)]:
+    # 9:45 slot removed — options_warmer used to fire at same time as morning_scan,
+    # causing both to compete for the 4-thread APScheduler pool and the Yahoo Finance
+    # API simultaneously. Moved to 10:05 to give morning_scan a clear ~20 min head start.
+    for _ow_hour, _ow_min in [(10, 5), (10, 45), (11, 30), (16, 18)]:
         _scheduler.add_job(
             _run_options_warmer,
             CronTrigger(day_of_week="mon-fri", hour=_ow_hour, minute=_ow_min, timezone=_ET),
