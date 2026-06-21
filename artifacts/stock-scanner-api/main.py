@@ -19241,7 +19241,7 @@ def multi_signal_convergence():
             }
             app._ms_cache    = _out
             app._ms_cache_ts = _ms_dt.now()
-            if _out.get("results"):
+            if _out.get("hits"):
                 _save_scan_cache("multi-signal", _out)
         except Exception as _e:
             print(f"[multi_signal] bg error: {_e}", file=_sys.stderr)
