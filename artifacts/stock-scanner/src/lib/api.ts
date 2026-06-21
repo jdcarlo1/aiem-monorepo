@@ -657,7 +657,7 @@ export interface VolCrushRow {
   earnings_date: string | null;
 }
 export function fetchVolCrush() {
-  return fetchJson<{ results: VolCrushRow[]; scanned: number }>("/vol-crush");
+  return fetchJson<{ results: VolCrushRow[]; scanned: number; generating?: boolean }>("/vol-crush");
 }
 
 export interface CallIntentRow {
@@ -680,7 +680,7 @@ export interface SmartVsRetailRow {
   signal_strength: "STRONG" | "MODERATE" | "WEAK";
 }
 export function fetchSmartVsRetail() {
-  return fetchJson<{ results: SmartVsRetailRow[]; scanned: number }>("/smart-vs-retail");
+  return fetchJson<{ results: SmartVsRetailRow[]; scanned: number; generating?: boolean }>("/smart-vs-retail");
 }
 
 export interface MaxPainRow {
@@ -1192,6 +1192,7 @@ export function fetchMultiSignal() {
     market_regime_on: boolean;
     vix_contango: boolean;
     hyg_healthy: boolean;
+    generating?: boolean;
   }>("/multi-signal");
 }
 

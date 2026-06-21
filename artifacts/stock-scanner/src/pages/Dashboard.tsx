@@ -5320,10 +5320,14 @@ function VolCrushTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
-  const run = async () => {
-    setLoading(true);
-    try { const d = await fetchVolCrush(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
-    catch {} finally { setLoading(false); }
+  const run = async (isRetry = false) => {
+    if (!isRetry) setLoading(true);
+    try {
+      const d = await fetchVolCrush();
+      setResults(d.results); setScanned(d.scanned); setLastRun(new Date());
+      if (d.generating && d.results.length === 0) { setTimeout(() => run(true), 10000); return; }
+    }
+    catch {} finally { if (!isRetry) setLoading(false); }
   };
   useEffect(() => { run(); }, []);
   const vColor = (v: string) => v === "HIGH FEAR" ? "#f87171" : v === "ELEVATED" ? "#fb923c" : v === "NORMAL" ? "#60a5fa" : "#4ade80";
@@ -5518,10 +5522,14 @@ function SmartVsRetailTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
-  const run = async () => {
-    setLoading(true);
-    try { const d = await fetchSmartVsRetail(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
-    catch {} finally { setLoading(false); }
+  const run = async (isRetry = false) => {
+    if (!isRetry) setLoading(true);
+    try {
+      const d = await fetchSmartVsRetail();
+      setResults(d.results); setScanned(d.scanned); setLastRun(new Date());
+      if (d.generating && d.results.length === 0) { setTimeout(() => run(true), 10000); return; }
+    }
+    catch {} finally { if (!isRetry) setLoading(false); }
   };
   useEffect(() => { run(); }, []);
   const dColor = (d: string) => d.startsWith("SMART BULL") ? "#4ade80" : d.startsWith("SMART BEAR") ? "#f87171" : d.startsWith("RETAIL BULL") ? "#a78bfa" : d.startsWith("RETAIL BEAR") ? "#fb923c" : "#64748b";
@@ -5880,10 +5888,14 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
     } catch {}
   }, []);
 
-  const load = async () => {
-    setLoading(true);
-    try { setData(await fetchMultiSignal()); } catch {}
-    finally { setLoading(false); }
+  const load = async (isRetry = false) => {
+    if (!isRetry) setLoading(true);
+    try {
+      const d = await fetchMultiSignal();
+      setData(d);
+      if (d.generating && (!d.hits || d.hits.length === 0)) { setTimeout(() => load(true), 10000); return; }
+    } catch {}
+    finally { if (!isRetry) setLoading(false); }
   };
   useEffect(() => { load(); const t = setInterval(load, 600_000); return () => clearInterval(t); }, []);
 
