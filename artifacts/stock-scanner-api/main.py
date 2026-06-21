@@ -16829,6 +16829,7 @@ def unusual_calls():
 
     # Outside market hours (weekends/after-hours) there is no live option chain data
     # to scan — serve from DB directly instead of hanging on Yahoo.
+    # Use a 5-day lookback so Friday's sweeps remain visible all weekend.
     if not _intraday_scan_allowed():
         try:
             with _psycopg2.connect(_DB_URL) as _nh_conn, _nh_conn.cursor() as _nh_cur:
@@ -16837,8 +16838,7 @@ def unusual_calls():
                            volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
                            iv::float, urgency, first_seen
                     FROM unusual_calls_log
-                    WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                                       AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+                    WHERE last_seen >= now() - INTERVAL '5 days'
                       AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                       AND vol_oi >= 3 AND prem >= 500000
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
@@ -17109,8 +17109,13 @@ def unusual_calls_microcap():
     "Today" (days=1) is the ET calendar day only — no silent fallback to older
     days. If the window is empty a background scan is kicked off so the next
     load has fresh data.
+    On weekends / outside market hours: use a 5-day lookback so Friday's data
+    stays visible through the weekend.
     """
     days_back = min(int(request.args.get("days", 3)), 30)
+    # Widen to 5 days on weekends/after-hours so Friday's sweeps are visible
+    if not _intraday_scan_allowed() and days_back <= 3:
+        days_back = 5
 
     # "Today" (days=1) means the actual ET calendar day — NOT a rolling 24h
     # window. A rolling window bleeds yesterday's afternoon/evening signals into
@@ -19343,6 +19348,13 @@ def iv_rank_scan():
     _ts    = getattr(app, "_ivs_cache_ts", None)
     if _cache and _ts and (_ivs_dt.now() - _ts).total_seconds() < 1800:
         return jsonify(_cache)
+
+    # Circuit breaker: if Yahoo is throttled return cache or empty quickly
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True, "note": "breaker open — cached"})
+        return jsonify({"results": [], "total": 0, "stale": True,
+                        "note": "IV scan paused — Yahoo rate limited, retry shortly"})
 
     from datetime import datetime, timedelta
 
