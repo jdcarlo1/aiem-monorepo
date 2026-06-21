@@ -42,3 +42,9 @@ id = "oRLErjfgOy6A_boe-Qlle"
 uri = "file://screenshots/stock-social-media.jpg"
 type = "image"
 title = "StockScanner AI — Social Media Graphic (updated: 28 signals)"
+
+[[outputs]]
+id = "H3LS7GdErT8UuxsPADGAk"
+uri = "file://screenshots/comparison_card.jpg"
+type = "image"
+title = "StockScanner AI — Pricing Card (Phone Size)"

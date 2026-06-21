@@ -1002,7 +1002,7 @@ function EmailSignupBanner() {
 
         {/* Pricing line */}
         <p className="text-slate-500 text-sm mb-1">
-          <span className="text-white font-bold">$100/month</span> · cancel anytime
+          <span className="text-white font-bold">$397/month</span> · cancel anytime
         </p>
         <p className="text-slate-600 text-xs mb-6">Cancel anytime · No contracts · Works on any phone</p>
 
