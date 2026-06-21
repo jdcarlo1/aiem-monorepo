@@ -670,7 +670,7 @@ export interface CallIntentRow {
   top_accum_otm_pct: number;
 }
 export function fetchCallIntent() {
-  return fetchJson<{ results: CallIntentRow[]; scanned: number }>("/call-intent");
+  return fetchJson<{ results: CallIntentRow[]; scanned: number; generating?: boolean }>("/call-intent");
 }
 
 export interface SmartVsRetailRow {

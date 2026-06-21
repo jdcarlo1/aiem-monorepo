@@ -5389,10 +5389,19 @@ function CallIntentTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
   const [scanned, setScanned] = useState(0);
   const [lastRun, setLastRun] = useState<Date | null>(null);
   const [saved, setSaved] = useState<Record<string, boolean>>({});
-  const run = async () => {
-    setLoading(true);
-    try { const d = await fetchCallIntent(); setResults(d.results); setScanned(d.scanned); setLastRun(new Date()); }
-    catch {} finally { setLoading(false); }
+  const run = async (isRetry = false) => {
+    if (!isRetry) setLoading(true);
+    try {
+      const d = await fetchCallIntent();
+      setResults(d.results);
+      setScanned(d.scanned);
+      setLastRun(new Date());
+      if (d.generating && d.results.length === 0) {
+        setTimeout(() => run(true), 10000);
+        return;
+      }
+    }
+    catch {} finally { if (!isRetry) setLoading(false); }
   };
   useEffect(() => { run(); }, []);
   const handleSave = async (e: React.MouseEvent, r: CallIntentRow) => {
