@@ -9833,7 +9833,7 @@ function ShortCallRecordTab() {
   const [data, setData]       = useState<AIShortCallLogResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState<string>("latest");
+  const [dateFilter, setDateFilter] = useState<string>("all");
   const [expanded, setExpanded]     = useState<number | null>(null);
 
   const load = async () => {
@@ -9846,7 +9846,7 @@ function ShortCallRecordTab() {
 
   const allPicks    = data?.picks ?? [];
   const uniqueDates = Array.from(new Set(allPicks.map(p => p.trade_date))).sort((a, b) => b.localeCompare(a));
-  const activeDate  = dateFilter === "latest" ? (uniqueDates[0] ?? null) : dateFilter;
+  const activeDate  = dateFilter === "all" ? null : (dateFilter === "latest" ? (uniqueDates[0] ?? null) : dateFilter);
   const picks       = allPicks.filter(p => activeDate === null || p.trade_date === activeDate);
 
   const pctFmt = (v: number | null) => v === null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
@@ -9933,6 +9933,10 @@ function ShortCallRecordTab() {
         <div style={{ marginBottom: 14 }}>
           <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 6 }}>FILTER BY DATE</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => setDateFilter("all")}
+              style={{ background: activeDate === null ? "#22c55e22" : "transparent", border: `1px solid ${activeDate === null ? BB_GREEN : BB_BORDER}`, color: activeDate === null ? BB_GREEN : BB_LABEL, padding: "4px 12px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.08em", fontWeight: activeDate === null ? 700 : 400 }}>
+              ALL DATES
+            </button>
             {uniqueDates.map(d => (
               <button key={d} onClick={() => setDateFilter(d)}
                 style={{ background: activeDate === d ? "#22c55e22" : "transparent", border: `1px solid ${activeDate === d ? BB_GREEN : BB_BORDER}`, color: activeDate === d ? BB_GREEN : BB_LABEL, padding: "4px 12px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.08em" }}>
@@ -10009,7 +10013,7 @@ function TrackRecordTab() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<"ALL" | "AI_TRADE" | "MULTI_SIGNAL" | "BOTH">("ALL");
-  const [dateFilter, setDateFilter]     = useState<string>("latest");
+  const [dateFilter, setDateFilter]     = useState<string>("all");
   const [expanded, setExpanded] = useState<number | null>(null);
 
   const load = async () => {
@@ -10027,7 +10031,7 @@ function TrackRecordTab() {
 
   const allTrades = data?.trades ?? [];
   const uniqueDates = Array.from(new Set(allTrades.map(t => t.trade_date))).sort((a, b) => b.localeCompare(a));
-  const activeDateFilter = dateFilter === "latest" ? (uniqueDates[0] ?? null) : dateFilter;
+  const activeDateFilter = dateFilter === "all" ? null : (dateFilter === "latest" ? (uniqueDates[0] ?? null) : dateFilter);
   const trades = allTrades
     .filter(t => activeDateFilter === null || t.trade_date === activeDateFilter)
     .filter(t => sourceFilter === "ALL" || t.source === sourceFilter);
@@ -10122,6 +10126,13 @@ function TrackRecordTab() {
         <div style={{ marginBottom: 14 }}>
           <div style={{ color: BB_LABEL, fontSize: 8, letterSpacing: "0.1em", marginBottom: 6 }}>FILTER BY DATE</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => setDateFilter("all")} style={{
+              background: activeDateFilter === null ? "rgba(34,197,94,0.12)" : "transparent",
+              border: `1px solid ${activeDateFilter === null ? "#22c55e" : BB_BORDER}`,
+              color: activeDateFilter === null ? BB_GREEN : BB_LABEL,
+              padding: "5px 12px", fontFamily: BB_FONT, fontSize: 9,
+              fontWeight: activeDateFilter === null ? 700 : 400, cursor: "pointer", letterSpacing: "0.06em",
+            }}>ALL DATES</button>
             {uniqueDates.map(d => {
               const isActive = activeDateFilter === d;
               const label = new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });

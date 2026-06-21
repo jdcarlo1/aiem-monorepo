@@ -11823,7 +11823,7 @@ def bull_flow_history():
             FROM signal_outcomes
             WHERE call_put_ratio >= 2
             ORDER BY signal_date DESC, call_put_ratio DESC
-            LIMIT 500
+            LIMIT 3000
         """)
         rows = cur.fetchall()
         cur.close()
@@ -13012,7 +13012,7 @@ def ai_thesis():
 @app.route("/stock-api/outcomes", methods=["GET"])
 def signal_outcomes_route():
     """Return stored bull-flow signals with T+3, T+5, T+10 price outcomes."""
-    outcomes = get_signal_outcomes(limit=60)
+    outcomes = get_signal_outcomes(limit=500)
 
     # Compute win rates
     t3_results  = [o["t3_win"]  for o in outcomes if o["t3_win"]  is not None]

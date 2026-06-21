@@ -220,19 +220,20 @@ def update_signal_outcome_prices():
         print(f"[signal_outcomes] update_signal_outcome_prices error: {e}")
 
 
-def get_signal_outcomes(limit: int = 60) -> list:
+def get_signal_outcomes(limit: int = 500) -> list:
     """
     Return stored signals with T+3, T+5, T+10 price outcomes.
     Reads from pre-computed DB columns — no live yfinance calls.
     Only returns signals where at least T+3 trading days have elapsed
     AND t3_price has been filled by the daily updater.
+    Default limit raised to 500 so all weeks of history are visible, not just ~1-2 days.
     """
     if not DATABASE_URL:
         return []
     try:
         conn = _connect()
         cur = conn.cursor()
-        cutoff = (_et_today() - timedelta(days=45)).isoformat()
+        cutoff = (_et_today() - timedelta(days=90)).isoformat()
         cur.execute("""
             SELECT ticker, signal_date, price_at_signal,
                    call_put_ratio, premium_m, strike, expiry,
