@@ -6879,7 +6879,7 @@ function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
   type FilterType = "ALL" | "SQUEEZE" | "LOW_FLOAT" | "BOTH";
   type AILevel = "CRITICAL" | "HIGH" | "WATCH" | "NOISE";
 
-  const [data, setData]       = useState<{ setups: SqueezeSetupRow[]; total: number; scanned: number } | null>(null);
+  const [data, setData]       = useState<{ setups: SqueezeSetupRow[]; total: number; scanned: number; stale?: boolean; note?: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter]   = useState<FilterType>("ALL");
   const [aiResult, setAiResult] = useState<Array<{ ticker: string; signal: AILevel; thesis: string; confidence: number }> | null>(null);
@@ -7016,9 +7016,23 @@ function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
           Scanning 473 tickers for short interest + float data… ~45s
         </div>
       )}
+      {/* Stale banner — market closed, showing saved Friday data */}
+      {data?.stale && (
+        <div style={{ marginBottom: 14, padding: "10px 16px", background: "rgba(251,191,36,0.08)",
+          border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10, fontFamily: BB_F }}>
+          <span style={{ fontSize: 14 }}>📅</span>
+          <span style={{ color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>Market closed — showing last scan</span>
+          <span style={{ color: "#64748b", fontSize: 10 }}>
+            · Live signals appear Mon–Fri 9:30 AM–4 PM ET · {data.note ?? "Updates automatically when market opens"}
+          </span>
+        </div>
+      )}
+
       {!loading && data && filtered.length === 0 && (
         <div style={{ textAlign: "center", padding: "60px 0", color: "#475569", fontFamily: BB_F, fontSize: 13 }}>
-          No setups match this filter. Try "All Setups" or refresh during market hours.
+          {data.stale
+            ? "No setups found in last scan — check back when the market opens for fresh signals."
+            : `No setups match this filter. Try "All Setups" or refresh during market hours.`}
         </div>
       )}
       {!loading && !data && loadErr && <TabLoadFailed msg={loadErr} onRetry={() => load()} />}
@@ -13455,21 +13469,38 @@ function ShortSqueezeTab() {
         </div>
       )}
 
+      {/* Stale banner — market closed, showing saved Friday data */}
+      {data?.stale && (
+        <div style={{ marginBottom: 14, padding: "10px 16px", background: "rgba(251,191,36,0.08)",
+          border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 14 }}>📅</span>
+          <span style={{ fontFamily: BB_F, color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>
+            {data.stale_label ?? "Market closed"}
+          </span>
+          <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 10 }}>
+            · Live signals appear Mon–Fri 9:30 AM–4 PM ET · {data.note ?? "Refreshes automatically when market opens"}
+          </span>
+        </div>
+      )}
+
       {/* Empty state */}
       {data && data.candidates.length === 0 && !loading && (
         <div style={{ background: "rgba(15,23,42,0.6)", border: "1px solid rgba(51,65,85,0.4)",
           borderRadius: 12, padding: "36px 24px", textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 6 }}>
-            No active squeezes right now
+            {data.stale ? "No squeezes found in last scan" : "No active squeezes right now"}
           </div>
           <div style={{ fontSize: 11, color: "#334155", lineHeight: 1.8, maxWidth: 400, margin: "0 auto" }}>
-            When a heavily shorted stock breaks above its 15-day range with 2×+ volume
-            and 3%+ price move all on the same day — it appears here automatically.
-            <br/>
-            <span style={{ color: "#1e3a5f" }}>
-              Scanned {data.scanned} ticker{data.scanned !== 1 ? "s" : ""} from recent EOD accum + standout flow.
-            </span>
+            {data.stale
+              ? "The most recent market-hours scan found no stocks meeting all 5 gates. Check back when the market opens for fresh signals."
+              : <>When a heavily shorted stock breaks above its 15-day range with 2×+ volume
+                and 3%+ price move all on the same day — it appears here automatically.
+                <br/>
+                <span style={{ color: "#1e3a5f" }}>
+                  Scanned {data.scanned} ticker{data.scanned !== 1 ? "s" : ""} from recent EOD accum + standout flow.
+                </span></>
+            }
           </div>
         </div>
       )}

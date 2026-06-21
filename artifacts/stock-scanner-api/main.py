@@ -21716,6 +21716,22 @@ def short_squeeze_radar():
     if _sq_rad_cache and _sq_rad_ts and (_dt_sq.datetime.now() - _sq_rad_ts).total_seconds() < 3600:
         return jsonify(_sq_rad_cache)
 
+    # Market closed — serve Friday's saved scan from DB instead of running live gates
+    if not _intraday_scan_allowed():
+        _sq_rad_db = _load_scan_cache("squeeze-radar", days_back=5)
+        if _sq_rad_db:
+            app._sq_rad_cache = _sq_rad_db
+            app._sq_rad_ts    = _dt_sq.datetime.now()
+            return jsonify({**_sq_rad_db, "stale": True,
+                            "stale_label": f"Last market scan · {_sq_rad_db.get('as_of', 'recent')}"})
+        if _sq_rad_cache:
+            return jsonify({**_sq_rad_cache, "stale": True,
+                            "stale_label": f"Last market scan · {_sq_rad_cache.get('as_of', 'recent')}"})
+        return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
+                        "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET"),
+                        "stale": True,
+                        "note": "No scan data yet — first run occurs during market hours (Mon–Fri 9:30 AM–4 PM ET)"})
+
     try:
         _today_sq    = _et_today()
         _lookback_sq = (_today_sq - _dt_sq.timedelta(days=5)).isoformat()
@@ -21837,6 +21853,8 @@ def short_squeeze_radar():
         }
         app._sq_rad_cache = _sq_rad_out
         app._sq_rad_ts    = _dt_sq.datetime.now()
+        if _cands_sq:
+            _save_scan_cache("squeeze-radar", _sq_rad_out)
         return jsonify(_sq_rad_out)
 
     except Exception as _e_sq:

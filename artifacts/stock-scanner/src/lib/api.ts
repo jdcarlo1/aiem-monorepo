@@ -2097,6 +2097,9 @@ export interface ShortSqueezeData {
   total_found: number;
   scanned: number;
   as_of: string;
+  stale?: boolean;
+  note?: string;
+  stale_label?: string;
 }
 export function fetchShortSqueeze() {
   return fetchJson<ShortSqueezeData>("/short-squeeze");
