@@ -48,3 +48,15 @@ id = "H3LS7GdErT8UuxsPADGAk"
 uri = "file://screenshots/comparison_card.jpg"
 type = "image"
 title = "StockScanner AI — Final Card (iPhone 16 Plus fit)"
+
+[[outputs]]
+id = "0Io0FSFSziWVjS0myLugj"
+uri = "file://screenshots/reel_slide1.jpg"
+type = "image"
+title = "Slide 1 of 2 — The $642 Problem"
+
+[[outputs]]
+id = "NVtKoafMnT6BX8SEsRgrd"
+uri = "file://screenshots/reel_slide2.jpg"
+type = "image"
+title = "Slide 2 of 2 — The $397 Solution"
