@@ -12947,6 +12947,14 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
       </div>
 
+      {/* Stale data banner */}
+      {data?.stale && (
+        <div className="bg-amber-950/40 border border-amber-800/50 rounded-xl px-4 py-3 flex items-center gap-2 text-amber-300 text-sm">
+          <span>⏸</span>
+          <span>{data.note ?? "Market closed — showing last scan"}</span>
+        </div>
+      )}
+
       {/* ── Flow Intelligence Panel ─────────────────────────────────────────── */}
       {(aiSignals || aiLoading || aiError) && (
         <div className="bg-[#0f0a1e] border border-violet-900/60 rounded-xl p-5 shadow-lg shadow-violet-950/30">
@@ -13081,8 +13089,8 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
       {loading && !lastRun && (
         <div className="text-center py-16 text-slate-500">
           <Spinner />
-          <div className="mt-4 text-sm">Fetching up to 60 days of history for 473+ stocks…</div>
-          <div className="text-xs mt-1 text-slate-600">First load takes 90–120 seconds — detecting 1-week, 2-week, and 3-week streaks</div>
+          <div className="mt-4 text-sm">Loading accumulation data…</div>
+          <div className="text-xs mt-1 text-slate-600">Serving cached scan · background refresh runs in 2–3 min on first market-day open</div>
         </div>
       )}
 

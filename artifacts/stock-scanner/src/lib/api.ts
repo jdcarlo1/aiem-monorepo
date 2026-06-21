@@ -1852,6 +1852,8 @@ export interface NetFlowStreakResult {
   results: NetFlowStreakRow[];
   scanned: number;
   found:   number;
+  stale?:  boolean;
+  note?:   string;
 }
 
 export function fetchNetFlowMultiday() {

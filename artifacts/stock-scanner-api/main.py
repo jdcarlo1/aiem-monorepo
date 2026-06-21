@@ -1636,6 +1636,24 @@ try:
         id="eod_sweep_outcomes",
         replace_existing=True,
     )
+    # Multiday flow streak scan: Mon-Fri 4:40 PM ET — pre-populates DB so the
+    # Flow Streak tab serves instantly on weekends/restarts (no live yfinance hang).
+    def _run_multiday_streak_eod():
+        try:
+            out = _run_multiday_flow_scan()
+            app._nfmd_cache    = out
+            app._nfmd_cache_ts = __import__("datetime").datetime.now()
+            app._nfmd_scanning = False
+            _save_scan_cache("net_flow_multiday", out)
+            print(f"[scheduler] multiday streak EOD scan saved {out.get('found', 0)} results")
+        except Exception as e:
+            print(f"[scheduler] multiday streak EOD scan error: {e}")
+    _scheduler.add_job(
+        _run_multiday_streak_eod,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=40, timezone=_ET),
+        id="multiday_streak_eod",
+        replace_existing=True,
+    )
     # EOD sweep auto-log: Mon-Fri 4:20 PM ET — ensures track record is populated without
     # anyone needing to visit the tab.  Busts the cache then calls the route directly.
     def _auto_log_eod_sweeps():
@@ -12587,29 +12605,64 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
 
 @app.route("/stock-api/net-flow/multiday", methods=["POST", "GET"])
 def net_flow_multiday():
-    """Multi-day accumulation streak scan. Cached for 2 hours (daily data)."""
+    """Multi-day accumulation streak scan. DB-backed + in-memory cache; non-blocking."""
     from datetime import datetime as _dt
 
     if not hasattr(app, "_nfmd_lock"):
-        app._nfmd_lock = threading.Lock()
+        app._nfmd_lock     = threading.Lock()
+        app._nfmd_scanning = False
 
-    _CACHE_TTL = 7200   # 2 hours — daily candles change slowly
+    _CACHE_TTL = 7200  # 2 hours — daily candles change slowly
 
+    # ── 1. Hot in-memory cache ────────────────────────────────────────────────
     _cache = getattr(app, "_nfmd_cache", None)
     _ts    = getattr(app, "_nfmd_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
         return jsonify(_cache)
 
+    # ── 2. Background scan (saves to in-memory + DB when done) ────────────────
+    def _bg_scan():
+        try:
+            out = _run_multiday_flow_scan()
+            app._nfmd_cache    = out
+            app._nfmd_cache_ts = _dt.now()
+            _save_scan_cache("net_flow_multiday", out)
+        finally:
+            app._nfmd_scanning = False
+
+    # ── 3. Market closed → serve DB cache immediately, never live-scan ────────
+    if not _intraday_scan_allowed():
+        db = _load_scan_cache("net_flow_multiday", days_back=7)
+        if db:
+            resp = dict(db)
+            resp["stale"] = True
+            resp["note"]  = "Market closed — showing last scan"
+            return jsonify(resp)
+        return jsonify({"results": [], "scanned": 0, "found": 0,
+                        "stale": True, "note": "No scan data yet — will populate on next market day"})
+
+    # ── 4. Market open — kick off bg scan; serve stale DB data immediately ────
     with app._nfmd_lock:
+        # Re-check in-memory after lock
         _cache = getattr(app, "_nfmd_cache", None)
         _ts    = getattr(app, "_nfmd_cache_ts", None)
         if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
             return jsonify(_cache)
 
-        out = _run_multiday_flow_scan()
-        app._nfmd_cache    = out
-        app._nfmd_cache_ts = _dt.now()
-        return jsonify(out)
+        db = _load_scan_cache("net_flow_multiday", days_back=7)
+
+        if not getattr(app, "_nfmd_scanning", False):
+            app._nfmd_scanning = True
+            threading.Thread(target=_bg_scan, daemon=True).start()
+
+        if db:
+            resp = dict(db)
+            resp["stale"] = True
+            resp["note"]  = "Refreshing in background (2–3 min) — showing last scan"
+            return jsonify(resp)
+
+        return jsonify({"results": [], "scanned": 0, "found": 0,
+                        "stale": True, "note": "Scan started — check back in 2–3 minutes"})
 
 
 # ── AI Signal Analysis ────────────────────────────────────────────────────────
