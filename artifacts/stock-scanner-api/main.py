@@ -18751,7 +18751,7 @@ def multi_signal_convergence():
             return jsonify({**_ms_db, "stale": True})
         if _cache:
             return jsonify({**_cache, "stale": True})
-        return jsonify({"results": [], "total": 0, "scanned": 0, "stale": True,
+        return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
                         "note": "market closed — no scan data yet for this week"})
 
     SIGNAL_DEFS = [
@@ -19705,7 +19705,7 @@ def squeeze_setup():
             return jsonify({**_sq_db, "stale": True})
         if _cache:
             return jsonify({**_cache, "stale": True})
-        return jsonify({"results": [], "total": 0, "scanned": 0, "stale": True,
+        return jsonify({"setups": [], "total": 0, "scanned": 0, "stale": True,
                         "note": "market closed — no scan data yet for this week"})
 
     # Return stale cache immediately while background thread refreshes
