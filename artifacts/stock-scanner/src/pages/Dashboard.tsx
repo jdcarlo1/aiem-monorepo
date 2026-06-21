@@ -14620,9 +14620,6 @@ export default function Dashboard() {
         {tab === "standouttrack"  && <StandoutTrackTab />}
         {tab === "ics"            && <InstitutionalConvictionScore />}
         {tab === "nanomorning"    && <NanoMorningTab onSelectTicker={selectTicker} />}
-        {tab === "multidayrunner" && <MultidayRunnerTab onSelectTicker={selectTicker} />}
-        {tab === "runneroutcomes" && <RunnerOutcomesTab onSelectTicker={selectTicker} />}
-
         {/* ── Runner Outcomes Tab Component ── */}
         {(() => {
           function RunnerOutcomesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
