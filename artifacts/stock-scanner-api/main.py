@@ -993,10 +993,61 @@ try:
         replace_existing=True,
     )
 
+    # ── Polygon option-chain snapshot (primary feed) ──────────────────────────
+    # One REST call per ticker returns ALL call contracts across ALL expirations.
+    # This replaces N Yahoo requests (one per expiry) and eliminates IP throttling.
+    # Returns list of row-dicts on success, None if Polygon unavailable/key missing.
+    def _polygon_fetch_calls(ticker: str, max_exp_days: int = 45) -> list | None:
+        import os as _pg_os, requests as _pg_req
+        from datetime import datetime as _pg_dt, timedelta as _pg_td
+        _key = _pg_os.environ.get("POLYGON_API_KEY", "")
+        if not _key:
+            return None
+        try:
+            today  = _pg_dt.now().strftime("%Y-%m-%d")
+            maxexp = (_pg_dt.now() + _pg_td(days=max_exp_days)).strftime("%Y-%m-%d")
+            rows, url = [], f"https://api.polygon.io/v3/snapshot/options/{ticker}"
+            params = {
+                "contract_type": "call",
+                "expiration_date.gte": today,
+                "expiration_date.lte": maxexp,
+                "limit": 250,
+                "apiKey": _key,
+            }
+            while url:
+                resp = _pg_req.get(url, params=params, timeout=8)
+                if resp.status_code == 403:
+                    print(f"[polygon] 403 on {ticker} — check API key/plan")
+                    return None
+                if resp.status_code != 200:
+                    return None
+                data = resp.json()
+                for c in (data.get("results") or []):
+                    det = c.get("details") or {}
+                    day = c.get("day") or {}
+                    ua  = c.get("underlying_asset") or {}
+                    rows.append({
+                        "strike":            float(det.get("strike_price") or 0),
+                        "expiry":            str(det.get("expiration_date") or ""),
+                        "volume":            int(day.get("volume") or 0),
+                        "openInterest":      int(c.get("open_interest") or 0),
+                        "impliedVolatility": float(c.get("implied_volatility") or 0),
+                        "lastPrice":         float(day.get("close") or day.get("last_price") or 0),
+                        "underlying_price":  float(ua.get("price") or 0),
+                    })
+                next_url = data.get("next_url")
+                url    = next_url if next_url else None
+                params = {"apiKey": _key} if next_url else {}
+            return rows
+        except Exception as _e:
+            print(f"[polygon] error {ticker}: {_e}")
+            return None
+
     # EOD unusual-calls auto-scan — populates unusual_calls_log so the EOD SWEEP tab
     # has data without a user needing to manually open the Unusual Calls tab first.
     def _run_unusual_calls_scan(label: str):
-        if not _intraday_scan_allowed():
+        _force = label in ("manual-trigger", "admin-eod")
+        if not _intraday_scan_allowed() and not _force:
             print(f"[scheduler] unusual-calls ({label}) skipped — market closed (holiday/weekend)")
             return
         try:
@@ -1015,13 +1066,70 @@ try:
             def _scan_one(ticker):
                 hits = []
                 try:
-                    _YF_RATE_LIMITER.acquire()   # global 3-req/sec cap — prevents Yahoo throttle
-                    is_etf  = ticker in _ETF_SET
-                    min_voi = 1.5 if is_etf else 2.0   # lowered: 3x was too strict
-                    min_prem= 50_000 if is_etf else 20_000  # small-cap: even $20K is meaningful
-                    max_exp = 60 if is_etf else 45
                     from datetime import datetime as _dt2
-                    tk = yf.Ticker(ticker)
+                    is_etf   = ticker in _ETF_SET
+                    min_voi  = 1.5 if is_etf else 2.0
+                    min_prem = 50_000 if is_etf else 20_000
+                    max_exp  = 60 if is_etf else 45
+                    price    = 0.0
+
+                    # ── Polygon primary path (1 call = all expirations) ──────────
+                    pg_rows = _polygon_fetch_calls(ticker, max_exp_days=max_exp)
+                    if pg_rows is not None:
+                        # Starter plan: underlying_asset.price is None — fetch via prev-agg
+                        for r in pg_rows:
+                            p = float(r.get("underlying_price") or 0)
+                            if p > 0:
+                                price = p
+                                break
+                        if not price:
+                            import os as _pg2_os, requests as _pg2_req
+                            _pg2_key = _pg2_os.environ.get("POLYGON_API_KEY", "")
+                            try:
+                                _pr = _pg2_req.get(
+                                    f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev",
+                                    params={"adjusted": "true", "apiKey": _pg2_key},
+                                    timeout=5,
+                                )
+                                if _pr.status_code == 200:
+                                    _res = (_pr.json().get("results") or [{}])[0]
+                                    price = float(_res.get("c") or _res.get("vw") or 0)
+                            except Exception:
+                                pass
+                        if not price:
+                            return hits
+                        for row in pg_rows:
+                            try:
+                                vol  = int(row.get("volume") or 0)
+                                oi   = int(row.get("openInterest") or 0)
+                                if oi < 10 or vol < 10: continue
+                                voi  = vol / oi
+                                if voi < min_voi: continue
+                                strike = float(row["strike"])
+                                exp    = str(row["expiry"])
+                                if not exp: continue
+                                days   = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
+                                if not (1 <= days <= max_exp): continue
+                                otm_pct = round((strike - price) / price * 100, 2)
+                                if otm_pct < -5 or otm_pct > 40: continue
+                                mid  = float(row.get("lastPrice") or 0)
+                                prem = int(mid * vol * 100)
+                                if prem < min_prem: continue
+                                iv   = round(float(row.get("impliedVolatility") or 0) * 100, 1)
+                                urgency = "EXPIRING" if days <= 3 else "SHORT" if days <= 7 else "NEAR"
+                                pre_positioned = bool(oi > 0 and vol < oi * 0.5 and oi >= 100)
+                                hits.append({"ticker": ticker, "price": price, "strike": strike,
+                                             "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
+                                             "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
+                                             "iv": iv, "urgency": urgency,
+                                             "pre_positioned": pre_positioned, "last_trade": ""})
+                            except Exception: pass
+                        return hits
+
+                    # ── Yahoo fallback (only used when Polygon key missing/error) ─
+                    _YF_RATE_LIMITER.acquire()
+                    import yfinance as _yf_fb
+                    tk = _yf_fb.Ticker(ticker)
                     price = float(getattr(tk.fast_info, "last_price", 0) or 0)
                     if not price:
                         _yf_note_silent_throttle()
@@ -1047,7 +1155,6 @@ try:
                                 if prem < min_prem: continue
                                 iv = round(float(row.get("impliedVolatility") or 0) * 100, 1)
                                 urgency = "EXPIRING" if days <= 3 else "SHORT" if days <= 7 else "NEAR"
-                                # pre_positioned: OI >> vol means position was accumulated BEFORE today
                                 pre_positioned = bool(oi > 0 and vol < oi * 0.5 and oi >= 100)
                                 ldt = row.get("lastTradeDate")
                                 last_trade = str(ldt)[:10] if ldt is not None else ""
@@ -18240,35 +18347,99 @@ def admin_run_eod_scan():
                     "USO","UNG","GDX","GDXJ","OIH","TLT","HYG","LQD","TBT","TMF",
                     "EEM","EFA","FXI","EWJ","EWZ","EWY","IEMG","ARKK","IBIT","FBTC","SPCX",
                 }
-                from datetime import datetime as _dt2
+                import os as _adm_os, requests as _adm_req
+                from datetime import datetime as _dt2, timedelta as _adm_td
+                def _adm_polygon_calls(ticker, max_exp_days):
+                    _key = _adm_os.environ.get("POLYGON_API_KEY", "")
+                    if not _key: return None
+                    try:
+                        today  = _dt2.now().strftime("%Y-%m-%d")
+                        maxexp = (_dt2.now() + _adm_td(days=max_exp_days)).strftime("%Y-%m-%d")
+                        rows, url = [], f"https://api.polygon.io/v3/snapshot/options/{ticker}"
+                        params = {"contract_type":"call","expiration_date.gte":today,"expiration_date.lte":maxexp,"limit":250,"apiKey":_key}
+                        while url:
+                            resp = _adm_req.get(url, params=params, timeout=8)
+                            if resp.status_code != 200: return None
+                            data = resp.json()
+                            for c in (data.get("results") or []):
+                                det = c.get("details") or {}
+                                day = c.get("day") or {}
+                                rows.append({"strike":float(det.get("strike_price") or 0),"expiry":str(det.get("expiration_date") or ""),
+                                             "volume":int(day.get("volume") or 0),"openInterest":int(c.get("open_interest") or 0),
+                                             "impliedVolatility":float(c.get("implied_volatility") or 0),"lastPrice":float(day.get("close") or 0),
+                                             "underlying_price":float((c.get("underlying_asset") or {}).get("price") or 0)})
+                            next_url = data.get("next_url")
+                            url = next_url if next_url else None
+                            params = {"apiKey": _key} if next_url else {}
+                        return rows
+                    except Exception: return None
+
                 def _scan_one(ticker):
                     _hits = []
                     try:
-                        _YF_RATE_LIMITER.acquire()
-                        is_etf  = ticker in _ETF_SET_LOCAL
-                        min_voi = 1.5 if is_etf else 2.0
+                        is_etf   = ticker in _ETF_SET_LOCAL
+                        min_voi  = 1.5 if is_etf else 2.0
                         min_prem = 50_000 if is_etf else 20_000
-                        max_exp = 60 if is_etf else 45
+                        max_exp  = 60 if is_etf else 45
+                        price    = 0.0
+                        pg_rows  = _adm_polygon_calls(ticker, max_exp)
+                        if pg_rows is not None:
+                            for r in pg_rows:
+                                p = float(r.get("underlying_price") or 0)
+                                if p > 0: price = p; break
+                            if not price:
+                                _key2 = _adm_os.environ.get("POLYGON_API_KEY","")
+                                try:
+                                    _pr = _adm_req.get(f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev",
+                                                       params={"adjusted":"true","apiKey":_key2}, timeout=5)
+                                    if _pr.status_code == 200:
+                                        price = float((_pr.json().get("results") or [{}])[0].get("c") or 0)
+                                except Exception: pass
+                            if not price: return _hits
+                            for row in pg_rows:
+                                try:
+                                    vol = int(row.get("volume") or 0); oi = int(row.get("openInterest") or 0)
+                                    if oi < 10 or vol < 10: continue
+                                    voi = vol / oi
+                                    if voi < min_voi: continue
+                                    strike = float(row["strike"]); exp = str(row["expiry"])
+                                    if not exp: continue
+                                    days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
+                                    if not (1 <= days <= max_exp): continue
+                                    otm_pct = round((strike - price) / price * 100, 2)
+                                    if otm_pct < -5 or otm_pct > 40: continue
+                                    mid = float(row.get("lastPrice") or 0)
+                                    prem = int(mid * vol * 100)
+                                    if prem < min_prem: continue
+                                    iv = round(float(row.get("impliedVolatility") or 0) * 100, 1)
+                                    urgency = "EXPIRING" if days <= 3 else "SHORT" if days <= 7 else "NEAR"
+                                    pre_positioned = bool(oi > 0 and vol < oi * 0.5 and oi >= 100)
+                                    _hits.append({"ticker": ticker, "price": price, "strike": strike,
+                                                  "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
+                                                  "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
+                                                  "iv": iv, "urgency": urgency, "pre_positioned": pre_positioned,
+                                                  "last_trade": ""})
+                                except Exception: pass
+                            return _hits
+                        # Yahoo fallback
+                        _YF_RATE_LIMITER.acquire()
                         tk = yf.Ticker(ticker)
                         price = float(getattr(tk.fast_info, "last_price", 0) or 0)
-                        if not price:
-                            return _hits
+                        if not price: return _hits
                         for exp in (tk.options or []):
                             days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
                             if not (1 <= days <= max_exp): continue
                             chain = tk.option_chain(exp).calls
                             for _, row in chain.iterrows():
                                 try:
-                                    vol = int(row.get("volume") or 0)
-                                    oi  = int(row.get("openInterest") or 0)
+                                    vol = int(row.get("volume") or 0); oi = int(row.get("openInterest") or 0)
                                     if oi < 10 or vol < 10: continue
                                     voi = vol / oi
                                     if voi < min_voi: continue
                                     strike = float(row["strike"])
                                     otm_pct = round((strike - price) / price * 100, 2)
                                     if otm_pct < -5 or otm_pct > 40: continue
-                                    bid = float(row.get("bid") or 0)
-                                    ask = float(row.get("ask") or 0)
+                                    bid = float(row.get("bid") or 0); ask = float(row.get("ask") or 0)
                                     mid = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
                                     prem = int(mid * vol * 100)
                                     if prem < min_prem: continue
