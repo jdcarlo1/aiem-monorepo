@@ -64,6 +64,17 @@ plan premised on "live OI."
 and blind spots; on June 16 2026 we established the polling ceiling, and in June
 2026 the user committed to Alpaca to power an accurate conviction score market-wide.
 
+## Production IP block (June 22 2026 — confirmed)
+Yahoo blocked the production server's IP for the ENTIRE AFTERNOON. Every ticker
+in every scan returned "circuit breaker open (Yahoo rate-limited)". Resetting the
+breaker + re-triggering manually did NOT help — Yahoo re-blocked within seconds of
+each attempt. SMCI (captured at 12:41 PM ET before the block) was the only name
+visible on the High Conviction tab all afternoon. **Do not tell the user manual
+scans will produce results when the production IP is Yahoo-blocked — they won't.
+The accumulation fix (June 22) ensures sweeps captured before the block persist all
+day, but cannot recover names Yahoo prevented from being scanned in the first place.
+The only real fix is Alpaca.**
+
 **How to apply:** when asked to widen coverage (more tickers/cap tiers), don't grow
 the polling universe — either (a) use screener calls for live breadth, or (b) build
 the Alpaca path. Sequence after the Reserved-VM republish; it rewires the data layer
