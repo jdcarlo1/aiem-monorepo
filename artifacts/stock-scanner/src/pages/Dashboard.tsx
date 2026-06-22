@@ -6134,7 +6134,7 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
       )}
 
       {/* Signal legend */}
-      {data && (
+      {data && data.signal_defs && (
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
           {Object.entries(data.signal_defs).map(([id, def]) => (
             <div key={id} title={def.desc} style={{ padding: "2px 8px", borderRadius: 99, fontSize: 9, fontFamily: BB, fontWeight: 700,

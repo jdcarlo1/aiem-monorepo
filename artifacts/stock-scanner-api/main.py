@@ -21300,6 +21300,47 @@ def eod_accumulation():
         app._eod_accum_cache_ts = _dt_ea.datetime.now()
         return jsonify(_empty_eod)
 
+    # ── Circuit breaker guard — Yahoo throttled → return last DB scan immediately ──
+    if _yf_breaker_open():
+        try:
+            with _pg_ea.connect(_DB_URL) as _cb_ea, _cb_ea.cursor() as _cub_ea:
+                _cub_ea.execute("""
+                    SELECT ticker, close_price, accum_score, eod_rel_vol, late_flow,
+                           closing_range, price_chg_pct, mkt_cap_m,
+                           COALESCE(signal_type,'accum') AS signal_type
+                    FROM eod_accum_picks
+                    ORDER BY scan_date DESC, accum_score DESC LIMIT 30
+                """)
+                _brk_rows = _cub_ea.fetchall()
+                _brk_cols = [d[0] for d in _cub_ea.description]
+        except Exception:
+            _brk_rows = []
+        if _brk_rows:
+            _brk_picks = [{"ticker": dict(zip(_brk_cols, r))["ticker"],
+                           "close": float(dict(zip(_brk_cols, r)).get("close_price") or 0),
+                           "prev_close": None, "day_high": None, "day_low": None,
+                           "accum_score": float(dict(zip(_brk_cols, r)).get("accum_score") or 0),
+                           "eod_rel_vol": float(dict(zip(_brk_cols, r)).get("eod_rel_vol") or 0),
+                           "late_flow": float(dict(zip(_brk_cols, r)).get("late_flow") or 0),
+                           "closing_range": float(dict(zip(_brk_cols, r)).get("closing_range") or 0),
+                           "price_chg_pct": float(dict(zip(_brk_cols, r)).get("price_chg_pct") or 0),
+                           "mkt_cap_m": float(dict(zip(_brk_cols, r)).get("mkt_cap_m") or 0),
+                           "news_type": "none", "news_headline": None,
+                           "signal_type": dict(zip(_brk_cols, r)).get("signal_type", "accum"),
+                           "pre_ignition_count": 0} for r in _brk_rows]
+            _brk_out = {"candidates": [r for r in _brk_picks if r["signal_type"] != "squeeze"][:15],
+                        "squeeze_setups": [r for r in _brk_picks if r["signal_type"] == "squeeze"][:10],
+                        "total_found": len(_brk_picks), "scanned": len(_brk_picks),
+                        "generated_at": "Stored (Yahoo throttled)",
+                        "note": "Showing last saved scan — Yahoo temporarily rate-limited"}
+            app._eod_accum_cache = _brk_out; app._eod_accum_cache_ts = _dt_ea.datetime.now()
+            return jsonify(_brk_out)
+        if _cache:
+            return jsonify({**_cache, "note": "Yahoo throttled — cached results"})
+        return jsonify({"candidates": [], "squeeze_setups": [], "total_found": 0, "scanned": 0,
+                        "generated_at": "Yahoo throttled",
+                        "note": "Yahoo rate-limited — data will refresh automatically"})
+
     # Build universe: watchlist + unusual calls today + Yahoo top-movers screener
     _ticker_set = set()
     try:
