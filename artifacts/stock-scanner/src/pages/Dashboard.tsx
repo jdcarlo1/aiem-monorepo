@@ -9663,9 +9663,20 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   const load = async (quiet = false, fallback?: boolean) => {
     if (typeof fallback === "boolean") fallbackRef.current = fallback;
     if (!quiet) setLoading(true);
-    setError(null);
-    try { setData(await fetchConvictionCalls(true, fallbackRef.current)); }
-    catch (e: any) { setError(e.message ?? "Failed to load"); }
+    // Only bypass the 15-min server cache on explicit (non-quiet) loads.
+    // Background polls (quiet=true) let the cache serve them — no more
+    // hammering the backend with force=1 every 60 seconds.
+    try {
+      const d = await fetchConvictionCalls(!quiet, fallbackRef.current);
+      setData(d);
+      setError(null);
+    }
+    catch (e: any) {
+      // On error, keep existing data visible — only surface the error if
+      // there is nothing to show at all, so a brief server hiccup doesn't
+      // blank the tab or alarm users.
+      setError(e.message ?? "Failed to load");
+    }
     finally { if (!quiet) setLoading(false); }
   };
 
@@ -9674,13 +9685,24 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
     setScanning(true);
     setError(null);
     try { await triggerConvictionScan(); } catch { /* fire and forget */ }
-    // Poll every 15s — scan takes ~2 min
     stopPoll();
-    pollRef.current = setInterval(() => { load(true); }, 15_000);
+    let pollAttempts = 0;
+    pollRef.current = setInterval(async () => {
+      pollAttempts++;
+      try {
+        const d = await fetchConvictionCalls(false, fallbackRef.current);
+        setData(d);
+        setError(null);
+        // Stop scanning as soon as fresh signals arrive or after 3 attempts
+        if ((d.signals?.length ?? 0) > 0 || pollAttempts >= 3) {
+          stopPoll(); setScanning(false);
+        }
+      } catch { /* keep polling */ }
+    }, 15_000);
     // Reload immediately once, then rely on polling
     await load(true);
-    // Stop polling after 3 minutes max
-    setTimeout(() => { stopPoll(); setScanning(false); }, 180_000);
+    // Hard stop after 45 seconds max — don't leave the badge spinning
+    setTimeout(() => { stopPoll(); setScanning(false); }, 45_000);
   };
 
   useEffect(() => {
@@ -9765,7 +9787,8 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
         <span style={{ color: BB_LABEL, fontSize: 9 }}>Score = Vol/OI × Premium × IV × Strike sweep count</span>
       </div>
 
-      {error && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
+      {error && !data?.signals?.length && <div style={{ color: BB_RED, fontSize: 10, marginBottom: 12 }}>ERROR: {error}</div>}
+      {error && (data?.signals?.length ?? 0) > 0 && <div style={{ color: "#fbbf24", fontSize: 9, marginBottom: 8, opacity: 0.7 }}>↺ Last refresh failed — showing cached data</div>}
 
       {loading && (
         <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 40 }}>SCANNING FOR HIGH-CONVICTION SWEEPS…</div>
