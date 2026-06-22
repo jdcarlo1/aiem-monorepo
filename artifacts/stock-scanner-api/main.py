@@ -1067,8 +1067,8 @@ try:
             #  2. today's top % gainers + most-active — catches catalyst moves early
             #  3. core leaderboard top 500 — fills out coverage
             _PRIORITY_FIRST = [
-                "SPY","QQQ","IWM","TSLA","NVDA","AAPL","MSFT","AMZN","META",
-                "AMD","GOOGL","COIN","MSTR","PLTR","ARM","HOOD","SPCX",
+                "TSLA","NVDA","AAPL","MSFT","AMZN","META",
+                "AMD","GOOGL","COIN","MSTR","PLTR","ARM","HOOD",
                 "MU","MRVL","WDC","SMCI","INTC","AVGO","NFLX","UBER",
             ]
             _earnings = _fetch_earnings_today()
