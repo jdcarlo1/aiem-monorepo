@@ -66,3 +66,9 @@ id = "ZbMnBsQnR--n_EVEcFD77"
 uri = "file://screenshots/analyst_team_card.jpg"
 type = "image"
 title = "StockScanner AI — 10 Analyst Team Card"
+
+[[outputs]]
+id = "ye2Dj0CrCj9d731S2Z93L"
+uri = "file://screenshots/multiweek_options_card.jpg"
+type = "image"
+title = "Prop-Desk Quality — 2-4 Week Options Card"
