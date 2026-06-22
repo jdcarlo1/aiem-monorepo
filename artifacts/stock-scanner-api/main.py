@@ -10093,13 +10093,21 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
     _force = set((t or "").upper() for t in (force_tickers or []))
 
     # ── Layer 1: OI Accumulation ──────────────────────────────────────────────
-    oi_sigs    = _get_oi_accumulation_signals(days_back=1)
+    # _get_oi_accumulation_signals returns (rows, day1_str, day2_str) — unpack
+    # so oi_sigs is only the list of row-tuples, not the full 3-tuple (which
+    # would cause the date string "2026-06-20" to be iterated char-by-char,
+    # unpacking '-' into oi_pct and crashing on float('-')).
+    oi_sigs, *_ = _get_oi_accumulation_signals(days_back=1)
+    if not isinstance(oi_sigs, list):
+        oi_sigs = []
     # ── Layer 3: Charm Cascade ────────────────────────────────────────────────
     charm_sigs = _get_charm_cascade_signals()
 
     scores: dict = {}
 
     for row in oi_sigs:
+        if not row or len(row) < 10:
+            continue
         ticker, price, strike, expiry, oi_t, oi_y, oi_chg, oi_pct, otm, days = row
         oi_f = float(oi_pct or 0)
         pts  = 2.0 if oi_f >= 50 else 1.5 if oi_f >= 25 else 1.0
@@ -10244,15 +10252,15 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
     for ticker, sweep in sweep_by_ticker.items():
         if ticker not in scores:
             scores[ticker] = {"price": float(sweep.get("price") or 0), "pts": {}, "meta": {}}
-        voi = float(sweep.get("vol_oi", 0))
+        voi = float(sweep.get("vol_oi") or 0)
         pts = 2.0 if voi >= 10 else 1.5 if voi >= 7 else 1.0
         scores[ticker]["pts"]["far_otm_sweep"]    = pts
         scores[ticker]["meta"]["sweep_voi"]       = round(voi, 1)
-        scores[ticker]["meta"]["sweep_prem"]      = int(sweep.get("prem", 0))
-        scores[ticker]["meta"]["sweep_otm"]       = round(float(sweep.get("otm_pct", 0)), 0)
-        scores[ticker]["meta"]["sweep_expiry"]    = str(sweep.get("expiry", ""))
-        scores[ticker]["meta"]["sweep_strike"]    = round(float(sweep.get("strike", 0) or 0), 2)
-        scores[ticker]["meta"]["sweep_seen"]      = str(sweep.get("last_seen_et", "") or "")
+        scores[ticker]["meta"]["sweep_prem"]      = int(sweep.get("prem") or 0)
+        scores[ticker]["meta"]["sweep_otm"]       = round(float(sweep.get("otm_pct") or 0), 0)
+        scores[ticker]["meta"]["sweep_expiry"]    = str(sweep.get("expiry") or "")
+        scores[ticker]["meta"]["sweep_strike"]    = round(float(sweep.get("strike") or 0), 2)
+        scores[ticker]["meta"]["sweep_seen"]      = str(sweep.get("last_seen_et") or "")
 
     # ── Layer 8: Sector Theme Correlation ─────────────────────────────────────
     sector_heat = _get_sector_heat(days_back=2)
@@ -11717,7 +11725,7 @@ def bull_flow_top10():
     # Outside market hours: skip live scan, serve last trading day's DB data directly.
     if not _intraday_scan_allowed():
         try:
-            with _psycopg2.connect(_DB_URL) as _bfnh, _bfnh.cursor() as _bfnhcur:
+            with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfnh, _bfnh.cursor() as _bfnhcur:
                 _bfnhcur.execute("""
                     SELECT DISTINCT ON (ticker)
                         ticker, price::float, strike::float, expiry,
@@ -11762,7 +11770,7 @@ def bull_flow_top10():
     # "Run Scan" returns in <1s instead of hanging for 2+ minutes then timing out.
     if _yf_breaker_open():
         try:
-            with _psycopg2.connect(_DB_URL) as _bfb, _bfb.cursor() as _bfbcur:
+            with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfb, _bfb.cursor() as _bfbcur:
                 _bfbcur.execute("""
                     SELECT DISTINCT ON (ticker)
                         ticker, price::float, strike::float, expiry,
@@ -11802,9 +11810,17 @@ def bull_flow_top10():
             return jsonify({"results": [], "returned": 0, "scanned": 0,
                             "stale": True, "error": str(_bfb_e)})
 
-    # Force a fresh Yahoo Finance crumb/session before bulk fetching
+    # Force a fresh Yahoo Finance session before bulk fetching
+    # Wrapped in try/except inside the thread to avoid AttributeError on older yfinance
     try:
-        yf.utils.get_crumb(reuse_session=False)
+        import threading as _bf_thr
+        def _refresh_crumb():
+            try:
+                yf.utils.get_crumb(reuse_session=False)
+            except Exception:
+                pass
+        _crumb_t = _bf_thr.Thread(target=_refresh_crumb, daemon=True)
+        _crumb_t.start(); _crumb_t.join(timeout=2)
     except Exception:
         pass
 
@@ -11880,21 +11896,25 @@ def bull_flow_top10():
             return None
 
     rows = []
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        futures = {ex.submit(_get_row, t): t for t in tickers}
-        for fut in as_completed(futures):
+    _bf_ex = ThreadPoolExecutor(max_workers=3)
+    _bf_futures = {_bf_ex.submit(_get_row, t): t for t in tickers}
+    try:
+        for fut in as_completed(_bf_futures, timeout=7):
             try:
-                r = fut.result(timeout=15)
+                r = fut.result(timeout=1)
                 if r:
                     rows.append(r)
             except Exception:
                 pass
+    except Exception:
+        pass  # timeout — fall through to DB merge below
+    _bf_ex.shutdown(wait=False, cancel_futures=True)  # don't block on slow yf calls
 
     # ── DB merge: fill in tickers the live scan missed. TODAY only (ET calendar
     # day) — this tab is labeled "Top Flow Today", so a rolling 48h merge would
     # surface yesterday's flow as today's. ──
     try:
-        with _psycopg2.connect(_DB_URL) as _bfc, _bfc.cursor() as _bfcur:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfc, _bfc.cursor() as _bfcur:
             _bfcur.execute("""
                 SELECT DISTINCT ON (ticker)
                     ticker, price::float, strike::float, expiry,
@@ -13587,6 +13607,12 @@ def premarket():
     if _cache and _ts and (_pdt.now() - _ts).total_seconds() < 1800:
         return jsonify(_cache)
 
+    # Circuit breaker: if Yahoo is throttled return last cache or graceful empty immediately
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"gainers": [], "losers": [], "scanned": 0, "stale": True})
+
     tickers = DEFAULT_LEADERBOARD[:35]
     results = []
 
@@ -13618,10 +13644,13 @@ def premarket():
 
     with ThreadPoolExecutor(max_workers=10) as ex:
         futures = {ex.submit(_get, t): t for t in tickers}
-        for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                results.append(r)
+        try:
+            for fut in as_completed(futures, timeout=12):
+                r = fut.result()
+                if r:
+                    results.append(r)
+        except Exception:
+            pass  # timeout — return whatever came back before the deadline
 
     results.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
     gainers = [r for r in results if r["change_pct"] > 0][:10]
@@ -17726,7 +17755,9 @@ def conviction_stack_endpoint():
             app._cs_stk_cache = _out
             app._cs_stk_ts    = _stk_dt.now()
         except Exception as _e:
-            print(f"[conviction-stack] bg error: {_e}", file=_sys.stderr)
+            import traceback as _tb
+            print(f"[conviction-stack] bg error: {_e}")
+            _tb.print_exc()
         finally:
             app._stk_scanning = False
 
@@ -19645,137 +19676,133 @@ Be direct, specific, and professional. No disclaimers."""
 def iv_rank():
     """IV rank (volatility rank) for a single ticker using options + historical price data."""
     ticker = (request.args.get("ticker") or "AAPL").upper().strip()
+    _iv_empty = {
+        "ticker": ticker, "price": None, "day_chg": None,
+        "hv30": None, "hv60": None, "hv90": None, "hv_min": None, "hv_max": None,
+        "hv_rank": None, "iv30": None, "iv_rank": None, "iv_hv_ratio": None,
+        "expiry_used": None, "stale": True,
+    }
     if _yf_breaker_open():
-        return jsonify({
-            "ticker": ticker, "price": None, "day_chg": None,
-            "hv30": None, "hv60": None, "hv90": None, "hv_min": None, "hv_max": None,
-            "hv_rank": None, "iv30": None, "iv_rank": None, "iv_hv_ratio": None,
-            "expiry_used": None, "stale": True,
-        })
-    try:
-        import yfinance as yf, numpy as np, math as _math
-        # _clean_float: safely convert any numeric scalar (numpy, Decimal, plain float)
-        # to a Python float, returning None for NaN/Inf/non-numeric.
-        def _clean_float(v):
-            if v is None: return None
-            try:
-                f = float(v)
-                return None if (_math.isnan(f) or _math.isinf(f)) else f
-            except Exception:
+        return jsonify(_iv_empty)
+
+    # All yfinance work runs in a background thread with a 10s hard deadline so
+    # a slow Yahoo response (3 sequential calls × 8s = 24s worst case) never
+    # blocks the Flask worker thread and hangs the tab.
+    def _compute():
+        try:
+            import yfinance as yf, numpy as np, math as _math
+            def _clean_float(v):
+                if v is None: return None
+                try:
+                    f = float(v)
+                    return None if (_math.isnan(f) or _math.isinf(f)) else f
+                except Exception:
+                    return None
+
+            tkr  = yf.Ticker(ticker)
+            hist = tkr.history(period="1y", interval="1d")
+            if hist is None or hist.empty or len(hist) < 31:
                 return None
 
-        tkr  = yf.Ticker(ticker)
-        hist = tkr.history(period="1y", interval="1d")
-        if hist is None or hist.empty or len(hist) < 31:
-            return jsonify({"error": "Not enough price history"}), 400
+            close_s = hist["Close"]
+            if hasattr(close_s, "squeeze"):
+                close_s = close_s.squeeze()
 
-        # Ensure "Close" is a 1-D Series (guard against MultiIndex edge cases)
-        close_s = hist["Close"]
-        if hasattr(close_s, "squeeze"):
-            close_s = close_s.squeeze()
+            log_ret = np.log(close_s / close_s.shift(1)).dropna()
+            hv30 = _clean_float(log_ret[-30:].std() * np.sqrt(252) * 100) if len(log_ret) >= 30 else None
+            hv60 = _clean_float(log_ret[-60:].std() * np.sqrt(252) * 100) if len(log_ret) >= 60 else None
+            hv90 = _clean_float(log_ret[-90:].std() * np.sqrt(252) * 100) if len(log_ret) >= 90 else None
 
-        # Calculate historical volatility (annualized) at multiple windows
-        log_ret = np.log(close_s / close_s.shift(1)).dropna()
-        hv30 = _clean_float(log_ret[-30:].std() * np.sqrt(252) * 100) if len(log_ret) >= 30 else None
-        hv60 = _clean_float(log_ret[-60:].std() * np.sqrt(252) * 100) if len(log_ret) >= 60 else None
-        hv90 = _clean_float(log_ret[-90:].std() * np.sqrt(252) * 100) if len(log_ret) >= 90 else None
+            rolling_hv30 = (log_ret.rolling(30).std() * np.sqrt(252) * 100).dropna()
+            if rolling_hv30.empty or len(rolling_hv30) < 2:
+                return None
+            hv_min = _clean_float(rolling_hv30.min())
+            hv_max = _clean_float(rolling_hv30.max())
+            if (hv_min is None or hv_max is None or not (hv_max > hv_min)):
+                return None
+            hv_rank = _clean_float((hv30 - hv_min) / (hv_max - hv_min) * 100) if hv30 is not None else None
 
-        # Rolling 30-day HV for each day in the past year → used for HV rank
-        rolling_hv30 = (log_ret.rolling(30).std() * np.sqrt(252) * 100).dropna()
-        if rolling_hv30.empty or len(rolling_hv30) < 2:
-            return jsonify({"error": "Not enough price history"}), 400
-        hv_min = _clean_float(rolling_hv30.min())
-        hv_max = _clean_float(rolling_hv30.max())
-        # NaN == NaN is False in Python; guard explicitly
-        if (hv_min is None or hv_max is None
-                or not (hv_max > hv_min)):
-            return jsonify({"error": "Not enough price history"}), 400
-        hv_rank = _clean_float((hv30 - hv_min) / (hv_max - hv_min) * 100) if hv30 is not None else None
+            iv30 = None
+            expiries = tkr.options
+            from datetime import datetime as _dt_iv, timedelta as _td_iv
+            _now_iv = _dt_iv.now()
+            _target_iv = _now_iv + _td_iv(days=30)
+            best_exp = None
+            best_diff = 9999
+            for exp in (expiries or []):
+                try:
+                    exp_dt = _dt_iv.strptime(exp, "%Y-%m-%d")
+                    diff = abs((exp_dt - _target_iv).days)
+                    if diff < best_diff and (exp_dt - _now_iv).days >= 7:
+                        best_diff = diff
+                        best_exp = exp
+                except Exception:
+                    pass
 
-        # Get current IV from options chain (ATM, nearest 30-45d expiry)
-        iv30 = None
-        expiries = tkr.options
-        from datetime import datetime, timedelta
-        now = datetime.now()
-        target = now + timedelta(days=30)
-        best_exp = None
-        best_diff = 9999
-        for exp in (expiries or []):
-            try:
-                exp_dt = datetime.strptime(exp, "%Y-%m-%d")
-                diff = abs((exp_dt - target).days)
-                if diff < best_diff and (exp_dt - now).days >= 7:
-                    best_diff = diff
-                    best_exp = exp
-            except Exception:
-                pass
+            if best_exp:
+                try:
+                    chain = tkr.option_chain(best_exp)
+                    fi    = tkr.fast_info
+                    spot  = float(getattr(fi, "last_price", 0) or 0)
+                    calls = chain.calls
+                    puts  = chain.puts
+                    if not calls.empty and spot > 0:
+                        calls["dist"] = (calls["strike"] - spot).abs()
+                        atm_call = calls.nsmallest(1, "dist")
+                        iv30_call = float(atm_call["impliedVolatility"].iloc[0]) * 100 if not atm_call.empty else None
+                        puts_f = puts.copy()
+                        puts_f["dist"] = (puts_f["strike"] - spot).abs()
+                        atm_put = puts_f.nsmallest(1, "dist")
+                        iv30_put = float(atm_put["impliedVolatility"].iloc[0]) * 100 if not atm_put.empty else None
+                        if iv30_call and iv30_put:
+                            iv30 = round((iv30_call + iv30_put) / 2, 1)
+                        elif iv30_call:
+                            iv30 = round(iv30_call, 1)
+                except Exception:
+                    pass
 
-        if best_exp:
-            try:
-                chain = tkr.option_chain(best_exp)
-                fi    = tkr.fast_info
-                spot  = float(getattr(fi, "last_price", 0) or 0)
-                calls = chain.calls
-                puts  = chain.puts
-                if not calls.empty and spot > 0:
-                    calls["dist"] = (calls["strike"] - spot).abs()
-                    atm_call = calls.nsmallest(1, "dist")
-                    iv30_call = float(atm_call["impliedVolatility"].iloc[0]) * 100 if not atm_call.empty else None
-                    puts_f = puts.copy()
-                    puts_f["dist"] = (puts_f["strike"] - spot).abs()
-                    atm_put = puts_f.nsmallest(1, "dist")
-                    iv30_put = float(atm_put["impliedVolatility"].iloc[0]) * 100 if not atm_put.empty else None
-                    if iv30_call and iv30_put:
-                        iv30 = round((iv30_call + iv30_put) / 2, 1)
-                    elif iv30_call:
-                        iv30 = round(iv30_call, 1)
-            except Exception:
-                pass
+            iv_hv_ratio = round(iv30 / hv30, 2) if iv30 and hv30 else None
+            fi    = tkr.fast_info
+            price = float(getattr(fi, "last_price", 0) or 0)
+            prev  = float(getattr(fi, "previous_close", 0) or 0)
+            day_chg = round((price - prev) / prev * 100, 2) if prev > 0 else 0
 
-        iv_hv_ratio = round(iv30 / hv30, 2) if iv30 and hv30 else None
+            iv_rank_val = None
+            if iv30 and hv_max > hv_min:
+                iv_rank_val = round((iv30 - hv_min) / (hv_max - hv_min) * 100, 1)
+                iv_rank_val = min(max(iv_rank_val, 0), 100)
 
-        fi = tkr.fast_info
-        price = float(getattr(fi, "last_price", 0) or 0)
-        prev  = float(getattr(fi, "previous_close", 0) or 0)
-        day_chg = round((price - prev) / prev * 100, 2) if prev > 0 else 0
+            import math as _m
+            def _n(v, d=1):
+                if v is None: return None
+                if isinstance(v, float) and (_m.isnan(v) or _m.isinf(v)): return None
+                return round(v, d)
 
-        # IV rank proxy: use IV vs rolling HV range as a volatility premium signal
-        iv_rank_val = None
-        if iv30 and hv_max > hv_min:
-            iv_rank_val = round((iv30 - hv_min) / (hv_max - hv_min) * 100, 1)
-            iv_rank_val = min(max(iv_rank_val, 0), 100)
+            return {
+                "ticker":      ticker,
+                "price":       _n(price, 2),
+                "day_chg":     _n(day_chg, 2),
+                "hv30":        _n(hv30, 1),
+                "hv60":        _n(hv60, 1),
+                "hv90":        _n(hv90, 1),
+                "hv_min":      _n(hv_min, 1),
+                "hv_max":      _n(hv_max, 1),
+                "hv_rank":     _n(hv_rank, 1),
+                "iv30":        _n(iv30, 1),
+                "iv_rank":     _n(iv_rank_val, 1),
+                "iv_hv_ratio": _n(iv_hv_ratio, 2),
+                "expiry_used": best_exp,
+            }
+        except Exception:
+            return None
 
-        # NaN guard: round() on NaN returns NaN → jsonify with allow_nan=False → 500
-        import math as _m
-        def _n(v, d=1):
-            if v is None: return None
-            if isinstance(v, float) and (_m.isnan(v) or _m.isinf(v)): return None
-            return round(v, d)
-
-        return jsonify({
-            "ticker":      ticker,
-            "price":       _n(price, 2),
-            "day_chg":     _n(day_chg, 2),
-            "hv30":        _n(hv30, 1),
-            "hv60":        _n(hv60, 1),
-            "hv90":        _n(hv90, 1),
-            "hv_min":      _n(hv_min, 1),
-            "hv_max":      _n(hv_max, 1),
-            "hv_rank":     _n(hv_rank, 1),
-            "iv30":        _n(iv30, 1),
-            "iv_rank":     _n(iv_rank_val, 1),
-            "iv_hv_ratio": _n(iv_hv_ratio, 2),
-            "expiry_used": best_exp,
-        })
-    except Exception as e:
-        # Graceful: never hard-500 the tab. Return a valid, empty-shaped payload so
-        # the UI shows "no data" instead of a failed fetch / infinite spinner.
-        return jsonify({
-            "ticker": ticker, "price": None, "day_chg": None,
-            "hv30": None, "hv60": None, "hv90": None, "hv_min": None, "hv_max": None,
-            "hv_rank": None, "iv30": None, "iv_rank": None, "iv_hv_ratio": None,
-            "expiry_used": None, "error": str(e),
-        })
+    import threading as _iv_thr_mod
+    _iv_out = [None]
+    def _iv_runner(): _iv_out[0] = _compute()
+    _t = _iv_thr_mod.Thread(target=_iv_runner, daemon=True)
+    _t.start()
+    _t.join(timeout=10)
+    return jsonify(_iv_out[0] if _iv_out[0] is not None else _iv_empty)
 
 
 IV_SCAN_TICKERS = [
@@ -21539,13 +21566,19 @@ def eod_accumulation():
         (_h_ea == 9 and _m_ea < 30)        # 9:00 – 9:29 AM
     )
     if _after_close:  # after market close, DB is authoritative — bust only clears in-memory cache
+        # Migration in its own connection with a 1s lock timeout so a table lock
+        # can never block the data SELECT below.
         try:
-            with _pg_ea.connect(_DB_URL) as _c_db, _c_db.cursor() as _cu_db:
-                # Ensure signal_type column exists (one-time migration)
-                _cu_db.execute(
+            with _pg_ea.connect(_DB_URL, connect_timeout=5) as _c_mig, _c_mig.cursor() as _cu_mig:
+                _cu_mig.execute("SET LOCAL lock_timeout = '1s'")
+                _cu_mig.execute(
                     "ALTER TABLE eod_accum_picks ADD COLUMN IF NOT EXISTS signal_type TEXT DEFAULT 'accum'"
                 )
-                _c_db.commit()
+                _c_mig.commit()
+        except Exception:
+            pass  # column already exists or lock held — non-fatal, COALESCE handles it
+        try:
+            with _pg_ea.connect(_DB_URL, connect_timeout=5) as _c_db, _c_db.cursor() as _cu_db:
                 _cu_db.execute("""
                     SELECT ticker, close_price, accum_score, eod_rel_vol, late_flow,
                            closing_range, price_chg_pct, mkt_cap_m, news_type, news_headline,
@@ -21613,7 +21646,7 @@ def eod_accumulation():
     # ── Circuit breaker guard — Yahoo throttled → return last DB scan immediately ──
     if _yf_breaker_open():
         try:
-            with _pg_ea.connect(_DB_URL) as _cb_ea, _cb_ea.cursor() as _cub_ea:
+            with _pg_ea.connect(_DB_URL, connect_timeout=5) as _cb_ea, _cb_ea.cursor() as _cub_ea:
                 _cub_ea.execute("""
                     SELECT ticker, close_price, accum_score, eod_rel_vol, late_flow,
                            closing_range, price_chg_pct, mkt_cap_m,
