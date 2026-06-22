@@ -91,7 +91,17 @@ full morning scan burst that Autoscale used to skip).
   squeeze-setup, 52week-breakout, composite-score, multi-signal (scan + macro
   refresh), earnings-calendar, conviction-stack, sector-rotation, darkpool,
   eod-accumulation, morning-runners, ai-short-calls, options-intent, insider/trades,
-  daily-top10, insider-radar.
+  daily-top10, insider-radar, vol-crush.
+
+  **vol-crush special case (fixed June 22 2026):** was the WORST offender — ran
+  `yf.download()` for 7 sector ETFs + ThreadPoolExecutor across DEFAULT_LEADERBOARD
+  ALL in the request thread (could take 60+ seconds). Fixed by wrapping the entire
+  scan (pre-fetch + TPE + DB enrichment + save) inside `_bg_vc()`.
+
+  **convergence special case (fixed June 22 2026):** `yf.utils.get_crumb(reuse_session=False)`
+  ran in the request thread BEFORE the `_yf_breaker_open()` check, causing a hang on
+  every hit when Yahoo was throttled. Fix: removed get_crumb from request thread;
+  added breaker check immediately after cache check.
 
   **Multi-signal macro fetch special case:** the macro signals (SPY/VIX/VIX3M/HYG)
   were fetched synchronously BEFORE starting the background scan thread. Fix: always

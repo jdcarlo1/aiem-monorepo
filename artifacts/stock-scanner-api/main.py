@@ -227,7 +227,14 @@ class _YFRateLimiter:
                     return
             _time_cb.sleep(0.05)
 
-_YF_RATE_LIMITER = _YFRateLimiter(calls_per_sec=3.0)
+_YF_RATE_LIMITER      = _YFRateLimiter(calls_per_sec=3.0)
+_POLYGON_RATE_LIMITER = _YFRateLimiter(calls_per_sec=3.0)  # Starter plan: safe at 3/sec sustained
+
+# ── Rotating leaderboard cursor ────────────────────────────────────────────────
+# Each hourly scan covers a fresh 1,000-ticker segment so the full 6,610-ticker
+# universe completes across 7 scans by ~3:10 PM — leaving 50 min to place trades.
+_lb_cursor      = 0
+_lb_cursor_lock = threading.Lock()
 
 def _yf_breaker_state() -> str:
     """Return current breaker state: 'closed', 'open', or 'half-open'."""
@@ -1015,10 +1022,14 @@ try:
                 "apiKey": _key,
             }
             while url:
+                _POLYGON_RATE_LIMITER.acquire()   # 3/sec cap — prevents Starter 429s
                 resp = _pg_req.get(url, params=params, timeout=8)
                 if resp.status_code == 403:
                     print(f"[polygon] 403 on {ticker} — check API key/plan")
                     return None
+                if resp.status_code == 429:
+                    import time as _pg_time; _pg_time.sleep(2)
+                    resp = _pg_req.get(url, params=params, timeout=8)
                 if resp.status_code != 200:
                     return None
                 data = resp.json()
@@ -1086,6 +1097,7 @@ try:
                             import os as _pg2_os, requests as _pg2_req
                             _pg2_key = _pg2_os.environ.get("POLYGON_API_KEY", "")
                             try:
+                                _POLYGON_RATE_LIMITER.acquire()
                                 _pr = _pg2_req.get(
                                     f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev",
                                     params={"adjusted": "true", "apiKey": _pg2_key},
@@ -1168,11 +1180,11 @@ try:
                 except Exception: pass
                 return hits
             # Build augmented universe:
-            #  0. highest-volume option tickers — always scanned first so even a
-            #     partial Yahoo block still captures the most active names
-            #  1. earnings stocks today — always early
-            #  2. today's top % gainers + most-active — catches catalyst moves early
-            #  3. core leaderboard top 500 — fills out coverage
+            #  0. priority tickers — always first (high-volume names we never want to miss)
+            #  1. earnings + movers today — catches catalyst moves early
+            #  2. rotating 1,000-ticker leaderboard segment — full 6,610 covered across 7
+            #     hourly scans (9:05→3:05 ET), completing the universe by ~3:10 PM so
+            #     all unusual activity is visible before the 4 PM options trading deadline.
             _PRIORITY_FIRST = [
                 "TSLA","NVDA","AAPL","MSFT","AMZN","META",
                 "AMD","GOOGL","COIN","MSTR","PLTR","ARM","HOOD",
@@ -1180,13 +1192,22 @@ try:
             ]
             _earnings = _fetch_earnings_today()
             _movers   = _fetch_market_movers()
+            _lb_list  = list(DEFAULT_LEADERBOARD)
+            _lb_len   = len(_lb_list)
+            global _lb_cursor, _lb_cursor_lock
+            with _lb_cursor_lock:
+                _seg_start = _lb_cursor
+                _seg_end   = min(_lb_cursor + 1000, _lb_len)
+                _lb_cursor = _seg_end % _lb_len   # wrap to 0 after last segment
+            _lb_segment = _lb_list[_seg_start:_seg_end]
             _seen: set = set()
             _universe: list = []
-            for _t in (_PRIORITY_FIRST + _earnings + _movers + list(DEFAULT_LEADERBOARD)[:500]):
+            for _t in (_PRIORITY_FIRST + _earnings + _movers + _lb_segment):
                 if _t not in _seen:
                     _seen.add(_t); _universe.append(_t)
             print(f"[scheduler] {label} scan universe: {len(_PRIORITY_FIRST)} priority + "
-                  f"{len(_earnings)} earnings + {len(_movers)} movers + core = {len(_universe)} total")
+                  f"{len(_earnings)} earnings + {len(_movers)} movers + "
+                  f"lb[{_seg_start}:{_seg_end}] = {len(_universe)} total")
             all_hits = []
             with ThreadPoolExecutor(max_workers=4) as ex:
                 futs = {ex.submit(_scan_one, t): t for t in _universe}
@@ -13664,13 +13685,13 @@ def convergence():
     if _cache and _ts and (_cvdt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
-    try:
-        yf.utils.get_crumb(reuse_session=False)
-    except Exception:
-        pass
+    if _yf_breaker_open():
+        if _cache: return jsonify({**_cache, "stale": True})
+        _db_conv = _load_scan_cache("convergence")
+        if _db_conv: return jsonify({**_db_conv, "stale": True})
+        return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
 
     tickers = DEFAULT_LEADERBOARD
-    results = []
 
     def _check(ticker):
         try:
@@ -13740,11 +13761,6 @@ def convergence():
         finally:
             app._conv_scanning = False
 
-    if _yf_breaker_open():
-        if _cache: return jsonify({**_cache, "stale": True})
-        _db_conv = _load_scan_cache("convergence")
-        if _db_conv: return jsonify({**_db_conv, "stale": True})
-        return jsonify({"results": [], "scanned": len(tickers), "stale": True})
     import threading as _conv_thr
     if not getattr(app, "_conv_scanning", False):
         _conv_thr.Thread(target=_bg_conv, daemon=True).start()
@@ -14615,96 +14631,110 @@ def vol_crush():
             }
         except Exception: return None
 
-    # Pre-fetch SPY returns once (shared across all tickers for beta calculation)
-    # Use module-level cached SPY data (avoids rate-limit collisions with 20 concurrent ticker fetches)
-    _spy_rets_arr = _spy_1y_cache.get("rets_arr")
-    _spy_1y_return = _spy_1y_cache.get("return_pct")
+    def _bg_vc():
+        if getattr(app, "_vc_scanning", False):
+            return
+        app._vc_scanning = True
+        try:
+            # Pre-fetch SPY returns once (shared across all tickers for beta calculation)
+            _spy_rets_arr = _spy_1y_cache.get("rets_arr")
+            _spy_1y_return = _spy_1y_cache.get("return_pct")
 
-    # Pre-fetch sector ETF returns for cross-asset correlation (Q5 in _analyze)
-    _TICKER_TO_SECTOR_ETF = {
-        "AAPL":"XLK","MSFT":"XLK","NVDA":"XLK","GOOGL":"XLK","META":"XLK",
-        "AMD":"XLK","INTC":"XLK","MU":"XLK","ORCL":"XLK","QQQ":"XLK",
-        "JPM":"XLF","BAC":"XLF","GS":"XLF","WFC":"XLF",
-        "JNJ":"XLV","UNH":"XLV","MRNA":"XLV","PFE":"XLV","ABBV":"XLV",
-        "XOM":"XLE","CVX":"XLE","USO":"XLE",
-        "LMT":"XLI","CAT":"XLI","BA":"XLI",
-        "AMZN":"XLY","TSLA":"XLY","COST":"XLY",
-        "NFLX":"XLC","DIS":"XLC","CMCSA":"XLC",
-        "IWM":"IWM",
-    }
-    _sector_rets_map = {}
-    try:
-        _sec_etfs = list(set(_TICKER_TO_SECTOR_ETF.values()))
-        _sec_raw2 = yf.download(_sec_etfs, period="60d", interval="1d", progress=False, auto_adjust=True)["Close"]
-        for _etf in _sec_etfs:
+            # Pre-fetch sector ETF returns for cross-asset correlation
+            _TICKER_TO_SECTOR_ETF = {
+                "AAPL":"XLK","MSFT":"XLK","NVDA":"XLK","GOOGL":"XLK","META":"XLK",
+                "AMD":"XLK","INTC":"XLK","MU":"XLK","ORCL":"XLK","QQQ":"XLK",
+                "JPM":"XLF","BAC":"XLF","GS":"XLF","WFC":"XLF",
+                "JNJ":"XLV","UNH":"XLV","MRNA":"XLV","PFE":"XLV","ABBV":"XLV",
+                "XOM":"XLE","CVX":"XLE","USO":"XLE",
+                "LMT":"XLI","CAT":"XLI","BA":"XLI",
+                "AMZN":"XLY","TSLA":"XLY","COST":"XLY",
+                "NFLX":"XLC","DIS":"XLC","CMCSA":"XLC",
+                "IWM":"IWM",
+            }
+            _sector_rets_map = {}
             try:
-                _ser2 = (_sec_raw2[_etf].dropna() if hasattr(_sec_raw2, "columns") and _etf in _sec_raw2.columns
-                         else _sec_raw2.dropna())
-                if len(_ser2) >= 20:
-                    _sector_rets_map[_etf] = _ser2.pct_change().dropna().values
+                _sec_etfs = list(set(_TICKER_TO_SECTOR_ETF.values()))
+                _sec_raw2 = yf.download(_sec_etfs, period="60d", interval="1d", progress=False, auto_adjust=True)["Close"]
+                for _etf in _sec_etfs:
+                    try:
+                        _ser2 = (_sec_raw2[_etf].dropna() if hasattr(_sec_raw2, "columns") and _etf in _sec_raw2.columns
+                                 else _sec_raw2.dropna())
+                        if len(_ser2) >= 20:
+                            _sector_rets_map[_etf] = _ser2.pct_change().dropna().values
+                    except Exception:
+                        pass
             except Exception:
                 pass
-    except Exception:
-        pass
 
-    _ex_vc = ThreadPoolExecutor(max_workers=8)
-    futures = {_ex_vc.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
-    rows = []
-    _vc_deadline = _dt.now().timestamp() + 5.0   # hard 5s wall-clock budget
-    try:
-        for fut in as_completed(futures, timeout=22):
-            if _dt.now().timestamp() > _vc_deadline:
-                break  # budget exhausted — return whatever we have so far
+            _ex_vc = ThreadPoolExecutor(max_workers=8)
+            futures = {_ex_vc.submit(_analyze, t): t for t in DEFAULT_LEADERBOARD}
+            rows = []
+            _vc_deadline = _dt.now().timestamp() + 55.0
             try:
-                r = fut.result()
-                if r is not None:
-                    rows.append(r)
+                for fut in as_completed(futures, timeout=60):
+                    if _dt.now().timestamp() > _vc_deadline:
+                        break
+                    try:
+                        r = fut.result()
+                        if r is not None:
+                            rows.append(r)
+                    except Exception:
+                        pass
             except Exception:
                 pass
-    except Exception:
-        pass
-    finally:
-        _ex_vc.shutdown(wait=False, cancel_futures=True)
-    rows.sort(key=lambda x: x["iv_rank"], reverse=True)
+            finally:
+                _ex_vc.shutdown(wait=False, cancel_futures=True)
+            rows.sort(key=lambda x: x["iv_rank"], reverse=True)
 
-    # Enrich with IV skew percentile + short float trend from daily_vol_snapshots history
-    try:
-        import psycopg2 as _pg2_vc
-        _snap_tickers = [r["ticker"] for r in rows]
-        with _pg2_vc.connect(os.environ["DATABASE_URL"]) as _conn_vc, _conn_vc.cursor() as _cur_vc:
-            _cur_vc.execute("""
-                SELECT ticker, iv_skew, short_float, pc_oi_ratio
-                FROM daily_vol_snapshots
-                WHERE ticker = ANY(%s) AND snap_date >= (now() AT TIME ZONE 'America/New_York')::date - 252
-                ORDER BY ticker, snap_date
-            """, (_snap_tickers,))
-            _snap_rows = _cur_vc.fetchall()
-        _hist_map: dict = {}
-        for _hr in _snap_rows:
-            _ht = _hr[0]
-            if _ht not in _hist_map:
-                _hist_map[_ht] = []
-            _hist_map[_ht].append({"iv_skew": _hr[1], "short_float": _hr[2], "pc_oi_ratio": _hr[3]})
-        for r in rows:
-            t = r["ticker"]
-            if t in _hist_map and len(_hist_map[t]) >= 30:
-                _skews = [h["iv_skew"] for h in _hist_map[t] if h["iv_skew"] is not None]
-                _sfps  = [h["short_float"] for h in _hist_map[t] if h["short_float"] is not None]
-                _pcrs  = [h["pc_oi_ratio"] for h in _hist_map[t] if h["pc_oi_ratio"] is not None]
-                if _skews and r.get("iv_skew") is not None:
-                    r["iv_skew_pctl"] = int(sum(1 for s in _skews if s <= r["iv_skew"]) / len(_skews) * 100)
-                if len(_sfps) >= 5 and r.get("short_float_pct") is not None:
-                    r["short_float_trend"] = round(r["short_float_pct"] - _sfps[-5], 1)
-                if len(_pcrs) >= 5 and r.get("put_call_oi_ratio") is not None:
-                    r["pc_ratio_trend"] = round(r["put_call_oi_ratio"] - _pcrs[-5], 2)
-    except Exception:
-        pass
+            # Enrich with IV skew percentile + short float trend
+            try:
+                import psycopg2 as _pg2_vc
+                _snap_tickers = [r["ticker"] for r in rows]
+                with _pg2_vc.connect(os.environ["DATABASE_URL"]) as _conn_vc, _conn_vc.cursor() as _cur_vc:
+                    _cur_vc.execute("""
+                        SELECT ticker, iv_skew, short_float, pc_oi_ratio
+                        FROM daily_vol_snapshots
+                        WHERE ticker = ANY(%s) AND snap_date >= (now() AT TIME ZONE 'America/New_York')::date - 252
+                        ORDER BY ticker, snap_date
+                    """, (_snap_tickers,))
+                    _snap_rows = _cur_vc.fetchall()
+                _hist_map: dict = {}
+                for _hr in _snap_rows:
+                    _ht = _hr[0]
+                    if _ht not in _hist_map:
+                        _hist_map[_ht] = []
+                    _hist_map[_ht].append({"iv_skew": _hr[1], "short_float": _hr[2], "pc_oi_ratio": _hr[3]})
+                for r in rows:
+                    t = r["ticker"]
+                    if t in _hist_map and len(_hist_map[t]) >= 30:
+                        _skews = [h["iv_skew"] for h in _hist_map[t] if h["iv_skew"] is not None]
+                        _sfps  = [h["short_float"] for h in _hist_map[t] if h["short_float"] is not None]
+                        _pcrs  = [h["pc_oi_ratio"] for h in _hist_map[t] if h["pc_oi_ratio"] is not None]
+                        if _skews and r.get("iv_skew") is not None:
+                            r["iv_skew_pctl"] = int(sum(1 for s in _skews if s <= r["iv_skew"]) / len(_skews) * 100)
+                        if len(_sfps) >= 5 and r.get("short_float_pct") is not None:
+                            r["short_float_trend"] = round(r["short_float_pct"] - _sfps[-5], 1)
+                        if len(_pcrs) >= 5 and r.get("put_call_oi_ratio") is not None:
+                            r["pc_ratio_trend"] = round(r["put_call_oi_ratio"] - _pcrs[-5], 2)
+            except Exception:
+                pass
 
-    out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
-    if rows:
-        app._vc_cache = out; app._vc_cache_ts = _dt.now()
-        _save_scan_cache("vol-crush", out)
-    return jsonify(out)
+            out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
+            if rows:
+                app._vc_cache = out; app._vc_cache_ts = _dt.now()
+                _save_scan_cache("vol-crush", out)
+        except Exception as _e_vc:
+            print(f"[vol_crush] bg error: {_e_vc}")
+        finally:
+            app._vc_scanning = False
+
+    import threading as _vc_thr
+    if not getattr(app, "_vc_scanning", False):
+        _vc_thr.Thread(target=_bg_vc, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True})
+    return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
 @app.route("/stock-api/call-intent", methods=["GET"])

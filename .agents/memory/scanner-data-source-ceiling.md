@@ -69,6 +69,13 @@ refresh, then **Vol vs OI** is the "new positions opening" signal.
 and blind spots; on June 22 2026 Yahoo blocked the production IP all afternoon.
 Polygon/Massive.com solves this permanently.
 
+## Rotating leaderboard cursor (June 22 2026)
+`_lb_cursor` + `_lb_cursor_lock` globals advance by 1,000 tickers per hourly scan.
+7 hourly scans × 1,000 tickers = full 6,610 universe covered by ~3:10 PM ET each trading day.
+Universe per scan = `_PRIORITY_FIRST (21) + _earnings + _movers + lb[cursor:cursor+1000]` → ~1,100-1,200 total.
+Cursor resets to 0 on restart (intentional — priority names always first after a restart).
+Log format: `[scheduler] manual-trigger scan universe: 21 priority + 0 earnings + 277 movers + lb[0:1000] = 1184 total`
+
 ## Priority scan order fix (June 22 2026)
 SPY/QQQ were at positions 463/464 in the DEFAULT_LEADERBOARD scan order — meaning if Yahoo
 blocked at position 200, the highest-volume ETFs were always missed. Fixed by prepending a
