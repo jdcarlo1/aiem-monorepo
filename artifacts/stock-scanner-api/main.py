@@ -18205,22 +18205,107 @@ def admin_run_eod_scan():
     Admin endpoint: manually trigger an EOD unusual-calls scan to populate
     unusual_calls_log for the current trading day.  Runs in a background thread
     and returns immediately so the HTTP request doesn't time out.
+
+    Optional: pass ?tickers=QQQ,TSLA,SPY to scan only those specific tickers
+    instead of the full 6,610-name leaderboard — useful when Yahoo is throttling
+    and you only need a targeted set of liquid names scanned quickly.
     """
     import threading as _thr
     import traceback as _tb
 
+    _custom_raw = request.args.get("tickers", "").strip()
+    _custom_list = [t.strip().upper() for t in _custom_raw.split(",") if t.strip()] if _custom_raw else []
+
     def _bg():
         try:
-            _run_unusual_calls_scan("manual-trigger")
-            # Bust the EOD sweeps cache so the next request re-queries fresh data
-            if hasattr(app, "_eod_sweeps_cache"):
-                app._eod_sweeps_cache    = None
-                app._eod_sweeps_cache_ts = None
-            print("[admin_run_eod_scan] cache busted — fresh data ready")
+            if _custom_list:
+                # Targeted scan: override the universe inside _run_unusual_calls_scan
+                # by temporarily monkey-patching DEFAULT_LEADERBOARD for this call.
+                # Simpler: just inline the scan logic for the short list.
+                import yfinance as yf
+                from concurrent.futures import ThreadPoolExecutor, as_completed as _asc
+                _ETF_SET_LOCAL = {
+                    "SPY","QQQ","IWM","DIA","MDY","VTI","VOO",
+                    "XLF","XLE","XLK","XLY","XLI","XLV","XLB","XLP","XLU","XLRE",
+                    "SMH","SOXX","XBI","IBB","KRE","XRT","ITB","JETS","KWEB","DRAM",
+                    "TQQQ","SPXL","SOXL","UDOW","LABU","FNGU","TECL","UPRO","TNA","FAS","ERX",
+                    "SQQQ","SPXS","SOXS","SDOW","TZA","FAZ","ERY","GLD","IAU","SLV",
+                    "USO","UNG","GDX","GDXJ","OIH","TLT","HYG","LQD","TBT","TMF",
+                    "EEM","EFA","FXI","EWJ","EWZ","EWY","IEMG","ARKK","IBIT","FBTC","SPCX",
+                }
+                from datetime import datetime as _dt2
+                def _scan_one(ticker):
+                    _hits = []
+                    try:
+                        _YF_RATE_LIMITER.acquire()
+                        is_etf  = ticker in _ETF_SET_LOCAL
+                        min_voi = 1.5 if is_etf else 2.0
+                        min_prem = 50_000 if is_etf else 20_000
+                        max_exp = 60 if is_etf else 45
+                        tk = yf.Ticker(ticker)
+                        price = float(getattr(tk.fast_info, "last_price", 0) or 0)
+                        if not price:
+                            return _hits
+                        for exp in (tk.options or []):
+                            days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
+                            if not (1 <= days <= max_exp): continue
+                            chain = tk.option_chain(exp).calls
+                            for _, row in chain.iterrows():
+                                try:
+                                    vol = int(row.get("volume") or 0)
+                                    oi  = int(row.get("openInterest") or 0)
+                                    if oi < 10 or vol < 10: continue
+                                    voi = vol / oi
+                                    if voi < min_voi: continue
+                                    strike = float(row["strike"])
+                                    otm_pct = round((strike - price) / price * 100, 2)
+                                    if otm_pct < -5 or otm_pct > 40: continue
+                                    bid = float(row.get("bid") or 0)
+                                    ask = float(row.get("ask") or 0)
+                                    mid = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
+                                    prem = int(mid * vol * 100)
+                                    if prem < min_prem: continue
+                                    iv = round(float(row.get("impliedVolatility") or 0) * 100, 1)
+                                    urgency = "EXPIRING" if days <= 3 else "SHORT" if days <= 7 else "NEAR"
+                                    _hits.append({"ticker": ticker, "price": price, "strike": strike,
+                                                  "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
+                                                  "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
+                                                  "iv": iv, "urgency": urgency})
+                                except Exception: pass
+                    except Exception: pass
+                    return _hits
+                all_hits = []
+                with ThreadPoolExecutor(max_workers=4) as ex:
+                    futs = {ex.submit(_scan_one, t): t for t in _custom_list}
+                    for fut in _asc(futs, timeout=120):
+                        try: all_hits.extend(fut.result() or [])
+                        except Exception: pass
+                _save_unusual_calls_to_db(all_hits)
+                _today_all = _load_todays_unusual_calls_from_db(_ETF_SET_LOCAL)
+                if _today_all:
+                    from datetime import datetime as _dt_tgt
+                    app._unusual_calls_cache    = {"hits": _today_all[:150], "total": len(_today_all),
+                                                   "scanned": len(_custom_list), "stale": False}
+                    app._unusual_calls_cache_ts = _dt_tgt.now()
+                if hasattr(app, "_eod_sweeps_cache"):
+                    app._eod_sweeps_cache = None; app._eod_sweeps_cache_ts = None
+                print(f"[admin_run_eod_scan] targeted scan → {len(all_hits)} hits for {_custom_list}")
+            else:
+                _run_unusual_calls_scan("manual-trigger")
+                if hasattr(app, "_eod_sweeps_cache"):
+                    app._eod_sweeps_cache    = None
+                    app._eod_sweeps_cache_ts = None
+                print("[admin_run_eod_scan] cache busted — fresh data ready")
         except Exception as exc:
             print(f"[admin_run_eod_scan] error: {exc}\n{_tb.format_exc()}")
 
     _thr.Thread(target=_bg, daemon=True).start()
+    if _custom_list:
+        return jsonify({
+            "status":  "started",
+            "message": f"Targeted scan of {len(_custom_list)} tickers running (~30s). Results will appear automatically.",
+            "tickers": _custom_list,
+        })
     return jsonify({
         "status":  "started",
         "message": "EOD unusual-calls scan running in background (~2-3 min). "
