@@ -18527,20 +18527,23 @@ def conviction_calls():
             cur.execute(_base_sql.format(interval="(now() AT TIME ZONE 'America/New_York')::date::timestamp AT TIME ZONE 'America/New_York'"))
             rows_today = cur.fetchall()
             today_tickers = len(set(r[0] for r in rows_today))
-            if rows_today:
-                # Any of today's sweeps → always show today, never substitute older data.
+            if rows_today and today_tickers >= 3:
+                # Enough distinct tickers today → show today's data only.
                 rows_raw = rows_today
                 window_label = "today"
             elif allow_fallback:
-                cur.execute(_base_sql.format(interval="NOW() - INTERVAL '1 day'"))
+                # Either no today data, or only 1-2 tickers captured (partial scan /
+                # Yahoo throttle) → fall back to recent history so the tab never shows
+                # just one name when last trading day had a full slate of signals.
+                cur.execute(_base_sql.format(interval="NOW() - INTERVAL '2 days'"))
                 rows_raw = cur.fetchall()
-                window_label = "24h"
+                window_label = "recent"
                 if not rows_raw:
                     cur.execute(_base_sql.format(interval="NOW() - INTERVAL '7 days'"))
                     rows_raw = cur.fetchall()
                     window_label = "7d"
             else:
-                rows_raw = []
+                rows_raw = rows_today  # strict mode: show whatever today has
                 window_label = "today"
         print(f"[conviction_calls] today={len(rows_today)} ({today_tickers} tickers), window={window_label}, fallback={allow_fallback}, total={len(rows_raw)}")
 
