@@ -10690,6 +10690,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [historyDates,   setHistoryDates]   = useState<string[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [outcomes, setOutcomes] = useState<{ outcomes: SignalOutcome[]; count: number; win_rates: { t3: number | null; t5: number | null; t10: number | null } } | null>(null);
+  const [scanSuccess, setScanSuccess] = useState(false);
 
   const loadHistory = async () => {
     setHistoryLoading(true);
@@ -10712,12 +10713,14 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   };
 
   const run = async () => {
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setScanSuccess(false);
     try {
       const data = await fetchBullFlow();
       setResults(data.results);
       setScanned(data.scanned);
       setLastRun(new Date());
+      setScanSuccess(true);
+      setTimeout(() => setScanSuccess(false), 2500);
     } catch (e: any) {
       setError(e.message ?? "Scan failed");
     } finally {
@@ -10808,7 +10811,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
               disabled={loading}
               className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
             >
-              {loading ? <><Spinner /> Scanning…</> : "🔥 Run Scan"}
+              {loading ? <><Spinner /> Scanning…</> : scanSuccess ? "✓ Updated!" : "🔥 Run Scan"}
             </button>
           </div>
         </div>
