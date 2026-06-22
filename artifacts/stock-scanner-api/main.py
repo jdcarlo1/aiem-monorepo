@@ -2540,58 +2540,62 @@ try:
     # catch-up runs 90 s after startup so the scheduler/DB settle first.
     def _startup_catchup():
         import time as _time_su, datetime as _dt_su
-        _time_su.sleep(90)
+        _time_su.sleep(30)   # short wait for DB connections to settle
         try:
             _et_tz_su = _pytz.timezone("America/New_York")
             _now_et   = _dt_su.datetime.now(_et_tz_su)
             _dow      = _now_et.weekday()          # 0=Mon … 4=Fri
             _hour_et  = _now_et.hour
-            # Only catch up on weekdays between 9 AM and 5 PM ET
-            if _dow >= 5 or not (9 <= _hour_et < 17):
-                return
             _today_et = _now_et.strftime("%Y-%m-%d")
-            # Check unusual calls — does today's data exist?
-            _need_uc = True
-            try:
-                with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cur:
-                    _cur.execute(
-                        "SELECT 1 FROM unusual_calls_log "
-                        "WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
-                        "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' LIMIT 1"
-                    )
-                    if _cur.fetchone():
-                        _need_uc = False
-            except Exception:
-                pass
-            if _need_uc:
-                print(f"[startup_catchup] no unusual-calls data for {_today_et} — running catch-up scan")
-                try:
-                    _run_unusual_calls_scan("startup-catchup")
-                except Exception as _e_uc:
-                    print(f"[startup_catchup] unusual-calls error: {_e_uc}")
 
-            # Check microcap — does today's data exist?
-            _need_mc = True
-            try:
-                with _psycopg2.connect(_DB_URL) as _c2, _c2.cursor() as _cur2:
-                    _cur2.execute(
-                        "SELECT 1 FROM unusual_calls_microcap_log "
-                        "WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
-                        "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' LIMIT 1"
-                    )
-                    if _cur2.fetchone():
-                        _need_mc = False
-            except Exception:
-                pass
-            if _need_mc:
-                print(f"[startup_catchup] no microcap data for {_today_et} — running catch-up scan")
-                _time_su.sleep(30)   # stagger after unusual-calls to avoid concurrent Yahoo calls
+            # ── Unusual calls (Polygon) — run any time on weekdays ──────────
+            # Polygon uses an API key (not Yahoo IP) so there's no throttle risk
+            # running after hours.  This ensures the conviction tab is populated
+            # immediately after a publish / redeploy, even if it happens at night.
+            if _dow < 5:   # weekday only (no point scanning Sat/Sun OCC data)
+                _need_uc = True
                 try:
-                    hits = _run_microcap_options_scan()
-                    _save_microcap_calls_to_db(hits)
-                    print(f"[startup_catchup] microcap done — {len(hits)} signals saved")
-                except Exception as _e_mc:
-                    print(f"[startup_catchup] microcap error: {_e_mc}")
+                    with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cur:
+                        _cur.execute(
+                            "SELECT 1 FROM unusual_calls_log "
+                            "WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                            "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' LIMIT 1"
+                        )
+                        if _cur.fetchone():
+                            _need_uc = False
+                except Exception:
+                    pass
+                if _need_uc:
+                    print(f"[startup_catchup] no unusual-calls data for {_today_et} — running Polygon catch-up scan")
+                    try:
+                        _run_unusual_calls_scan("startup-catchup")
+                    except Exception as _e_uc:
+                        print(f"[startup_catchup] unusual-calls error: {_e_uc}")
+
+            # ── Microcap (Yahoo) — only during market hours ──────────────────
+            # Yahoo throttles aggressively; restrict to 9 AM–5 PM ET on weekdays.
+            if _dow < 5 and 9 <= _hour_et < 17:
+                _need_mc = True
+                try:
+                    with _psycopg2.connect(_DB_URL) as _c2, _c2.cursor() as _cur2:
+                        _cur2.execute(
+                            "SELECT 1 FROM unusual_calls_microcap_log "
+                            "WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                            "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' LIMIT 1"
+                        )
+                        if _cur2.fetchone():
+                            _need_mc = False
+                except Exception:
+                    pass
+                if _need_mc:
+                    print(f"[startup_catchup] no microcap data for {_today_et} — running catch-up scan")
+                    _time_su.sleep(30)   # stagger after unusual-calls to avoid concurrent Yahoo calls
+                    try:
+                        hits = _run_microcap_options_scan()
+                        _save_microcap_calls_to_db(hits)
+                        print(f"[startup_catchup] microcap done — {len(hits)} signals saved")
+                    except Exception as _e_mc:
+                        print(f"[startup_catchup] microcap error: {_e_mc}")
         except Exception as _e_su:
             print(f"[startup_catchup] error: {_e_su}")
 
