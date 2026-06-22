@@ -203,8 +203,31 @@ import time as _time_cb
 # stuck open all day.
 
 _YF_BREAKER = {"state": "closed", "until": 0.0, "probing": False}
-_YF_BREAKER_COOLDOWN = 180.0  # seconds to stay "open" after a rate-limit hit (3 min, up from 60s)
+_YF_BREAKER_COOLDOWN = 60.0   # seconds to stay "open" after a rate-limit hit (1 min; re-trips if load is still high)
 _YF_BREAKER_LOCK = threading.Lock()
+
+# ── Global yfinance rate limiter (token bucket) ──────────────────────────────
+# Caps ALL yfinance HTTP calls at 3/second across every thread and every job.
+# This is the primary defence against Yahoo throttling — no burst is possible.
+class _YFRateLimiter:
+    def __init__(self, calls_per_sec: float = 3.0):
+        self._lock   = threading.Lock()
+        self._tokens = calls_per_sec
+        self._max    = calls_per_sec
+        self._rate   = calls_per_sec
+        self._last   = _time_cb.monotonic()
+    def acquire(self):
+        while True:
+            with self._lock:
+                now = _time_cb.monotonic()
+                self._tokens = min(self._max, self._tokens + (now - self._last) * self._rate)
+                self._last = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+            _time_cb.sleep(0.05)
+
+_YF_RATE_LIMITER = _YFRateLimiter(calls_per_sec=3.0)
 
 def _yf_breaker_state() -> str:
     """Return current breaker state: 'closed', 'open', or 'half-open'."""
@@ -369,18 +392,29 @@ try:
             # the dashboard tabs loading from cache/DB instead of erroring out.
             _time_cb.sleep(0.05)
             raise _CffiErr("yfinance circuit breaker open (Yahoo rate-limited)")
+        # Rate-limit EVERY Yahoo HTTP call globally — prevents bursts from any job.
+        # 3 req/sec sustained means ~180/min across ALL background threads combined.
+        _YF_RATE_LIMITER.acquire()
         _t = kwargs.get("timeout", None)
         if not (isinstance(_t, (int, float)) and not isinstance(_t, bool) and _t <= _YF_YAHOO_TIMEOUT):
             kwargs["timeout"] = _YF_YAHOO_TIMEOUT
         try:
             _resp = _cffi_orig_request(self, method, url, *args, **kwargs)
         except Exception:
-            _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+            # Timeout or connection error — trip the breaker so subsequent calls
+            # fail fast and free up threads for the Flask HTTP workers.
+            with _YF_BREAKER_LOCK:
+                _YF_BREAKER["state"] = "open"
+                _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+                _YF_BREAKER["probing"] = False
             raise
         try:
             _sc = getattr(_resp, "status_code", 0)
             if _sc in (429, 503):
-                _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+                with _YF_BREAKER_LOCK:
+                    _YF_BREAKER["state"] = "open"
+                    _YF_BREAKER["until"] = _time_cb.time() + _YF_BREAKER_COOLDOWN
+                    _YF_BREAKER["probing"] = False
             elif _sc in (401, 403):
                 _yf_note_auth_throttle()
         except Exception:
@@ -959,6 +993,7 @@ try:
             def _scan_one(ticker):
                 hits = []
                 try:
+                    _YF_RATE_LIMITER.acquire()   # global 3-req/sec cap — prevents Yahoo throttle
                     is_etf  = ticker in _ETF_SET
                     min_voi = 1.5 if is_etf else 2.0   # lowered: 3x was too strict
                     min_prem= 50_000 if is_etf else 20_000  # small-cap: even $20K is meaningful
@@ -1850,7 +1885,7 @@ try:
     _scheduler.add_job(
         _warm_sm_cache,
         "interval",
-        minutes=15,
+        minutes=90,
         start_date=_sched_start_delay,
         id="sm_cache_warmer",
         replace_existing=True,
@@ -18011,6 +18046,37 @@ def admin_run_eod_scan():
                    "Call /stock-api/eod-sweeps?bust=1 afterwards to see fresh data.",
         "tickers": len(DEFAULT_LEADERBOARD),
     })
+
+
+@app.route("/stock-api/admin/reset-breaker", methods=["POST"])
+def admin_reset_breaker():
+    """Force-close the Yahoo circuit breaker and optionally kick off a fresh scan.
+    POST ?token=<ADMIN_TOKEN>  — resets breaker state to 'closed'.
+    POST ?token=...&scan=1     — also queues an unusual-calls scan in background.
+    """
+    token = request.args.get("token") or (request.get_json(silent=True) or {}).get("token", "")
+    if not token or token != os.getenv("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    with _YF_BREAKER_LOCK:
+        _YF_BREAKER["state"] = "closed"
+        _YF_BREAKER["until"] = 0.0
+        _YF_BREAKER["probing"] = False
+    print("[admin_reset_breaker] circuit breaker force-closed")
+    result = {"status": "ok", "breaker": "closed"}
+    if request.args.get("scan") == "1":
+        import threading as _rthr
+        def _bg_scan():
+            try:
+                _run_unusual_calls_scan("admin-reset-trigger")
+                if hasattr(app, "_eod_sweeps_cache"):
+                    app._eod_sweeps_cache = None
+                    app._eod_sweeps_cache_ts = None
+                print("[admin_reset_breaker] background scan complete")
+            except Exception as _exc:
+                print(f"[admin_reset_breaker] scan error: {_exc}")
+        _rthr.Thread(target=_bg_scan, daemon=True).start()
+        result["scan"] = "started"
+    return jsonify(result)
 
 
 @app.route("/stock-api/admin/owner-catchup", methods=["GET", "POST"])
