@@ -3,6 +3,13 @@ import { logger } from "./lib/logger";
 import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from "./stripeClient";
 
+process.on('uncaughtException', (err) => {
+  logger.error({ err }, 'Uncaught exception — continuing');
+});
+process.on('unhandledRejection', (err) => {
+  logger.error({ err }, 'Unhandled rejection — continuing');
+});
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {

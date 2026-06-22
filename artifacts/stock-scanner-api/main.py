@@ -22120,6 +22120,14 @@ def insider_radar():
     if not bust and _cache and _cache_ts and (_dt_ir.datetime.now() - _cache_ts).total_seconds() < 2700:
         return jsonify(_cache)
 
+    # DB fallback: serve last computed result on cold start / after restart
+    if not bust and not _cache:
+        _ir_db = _load_scan_cache("insider-radar")
+        if _ir_db:
+            app._insider_radar_cache    = _ir_db
+            app._insider_radar_cache_ts = _dt_ir.datetime.now()
+            return jsonify({**_ir_db, "stale": True})
+
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             # All signals $10K+ from last 90 days, newest first
@@ -22156,6 +22164,8 @@ def insider_radar():
         )
 
         def _earn_90d(ticker):
+            if _yf_breaker_open():
+                return None
             import datetime as _d2
             import yfinance as _yf2
             today  = _et_today()
@@ -22288,6 +22298,7 @@ def insider_radar():
         }
         app._insider_radar_cache    = out
         app._insider_radar_cache_ts = _dt_ir.datetime.now()
+        _save_scan_cache("insider-radar", out)
 
         # Auto-save high-suspicion signals (score >= 70) to the permanent alert log
         try:
