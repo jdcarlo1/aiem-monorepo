@@ -17348,15 +17348,50 @@ def unusual_calls_microcap():
             cur.execute(_SEL, _params)
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-
-            # NO silent fallback to a wider window: if "Today" is empty we return
-            # empty (and trigger a background scan below) rather than passing off
-            # older days' signals as today's. That silent swap was the root cause
-            # of the tab showing "yesterday's names" every morning.
-
             for r in rows:
                 if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
                 if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
+
+        # Stale fallback: if the requested window is empty, return the most
+        # recent scan from up to 14 days ago with stale=True so the tab shows
+        # SOMETHING while the background scan runs, instead of a blank spinner.
+        _stale = False
+        _stale_note = None
+        if not rows:
+            try:
+                with _psycopg2.connect(_DB_URL) as conn2, conn2.cursor() as cur2:
+                    cur2.execute("""
+                        SELECT ticker, price::float, strike::float, expiry, days_out,
+                               volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                               iv::float, urgency, cap_tier,
+                               first_seen AT TIME ZONE 'UTC' AS first_seen,
+                               last_seen  AT TIME ZONE 'UTC' AS last_seen
+                        FROM unusual_calls_microcap_log
+                        WHERE last_seen >= NOW() - INTERVAL '14 days'
+                          AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                          AND cap_tier IN ('nano', 'micro', 'small')
+                        ORDER BY prem DESC
+                        LIMIT 500
+                    """)
+                    cols2 = [d[0] for d in cur2.description]
+                    rows = [dict(zip(cols2, r)) for r in cur2.fetchall()]
+                    if rows:
+                        _stale = True
+                        import datetime as _dt_mc
+                        # Compute age BEFORE serializing timestamps
+                        try:
+                            _last_ts = max(r["last_seen"] for r in rows if r.get("last_seen"))
+                            if _last_ts:
+                                _last_ts_utc = _last_ts if _last_ts.tzinfo else _last_ts.replace(tzinfo=_dt_mc.timezone.utc)
+                                _ago_h = (_dt_mc.datetime.now(_dt_mc.timezone.utc) - _last_ts_utc).total_seconds() / 3600
+                                _stale_note = f"Showing signals from ~{int(_ago_h)}h ago — live scan in progress"
+                        except Exception:
+                            _stale_note = "Showing recent signals — live scan in progress"
+                        for r in rows:
+                            if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
+                            if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
+            except Exception as _se:
+                print(f"[microcap] stale fallback error: {_se}")
 
         # If still empty, kick off a background scan so the next load has data
         if not rows:
@@ -17378,7 +17413,9 @@ def unusual_calls_microcap():
                 _thr.Thread(target=_bg_scan, daemon=True).start()
 
         return jsonify({"signals": rows, "total": len(rows),
-                        "scan_triggered": not rows})
+                        "scan_triggered": not rows,
+                        "stale": _stale,
+                        "stale_note": _stale_note})
     except Exception as e:
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
 

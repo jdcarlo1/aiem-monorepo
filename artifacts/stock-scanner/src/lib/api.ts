@@ -1810,8 +1810,10 @@ export interface MicroCapCall {
 }
 
 export interface MicroCapCallsResult {
-  signals: MicroCapCall[];
-  total:   number;
+  signals:    MicroCapCall[];
+  total:      number;
+  stale?:     boolean;
+  stale_note?: string | null;
 }
 
 export function fetchUnusualCallsMicrocap(days = 3) {

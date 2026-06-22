@@ -12366,6 +12366,8 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
   const [days,        setDays]        = useState(3);
   const [lastRun,     setLastRun]     = useState<Date | null>(null);
   const [scanDone,    setScanDone]    = useState(false);
+  const [stale,       setStale]       = useState(false);
+  const [staleNote,   setStaleNote]   = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
@@ -12378,7 +12380,10 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
       const sigs = res.signals ?? [];
       setSignals(sigs);
       setLastRun(new Date());
-      if (sigs.length > 0) { stopPoll(); setScanning(false); setScanDone(false); }
+      setStale(res.stale ?? false);
+      setStaleNote(res.stale_note ?? null);
+      // Fresh non-stale data → stop polling
+      if (sigs.length > 0 && !res.stale) { stopPoll(); setScanning(false); setScanDone(false); }
       return { count: sigs.length, scanTriggered: res.scan_triggered ?? false };
     } catch (e: any) {
       setError(e.message ?? "Scan failed");
@@ -12488,6 +12493,16 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         <div className="bg-red-950/30 border border-red-800/50 rounded-xl p-3 text-red-400 text-sm">{error}</div>
       )}
 
+      {/* Stale banner — shown when serving cached data while live scan runs */}
+      {stale && signals.length > 0 && (
+        <div className="bg-yellow-950/40 border border-yellow-700/50 rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs text-yellow-300">
+          <span>⚠️</span>
+          <span>{staleNote ?? "Showing recent signals — live scan in progress"}</span>
+          {scanning && <span className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin inline-block ml-1" />}
+        </div>
+      )}
+
+      {/* Full-screen spinner only when there's genuinely nothing to show yet */}
       {(loading || (scanning && signals.length === 0)) && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-500 text-sm gap-3">
           <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
