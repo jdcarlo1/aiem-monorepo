@@ -1067,109 +1067,57 @@ try:
             import traceback
             print(f"[scheduler] {label} unusual-calls scan error: {e}\n{traceback.format_exc()}")
 
-    # 10:02 AM — moved from 9:30 to clear the critical 9:30-9:55 window.
-    # The 9:30 slot was the single biggest driver of market-open CPU+yfinance
-    # saturation: it fires a 500-ticker option-chain scan simultaneously with
-    # nano/sc morning ranking, owner emails, and the microcap prewarm burst.
-    # 10:02 is after all critical morning systems have completed and the
-    # APScheduler pool has headroom again. Earnings + movers are still caught —
-    # option flow doesn't move in the first 90 seconds anyway.
+    # Unusual calls scan — hourly at :05 past the hour (lands between other jobs
+    # that fire on :00/:45). Rate limiter caps all Yahoo calls at 3/sec globally,
+    # so each scan takes ~12 min; 48 min idle between scans lets Yahoo's IP
+    # throttle clear before the next scan starts.
+    # 8 slots/day: 9:05, 10:05, 11:05, 12:05, 13:05, 14:05, 15:05, 16:00
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("market-open"),
-        CronTrigger(day_of_week="mon-fri", hour=10, minute=2, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=5, timezone=_ET),
         id="market_open_unusual_calls",
         replace_existing=True,
     )
     _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("morning"),
-        CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=_ET),
-        id="morning_unusual_calls",
-        replace_existing=True,
-    )
-    # Mid-morning: 10:30 AM ET — fills the 90-min gap between 10:02 and 11:30
-    _scheduler.add_job(
         lambda: _run_unusual_calls_scan("mid-morning"),
-        CronTrigger(day_of_week="mon-fri", hour=10, minute=30, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=_ET),
         id="mid_morning_unusual_calls",
         replace_existing=True,
     )
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("late-morning"),
-        CronTrigger(day_of_week="mon-fri", hour=11, minute=0, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=11, minute=5, timezone=_ET),
         id="late_morning_unusual_calls",
         replace_existing=True,
     )
-    # Midday scans — every 30 min keeps HC tab fresh throughout the session
     _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("midday-1"),
-        CronTrigger(day_of_week="mon-fri", hour=11, minute=30, timezone=_ET),
-        id="midday_unusual_calls_1",
+        lambda: _run_unusual_calls_scan("midday"),
+        CronTrigger(day_of_week="mon-fri", hour=12, minute=5, timezone=_ET),
+        id="midday_unusual_calls",
         replace_existing=True,
     )
     _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("midday-2"),
-        CronTrigger(day_of_week="mon-fri", hour=12, minute=0, timezone=_ET),
-        id="midday_unusual_calls_2",
+        lambda: _run_unusual_calls_scan("early-afternoon"),
+        CronTrigger(day_of_week="mon-fri", hour=13, minute=5, timezone=_ET),
+        id="early_afternoon_unusual_calls",
         replace_existing=True,
     )
     _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("midday-3"),
-        CronTrigger(day_of_week="mon-fri", hour=12, minute=30, timezone=_ET),
-        id="midday_unusual_calls_3",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("midday-4"),
-        CronTrigger(day_of_week="mon-fri", hour=13, minute=0, timezone=_ET),
-        id="midday_unusual_calls_4",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("midday-5"),
-        CronTrigger(day_of_week="mon-fri", hour=13, minute=30, timezone=_ET),
-        id="midday_unusual_calls_5",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("midday-6"),
-        CronTrigger(day_of_week="mon-fri", hour=14, minute=0, timezone=_ET),
-        id="midday_unusual_calls_6",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("midday-7"),
-        CronTrigger(day_of_week="mon-fri", hour=14, minute=30, timezone=_ET),
-        id="midday_unusual_calls_7",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("midday-8"),
-        CronTrigger(day_of_week="mon-fri", hour=15, minute=0, timezone=_ET),
-        id="midday_unusual_calls_8",
+        lambda: _run_unusual_calls_scan("mid-afternoon"),
+        CronTrigger(day_of_week="mon-fri", hour=14, minute=5, timezone=_ET),
+        id="mid_afternoon_unusual_calls",
         replace_existing=True,
     )
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("pre-close"),
-        CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=5, timezone=_ET),
         id="preclose_unusual_calls",
         replace_existing=True,
     )
     _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("late-session"),
-        CronTrigger(day_of_week="mon-fri", hour=15, minute=45, timezone=_ET),
-        id="late_session_unusual_calls",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("eod-1"),
+        lambda: _run_unusual_calls_scan("eod"),
         CronTrigger(day_of_week="mon-fri", hour=16, minute=0, timezone=_ET),
-        id="eod_unusual_calls_1",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        lambda: _run_unusual_calls_scan("eod-2"),
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
-        id="eod_unusual_calls_2",
+        id="eod_unusual_calls",
         replace_existing=True,
     )
 
@@ -2410,14 +2358,14 @@ try:
 
     _scheduler.start()
     print("[scheduler] APScheduler started — "
-          "scans: 9:00/9:45/10:30/11:00/11:30 AM, 12:00/12:30/1:00/1:30/2:00/2:30/3:00/3:30 PM, 4:00 PM ET | "
+          "scans (hourly): 9:05/10:05/11:05 AM, 12:05/1:05/2:05/3:05/4:00 PM ET | "
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
           "sc (stealth): 8:15 AM ranking, 9:37 watch, 9:47 buy | "
           "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
           "morning inflows: 9:36 + 10:01 + 13:01 | "
-          "outcomes: 4:30-4:35 PM | cache warmer: every 15 min — Mon–Fri ET")
+          "outcomes: 4:30-4:35 PM | cache warmer: every 90 min — Mon–Fri ET")
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 

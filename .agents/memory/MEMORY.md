@@ -41,3 +41,4 @@
 - [eod-accumulation weekend hang](eod-accum-weekend.md) — _after_close only checked time-of-day, not weekends → live yfinance scan hung forever on Saturdays/Sundays; fix: add `not _intraday_scan_allowed()` as first clause
 - [OI accumulation calendar-date bug](oi-accum-calendar-bug.md) — _get_oi_accumulation_signals used today-N as literal date → 0 results on weekends; fix: use actual N-th most recent snapshot date from DB; also add previous-day tickers to snapshot universe for ticker overlap
 - [Startup scan delay](startup-scan-delay.md) — _startup_scan_if_needed must sleep 180s first or it races warm-up jobs and trips Yahoo breaker on every boot
+- [yfinance global rate limiter](yfinance-rate-limiter.md) — token bucket (3/sec) wired into curl_cffi patch; hourly scans at :05; cache warmer every 90 min; admin reset-breaker endpoint; breaker trip logic fixed
