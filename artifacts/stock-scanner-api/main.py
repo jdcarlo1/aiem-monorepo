@@ -11757,6 +11757,51 @@ def bull_flow_top10():
             return jsonify({"results": [], "returned": 0, "scanned": 0,
                             "stale": True, "error": str(_bfnh_e)})
 
+    # If Yahoo is rate-limiting (circuit breaker open), skip the live scan
+    # entirely and serve today's stored signals from the DB immediately so
+    # "Run Scan" returns in <1s instead of hanging for 2+ minutes then timing out.
+    if _yf_breaker_open():
+        try:
+            with _psycopg2.connect(_DB_URL) as _bfb, _bfb.cursor() as _bfbcur:
+                _bfbcur.execute("""
+                    SELECT DISTINCT ON (ticker)
+                        ticker, price::float, strike::float, expiry,
+                        volume, oi, vol_oi::float, prem::bigint
+                    FROM unusual_calls_log
+                    WHERE last_seen >= now() - interval '4 days'
+                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                      AND prem >= 100000
+                    ORDER BY ticker, prem DESC
+                """)
+                _bfb_rows = _bfbcur.fetchall()
+            _bfb_rows.sort(key=lambda x: x[7], reverse=True)
+            _bfb_out = []
+            for i, r in enumerate(_bfb_rows[:40]):
+                _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
+                _bfb_out.append({
+                    "rank":           i + 1,
+                    "ticker":         _tk,
+                    "price":          round(float(_pr or 0), 2),
+                    "strike":         float(_st or 0),
+                    "expiry":         _ex,
+                    "premium_m":      round(float(_prem) / 1_000_000, 2),
+                    "premium_k":      round(float(_prem) / 1_000, 1),
+                    "call_put_ratio": round(float(_voi or 1), 2),
+                    "call_vol_oi":    round(float(_voi or 0), 2),
+                    "total_call_vol": int(_vol or 0),
+                    "source":         "db",
+                })
+            _bfb_result = {"results": _bfb_out, "returned": len(_bfb_out),
+                           "scanned": 0, "stale": True,
+                           "note": "Yahoo rate-limited — showing most recent stored signals"}
+            app._bf_cache     = _bfb_result
+            app._bf_cache_ts  = _dt.now()
+            app._bf_cache_key = tickers
+            return jsonify(_bfb_result)
+        except Exception as _bfb_e:
+            return jsonify({"results": [], "returned": 0, "scanned": 0,
+                            "stale": True, "error": str(_bfb_e)})
+
     # Force a fresh Yahoo Finance crumb/session before bulk fetching
     try:
         yf.utils.get_crumb(reuse_session=False)
