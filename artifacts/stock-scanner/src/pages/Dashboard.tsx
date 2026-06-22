@@ -10691,6 +10691,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const [historyLoading, setHistoryLoading] = useState(false);
   const [outcomes, setOutcomes] = useState<{ outcomes: SignalOutcome[]; count: number; win_rates: { t3: number | null; t5: number | null; t10: number | null } } | null>(null);
   const [scanSuccess, setScanSuccess] = useState(false);
+  const [staleNote,   setStaleNote]   = useState<string | null>(null);
 
   const loadHistory = async () => {
     setHistoryLoading(true);
@@ -10718,6 +10719,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       const data = await fetchBullFlow();
       setResults(data.results);
       setScanned(data.scanned);
+      setStaleNote(data.note ?? null);
       setLastRun(new Date());
       setScanSuccess(true);
       setTimeout(() => setScanSuccess(false), 2500);
@@ -10845,6 +10847,13 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         )}
         {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
       </div>
+
+      {staleNote && (
+        <div className="bg-yellow-950/40 border border-yellow-700/40 rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs text-yellow-400">
+          <span>⚠️</span>
+          <span>{staleNote}</span>
+        </div>
+      )}
 
       {/* 📊 Track Record */}
       {outcomes && (

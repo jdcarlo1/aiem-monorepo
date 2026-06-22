@@ -11815,13 +11815,54 @@ def bull_flow_top10():
     for i, r in enumerate(top40):
         r["rank"] = i + 1
 
+    # ── Stale fallback: live scan + today's DB both empty → serve last 4 days ──
+    _stale_note = None
+    if not top40:
+        try:
+            with _psycopg2.connect(_DB_URL) as _bfs, _bfs.cursor() as _bfscur:
+                _bfscur.execute("""
+                    SELECT DISTINCT ON (ticker)
+                        ticker, price::float, strike::float, expiry,
+                        volume, oi, vol_oi::float, prem::bigint
+                    FROM unusual_calls_log
+                    WHERE last_seen  >= now() - interval '4 days'
+                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                      AND prem >= 100000
+                    ORDER BY ticker, prem DESC
+                """)
+                _stale_rows = _bfscur.fetchall()
+            _stale_rows.sort(key=lambda x: x[7], reverse=True)
+            for _si, _sr in enumerate(_stale_rows[:40]):
+                _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = _sr
+                top40.append({
+                    "rank":           _si + 1,
+                    "ticker":         _tk,
+                    "price":          round(float(_pr or 0), 2),
+                    "strike":         float(_st or 0),
+                    "expiry":         _ex,
+                    "premium_m":      round(float(_prem) / 1_000_000, 2),
+                    "premium_k":      round(float(_prem) / 1_000, 1),
+                    "call_put_ratio": round(float(_voi or 1), 2),
+                    "call_vol_oi":    round(float(_voi or 0), 2),
+                    "total_call_vol": int(_vol or 0),
+                    "days_to_earnings": None,
+                    "short_float_pct":  None,
+                    "source":         "db_stale",
+                })
+            if top40:
+                _stale_note = "Live data unavailable right now — showing most recent signals from the last 4 days"
+                print(f"[bull_flow] stale fallback: {len(top40)} rows from last 4 days")
+        except Exception as _sfb_e:
+            print(f"[bull_flow] stale fallback error: {_sfb_e}")
+
     # Persist signals for the outcome tracker
     try:
         store_bull_flow_signals(top40, session="manual")
     except Exception as _se:
         print(f"[bull_flow] signal store error: {_se}")
 
-    out = {"results": top40, "scanned": len(tickers), "returned": len(top40)}
+    out = {"results": top40, "scanned": len(tickers), "returned": len(top40),
+           "stale": _stale_note is not None, "note": _stale_note}
     app._bf_cache     = out
     app._bf_cache_ts  = _dt.now()
     app._bf_cache_key = tickers

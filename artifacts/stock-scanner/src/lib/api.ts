@@ -443,7 +443,7 @@ export function fetchAIThesis(row: Pick<BullFlowRow, "ticker"|"call_put_ratio"|"
 }
 
 export function fetchBullFlow(tickers?: string[]) {
-  return fetchJson<{ results: BullFlowRow[]; scanned: number; returned: number }>(
+  return fetchJson<{ results: BullFlowRow[]; scanned: number; returned: number; stale?: boolean; note?: string | null }>(
     "/bull-flow/top10",
     {
       method: "POST",
