@@ -64,6 +64,14 @@ plan premised on "live OI."
 and blind spots; on June 16 2026 we established the polling ceiling, and in June
 2026 the user committed to Alpaca to power an accurate conviction score market-wide.
 
+## Priority scan order fix (June 22 2026)
+SPY/QQQ were at positions 463/464 in the DEFAULT_LEADERBOARD scan order — meaning if Yahoo
+blocked at position 200, the highest-volume ETFs were always missed. Fixed by prepending a
+`_PRIORITY_FIRST` list (SPY, QQQ, IWM, TSLA, NVDA, AAPL, MSFT, AMZN, META, COIN, MSTR,
+PLTR, ARM, HOOD, SPCX, MU, MRVL, WDC, SMCI, INTC, AVGO, NFLX, UBER) to the scan universe
+in `_run_unusual_calls_scan`. These 24 names now always scan in the first ~6 batches (4
+workers) regardless of Yahoo throttle timing.
+
 ## Production IP block (June 22 2026 — confirmed)
 Yahoo blocked the production server's IP for the ENTIRE AFTERNOON. Every ticker
 in every scan returned "circuit breaker open (Yahoo rate-limited)". Resetting the

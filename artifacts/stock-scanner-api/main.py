@@ -1061,18 +1061,25 @@ try:
                 except Exception: pass
                 return hits
             # Build augmented universe:
-            #  1. earnings stocks today (e.g. CBRL reporting Q3) — always first
+            #  0. highest-volume option tickers — always scanned first so even a
+            #     partial Yahoo block still captures the most active names
+            #  1. earnings stocks today — always early
             #  2. today's top % gainers + most-active — catches catalyst moves early
             #  3. core leaderboard top 500 — fills out coverage
+            _PRIORITY_FIRST = [
+                "SPY","QQQ","IWM","TSLA","NVDA","AAPL","MSFT","AMZN","META",
+                "AMD","GOOGL","COIN","MSTR","PLTR","ARM","HOOD","SPCX",
+                "MU","MRVL","WDC","SMCI","INTC","AVGO","NFLX","UBER",
+            ]
             _earnings = _fetch_earnings_today()
             _movers   = _fetch_market_movers()
             _seen: set = set()
             _universe: list = []
-            for _t in (_earnings + _movers + list(DEFAULT_LEADERBOARD)[:500]):
+            for _t in (_PRIORITY_FIRST + _earnings + _movers + list(DEFAULT_LEADERBOARD)[:500]):
                 if _t not in _seen:
                     _seen.add(_t); _universe.append(_t)
-            print(f"[scheduler] {label} scan universe: {len(_earnings)} earnings + "
-                  f"{len(_movers)} movers + core = {len(_universe)} total")
+            print(f"[scheduler] {label} scan universe: {len(_PRIORITY_FIRST)} priority + "
+                  f"{len(_earnings)} earnings + {len(_movers)} movers + core = {len(_universe)} total")
             all_hits = []
             with ThreadPoolExecutor(max_workers=4) as ex:
                 futs = {ex.submit(_scan_one, t): t for t in _universe}
