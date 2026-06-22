@@ -1082,7 +1082,15 @@ try:
                     except Exception:
                         pass
             _save_unusual_calls_to_db(all_hits)
-            print(f"[scheduler] {label} unusual-calls scan → {len(all_hits)} hits saved")
+            # Refresh the in-memory cache with ALL of today's accumulated sweeps so
+            # that earlier scans' results stay visible — not just this scan's slice.
+            from datetime import datetime as _dt_sch
+            _today_all = _load_todays_unusual_calls_from_db(_ETF_SET)
+            if _today_all:
+                app._unusual_calls_cache    = {"hits": _today_all[:150], "total": len(_today_all),
+                                               "scanned": len(_universe), "stale": False}
+                app._unusual_calls_cache_ts = _dt_sch.now()
+            print(f"[scheduler] {label} unusual-calls scan → {len(all_hits)} new hits, {len(_today_all)} total today")
             # Send instant email alert for high-conviction hits (morning scan only)
             if label in ("market-open", "morning"):
                 import threading as _alt
@@ -8785,6 +8793,41 @@ def _save_unusual_calls_to_db(hits: list):
 
 
 _init_unusual_calls_log_table()
+
+
+def _load_todays_unusual_calls_from_db(etf_set=None):
+    """Return every unusual call sweep logged today (ET), sorted by vol_oi desc.
+    Called after each scan so the endpoint always serves the full day's
+    accumulated history — not just the latest scan's slice."""
+    try:
+        with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
+            _cur.execute("""
+                SELECT ticker, price::float, strike::float, expiry, days_out,
+                       volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                       iv::float, urgency, first_seen
+                FROM unusual_calls_log
+                WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                                   AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+                  AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                  AND vol_oi >= 3
+                  AND prem >= 100000
+                ORDER BY vol_oi DESC, last_seen DESC LIMIT 150
+            """)
+            _rows = _cur.fetchall()
+        _cols = ["ticker","price","strike","expiry","days_out","volume","oi",
+                 "vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+        _hits = []
+        for _row in _rows:
+            _d = dict(zip(_cols, _row))
+            if etf_set:
+                _d["is_etf"] = _d["ticker"] in etf_set
+            _fs = _d.get("first_seen")
+            _d["detected_label"] = _detected_label(_fs)
+            _d["first_seen"] = _fs.isoformat() if _fs else None
+            _hits.append(_d)
+        return _hits
+    except Exception:
+        return []
 
 
 def _init_eod_sweep_log_table():
@@ -17436,7 +17479,12 @@ def unusual_calls():
         # last_seen to today and corrupt the "detected" dates.
         if all_hits and not _stale_fallback:
             _save_unusual_calls_to_db(all_hits)
-        out = {"hits": all_hits[:80], "total": len(all_hits),
+            # Serve the full day's accumulated sweeps — earlier scans' results
+            # remain visible even after a newer scan runs.
+            _today_all = _load_todays_unusual_calls_from_db(_ETF_SET)
+            if _today_all:
+                all_hits = _today_all
+        out = {"hits": all_hits[:150], "total": len(all_hits),
                "scanned": len(DEFAULT_LEADERBOARD), "stale": _stale_fallback}
         if _stale_fallback:
             out["note"] = ("No new unusual calls have come through yet today (data feed quiet) — "
