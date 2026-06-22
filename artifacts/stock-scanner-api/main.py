@@ -12641,7 +12641,10 @@ def net_flow_multiday():
         return jsonify({"results": [], "scanned": 0, "found": 0,
                         "stale": True, "note": "No scan data yet — will populate on next market day"})
 
-    # ── 4. Market open — kick off bg scan; serve stale DB data immediately ────
+    # ── 4. Market open — pre-fetch DB cache BEFORE lock (never hold lock during I/O) ──
+    db = _load_scan_cache("net_flow_multiday", days_back=7)
+
+    # ── 5. Brief lock: only check/set scanning flag, no I/O inside ───────────
     with app._nfmd_lock:
         # Re-check in-memory after lock
         _cache = getattr(app, "_nfmd_cache", None)
@@ -12649,20 +12652,18 @@ def net_flow_multiday():
         if _cache and _ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL:
             return jsonify(_cache)
 
-        db = _load_scan_cache("net_flow_multiday", days_back=7)
-
         if not getattr(app, "_nfmd_scanning", False):
             app._nfmd_scanning = True
             threading.Thread(target=_bg_scan, daemon=True).start()
 
-        if db:
-            resp = dict(db)
-            resp["stale"] = True
-            resp["note"]  = "Refreshing in background (2–3 min) — showing last scan"
-            return jsonify(resp)
+    if db:
+        resp = dict(db)
+        resp["stale"] = True
+        resp["note"]  = "Refreshing in background (2–3 min) — showing last scan"
+        return jsonify(resp)
 
-        return jsonify({"results": [], "scanned": 0, "found": 0,
-                        "stale": True, "note": "Scan started — check back in 2–3 minutes"})
+    return jsonify({"results": [], "scanned": 0, "found": 0,
+                    "stale": True, "note": "Scan started — check back in 2–3 minutes"})
 
 
 # ── AI Signal Analysis ────────────────────────────────────────────────────────
