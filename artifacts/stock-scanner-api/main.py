@@ -1051,6 +1051,13 @@ try:
         id="morning_unusual_calls",
         replace_existing=True,
     )
+    # Mid-morning: 10:30 AM ET — fills the 90-min gap between 10:02 and 11:30
+    _scheduler.add_job(
+        lambda: _run_unusual_calls_scan("mid-morning"),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=30, timezone=_ET),
+        id="mid_morning_unusual_calls",
+        replace_existing=True,
+    )
     # Midday scans: 11:30 AM, 1:00 PM, 2:30 PM ET — keeps HC tab fresh throughout the session
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("midday-1"),
@@ -2332,7 +2339,7 @@ try:
 
     _scheduler.start()
     print("[scheduler] APScheduler started — "
-          "scans: 9:00/9:45 AM, 11:30 AM, 1:00/2:30/3:30/4:00 PM ET | "
+          "scans: 9:00/9:45/10:30 AM, 11:30 AM, 1:00/2:30/3:30/4:00 PM ET | "
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
