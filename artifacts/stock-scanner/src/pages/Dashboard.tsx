@@ -12356,6 +12356,7 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
   const [error,       setError]       = useState<string | null>(null);
   const [days,        setDays]        = useState(3);
   const [lastRun,     setLastRun]     = useState<Date | null>(null);
+  const [scanDone,    setScanDone]    = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
@@ -12368,35 +12369,45 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
       const sigs = res.signals ?? [];
       setSignals(sigs);
       setLastRun(new Date());
-      // If we got data, stop polling
-      if (sigs.length > 0) { stopPoll(); setScanning(false); }
-      return sigs.length;
+      if (sigs.length > 0) { stopPoll(); setScanning(false); setScanDone(false); }
+      return { count: sigs.length, scanTriggered: res.scan_triggered ?? false };
     } catch (e: any) {
       setError(e.message ?? "Scan failed");
-      return 0;
+      return { count: 0, scanTriggered: false };
     } finally {
       if (!quiet) setLoading(false);
     }
   };
 
-  const runScan = async () => {
-    if (scanning) return;
-    setScanning(true);
-    try { await triggerMicrocapScan(); } catch { /* fire and forget */ }
-    // Poll every 12 seconds until data appears (scan takes ~60s)
+  const startPolling = (d = days) => {
     stopPoll();
+    setScanDone(false);
     pollRef.current = setInterval(async () => {
-      const count = await load(days, true);
+      const { count } = await load(d, true);
       if (count > 0) stopPoll();
     }, 12_000);
-    // Also stop polling after 3 minutes max
-    setTimeout(() => { stopPoll(); setScanning(false); }, 180_000);
+    // Stop after 90s — if scan finished with 0 results, don't spin forever
+    setTimeout(() => { stopPoll(); setScanning(false); setScanDone(true); }, 90_000);
+  };
+
+  const runScan = async () => {
+    if (scanning) return;
+    setScanning(true); setScanDone(false);
+    try { await triggerMicrocapScan(); } catch { /* fire and forget */ }
+    startPolling();
   };
 
   useEffect(() => {
-    load().then(count => {
-      // If nothing in DB, auto-trigger a background scan
-      if (count === 0) runScan();
+    load().then(({ count, scanTriggered }) => {
+      if (count === 0) {
+        if (scanTriggered) {
+          // Backend already kicked off a scan — just poll, don't double-trigger
+          setScanning(true);
+          startPolling();
+        } else {
+          runScan();
+        }
+      }
     });
     return stopPoll;
   }, []);
@@ -12479,15 +12490,17 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 
       {!loading && !scanning && !error && signals.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-500">
-          <span className="text-4xl">🔍</span>
+          <span className="text-4xl">{scanDone ? "📭" : "🔍"}</span>
           <p className="text-sm text-center max-w-xs">
-            No signals found. Hit <strong className="text-violet-400">Scan Now</strong> to run a live scan across 350+ growth tickers.
+            {scanDone
+              ? "Scan complete — no unusual activity detected yet today. The next auto-scan will run shortly."
+              : "No signals found. Hit Scan Now to run a live scan across 350+ growth tickers."}
           </p>
           <button
-            onClick={() => runScan()}
+            onClick={() => { setScanDone(false); runScan(); }}
             className="mt-2 px-4 py-2 rounded-lg text-sm font-bold bg-violet-700 border border-violet-600 text-white hover:bg-violet-600 transition-all"
           >
-            🔥 Run Scan Now
+            🔄 Try Again
           </button>
         </div>
       )}
