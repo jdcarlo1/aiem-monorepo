@@ -13354,6 +13354,7 @@ def convergence():
             _out = {"results": _res[:15], "scanned": len(tickers)}
             if _res:
                 app._conv_cache = _out; app._conv_cache_ts = _cvdt.now()
+                _save_scan_cache("convergence", _out)
         except Exception as _e:
             print(f"[convergence] bg error: {_e}", file=_sys.stderr)
         finally:
@@ -13361,6 +13362,8 @@ def convergence():
 
     if _yf_breaker_open():
         if _cache: return jsonify({**_cache, "stale": True})
+        _db_conv = _load_scan_cache("convergence")
+        if _db_conv: return jsonify({**_db_conv, "stale": True})
         return jsonify({"results": [], "scanned": len(tickers), "stale": True})
     import threading as _conv_thr
     if not getattr(app, "_conv_scanning", False):
@@ -13691,6 +13694,7 @@ def options_intent():
             out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
             app._oi_cache = out
             app._oi_cache_ts = _dt.now()
+            _save_scan_cache("options-intent", out)
         except Exception:
             pass
         finally:
@@ -13698,6 +13702,8 @@ def options_intent():
 
     if _yf_breaker_open():
         if _cache: return jsonify({**_cache, "stale": True})
+        _db_oi = _load_scan_cache("options-intent")
+        if _db_oi: return jsonify({**_db_oi, "stale": True})
         return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     if not getattr(app, "_oi_scanning", False):
         app._oi_scanning = True
@@ -13719,6 +13725,8 @@ def vol_crush():
 
     if _yf_breaker_open():
         if _cache: return jsonify({**_cache, "stale": True})
+        _db_vc = _load_scan_cache("vol-crush")
+        if _db_vc: return jsonify({**_db_vc, "stale": True})
         return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
 
     def _analyze(ticker):
@@ -14306,6 +14314,7 @@ def vol_crush():
     out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
     if rows:
         app._vc_cache = out; app._vc_cache_ts = _dt.now()
+        _save_scan_cache("vol-crush", out)
     return jsonify(out)
 
 
@@ -14426,6 +14435,7 @@ def call_intent():
             rows.sort(key=lambda x: x["accum_prem_m"], reverse=True)
             out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
             app._ci_cache = out; app._ci_cache_ts = _dt.now()
+            _save_scan_cache("call-intent", out)
         except Exception:
             pass
         finally:
@@ -14433,6 +14443,8 @@ def call_intent():
 
     if _yf_breaker_open():
         if _cache: return jsonify({**_cache, "stale": True})
+        _db_ci = _load_scan_cache("call-intent")
+        if _db_ci: return jsonify({**_db_ci, "stale": True})
         return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     if not getattr(app, "_ci_scanning", False):
         app._ci_scanning = True
@@ -14514,6 +14526,7 @@ def smart_vs_retail():
             rows.sort(key=lambda x: (x["signal_strength"] == "STRONG", x["smart_prem_m"]), reverse=True)
             out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
             app._svr_cache = out; app._svr_cache_ts = _dt.now()
+            _save_scan_cache("smart-vs-retail", out)
         except Exception:
             pass
         finally:
@@ -14521,6 +14534,8 @@ def smart_vs_retail():
 
     if _yf_breaker_open():
         if _cache: return jsonify({**_cache, "stale": True})
+        _db_svr = _load_scan_cache("smart-vs-retail")
+        if _db_svr: return jsonify({**_db_svr, "stale": True})
         return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     if not getattr(app, "_svr_scanning", False):
         app._svr_scanning = True
@@ -14592,6 +14607,7 @@ def max_pain():
             rows.sort(key=lambda x: abs(x["distance_pct"]), reverse=True)
             out = {"results": rows[:20], "scanned": len(DEFAULT_LEADERBOARD)}
             app._mp_cache = out; app._mp_cache_ts = _dt.now()
+            _save_scan_cache("max-pain", out)
         except Exception:
             pass
         finally:
@@ -14599,6 +14615,8 @@ def max_pain():
 
     if _yf_breaker_open():
         if _cache: return jsonify({**_cache, "stale": True})
+        _db_mp = _load_scan_cache("max-pain")
+        if _db_mp: return jsonify({**_db_mp, "stale": True})
         return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     if not getattr(app, "_mp_scanning", False):
         app._mp_scanning = True
@@ -16350,6 +16368,7 @@ def composite_score():
             _rows.sort(key=lambda x: x["score"], reverse=True)
             _out = {"results": _rows, "scanned": len(DEFAULT_LEADERBOARD)}
             app._cs_cache = _out; app._cs_cache_ts = now
+            _save_scan_cache("composite-score", _out)
         except Exception as _e:
             print(f"[composite-score] bg error: {_e}", file=_sys.stderr)
         finally:
@@ -16357,6 +16376,8 @@ def composite_score():
 
     if _yf_breaker_open():
         if _cache: return jsonify({**_cache, "stale": True})
+        _db_cs = _load_scan_cache("composite-score")
+        if _db_cs: return jsonify({**_db_cs, "stale": True})
         return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     import threading as _cs_thr
     if not getattr(app, "_cs_scanning", False):
@@ -16977,8 +16998,7 @@ def unusual_calls():
                                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
                                iv::float, urgency, first_seen
                         FROM unusual_calls_log
-                        WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                                           AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+                        WHERE last_seen >= now() - INTERVAL '5 days'
                           AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                           AND vol_oi >= 2
                           AND prem >= 200000
@@ -17209,10 +17229,10 @@ def unusual_calls_microcap():
     On weekends / outside market hours: use a 5-day lookback so Friday's data
     stays visible through the weekend.
     """
-    days_back = min(int(request.args.get("days", 3)), 30)
-    # Widen to 5 days on weekends/after-hours so Friday's sweeps are visible
-    if not _intraday_scan_allowed() and days_back <= 3:
-        days_back = 5
+    days_back = min(int(request.args.get("days", 7)), 30)
+    # Widen to 7 days on weekends/after-hours so Friday's sweeps are visible
+    if not _intraday_scan_allowed() and days_back <= 7:
+        days_back = 7
 
     # "Today" (days=1) means the actual ET calendar day — NOT a rolling 24h
     # window. A rolling window bleeds yesterday's afternoon/evening signals into
