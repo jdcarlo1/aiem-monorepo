@@ -60,3 +60,9 @@ id = "NVtKoafMnT6BX8SEsRgrd"
 uri = "file://screenshots/reel_slide2.jpg"
 type = "image"
 title = "Slide 2 of 2 — The $397 Solution"
+
+[[outputs]]
+id = "ZbMnBsQnR--n_EVEcFD77"
+uri = "file://screenshots/analyst_team_card.jpg"
+type = "image"
+title = "StockScanner AI — 10 Analyst Team Card"
