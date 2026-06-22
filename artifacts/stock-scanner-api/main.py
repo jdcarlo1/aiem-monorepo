@@ -22502,8 +22502,13 @@ def _startup_scan_if_needed():
     This catches cases where the server crashed mid-day and missed scheduled scans.
     """
     import threading as _sthr
+    import time as _startup_time
     from datetime import datetime as _dtc, timedelta as _tdelta
     import pytz as _ptz
+    # Wait 3 minutes before firing — lets all warm-up jobs (options warmer,
+    # cache warmer, etc.) finish first so they don't all hit Yahoo simultaneously
+    # and trip the circuit breaker for the entire day.
+    _startup_time.sleep(180)
     try:
         _et_now = _dtc.now(_ptz.timezone("America/New_York"))
         if _et_now.weekday() >= 5:  # 5=Saturday, 6=Sunday
