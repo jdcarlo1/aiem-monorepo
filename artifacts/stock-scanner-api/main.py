@@ -315,6 +315,28 @@ def _yf_note_auth_throttle() -> None:
             _yf_breaker_trip()
             _YF_AUTH_HITS.clear()
 
+# Silent-throttle detector: yfinance swallows Yahoo 401s/throttles as empty
+# DataFrames ("possibly delisted") so the HTTP-level breaker above never trips.
+# Track empty-price / empty-options results from scan workers; if 15+ within
+# 30 s, Yahoo is clearly throttling and we trip the breaker so the rest of the
+# scan fails fast instead of churning for 3+ minutes.
+_YF_SILENT_HITS: list = []
+_YF_SILENT_LOCK = threading.Lock()
+_YF_SILENT_WINDOW = 30.0
+_YF_SILENT_THRESHOLD = 15
+
+def _yf_note_silent_throttle() -> None:
+    now = _time_cb.time()
+    with _YF_SILENT_LOCK:
+        _YF_SILENT_HITS.append(now)
+        _cutoff = now - _YF_SILENT_WINDOW
+        while _YF_SILENT_HITS and _YF_SILENT_HITS[0] < _cutoff:
+            _YF_SILENT_HITS.pop(0)
+        if len(_YF_SILENT_HITS) >= _YF_SILENT_THRESHOLD:
+            _yf_breaker_trip()
+            _YF_SILENT_HITS.clear()
+            print("[breaker] silent-throttle tripped: 15+ empty price/options responses in 30s")
+
 try:
     import requests as _req_patch
     from requests.adapters import HTTPAdapter as _HTTPAdapter
@@ -1001,7 +1023,9 @@ try:
                     from datetime import datetime as _dt2
                     tk = yf.Ticker(ticker)
                     price = float(getattr(tk.fast_info, "last_price", 0) or 0)
-                    if not price: return hits
+                    if not price:
+                        _yf_note_silent_throttle()
+                        return hits
                     for exp in (tk.options or []):
                         days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
                         if not (1 <= days <= max_exp): continue
@@ -9148,6 +9172,7 @@ def _run_microcap_options_scan_impl() -> list:
             opts = tk.options
             if not opts:
                 _cbump("no_options")
+                _yf_note_silent_throttle()
                 return hits
 
             _n_exp = 0
