@@ -2366,6 +2366,72 @@ try:
           "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
           "morning inflows: 9:36 + 10:01 + 13:01 | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 90 min — Mon–Fri ET")
+
+    # ── Startup catch-up scan ──────────────────────────────────────────────
+    # If the server restarts mid-day (e.g. after a deploy) it will have
+    # missed all the morning scheduled scans.  Detect this and kick off
+    # catch-up runs 90 s after startup so the scheduler/DB settle first.
+    def _startup_catchup():
+        import time as _time_su, datetime as _dt_su
+        _time_su.sleep(90)
+        try:
+            _et_tz_su = _pytz.timezone("America/New_York")
+            _now_et   = _dt_su.datetime.now(_et_tz_su)
+            _dow      = _now_et.weekday()          # 0=Mon … 4=Fri
+            _hour_et  = _now_et.hour
+            # Only catch up on weekdays between 9 AM and 5 PM ET
+            if _dow >= 5 or not (9 <= _hour_et < 17):
+                return
+            _today_et = _now_et.strftime("%Y-%m-%d")
+            # Check unusual calls — does today's data exist?
+            _need_uc = True
+            try:
+                with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cur:
+                    _cur.execute(
+                        "SELECT 1 FROM unusual_calls_log "
+                        "WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                        "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' LIMIT 1"
+                    )
+                    if _cur.fetchone():
+                        _need_uc = False
+            except Exception:
+                pass
+            if _need_uc:
+                print(f"[startup_catchup] no unusual-calls data for {_today_et} — running catch-up scan")
+                try:
+                    _run_unusual_calls_scan("startup-catchup")
+                except Exception as _e_uc:
+                    print(f"[startup_catchup] unusual-calls error: {_e_uc}")
+
+            # Check microcap — does today's data exist?
+            _need_mc = True
+            try:
+                with _psycopg2.connect(_DB_URL) as _c2, _c2.cursor() as _cur2:
+                    _cur2.execute(
+                        "SELECT 1 FROM unusual_calls_microcap_log "
+                        "WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                        "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' LIMIT 1"
+                    )
+                    if _cur2.fetchone():
+                        _need_mc = False
+            except Exception:
+                pass
+            if _need_mc:
+                print(f"[startup_catchup] no microcap data for {_today_et} — running catch-up scan")
+                _time_su.sleep(30)   # stagger after unusual-calls to avoid concurrent Yahoo calls
+                try:
+                    hits = _run_microcap_options_scan()
+                    _save_microcap_calls_to_db(hits)
+                    print(f"[startup_catchup] microcap done — {len(hits)} signals saved")
+                except Exception as _e_mc:
+                    print(f"[startup_catchup] microcap error: {_e_mc}")
+        except Exception as _e_su:
+            print(f"[startup_catchup] error: {_e_su}")
+
+    import threading as _thr_su
+    _thr_su.Thread(target=_startup_catchup, daemon=True).start()
+    print("[startup_catchup] catch-up checker scheduled (runs in 90s if today's data is missing)")
+
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
@@ -17296,10 +17362,10 @@ def unusual_calls_microcap():
     On weekends / outside market hours: use a 5-day lookback so Friday's data
     stays visible through the weekend.
     """
-    days_back = min(int(request.args.get("days", 7)), 30)
-    # Widen to 7 days on weekends/after-hours so Friday's sweeps are visible
-    if not _intraday_scan_allowed() and days_back <= 7:
-        days_back = 7
+    days_back = min(int(request.args.get("days", 1)), 30)
+    # Widen to 5 days on weekends/after-hours so Friday's sweeps are visible
+    if not _intraday_scan_allowed() and days_back <= 1:
+        days_back = 5
 
     # "Today" (days=1) means the actual ET calendar day — NOT a rolling 24h
     # window. A rolling window bleeds yesterday's afternoon/evening signals into
@@ -17334,6 +17400,24 @@ def unusual_calls_microcap():
             for r in rows:
                 if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
                 if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
+
+        # Post-fetch stale check: rows exist but none are from today (ET) on a
+        # trading day.  Happens when days_back > 1 is passed explicitly or the
+        # weekend-widen kicked in and we're back on Monday with Friday rows.
+        # On weekends/after-hours Friday rows are intentionally shown as fresh;
+        # only flag stale when the market is (or was today) open.
+        if rows and _intraday_scan_allowed():
+            try:
+                import datetime as _dtmc, pytz as _pzmc
+                _et_now = _datetime.now(_pytz.timezone('America/New_York'))
+                _today_et_str = _et_now.strftime('%Y-%m-%d')
+                _most_recent_str = max(
+                    r["last_seen"][:10] for r in rows if r.get("last_seen")
+                )
+                if _most_recent_str < _today_et_str:
+                    rows = []   # force the stale-fallback path below to re-fetch
+            except Exception:
+                pass
 
         # Stale fallback: if the requested window is empty, return the most
         # recent scan from up to 14 days ago with stale=True so the tab shows
