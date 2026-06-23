@@ -12086,41 +12086,69 @@ def bull_flow_top10():
             and (_dt.now() - _bf_ts).total_seconds() < _bf_cache_ttl):
         return jsonify(_bf_cache)
 
-    # Outside market hours: skip live scan, serve last trading day's DB data directly.
+    # Shared helper: query unusual_calls_log today-first, fall back to 4-day window.
+    # Returns (rows_list, is_today_data) where rows_list is sorted by prem DESC.
+    def _bf_db_query(cur):
+        _today_sql = """
+            SELECT DISTINCT ON (ticker)
+                ticker, price::float, strike::float, expiry,
+                volume, oi, vol_oi::float, prem::bigint
+            FROM unusual_calls_log
+            WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                                AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+              AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+              AND prem >= 100000
+            ORDER BY ticker, prem DESC
+        """
+        _fallback_sql = """
+            SELECT DISTINCT ON (ticker)
+                ticker, price::float, strike::float, expiry,
+                volume, oi, vol_oi::float, prem::bigint
+            FROM unusual_calls_log
+            WHERE last_seen >= now() - interval '4 days'
+              AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+              AND prem >= 100000
+            ORDER BY ticker, prem DESC
+        """
+        cur.execute(_today_sql)
+        _rows = cur.fetchall()
+        _is_today = len(_rows) >= 5
+        if not _is_today:
+            cur.execute(_fallback_sql)
+            _rows = cur.fetchall()
+        _rows.sort(key=lambda x: x[7], reverse=True)
+        return _rows, _is_today
+
+    def _bf_rows_to_out(rows):
+        out = []
+        for i, r in enumerate(rows[:40]):
+            _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
+            out.append({
+                "rank":           i + 1,
+                "ticker":         _tk,
+                "price":          round(float(_pr or 0), 2),
+                "strike":         float(_st or 0),
+                "expiry":         _ex,
+                "premium_m":      round(float(_prem) / 1_000_000, 2),
+                "premium_k":      round(float(_prem) / 1_000, 1),
+                "call_put_ratio": round(float(_voi or 1), 2),
+                "call_vol_oi":    round(float(_voi or 0), 2),
+                "total_call_vol": int(_vol or 0),
+                "source":         "db",
+            })
+        return out
+
+    # Outside market hours: skip live scan, serve most-recent trading day's DB data.
     if not _intraday_scan_allowed():
         try:
             with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfnh, _bfnh.cursor() as _bfnhcur:
-                _bfnhcur.execute("""
-                    SELECT DISTINCT ON (ticker)
-                        ticker, price::float, strike::float, expiry,
-                        volume, oi, vol_oi::float, prem::bigint
-                    FROM unusual_calls_log
-                    WHERE last_seen >= now() - interval '4 days'
-                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
-                      AND prem >= 100000
-                    ORDER BY ticker, prem DESC
-                """)
-                _bfnh_rows = _bfnhcur.fetchall()
-            _bfnh_rows.sort(key=lambda x: x[7], reverse=True)
-            _bfnh_out = []
-            for i, r in enumerate(_bfnh_rows[:40]):
-                _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
-                _bfnh_out.append({
-                    "rank":           i + 1,
-                    "ticker":         _tk,
-                    "price":          round(float(_pr or 0), 2),
-                    "strike":         float(_st or 0),
-                    "expiry":         _ex,
-                    "premium_m":      round(float(_prem) / 1_000_000, 2),
-                    "premium_k":      round(float(_prem) / 1_000, 1),
-                    "call_put_ratio": round(float(_voi or 1), 2),
-                    "call_vol_oi":    round(float(_voi or 0), 2),
-                    "total_call_vol": int(_vol or 0),
-                    "source":         "db",
-                })
+                _bfnh_rows, _bfnh_today = _bf_db_query(_bfnhcur)
+            _bfnh_out = _bf_rows_to_out(_bfnh_rows)
+            _bfnh_note = ("market closed — showing today's flow" if _bfnh_today
+                          else "market closed — showing most recent stored flow")
             _bfnh_result = {"results": _bfnh_out, "returned": len(_bfnh_out),
-                            "scanned": 0, "stale": True,
-                            "note": "market closed — showing last trading day's flow"}
+                            "scanned": 0, "stale": not _bfnh_today,
+                            "note": _bfnh_note}
             app._bf_cache     = _bfnh_result
             app._bf_cache_ts  = _dt.now()
             app._bf_cache_key = tickers
@@ -12135,37 +12163,13 @@ def bull_flow_top10():
     if _yf_breaker_open():
         try:
             with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfb, _bfb.cursor() as _bfbcur:
-                _bfbcur.execute("""
-                    SELECT DISTINCT ON (ticker)
-                        ticker, price::float, strike::float, expiry,
-                        volume, oi, vol_oi::float, prem::bigint
-                    FROM unusual_calls_log
-                    WHERE last_seen >= now() - interval '4 days'
-                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
-                      AND prem >= 100000
-                    ORDER BY ticker, prem DESC
-                """)
-                _bfb_rows = _bfbcur.fetchall()
-            _bfb_rows.sort(key=lambda x: x[7], reverse=True)
-            _bfb_out = []
-            for i, r in enumerate(_bfb_rows[:40]):
-                _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
-                _bfb_out.append({
-                    "rank":           i + 1,
-                    "ticker":         _tk,
-                    "price":          round(float(_pr or 0), 2),
-                    "strike":         float(_st or 0),
-                    "expiry":         _ex,
-                    "premium_m":      round(float(_prem) / 1_000_000, 2),
-                    "premium_k":      round(float(_prem) / 1_000, 1),
-                    "call_put_ratio": round(float(_voi or 1), 2),
-                    "call_vol_oi":    round(float(_voi or 0), 2),
-                    "total_call_vol": int(_vol or 0),
-                    "source":         "db",
-                })
+                _bfb_rows, _bfb_today = _bf_db_query(_bfbcur)
+            _bfb_out = _bf_rows_to_out(_bfb_rows)
+            _bfb_note = ("Yahoo rate-limited — showing today's stored signals" if _bfb_today
+                         else "Yahoo rate-limited — showing most recent stored signals")
             _bfb_result = {"results": _bfb_out, "returned": len(_bfb_out),
-                           "scanned": 0, "stale": True,
-                           "note": "Yahoo rate-limited — showing most recent stored signals"}
+                           "scanned": 0, "stale": not _bfb_today,
+                           "note": _bfb_note}
             app._bf_cache     = _bfb_result
             app._bf_cache_ts  = _dt.now()
             app._bf_cache_key = tickers
