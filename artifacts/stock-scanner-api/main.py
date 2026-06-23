@@ -203,7 +203,7 @@ import time as _time_cb
 # stuck open all day.
 
 _YF_BREAKER = {"state": "closed", "until": 0.0, "probing": False}
-_YF_BREAKER_COOLDOWN = 60.0   # seconds to stay "open" after a rate-limit hit (1 min; re-trips if load is still high)
+_YF_BREAKER_COOLDOWN = 300.0  # seconds to stay "open" after a rate-limit hit (5 min; long enough for Yahoo to recover before half-open probe)
 _YF_BREAKER_LOCK = threading.Lock()
 
 # ── Global yfinance rate limiter (token bucket) ──────────────────────────────
