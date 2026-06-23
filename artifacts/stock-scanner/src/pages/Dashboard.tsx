@@ -9167,6 +9167,210 @@ function EodSweepTrackTab() {
 }
 
 
+// ---- High Conviction Track Record Tab -------------------------------------
+function ConvictionTrackTab() {
+  const [data, setData]       = useState<ConvictionOutcomeResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchConvictionOutcomes()
+      .then(setData)
+      .catch((e: any) => setError(e.message ?? "Failed to load"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const BB_BG = "#060c14", BB_PANEL = "#0b1320", BB_BORDER = "#1e3a5f", BB_LABEL = "#4a7fa5";
+  const MONO = "IBM Plex Mono, monospace";
+
+  const winColor  = (r: number | null) => r == null ? BB_LABEL : r >= 65 ? "#22c55e" : r >= 50 ? "#fbbf24" : "#ef4444";
+  const retColor  = (v: number | null) => v == null ? BB_LABEL : v > 0 ? "#22c55e" : "#ef4444";
+  const convColor = (c: string) => c === "EXTREME" ? "#ff4444" : c === "HIGH" ? "#fbbf24" : BB_LABEL;
+  const convIcon  = (c: string) => c === "EXTREME" ? "🔥" : "⚡";
+
+  type StatBlock = { signals: number; settled: number; wins: number; losses: number; win_rate: number | null; avg_gain: number | null; avg_loss: number | null; ev: number | null };
+
+  const StatCard = ({ label, stat, accent }: { label: string; stat: StatBlock; accent: string }) => (
+    <div style={{ flex: 1, background: "#0d1b2e", border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: "12px 10px", textAlign: "center" }}>
+      <div style={{ color: BB_LABEL, fontFamily: MONO, fontSize: 7, letterSpacing: 1, marginBottom: 6 }}>{label}</div>
+      {stat.settled === 0 ? (
+        <div style={{ color: "#334155", fontSize: 9, fontFamily: MONO }}>PENDING</div>
+      ) : (
+        <>
+          <div style={{ color: winColor(stat.win_rate), fontSize: 28, fontWeight: 700, fontFamily: MONO, lineHeight: 1 }}>
+            {stat.win_rate != null ? `${stat.win_rate.toFixed(0)}%` : "—"}
+          </div>
+          <div style={{ color: BB_LABEL, fontSize: 7, marginTop: 3 }}>
+            {stat.wins}W / {stat.losses}L · {stat.settled} settled
+          </div>
+          {stat.avg_gain != null && (
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 4 }}>
+              <span style={{ color: "#22c55e", fontSize: 8 }}>+{stat.avg_gain?.toFixed(2)}% avg win</span>
+              <span style={{ color: "#ef4444", fontSize: 8 }}>{stat.avg_loss?.toFixed(2)}% avg loss</span>
+            </div>
+          )}
+          {stat.ev != null && (
+            <div style={{ marginTop: 4, padding: "3px 8px", background: (stat.ev > 0 ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)"), borderRadius: 4, display: "inline-block" }}>
+              <span style={{ color: retColor(stat.ev), fontSize: 9, fontFamily: MONO, fontWeight: 700 }}>
+                EV {stat.ev > 0 ? "+" : ""}{stat.ev.toFixed(2)}%/trade
+              </span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  if (loading) return (
+    <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 40, fontFamily: MONO }}>
+      LOADING CONVICTION TRACK RECORD…
+    </div>
+  );
+  if (error) return <div style={{ color: "#ef4444", padding: 20, fontSize: 10 }}>ERROR: {error}</div>;
+
+  const noGradedData = !data || data.stats.overall.d1.settled === 0;
+  const s = data?.stats;
+
+  return (
+    <div style={{ padding: 12, background: BB_BG, minHeight: "100vh" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ color: "#fbbf24", fontFamily: MONO, fontSize: 13, fontWeight: 700, letterSpacing: 1 }}>
+          🎯 HIGH CONVICTION TRACK RECORD
+        </div>
+        <div style={{ color: BB_LABEL, fontSize: 9, marginTop: 3 }}>
+          Every EXTREME + HIGH score logged at scan time · price tracked at T+1 / T+3 / T+5 close · {data?.total ?? 0} signals logged
+        </div>
+      </div>
+
+      {noGradedData ? (
+        <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 28, textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>🎯</div>
+          <div style={{ color: "#fbbf24", fontFamily: MONO, fontSize: 11, fontWeight: 700, marginBottom: 8 }}>
+            BUILDING TRACK RECORD
+          </div>
+          <div style={{ color: BB_LABEL, fontSize: 9, lineHeight: 1.8 }}>
+            {data && data.total > 0 ? (
+              <>{data.total} signals logged · T+1 outcomes fill in the next trading day after each signal.<br />
+              Check back tomorrow to see the first graded results.</>
+            ) : (
+              <>Conviction signals are being logged at scan time with their entry price.<br />
+              T+1 outcomes appear the next trading day · T+3 and T+5 fill in over the following week.</>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Overall win rates — D+1, D+3, D+5 */}
+          <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+            <div style={{ color: BB_LABEL, fontFamily: MONO, fontSize: 8, letterSpacing: 1, marginBottom: 10 }}>
+              OVERALL WIN RATE — ALL CONVICTION SIGNALS
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <StatCard label="T+1  NEXT DAY"   stat={s!.overall.d1} accent="#22c55e" />
+              <StatCard label="T+3  THREE DAYS" stat={s!.overall.d3} accent="#22c55e" />
+              <StatCard label="T+5  FIVE DAYS"  stat={s!.overall.d5} accent="#22c55e" />
+            </div>
+          </div>
+
+          {/* By conviction level */}
+          <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+            <div style={{ color: BB_LABEL, fontFamily: MONO, fontSize: 8, letterSpacing: 1, marginBottom: 10 }}>
+              WIN RATE BY CONVICTION LEVEL
+            </div>
+            <div style={{ display: "flex", marginBottom: 4 }}>
+              <div style={{ width: 130 }} />
+              {["T+1", "T+3", "T+5"].map(l => (
+                <div key={l} style={{ flex: 1, textAlign: "center", color: BB_LABEL, fontSize: 7, fontFamily: MONO }}>{l}</div>
+              ))}
+            </div>
+            {([
+              { label: "🔥 EXTREME", color: "#ff4444", stats: s!.extreme },
+              { label: "⚡ HIGH",    color: "#fbbf24", stats: s!.high    },
+            ] as const).map(({ label, color, stats }) => (
+              <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div style={{ width: 130, flexShrink: 0 }}>
+                  <div style={{ color, fontSize: 11, fontWeight: 700, fontFamily: MONO }}>{label}</div>
+                  <div style={{ color: BB_LABEL, fontSize: 7 }}>{stats.d1.signals} signals</div>
+                </div>
+                {([stats.d1, stats.d3, stats.d5] as StatBlock[]).map((st, i) => (
+                  <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                    {st.settled === 0 ? (
+                      <span style={{ color: "#334155", fontSize: 8 }}>—</span>
+                    ) : (
+                      <>
+                        <div style={{ color: winColor(st.win_rate), fontSize: 15, fontWeight: 700, fontFamily: MONO }}>
+                          {st.win_rate != null ? `${st.win_rate.toFixed(0)}%` : "—"}
+                        </div>
+                        {st.ev != null && (
+                          <div style={{ color: retColor(st.ev), fontSize: 7 }}>
+                            EV {st.ev > 0 ? "+" : ""}{st.ev.toFixed(2)}%
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Signal log */}
+          {data!.picks.length > 0 && (
+            <div style={{ background: BB_PANEL, border: `1px solid ${BB_BORDER}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ color: BB_LABEL, fontFamily: MONO, fontSize: 8, letterSpacing: 1, marginBottom: 8 }}>
+                SIGNAL LOG — MOST RECENT FIRST
+              </div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6, paddingBottom: 4, borderBottom: `1px solid ${BB_BORDER}` }}>
+                {["TICKER", "DATE", "SCORE", "ENTRY", "T+1", "T+3", "T+5"].map((h, i) => (
+                  <div key={h} style={{
+                    color: BB_LABEL, fontSize: 7, fontFamily: MONO,
+                    width: i === 0 ? 52 : i === 1 ? 56 : i === 2 ? 52 : i === 3 ? 46 : undefined,
+                    flex: i >= 4 ? 1 : undefined,
+                    textAlign: i >= 4 ? "center" : undefined,
+                    flexShrink: 0,
+                  }}>{h}</div>
+                ))}
+              </div>
+              {data!.picks.map((p, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, padding: "3px 0", borderBottom: i < data!.picks.length - 1 ? `1px solid #0d1a2e` : "none" }}>
+                  <div style={{ color: convColor(p.conviction), fontSize: 9, fontWeight: 700, width: 52, flexShrink: 0 }}>
+                    {convIcon(p.conviction)} {p.ticker}
+                  </div>
+                  <div style={{ color: "#94a3b8", fontSize: 8, width: 56, flexShrink: 0 }}>{p.snap_date.slice(5)}</div>
+                  <div style={{ color: p.conviction === "EXTREME" ? "#ff4444" : "#fbbf24", fontSize: 8, width: 52, flexShrink: 0, fontFamily: MONO }}>
+                    {typeof p.score === "number" ? p.score.toFixed(1) : "—"}
+                  </div>
+                  <div style={{ color: "#e2e8f0", fontSize: 8, width: 46, flexShrink: 0 }}>
+                    {p.entry_price != null ? `$${p.entry_price.toFixed(2)}` : "—"}
+                  </div>
+                  {([p.d1_pct, p.d3_pct, p.d5_pct] as (number | null)[]).map((ret, j) => (
+                    <div key={j} style={{ flex: 1, textAlign: "center" }}>
+                      {ret == null ? (
+                        <span style={{ color: "#334155", fontSize: 7 }}>—</span>
+                      ) : (
+                        <span style={{ color: retColor(ret), fontSize: 8, fontWeight: 700 }}>
+                          {ret > 0 ? "+" : ""}{ret.toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <p style={{ fontFamily: MONO, textAlign: "center", color: "#1e293b", fontSize: 10, marginTop: 28 }}>
+        Snapshotted at scan time · Outcomes graded daily at 4:25 PM ET · EXTREME = top-tier multi-signal confluence
+      </p>
+    </div>
+  );
+}
+
+
 // ---- EOD Institutional Sweep Tab ------------------------------------------
 function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData]         = useState<{ signals: EodSweepSignal[]; generated_at: string; total: number; note?: string } | null>(null);
@@ -14056,7 +14260,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"putintent"|"volcrush"|"callintent"|"smartvretail"|"maxpain"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -14193,6 +14397,7 @@ export default function Dashboard() {
     { id: "convictioncalls", label: "🔥 HIGH CONVICTION" },
     { id: "eodsweep",        label: "🌙 EOD SWEEP" },
     { id: "sweeptrack",      label: "📊 SWEEP TRACK RECORD" },
+    { id: "convictiontrack", label: "🎯 CONVICTION TRACK RECORD" },
     { id: "mytrades",        label: "📈 MY TRADES" },
     { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
     { id: "shortcallrecord", label: "📋 SHORT CALLS RECORD" },
@@ -14818,6 +15023,7 @@ export default function Dashboard() {
         {tab === "convictioncalls" && <ConvictionCallsTab onSelectTicker={selectTicker} />}
         {tab === "eodsweep"        && <EodSweepTab       onSelectTicker={selectTicker} />}
         {tab === "sweeptrack"      && <EodSweepTrackTab />}
+        {tab === "convictiontrack" && <ConvictionTrackTab />}
         {tab === "mytrades"        && <MyTradesTab />}
         {tab === "aishortcalls"    && <AIShortCallsTab />}
         {tab === "shortcallrecord" && <ShortCallRecordTab />}
