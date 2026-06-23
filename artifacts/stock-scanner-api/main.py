@@ -13128,7 +13128,11 @@ def net_flow_microcap():
 @app.route("/stock-api/net-flow/microcap/tickers", methods=["GET"])
 def microcap_ticker_count():
     """Returns the current size of the dynamic micro-cap ticker universe."""
-    tickers = _get_microcap_tickers()
+    import time as _tmc
+    if _tmc.time() - _microcap_ticker_cache["ts"] < 5400 and _microcap_ticker_cache["tickers"]:
+        tickers = list(_microcap_ticker_cache["tickers"])
+    else:
+        tickers = list(_MICRO_CAP_UNIVERSE)
     return jsonify({"count": len(tickers), "tickers": tickers})
 
 
@@ -14074,21 +14078,27 @@ def premarket():
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(_get, t): t for t in tickers}
+    _pm_ex = ThreadPoolExecutor(max_workers=10)
+    try:
+        futures = {_pm_ex.submit(_get, t): t for t in tickers}
         try:
-            for fut in as_completed(futures, timeout=12):
+            for fut in as_completed(futures, timeout=4):
                 r = fut.result()
                 if r:
                     results.append(r)
         except Exception:
             pass  # timeout — return whatever came back before the deadline
+    finally:
+        _pm_ex.shutdown(wait=False, cancel_futures=True)
 
     results.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
     gainers = [r for r in results if r["change_pct"] > 0][:10]
     losers  = [r for r in results if r["change_pct"] < 0][:10]
     out = {"gainers": gainers, "losers": losers, "scanned": len(tickers)}
-    app._pm_cache = out; app._pm_cache_ts = _pdt.now()
+    if gainers or losers:
+        app._pm_cache = out; app._pm_cache_ts = _pdt.now()
+    elif _cache:
+        return jsonify({**_cache, "stale": True})
     return jsonify(out)
 
 
@@ -15332,6 +15342,11 @@ def gamma_wall():
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "stale": True})
+
     TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "NVDA", "TSLA", "META", "AMZN", "MSFT", "GOOGL"]
 
     def _analyze(ticker):
@@ -15369,7 +15384,7 @@ def gamma_wall():
     futures = {_ex_gw.submit(_analyze, t): t for t in TICKERS}
     rows = []
     try:
-        for fut in as_completed(futures, timeout=22):
+        for fut in as_completed(futures, timeout=5):
             try:
                 r = fut.result()
                 if r is not None:
@@ -15384,6 +15399,8 @@ def gamma_wall():
     out = {"results": rows}
     if rows:
         app._gw_cache = out; app._gw_cache_ts = _dt.now()
+    elif _cache:
+        return jsonify({**_cache, "stale": True})
     return jsonify(out)
 
 
