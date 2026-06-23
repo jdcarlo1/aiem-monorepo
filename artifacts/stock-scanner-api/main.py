@@ -12838,6 +12838,7 @@ def _nfmc_worker():
         out = _run_microcap_flow_scan()
         app._nfmc_cache    = out
         app._nfmc_cache_ts = _dt.now()
+        _save_scan_cache("net-flow-microcap", out)
     except Exception as _e:
         print(f"[net_flow_microcap] background scan error: {_e}")
     finally:
@@ -12871,6 +12872,11 @@ def net_flow_microcap():
 
     if _cache:
         return jsonify({**_cache, **({"refreshing": True} if _stale else {})})
+
+    # DB fallback: serve yesterday's scan immediately instead of spinning
+    _db_fallback = _load_scan_cache("net-flow-microcap", days_back=3)
+    if _db_fallback:
+        return jsonify({**_db_fallback, "refreshing": True})
 
     return jsonify({
         "warming": True,
