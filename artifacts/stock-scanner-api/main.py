@@ -20870,19 +20870,40 @@ def iv_rank_scan():
         except Exception:
             return None
 
-    tickers_dedup = list(dict.fromkeys(IV_SCAN_TICKERS))
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_scan_iv, t): t for t in tickers_dedup}
-        for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                results.append(r)
+    def _bg_ivs():
+        if getattr(app, "_ivs_scanning", False):
+            return
+        app._ivs_scanning = True
+        try:
+            _tickers_dedup = list(dict.fromkeys(IV_SCAN_TICKERS))
+            _bg_results = []
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                _futs = {ex.submit(_scan_iv, t): t for t in _tickers_dedup}
+                try:
+                    for _fut in as_completed(_futs, timeout=45):
+                        try:
+                            r = _fut.result()
+                            if r:
+                                _bg_results.append(r)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            _bg_results.sort(key=lambda x: (x.get("iv_rank") or 50), reverse=True)
+            _out = {"rows": _bg_results, "scanned": len(_tickers_dedup)}
+            app._ivs_cache    = _out
+            app._ivs_cache_ts = _ivs_dt.now()
+        except Exception as _e_ivs:
+            print(f"[iv-rank/scan] bg error: {_e_ivs}")
+        finally:
+            app._ivs_scanning = False
 
-    results.sort(key=lambda x: (x.get("iv_rank") or 50), reverse=True)
-    out = {"rows": results, "scanned": len(tickers_dedup)}
-    app._ivs_cache    = out
-    app._ivs_cache_ts = _ivs_dt.now()
-    return jsonify(out)
+    import threading as _ivs_thr
+    _ivs_thr.Thread(target=_bg_ivs, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True, "note": "refreshing in background"})
+    return jsonify({"rows": [], "scanned": 0, "stale": True,
+                    "note": "IV rank scan starting — check back in ~30s"})
 
 
 @app.route("/stock-api/52week-breakout", methods=["GET"])
