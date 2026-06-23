@@ -1190,6 +1190,7 @@ try:
                 "NVDA","AMD","INTC","AVGO","ARM","MU","MRVL","SMCI","QCOM","TSM",
                 "AMAT","LRCX","KLAC","ASML","TXN","ADI","ON","MCHP","SWKS","MPWR",
                 "WDC","SNDK","ENTG","ACLS","ONTO","GFS","WOLF","CRUS","AMBA","RMBS",
+                "AXTI","UMC","VIAV","SMTC","TSEM","VICR",
                 # ── High-options-volume megacaps (catch big sweeps) ──────────
                 "TSLA","AAPL","MSFT","AMZN","META","GOOGL","PLTR","COIN","MSTR",
             ]
