@@ -890,12 +890,8 @@ def fill_conviction_stack_outcomes() -> dict:
     for ticker, snaps in by_ticker.items():
         try:
             start = min(snaps) - _td(days=6)
-            hist = _yf.Ticker(ticker).history(
-                start=start.isoformat(),
-                end=(today + _td(days=1)).isoformat(),
-                interval="1d",
-            )
-            if hist.empty:
+            hist = _td_history(ticker, start_date=start.isoformat())
+            if hist is None or hist.empty:
                 continue
             bars = []
             for row in hist.itertuples():
@@ -8632,8 +8628,8 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
     # ── 3 & 4. MACD bearish cross + RSI overbought ───────────────────────────
     try:
         import yfinance as yf
-        hist = yf.Ticker(ticker).history(period="60d", interval="1d")
-        if len(hist) >= 30:
+        hist = _td_history(ticker, days=60)
+        if hist is not None and len(hist) >= 30:
             closes = hist["Close"].tolist()
             lows   = hist["Low"].tolist()
             highs  = hist["High"].tolist()
@@ -8786,9 +8782,8 @@ def _monitor_open_positions() -> None:
                 _suppress_why = []
                 _reversal_pts = 0   # accumulate real-reversal evidence
                 try:
-                    import yfinance as _yf2
-                    _intra = _yf2.Ticker(ticker).history(period="1d", interval="5m")
-                    if len(_intra) >= 6:
+                    _intra = _td_intraday(ticker, "5min")
+                    if _intra is not None and len(_intra) >= 6:
                         _closes  = _intra["Close"].tolist()
                         _vols    = _intra["Volume"].tolist()
                         _highs   = _intra["High"].tolist()
@@ -9418,8 +9413,8 @@ def _update_eod_sweep_outcomes():
             updated = 0
             for row_id, ticker, sig_date, sig_price in rows:
                 try:
-                    hist = _yf.Ticker(ticker).history(period="15d", interval="1d")
-                    if hist.empty:
+                    hist = _td_history(ticker, days=15)
+                    if hist is None or hist.empty:
                         continue
                     hist.index = [d.date() if hasattr(d, 'date') else d for d in hist.index]
                     dates = sorted(hist.index)
@@ -11558,13 +11553,10 @@ def _update_ai_trade_outcomes():
             def _fetch_close(ticker, target_dt):
                 """Fetch the first available closing price on or after target_dt."""
                 try:
-                    hist = _yf.Ticker(ticker).history(
-                        start=str(target_dt),
-                        end=str(target_dt + _td2(days=7))
-                    )["Close"]
-                    if hist.empty:
+                    _h = _td_history(ticker, start_date=str(target_dt))
+                    if _h is None or _h.empty:
                         return None
-                    return float(hist.iloc[0])
+                    return float(_h["Close"].iloc[0])
                 except Exception:
                     return None
 
@@ -11746,11 +11738,8 @@ def _update_ai_short_call_outcomes():
 
             def _fetch_close(ticker, target_dt):
                 try:
-                    hist = _yf.Ticker(ticker).history(
-                        start=str(target_dt),
-                        end=str(target_dt + _td3(days=7))
-                    )["Close"]
-                    return float(hist.iloc[0]) if not hist.empty else None
+                    _h = _td_history(ticker, start_date=str(target_dt))
+                    return float(_h["Close"].iloc[0]) if _h is not None and not _h.empty else None
                 except Exception:
                     return None
 
@@ -12446,8 +12435,8 @@ def bull_flow_top10():
             tkr   = yf.Ticker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0:
-                hist  = tkr.history(period="1d")
-                price = float(hist["Close"].iloc[-1]) if not hist.empty else 0
+                _q_fb = _td_quotes([ticker]).get(ticker, {})
+                price = float(_q_fb.get("last") or 0)
             prem_k = float(opts.get("top_prem_value", 0))
             if prem_k < 20:   # minimum $20K — catches small-cap insider-sized bets
                 return None
@@ -12757,8 +12746,8 @@ def net_flow_scan():
 
         def _compute_flow(ticker):
             try:
-                hist = yf.Ticker(ticker).history(period="1d", interval="1m")
-                if hist.empty or len(hist) < 5:
+                hist = _td_intraday(ticker, "1min")
+                if hist is None or hist.empty or len(hist) < 5:
                     return None
                 inflow = outflow = 0.0
                 for _, row in hist.iterrows():
@@ -12812,8 +12801,8 @@ def net_flow_single():
     if _yf_breaker_open():
         return jsonify({"error": "data feed temporarily throttled, try again in a few minutes"}), 503
     try:
-        hist = yf.Ticker(ticker).history(period="1d", interval="1m")
-        if hist.empty or len(hist) < 5:
+        hist = _td_intraday(ticker, "1min")
+        if hist is None or hist.empty or len(hist) < 5:
             return jsonify({"error": "no data"}), 404
         inflow = outflow = 0.0
         bars = []
@@ -13202,8 +13191,8 @@ def _run_microcap_flow_scan() -> dict:
     def _compute_flow_mc(ticker):
         try:
             t_obj = yf.Ticker(ticker)
-            hist  = t_obj.history(period="1d", interval="1m")
-            if hist.empty or len(hist) < 5:
+            hist  = _td_intraday(ticker, "1min")
+            if hist is None or hist.empty or len(hist) < 5:
                 return None
 
             # Grab market cap via fast_info (lightweight — reuses same session)
@@ -13387,8 +13376,8 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
     def _compute(ticker):
         try:
             t_obj = yf.Ticker(ticker)
-            hist  = t_obj.history(period="60d", interval="1d")
-            if hist.empty or len(hist) < 2:
+            hist  = _td_history(ticker, days=60)
+            if hist is None or hist.empty or len(hist) < 2:
                 return None
 
             market_cap = None
@@ -13684,55 +13673,66 @@ def market_overview():
                 ("DIA", "Dow Jones"), ("IWM", "Russell 2000"), ("^VIX", "VIX"),
             ]
 
+            # Batch all non-VIX sectors + indices in ONE Tradier call (~100ms)
+            _all_mo_syms = [sym for sym, _ in SECTORS + INDICES if not sym.startswith("^")]
+            _mo_batch = _td_quotes(_all_mo_syms) if _all_mo_syms else {}
+
             def get_chg(ticker):
-                try:
-                    if not _yahoo_breaker.allow():
+                if ticker.startswith("^"):
+                    # ^VIX: Tradier has no index feed — keep Yahoo path
+                    try:
+                        if not _yahoo_breaker.allow():
+                            return None
+                        t    = yf.Ticker(ticker)
+                        hist = t.history(period="5d")
+                        if len(hist) < 2:
+                            return None
+                        prev  = float(hist["Close"].iloc[-2])
+                        close = float(hist["Close"].iloc[-1])
+                        chg   = round((close - prev) / prev * 100, 2)
+                        _yahoo_breaker.record_success()
+                        return {"price": round(close, 2), "change_pct": chg}
+                    except Exception as _e:
+                        err = str(_e).lower()
+                        if any(x in err for x in ["401", "crumb", "unauthorized", "429", "rate"]):
+                            _yahoo_breaker.record_failure()
                         return None
-                    t    = yf.Ticker(ticker)
-                    hist = t.history(period="5d")
-                    if len(hist) < 2:
-                        return None
-                    prev  = float(hist["Close"].iloc[-2])
-                    close = float(hist["Close"].iloc[-1])
-                    chg   = round((close - prev) / prev * 100, 2)
-                    _yahoo_breaker.record_success()
-                    return {"price": round(close, 2), "change_pct": chg}
-                except Exception as _e:
-                    err = str(_e).lower()
-                    if any(x in err for x in ["401", "crumb", "unauthorized", "429", "rate"]):
-                        _yahoo_breaker.record_failure()
+                q = _mo_batch.get(ticker, {})
+                last      = float(q.get("last") or 0)
+                prevclose = float(q.get("prevclose") or 0)
+                if last <= 0 or prevclose <= 0:
                     return None
+                return {"price": round(last, 2), "change_pct": round((last - prevclose) / prevclose * 100, 2)}
 
             sectors = []
-            with ThreadPoolExecutor(max_workers=6) as ex:
-                futs = {ex.submit(get_chg, sym): (sym, name) for sym, name in SECTORS}
-                for fut, (sym, name) in futs.items():
-                    r = fut.result()
-                    if r:
-                        sectors.append({"ticker": sym, "name": name, **r})
+            for sym, name in SECTORS:
+                r = get_chg(sym)
+                if r:
+                    sectors.append({"ticker": sym, "name": name, **r})
             sectors.sort(key=lambda x: x["change_pct"], reverse=True)
 
             indices = []
-            with ThreadPoolExecutor(max_workers=5) as ex:
-                futs = {ex.submit(get_chg, sym): (sym, label) for sym, label in INDICES}
-                for fut, (sym, label) in futs.items():
-                    r = fut.result()
-                    if r:
-                        indices.append({"ticker": sym, "label": label, **r})
+            for sym, label in INDICES:
+                r = get_chg(sym)
+                if r:
+                    indices.append({"ticker": sym, "label": label, **r})
             idx_order = {sym: i for i, (sym, _) in enumerate(INDICES)}
             indices.sort(key=lambda x: idx_order.get(x["ticker"], 99))
 
-            # Advance/Decline — cap at 200 tickers to avoid Yahoo saturation
+            # Advance/Decline — ONE Tradier batch call for all 200 tickers
             ad_up, ad_down, ad_unch = 0, 0, 0
             _ad_universe = DEFAULT_LEADERBOARD[:200]
-            with ThreadPoolExecutor(max_workers=8) as ex:
-                futs = {ex.submit(get_chg, t): t for t in _ad_universe}
-                for fut in as_completed(futs):
-                    r = fut.result()
-                    if r:
-                        if r["change_pct"] > 0.1:    ad_up   += 1
-                        elif r["change_pct"] < -0.1: ad_down += 1
-                        else:                        ad_unch += 1
+            _ad_batch = _td_quotes(_ad_universe) if _ad_universe else {}
+            for _adt in _ad_universe:
+                _adq = _ad_batch.get(_adt, {})
+                _adl = float(_adq.get("last") or 0)
+                _adp = float(_adq.get("prevclose") or 0)
+                if _adl <= 0 or _adp <= 0:
+                    continue
+                _adc = (_adl - _adp) / _adp * 100
+                if _adc > 0.1:    ad_up   += 1
+                elif _adc < -0.1: ad_down += 1
+                else:             ad_unch += 1
 
             out = {
                 "sectors": sectors,
@@ -14038,7 +14038,7 @@ def breakout_radar():
     def _score(ticker):
         try:
             tkr  = yf.Ticker(ticker)
-            hist = tkr.history(period="1y")
+            hist = _td_history(ticker, days=252)
             if hist is None or len(hist) < 50:
                 return None
 
@@ -14422,8 +14422,9 @@ def darkpool():
                         _bias = "BULLISH" if _cp_raw >= 1.5 else "BEARISH" if _cp_raw <= 0.7 else "NEUTRAL"
                 except Exception: pass
                 try:
-                    _hist = _yf2.Ticker(_t).history(period="20d")
-                    _closes = _hist["Close"].tolist(); _vols = _hist["Volume"].tolist()
+                    _hist = _td_history(_t, days=20)
+                    _closes = (_hist["Close"].tolist() if _hist is not None and not _hist.empty else [])
+                    _vols   = (_hist["Volume"].tolist() if _hist is not None and not _hist.empty else [])
                     if len(_closes) >= 10:
                         _obv = 0; _obv_s = [0]
                         for _i in range(1, len(_closes)):
@@ -14653,9 +14654,9 @@ def vol_crush():
             iv_vals = [v for v in list(ivp) + list(ivc) if v and v > 0]
             if not iv_vals: return None
             current_iv = float(np.mean(iv_vals))
-            hist_full = tkr.history(period="1y")
-            hist = hist_full["Close"]
-            if len(hist) < 50: return None
+            hist_full = _td_history(ticker, days=252)
+            hist = hist_full["Close"] if hist_full is not None and not hist_full.empty else None
+            if hist is None or len(hist) < 50: return None
             rets = hist.pct_change().dropna()
             hv_s = rets.rolling(21).std() * np.sqrt(252)
             hv_s = hv_s.dropna()
@@ -16476,23 +16477,16 @@ def _ai_trades_worker():
     # LIVE PRICE REFRESH — always override stale cached prices with today's real market price
     # This prevents trades being generated with months-old price data (wrong strikes/targets)
     try:
-        import yfinance as _yf_pr
         _refresh_tickers = [v["ticker"] for v in candidate_pool[:15]]
-        def _fetch_live_price(t):
-            try:
-                p = float(_yf_pr.Ticker(t).fast_info.last_price or 0)
-                return t, p if p > 0 else None
-            except Exception:
-                return t, None
-        with ThreadPoolExecutor(max_workers=10) as _pr_ex:
-            _pr_results = dict(_pr_ex.map(lambda t: _fetch_live_price(t), _refresh_tickers))
+        _pr_batch = _td_quotes(_refresh_tickers) if _refresh_tickers else {}
         for v in candidate_pool:
             t = v["ticker"]
-            live_p = _pr_results.get(t)
-            if live_p and live_p > 0:
+            _q = _pr_batch.get(t, {})
+            live_p = float(_q.get("last") or 0)
+            if live_p > 0:
                 v["price"] = round(live_p, 2)
         import sys as _sys
-        print(f"[ai_trades_bg] live prices refreshed for {len(_refresh_tickers)} tickers", file=_sys.stderr)
+        print(f"[ai_trades_bg] live prices refreshed for {len(_refresh_tickers)} tickers via Tradier", file=_sys.stderr)
     except Exception as _pr_err:
         import sys as _sys
         print(f"[ai_trades_bg] live price refresh error: {_pr_err}", file=_sys.stderr)
@@ -17098,8 +17092,9 @@ def signal_feed():
             ivv  = [v for v in list(ivp)+list(ivc) if v and v > 0]
             if ivv:
                 cur_iv = float(np.mean(ivv))
-                hist   = tkr.history(period="1y")["Close"]
-                if len(hist) >= 40:
+                _h1y   = _td_history(ticker, days=252)
+                hist   = _h1y["Close"] if _h1y is not None and not _h1y.empty else None
+                if hist is not None and len(hist) >= 40:
                     hv_s = hist.pct_change().dropna().rolling(21).std() * np.sqrt(252)
                     hv_s = hv_s.dropna()
                     iv_rank = (cur_iv - float(hv_s.min())) / max(float(hv_s.max()) - float(hv_s.min()), 0.001) * 100
@@ -17208,8 +17203,9 @@ def composite_score():
             iv_rank = 50.0
             if ivv:
                 cur_iv = float(np.mean(ivv))
-                hist   = tkr.history(period="1y")["Close"]
-                if len(hist) >= 40:
+                _h1y   = _td_history(ticker, days=252)
+                hist   = _h1y["Close"] if _h1y is not None and not _h1y.empty else None
+                if hist is not None and len(hist) >= 40:
                     hv_s = hist.pct_change().dropna().rolling(21).std() * np.sqrt(252)
                     hv_s = hv_s.dropna()
                     iv_rank = max(0.0, min(100.0, (cur_iv - float(hv_s.min())) / max(float(hv_s.max()) - float(hv_s.min()), 0.001) * 100))
@@ -17709,8 +17705,8 @@ def _check_insider_outcomes():
             print(f"[insider_outcomes] Checking {len(pending)} alerts…")
             for (alert_id, ticker, price_at_detection, earnings_date) in pending:
                 try:
-                    hist = _yfo.Ticker(ticker).history(period="10d")
-                    if hist.empty or not price_at_detection:
+                    hist = _td_history(ticker, days=10)
+                    if hist is None or hist.empty or not price_at_detection:
                         continue
                     current_price = float(hist["Close"].iloc[-1])
                     pct = (current_price - price_at_detection) / price_at_detection * 100
@@ -17767,8 +17763,8 @@ def get_trade_watchlist():
             from concurrent.futures import ThreadPoolExecutor
             def _get_price(t):
                 try:
-                    h = yf.Ticker(t).history(period="1d", interval="1m")
-                    return t, float(h["Close"].iloc[-1]) if not h.empty else None
+                    h = _td_intraday(t, "1min")
+                    return t, float(h["Close"].iloc[-1]) if h is not None and not h.empty else None
                 except Exception:
                     return t, None
             with ThreadPoolExecutor(max_workers=min(8, len(tickers))) as ex:
@@ -20270,7 +20266,7 @@ def multi_signal_convergence():
             try:
                 _mr_on = False; _spy_r = 0.0; _vix_c = False; _hyg_h = True
                 try:
-                    _spy2 = yf.Ticker("SPY").history(period="70d")["Close"]
+                    _spy2 = _td_history("SPY", days=70)["Close"]
                     _vix2 = yf.Ticker("^VIX").history(period="5d")["Close"]
                     _sn = float(_spy2.iloc[-1]); _s50 = float(_spy2.rolling(50).mean().iloc[-1])
                     _vn = float(_vix2.iloc[-1])
@@ -20284,8 +20280,8 @@ def multi_signal_convergence():
                     _vix_c = float(_vsh.iloc[-1]) < float(_v3h.iloc[-1])
                 except Exception: pass
                 try:
-                    _hyg2 = yf.Ticker("HYG").history(period="20d")["Close"]
-                    _sp2  = yf.Ticker("SPY").history(period="20d")["Close"]
+                    _hyg2 = _td_history("HYG", days=20)["Close"]
+                    _sp2  = _td_history("SPY", days=20)["Close"]
                     _hr = (float(_hyg2.iloc[-1]) - float(_hyg2.iloc[0])) / (float(_hyg2.iloc[0]) or 1)
                     _sr = (float(_sp2.iloc[-1])  - float(_sp2.iloc[0]))  / (float(_sp2.iloc[0])  or 1)
                     _hyg_h = _hr > _sr - 0.02
@@ -20363,9 +20359,9 @@ def multi_signal_convergence():
 
             # ── 1-year OHLCV → all technical signals ──────────────────────────
             try:
-                _df = _tk2.history(period="1y")
-                _cl = _df["Close"] if len(_df) > 0 else None
-                _vl = _df["Volume"] if len(_df) > 0 else None
+                _df = _td_history(ticker, days=252)
+                _cl = _df["Close"] if _df is not None and len(_df) > 0 else None
+                _vl = _df["Volume"] if _df is not None and len(_df) > 0 else None
                 if _cl is not None and len(_cl) >= 30:
                     _n = float(_cl.iloc[-1])
                     # Relative Strength vs SPY (3-month)
@@ -20656,7 +20652,7 @@ def iv_rank():
                     return None
 
             tkr  = yf.Ticker(ticker)
-            hist = tkr.history(period="1y", interval="1d")
+            hist = _td_history(ticker, days=252)
             if hist is None or hist.empty or len(hist) < 31:
                 return None
 
@@ -20794,8 +20790,8 @@ def iv_rank_scan():
     def _scan_iv(ticker):
         try:
             tkr  = yf.Ticker(ticker)
-            hist = tkr.history(period="1y", interval="1d")
-            if len(hist) < 30:
+            hist = _td_history(ticker, days=252)
+            if hist is None or len(hist) < 30:
                 return None
 
             log_ret = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
@@ -21917,8 +21913,8 @@ def morning_inflows():
             if prev_close <= 0 or avg_vol <= 0: return None
 
             # Fetch 1-min bars — single network call used for price, volume, AND flow
-            hist = tk.history(period="1d", interval="1m")
-            if hist.empty or len(hist) < 2: return None
+            hist = _td_intraday(ticker, "1min")
+            if hist is None or hist.empty or len(hist) < 2: return None
 
             # Convert index to ET so we can measure minutes elapsed since 9:30 AM open
             hist.index = hist.index.tz_convert(_et)
@@ -22291,7 +22287,7 @@ def _get_short_data(ticker):
         _dtc_sd = _fi_sd.get("shortRatio")
 
         # 60 days of daily OHLCV — enough for MACD(26), OBV(10), BB(20), SMA(20), RSI(14)
-        _h = _tk_sd.history(period="60d", interval="1d")
+        _h = _td_history(ticker, days=60)
         if _h is None or len(_h) < 5:
             return {"short_float": None, "days_to_cover": None, "avwap_5d": None,
                     "above_avwap": None, "current_price": None, "price_chg_pct": None,
@@ -22729,8 +22725,8 @@ def eod_accumulation():
             mkt_cap    = float(getattr(fi, "market_cap", 0) or 0)
             if prev_close <= 0 or avg_vol <= 0: return None
 
-            hist = tk.history(period="1d", interval="1m")
-            if hist.empty or len(hist) < 10: return None
+            hist = _td_intraday(ticker, "1min")
+            if hist is None or hist.empty or len(hist) < 10: return None
             hist.index = hist.index.tz_convert(_et)
 
             close_px  = float(hist["Close"].iloc[-1])
@@ -23873,8 +23869,7 @@ def run_nano_cap_breakout_scan():
     # ── 2. Score each ticker ─────────────────────────────────────────────────
     def _score(ticker):
         try:
-            tk = _yf_nb.Ticker(ticker)
-            hist = tk.history(period="30d", interval="1d")
+            hist = _td_history(ticker, days=30)
             if hist is None or len(hist) < 10:
                 return None
             closes  = hist["Close"].dropna().tolist()
