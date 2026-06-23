@@ -45,3 +45,4 @@
 - [yfinance global rate limiter](yfinance-rate-limiter.md) — token bucket (3/sec) wired into curl_cffi patch; hourly scans at :05; cache warmer every 90 min; admin reset-breaker endpoint; breaker trip logic fixed
 - [EOD/pre-market job guard bug](eod-premarket-guard.md) — never use _intraday_scan_allowed() for EOD (4:30 PM) or pre-market (8:30 AM) jobs; 4:31 PM jitter returns False, 8:30 AM is below 9:30 AM floor; use direct holiday-date check instead
 - [Admin grade-short-calls endpoint](admin-grade-endpoint.md) — /stock-api/admin/grade-short-calls POST triggers _update_ai_short_call_outcomes() backfill; run multiple times if >100 open picks (LIMIT 100 per pass)
+- [Polygon vs Yahoo migration plan](polygon-yahoo-migration.md) — Polygon Starter covers historical/prev-close/float (verified); NOT real-time snapshot; L4 short interest + L6 float still Yahoo; migration deferred pending market-open observation
