@@ -2609,20 +2609,25 @@ try:
             # running after hours.  This ensures the conviction tab is populated
             # immediately after a publish / redeploy, even if it happens at night.
             if _dow < 5:   # weekday only (no point scanning Sat/Sun OCC data)
+                # Check for QUALIFYING rows (meet HC thresholds), not just any row.
+                # A broken earlier scan may have written low-quality rows that pass
+                # the date check but produce 0 HC signals — always re-scan in that case.
                 _need_uc = True
                 try:
                     with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cur:
                         _cur.execute(
                             "SELECT 1 FROM unusual_calls_log "
                             "WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
-                            "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' LIMIT 1"
+                            "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' "
+                            "AND vol_oi >= 5 AND prem >= 500000 AND days_out BETWEEN 1 AND 30 "
+                            "LIMIT 1"
                         )
                         if _cur.fetchone():
                             _need_uc = False
                 except Exception:
                     pass
                 if _need_uc:
-                    print(f"[startup_catchup] no unusual-calls data for {_today_et} — running Polygon catch-up scan")
+                    print(f"[startup_catchup] no qualifying unusual-calls data for {_today_et} — running catch-up scan")
                     try:
                         _run_unusual_calls_scan("startup-catchup")
                     except Exception as _e_uc:
