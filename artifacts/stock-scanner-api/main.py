@@ -18911,9 +18911,19 @@ def conviction_calls():
 
         # Group by ticker — multi-strike sweep = strongest institutional signal
         from collections import defaultdict as _dd
+        # ETFs belong in the dedicated ETF Calls tab — exclude them here
+        _CONV_ETF_EXCL = {
+            "SPY","QQQ","IWM","DIA","XLF","XLK","XLE","XLV","XLI","XLU",
+            "XLP","XLY","XLB","XLC","TQQQ","SQQQ","SPXL","SPXS","UVXY",
+            "VIXY","VXX","SMH","XBI","XHB","ARKK","SOXX","IBB","KRE","XRT",
+            "GLD","IAU","SLV","USO","UNG","GDX","GDXJ","OIH","TLT","HYG",
+            "LQD","TBT","TMF","SHY","IEF","JNK","EEM","EFA","FXI","EWJ",
+            "EWZ","EWY","IEMG","IBIT","FBTC","SOXL","SOXS","NVDL","TSLL","MSTU",
+        }
         by_ticker = _dd(list)
         for r in rows:
-            by_ticker[r["ticker"]].append(r)
+            if r["ticker"] not in _CONV_ETF_EXCL:
+                by_ticker[r["ticker"]].append(r)
 
         results = []
         for ticker, strikes in by_ticker.items():
