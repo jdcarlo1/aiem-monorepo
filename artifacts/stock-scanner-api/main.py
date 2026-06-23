@@ -23679,11 +23679,12 @@ def _send_multiday_day2_email():
 # Catches explosive movers like RTB (+151% 5-day) that never appear in pre-built lists.
 
 def _polygon_recent_trading_days(n: int) -> list:
-    """Return the n most recent trading days as YYYY-MM-DD strings (ET, skips weekends)."""
+    """Return the n most recent trading days as YYYY-MM-DD strings (ET, skips weekends).
+    Returns n+3 candidates so the caller can skip holidays (days with 0 tickers)."""
     from datetime import datetime as _dt_pgd, timedelta as _td
     days = []
     d = _dt_pgd.now(_ET_TZ).date() - _td(days=1)
-    while len(days) < n:
+    while len(days) < n + 3:
         if d.weekday() < 5:
             days.append(d.strftime("%Y-%m-%d"))
         d -= _td(days=1)
@@ -23691,19 +23692,24 @@ def _polygon_recent_trading_days(n: int) -> list:
 
 
 def _polygon_grouped_daily(date_str: str) -> dict:
-    """Fetch all US stock OHLCV for a given date via Polygon grouped daily. Returns {ticker: row}."""
+    """Fetch all US stock OHLCV for a given date via Polygon grouped daily.
+    Uses urllib.request directly to bypass any patched requests session."""
+    import urllib.request as _ureq
+    import json as _json2
     _key = os.environ.get("POLYGON_API_KEY", "")
     if not _key:
         return {}
     _url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
             f"?adjusted=true&apiKey={_key}")
     try:
-        _resp = requests.get(_url, timeout=20)
-        _d = _resp.json()
-        _status = _d.get("status", "")
+        with _ureq.urlopen(_url, timeout=20) as _r:
+            _data = _json2.load(_r)
+        _status = _data.get("status", "")
         if _status in ("OK", "DELAYED"):
-            return {x["T"]: x for x in _d.get("results", [])}
-        app.logger.warning(f"[polygon_rvol] grouped daily {date_str} status={_status}")
+            results = _data.get("results", [])
+            if results:
+                return {x["T"]: x for x in results}
+        app.logger.warning(f"[polygon_rvol] grouped daily {date_str} status={_status} n={_data.get('resultsCount',0)}")
     except Exception as _e:
         app.logger.error(f"[polygon_rvol] grouped daily {date_str} error: {_e}")
     return {}
@@ -23721,19 +23727,25 @@ def _polygon_full_market_scan() -> list:
     if not days:
         return []
 
-    app.logger.info(f"[polygon_rvol] fetching {len(days)} trading days: {days}")
+    app.logger.info(f"[polygon_rvol] fetching up to {len(days)} candidate days: {days[:5]}...")
     daily_data = []
     for _day in days:
         _data = _polygon_grouped_daily(_day)
+        _t2.sleep(0.7)
+        if not _data:
+            app.logger.info(f"[polygon_rvol] {_day}: 0 tickers (holiday/error) — skipping")
+            continue
         app.logger.info(f"[polygon_rvol] {_day}: {len(_data)} tickers")
-        daily_data.append(_data)
-        _t2.sleep(0.4)
+        daily_data.append((_day, _data))
+        if len(daily_data) >= 5:
+            break
 
     if not daily_data:
         return []
 
-    yesterday_data = daily_data[0]
-    prior_days     = daily_data[1:]
+    yesterday_day, yesterday_data = daily_data[0]
+    prior_days = [d for _, d in daily_data[1:]]
+    app.logger.info(f"[polygon_rvol] scanning {yesterday_day}: {len(yesterday_data)} tickers, {len(prior_days)} prior days")
 
     movers = []
     for _ticker, _r in yesterday_data.items():
@@ -23776,14 +23788,14 @@ def _polygon_full_market_scan() -> list:
             "avg_volume":     int(_avg),
             "rvol":           round(_rvol, 1),
             "close_strength": round(_close_str, 2),
-            "scan_date":      days[0],
+            "scan_date":      yesterday_day,
         })
 
     movers.sort(key=lambda x: x["rvol"], reverse=True)
     top = movers[:40]
     app.logger.info(f"[polygon_rvol] scan done: {len(top)} movers from {len(yesterday_data)} tickers")
 
-    app._cache["polygon_rvol"] = {
+    app._polygon_rvol_cache = {
         "movers":        top,
         "scan_date":     days[0],
         "total_scanned": len(yesterday_data),
@@ -23830,7 +23842,7 @@ def _polygon_full_market_scan() -> list:
 
 def _get_polygon_rvol_data() -> dict:
     """Return cached polygon_rvol scan; fall back to DB if cache is cold."""
-    _cached = app._cache.get("polygon_rvol")
+    _cached = getattr(app, "_polygon_rvol_cache", None)
     if _cached:
         return _cached
     try:
@@ -23848,7 +23860,7 @@ def _get_polygon_rvol_data() -> dict:
             if _rows:
                 _sd = _rows[0]["scan_date"]
                 _result = {"movers": _rows, "scan_date": _sd, "total_scanned": 11000}
-                app._cache["polygon_rvol"] = _result
+                app._polygon_rvol_cache = _result
                 return _result
     except Exception as _e4:
         app.logger.error(f"[polygon_rvol] DB fallback error: {_e4}")
