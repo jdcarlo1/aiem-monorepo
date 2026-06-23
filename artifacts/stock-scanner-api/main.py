@@ -621,6 +621,7 @@ _OWNER_EMAIL_SCHEDULE = {
     "multiday_intraday":[(14, 0)],
     "multiday_watch":  [(16, 5)],
     "multiday_confirm":[(14, 45)],
+    "polygon_rvol":    [(8, 35)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
@@ -7977,6 +7978,9 @@ def _owner_send_now(kind: str) -> None:
     elif kind == "multiday_confirm":
         # 2:45 PM ET — Day 2 second-chance entry confirmation.
         _send_multiday_day2_email()
+    elif kind == "polygon_rvol":
+        # 8:35 AM ET — Full market RVOL scan via Polygon (11,000+ stocks, 5 API calls).
+        _send_polygon_rvol_email()
 
 
 def _owner_run_due_emails() -> dict:
@@ -23667,6 +23671,282 @@ def _send_multiday_day2_email():
         print(f"[multiday_runner] day2 email sent={ok} → {len(confirmed)} confirmed entries")
     except Exception as e:
         print(f"[multiday_runner] day2 email error: {e}\n{traceback.format_exc()}")
+
+
+# ── Polygon Full-Market RVOL Scanner ─────────────────────────────────────────
+# Scans ALL 11,000+ US stocks every morning using Polygon grouped daily endpoint.
+# 5 API calls total — zero Yahoo Finance dependency.
+# Catches explosive movers like RTB (+151% 5-day) that never appear in pre-built lists.
+
+def _polygon_recent_trading_days(n: int) -> list:
+    """Return the n most recent trading days as YYYY-MM-DD strings (ET, skips weekends)."""
+    from datetime import datetime as _dt_pgd, timedelta as _td
+    days = []
+    d = _dt_pgd.now(_ET_TZ).date() - _td(days=1)
+    while len(days) < n:
+        if d.weekday() < 5:
+            days.append(d.strftime("%Y-%m-%d"))
+        d -= _td(days=1)
+    return days
+
+
+def _polygon_grouped_daily(date_str: str) -> dict:
+    """Fetch all US stock OHLCV for a given date via Polygon grouped daily. Returns {ticker: row}."""
+    _key = os.environ.get("POLYGON_API_KEY", "")
+    if not _key:
+        return {}
+    _url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
+            f"?adjusted=true&apiKey={_key}")
+    try:
+        _resp = requests.get(_url, timeout=20)
+        _d = _resp.json()
+        _status = _d.get("status", "")
+        if _status in ("OK", "DELAYED"):
+            return {x["T"]: x for x in _d.get("results", [])}
+        app.logger.warning(f"[polygon_rvol] grouped daily {date_str} status={_status}")
+    except Exception as _e:
+        app.logger.error(f"[polygon_rvol] grouped daily {date_str} error: {_e}")
+    return {}
+
+
+def _polygon_full_market_scan() -> list:
+    """
+    Scan all 11,000+ US stocks for unusual relative volume using Polygon grouped daily.
+    Uses 5 API calls total. Returns top movers sorted by RVOL descending.
+    Caches in app._cache['polygon_rvol'] and persists to DB.
+    """
+    import time as _t2
+
+    days = _polygon_recent_trading_days(5)
+    if not days:
+        return []
+
+    app.logger.info(f"[polygon_rvol] fetching {len(days)} trading days: {days}")
+    daily_data = []
+    for _day in days:
+        _data = _polygon_grouped_daily(_day)
+        app.logger.info(f"[polygon_rvol] {_day}: {len(_data)} tickers")
+        daily_data.append(_data)
+        _t2.sleep(0.4)
+
+    if not daily_data:
+        return []
+
+    yesterday_data = daily_data[0]
+    prior_days     = daily_data[1:]
+
+    movers = []
+    for _ticker, _r in yesterday_data.items():
+        _price  = _r.get("c", 0) or 0
+        _vol    = _r.get("v", 0) or 0
+        _open   = _r.get("o", 0) or 0
+        _high   = _r.get("h", 0) or 0
+        _low    = _r.get("l", 0) or 0
+        _vwap   = _r.get("vw", 0) or 0
+
+        if not (1.0 <= _price <= 50.0 and _vol >= 150_000 and _open > 0):
+            continue
+        _gap = (_price - _open) / _open * 100
+        if _gap < 3.0 or _price <= _open:
+            continue
+
+        _pvols = [_d.get(_ticker, {}).get("v", 0) or 0 for _d in prior_days]
+        _pvols = [v for v in _pvols if v > 0]
+        if len(_pvols) < 2:
+            continue
+        _avg = sum(_pvols) / len(_pvols)
+        if _avg < 10_000:
+            continue
+        _rvol = _vol / _avg
+        if _rvol < 5.0:
+            continue
+
+        _range = (_high - _low) if _high > _low else 1
+        _close_str = (_price - _low) / _range
+
+        movers.append({
+            "ticker":         _ticker,
+            "price":          round(_price, 2),
+            "open":           round(_open, 2),
+            "high":           round(_high, 2),
+            "low":            round(_low, 2),
+            "vwap":           round(_vwap, 2),
+            "gap_pct":        round(_gap, 1),
+            "volume":         int(_vol),
+            "avg_volume":     int(_avg),
+            "rvol":           round(_rvol, 1),
+            "close_strength": round(_close_str, 2),
+            "scan_date":      days[0],
+        })
+
+    movers.sort(key=lambda x: x["rvol"], reverse=True)
+    top = movers[:40]
+    app.logger.info(f"[polygon_rvol] scan done: {len(top)} movers from {len(yesterday_data)} tickers")
+
+    app._cache["polygon_rvol"] = {
+        "movers":        top,
+        "scan_date":     days[0],
+        "total_scanned": len(yesterday_data),
+    }
+
+    try:
+        import psycopg2 as _pg3
+        with _pg3.connect(os.environ["DATABASE_URL"]) as _c3, _c3.cursor() as _cur3:
+            _cur3.execute("""
+                CREATE TABLE IF NOT EXISTS polygon_rvol_scan (
+                    id             SERIAL PRIMARY KEY,
+                    scan_date      DATE NOT NULL,
+                    ticker         VARCHAR(10) NOT NULL,
+                    price          FLOAT,
+                    open_price     FLOAT,
+                    high           FLOAT,
+                    low            FLOAT,
+                    vwap           FLOAT,
+                    gap_pct        FLOAT,
+                    volume         BIGINT,
+                    avg_volume     BIGINT,
+                    rvol           FLOAT,
+                    close_strength FLOAT,
+                    UNIQUE(scan_date, ticker)
+                )
+            """)
+            for _m in top:
+                _cur3.execute("""
+                    INSERT INTO polygon_rvol_scan
+                        (scan_date, ticker, price, open_price, high, low, vwap,
+                         gap_pct, volume, avg_volume, rvol, close_strength)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (scan_date, ticker) DO UPDATE SET
+                        price=EXCLUDED.price, rvol=EXCLUDED.rvol, volume=EXCLUDED.volume
+                """, (_m["scan_date"], _m["ticker"], _m["price"], _m["open"],
+                      _m["high"], _m["low"], _m["vwap"], _m["gap_pct"],
+                      _m["volume"], _m["avg_volume"], _m["rvol"], _m["close_strength"]))
+        app.logger.info(f"[polygon_rvol] saved {len(top)} rows to DB")
+    except Exception as _e3:
+        app.logger.error(f"[polygon_rvol] DB save error: {_e3}")
+
+    return top
+
+
+def _get_polygon_rvol_data() -> dict:
+    """Return cached polygon_rvol scan; fall back to DB if cache is cold."""
+    _cached = app._cache.get("polygon_rvol")
+    if _cached:
+        return _cached
+    try:
+        import psycopg2 as _pg4
+        with _pg4.connect(os.environ["DATABASE_URL"]) as _c4, _c4.cursor() as _cur4:
+            _cur4.execute("""
+                SELECT ticker, price, open_price, high, low, vwap, gap_pct,
+                       volume, avg_volume, rvol, close_strength, scan_date::text
+                FROM polygon_rvol_scan
+                WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
+                ORDER BY rvol DESC LIMIT 40
+            """)
+            _cols = [_d[0] for _d in _cur4.description]
+            _rows = [dict(zip(_cols, _row)) for _row in _cur4.fetchall()]
+            if _rows:
+                _sd = _rows[0]["scan_date"]
+                _result = {"movers": _rows, "scan_date": _sd, "total_scanned": 11000}
+                app._cache["polygon_rvol"] = _result
+                return _result
+    except Exception as _e4:
+        app.logger.error(f"[polygon_rvol] DB fallback error: {_e4}")
+    return {"movers": [], "scan_date": None, "total_scanned": 0}
+
+
+def _send_polygon_rvol_email() -> None:
+    """8:35 AM ET: Email owner the top full-market RVOL movers from yesterday."""
+    from email_alerts import send_email_raw, smtp_configured
+    if not smtp_configured():
+        print("[polygon_rvol] SMTP not configured — skip")
+        return
+    try:
+        _mv = _polygon_full_market_scan()
+        if not _mv:
+            print("[polygon_rvol] no movers found — skipping email")
+            return
+
+        _scan_date = _mv[0].get("scan_date", "")
+        _n = len(_mv)
+        _rows_html = ""
+        for _i, _m in enumerate(_mv[:25], 1):
+            _rc = "#ef4444" if _m["rvol"] >= 20 else "#f59e0b" if _m["rvol"] >= 10 else "#22c55e"
+            _gc = "#22c55e" if _m["gap_pct"] >= 10 else "#86efac"
+            _cb = int(_m.get("close_strength", 0.5) * 100)
+            _rows_html += (
+                f'<tr style="border-bottom:1px solid #1e293b;">'
+                f'<td style="padding:8px 12px;font-weight:700;color:#f1f5f9;font-size:15px;">'
+                f'{_i}. {_m["ticker"]}</td>'
+                f'<td style="padding:8px 12px;color:#94a3b8;">${_m["price"]:.2f}</td>'
+                f'<td style="padding:8px 12px;font-weight:700;color:{_gc};">+{_m["gap_pct"]:.1f}%</td>'
+                f'<td style="padding:8px 12px;font-weight:800;color:{_rc};">{_m["rvol"]:.0f}x</td>'
+                f'<td style="padding:8px 12px;color:#94a3b8;">{_m["volume"]:,}</td>'
+                f'<td style="padding:8px 12px;">'
+                f'<div style="background:#1e293b;border-radius:3px;height:8px;width:80px;">'
+                f'<div style="background:#22c55e;border-radius:3px;height:8px;width:{_cb}%;"></div>'
+                f'</div></td></tr>'
+            )
+
+        _html = f"""
+<div style="background:#0f172a;padding:28px;font-family:Arial,sans-serif;max-width:640px;margin:0 auto;border-radius:12px;">
+  <div style="text-align:center;margin-bottom:24px;">
+    <div style="font-size:32px;margin-bottom:8px;">🔥</div>
+    <h1 style="color:#f1f5f9;font-size:22px;margin:0;">Full Market RVOL Scanner</h1>
+    <p style="color:#64748b;margin:6px 0 0;">Yesterday's top movers · {_scan_date}</p>
+    <p style="color:#475569;font-size:12px;margin:4px 0 0;">Scanned 11,000+ stocks via Polygon · {_n} qualified movers</p>
+  </div>
+  <div style="background:#1e293b;border-radius:4px;padding:10px 14px;margin-bottom:20px;font-size:13px;color:#94a3b8;">
+    📌 <strong style="color:#f1f5f9;">Gapped 3%+ on 5x+ normal volume.</strong>
+    Watch for continuation at open. High close-strength (green bar) = closed near HOD = institutional accumulation.
+  </div>
+  <table style="width:100%;border-collapse:collapse;">
+    <thead>
+      <tr style="background:#1e293b;">
+        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:12px;">TICKER</th>
+        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:12px;">PRICE</th>
+        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:12px;">DAY GAIN</th>
+        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:12px;">RVOL</th>
+        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:12px;">VOLUME</th>
+        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:12px;">CLOSE STRENGTH</th>
+      </tr>
+    </thead>
+    <tbody>{_rows_html}</tbody>
+  </table>
+  <div style="margin-top:16px;text-align:center;">
+    <p style="color:#64748b;font-size:12px;">Close Strength = where price closed within the day range (100% = closed at HOD)</p>
+  </div>
+</div>"""
+
+        _subj = f"🔥 Full Market RVOL — {_n} movers ({_scan_date}) · Polygon"
+        _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
+        print(f"[polygon_rvol] email sent={_ok} → {_n} movers for {_scan_date}")
+    except Exception as _e5:
+        print(f"[polygon_rvol] email error: {_e5}\n{traceback.format_exc()}")
+
+
+@app.route("/stock-api/full-market-movers", methods=["GET"])
+def full_market_movers_endpoint():
+    """Return the latest full-market Polygon RVOL scan results."""
+    try:
+        data = _get_polygon_rvol_data()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e), "movers": [], "scan_date": None, "total_scanned": 0}), 200
+
+
+@app.route("/stock-api/admin/run-polygon-rvol", methods=["POST"])
+def admin_run_polygon_rvol():
+    """Admin: trigger the full-market Polygon RVOL scan immediately."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        movers = _polygon_full_market_scan()
+        return jsonify({"status": "ok", "movers_found": len(movers),
+                        "scan_date": movers[0]["scan_date"] if movers else None})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Multi-Day Runner API endpoints ─────────────────────────────────────────
