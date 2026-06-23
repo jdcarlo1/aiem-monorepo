@@ -18526,6 +18526,49 @@ def admin_run_eod_scan():
     })
 
 
+@app.route("/stock-api/admin/seed-conviction-data", methods=["POST"])
+def admin_seed_conviction_data():
+    """
+    One-time admin endpoint: accept a JSON array of unusual_calls_log rows and
+    upsert them into the DB.  Used to backfill today's Polygon scan data from dev
+    into prod when the after-hours scan yields no results (day vol ~0 after close).
+    Requires X-Admin-Token header.
+    """
+    token = request.headers.get("X-Admin-Token", "")
+    if token != _ADMIN_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    rows = body.get("rows", [])
+    if not rows:
+        return jsonify({"error": "no rows provided"}), 400
+    inserted = 0
+    skipped  = 0
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            for r in rows:
+                try:
+                    cur.execute("""
+                        INSERT INTO unusual_calls_log
+                          (ticker, price, strike, expiry, days_out, volume, oi,
+                           vol_oi, prem, otm_pct, iv, urgency, last_seen)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT DO NOTHING
+                    """, (
+                        r.get("ticker"), r.get("price"), r.get("strike"),
+                        r.get("expiry"), r.get("days_out"), r.get("volume"),
+                        r.get("oi"), r.get("vol_oi"), r.get("prem"),
+                        r.get("otm_pct"), r.get("iv"), r.get("urgency"),
+                        r.get("last_seen"),
+                    ))
+                    inserted += 1
+                except Exception:
+                    skipped += 1
+            conn.commit()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"inserted": inserted, "skipped": skipped, "total": len(rows)})
+
+
 @app.route("/stock-api/admin/reset-breaker", methods=["POST"])
 def admin_reset_breaker():
     """Force-close the Yahoo circuit breaker and optionally kick off a fresh scan.
