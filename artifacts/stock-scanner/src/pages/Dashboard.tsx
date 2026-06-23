@@ -9947,7 +9947,7 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   };
 
   const fmtPrem = (p: number) => p >= 1 ? `$${p.toFixed(1)}M` : `$${(p * 1000).toFixed(0)}K`;
-  const signals = (data?.signals ?? []).filter(s => s.conviction === "EXTREME" || s.conviction === "HIGH");
+  const signals = data?.signals ?? [];
   const fmtScanDate = (iso?: string) => {
     if (!iso) return null;
     const d = new Date(iso);
