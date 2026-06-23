@@ -455,6 +455,139 @@ try:
 except Exception as _ce:
     print(f"[startup] curl_cffi patch failed (non-fatal): {_ce}")
 
+# ── Shared Tradier data helpers ────────────────────────────────────────────────
+# Drop-in replacements for yfinance quotes, daily bars, and intraday bars.
+# All return the same DataFrame schema as yfinance so downstream code is unchanged.
+# Token: TRADIER_API_TOKEN_2 (brokerage account — real-time data). Falls back to
+# TRADIER_API_TOKEN if set. Returns empty result on auth failure / network error.
+
+def _td_quotes(symbols: list) -> dict:
+    """Batch real-time quote from Tradier (up to 200 symbols per call).
+    Returns {SYM: {last, prevclose, open, high, low, volume, avg_volume,
+                   change_pct, week_52_high, week_52_low, bid, ask}} or {}.
+    """
+    import os as _tq_os, requests as _tq_req
+    _token = _tq_os.environ.get("TRADIER_API_TOKEN_2", "") or _tq_os.environ.get("TRADIER_API_TOKEN", "")
+    if not _token or not symbols:
+        return {}
+    _hdr = {"Authorization": f"Bearer {_token}", "Accept": "application/json"}
+    try:
+        _r = _tq_req.get(
+            "https://api.tradier.com/v1/markets/quotes",
+            params={"symbols": ",".join(str(s) for s in symbols[:200])},
+            headers=_hdr, timeout=5,
+        )
+        if _r.status_code != 200:
+            return {}
+        _raw = _r.json().get("quotes", {}).get("quote", [])
+        if isinstance(_raw, dict):
+            _raw = [_raw]
+        return {
+            q["symbol"]: {
+                "last":         float(q.get("last") or 0),
+                "prevclose":    float(q.get("prevclose") or 0),
+                "open":         float(q.get("open") or 0),
+                "high":         float(q.get("high") or 0),
+                "low":          float(q.get("low") or 0),
+                "volume":       int(q.get("volume") or 0),
+                "avg_volume":   int(q.get("average_volume") or 0),
+                "change_pct":   float(q.get("change_percentage") or 0),
+                "week_52_high": float(q.get("week_52_high") or 0),
+                "week_52_low":  float(q.get("week_52_low") or 0),
+                "bid":          float(q.get("bid") or 0),
+                "ask":          float(q.get("ask") or 0),
+            }
+            for q in _raw if q.get("symbol")
+        }
+    except Exception as _e_tq:
+        print(f"[td_quotes] error: {_e_tq}")
+        return {}
+
+
+def _td_history(ticker: str, days: int = 40, start_date: str = None) -> "pd.DataFrame":
+    """Daily OHLCV from Tradier. Replaces yfinance tk.history(interval='1d').
+    Returns DataFrame[Open, High, Low, Close, Volume] with DatetimeIndex.
+    If start_date (YYYY-MM-DD) is given, fetches from that date to today.
+    Otherwise fetches the last `days` trading sessions (adds 10-day weekend buffer).
+    Returns empty DataFrame on error.
+    """
+    import os as _th_os, requests as _th_req, pandas as _th_pd, datetime as _th_dt
+    _token = _th_os.environ.get("TRADIER_API_TOKEN_2", "") or _th_os.environ.get("TRADIER_API_TOKEN", "")
+    if not _token:
+        return _th_pd.DataFrame()
+    _hdr = {"Authorization": f"Bearer {_token}", "Accept": "application/json"}
+    _end = _th_dt.date.today()
+    _start = (_th_dt.date.fromisoformat(start_date)
+              if start_date else _end - _th_dt.timedelta(days=days + 10))
+    try:
+        _r = _th_req.get(
+            "https://api.tradier.com/v1/markets/history",
+            params={"symbol": ticker, "interval": "daily",
+                    "start": _start.isoformat(), "end": _end.isoformat()},
+            headers=_hdr, timeout=6,
+        )
+        if _r.status_code != 200:
+            return _th_pd.DataFrame()
+        _raw = (_r.json().get("history") or {}).get("day") or []
+        if isinstance(_raw, dict):
+            _raw = [_raw]
+        if not _raw:
+            return _th_pd.DataFrame()
+        _df = _th_pd.DataFrame(_raw)
+        _df["date"] = _th_pd.to_datetime(_df["date"])
+        _df = _df.set_index("date").rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        _cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in _df.columns]
+        _df = _df[_cols]
+        return _df if start_date else _df.tail(days)
+    except Exception as _e_th:
+        print(f"[td_history] error {ticker}: {_e_th}")
+        return _th_pd.DataFrame()
+
+
+def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
+    """Intraday bars from Tradier. Replaces yfinance tk.history(interval='1m'/'5m').
+    Returns DataFrame[Open, High, Low, Close, Volume, VWAP] with an ET-localized
+    DatetimeIndex (America/New_York) so between_time() and tz_convert() work as-is.
+    Returns empty DataFrame on error or outside market hours.
+    """
+    import os as _ti_os, requests as _ti_req, pandas as _ti_pd
+    _token = _ti_os.environ.get("TRADIER_API_TOKEN_2", "") or _ti_os.environ.get("TRADIER_API_TOKEN", "")
+    if not _token:
+        return _ti_pd.DataFrame()
+    _hdr = {"Authorization": f"Bearer {_token}", "Accept": "application/json"}
+    _iv_map = {"1m": "1min", "5m": "5min", "15m": "15min",
+               "1min": "1min", "5min": "5min", "15min": "15min"}
+    _td_iv = _iv_map.get(interval, "1min")
+    try:
+        _r = _ti_req.get(
+            "https://api.tradier.com/v1/markets/timesales",
+            params={"symbol": ticker, "interval": _td_iv, "session_filter": "open"},
+            headers=_hdr, timeout=6,
+        )
+        if _r.status_code != 200:
+            return _ti_pd.DataFrame()
+        _bars = (_r.json().get("series") or {}).get("data") or []
+        if isinstance(_bars, dict):
+            _bars = [_bars]
+        if not _bars:
+            return _ti_pd.DataFrame()
+        _df = _ti_pd.DataFrame(_bars)
+        # Tradier returns naive ET timestamps — localize explicitly so callers can
+        # call between_time() and tz_convert() without extra handling.
+        _df["time"] = _ti_pd.to_datetime(_df["time"]).dt.tz_localize("America/New_York")
+        _df = _df.set_index("time").rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume", "vwap": "VWAP",
+        })
+        _cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "VWAP"] if c in _df.columns]
+        return _df[_cols]
+    except Exception as _e_ti:
+        print(f"[td_intraday] error {ticker}: {_e_ti}")
+        return _ti_pd.DataFrame()
+
 # ── Scan result cache (pre-warmed every 15 min during market hours) ───────────
 import threading as _threading
 app._sm_cache: dict = {}          # key = frozen sorted ticker tuple → {"result": ..., "ts": datetime}
@@ -2411,7 +2544,7 @@ try:
             with _pg_eao.connect(_DB_URL) as _c_w, _c_w.cursor() as _cu_w:
                 for _sym, _entry, _score, _ntype in _picks:
                     try:
-                        _hist = _yf_eao.Ticker(_sym).history(period="1d", interval="1m")
+                        _hist = _td_intraday(_sym, "1min")
                         if _hist.empty or len(_hist) < 3: continue
                         _hist.index = _hist.index.tz_convert(_et_eao)
                         # Next open: very first bar
@@ -3359,7 +3492,7 @@ def _fill_conviction_outcomes() -> None:
         updates = []
         for ticker, picks in by_ticker.items():
             try:
-                hist = _yf.Ticker(ticker).history(period="20d", interval="1d")
+                hist = _td_history(ticker, days=20)
                 if hist.empty:
                     continue
                 closes = {}
@@ -4929,7 +5062,7 @@ def _run_nano_morning_ranking():
         print("[nano_morning] ranking already running — skip")
         return
     try:
-        import yfinance as _yf, psycopg2 as _pg, json as _json, statistics as _st
+        import psycopg2 as _pg, json as _json, statistics as _st
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
         universe = _nano_universe()
         if not universe:
@@ -4939,8 +5072,7 @@ def _run_nano_morning_ranking():
 
         def _score(ticker):
             try:
-                tk = _yf.Ticker(ticker)
-                hist = tk.history(period="40d", interval="1d")
+                hist = _td_history(ticker, days=40)
                 if hist is None or len(hist) < 10:
                     return None
                 closes = hist["Close"].dropna().tolist()
@@ -5307,14 +5439,12 @@ def _run_nano_morning_ranking():
 def _nano_intraday_confirm(cand):
     """Re-check a candidate against the first 15 min of trading (9:30-9:45 ET):
     relative volume, holding above VWAP, not parabolic. Returns a verdict dict."""
-    import yfinance as _yf
     ticker = cand["ticker"]
     avg_vol = float(cand.get("avg_vol") or 0)
     out = {"ticker": ticker, "verdict": "WATCH", "intraday_score": 0.0,
            "rvol15": 0.0, "above_vwap": False, "price": cand.get("price"), "reason": ""}
     try:
-        tk = _yf.Ticker(ticker)
-        intr = tk.history(period="1d", interval="1m")
+        intr = _td_intraday(ticker, "1min")
         if intr is None or len(intr) == 0:
             out["reason"] = "no intraday data yet"
             return out
@@ -5555,12 +5685,8 @@ def _send_nano_buy_email():
         # nano-caps face broad headwind — suppress the buy list for the day.
         # Backtest Jun 9-13 2026: Jun 11 was -5.1% avg, IWM was down that morning.
         try:
-            import yfinance as _yf2
-            _iwm = _yf2.Ticker("IWM")
-            _iwm_info = _iwm.fast_info
-            _iwm_prev = float(_iwm_info.previous_close or 0)
-            _iwm_last = float(_iwm_info.last_price or 0)
-            _iwm_chg  = ((_iwm_last / _iwm_prev) - 1) * 100 if _iwm_prev > 0 else 0
+            _iwm_q   = _td_quotes(["IWM"]).get("IWM", {})
+            _iwm_chg = float(_iwm_q.get("change_pct") or 0)
             if _iwm_chg <= -1.0:
                 send_email_raw(_OWNER_EMAIL, f"🚫 Nano buys suppressed — IWM down {_iwm_chg:.1f}% · {date_str}",
                     f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
@@ -5748,8 +5874,7 @@ def _run_nano_morning_outcomes():
                     entry = float(entry or 0); stop = float(stop or 0)
                     if entry <= 0:
                         continue
-                    t = _yf.Ticker(tk)
-                    hist = t.history(start=(pd_ + _td(days=1)).isoformat(), interval="1d")
+                    hist = _td_history(tk, start_date=(pd_ + _td(days=1)).isoformat())
                     if hist is None or len(hist) == 0:
                         continue
                     highs = hist["High"].dropna().tolist()
@@ -6170,7 +6295,7 @@ def _run_sc_morning_ranking():
         print("[sc_morning] ranking already running — skip")
         return
     try:
-        import yfinance as _yf, psycopg2 as _pg, json as _json, statistics as _st
+        import psycopg2 as _pg, json as _json, statistics as _st
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
         universe = _sc_universe()
         if not universe:
@@ -6182,8 +6307,7 @@ def _run_sc_morning_ranking():
 
         def _score(ticker):
             try:
-                tk = _yf.Ticker(ticker)
-                hist = tk.history(period="40d", interval="1d")
+                hist = _td_history(ticker, days=40)
                 if hist is None or len(hist) < 10:
                     return None
                 closes = hist["Close"].dropna().tolist()
@@ -6323,9 +6447,8 @@ def _run_sc_morning_ranking():
                 # Gap bonus (pre-market sentiment)
                 _gap_pct = 0.0
                 try:
-                    pm = tk.history(period="2d", interval="1d")
-                    if pm is not None and len(pm) >= 2:
-                        prev_close_pm = float(pm["Close"].iloc[-2])
+                    if hist is not None and len(hist) >= 2:
+                        prev_close_pm = float(hist["Close"].iloc[-2])
                         if prev_close_pm > 0:
                             _gap_pct = (price - prev_close_pm) / prev_close_pm * 100
                 except:
@@ -6366,12 +6489,7 @@ def _run_sc_morning_ranking():
                     conviction += _SC_DOUBLE_BONUS
                 conviction = int(round(max(0.0, min(100.0, conviction))))
 
-                mcap_m = 0.0
-                try:
-                    fi = tk.fast_info
-                    mcap_m = round(float(getattr(fi, "market_cap", 0) or 0) / 1e6, 1)
-                except Exception:
-                    pass
+                mcap_m = 0.0   # market_cap not available from Tradier; display-only field
 
                 return {
                     "ticker": ticker, "conviction": conviction, "price": round(price, 4),
@@ -6926,8 +7044,7 @@ def _run_sc_morning_outcomes():
                     entry = float(entry or 0); stop = float(stop or 0)
                     if entry <= 0:
                         continue
-                    t = _yf.Ticker(tk)
-                    hist = t.history(start=(pd_ + _td(days=1)).isoformat(), interval="1d")
+                    hist = _td_history(tk, start_date=(pd_ + _td(days=1)).isoformat())
                     if hist is None or len(hist) == 0:
                         continue
                     highs = hist["High"].dropna().tolist()
@@ -11758,10 +11875,8 @@ def _refresh_spy_1y_cache():
     """Fetch SPY 1-year history once; cache return % and daily returns array."""
     from datetime import date as _spy_d
     try:
-        import yfinance as _yf_spy
-        _raw = _yf_spy.download("SPY", period="1y", interval="1d", progress=False, auto_adjust=True)["Close"]
-        _h = _raw.iloc[:, 0] if hasattr(_raw, "columns") else _raw
-        _c = _h.dropna()
+        _hist_spy = _td_history("SPY", days=252)
+        _c = _hist_spy["Close"].dropna() if not _hist_spy.empty else __import__("pandas").Series([], dtype=float)
         if len(_c) >= 50:
             _spy_1y_cache["return_pct"] = round((float(_c.iloc[-1]) / float(_c.iloc[0]) - 1) * 100, 1)
             _spy_1y_cache["rets_arr"] = _c.pct_change().dropna().values
