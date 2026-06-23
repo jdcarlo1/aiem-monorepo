@@ -18535,7 +18535,7 @@ def admin_seed_conviction_data():
     Requires X-Admin-Token header.
     """
     token = request.headers.get("X-Admin-Token", "")
-    if token != _ADMIN_TOKEN:
+    if not token or token != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     body = request.get_json(silent=True) or {}
     rows = body.get("rows", [])
