@@ -12628,7 +12628,13 @@ function MicroCapCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
       if (count > 0) stopPoll();
     }, 12_000);
     // Stop after 90s — if scan finished with 0 results, don't spin forever
-    setTimeout(() => { stopPoll(); setScanning(false); setScanDone(true); }, 90_000);
+    // But do one final DB check first: background scan may have completed during the wait
+    setTimeout(async () => {
+      stopPoll();
+      setScanning(false);
+      const { count } = await load(d, true);
+      if (count === 0) setScanDone(true);
+    }, 90_000);
   };
 
   const runScan = async () => {
