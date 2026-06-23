@@ -1088,30 +1088,23 @@ try:
                     max_exp  = 60 if is_etf else 45
                     price    = 0.0
 
-                    # ── Market-hours fast path ─────────────────────────────────────
-                    # Polygon Starter returns OI=0 during 9:30-16:00 ET (OI is EOD-only).
-                    # Scanning 1,000+ non-priority tickers via Yahoo during market hours
-                    # floods Yahoo's per-IP rate limit (7,000+ API calls per scan) → 0 results.
-                    # Limit intraday Yahoo calls to priority large-caps + ETFs only (~95 tickers).
-                    # Hourly leaderboard rotation + EOD Polygon scan (after 16:00 when OI is live)
-                    # covers the remaining universe.
-                    import pytz as _pytz_uc; import datetime as _dt_uc
-                    _et_now_uc   = _dt_uc.datetime.now(_pytz_uc.timezone("America/New_York"))
-                    _mkt_hours   = (9, 30) <= (_et_now_uc.hour, _et_now_uc.minute) < (16, 0)
-                    if _mkt_hours and not is_etf and ticker not in set(_PRIORITY_FIRST):
-                        return hits  # skip — EOD Polygon scan covers this ticker at 16:00+
-
                     # ── Polygon primary path (1 call = all expirations) ──────────
+                    # Always try Polygon first for every ticker. During market hours
+                    # (9:30-16:00 ET) Polygon Starter OI is 0 (updated EOD only), so
+                    # we fall into volume-only detection: flag contracts with significant
+                    # raw volume + premium even without an OI ratio. After 16:00 OI is
+                    # populated and the full vol/OI ratio is used.
+                    import pytz as _pytz_uc; import datetime as _dt_uc
+                    _et_now_uc = _dt_uc.datetime.now(_pytz_uc.timezone("America/New_York"))
+                    _mkt_hours = (9, 30) <= (_et_now_uc.hour, _et_now_uc.minute) < (16, 0)
                     pg_rows = _polygon_fetch_calls(ticker, max_exp_days=max_exp)
-                    # Polygon Starter plan: open_interest is EOD-only and returns 0
-                    # during market hours. If every contract has OI=0 the vol/oi ratio
-                    # can't be computed → zero hits. Fall through to Yahoo (which has
-                    # live OI) whenever Polygon has no usable OI data.
                     _pg_has_oi = bool(pg_rows and any(
                         int(r.get("openInterest") or 0) > 0 for r in pg_rows
                     ))
-                    if pg_rows is not None and _pg_has_oi:
-                        # Starter plan: underlying_asset.price is None — fetch via prev-agg
+                    # Use Polygon if: (a) OI is available (after close), or
+                    #                 (b) market hours — volume-only detection mode
+                    if pg_rows and (_pg_has_oi or _mkt_hours):
+                        # Fetch underlying price (Starter: underlying_asset.price is None)
                         for r in pg_rows:
                             p = float(r.get("underlying_price") or 0)
                             if p > 0:
@@ -1136,11 +1129,8 @@ try:
                             return hits
                         for row in pg_rows:
                             try:
-                                vol  = int(row.get("volume") or 0)
-                                oi   = int(row.get("openInterest") or 0)
-                                if oi < 10 or vol < 10: continue
-                                voi  = vol / oi
-                                if voi < min_voi: continue
+                                vol    = int(row.get("volume") or 0)
+                                oi     = int(row.get("openInterest") or 0)
                                 strike = float(row["strike"])
                                 exp    = str(row["expiry"])
                                 if not exp: continue
@@ -1149,8 +1139,19 @@ try:
                                 otm_pct = round((strike - price) / price * 100, 2)
                                 if otm_pct < -15 or otm_pct > 40: continue
                                 mid  = float(row.get("lastPrice") or 0)
+                                if not mid: continue
                                 prem = int(mid * vol * 100)
                                 if prem < min_prem: continue
+                                if oi == 0:
+                                    # Market-hours mode: OI not yet settled by exchange.
+                                    # Use a raw volume floor to avoid noise — only flag
+                                    # contracts with meaningful activity (100+ contracts).
+                                    if vol < 100: continue
+                                    voi = 0.0
+                                else:
+                                    if oi < 10 or vol < 10: continue
+                                    voi = vol / oi
+                                    if voi < min_voi: continue
                                 iv   = round(float(row.get("impliedVolatility") or 0) * 100, 1)
                                 urgency = "EXPIRING" if days <= 3 else "SHORT" if days <= 7 else "NEAR"
                                 pre_positioned = bool(oi > 0 and vol < oi * 0.5 and oi >= 100)
@@ -1160,6 +1161,13 @@ try:
                                              "iv": iv, "urgency": urgency,
                                              "pre_positioned": pre_positioned, "last_trade": ""})
                             except Exception: pass
+                        return hits
+
+                    # Polygon had no data for this ticker (API error / unlisted).
+                    # During market hours, skip non-priority tickers — Yahoo would be
+                    # too slow and rate-limited for the full universe. EOD Polygon scan
+                    # covers them after 16:00 when OI is populated.
+                    if _mkt_hours and not is_etf and ticker not in set(_PRIORITY_FIRST):
                         return hits
 
                     # ── Yahoo fallback ────────────────────────────────────────────
