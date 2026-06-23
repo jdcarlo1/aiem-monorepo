@@ -69,6 +69,35 @@ refresh, then **Vol vs OI** is the "new positions opening" signal.
 and blind spots; on June 22 2026 Yahoo blocked the production IP all afternoon.
 Polygon/Massive.com solves this permanently.
 
+## Intraday unusual-calls scan: market-hours fast path (June 23 2026)
+
+During 9:30-16:00 ET, Polygon Starter returns `open_interest=0` for ALL option contracts
+(OI is published by OCC after EOD clearing — no intraday OI exists anywhere).
+
+Before this fix, `_scan_one` received `pg_rows` from Polygon (OI=0 on all contracts), so
+`_pg_has_oi = False`, and ALL 1238 tickers fell through to the Yahoo fallback. Each ticker
+needed ~6 Yahoo API calls (1 fast_info + 1 options list + 4 chains). At 3/sec global rate
+limit: 1238 × 6 = 7428 calls / 3 = 2476 seconds. The 180-second timeout means ~90
+tickers get scanned → all from the leaderboard tail, not priority names → 0 qualifying
+sweeps → HC tab shows stale data all day.
+
+**Fix:** At the top of `_scan_one`, check if we're in market hours:
+```python
+_mkt_hours = (9, 30) <= (_et_now.hour, _et_now.minute) < (16, 0)
+if _mkt_hours and not is_etf and ticker not in set(_PRIORITY_FIRST):
+    return hits  # skip — EOD Polygon scan covers this ticker at 16:00+
+```
+This limits intraday Yahoo calls to ~95 tickers (45 priority + ~50 ETFs).
+At 3/sec: 95 × 6 = 570 calls / 3 = 190 seconds — barely fits the 180s timeout
+but priority names run first via ThreadPoolExecutor.
+
+Also added: `if _yf_breaker_open(): return hits` before the Yahoo rate-limiter acquire,
+and capped expiry chains to 4 nearest valid (not all 20+) to reduce calls per ticker.
+
+**Coverage contract:**
+- 9:30-16:00: priority large-caps + ETFs scanned via Yahoo every ~60 min (vol/OI from Yahoo live data)
+- 16:00+: full 1238+ ticker EOD scan via Polygon (OI now populated for vol/OI ratio)
+
 ## Rotating leaderboard cursor (June 22 2026)
 `_lb_cursor` + `_lb_cursor_lock` globals advance by 1,000 tickers per hourly scan.
 7 hourly scans × 1,000 tickers = full 6,610 universe covered by ~3:10 PM ET each trading day.

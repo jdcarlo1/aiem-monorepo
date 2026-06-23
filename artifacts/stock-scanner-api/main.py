@@ -1085,9 +1085,29 @@ try:
                     max_exp  = 60 if is_etf else 45
                     price    = 0.0
 
+                    # ── Market-hours fast path ─────────────────────────────────────
+                    # Polygon Starter returns OI=0 during 9:30-16:00 ET (OI is EOD-only).
+                    # Scanning 1,000+ non-priority tickers via Yahoo during market hours
+                    # floods Yahoo's per-IP rate limit (7,000+ API calls per scan) → 0 results.
+                    # Limit intraday Yahoo calls to priority large-caps + ETFs only (~95 tickers).
+                    # Hourly leaderboard rotation + EOD Polygon scan (after 16:00 when OI is live)
+                    # covers the remaining universe.
+                    import pytz as _pytz_uc; import datetime as _dt_uc
+                    _et_now_uc   = _dt_uc.datetime.now(_pytz_uc.timezone("America/New_York"))
+                    _mkt_hours   = (9, 30) <= (_et_now_uc.hour, _et_now_uc.minute) < (16, 0)
+                    if _mkt_hours and not is_etf and ticker not in set(_PRIORITY_FIRST):
+                        return hits  # skip — EOD Polygon scan covers this ticker at 16:00+
+
                     # ── Polygon primary path (1 call = all expirations) ──────────
                     pg_rows = _polygon_fetch_calls(ticker, max_exp_days=max_exp)
-                    if pg_rows is not None:
+                    # Polygon Starter plan: open_interest is EOD-only and returns 0
+                    # during market hours. If every contract has OI=0 the vol/oi ratio
+                    # can't be computed → zero hits. Fall through to Yahoo (which has
+                    # live OI) whenever Polygon has no usable OI data.
+                    _pg_has_oi = bool(pg_rows and any(
+                        int(r.get("openInterest") or 0) > 0 for r in pg_rows
+                    ))
+                    if pg_rows is not None and _pg_has_oi:
                         # Starter plan: underlying_asset.price is None — fetch via prev-agg
                         for r in pg_rows:
                             p = float(r.get("underlying_price") or 0)
@@ -1139,7 +1159,10 @@ try:
                             except Exception: pass
                         return hits
 
-                    # ── Yahoo fallback (only used when Polygon key missing/error) ─
+                    # ── Yahoo fallback ────────────────────────────────────────────
+                    # Fail fast if Yahoo circuit breaker is open.
+                    if _yf_breaker_open():
+                        return hits
                     _YF_RATE_LIMITER.acquire()
                     import yfinance as _yf_fb
                     tk = _yf_fb.Ticker(ticker)
@@ -1147,9 +1170,14 @@ try:
                     if not price:
                         _yf_note_silent_throttle()
                         return hits
-                    for exp in (tk.options or []):
+                    # Cap to the 4 nearest valid expiries — limits Yahoo API calls per ticker
+                    # from potentially 20+ chains to 4, keeping total scan time within budget.
+                    _valid_exps = [
+                        _e for _e in (tk.options or [])
+                        if 1 <= (_dt2.strptime(_e, "%Y-%m-%d") - _dt2.now()).days + 1 <= max_exp
+                    ][:4]
+                    for exp in _valid_exps:
                         days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
-                        if not (1 <= days <= max_exp): continue
                         chain = tk.option_chain(exp).calls
                         for _, row in chain.iterrows():
                             try:
@@ -12417,6 +12445,8 @@ def net_flow_single():
     ticker = request.args.get("ticker", "").upper().strip()
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
+    if _yf_breaker_open():
+        return jsonify({"error": "data feed temporarily throttled, try again in a few minutes"}), 503
     try:
         hist = yf.Ticker(ticker).history(period="1d", interval="1m")
         if hist.empty or len(hist) < 5:
