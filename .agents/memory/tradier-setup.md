@@ -1,32 +1,46 @@
 ---
-name: Tradier API setup notes
-description: What's needed to wire Tradier for live market-hours option chains; authentication gotchas.
+name: Tradier live options integration
+description: Tradier API wired as primary option chain source during market hours; token env var, endpoints, data shape, and integration status
 ---
 
-## The Rule
-Tradier paper trading account token returns 401 on `quotes` and `options/chains` endpoints — only the public `clock` endpoint works without a real brokerage account. Need a **brokerage account** (not paper trading) to get market data via API.
+# Tradier live options integration
 
-**How to set up:**
-1. User opens Tradier brokerage account at tradier.com (free, $0 minimum)
-2. After approval: Settings → API Access → copy the **production** token
-3. Add as secret `TRADIER_API_TOKEN`
-4. Wire into `_scan_one` in main.py as market-hours option chain source (before Polygon)
+## Status
+**LIVE as of June 23 2026.** Token: `TRADIER_API_TOKEN_2` (28-char brokerage token).
+`TRADIER_API_TOKEN` is checked as fallback (old token, 401 on market data — ignore it).
 
-**Why it matters:**
-- Polygon Starter OI = 0 during market hours (9:30-4pm ET); we use volume-only detection as workaround
-- Tradier brokerage API returns live OI all day → proper vol/OI ratios during market hours
-- Combination: Tradier (market hours) + Polygon (after close) = Yahoo usage ~0% in scanner
+**Why the old `TRADIER_API_TOKEN` didn't work:**
+Paper trading account token returns 401 on `quotes` and `options/chains` — only
+`clock` endpoint works without a real brokerage account. `TRADIER_API_TOKEN_2`
+is a real brokerage account token.
 
-**Endpoints to use:**
-- Production: `https://api.tradier.com/v1/markets/options/chains?symbol={ticker}&expiration={date}&greeks=true`
+## Why Tradier over Polygon during market hours
+Polygon Starter: OI settles EOD only → OI=0 from 9:30-16:00 ET → fell into
+volume-only detection (vol≥100 floor, no vol/OI ratio). Tradier free brokerage
+API: **real-time OI** → full vol/OI ratio scoring from market open.
+
+## Where it lives in code
+Inside `_run_unusual_calls_scan` → `_tradier_fetch_calls(ticker, max_exp_days)` helper.
+Wired in `_scan_one` as first branch when `_mkt_hours == True`:
+- If `_td_rows and _td_price` → process hits with `"source": "tradier"`, return
+- Else → fall through to Polygon (OI after hours) → Yahoo fallback
+
+## API endpoints (production only — not sandbox)
+- Quote: `GET https://api.tradier.com/v1/markets/quotes?symbols={ticker}`
+- Expirations: `GET https://api.tradier.com/v1/markets/options/expirations?symbol={ticker}&includeAllRoots=false`
+- Chain: `GET https://api.tradier.com/v1/markets/options/chains?symbol={ticker}&expiration={date}&greeks=false`
 - Headers: `Authorization: Bearer {token}`, `Accept: application/json`
-- Returns: `option_type`, `strike`, `volume`, `open_interest`, `bid`, `ask`, `greeks.mid_iv`
 
-**How to get expiration dates first:**
-- `https://api.tradier.com/v1/markets/options/expirations?symbol={ticker}`
-- Returns list of valid expiry dates to pass to chains endpoint
+## Rate limits
+Free brokerage. No documented hard limit. Capped to 3 expirations per ticker
+(5 HTTP calls max). If 429s appear, add a rate limiter like `_POLYGON_RATE_LIMITER`.
 
-**Integration point in main.py:**
-- Add `_tradier_fetch_calls(ticker, max_exp_days)` helper similar to `_polygon_fetch_calls`
-- In `_scan_one`: try Tradier first during `_mkt_hours`, fall back to Polygon vol-only if Tradier fails
-- After close: use Polygon with OI as normal
+## Response shape → internal row format
+- `o.get("option_type")` == "call" to filter
+- `volume`: `o.get("volume")`, `openInterest`: `o.get("open_interest")` (real-time)
+- `impliedVolatility`: `o.get("implied_volatility")` (decimal, e.g. 0.45 = 45%)
+- `lastPrice`: `(bid+ask)/2` if both > 0, else `o.get("last")`
+- `underlying_price`: populated from the quote call
+
+**Why:** `isinstance(_exp_raw, str)` guard required — single-expiry tickers
+return a plain string from Tradier expirations, not a list.

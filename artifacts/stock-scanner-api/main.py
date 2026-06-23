@@ -1058,6 +1058,75 @@ try:
             print(f"[polygon] error {ticker}: {_e}")
             return None
 
+    def _tradier_fetch_calls(ticker: str, max_exp_days: int = 45):
+        """Fetch live call options from Tradier with real-time OI (works during market hours).
+        Returns (underlying_price, list_of_rows) or (0, None) on failure.
+        Rows share the same keys as _polygon_fetch_calls for drop-in compatibility.
+        """
+        import os as _td_os, requests as _td_req
+        from datetime import datetime as _td_dt, timedelta as _td_td
+        _token = _td_os.environ.get("TRADIER_API_TOKEN_2", "") or _td_os.environ.get("TRADIER_API_TOKEN", "")
+        if not _token:
+            return 0, None
+        _hdr  = {"Authorization": f"Bearer {_token}", "Accept": "application/json"}
+        _base = "https://api.tradier.com/v1/markets"
+        try:
+            # Step 1: get live underlying quote
+            _rq = _td_req.get(f"{_base}/quotes", params={"symbols": ticker},
+                              headers=_hdr, timeout=4)
+            price = 0.0
+            if _rq.status_code == 200:
+                _q = (_rq.json().get("quotes") or {}).get("quote") or {}
+                price = float(_q.get("last") or _q.get("bid") or 0)
+
+            # Step 2: get expirations
+            _re = _td_req.get(f"{_base}/options/expirations",
+                              params={"symbol": ticker, "includeAllRoots": "false"},
+                              headers=_hdr, timeout=4)
+            if _re.status_code != 200:
+                return price, None
+            _exp_raw = (_re.json().get("expirations") or {}).get("date") or []
+            if isinstance(_exp_raw, str):
+                _exp_raw = [_exp_raw]
+            _now_td = _td_dt.now()
+            valid_exps = [
+                e for e in _exp_raw
+                if 1 <= (_td_dt.strptime(e, "%Y-%m-%d") - _now_td).days + 1 <= max_exp_days
+            ][:3]   # 3 nearest expirations — caps API calls to 5 total per ticker
+            if not valid_exps:
+                return price, None
+
+            # Step 3: fetch chain for each expiration (calls only)
+            rows = []
+            for _exp in valid_exps:
+                _rc = _td_req.get(f"{_base}/options/chains",
+                                  params={"symbol": ticker, "expiration": _exp, "greeks": "false"},
+                                  headers=_hdr, timeout=5)
+                if _rc.status_code != 200:
+                    continue
+                _opts = (_rc.json().get("options") or {}).get("option") or []
+                if isinstance(_opts, dict):
+                    _opts = [_opts]
+                for _o in _opts:
+                    if _o.get("option_type") != "call":
+                        continue
+                    _bid = float(_o.get("bid") or 0)
+                    _ask = float(_o.get("ask") or 0)
+                    _mid = (_bid + _ask) / 2 if _bid and _ask else float(_o.get("last") or 0)
+                    rows.append({
+                        "strike":            float(_o.get("strike") or 0),
+                        "expiry":            _exp,
+                        "volume":            int(_o.get("volume") or 0),
+                        "openInterest":      int(_o.get("open_interest") or 0),
+                        "impliedVolatility": float(_o.get("implied_volatility") or 0),
+                        "lastPrice":         _mid,
+                        "underlying_price":  price,
+                    })
+            return price, (rows if rows else None)
+        except Exception as _e_td:
+            print(f"[tradier] error {ticker}: {_e_td}")
+            return 0, None
+
     # EOD unusual-calls auto-scan — populates unusual_calls_log so the EOD SWEEP tab
     # has data without a user needing to manually open the Unusual Calls tab first.
     def _run_unusual_calls_scan(label: str):
@@ -1097,6 +1166,51 @@ try:
                     import pytz as _pytz_uc; import datetime as _dt_uc
                     _et_now_uc = _dt_uc.datetime.now(_pytz_uc.timezone("America/New_York"))
                     _mkt_hours = (9, 30) <= (_et_now_uc.hour, _et_now_uc.minute) < (16, 0)
+
+                    # ── Tradier primary path (real-time OI during market hours) ──────
+                    # Unlike Polygon Starter (OI settles EOD), Tradier returns live OI,
+                    # enabling proper vol/OI ratio scoring from 9:30 AM onwards.
+                    if _mkt_hours:
+                        _td_price, _td_rows = _tradier_fetch_calls(ticker, max_exp_days=max_exp)
+                        if _td_rows and _td_price:
+                            price = _td_price
+                            for _trow in _td_rows:
+                                try:
+                                    _tvol = int(_trow.get("volume") or 0)
+                                    _toi  = int(_trow.get("openInterest") or 0)
+                                    _tstr = float(_trow["strike"])
+                                    _texp = str(_trow["expiry"])
+                                    if not _texp: continue
+                                    _tdys = (_dt2.strptime(_texp, "%Y-%m-%d") - _dt2.now()).days + 1
+                                    if not (1 <= _tdys <= max_exp): continue
+                                    _totm = round((_tstr - price) / price * 100, 2)
+                                    if _totm < -15 or _totm > 40: continue
+                                    _tmid = float(_trow.get("lastPrice") or 0)
+                                    if not _tmid: continue
+                                    _tprem = int(_tmid * _tvol * 100)
+                                    if _tprem < min_prem: continue
+                                    if _toi == 0:
+                                        if _tvol < 100: continue
+                                        _tvoi = 0.0
+                                    else:
+                                        if _toi < 10 or _tvol < 10: continue
+                                        _tvoi = _tvol / _toi
+                                        if _tvoi < min_voi: continue
+                                    _tiv  = round(float(_trow.get("impliedVolatility") or 0) * 100, 1)
+                                    _turg = "EXPIRING" if _tdys <= 3 else "SHORT" if _tdys <= 7 else "NEAR"
+                                    _tpp  = bool(_toi > 0 and _tvol < _toi * 0.5 and _toi >= 100)
+                                    hits.append({
+                                        "ticker": ticker, "price": price, "strike": _tstr,
+                                        "expiry": _texp, "days_out": _tdys, "volume": _tvol,
+                                        "oi": _toi, "vol_oi": round(_tvoi, 2), "prem": _tprem,
+                                        "otm_pct": _totm, "iv": _tiv, "urgency": _turg,
+                                        "pre_positioned": _tpp, "last_trade": "",
+                                        "source": "tradier",
+                                    })
+                                except Exception:
+                                    pass
+                            return hits
+
                     pg_rows = _polygon_fetch_calls(ticker, max_exp_days=max_exp)
                     _pg_has_oi = bool(pg_rows and any(
                         int(r.get("openInterest") or 0) > 0 for r in pg_rows
