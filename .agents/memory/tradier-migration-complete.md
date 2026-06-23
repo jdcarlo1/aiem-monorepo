@@ -1,30 +1,46 @@
 ---
-name: Tradier migration complete — Yahoo Finance audit
-description: Full list of what stays on Yahoo vs what moved to Tradier, and the migration rules
+name: Tradier + Polygon migration — full audit (two-pass)
+description: What moved off Yahoo Finance, what stays, and why — definitive reference
 ---
 
-## Yahoo Finance — KEEP (no Tradier equivalent)
-- `fast_info.market_cap` — used in microcap/multiday flow scans
-- `fast_info.float_shares` / `.shares` — used in gamma pressure, float scoring
-- `tk.info` dict — short_interest, shortPercentOfFloat, shortRatio, sector, industry
-- `tk.calendar` — earnings dates
-- `yf.screen` — equity screener (Polygon has no screener API)
-- `^VIX`, `^VIX3M` — Tradier has no index price feed for CBOE volatility indices
-- `tk.options` + `tk.option_chain()` — Tradier handles this separately via `_tradier_fetch_calls()` for the unusual-calls scanner; breakout/composite/vol-crush still use Yahoo option chains because tkr object is reused for multiple attributes in the same function
+## Pass 1 — OHLCV / intraday / quotes (31 replacements)
+All .history() and fast_info.last_price calls → _td_history / _td_intraday / _td_quotes.
+market_overview went from 216 Yahoo calls → 2 Tradier batch calls.
+See original migration notes for the full list.
 
-## Tradier now handles (31 replacements made)
-- All `tk.history(interval="1d")` → `_td_history(ticker, days=N)` or `_td_history(ticker, start_date="YYYY-MM-DD")`
-- All `tk.history(interval="1m")` → `_td_intraday(ticker, "1min")`
-- All `tk.history(interval="5m")` → `_td_intraday(ticker, "5min")`
-- `fast_info.last_price` in AI trades live price refresh → `_td_quotes(batch)[t]["last"]`
-- `market_overview` sector/index/A/D prices → `_td_quotes()` batch calls
+## Pass 2 — market_cap / fundamentals (4 replacements)
+New helper: `_pg_market_cap_batch(tickers)` at ~L597 in main.py.
+  - Polygon v3/reference/tickers/{ticker} per ticker, threaded 8-way
+  - 4-hour in-memory cache (_pg_cap_cache dict)
+  - Uses urllib.request (not requests) — bypasses the yfinance curl_cffi patch
 
-## market_overview improvement
-Before: 216 Yahoo `.history(period="5d")` calls (11 sectors + 5 indices + 200 A/D)
-After: 2 Tradier batch calls (1 for sectors+indices, 1 for A/D) + 1 Yahoo call (^VIX only)
+Replaced:
+  - _smp_market_caps() Yahoo fast_info fallback → _pg_market_cap_batch()
+  - _compute_flow_mc() microcap net-flow → _pg_market_cap_batch([ticker])
+  - _compute() multiday net-flow → _pg_market_cap_batch([ticker])
+  - morning_runners _scan_mr() — fully off Yahoo:
+      last_price/prev_close/avg_vol/today_vol → _td_quotes() batch
+      market_cap → _pg_market_cap_batch()
+      Yahoo breaker guard removed (endpoint no longer touches Yahoo)
 
-## Smoke test result (post-migration)
-26/26 endpoints PASS, 0 FAIL. Cached tabs <500ms. Live Tradier fetches <6s.
+## Yahoo Finance — KEEP (confirmed unreplaceable)
+- ^VIX / ^VIX3M — no free real-time index feed; FRED is EOD only
+- float_shares — Tradier ownership_summary.float returns 0 for large caps;
+  Polygon has share_class_shares_outstanding (total, not float)
+- short_interest / shortPercentOfFloat / shortRatio — neither Tradier nor Polygon
+- earnings dates / tk.calendar — Tradier fundamentals/calendars is incomplete
+  (shows only confirmed past dates + very long-range estimates, misses next quarter)
+- year_high / year_low — Tradier quotes don't expose 52-week range; would require
+  fetching 252 days of history and computing max/min (extra call per ticker)
+- tk.options / tk.option_chain() — used in gamma pressure, smart money, breakout
+  (Tradier option chains used separately in _tradier_fetch_calls() for unusual-calls)
 
-**Why:** Yahoo rate limits / 429s during market-open burst caused all-day blank tabs.
-**How to apply:** Never add new `.history()` or `fast_info.last_price` calls — use `_td_history`/`_td_intraday`/`_td_quotes` instead. Yahoo is only for the 5 categories above.
+**Why these stayed on Yahoo:** tested each against Tradier and Polygon APIs directly;
+Tradier fundamentals data quality confirmed unreliable for earnings; float = 0 for AAPL.
+
+**How to apply:** Never add new `.history()` or `fast_info` calls for price/OHLCV.
+Use _td_history / _td_intraday / _td_quotes. For market_cap use _pg_market_cap_batch.
+Keep Yahoo only for the 5 categories above.
+
+## Smoke test results (post both passes)
+20/20 endpoints PASS, 0 FAIL. All cached tabs <500ms.

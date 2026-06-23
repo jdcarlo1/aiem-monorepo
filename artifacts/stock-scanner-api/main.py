@@ -588,6 +588,61 @@ def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
         print(f"[td_intraday] error {ticker}: {_e_ti}")
         return _ti_pd.DataFrame()
 
+# ── Polygon market-cap helper ─────────────────────────────────────────────────
+_pg_cap_cache: dict = {}   # ticker → (market_cap_usd, cached_ts)
+
+def _pg_market_cap_batch(tickers: list) -> dict:
+    """Return {TICKER: market_cap_usd} using Polygon v3/reference/tickers.
+    Results cached 4 hours. Missing / zero caps are omitted.
+    Uses urllib (not requests) so the yfinance circuit-breaker patch is bypassed."""
+    import urllib.request as _pgur, json as _pgjs, os as _pgos, time as _pgt
+    from concurrent.futures import ThreadPoolExecutor as _PGTPE, as_completed as _pgasc
+
+    key = _pgos.environ.get("POLYGON_API_KEY", "")
+    if not key or not tickers:
+        return {}
+
+    out: dict = {}
+    need: list = []
+    now = _pgt.time()
+    for t in tickers:
+        tu = (t or "").upper()
+        if not tu:
+            continue
+        c = _pg_cap_cache.get(tu)
+        if c and (now - c[1]) < 14400 and c[0] > 0:   # 4-hour TTL
+            out[tu] = c[0]
+        else:
+            need.append(tu)
+
+    if not need:
+        return out
+
+    def _one(ticker):
+        try:
+            url = f"https://api.polygon.io/v3/reference/tickers/{ticker}?apiKey={key}"
+            req = _pgur.Request(url, headers={"User-Agent": "StockScannerAI/1.0"})
+            with _pgur.urlopen(req, timeout=6) as r:
+                d = _pgjs.loads(r.read())
+            mc = float((d.get("results") or {}).get("market_cap") or 0)
+            _pg_cap_cache[ticker] = (mc, _pgt.time())
+            return ticker, mc
+        except Exception:
+            return ticker, 0.0
+
+    with _PGTPE(max_workers=8) as ex:
+        futs = {ex.submit(_one, t): t for t in need}
+        for f in _pgasc(futs):
+            try:
+                t, v = f.result()
+                if v > 0:
+                    out[t] = v
+            except Exception:
+                pass
+
+    return out
+
+
 # ── Scan result cache (pre-warmed every 15 min during market hours) ───────────
 import threading as _threading
 app._sm_cache: dict = {}          # key = frozen sorted ticker tuple → {"result": ..., "ts": datetime}
@@ -4471,26 +4526,11 @@ def _smp_market_caps(tickers: list) -> dict:
             still.append(t)
 
     if still:
-        import yfinance as _yf
-        from concurrent.futures import ThreadPoolExecutor, as_completed as _asc
-
-        def _one(tk):
-            try:
-                v = _yf.Ticker(tk).fast_info.market_cap
-                return tk, (float(v) if v and float(v) > 0 else 0.0)
-            except Exception:
-                return tk, 0.0
-
-        with ThreadPoolExecutor(max_workers=10) as ex:
-            futs = {ex.submit(_one, t): t for t in still}
-            for f in _asc(futs):
-                try:
-                    tk, v = f.result()
-                except Exception:
-                    tk, v = futs[f], 0.0
-                if v > 0:
-                    out[tk] = v
-                    cache[tk] = (now, v)
+        pg_caps = _pg_market_cap_batch(still)
+        for tk, v in pg_caps.items():
+            if v > 0:
+                out[tk] = v
+                cache[tk] = (now, v)
     return out
 
 
@@ -13184,23 +13224,19 @@ def _run_microcap_flow_scan() -> dict:
       nano   → <$50M (OTC/illiquid — included but flagged)
       unknown → market cap unavailable
     """
-    import yfinance as yf
-
     tickers = _get_microcap_tickers()
 
     def _compute_flow_mc(ticker):
         try:
-            t_obj = yf.Ticker(ticker)
             hist  = _td_intraday(ticker, "1min")
             if hist is None or hist.empty or len(hist) < 5:
                 return None
 
-            # Grab market cap via fast_info (lightweight — reuses same session)
+            # Grab market cap via Polygon v3/reference (4-hour cache, no Yahoo)
             market_cap = None
             try:
-                market_cap = t_obj.fast_info.market_cap
-                if market_cap and market_cap <= 0:
-                    market_cap = None
+                _mc_r = _pg_market_cap_batch([ticker])
+                market_cap = _mc_r.get(ticker.upper()) or None
             except Exception:
                 pass
 
@@ -13368,23 +13404,21 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
     Returns only tickers with streak >= 2 consecutive positive-net days,
     sorted by streak desc then by cumulative % of market cap.
     """
-    import yfinance as yf
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     tickers = _get_microcap_tickers()
 
     def _compute(ticker):
         try:
-            t_obj = yf.Ticker(ticker)
             hist  = _td_history(ticker, days=60)
             if hist is None or hist.empty or len(hist) < 2:
                 return None
 
+            # Grab market cap via Polygon v3/reference (4-hour cache, no Yahoo)
             market_cap = None
             try:
-                market_cap = t_obj.fast_info.market_cap
-                if market_cap and market_cap <= 0:
-                    market_cap = None
+                _mc_r = _pg_market_cap_batch([ticker])
+                market_cap = _mc_r.get(ticker.upper()) or None
             except Exception:
                 pass
 
@@ -21342,7 +21376,6 @@ Return ONLY valid JSON, no markdown:
 @app.route("/stock-api/morning-runners", methods=["GET"])
 def morning_runners():
     """Morning runners — scans all tickers for pre-market volume spikes + gap moves."""
-    import yfinance as yf
     from datetime import datetime as _mr_dt
 
     _cache = getattr(app, "_mr_cache", None)
@@ -21350,7 +21383,7 @@ def morning_runners():
     if _cache and _ts and (_mr_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
 
-    # Market closed — serve last Friday's scan from DB rather than an empty live result
+    # Market closed — serve last scan from DB rather than an empty live result
     if not _intraday_scan_allowed():
         _mr_db = _load_scan_cache("morning-runners")
         if _mr_db:
@@ -21361,27 +21394,20 @@ def morning_runners():
         return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
                         "note": "market closed — no scan data yet for this week"})
 
-    if _yf_breaker_open():
-        _fb = getattr(app, "_mr_cache", None)
-        if _fb:
-            return jsonify({**_fb, "stale": True})
-        return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "feed temporarily paused — try again shortly"})
-
     results = []
 
-    def _scan_mr(ticker):
+    def _scan_mr(ticker, quotes, caps):
         try:
-            fi         = yf.Ticker(ticker).fast_info
-            price      = float(getattr(fi, "last_price",                0) or 0)
-            prev_close = float(getattr(fi, "previous_close",            0) or 0)
+            q          = quotes.get(ticker.upper(), {})
+            price      = float(q.get("last") or 0)
+            prev_close = float(q.get("prevclose") or 0)
             if price <= 0 or prev_close <= 0:
                 return None
             gap_pct    = round((price - prev_close) / prev_close * 100, 2)
-            avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
-            today_vol  = float(getattr(fi, "last_volume",               0) or 0)
+            avg_vol    = float(q.get("avg_volume") or 1)
+            today_vol  = float(q.get("volume") or 0)
             rel_vol    = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
-            mkt_cap    = float(getattr(fi, "market_cap",                0) or 0)
+            mkt_cap    = float(caps.get(ticker.upper()) or 0)
             mkt_cap_b  = round(mkt_cap / 1e9, 2) if mkt_cap else None
 
             if rel_vol < 1.5 and abs(gap_pct) < 4.0:
@@ -21408,9 +21434,12 @@ def morning_runners():
 
     def _bg_mr():
         try:
+            # Batch-fetch all quotes (1 Tradier call) + market caps (Polygon, 4-hr cache)
+            _quotes = _td_quotes(list(DEFAULT_LEADERBOARD))
+            _caps   = _pg_market_cap_batch(list(DEFAULT_LEADERBOARD))
             _results = []
             with ThreadPoolExecutor(max_workers=4) as ex:
-                futures = {ex.submit(_scan_mr, t): t for t in DEFAULT_LEADERBOARD}
+                futures = {ex.submit(_scan_mr, t, _quotes, _caps): t for t in DEFAULT_LEADERBOARD}
                 for fut in as_completed(futures, timeout=8):
                     try:
                         r = fut.result()
@@ -21425,9 +21454,6 @@ def morning_runners():
         except Exception: pass
         finally: app._mr_scanning = False
 
-    if _yf_breaker_open():
-        if _cache: return jsonify({**_cache, "stale": True})
-        return jsonify({"runners": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     if not getattr(app, "_mr_scanning", False):
         app._mr_scanning = True
         import threading as _tmr; _tmr.Thread(target=_bg_mr, daemon=True).start()
