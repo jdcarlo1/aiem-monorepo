@@ -588,6 +588,168 @@ def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
         print(f"[td_intraday] error {ticker}: {_e_ti}")
         return _ti_pd.DataFrame()
 
+# ── Tradier option chain helpers ──────────────────────────────────────────────
+# Drop-in replacements for yf.Ticker(t).options / .option_chain(exp).
+# _td_expiries(t)     → list["YYYY-MM-DD"] (like yf.Ticker.options)
+# _td_chain(t, exp)   → SimpleNamespace(calls=df, puts=df) with Yahoo-compatible
+#                        column names: strike, lastPrice, bid, ask, volume,
+#                        openInterest, impliedVolatility, inTheMoney
+# _TdTicker(t)        → drop-in for yf.Ticker in option-chain contexts;
+#                        .info / .history / etc. fall through to real yf.Ticker.
+import threading as _tdc_thr
+_tdc_lock  = _tdc_thr.Lock()
+_tdc_cache: dict = {}   # (ticker, expiry) → (df_calls, df_puts, ts)
+_tde_cache: dict = {}   # ticker → (expiry_list, ts)
+_TDC_TTL   = 600        # 10-min shared cache — option data changes slowly intraday
+
+def _td_headers():
+    import os as _tdc_os
+    tok = (_tdc_os.environ.get("TRADIER_API_TOKEN_2") or
+           _tdc_os.environ.get("TRADIER_API_TOKEN") or "")
+    return {"Authorization": f"Bearer {tok}", "Accept": "application/json"} if tok else {}
+
+def _td_expiries(ticker: str, max_days: int = 365) -> list:
+    """Tradier expiry date list. Drop-in for yf.Ticker(t).options."""
+    import time as _tde_t, requests as _tde_req
+    ticker = ticker.upper()
+    now = _tde_t.time()
+    with _tdc_lock:
+        cached = _tde_cache.get(ticker)
+        if cached and now - cached[1] < _TDC_TTL:
+            return cached[0]
+    hdrs = _td_headers()
+    if not hdrs:
+        return []
+    try:
+        r = _tde_req.get(
+            "https://api.tradier.com/v1/markets/options/expirations",
+            params={"symbol": ticker, "includeAllRoots": "false"},
+            headers=hdrs, timeout=5,
+        )
+        if r.status_code != 200:
+            return []
+        raw = (r.json().get("expirations") or {}).get("date") or []
+        if isinstance(raw, str):
+            raw = [raw]
+        from datetime import datetime as _tde_dt
+        today = _tde_dt.now()
+        exps = [e for e in raw
+                if 0 < (_tde_dt.strptime(e, "%Y-%m-%d") - today).days <= max_days]
+        with _tdc_lock:
+            _tde_cache[ticker] = (exps, now)
+        return exps
+    except Exception as _e_tde:
+        print(f"[td_expiries] {ticker}: {_e_tde}")
+        return []
+
+def _td_chain(ticker: str, expiry: str):
+    """Tradier option chain for one expiry.
+    Returns SimpleNamespace(calls=df, puts=df) with Yahoo-compatible columns."""
+    import time as _tdc_t, requests as _tdc_req, pandas as _tdc_pd
+    from types import SimpleNamespace as _SNS
+    ticker = ticker.upper()
+    now = _tdc_t.time()
+    key = (ticker, expiry)
+    with _tdc_lock:
+        cached = _tdc_cache.get(key)
+        if cached and now - cached[2] < _TDC_TTL:
+            return _SNS(calls=cached[0], puts=cached[1])
+    hdrs = _td_headers()
+    _empty = _SNS(calls=_tdc_pd.DataFrame(), puts=_tdc_pd.DataFrame())
+    if not hdrs:
+        return _empty
+    try:
+        r = _tdc_req.get(
+            "https://api.tradier.com/v1/markets/options/chains",
+            params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
+            headers=hdrs, timeout=6,
+        )
+        if r.status_code != 200:
+            return _empty
+        opts = (r.json().get("options") or {}).get("option") or []
+        if isinstance(opts, dict):
+            opts = [opts]
+        if not opts:
+            return _empty
+        rows_c, rows_p = [], []
+        for o in opts:
+            strike = float(o.get("strike") or 0)
+            if not strike:
+                continue
+            bid = float(o.get("bid")  or 0)
+            ask = float(o.get("ask")  or 0)
+            mid = (bid + ask) / 2 if bid and ask else float(o.get("last") or 0)
+            row = {
+                "strike":            strike,
+                "lastPrice":         mid,
+                "bid":               bid,
+                "ask":               ask,
+                "volume":            int(o.get("volume")              or 0),
+                "openInterest":      int(o.get("open_interest")       or 0),
+                "impliedVolatility": float((o.get("greeks") or {}).get("mid_iv") or 0),
+                "inTheMoney":        bool(o.get("in_the_money")       or False),
+                "contractSymbol":    str(o.get("symbol")              or ""),
+                "expiration":        expiry,
+            }
+            (rows_c if o.get("option_type") == "call" else rows_p).append(row)
+        df_c = _tdc_pd.DataFrame(rows_c) if rows_c else _tdc_pd.DataFrame()
+        df_p = _tdc_pd.DataFrame(rows_p) if rows_p else _tdc_pd.DataFrame()
+        with _tdc_lock:
+            _tdc_cache[key] = (df_c, df_p, now)
+        return _SNS(calls=df_c, puts=df_p)
+    except Exception as _e_tdc:
+        print(f"[td_chain] {ticker} {expiry}: {_e_tdc}")
+        return _empty
+
+class _TdFastInfo:
+    """Tradier-backed shim for yf fast_info. Provides .last_price and .previous_close."""
+    __slots__ = ("_ticker", "_q")
+    def __init__(self, ticker: str):
+        self._ticker = ticker.upper()
+        self._q: dict = {}
+    def _load(self):
+        if not self._q:
+            self._q = _td_quotes([self._ticker]).get(self._ticker, {}) or {}
+    @property
+    def last_price(self):
+        self._load()
+        v = self._q.get("last")
+        return float(v) if v else None
+    @property
+    def previous_close(self):
+        self._load()
+        v = self._q.get("prevclose")
+        return float(v) if v else None
+
+class _TdTicker:
+    """Drop-in Tradier replacement for yf.Ticker in option-chain contexts.
+    .options           → _td_expiries()   (Tradier expirations endpoint)
+    .option_chain(exp) → _td_chain()      (Tradier chains endpoint)
+    .fast_info         → _TdFastInfo      (Tradier quotes endpoint)
+    All other attrs (.info, .history, .calendar, …) fall through to a lazy
+    yf.Ticker instance so callers needing fundamentals or earnings still work."""
+    def __init__(self, ticker: str):
+        self._ticker = ticker.upper()
+        self._fi    = None
+        self._yf_tk = None
+    @property
+    def options(self) -> list:
+        return _td_expiries(self._ticker)
+    def option_chain(self, expiry: str):
+        return _td_chain(self._ticker, expiry)
+    @property
+    def fast_info(self) -> _TdFastInfo:
+        if self._fi is None:
+            self._fi = _TdFastInfo(self._ticker)
+        return self._fi
+    def _yf(self):
+        if self._yf_tk is None:
+            import yfinance as _yf_pt
+            self._yf_tk = _yf_pt.Ticker(self._ticker)
+        return self._yf_tk
+    def __getattr__(self, name: str):
+        return getattr(self._yf(), name)
+
 # ── Polygon market-cap helper ─────────────────────────────────────────────────
 _pg_cap_cache: dict = {}   # ticker → (market_cap_usd, cached_ts)
 
@@ -3929,7 +4091,7 @@ def _send_top_pick_email() -> None:
         chains_read = 0   # how many option chains we actually read — lets us tell
                           # "feed throttled, couldn't check" apart from "checked, nothing liquid"
         try:
-            tk = _yf.Ticker(ticker)
+            tk = _TdTicker(ticker)
             info = tk.info
             price = float(info.get("regularMarketPrice") or info.get("currentPrice") or base_price or 0)
             float_sh = int(info.get("floatShares") or info.get("sharesOutstanding") or 0)
@@ -4288,7 +4450,7 @@ def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
 
     best = None
     try:
-        tk = _yf.Ticker(ticker)
+        tk = _TdTicker(ticker)
         today = _et_today()
         candidates = []
         for exp in (tk.options or [])[:8]:
@@ -8612,7 +8774,7 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
 
     # ── 1. Unusual PUT flow on this ticker (+2 pts) ──────────────────────────
     try:
-        tk   = yf.Ticker(ticker)
+        tk   = _TdTicker(ticker)
         opts = tk.options
         if opts:
             for exp in opts[:3]:
@@ -10222,7 +10384,7 @@ def _run_gamma_pressure_scan() -> list:
 
     def _scan_one(ticker):
         try:
-            tk    = yf.Ticker(ticker)
+            tk    = _TdTicker(ticker)
             fi    = tk.fast_info
             price = _sf(getattr(fi, "last_price", None))
             if not price or price < 0.30:
@@ -10453,7 +10615,7 @@ def _run_oi_snapshot() -> None:
         rows = []
         try:
             _time.sleep(_random.uniform(1.5, 2.5))  # conservative — avoids YF rate limits
-            tk    = yf.Ticker(ticker)
+            tk    = _TdTicker(ticker)
             price = _sf(getattr(tk.fast_info, "last_price", None))
             if not price or price < 0.10:
                 return rows
@@ -10990,7 +11152,7 @@ def _get_float_pressure_signals(tickers: list) -> dict:
 
     def _fetch_one(ticker):
         try:
-            tk   = _yf6.Ticker(ticker)
+            tk   = _TdTicker(ticker)
             info = tk.info
             fl   = int(info.get("floatShares") or info.get("sharesOutstanding") or 0)
             if fl <= 0:
@@ -11450,7 +11612,7 @@ def _fetch_options_flow_usd(ticker: str, strike: float, expiry_str: str) -> floa
     import sys
     try:
         import yfinance as _yf
-        tk = _yf.Ticker(ticker)
+        tk = _TdTicker(ticker)
         available = tk.options  # tuple of expiry date strings
         if not available:
             print(f"[options_flow] {ticker}: no option dates available", file=sys.stderr)
@@ -12472,7 +12634,7 @@ def bull_flow_top10():
             if not expiry or expiry <= today_str:
                 return None
 
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0:
                 _q_fb = _td_quotes([ticker]).get(ticker, {})
@@ -14071,7 +14233,6 @@ def breakout_radar():
 
     def _score(ticker):
         try:
-            tkr  = yf.Ticker(ticker)
             hist = _td_history(ticker, days=252)
             if hist is None or len(hist) < 50:
                 return None
@@ -14221,7 +14382,7 @@ def convergence():
 
     def _check(ticker):
         try:
-            tkr = yf.Ticker(ticker)
+            tkr = _TdTicker(ticker)
             info = tkr.fast_info
             price = float(getattr(info, "last_price", 0) or 0)
             avg_vol = float(getattr(info, "three_month_average_volume", 1) or 1)
@@ -14317,7 +14478,7 @@ def premarket():
 
     def _get(ticker):
         try:
-            tkr = yf.Ticker(ticker)
+            tkr = _TdTicker(ticker)
             info = tkr.fast_info
             price = float(getattr(info, "last_price", 0) or 0)
             prev_close = float(getattr(info, "previous_close", 0) or 0)
@@ -14560,7 +14721,7 @@ def options_intent():
 
     def _analyze(ticker):
         try:
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0:
                 return None
@@ -14675,7 +14836,7 @@ def vol_crush():
 
     def _analyze(ticker):
         try:
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0: return None
             exps = tkr.options
@@ -15297,7 +15458,7 @@ def call_intent():
 
     def _analyze(ticker):
         try:
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0: return None
             exps = tkr.options
@@ -15430,7 +15591,7 @@ def smart_vs_retail():
 
     def _analyze(ticker):
         try:
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0: return None
             exps = tkr.options
@@ -15541,7 +15702,7 @@ def max_pain():
 
     def _analyze(ticker):
         try:
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0: return None
             exps = tkr.options
@@ -15615,7 +15776,7 @@ def gamma_wall():
 
     def _analyze(ticker):
         try:
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0: return None
             exps  = tkr.options
@@ -17112,7 +17273,7 @@ def signal_feed():
         evs = []
         try:
             import numpy as np
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0: return evs
             exps  = tkr.options
@@ -17220,7 +17381,7 @@ def composite_score():
     def _score(ticker):
         try:
             import numpy as np
-            tkr   = yf.Ticker(ticker)
+            tkr   = _TdTicker(ticker)
             price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
             if price <= 0: return None
             exps  = tkr.options
@@ -17506,7 +17667,7 @@ def _run_whale_scan_background():
         def _scan_whale(ticker):
             blocks = []
             try:
-                tkr   = yf.Ticker(ticker)
+                tkr   = _TdTicker(ticker)
                 price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
                 if price <= 0: return blocks
                 exps = tkr.options
@@ -18030,7 +18191,7 @@ def unusual_calls():
             min_prem = 50_000 if is_etf else 20_000
             max_days = 60   if is_etf else 45
             try:
-                tkr   = yf.Ticker(ticker)
+                tkr   = _TdTicker(ticker)
                 price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
                 if price <= 0: return hits
                 exps = tkr.options
@@ -20685,7 +20846,7 @@ def iv_rank():
                 except Exception:
                     return None
 
-            tkr  = yf.Ticker(ticker)
+            tkr  = _TdTicker(ticker)
             hist = _td_history(ticker, days=252)
             if hist is None or hist.empty or len(hist) < 31:
                 return None
@@ -20823,7 +20984,7 @@ def iv_rank_scan():
 
     def _scan_iv(ticker):
         try:
-            tkr  = yf.Ticker(ticker)
+            tkr  = _TdTicker(ticker)
             hist = _td_history(ticker, days=252)
             if hist is None or len(hist) < 30:
                 return None
@@ -21569,7 +21730,7 @@ def _check_earnings(ticker):
     today = _et_today()
     cutoff = today + _dt_ec.timedelta(days=30)
     try:
-        tk = yf.Ticker(ticker)
+        tk = _TdTicker(ticker)
         cal = tk.calendar
         if cal is None:
             return None
