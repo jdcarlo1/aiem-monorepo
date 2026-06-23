@@ -1186,9 +1186,12 @@ try:
             #     hourly scans (9:05→3:05 ET), completing the universe by ~3:10 PM so
             #     all unusual activity is visible before the 4 PM options trading deadline.
             _PRIORITY_FIRST = [
-                "TSLA","NVDA","AAPL","MSFT","AMZN","META",
-                "AMD","GOOGL","COIN","MSTR","PLTR","ARM","HOOD",
-                "MU","MRVL","WDC","SMCI","INTC","AVGO","NFLX","UBER",
+                # ── Semiconductors (always scan first) ──────────────────────
+                "NVDA","AMD","INTC","AVGO","ARM","MU","MRVL","SMCI","QCOM","TSM",
+                "AMAT","LRCX","KLAC","ASML","TXN","ADI","ON","MCHP","SWKS","MPWR",
+                "WDC","SNDK","ENTG","ACLS","ONTO","GFS","WOLF","CRUS","AMBA","RMBS",
+                # ── High-options-volume megacaps (catch big sweeps) ──────────
+                "TSLA","AAPL","MSFT","AMZN","META","GOOGL","PLTR","COIN","MSTR",
             ]
             _earnings = _fetch_earnings_today()
             _movers   = _fetch_market_movers()
@@ -2539,7 +2542,7 @@ try:
     # missed all the morning scheduled scans.  Detect this and kick off
     # catch-up runs 90 s after startup so the scheduler/DB settle first.
     def _startup_catchup():
-        import time as _time_su, datetime as _dt_su
+        import time as _time_su, datetime as _dt_su, pytz as _pytz
         _time_su.sleep(30)   # short wait for DB connections to settle
         try:
             _et_tz_su = _pytz.timezone("America/New_York")
@@ -13176,6 +13179,12 @@ def market_overview():
     if _fresh:
         return jsonify(_cache)
 
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"sectors": [], "indices": [], "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
+
     def _bg_mo():
         if getattr(app, "_mo_scanning", False):
             return
@@ -13449,7 +13458,7 @@ def insider_trades_route():
     _ex_it  = _TPE_it(max_workers=1)
     _fut_it = _ex_it.submit(fetch_insider_trades, tickers, days)
     try:
-        trades = _fut_it.result(timeout=5.0)
+        trades = _fut_it.result(timeout=4.0)
     except _TOE_it:
         _ex_it.shutdown(wait=False, cancel_futures=True)
         return jsonify({"trades": [], "count": 0, "stale": True,
@@ -14020,6 +14029,12 @@ def options_intent():
     _ts    = getattr(app, "_oi_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
+
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"tickers": [], "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
 
     now = _dt.now()
 
@@ -14752,6 +14767,12 @@ def call_intent():
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
 
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"tickers": [], "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
+
     now = _dt.now()
 
     def _analyze(ticker):
@@ -14977,6 +14998,12 @@ def max_pain():
     _ts    = getattr(app, "_mp_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
+
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"rows": [], "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
 
     now = _dt.now()
 
@@ -16660,6 +16687,12 @@ def composite_score():
     _ts    = getattr(app, "_cs_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
         return jsonify(_cache)
+
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"rows": [], "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
 
     now = _dt.now()
 
@@ -19603,6 +19636,13 @@ def multi_signal_convergence():
         return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
                         "note": "market closed — no scan data yet for this week"})
 
+    if _yf_breaker_open():
+        _fb = getattr(app, "_ms_cache", None)
+        if _fb:
+            return jsonify({**_fb, "stale": True})
+        return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
+
     SIGNAL_DEFS = [
         # ── Quant / price-action signals (computed live) ──────────────────
         ("VOLUME_SURGE",       "🔥 Volume Surge",        "Relative volume ≥ 3× average"),
@@ -20192,7 +20232,7 @@ def iv_rank():
     def _iv_runner(): _iv_out[0] = _compute()
     _t = _iv_thr_mod.Thread(target=_iv_runner, daemon=True)
     _t.start()
-    _t.join(timeout=10)
+    _t.join(timeout=4)
     return jsonify(_iv_out[0] if _iv_out[0] is not None else _iv_empty)
 
 
@@ -20330,6 +20370,12 @@ def breakout_52week():
     _ts    = getattr(app, "_bk_cache_ts", None)
     if _cache and _ts and (_bk_dt.now() - _ts).total_seconds() < 900:
         return jsonify(_cache)
+
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"rows": [], "scanned": 0, "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
 
     results = []
 
@@ -20553,6 +20599,13 @@ def squeeze_setup():
         return jsonify({"setups": [], "total": 0, "scanned": 0, "stale": True,
                         "note": "market closed — no scan data yet for this week"})
 
+    if _yf_breaker_open():
+        _fb = getattr(app, "_sq_cache", None)
+        if _fb:
+            return jsonify({**_fb, "stale": True})
+        return jsonify({"setups": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
+
     # Return stale cache immediately while background thread refreshes
     def _bg_sq():
         if getattr(app, "_sq_scanning", False):
@@ -20765,6 +20818,13 @@ def morning_runners():
             return jsonify({**_cache, "stale": True})
         return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
                         "note": "market closed — no scan data yet for this week"})
+
+    if _yf_breaker_open():
+        _fb = getattr(app, "_mr_cache", None)
+        if _fb:
+            return jsonify({**_fb, "stale": True})
+        return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "feed temporarily paused — try again shortly"})
 
     results = []
 
