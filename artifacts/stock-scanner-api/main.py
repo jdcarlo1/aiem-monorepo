@@ -926,6 +926,9 @@ try:
         if not _intraday_scan_allowed():
             print(f"[scheduler] {session} scan skipped — market closed (holiday/weekend)")
             return
+        if _yf_breaker_open():
+            print(f"[scheduler] {session} smart-money scan skipped — Yahoo circuit breaker open")
+            return
         result  = scan_smart_money(DEFAULT_LEADERBOARD)
         signals = result.get("leaderboard", [])
         # Persist every scan so historical performance can build up over time
@@ -1080,7 +1083,7 @@ try:
                 try:
                     from datetime import datetime as _dt2
                     is_etf   = ticker in _ETF_SET
-                    min_voi  = 1.5 if is_etf else 2.0
+                    min_voi  = 1.5 if is_etf else 1.0
                     min_prem = 50_000 if is_etf else 20_000
                     max_exp  = 60 if is_etf else 45
                     price    = 0.0
@@ -1144,7 +1147,7 @@ try:
                                 days   = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
                                 if not (1 <= days <= max_exp): continue
                                 otm_pct = round((strike - price) / price * 100, 2)
-                                if otm_pct < -5 or otm_pct > 40: continue
+                                if otm_pct < -15 or otm_pct > 40: continue
                                 mid  = float(row.get("lastPrice") or 0)
                                 prem = int(mid * vol * 100)
                                 if prem < min_prem: continue
@@ -1188,7 +1191,7 @@ try:
                                 if voi < min_voi: continue
                                 strike = float(row["strike"])
                                 otm_pct = round((strike - price) / price * 100, 2)
-                                if otm_pct < -5 or otm_pct > 40: continue
+                                if otm_pct < -15 or otm_pct > 40: continue
                                 bid = float(row.get("bid") or 0)
                                 ask = float(row.get("ask") or 0)
                                 mid = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
@@ -9007,26 +9010,30 @@ def _load_todays_unusual_calls_from_db(etf_set=None):
             _cur.execute("""
                 SELECT ticker, price::float, strike::float, expiry, days_out,
                        volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                       iv::float, urgency, first_seen
+                       iv::float, urgency, first_seen, last_seen
                 FROM unusual_calls_log
                 WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
                                    AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                   AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
-                  AND vol_oi >= 3
+                  AND vol_oi >= 1.5
                   AND prem >= 100000
                 ORDER BY vol_oi DESC, last_seen DESC LIMIT 150
             """)
             _rows = _cur.fetchall()
         _cols = ["ticker","price","strike","expiry","days_out","volume","oi",
-                 "vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+                 "vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
         _hits = []
         for _row in _rows:
             _d = dict(zip(_cols, _row))
             if etf_set:
                 _d["is_etf"] = _d["ticker"] in etf_set
             _fs = _d.get("first_seen")
-            _d["detected_label"] = _detected_label(_fs)
+            _ls = _d.get("last_seen")
+            # Use last_seen for the label — ongoing sweeps first detected days ago
+            # should show "Today" if they were seen in today's scan, not "Jun 17".
+            _d["detected_label"] = _detected_label(_ls if _ls else _fs)
             _d["first_seen"] = _fs.isoformat() if _fs else None
+            _d["last_seen"]  = _ls.isoformat() if _ls else None
             _hits.append(_d)
         return _hits
     except Exception:
@@ -9414,93 +9421,148 @@ def _run_microcap_options_scan_impl() -> list:
             min_vol  = 10
             max_exp  = 45
 
-            tk = yf.Ticker(ticker)
-            opts = tk.options
-            if not opts:
-                _cbump("no_options")
-                _yf_note_silent_throttle()
-                return hits
-
-            _n_exp = 0
-            for exp in opts:
-                days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
-                # Near-dated only: with a ~1,500-name universe, scanning every
-                # expiry out to 365 DTE is intractable and gets the shared yfinance
-                # session banned. The front 6 expiries within 90 DTE hold the vast
-                # majority of actionable unusual call flow.
-                if not (1 <= days <= 90):
-                    continue
-                _n_exp += 1
-                if _n_exp > 6:
-                    break
+            # ── Polygon-first option chain fetch ─────────────────────────────────
+            # _polygon_fetch_calls() uses Polygon's v3/snapshot/options endpoint —
+            # paid API, no Yahoo rate limits, no circuit breaker, much faster.
+            # Returns None only if the API key is missing or the request fails;
+            # in that case we fall back to yfinance so nothing breaks.
+            import math as _math
+            def _si(v):
                 try:
-                    chain = tk.option_chain(exp).calls
-                    for _, row in chain.iterrows():
-                        try:
-                            import math as _math
-                            def _si(v):
-                                try:
-                                    f = float(v) if v is not None else 0.0
-                                    return 0 if _math.isnan(f) or _math.isinf(f) else int(f)
-                                except: return 0
-                            def _sf(v, d=0.0):
-                                try:
-                                    f = float(v) if v is not None else d
-                                    return d if _math.isnan(f) or _math.isinf(f) else f
-                                except: return d
-                            vol = _si(row.get("volume"))
-                            oi  = _si(row.get("openInterest"))
-                            if oi < 5 or vol < min_vol:
+                    f = float(v) if v is not None else 0.0
+                    return 0 if _math.isnan(f) or _math.isinf(f) else int(f)
+                except: return 0
+            def _sf(v, d=0.0):
+                try:
+                    f = float(v) if v is not None else d
+                    return d if _math.isnan(f) or _math.isinf(f) else f
+                except: return d
+
+            _pg_chain = _polygon_fetch_calls(ticker, max_exp_days=max_exp)
+
+            if _pg_chain is not None:
+                # ── Polygon path (primary) ────────────────────────────────────
+                if not _pg_chain:
+                    _cbump("no_options")
+                    return hits
+                for row in _pg_chain:
+                    try:
+                        vol = _si(row.get("volume"))
+                        oi  = _si(row.get("openInterest"))
+                        if oi < 5 or vol < min_vol:
+                            continue
+                        voi = vol / oi
+                        if voi < min_voi:
+                            continue
+                        strike = _sf(row.get("strike"))
+                        if not strike:
+                            continue
+                        exp = str(row.get("expiry") or "")
+                        if not exp:
+                            continue
+                        days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
+                        if not (1 <= days <= 90):
+                            continue
+                        otm_pct = round((strike - price) / price * 100, 2)
+                        if otm_pct < -10:
+                            continue
+                        mid  = _sf(row.get("lastPrice"))
+                        if mid <= 0:
+                            continue
+                        prem = int(mid * vol * 100)
+                        far_otm_sweep = False
+                        if otm_pct > 40:
+                            if voi < 5.0 or prem < 200_000:
                                 continue
-                            voi = vol / oi
-                            if voi < min_voi:
+                            far_otm_sweep = True
+                        else:
+                            if days > max_exp:
                                 continue
-                            strike  = _sf(row.get("strike"))
-                            if not strike: continue
-                            otm_pct = round((strike - price) / price * 100, 2)
-                            if otm_pct < -10:
-                                continue   # always skip deep ITM
-                            bid  = _sf(row.get("bid"))
-                            ask  = _sf(row.get("ask"))
-                            if bid <= 0 or ask <= 0:
+                            if prem < min_prem:
                                 continue
-                            spread_pct = (ask - bid) / ask
-                            if spread_pct > 0.40:  # allow wider spreads on far-OTM
-                                continue
-                            mid  = (bid + ask) / 2
-                            prem = int(mid * vol * 100)
-                            # ── L7 Far-OTM Sweep gate ─────────────────────────────────────────
-                            # >40% OTM: only log if it's a genuine directional conviction bet
-                            # (vol/OI > 5× AND premium > $200K). This is what hedge funds flag.
-                            far_otm_sweep = False
-                            if otm_pct > 40:
-                                if voi < 5.0 or prem < 200_000:
-                                    continue   # noise — skip
-                                far_otm_sweep = True
-                            else:
-                                # Normal call: apply standard expiry + premium window
-                                if days > max_exp:
+                        iv      = round(_sf(row.get("impliedVolatility")) * 100, 1)
+                        urgency = ("EXPIRING" if days <= 3 else
+                                   "SHORT"    if days <= 7 else
+                                   "NEAR"     if days <= 21 else
+                                   "MEDIUM"   if days <= 60 else "FAR")
+                        hits.append({
+                            "ticker": ticker, "price": price, "strike": strike,
+                            "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
+                            "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
+                            "iv": iv, "urgency": urgency, "cap_tier": cap_tier,
+                            "far_otm_sweep": far_otm_sweep,
+                        })
+                    except Exception:
+                        pass
+                _cbump("scanned_ok")
+            else:
+                # ── yfinance fallback (Polygon key missing or request failed) ─
+                tk = yf.Ticker(ticker)
+                opts = tk.options
+                if not opts:
+                    _cbump("no_options")
+                    _yf_note_silent_throttle()
+                    return hits
+                _n_exp = 0
+                for exp in opts:
+                    days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
+                    if not (1 <= days <= 90):
+                        continue
+                    _n_exp += 1
+                    if _n_exp > 6:
+                        break
+                    try:
+                        chain = tk.option_chain(exp).calls
+                        for _, row in chain.iterrows():
+                            try:
+                                vol = _si(row.get("volume"))
+                                oi  = _si(row.get("openInterest"))
+                                if oi < 5 or vol < min_vol:
                                     continue
-                                if prem < min_prem:
+                                voi = vol / oi
+                                if voi < min_voi:
                                     continue
-                            # ────────────────────────────────────────────────────────────────
-                            iv      = round(float(row.get("impliedVolatility") or 0) * 100, 1)
-                            urgency = ("EXPIRING" if days <= 3 else
-                                       "SHORT"    if days <= 7 else
-                                       "NEAR"     if days <= 21 else
-                                       "MEDIUM"   if days <= 60 else "FAR")
-                            hits.append({
-                                "ticker": ticker, "price": price, "strike": strike,
-                                "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
-                                "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
-                                "iv": iv, "urgency": urgency, "cap_tier": cap_tier,
-                                "far_otm_sweep": far_otm_sweep,
-                            })
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            _cbump("scanned_ok")
+                                strike  = _sf(row.get("strike"))
+                                if not strike: continue
+                                otm_pct = round((strike - price) / price * 100, 2)
+                                if otm_pct < -10:
+                                    continue
+                                bid  = _sf(row.get("bid"))
+                                ask  = _sf(row.get("ask"))
+                                if bid <= 0 or ask <= 0:
+                                    continue
+                                spread_pct = (ask - bid) / ask
+                                if spread_pct > 0.40:
+                                    continue
+                                mid  = (bid + ask) / 2
+                                prem = int(mid * vol * 100)
+                                far_otm_sweep = False
+                                if otm_pct > 40:
+                                    if voi < 5.0 or prem < 200_000:
+                                        continue
+                                    far_otm_sweep = True
+                                else:
+                                    if days > max_exp:
+                                        continue
+                                    if prem < min_prem:
+                                        continue
+                                iv      = round(float(row.get("impliedVolatility") or 0) * 100, 1)
+                                urgency = ("EXPIRING" if days <= 3 else
+                                           "SHORT"    if days <= 7 else
+                                           "NEAR"     if days <= 21 else
+                                           "MEDIUM"   if days <= 60 else "FAR")
+                                hits.append({
+                                    "ticker": ticker, "price": price, "strike": strike,
+                                    "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
+                                    "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
+                                    "iv": iv, "urgency": urgency, "cap_tier": cap_tier,
+                                    "far_otm_sweep": far_otm_sweep,
+                                })
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                _cbump("scanned_ok")
         except Exception as _e_scan:
             _msg = str(_e_scan).lower()
             if "rate" in _msg or "too many" in _msg or "429" in _msg:
@@ -12766,6 +12828,53 @@ def _get_microcap_tickers() -> list:
     # flat and therefore ranked low by % change.
     for _fv, _pages in [(_FV_COMPREHENSIVE, 90)] + [(b, 3) for b in _FV_BOOSTERS]:
         _absorb(f"finviz:{_fv}", _finviz(_fv, _pages))
+
+    # ── Polygon: real-time gainers (catches today's big movers BEFORE Finviz refreshes) ──
+    # Polygon's /v2/snapshot/…/gainers returns every US stock up >=1% right now.
+    # A stock that gaps +30% today (e.g. on news/catalyst) won't appear in the
+    # Finviz change-sorted cache until the next prewarm cycle. Polygon fills that
+    # gap so we never miss a ARQQ-style breakout. Uses urllib (bypasses the patched
+    # requests session) and the existing _POLYGON_RATE_LIMITER is not needed here
+    # since this is one bulk call, not per-ticker.
+    try:
+        import os as _os_pg_gain, urllib.request as _ureq_pg, json as _json_pg
+        _pg_gain_key = _os_pg_gain.environ.get("POLYGON_API_KEY", "")
+        if _pg_gain_key:
+            _gain_url = (
+                f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers"
+                f"?include_otc=false&apiKey={_pg_gain_key}"
+            )
+            with _ureq_pg.urlopen(_gain_url, timeout=10) as _gr:
+                _gain_data = _json_pg.load(_gr)
+            _pg_added = 0
+            for _gt in (_gain_data.get("tickers") or []):
+                _sym = (_gt.get("ticker") or "").upper()
+                _chg_pct = float(_gt.get("todaysChangePerc") or 0)
+                _day_pg  = _gt.get("day") or {}
+                _price_g = float(_day_pg.get("c") or 0)
+                _vol_g   = int(_day_pg.get("v") or 0)
+                if (
+                    _sym and len(_sym) <= 5
+                    and "." not in _sym and "/" not in _sym and "^" not in _sym
+                    and _chg_pct >= 3.0          # at least +3% today
+                    and _price_g >= 1.0           # no sub-$1 stocks
+                    and _vol_g >= 50_000          # some real activity
+                ):
+                    dynamic.add(_sym)
+                    _pg_added += 1
+                    if _sym not in _microcap_meta:
+                        # Market cap unknown from this endpoint — default to "small"
+                        # so it passes the <$2B gate in _scan_one and gets option-chain scanned.
+                        _microcap_meta[_sym] = {
+                            "price":      _price_g,
+                            "market_cap": 0,
+                            "cap_tier":   "small",
+                            "change_pct": _chg_pct,
+                            "volume":     _vol_g,
+                        }
+            print(f"[microcap_tickers] polygon gainers: {_pg_added} tickers added to universe")
+    except Exception as _pg_gain_err:
+        print(f"[microcap_tickers] polygon gainers error (non-fatal): {_pg_gain_err}")
 
     all_tickers = list(static | dynamic)
     new_count = len(dynamic - static)
@@ -17449,22 +17558,24 @@ def unusual_calls():
                 _co_cur.execute("""
                     SELECT ticker, price::float, strike::float, expiry, days_out,
                            volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                           iv::float, urgency, first_seen
+                           iv::float, urgency, first_seen, last_seen
                     FROM unusual_calls_log
                     WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                       AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
-                      AND vol_oi >= 3
+                      AND vol_oi >= 1.5
                       AND prem >= 500000
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                 """)
                 _co_rows = _co_cur.fetchall()
-            _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+            _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
             _hits = []
             for _row in _co_rows:
                 _d = dict(zip(_cols, _row))
                 _fs = _d.get("first_seen")
-                _d["detected_label"] = _detected_label(_fs)
+                _ls = _d.get("last_seen")
+                _d["detected_label"] = _detected_label(_ls if _ls else _fs)
                 _d["first_seen"] = _fs.isoformat() if _fs else None
+                _d["last_seen"]  = _ls.isoformat() if _ls else None
                 _hits.append(_d)
             return jsonify({"hits": _hits, "total": len(_hits), "scanned": 0, "cache_only": True})
         except Exception as _e:
@@ -17479,22 +17590,24 @@ def unusual_calls():
                 _nh_cur.execute("""
                     SELECT ticker, price::float, strike::float, expiry, days_out,
                            volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                           iv::float, urgency, first_seen
+                           iv::float, urgency, first_seen, last_seen
                     FROM unusual_calls_log
                     WHERE last_seen >= now() - INTERVAL '5 days'
                       AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
-                      AND vol_oi >= 3 AND prem >= 500000
+                      AND vol_oi >= 1.5 AND prem >= 500000
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                 """)
                 _nh_rows = _nh_cur.fetchall()
             _nh_cols = ["ticker","price","strike","expiry","days_out","volume","oi",
-                        "vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+                        "vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
             _nh_hits = []
             for _row in _nh_rows:
                 _d = dict(zip(_nh_cols, _row))
                 _fs = _d.get("first_seen")
-                _d["detected_label"] = _detected_label(_fs)
+                _ls = _d.get("last_seen")
+                _d["detected_label"] = _detected_label(_ls if _ls else _fs)
                 _d["first_seen"] = _fs.isoformat() if _fs else None
+                _d["last_seen"]  = _ls.isoformat() if _ls else None
                 _nh_hits.append(_d)
             _nh_out = {"hits": _nh_hits, "total": len(_nh_hits), "scanned": 0,
                        "stale": True, "note": "market closed — showing last logged sweep data"}
@@ -17521,7 +17634,7 @@ def unusual_calls():
                     _ub_cur.execute("""
                         SELECT ticker, price::float, strike::float, expiry, days_out,
                                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                               iv::float, urgency, first_seen
+                               iv::float, urgency, first_seen, last_seen
                         FROM unusual_calls_log
                         WHERE last_seen >= now() - INTERVAL '5 days'
                           AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
@@ -17530,13 +17643,15 @@ def unusual_calls():
                         ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                     """)
                     _ub_rows = _ub_cur.fetchall()
-                _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+                _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
                 _ub_hits = []
                 for _row in _ub_rows:
                     _d = dict(zip(_cols, _row))
                     _fs = _d.get("first_seen")
-                    _d["detected_label"] = _detected_label(_fs)
+                    _ls = _d.get("last_seen")
+                    _d["detected_label"] = _detected_label(_ls if _ls else _fs)
                     _d["first_seen"] = _fs.isoformat() if _fs else None
+                    _d["last_seen"]  = _ls.isoformat() if _ls else None
                     _ub_hits.append(_d)
                 return jsonify({"hits": _ub_hits, "total": len(_ub_hits), "scanned": 0,
                                 "note": "stale — Yahoo throttled, serving DB snapshot", "stale": True})
@@ -17567,7 +17682,7 @@ def unusual_calls():
             hits    = []
             is_etf  = ticker in _ETF_SET
             # ETFs: $50K floor (high liquidity); stocks: $20K catches small-cap insider bets
-            min_voi  = 1.5  if is_etf else 2.0
+            min_voi  = 1.5  if is_etf else 1.0
             min_prem = 50_000 if is_etf else 20_000
             max_days = 60   if is_etf else 45
             try:
@@ -17631,24 +17746,26 @@ def unusual_calls():
                 _pre_cur.execute("""
                     SELECT ticker, price::float, strike::float, expiry, days_out,
                            volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                           iv::float, urgency, first_seen
+                           iv::float, urgency, first_seen, last_seen
                     FROM unusual_calls_log
                     WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                       AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
-                      AND vol_oi >= 3
+                      AND vol_oi >= 1.5
                       AND prem >= 500000
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                 """)
                 _today_rows = _pre_cur.fetchall()
             if len(_today_rows) >= 5:
-                _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+                _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
                 all_hits = []
                 for _row in _today_rows:
                     _d = dict(zip(_cols, _row))
                     _d["is_etf"] = _d["ticker"] in _ETF_SET
                     _fs = _d.get("first_seen")
-                    _d["detected_label"] = _detected_label(_fs)
+                    _ls = _d.get("last_seen")
+                    _d["detected_label"] = _detected_label(_ls if _ls else _fs)
                     _d["first_seen"] = _fs.isoformat() if _fs else None
+                    _d["last_seen"]  = _ls.isoformat() if _ls else None
                     all_hits.append(_d)
                 out = {"hits": all_hits, "total": len(all_hits),
                        "scanned": len(DEFAULT_LEADERBOARD), "stale": False}
@@ -17685,10 +17802,10 @@ def unusual_calls():
                     _cur.execute("""
                         SELECT ticker, price::float, strike::float, expiry, days_out,
                                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                               iv::float, urgency, first_seen
+                               iv::float, urgency, first_seen, last_seen
                         FROM unusual_calls_log
                         WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
-                          AND vol_oi >= 3
+                          AND vol_oi >= 1.5
                           AND prem >= 100000
                         ORDER BY vol_oi DESC LIMIT 80
                     """)
@@ -17702,22 +17819,24 @@ def unusual_calls():
                         _cur.execute("""
                             SELECT ticker, price::float, strike::float, expiry, days_out,
                                    volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
-                                   iv::float, urgency, first_seen
+                                   iv::float, urgency, first_seen, last_seen
                             FROM unusual_calls_log
                             WHERE last_seen >= NOW() - INTERVAL '7 days'
-                              AND vol_oi >= 3
+                              AND vol_oi >= 1.5
                               AND prem >= 100000
                             ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                         """)
                         _fb_rows = _cur.fetchall()
                         _stale_fallback = bool(_fb_rows)
-                    _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen"]
+                    _cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
                     for _row in _fb_rows:
                         _d = dict(zip(_cols, _row))
                         _d["is_etf"] = _d["ticker"] in _ETF_SET
                         _fs = _d.get("first_seen")
-                        _d["detected_label"] = _detected_label(_fs)
+                        _ls = _d.get("last_seen")
+                        _d["detected_label"] = _detected_label(_ls if _ls else _fs)
                         _d["first_seen"] = _fs.isoformat() if _fs else None
+                        _d["last_seen"]  = _ls.isoformat() if _ls else None
                         all_hits.append(_d)
             except Exception:
                 pass
@@ -18514,7 +18633,7 @@ def admin_run_eod_scan():
                     _hits = []
                     try:
                         is_etf   = ticker in _ETF_SET_LOCAL
-                        min_voi  = 1.5 if is_etf else 2.0
+                        min_voi  = 1.5 if is_etf else 1.0
                         min_prem = 50_000 if is_etf else 20_000
                         max_exp  = 60 if is_etf else 45
                         price    = 0.0
@@ -18543,7 +18662,7 @@ def admin_run_eod_scan():
                                     days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
                                     if not (1 <= days <= max_exp): continue
                                     otm_pct = round((strike - price) / price * 100, 2)
-                                    if otm_pct < -5 or otm_pct > 40: continue
+                                    if otm_pct < -15 or otm_pct > 40: continue
                                     mid = float(row.get("lastPrice") or 0)
                                     prem = int(mid * vol * 100)
                                     if prem < min_prem: continue
@@ -18574,7 +18693,7 @@ def admin_run_eod_scan():
                                     if voi < min_voi: continue
                                     strike = float(row["strike"])
                                     otm_pct = round((strike - price) / price * 100, 2)
-                                    if otm_pct < -5 or otm_pct > 40: continue
+                                    if otm_pct < -15 or otm_pct > 40: continue
                                     bid = float(row.get("bid") or 0); ask = float(row.get("ask") or 0)
                                     mid = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
                                     prem = int(mid * vol * 100)

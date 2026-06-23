@@ -47,3 +47,4 @@
 - [Admin grade-short-calls endpoint](admin-grade-endpoint.md) — /stock-api/admin/grade-short-calls POST triggers _update_ai_short_call_outcomes() backfill; run multiple times if >100 open picks (LIMIT 100 per pass)
 - [Polygon vs Yahoo migration plan](polygon-yahoo-migration.md) — Polygon Starter covers historical/prev-close/float (verified); NOT real-time snapshot; L4 short interest + L6 float still Yahoo; migration deferred pending market-open observation
 - [Polygon full-market RVOL scanner](polygon-rvol-scanner.md) — scans 11,000+ US stocks daily via grouped-daily (5 calls); runs 8:35 AM ET; use urllib.request NOT requests (bypasses Yahoo circuit-breaker patch); app._polygon_rvol_cache; DB table polygon_rvol_scan
+- [Unusual-calls threshold mismatch](unusual-calls-threshold-mismatch.md) — scan min_voi and endpoint DB vol_oi filters are separate gates; must keep in sync; microcap endpoint returns `signals` key not `hits`; OTM lower bound is -15%
