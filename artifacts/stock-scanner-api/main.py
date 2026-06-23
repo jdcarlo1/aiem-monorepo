@@ -1936,7 +1936,20 @@ try:
     # OI Accumulation Snapshot: 4:30 PM ET — captures final EOD OI for all tickers
     # Compared to prior day at morning SMS time to detect multi-day smart-money loading
     def _run_oi_snapshot_job():
-        if not _intraday_scan_allowed():
+        # No _intraday_scan_allowed() guard — this job runs at 4:30 PM ET, AFTER
+        # market close (guard ceiling is 4:30 PM so scheduler jitter at 4:31 PM
+        # would silently block it). Cron trigger already limits to Mon-Fri.
+        from datetime import date as _oisd
+        import pytz as _oisptz
+        from datetime import datetime as _oisdtm
+        _US_MARKET_HOLIDAYS_2026 = frozenset({
+            _oisd(2026, 1, 1), _oisd(2026, 1, 19), _oisd(2026, 2, 16),
+            _oisd(2026, 4, 3), _oisd(2026, 5, 25), _oisd(2026, 6, 19),
+            _oisd(2026, 7, 3), _oisd(2026, 9, 7),  _oisd(2026, 11, 26),
+            _oisd(2026, 12, 25),
+        })
+        if _oisdtm.now(_oisptz.timezone("America/New_York")).date() in _US_MARKET_HOLIDAYS_2026:
+            print("[scheduler] OI snapshot skipped — market holiday")
             return
         try:
             import threading as _thr_ois
@@ -1949,10 +1962,20 @@ try:
         id="oi_snapshot_eod",
         replace_existing=True,
     )
-    # Pre-market OI refresh: 8:30 AM ET — pulls fresh Barchart/Yahoo small-cap movers
-    # and runs OI snapshot on them so the 9:45 AM conviction email has real squeeze candidates
+    # Pre-market OI refresh: 8:30 AM ET — runs OI snapshot before market open
     def _run_premarket_oi_refresh():
-        if not _intraday_scan_allowed():
+        # No _intraday_scan_allowed() guard — 8:30 AM is before market open (9:30 AM)
+        # so the guard (floor = 9:30 AM) would always block this. Cron limits to Mon-Fri.
+        from datetime import date as _pmoisd
+        import pytz as _pmoiptz
+        from datetime import datetime as _pmoidtm
+        _US_MARKET_HOLIDAYS_2026 = frozenset({
+            _pmoisd(2026, 1, 1), _pmoisd(2026, 1, 19), _pmoisd(2026, 2, 16),
+            _pmoisd(2026, 4, 3), _pmoisd(2026, 5, 25), _pmoisd(2026, 6, 19),
+            _pmoisd(2026, 7, 3), _pmoisd(2026, 9, 7),  _pmoisd(2026, 11, 26),
+            _pmoisd(2026, 12, 25),
+        })
+        if _pmoidtm.now(_pmoiptz.timezone("America/New_York")).date() in _US_MARKET_HOLIDAYS_2026:
             return
         try:
             import threading as _thr_pmoi
@@ -19619,6 +19642,19 @@ def ai_short_calls_log():
         return jsonify({"error": str(e), "picks": [], "count": 0,
                         "win_rates": {"expiry": None, "t1": None, "t3": None, "t5": None},
                         "by_date": {}}), 500
+
+
+@app.route("/stock-api/admin/grade-short-calls", methods=["POST"])
+def admin_grade_short_calls():
+    """Admin: manually trigger short-call outcome grading (backfill ungraded picks)."""
+    import threading as _thr_gsc
+    def _bg():
+        try:
+            _update_ai_short_call_outcomes()
+        except Exception as _e:
+            print(f"[admin_grade_short_calls] error: {_e}")
+    _thr_gsc.Thread(target=_bg, daemon=True).start()
+    return jsonify({"status": "grading started — check logs in ~60s"})
 
 
 @app.route("/stock-api/multi-signal", methods=["GET"])
