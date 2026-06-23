@@ -2667,6 +2667,62 @@ try:
     _thr_su.Thread(target=_startup_catchup, daemon=True).start()
     print("[startup_catchup] catch-up checker scheduled (runs in 90s if today's data is missing)")
 
+    # ── Instant cache preload ───────────────────────────────────────────────
+    # Runs 5 s after boot (just enough for DB connections to settle).
+    # Immediately fills app._unusual_calls_cache from stored DB rows so
+    # every tab shows real data from the very first page load — even when
+    # Yahoo is rate-limited and no live scan has run yet.
+    # If today's data exists → serve it fresh (stale=False).
+    # If no today's data yet → serve most-recent stored rows (stale=True)
+    # so the tab is NEVER blank. The catch-up scan above will overwrite
+    # this cache with a fresh scan once it completes.
+    def _startup_preload():
+        import time as _t_pl, datetime as _dt_pl
+        _t_pl.sleep(5)
+        try:
+            with _psycopg2.connect(_DB_URL) as _c_pl, _c_pl.cursor() as _cur_pl:
+                _cur_pl.execute("""
+                    SELECT ticker, price::float, strike::float, expiry::text, days_out,
+                           volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                           iv::float, urgency, first_seen, last_seen
+                    FROM unusual_calls_log
+                    WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                                       AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+                      AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                      AND vol_oi >= 1.5 AND prem >= 100000
+                    ORDER BY vol_oi DESC, last_seen DESC LIMIT 150
+                """)
+                _rows_pl = _cur_pl.fetchall()
+                _is_stale_pl = False
+                if not _rows_pl:
+                    # No today data yet — load most recent stored signals as stale fallback
+                    _cur_pl.execute("""
+                        SELECT ticker, price::float, strike::float, expiry::text, days_out,
+                               volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                               iv::float, urgency, first_seen, last_seen
+                        FROM unusual_calls_log
+                        WHERE expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                          AND vol_oi >= 1.5 AND prem >= 100000
+                        ORDER BY last_seen DESC, vol_oi DESC LIMIT 150
+                    """)
+                    _rows_pl = _cur_pl.fetchall()
+                    _is_stale_pl = True
+            if _rows_pl:
+                _cols_pl = ["ticker","price","strike","expiry","days_out","volume","oi",
+                            "vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
+                _hits_pl = [dict(zip(_cols_pl, _r)) for _r in _rows_pl]
+                app._unusual_calls_cache    = {"hits": _hits_pl, "total": len(_hits_pl),
+                                               "stale": _is_stale_pl, "source": "boot_preload"}
+                app._unusual_calls_cache_ts = _dt_pl.datetime.now()
+                _lbl = "stale fallback" if _is_stale_pl else "today"
+                print(f"[startup_preload] ✅ {len(_hits_pl)} {_lbl} signals loaded into cache immediately")
+            else:
+                print("[startup_preload] DB empty — nothing to preload yet")
+        except Exception as _e_pl:
+            print(f"[startup_preload] error: {_e_pl}")
+
+    _thr_su.Thread(target=_startup_preload, daemon=True).start()
+
 except Exception as _e:
     print(f"[scheduler] Could not start scheduler: {_e}")
 
