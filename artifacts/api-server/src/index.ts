@@ -50,8 +50,6 @@ async function initStripe() {
   }
 }
 
-await initStripe();
-
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -59,4 +57,6 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  initStripe().catch((err) => logger.error({ err }, 'Stripe init failed'));
 });

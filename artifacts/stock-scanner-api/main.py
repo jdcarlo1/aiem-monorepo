@@ -19326,8 +19326,26 @@ def admin_reset_breaker():
         _YF_BREAKER["state"] = "closed"
         _YF_BREAKER["until"] = 0.0
         _YF_BREAKER["probing"] = False
-    print("[admin_reset_breaker] circuit breaker force-closed")
-    result = {"status": "ok", "breaker": "closed"}
+    # Clear auth-burst and silent-throttle hit histories so stale 401 counts
+    # don't immediately re-trip the breaker on the very first scan after reset.
+    with _YF_AUTH_LOCK:
+        _YF_AUTH_HITS.clear()
+    with _YF_SILENT_LOCK:
+        _YF_SILENT_HITS.clear()
+    # Clear yfinance's cached crumb + cookie so the next Yahoo request fetches
+    # fresh auth credentials (stale crumb → 401 burst → breaker re-trips instantly).
+    try:
+        from yfinance.data import YfData as _YfData
+        _yfd = getattr(_YfData, '_instances', {}).get(_YfData)
+        if _yfd and hasattr(_yfd, '_cookie_lock'):
+            with _yfd._cookie_lock:
+                _yfd._crumb = None
+                _yfd._cookie = None
+            print("[admin_reset_breaker] yfinance crumb+cookie cleared")
+    except Exception as _ce:
+        print(f"[admin_reset_breaker] crumb clear skipped: {_ce}")
+    print("[admin_reset_breaker] circuit breaker force-closed, auth hits cleared")
+    result = {"status": "ok", "breaker": "closed", "crumb_cleared": True}
     if request.args.get("scan") == "1":
         import threading as _rthr
         def _bg_scan():
@@ -19341,6 +19359,16 @@ def admin_reset_breaker():
                 print(f"[admin_reset_breaker] scan error: {_exc}")
         _rthr.Thread(target=_bg_scan, daemon=True).start()
         result["scan"] = "started"
+    if request.args.get("microcap") == "1":
+        import threading as _rthr2
+        def _bg_microcap():
+            try:
+                hits = _run_microcap_options_scan()
+                print(f"[admin_reset_breaker] microcap scan complete — {len(hits) if hits else 0} hits")
+            except Exception as _exc:
+                print(f"[admin_reset_breaker] microcap scan error: {_exc}")
+        _rthr2.Thread(target=_bg_microcap, daemon=True).start()
+        result["microcap"] = "started"
     return jsonify(result)
 
 
