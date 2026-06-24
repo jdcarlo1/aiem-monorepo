@@ -17295,6 +17295,12 @@ def signal_feed():
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
 
+    if _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"events": [], "generated_at": _dt.now().isoformat(),
+                        "stale": True, "note": "feed temporarily paused — try again shortly"})
+
     FOCUS = ["SPY","QQQ","NVDA","AAPL","MSFT","META","GOOGL","AMZN","TSLA","AMD","ORCL","MU","NFLX","CRM","PLTR","AVGO","ARM","IWM","MSTR","SMCI"]
     now   = _dt.now()
     events = []
@@ -22791,8 +22797,6 @@ def eod_accumulation():
     bust = request.args.get("bust", "0") == "1"
     _cache    = getattr(app, "_eod_accum_cache", None)
     _cache_ts = getattr(app, "_eod_accum_cache_ts", None)
-    if not bust and _cache and _cache_ts and (_dt_ea.datetime.now() - _cache_ts).total_seconds() < 600:
-        return jsonify(_cache)
 
     _et = _pytz_ea.timezone("America/New_York")
 
@@ -22814,6 +22818,12 @@ def eod_accumulation():
         _h_ea < 9 or                       # midnight – 8:59 AM
         (_h_ea == 9 and _m_ea < 30)        # 9:00 – 9:29 AM
     )
+    # After close: 4h stale cache is fine — data doesn't change; avoids DB migration cost.
+    # During live market: 10min TTL to stay fresh.
+    _cache_ttl = 14400 if _after_close else 600
+    if not bust and _cache and _cache_ts and (_dt_ea.datetime.now() - _cache_ts).total_seconds() < _cache_ttl:
+        return jsonify(_cache)
+
     if _after_close:  # after market close, DB is authoritative — bust only clears in-memory cache
         # Migration in its own connection with a 1s lock timeout so a table lock
         # can never block the data SELECT below.
