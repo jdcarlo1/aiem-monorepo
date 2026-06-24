@@ -173,10 +173,10 @@ def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell"
     """Send a push notification via ntfy.sh — never raises. Returns True on 2xx."""
     try:
         import requests as _r
+        # Use JSON body so emoji/unicode in title/body don't hit latin-1 header encoding limits
         _resp = _r.post(
             f"https://ntfy.sh/{_NTFY_TOPIC}",
-            data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": priority, "Tags": tags},
+            json={"message": body, "title": title, "priority": priority, "tags": [tags]},
             timeout=8,
         )
         return 200 <= _resp.status_code < 300
@@ -1087,7 +1087,6 @@ def fill_conviction_stack_outcomes() -> dict:
     measured at the close of trading-session index 4/9/14/19 = 1/2/3/4 weeks of
     exposure. Tracks STOCK returns, not option P&L."""
     import psycopg2 as _pg2
-    import yfinance as _yf
     from datetime import datetime as _dt, timedelta as _td
     from collections import defaultdict as _dd
     today = _dt.now(_ET_TZ).date()
@@ -1718,11 +1717,21 @@ try:
             all_hits = []
             with ThreadPoolExecutor(max_workers=4) as ex:
                 futs = {ex.submit(_scan_one, t): t for t in _universe}
-                for fut in _asc(futs, timeout=180):
-                    try:
-                        all_hits.extend(fut.result() or [])
-                    except Exception:
-                        pass
+                _uc_done = 0
+                try:
+                    for fut in _asc(futs, timeout=180):
+                        try:
+                            all_hits.extend(fut.result() or [])
+                            _uc_done += 1
+                        except Exception:
+                            pass
+                except TimeoutError:
+                    # Cancel queued (not-yet-started) futures so executor.shutdown()
+                    # only waits for the ≤4 currently-running workers (≤32s),
+                    # not all 332 stuck ones (would be ~11 min without this).
+                    for _f in futs:
+                        _f.cancel()
+                    print(f"[scheduler] {label} scan 180s timeout — {_uc_done}/{len(_universe)} tickers done, saving {len(all_hits)} partial hits")
             _save_unusual_calls_to_db(all_hits)
             # Refresh the in-memory cache with ALL of today's accumulated sweeps so
             # that earlier scans' results stay visible — not just this scan's slice.
@@ -2228,7 +2237,7 @@ try:
             from datetime import datetime as _dt2
             def _worker():
                 try:
-                    with app.app_context() if hasattr(app, "app_context") else __import__("contextlib").nullcontext():
+                    with app.test_request_context("/stock-api/ai-short-calls"):
                         resp = ai_short_calls()
                         data = resp.get_json() if hasattr(resp, "get_json") else {}
                         picks = data.get("picks", [])
@@ -3661,7 +3670,6 @@ def _fill_conviction_outcomes() -> None:
     Fills D+1, D+3, D+5 % change vs entry price so win rates are always current.
     """
     import psycopg2 as _pg
-    import yfinance as _yf
     import pytz as _pytz
     from datetime import datetime as _dt, timedelta as _td
 
@@ -4069,7 +4077,7 @@ def _send_top_pick_email() -> None:
     """
     try:
         from email_alerts import send_email_raw, smtp_configured
-        import yfinance as _yf, math as _math, time as _time
+        import math as _math, time as _time
         from datetime import datetime as _dt, date as _date
         import os as _os
 
@@ -4437,7 +4445,7 @@ def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
     to expirations near that window so an 8+/2-week call doesn't return a 6-week
     contract. Results cached ~45 min per (ticker, target_weeks). Returns a dict
     with strike, exp, days, bid/ask/mid — or None if nothing liquid is found."""
-    import yfinance as _yf, time as _time
+    import time as _time
     from datetime import datetime as _dt, date as _date
     if not price or price <= 0:
         return None
@@ -6062,7 +6070,7 @@ def _run_nano_morning_outcomes():
     """Stage D (16:10 ET): grade confirmed buys forward. 5% stop walk-forward,
     winners ride. Day 0 (entry day) is excluded from the forward walk."""
     try:
-        import yfinance as _yf, psycopg2 as _pg
+        import psycopg2 as _pg
         from datetime import timedelta as _td
         snap = _et_today()
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
@@ -7232,7 +7240,7 @@ def _run_sc_morning_outcomes():
     """Stage D (16:12 ET): grade confirmed small-cap buys forward. 5% stop walk-forward,
     winners ride. Day 0 (entry day) is excluded from the forward walk."""
     try:
-        import yfinance as _yf, psycopg2 as _pg
+        import psycopg2 as _pg
         from datetime import timedelta as _td
         snap = _et_today()
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
@@ -8783,7 +8791,6 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
     Returns (score, signal_list). Fire exit alert when score >= 3.
     Conservative — requires multiple confirming signals for ~90% accuracy.
     """
-    import yfinance as yf
     score   = 0
     signals = []
 
@@ -8844,7 +8851,6 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
 
     # ── 3 & 4. MACD bearish cross + RSI overbought ───────────────────────────
     try:
-        import yfinance as yf
         hist = _td_history(ticker, days=60)
         if hist is not None and len(hist) >= 30:
             closes = hist["Close"].tolist()
@@ -9616,7 +9622,6 @@ def _log_eod_sweep_signals(signals: list, today_only: bool = True):
 def _update_eod_sweep_outcomes():
     """Fill in T+1/T+3/T+5 closing prices for past EOD sweep signals."""
     try:
-        import yfinance as _yf
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT id, ticker, signal_date, price_at_signal
@@ -10368,7 +10373,7 @@ def _run_gamma_pressure_scan() -> list:
     SMS fires immediately when: FIR > 2.0% AND Vol/OI > 2.0 AND price already up.
     One SMS per ticker per calendar day (de-duped).
     """
-    import yfinance as yf, math, os as _os
+    import math, os as _os
     from datetime import datetime as _dt, timezone as _tz
     from concurrent.futures import ThreadPoolExecutor, as_completed as _ascf
     from email_alerts import send_email_raw
@@ -10594,7 +10599,7 @@ def _run_oi_snapshot() -> None:
     4:30 PM ET Mon-Fri: Snapshot OI for every OTM call strike on every ticker.
     Stores in oi_daily_snapshot. Compared at 8:45 AM to detect multi-day buildup.
     """
-    import yfinance as yf, math, os as _os
+    import math, os as _os
     from datetime import datetime as _dt, timezone as _tz
     from concurrent.futures import ThreadPoolExecutor, as_completed as _ascf
 
@@ -11182,7 +11187,6 @@ def _get_float_pressure_signals(tickers: list) -> dict:
 
     Returns {ticker: {"pressure_pct": float, "float_shares": int, "call_oi": int, "l6_pts": float}}
     """
-    import yfinance as _yf6
     from concurrent.futures import ThreadPoolExecutor as _Tex6, as_completed as _asc6
 
     def _fetch_one(ticker):
@@ -11646,7 +11650,6 @@ def _fetch_options_flow_usd(ticker: str, strike: float, expiry_str: str) -> floa
     if volume is zero. Returns None on any error."""
     import sys
     try:
-        import yfinance as _yf
         tk = _TdTicker(ticker)
         available = tk.options  # tuple of expiry date strings
         if not available:
@@ -11768,7 +11771,6 @@ def _parse_expiry_date(expiry_str, trade_date):
 
 def _update_ai_trade_outcomes():
     """Fetch closing prices for open AI trade log entries and mark win/loss at expiry."""
-    import yfinance as _yf
     from datetime import date as _date2, timedelta as _td2
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -11956,7 +11958,6 @@ def _save_ai_short_calls_to_log(picks: list, trade_date: str):
 
 def _update_ai_short_call_outcomes():
     """Fetch closing prices for open short-call log entries and mark win/loss."""
-    import yfinance as _yf
     from datetime import date as _date3, timedelta as _td3
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -12521,7 +12522,6 @@ def bull_flow_top10():
     Returns top 10 sorted by call premium (highest dollar flow first).
     Each row: ticker, price, strike, expiry, premium_m, call_put_ratio, call_vol_oi, total_call_vol
     """
-    import yfinance as yf
     from smart_money import fetch_options_data
     from datetime import datetime as _dt
 
@@ -12944,7 +12944,6 @@ def net_flow_scan():
     Tick rule: bars where close >= open = buy flow; else = sell flow.
     Returns tickers with positive net flow sorted largest to smallest.
     """
-    import yfinance as yf
     from datetime import datetime as _dt
     import threading
 
@@ -13022,7 +13021,6 @@ def net_flow_scan():
 @app.route("/stock-api/net-flow/single", methods=["GET"])
 def net_flow_single():
     """Net equity flow for a single ticker — used by Stock Lookup."""
-    import yfinance as yf
     ticker = request.args.get("ticker", "").upper().strip()
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
@@ -14247,7 +14245,6 @@ def signal_outcomes_route():
 
 @app.route("/stock-api/breakout/radar", methods=["POST"])
 def breakout_radar():
-    import yfinance as yf
     import numpy as np
     import pandas as pd
 
@@ -14389,7 +14386,6 @@ def breakout_radar():
 @app.route("/stock-api/convergence", methods=["GET"])
 def convergence():
     """Stocks with BOTH unusual volume AND unusual call flow — smart money convergence signal."""
-    import yfinance as yf
     from smart_money import fetch_options_data
     from datetime import datetime as _cvdt
 
@@ -14485,7 +14481,6 @@ def convergence():
 @app.route("/stock-api/premarket", methods=["GET"])
 def premarket():
     """Pre-market movers — price change and volume vs average."""
-    import yfinance as yf
     from datetime import datetime as _pdt
 
     _cache = getattr(app, "_pm_cache", None)
@@ -14633,7 +14628,6 @@ def darkpool():
                 })
 
             def _get_signals(_t):
-                import yfinance as _yf2
                 _cp = None; _bias = "UNKNOWN"; _flow = "UNKNOWN"
                 try:
                     _opts = fetch_options_data(_t)
@@ -14729,7 +14723,6 @@ def darkpool():
 @app.route("/stock-api/options-intent", methods=["GET"])
 def options_intent():
     """Classify put options as HEDGE (OTM+long-dated) vs BEARISH BET (near-money+short-dated)."""
-    import yfinance as yf
     from datetime import datetime as _dt
 
     _cache = getattr(app, "_oi_cache", None)
@@ -14846,7 +14839,7 @@ def options_intent():
 @app.route("/stock-api/vol-crush", methods=["GET"])
 def vol_crush():
     """IV rank vs 1-year realized vol range — flags when implied vol is historically inflated."""
-    import yfinance as yf, numpy as np
+    import numpy as np
     from datetime import datetime as _dt
 
     _cache = getattr(app, "_vc_cache", None)
@@ -15471,7 +15464,6 @@ def vol_crush():
 @app.route("/stock-api/call-intent", methods=["GET"])
 def call_intent():
     """Classify calls: FOMO (near-money+short-dated) vs ACCUMULATION (OTM+long-dated)."""
-    import yfinance as yf
     from datetime import datetime as _dt
 
     _cache = getattr(app, "_ci_cache", None)
@@ -15612,7 +15604,6 @@ def call_intent():
 @app.route("/stock-api/smart-vs-retail", methods=["GET"])
 def smart_vs_retail():
     """Compare large-block (institutional) vs small-contract (retail) options flow."""
-    import yfinance as yf
     from datetime import datetime as _dt
 
     _cache = getattr(app, "_svr_cache", None)
@@ -15703,7 +15694,6 @@ def smart_vs_retail():
 @app.route("/stock-api/max-pain", methods=["GET"])
 def max_pain():
     """Max pain strike for nearest expiry — where price tends to drift before expiration."""
-    import yfinance as yf
     from datetime import datetime as _dt
 
     _cache = getattr(app, "_mp_cache", None)
