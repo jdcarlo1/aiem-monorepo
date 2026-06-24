@@ -20401,7 +20401,11 @@ def multi_signal_convergence():
     if _yf_breaker_open():
         _fb = getattr(app, "_ms_cache", None)
         if _fb:
-            return jsonify({**_fb, "stale": True})
+            return jsonify({**_fb, "stale": True, "note": "feed temporarily paused — try again shortly"})
+        _ms_db = _load_scan_cache("multi-signal")
+        if _ms_db:
+            app._ms_cache = _ms_db; app._ms_cache_ts = _ms_dt.now()
+            return jsonify({**_ms_db, "stale": True, "note": "feed temporarily paused — try again shortly"})
         return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
                         "note": "feed temporarily paused — try again shortly"})
 
@@ -21388,7 +21392,11 @@ def squeeze_setup():
     if _yf_breaker_open():
         _fb = getattr(app, "_sq_cache", None)
         if _fb:
-            return jsonify({**_fb, "stale": True})
+            return jsonify({**_fb, "stale": True, "note": "feed temporarily paused — try again shortly"})
+        _sq_db = _load_scan_cache("squeeze-setup")
+        if _sq_db:
+            app._sq_cache = _sq_db; app._sq_cache_ts = _sq_dt.now()
+            return jsonify({**_sq_db, "stale": True, "note": "feed temporarily paused — try again shortly"})
         return jsonify({"setups": [], "total": 0, "scanned": 0, "stale": True,
                         "note": "feed temporarily paused — try again shortly"})
 

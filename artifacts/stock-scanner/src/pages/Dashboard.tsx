@@ -6031,7 +6031,7 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
         <div style={{ marginBottom: 14, padding: "10px 16px", background: "rgba(251,191,36,0.08)",
           border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10, fontFamily: BB }}>
           <span style={{ fontSize: 14 }}>📅</span>
-          <span style={{ color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>Market closed — last scan shown</span>
+          <span style={{ color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>{((data as any)?.note ?? "").includes("paused") || ((data as any)?.note ?? "").includes("throttled") ? "Yahoo throttled — using last scan" : "Market closed — last scan shown"}</span>
           <span style={{ color: "#64748b", fontSize: 10 }}>
             · Live signals appear Mon–Fri · {(data as any).note ?? "Updates automatically when market opens"}
           </span>
@@ -7041,7 +7041,7 @@ function SqueezeSetupTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
         <div style={{ marginBottom: 14, padding: "10px 16px", background: "rgba(251,191,36,0.08)",
           border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10, fontFamily: BB_F }}>
           <span style={{ fontSize: 14 }}>📅</span>
-          <span style={{ color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>Market closed — showing last scan</span>
+          <span style={{ color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>{((data as any)?.note ?? "").includes("paused") || ((data as any)?.note ?? "").includes("throttled") ? "Yahoo throttled — using last scan" : "Market closed — showing last scan"}</span>
           <span style={{ color: "#64748b", fontSize: 10 }}>
             · Live signals appear Mon–Fri 9:30 AM–4 PM ET · {data.note ?? "Updates automatically when market opens"}
           </span>
@@ -13776,7 +13776,7 @@ function ShortSqueezeTab() {
           border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 14 }}>📅</span>
           <span style={{ fontFamily: BB_F, color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>
-            {data.stale_label ?? "Market closed"}
+            {data.stale_label ?? (((data as any)?.note ?? "").includes("paused") || ((data as any)?.note ?? "").includes("throttled") ? "Yahoo throttled" : "Market closed")}
           </span>
           <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 10 }}>
             · Live signals appear Mon–Fri 9:30 AM–4 PM ET · {data.note ?? "Refreshes automatically when market opens"}
