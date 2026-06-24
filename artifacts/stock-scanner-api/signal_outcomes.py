@@ -150,7 +150,6 @@ def update_signal_outcome_prices():
     if not DATABASE_URL:
         return
     try:
-        import yfinance as yf
         today = _et_today()
 
         conn = _connect()
@@ -178,13 +177,29 @@ def update_signal_outcome_prices():
                 continue
 
             try:
-                hist = yf.download(
-                    ticker,
-                    start=sig_date.isoformat(),
-                    end=(today + timedelta(days=1)).isoformat(),
-                    progress=False,
-                    auto_adjust=True,
+                import os as _so_os, requests as _so_req, pandas as _so_pd, datetime as _so_dt
+                _tok = (_so_os.environ.get("TRADIER_API_TOKEN_2") or
+                        _so_os.environ.get("TRADIER_API_TOKEN", ""))
+                _days_back = (today - sig_date).days + 2
+                _hist_end  = today + timedelta(days=1)
+                _r = _so_req.get(
+                    "https://api.tradier.com/v1/markets/history",
+                    params={"symbol": ticker, "interval": "daily",
+                            "start": sig_date.isoformat(),
+                            "end": _hist_end.isoformat()},
+                    headers={"Authorization": f"Bearer {_tok}",
+                             "Accept": "application/json"},
+                    timeout=10,
                 )
+                if _r.status_code != 200:
+                    continue
+                _raw = (_r.json().get("history") or {}).get("day") or []
+                if isinstance(_raw, dict): _raw = [_raw]
+                if not _raw: continue
+                _tmp = _so_pd.DataFrame(_raw)
+                _tmp["date"] = _so_pd.to_datetime(_tmp["date"])
+                _tmp = _tmp.set_index("date").rename(columns={"close": "Close"})
+                hist = _tmp[["Close"]]
                 if hist.empty:
                     continue
 

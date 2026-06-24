@@ -1,31 +1,35 @@
 ---
-name: Polygon vs Yahoo Finance migration plan
-description: What Polygon Starter ($29/mo) can replace from Yahoo, what it can't, and the decision to wait before migrating
+name: Polygon vs Yahoo migration plan
+description: What Polygon Starter can/cannot replace for the score; migration status
 ---
 
-## What Polygon Starter CAN replace (verified with live API key)
-- Historical OHLCV (`yf.history()`) → `/v2/aggs/ticker/{t}/range/1/day/{from}/{to}` ✅ works (DELAYED status is fine for swing trades)
-- Previous day close (`fast_info.last_price`) → `/v2/aggs/ticker/{t}/prev` ✅ works (OK status)
-- Float + market cap → `/v3/reference/tickers/{t}` returns `share_class_shares_outstanding`, `market_cap` ✅ works
+## What Polygon Starter Covers (verified)
+- Reference ticker: float/shares outstanding via `/v3/reference/tickers/{ticker}`
+- Historical OHLCV: `/v2/aggs/prev` and grouped-daily snapshot
+- Full-market RVOL scanner via grouped-daily (11,000+ tickers, 5 API calls)
 
-## What Polygon Starter CANNOT replace
-- Real-time intraday snapshot → `/v2/snapshot/locale/us/markets/stocks/tickers/{t}` returns NOT_AUTHORIZED on Starter plan
+## What Polygon Starter Does NOT Have
+- Real-time intraday snapshots (Starter = delayed/EOD only)
+- Short interest / shortPercentOfFloat / shortRatio
+- Options chains (use Tradier)
 
-## Current Yahoo dependencies after 80% load reduction
-- L4 Short Interest: `info.get("shortPercentOfFloat")` — still Yahoo; replaceable via free FINRA bi-weekly CSV import
-- L6 Float: `info.get("share_class_shares_outstanding")` — still Yahoo; replaceable via Polygon reference (verified working)
-- Real-time prices for 3 live-scan tabs (Market Overview, Morning Runners, Squeeze Setup) — still Yahoo; needs Starter→Business upgrade or Tradier $10/mo
-- Options chains for IV Rank, Vol Crush, Max Pain tabs — still Yahoo `option_chain()`
-- Earnings dates — still Yahoo
+## What Yahoo Is Still Used For (intentionally kept)
+- `^VIX`, `^VIX3M` index prices (no Tradier/Polygon feed for indices)
+- Short interest (`shortPercentOfFloat`, `shortRatio`, `floatShares` from `.info`)
+  - Located at main.py ~L10815, ~L14110, ~L21400+, ~L22474+
+  - `_fetch_fi_q()` in nano ranking uses Polygon for float, Yahoo for short_pct
+- Earnings calendar / earnings history / analyst upgrades (yf.Ticker.info)
+- `_TdTicker.fast_info` wraps yfinance fast_info for fundamentals
 
-## Decision made
-Do NOT migrate tonight before market open. Wait and see if reduced load (80% less than before) is sufficient. If tomorrow runs clean, migration may not be needed at all. If specific tabs still hang, target those specifically.
+## Migration Status (June 2026)
+- main.py: all OHLCV batch calls → Tradier (_td_history); quotes → _td_quotes()
+- multiday_runner.py: all yf.download() → inline Tradier helpers; no yfinance imports
+- holy_grail.py: _fetch_1m, _fetch_daily, _premarket_volume → Tradier
+- eod_swing.py: _score_swing() → Tradier
+- signal_outcomes.py: yf.download() → Tradier inline
 
-**Why:** Risk of breaking core conviction scoring (L4/L6) or outcome grading hours before market open outweighs the benefit. Polygon migration is additive improvement, not a critical fix.
-
-## If migration is requested later
-1. Switch `_get_short_interest()` → Polygon reference `/v3/reference/tickers/{t}` for float, FINRA CSV for short_pct
-2. Switch `_update_conviction_outcomes()` yf.history() → Polygon aggregates
-3. Switch scattered `fast_info.last_price` lookups → Polygon prev endpoint
-4. Leave real-time tabs on Yahoo (or add Tradier $10/mo)
-- Total Polygon-covered: ~90% of Yahoo calls; remaining 10% is real-time + options chains for analysis tabs
+## Key Conventions
+- `_td_quotes(tickers)` at main.py L464 — uses TRADIER_API_TOKEN_2
+- `_td_history(ticker, days=N)` at main.py L508 — daily OHLCV
+- `_get_float_shares(ticker)` at main.py L10129 — Polygon primary, Yahoo fallback
+- Satellite files cannot import from main.py (circular) — inline Tradier helpers added directly

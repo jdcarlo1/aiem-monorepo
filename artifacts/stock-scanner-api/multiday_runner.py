@@ -30,6 +30,78 @@ from zoneinfo import ZoneInfo
 _ET_TZ = ZoneInfo("America/New_York")
 
 
+# ── Inline Tradier helpers (no yfinance dependency) ────────────────────────
+
+def _td_hist(ticker: str, days: int = 40) -> "pd.DataFrame":
+    """Daily OHLCV from Tradier. Drop-in for yf.download(period='Nd')."""
+    import requests as _h_req, pandas as _h_pd, datetime as _h_dt
+    _tok = (os.environ.get("TRADIER_API_TOKEN_2") or
+            os.environ.get("TRADIER_API_TOKEN", ""))
+    if not _tok:
+        return _h_pd.DataFrame()
+    _end   = _h_dt.date.today()
+    _start = _end - _h_dt.timedelta(days=days + 14)
+    try:
+        _r = _h_req.get(
+            "https://api.tradier.com/v1/markets/history",
+            params={"symbol": ticker, "interval": "daily",
+                    "start": str(_start), "end": str(_end)},
+            headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},
+            timeout=10,
+        )
+        if _r.status_code != 200:
+            return _h_pd.DataFrame()
+        _raw = (_r.json().get("history") or {}).get("day") or []
+        if isinstance(_raw, dict):
+            _raw = [_raw]
+        if not _raw:
+            return _h_pd.DataFrame()
+        _df = _h_pd.DataFrame(_raw)
+        _df["date"] = _h_pd.to_datetime(_df["date"])
+        _df = _df.set_index("date").rename(
+            columns={"open": "Open", "high": "High",
+                     "low": "Low", "close": "Close", "volume": "Volume"})
+        return _df[[c for c in ["Open", "High", "Low", "Close", "Volume"]
+                    if c in _df.columns]].tail(days)
+    except Exception as _e:
+        print(f"[td_hist] {ticker}: {_e}")
+        return _h_pd.DataFrame()
+
+
+def _td_intra(ticker: str) -> "pd.DataFrame":
+    """5-minute intraday bars for today from Tradier. Drop-in for yf.download(interval='5m')."""
+    import requests as _i_req, pandas as _i_pd, datetime as _i_dt
+    _tok = (os.environ.get("TRADIER_API_TOKEN_2") or
+            os.environ.get("TRADIER_API_TOKEN", ""))
+    if not _tok:
+        return _i_pd.DataFrame()
+    _today = str(_i_dt.date.today())
+    try:
+        _r = _i_req.get(
+            "https://api.tradier.com/v1/markets/timesales",
+            params={"symbol": ticker, "interval": "5min",
+                    "start": _today, "session_filter": "open"},
+            headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},
+            timeout=12,
+        )
+        if _r.status_code != 200:
+            return _i_pd.DataFrame()
+        _raw = (_r.json().get("series") or {}).get("data") or []
+        if isinstance(_raw, dict):
+            _raw = [_raw]
+        if not _raw:
+            return _i_pd.DataFrame()
+        _df = _i_pd.DataFrame(_raw)
+        _df.index = _i_pd.to_datetime(_df["time"])
+        _df = _df.rename(columns={"open": "Open", "high": "High",
+                                   "low": "Low", "close": "Close", "volume": "Volume"})
+        return _df[[c for c in ["Open", "High", "Low", "Close", "Volume"]
+                    if c in _df.columns]]
+    except Exception as _e:
+        print(f"[td_intra] {ticker}: {_e}")
+        return _i_pd.DataFrame()
+
+
 # ── Universe definitions ───────────────────────────────────────────────────
 
 LARGE_CAP_UNIVERSE = list(dict.fromkeys([
@@ -253,9 +325,9 @@ def run_intraday_d1_scan() -> dict:
 
     Returns dict: {"large": [...], "mid": [...], "small": [...], "all": [...]}
     """
-    import yfinance as yf
     import pandas as pd
     import psycopg2 as pg
+    from concurrent.futures import ThreadPoolExecutor as _TPE_d1s
 
     today = _today_et()
     results_by_tier: dict = {"large": [], "mid": [], "small": [], "all": []}
@@ -270,15 +342,12 @@ def run_intraday_d1_scan() -> dict:
             for i in range(0, len(universe), batch_size):
                 batch = universe[i:i + batch_size]
                 try:
-                    raw = yf.download(
-                        batch, period="3d", interval="1d",
-                        group_by="ticker", auto_adjust=True, progress=False,
-                        timeout=20,
-                    )
+                    with _TPE_d1s(max_workers=20) as _ex_d1:
+                        _hist3 = dict(_ex_d1.map(lambda t: (t, _td_hist(t, days=5)), batch))
                     for tkr in batch:
                         try:
-                            df = raw[tkr].dropna() if len(batch) > 1 else raw
-                            if len(df) < 2:
+                            df = _hist3.get(tkr)
+                            if df is None or df.empty or len(df) < 2:
                                 continue
                             prev_close = float(df["Close"].iloc[-2])
                             cur_close  = float(df["Close"].iloc[-1])
@@ -340,26 +409,23 @@ def run_intraday_d1_scan() -> dict:
         cand_tickers = [c["ticker"] for c in candidates]
 
         try:
-            intraday = yf.download(
-                cand_tickers, period="1d", interval="5m",
-                group_by="ticker", auto_adjust=True, progress=False,
-                timeout=30,
-            )
+            from concurrent.futures import ThreadPoolExecutor as _TPE_5m
+            with _TPE_5m(max_workers=10) as _ex_5m:
+                intraday = dict(_ex_5m.map(lambda t: (t, _td_intra(t)), cand_tickers))
         except Exception as e:
             print(f"[multiday_runner] intraday stage2 download error: {e}")
-            intraday = None
+            intraday = {}
 
         # Get 5-day avg volume from daily data for RVOL
         avg_vols: dict = {}
         try:
-            vol_data = yf.download(
-                cand_tickers, period="10d", interval="1d",
-                group_by="ticker", auto_adjust=True, progress=False, timeout=20,
-            )
+            from concurrent.futures import ThreadPoolExecutor as _TPE_vol
+            with _TPE_vol(max_workers=10) as _ex_vol:
+                _vhist = dict(_ex_vol.map(lambda t: (t, _td_hist(t, days=12)), cand_tickers))
             for tkr in cand_tickers:
                 try:
-                    vdf = vol_data[tkr].dropna() if len(cand_tickers) > 1 else vol_data
-                    if len(vdf) >= 2:
+                    vdf = _vhist.get(tkr)
+                    if vdf is not None and not vdf.empty and len(vdf) >= 2:
                         avg_vols[tkr] = float(vdf["Volume"].iloc[:-1].mean())
                 except Exception:
                     pass
@@ -371,9 +437,11 @@ def run_intraday_d1_scan() -> dict:
             pct = cand["pct_so_far"]
             try:
                 df5 = None
-                if intraday is not None:
+                if intraday:
                     try:
-                        df5 = intraday[tkr].dropna() if len(cand_tickers) > 1 else intraday
+                        df5 = intraday.get(tkr)
+                        if df5 is not None and not df5.empty:
+                            df5 = df5.dropna()
                     except Exception:
                         pass
 
@@ -476,7 +544,6 @@ def run_day1_scan() -> list:
     Saves to DB with final close prices for D2 tracking.
     Returns list of all row dicts sorted by pct desc.
     """
-    import yfinance as yf
     import pandas as pd
     import psycopg2 as pg
 
@@ -486,18 +553,18 @@ def run_day1_scan() -> list:
     for tier_key, (universe, min_pct, strong_pct, label, _color) in CAP_TIERS.items():
         rows_saved = []
         try:
-            data = yf.download(
-                universe, period="45d", interval="1d",
-                group_by="ticker", auto_adjust=True, progress=False,
-            )
+            import pandas as _pd_eod
+            from concurrent.futures import ThreadPoolExecutor as _TPE_eod
+            with _TPE_eod(max_workers=20) as _ex_eod:
+                _eod_hist = dict(_ex_eod.map(lambda t: (t, _td_hist(t, days=50)), universe))
         except Exception as e:
             print(f"[multiday_runner] day1 EOD {tier_key} download error: {e}")
             continue
 
         for ticker in universe:
             try:
-                df = data[ticker].dropna() if len(universe) > 1 else data
-                if len(df) < 2:
+                df = _eod_hist.get(ticker)
+                if df is None or df.empty or len(df) < 2:
                     continue
                 closes  = df["Close"].values.astype(float)
                 opens   = df["Open"].values.astype(float)
@@ -634,7 +701,6 @@ def run_day1_scan() -> list:
 
 def run_day2_confirm_scan() -> list:
     """2:45 PM ET: second-chance entry — confirms yesterday's watch list."""
-    import yfinance as yf
     import psycopg2 as pg
 
     today     = _today_et()
@@ -656,19 +722,19 @@ def run_day2_confirm_scan() -> list:
 
     tickers = [r[1] for r in rows]
     try:
-        live = yf.download(
-            tickers, period="1d", interval="5m",
-            group_by="ticker", auto_adjust=True, progress=False,
-        )
+        from concurrent.futures import ThreadPoolExecutor as _TPE_d2
+        with _TPE_d2(max_workers=10) as _ex_d2:
+            live = dict(_ex_d2.map(lambda t: (t, _td_intra(t)), tickers))
     except Exception as e:
         print(f"[multiday_runner] day2 download error: {e}")
         return []
 
     for (row_id, ticker, d1_close, d1_pct, d1_strong, cap_tier, conviction_score) in rows:
         try:
-            df = live[ticker].dropna() if len(tickers) > 1 else live
-            if df is None or len(df) == 0:
+            df = live.get(ticker)
+            if df is None or df.empty or len(df) == 0:
                 continue
+            df = df.dropna()
             current  = float(df["Close"].iloc[-1])
             day_high = float(df["High"].max())
             day_low  = float(df["Low"].min())
@@ -723,7 +789,6 @@ def run_outcomes_update():
     4:30 PM ET: fill in D+3, D+5, D+10 returns for past signals.
     Uses calendar-day offsets: D+5c ≈ 3 trading days, D+8c ≈ 5 td, D+14c ≈ 10 td.
     """
-    import yfinance as yf
     import psycopg2 as pg
 
     today = _today_et()
@@ -755,10 +820,10 @@ def run_outcomes_update():
     print(f"[multiday_runner] outcomes: updating {len(pending)} rows for {len(tickers)} tickers")
 
     try:
-        hist = yf.download(
-            tickers, period="20d", interval="1d",
-            group_by="ticker", auto_adjust=True, progress=False,
-        )
+        import pandas as _pd_oc
+        from concurrent.futures import ThreadPoolExecutor as _TPE_oc
+        with _TPE_oc(max_workers=10) as _ex_oc:
+            _oc_hist = dict(_ex_oc.map(lambda t: (t, _td_hist(t, days=25)), tickers))
     except Exception as e:
         print(f"[multiday_runner] outcomes download error: {e}")
         return
@@ -766,8 +831,8 @@ def run_outcomes_update():
     with pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
         for (row_id, ticker, d1_date, ref_price, d3_pct, d5_pct, d10_pct) in pending:
             try:
-                df = hist[ticker].dropna() if len(tickers) > 1 else hist
-                if df is None or len(df) < 2 or not ref_price:
+                df = _oc_hist.get(ticker)
+                if df is None or df.empty or len(df) < 2 or not ref_price:
                     continue
 
                 def _pct_at_offset(days_cal: int):

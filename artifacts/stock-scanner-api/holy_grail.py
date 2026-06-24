@@ -15,32 +15,75 @@ Signals:
   9. VWAP Reclaim (8 pts)         — dipped below VWAP then reclaimed in 3 candles
  10. Minute RVOL (10 pts)         — any single minute 3x+ its session average
 """
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import pytz
+import os, datetime as _dt_mod, requests as _hg_req
 from datetime import datetime
 
 _ET = pytz.timezone("US/Eastern")
 
+_TRADIER_TOK = (os.environ.get("TRADIER_API_TOKEN_2") or
+                os.environ.get("TRADIER_API_TOKEN", ""))
+_TRADIER_HDR = {"Authorization": f"Bearer {_TRADIER_TOK}",
+                "Accept": "application/json"}
+
 
 def _fetch_1m(ticker: str) -> pd.DataFrame:
+    """1-minute intraday bars from Tradier (replaces yfinance)."""
     try:
-        df = yf.Ticker(ticker).history(period="1d", interval="1m")
-        if df.empty:
+        _today = str(_dt_mod.date.today())
+        _r = _hg_req.get(
+            "https://api.tradier.com/v1/markets/timesales",
+            params={"symbol": ticker, "interval": "1min",
+                    "start": _today, "session_filter": "open"},
+            headers=_TRADIER_HDR, timeout=12,
+        )
+        if _r.status_code != 200:
             return pd.DataFrame()
+        _raw = (_r.json().get("series") or {}).get("data") or []
+        if isinstance(_raw, dict):
+            _raw = [_raw]
+        if not _raw:
+            return pd.DataFrame()
+        df = pd.DataFrame(_raw)
+        df.index = pd.to_datetime(df["time"])
         if df.index.tz is None:
             df.index = df.index.tz_localize("UTC").tz_convert(_ET)
         else:
             df.index = df.index.tz_convert(_ET)
-        return df
+        df = df.rename(columns={"open": "Open", "high": "High",
+                                 "low": "Low", "close": "Close", "volume": "Volume"})
+        return df[[c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]]
     except Exception:
         return pd.DataFrame()
 
 
 def _fetch_daily(ticker: str, period: str = "30d") -> pd.DataFrame:
+    """Daily OHLCV from Tradier (replaces yfinance)."""
     try:
-        return yf.Ticker(ticker).history(period=period, interval="1d")
+        _days = 130 if "6mo" in period else 35
+        _end   = _dt_mod.date.today()
+        _start = _end - _dt_mod.timedelta(days=_days)
+        _r = _hg_req.get(
+            "https://api.tradier.com/v1/markets/history",
+            params={"symbol": ticker, "interval": "daily",
+                    "start": str(_start), "end": str(_end)},
+            headers=_TRADIER_HDR, timeout=10,
+        )
+        if _r.status_code != 200:
+            return pd.DataFrame()
+        _raw = (_r.json().get("history") or {}).get("day") or []
+        if isinstance(_raw, dict):
+            _raw = [_raw]
+        if not _raw:
+            return pd.DataFrame()
+        df = pd.DataFrame(_raw)
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date").rename(
+            columns={"open": "Open", "high": "High",
+                     "low": "Low", "close": "Close", "volume": "Volume"})
+        return df[[c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]]
     except Exception:
         return pd.DataFrame()
 
@@ -176,16 +219,31 @@ def _consecutive_green(df: pd.DataFrame, vwap: float) -> tuple[bool, str]:
 def _premarket_volume(ticker: str) -> tuple[bool, str]:
     """8 pts — today's pre-market volume 5x+ the recent average pre-market volume."""
     try:
-        tk = yf.Ticker(ticker)
-        df = tk.history(period="5d", interval="1m", prepost=True)
-        if df.empty:
+        _today_d = datetime.now(_ET).date()
+        _start_d = _today_d - _dt_mod.timedelta(days=6)
+        _r = _hg_req.get(
+            "https://api.tradier.com/v1/markets/timesales",
+            params={"symbol": ticker, "interval": "1min",
+                    "start": str(_start_d), "end": str(_today_d),
+                    "session_filter": "all"},
+            headers=_TRADIER_HDR, timeout=12,
+        )
+        if _r.status_code != 200:
             return False, ""
+        _raw = (_r.json().get("series") or {}).get("data") or []
+        if isinstance(_raw, dict): _raw = [_raw]
+        if not _raw: return False, ""
+        df = pd.DataFrame(_raw)
+        df.index = pd.to_datetime(df["time"])
         if df.index.tz is None:
             df.index = df.index.tz_localize("UTC").tz_convert(_ET)
         else:
             df.index = df.index.tz_convert(_ET)
+        df = df.rename(columns={"volume": "Volume"})
+        if df.empty:
+            return False, ""
 
-        today = datetime.now(_ET).date()
+        today = _today_d
 
         def is_premarket(idx):
             return idx.date() == today and (

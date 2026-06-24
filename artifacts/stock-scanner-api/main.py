@@ -5513,11 +5513,23 @@ def _run_nano_morning_ranking():
 
             def _fetch_fi_q(r):
                 try:
-                    _tk2 = _yf.Ticker(r["ticker"])
-                    _info2 = _tk2.info
-                    r["_q_float"] = _info2.get("floatShares") or _info2.get("impliedSharesOutstanding")
-                    r["_q_short_pct"]   = _info2.get("shortPercentOfFloat") or _info2.get("sharesPercentSharesOut")
-                    r["_q_short_ratio"] = _info2.get("shortRatio")
+                    # Float: Polygon primary (fast, no rate-limit) via shared helper
+                    r["_q_float"] = _get_float_shares(r["ticker"]) or None
+                    # Short interest: no Polygon Starter alternative — Yahoo only path
+                    try:
+                        if not _yahoo_breaker.allow():
+                            r["_q_short_pct"] = None; r["_q_short_ratio"] = None
+                        else:
+                            _si_info = _yf.Ticker(r["ticker"]).info
+                            r["_q_short_pct"]   = (_si_info.get("shortPercentOfFloat") or
+                                                    _si_info.get("sharesPercentSharesOut"))
+                            r["_q_short_ratio"] = _si_info.get("shortRatio")
+                            _yahoo_breaker.record_success()
+                    except Exception as _e_si:
+                        _err_si = str(_e_si).lower()
+                        if any(x in _err_si for x in ["401", "crumb", "429", "unauthorized", "rate"]):
+                            _yahoo_breaker.record_failure()
+                        r["_q_short_pct"] = None; r["_q_short_ratio"] = None
                 except Exception:
                     r["_q_float"] = None; r["_q_short_pct"] = None; r["_q_short_ratio"] = None
                 return r
@@ -10124,8 +10136,8 @@ _gamma_alerted_today: dict = {}   # date_str → set of tickers already SMS'd
 
 
 def _get_float_shares(ticker: str) -> int:
-    """Float shares with 24-hour in-memory cache (yfinance fast_info then full info)."""
-    import yfinance as yf, math
+    """Float shares with 24-hour in-memory cache. Polygon primary, Yahoo fallback."""
+    import os as _gf_os, urllib.request as _gf_ur, json as _gf_json
     from datetime import datetime as _dtnow
 
     entry = _float_cache.get(ticker)
@@ -10133,7 +10145,27 @@ def _get_float_shares(ticker: str) -> int:
         shares, ts = entry
         if (_dtnow.now() - ts).total_seconds() < 86400 and shares > 0:
             return shares
+    # Primary: Polygon reference (no rate-limit, no Yahoo crumb issues)
     try:
+        _key = _gf_os.environ.get("POLYGON_API_KEY", "")
+        if _key:
+            _url = (f"https://api.polygon.io/v3/reference/tickers/{ticker}"
+                    f"?apiKey={_key}")
+            with _gf_ur.urlopen(_url, timeout=6) as _r:
+                _data = _gf_json.loads(_r.read())
+            _res = _data.get("results", {})
+            shares = int(
+                _res.get("share_class_shares_outstanding") or
+                _res.get("weighted_shares_outstanding") or 0
+            )
+            if shares > 0:
+                _float_cache[ticker] = (shares, _dtnow.now())
+                return shares
+    except Exception:
+        pass
+    # Fallback: Yahoo (kept for Polygon key missing or 404)
+    try:
+        import yfinance as yf
         tk     = yf.Ticker(ticker)
         shares = int(getattr(tk.fast_info, "shares", 0) or 0)
         if not shares:
@@ -12195,20 +12227,11 @@ def portfolio():
     prices = {}
     if tickers:
         try:
-            import yfinance as yf
-            data = yf.download(tickers, period="1d", progress=False, auto_adjust=True)
-            if not data.empty:
-                if hasattr(data.columns, "levels"):
-                    for t in tickers:
-                        try:
-                            prices[t] = float(data["Close"][t].dropna().iloc[-1])
-                        except Exception:
-                            pass
-                else:
-                    try:
-                        prices[tickers[0]] = float(data["Close"].dropna().iloc[-1])
-                    except Exception:
-                        pass
+            _q = _td_quotes(tickers)
+            for t in tickers:
+                last = (_q.get(t) or {}).get("last") or 0
+                if last > 0:
+                    prices[t] = float(last)
         except Exception:
             pass
     result = get_portfolio_value(prices)
@@ -15358,15 +15381,20 @@ def vol_crush():
             _sector_rets_map = {}
             try:
                 _sec_etfs = list(set(_TICKER_TO_SECTOR_ETF.values()))
-                _sec_raw2 = yf.download(_sec_etfs, period="60d", interval="1d", progress=False, auto_adjust=True)["Close"]
-                for _etf in _sec_etfs:
+                from concurrent.futures import ThreadPoolExecutor as _TPE_sec
+                def _get_sec_ser(_etf):
                     try:
-                        _ser2 = (_sec_raw2[_etf].dropna() if hasattr(_sec_raw2, "columns") and _etf in _sec_raw2.columns
-                                 else _sec_raw2.dropna())
-                        if len(_ser2) >= 20:
-                            _sector_rets_map[_etf] = _ser2.pct_change().dropna().values
+                        _dfs = _td_history(_etf, days=65)
+                        return _etf, _dfs["Close"].dropna() if _dfs is not None and not _dfs.empty else None
                     except Exception:
-                        pass
+                        return _etf, None
+                with _TPE_sec(max_workers=6) as _ex_sec:
+                    for _etf, _ser2 in _ex_sec.map(_get_sec_ser, _sec_etfs):
+                        try:
+                            if _ser2 is not None and len(_ser2) >= 20:
+                                _sector_rets_map[_etf] = _ser2.pct_change().dropna().values
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -15851,18 +15879,19 @@ def _enrich_technical_signals(tickers_data):
 
     print(f"[enrich_tech] enriching {len(candidates)} tickers with MACD/S-R/POC/VWAP", file=sys.stderr, flush=True)
 
-    try:
-        raw = yf.download(
-            candidates,
-            period="6mo",
-            interval="1d",
-            progress=False,
-            auto_adjust=True,
-            group_by="ticker",
-        )
-    except Exception as e:
-        print(f"[enrich_tech] batch download error: {e}", file=sys.stderr)
-        return
+    from concurrent.futures import ThreadPoolExecutor as _TPE_et
+    def _get_hist_et(_t):
+        try:
+            _df = _td_history(_t, days=130)
+            return _t, _df if _df is not None and not _df.empty else None
+        except Exception:
+            return _t, None
+    _hist_et = {}
+    with _TPE_et(max_workers=10) as _ex_et:
+        for _t, _df_et in _ex_et.map(_get_hist_et, candidates):
+            if _df_et is not None:
+                _hist_et[_t] = _df_et
+    print(f"[enrich_tech] fetched {len(_hist_et)}/{len(candidates)} tickers via Tradier", file=sys.stderr, flush=True)
 
     for ticker in candidates:
         try:
@@ -15870,11 +15899,7 @@ def _enrich_technical_signals(tickers_data):
             price = float(v["price"])
 
             try:
-                if len(candidates) == 1:
-                    df = raw
-                else:
-                    lvl0 = raw.columns.get_level_values(0)
-                    df = raw[ticker] if ticker in lvl0 else None
+                df = _hist_et.get(ticker)
                 if df is None or df.empty or len(df) < 30:
                     continue
                 close = df["Close"].dropna()
@@ -20498,13 +20523,13 @@ def multi_signal_convergence():
 
     def _check(ticker):
         try:
-            fi       = yf.Ticker(ticker).fast_info
-            price    = float(getattr(fi, "last_price",                 0) or 0)
-            prev_cl  = float(getattr(fi, "previous_close",             0) or 0)
-            avg_vol  = float(getattr(fi, "three_month_average_volume",  1) or 1)
-            today_vol= float(getattr(fi, "last_volume",                0) or 0)
-            high52   = float(getattr(fi, "year_high",                  0) or 0)
-            mkt_cap  = float(getattr(fi, "market_cap",                 0) or 0)
+            _q       = _td_quotes([ticker]).get(ticker.upper(), {})
+            price    = float(_q.get("last")         or 0)
+            prev_cl  = float(_q.get("prevclose")    or 0)
+            avg_vol  = float(_q.get("avg_volume")   or 1) or 1
+            today_vol= int(_q.get("volume")         or 0)
+            high52   = float(_q.get("week_52_high") or 0)
+            mkt_cap  = 0  # Tradier quotes don't include market cap; cap filters disabled
 
             if price <= 0 or prev_cl <= 0:
                 return None
@@ -20552,8 +20577,6 @@ def multi_signal_convergence():
             if market_regime_on: fired.append("MARKET_REGIME")
             if vix_contango:     fired.append("VIX_CONTANGO")
             if hyg_healthy:      fired.append("HYG_HEALTHY")
-
-            _tk2 = yf.Ticker(ticker)
 
             # ── 1-year OHLCV → all technical signals ──────────────────────────
             try:
@@ -21121,14 +21144,14 @@ def breakout_52week():
 
     def _scan_bk(ticker):
         try:
-            fi    = yf.Ticker(ticker).fast_info
-            price = float(getattr(fi, "last_price",                0) or 0)
-            high52 = float(getattr(fi, "year_high",                0) or 0)
-            low52  = float(getattr(fi, "year_low",                 0) or 0)
-            avg_vol= float(getattr(fi, "three_month_average_volume",1) or 1)
-            today_vol = float(getattr(fi, "last_volume",           0) or 0)
-            mkt_cap   = float(getattr(fi, "market_cap",            0) or 0)
-            prev_close= float(getattr(fi, "previous_close",        0) or 0)
+            _q     = _td_quotes([ticker]).get(ticker.upper(), {})
+            price  = float(_q.get("last")         or 0)
+            high52 = float(_q.get("week_52_high") or 0)
+            low52  = float(_q.get("week_52_low")  or 0)
+            avg_vol= float(_q.get("avg_volume")   or 1) or 1
+            today_vol  = int(_q.get("volume")     or 0)
+            mkt_cap    = 0  # not available from Tradier quotes
+            prev_close = float(_q.get("prevclose") or 0)
 
             if price <= 0 or high52 <= 0 or low52 <= 0:
                 return None
@@ -21240,23 +21263,28 @@ def sector_rotation():
         try:
             _results = []
             try:
-                batch = yf.download(
-                    tickers_list, period="1y", interval="1d",
-                    auto_adjust=True, progress=False, threads=True
-                )
+                from concurrent.futures import ThreadPoolExecutor as _TPE_sr2
+                def _get_sr_hist(_t):
+                    try:
+                        _dsr = _td_history(_t, days=260)
+                        return _t, _dsr if _dsr is not None and not _dsr.empty else None
+                    except Exception:
+                        return _t, None
+                _sr_hist = {}
+                with _TPE_sr2(max_workers=6) as _ex_sr2:
+                    for _t, _dsr in _ex_sr2.map(_get_sr_hist, tickers_list):
+                        if _dsr is not None:
+                            _sr_hist[_t] = _dsr
                 for _ticker in tickers_list:
                     try:
                         _name = ticker_names[_ticker]
-                        if len(tickers_list) > 1:
-                            _close  = batch["Close"][_ticker].dropna()
-                            _volume = batch["Volume"][_ticker].dropna()
-                            _high_s = batch["High"][_ticker].dropna()
-                            _low_s  = batch["Low"][_ticker].dropna()
-                        else:
-                            _close  = batch["Close"].dropna()
-                            _volume = batch["Volume"].dropna()
-                            _high_s = batch["High"].dropna()
-                            _low_s  = batch["Low"].dropna()
+                        _df_sr = _sr_hist.get(_ticker)
+                        if _df_sr is None or _df_sr.empty:
+                            continue
+                        _close  = _df_sr["Close"].dropna()
+                        _volume = _df_sr["Volume"].dropna()
+                        _high_s = _df_sr["High"].dropna()
+                        _low_s  = _df_sr["Low"].dropna()
                         if len(_close) < 2:
                             continue
                         _price      = float(_close.iloc[-1])

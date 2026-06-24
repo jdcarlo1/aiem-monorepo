@@ -64,11 +64,31 @@ def _score_swing(ticker: str) -> dict | None:
     Return a scored swing-setup dict or None if the stock doesn't qualify.
     """
     try:
-        import yfinance as _yf
-        tk = _yf.Ticker(ticker)
+        import os as _es_os, requests as _es_req, pandas as _es_pd, datetime as _es_dt
+        _tok = (_es_os.environ.get("TRADIER_API_TOKEN_2") or
+                _es_os.environ.get("TRADIER_API_TOKEN", ""))
+        _end   = _es_dt.date.today()
+        _start = _end - _es_dt.timedelta(days=44)
+        _r = _es_req.get(
+            "https://api.tradier.com/v1/markets/history",
+            params={"symbol": ticker, "interval": "daily",
+                    "start": str(_start), "end": str(_end)},
+            headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},
+            timeout=10,
+        )
+        if _r.status_code != 200:
+            return None
+        _raw = (_r.json().get("history") or {}).get("day") or []
+        if isinstance(_raw, dict): _raw = [_raw]
+        if not _raw: return None
+        _tmp = _es_pd.DataFrame(_raw)
+        _tmp["date"] = _es_pd.to_datetime(_tmp["date"])
+        _tmp = _tmp.set_index("date").rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume"})
+        daily = _tmp[[c for c in ["Open","High","Low","Close","Volume"] if c in _tmp.columns]]
 
         # 30 days daily — we use last 6 (today + 5 prior)
-        daily = tk.history(period="30d", interval="1d")
         if len(daily) < 4:
             return None
 
