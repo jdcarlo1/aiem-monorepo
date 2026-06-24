@@ -17385,9 +17385,14 @@ def signal_feed():
         except Exception: pass
         return evs
 
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        futs = {ex.submit(_check, t): t for t in FOCUS}
-        for f in as_completed(futs): events.extend(f.result())
+    _ex_sf = ThreadPoolExecutor(max_workers=10)
+    futs = {_ex_sf.submit(_check, t): t for t in FOCUS}
+    try:
+        for f in as_completed(futs, timeout=8):
+            events.extend(f.result())
+    except TimeoutError:
+        pass
+    _ex_sf.shutdown(wait=False)
 
     events.sort(key=lambda x: (x["type"] == "SMART BULL" or x["type"] == "SMART BEAR"), reverse=True)
     out = {"events": events[:30], "generated_at": now.isoformat()}
@@ -22943,286 +22948,311 @@ def eod_accumulation():
                         "generated_at": "Yahoo throttled",
                         "note": "Yahoo rate-limited — data will refresh automatically"})
 
-    # Build universe: watchlist + unusual calls today + Yahoo top-movers screener
-    _ticker_set = set()
-    try:
-        with _pg_ea.connect(_DB_URL) as _c_ea, _c_ea.cursor() as _cu_ea:
-            _cu_ea.execute("SELECT ticker FROM morning_watchlist ORDER BY ticker")
-            for _r in _cu_ea.fetchall(): _ticker_set.add(_r[0])
-    except Exception as _e_ea:
-        print(f"[eod_accum] watchlist db error: {_e_ea}")
-    try:
-        with _pg_ea.connect(_DB_URL) as _c_ea2, _c_ea2.cursor() as _cu_ea2:
-            _cu_ea2.execute(
-                "SELECT DISTINCT ticker FROM unusual_calls_log WHERE (first_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date"
-            )
-            for _r in _cu_ea2.fetchall(): _ticker_set.add(_r[0])
-    except Exception as _e_ea2:
-        print(f"[eod_accum] calls db error: {_e_ea2}")
+    # Live scan runs in a background thread — Flask thread returns immediately
+    if getattr(app, "_eod_accum_scanning", False):
+        if _cache:
+            return jsonify({**_cache, "stale": True,
+                            "note": "Scan in progress — showing last result"})
+        return jsonify({"candidates": [], "squeeze_setups": [], "total_found": 0,
+                        "scanned": 0, "generated_at": "Scanning…",
+                        "note": "First scan in progress — check back in 60s"})
 
-    # Add Yahoo screener: any US stock up ≥1% with ≥$10M mkt cap (catches names not on watchlist)
-    try:
-        _eq_eod = _yf_ea.EquityQuery("and", [
-            _yf_ea.EquityQuery("gte", ["percentchange",    1.0]),
-            _yf_ea.EquityQuery("eq",  ["region",           "us"]),
-            _yf_ea.EquityQuery("gte", ["intradaymarketcap", 10_000_000]),
-        ])
-        for _offset in (0, 250):   # two pages = top 500 gainers
-            _pg_scr = _yf_ea.screen(_eq_eod, sortField="percentchange", sortAsc=False, size=250, offset=_offset)
-            for _q in (_pg_scr.get("quotes") or []):
-                _sym = _q.get("symbol", "")
-                if _sym and "." not in _sym and len(_sym) <= 5:
-                    _ticker_set.add(_sym)
-        print(f"[eod_accum] universe after screener: {len(_ticker_set)} tickers")
-    except Exception as _e_scr:
-        print(f"[eod_accum] screener error: {_e_scr}")
-
-    _tickers = list(_ticker_set)
-    if not _tickers:
-        return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
-                        "generated_at": _dt_ea.datetime.now().strftime("%I:%M %p ET")})
-
-    def _score_eod_ticker(ticker):
+    def _run_eod_scan():
         try:
-            tk = _yf_ea.Ticker(ticker)
-            fi = tk.fast_info
-            prev_close = float(getattr(fi, "previous_close", 0) or 0)
-            avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
-            mkt_cap    = float(getattr(fi, "market_cap", 0) or 0)
-            if prev_close <= 0 or avg_vol <= 0: return None
-
-            hist = _td_intraday(ticker, "1min")
-            if hist is None or hist.empty or len(hist) < 10: return None
-            hist.index = hist.index.tz_convert(_et)
-
-            close_px  = float(hist["Close"].iloc[-1])
-            open_px   = float(hist["Open"].iloc[0])
-            day_high  = float(hist["High"].max())
-            day_low   = float(hist["Low"].min())
-            if close_px <= 0 or day_high <= day_low: return None
-
-            price_chg = (close_px - prev_close) / prev_close * 100
-            if price_chg < -30.0: return None  # only exclude real crashes
-
-            # ── Closing range: 1.0 = at the high, 0.0 = at the low ──────────
-            closing_range = (close_px - day_low) / (day_high - day_low)
-
-            # ── Last 30-min window (3:30–4:00 PM ET) ─────────────────────────
-            eod_bars = hist[hist.index.time >= _dt_ea.time(15, 30)]
-            if eod_bars.empty: return None
-
-            eod_vol = float(eod_bars["Volume"].sum())
-
-            # Avg last-30-min volume: last 30 min ≈ 7.7% of a 390-min day.
-            avg_eod_vol = avg_vol * 0.08
-            if avg_eod_vol <= 0: return None
-            eod_rel_vol = eod_vol / avg_eod_vol
-            if eod_rel_vol < 2.5: return None  # need at least some late-day surge
-
-            # ── Late money flow (3:30–4:00 PM only) ──────────────────────────
-            late_inflow = late_outflow = 0.0
-            for _, row in eod_bars.iterrows():
-                if row["Volume"] <= 0: continue
-                avg_p = (float(row["Open"]) + float(row["Close"])) / 2
-                dv    = avg_p * float(row["Volume"])
-                if float(row["Close"]) >= float(row["Open"]): late_inflow  += dv
-                else:                                          late_outflow += dv
-            late_flow = (late_inflow / late_outflow) if late_outflow > 0 else 99.0
-
-            # ── Late price surge (how much did it move in last 30 min) ───────
-            pre_330 = hist[hist.index.time < _dt_ea.time(15, 30)]
-            price_330 = float(pre_330["Close"].iloc[-1]) if not pre_330.empty else open_px
-            late_surge = (close_px - price_330) / price_330 * 100
-
-            # ── "Quiet then surge" signal ─────────────────────────────────────
-            mid_bars  = hist[(hist.index.time >= _dt_ea.time(11, 0)) &
-                             (hist.index.time <= _dt_ea.time(14, 30))]
-            mid_vol   = float(mid_bars["Volume"].sum()) if not mid_bars.empty else 1.0
-            mid_bars_count = len(mid_bars) or 1
-            mid_vol_per_min  = mid_vol / mid_bars_count
-            eod_bars_count   = len(eod_bars) or 1
-            eod_vol_per_min  = eod_vol / eod_bars_count
-            quiet_surge = eod_vol_per_min / mid_vol_per_min if mid_vol_per_min > 0 else 1.0
-
-            # ── Determine signal type ─────────────────────────────────────────
-            # ACCUM: buyers winning, good close, quiet-then-surge → +5-15% next day
-            is_accum = (
-                late_flow >= 2.0 and
-                closing_range >= 0.50 and
-                quiet_surge >= 1.5 and
-                price_chg >= -20.0
-            )
-            # SQUEEZE: MASSIVE EOD vol (50×+) + sellers winning + weak close
-            # → shorts loading in at close, get squeezed next morning → +15-50%
-            is_squeeze = (
-                eod_rel_vol >= 50.0 and
-                late_flow < 2.0 and
-                closing_range < 0.50 and
-                close_px >= 1.0 and
-                (mkt_cap or 0) >= 20_000_000
-            )
-
-            if not (is_accum or is_squeeze):
-                return None
-
-            signal_type = "squeeze" if (is_squeeze and not is_accum) else "accum"
-
-            # ── Accumulation score ────────────────────────────────────────────
-            if signal_type == "accum":
-                # Weights: EOD rel-vol × late flow conviction × closing strength
-                accum_score = round(eod_rel_vol * min(late_flow, 10.0) * (0.5 + closing_range), 1)
-            else:
-                # Squeeze score: pure volume anomaly (the bigger the surge, the more shorts loaded)
-                accum_score = round(eod_rel_vol, 1)
-
-            # ── News catalyst check ───────────────────────────────────────────
-            # If the stock had news today it's likely a news-driven move, not a pump setup.
-            has_news       = False
-            news_headline  = None
-            news_today_cnt = 0
-            news_type      = "none"   # "hard" | "soft" | "none"
-            # Hard-news keywords: company-specific events that explain the price move.
-            _HARD_KW = {
-                "earnings","results","revenue","guidance","beats","beat","miss","misses",
-                "q1","q2","q3","q4","fiscal","quarterly","annual",
-                "merger","acquisition","acquires","buyout","takeover","deal","offer",
-                "fda","approval","approved","clearance","trial","phase",
-                "dividend","buyback","secondary","offering","ipo","spinoff",
-                "sec","lawsuit","settlement","restatement","bankruptcy","default",
-                "press release","reports","announces","raised","lowers","cuts","raises",
-                "record","outlook","forecast","reaffirm",
-            }
-            # Soft-news keywords: general analysis/comparison articles, not company events.
-            _SOFT_KW = {
-                " vs "," versus ","best stocks","top stocks","should you buy","is it a buy",
-                "watchlist","watch list","radar","analysis","analyst","target price",
-                "keep off","small-cap","mid-cap","large-cap","sector","industry",
-                "here's why","here is why","worth watching",
-            }
+            # Build universe: watchlist + unusual calls today + Yahoo top-movers screener
+            _ticker_set = set()
             try:
-                import re as _re_ea
-                _now_et   = _dt_ea.datetime.now(_et)
-                # 36-hour window: catches after-hours articles from yesterday evening
-                # (e.g., earnings transcript posted at 8 PM the night before).
-                _cutoff   = _now_et - _dt_ea.timedelta(hours=36)
+                with _pg_ea.connect(_DB_URL) as _c_ea, _c_ea.cursor() as _cu_ea:
+                    _cu_ea.execute("SELECT ticker FROM morning_watchlist ORDER BY ticker")
+                    for _r in _cu_ea.fetchall(): _ticker_set.add(_r[0])
+            except Exception as _e_ea:
+                print(f"[eod_accum] watchlist db error: {_e_ea}")
+            try:
+                with _pg_ea.connect(_DB_URL) as _c_ea2, _c_ea2.cursor() as _cu_ea2:
+                    _cu_ea2.execute(
+                        "SELECT DISTINCT ticker FROM unusual_calls_log WHERE (first_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date"
+                    )
+                    for _r in _cu_ea2.fetchall(): _ticker_set.add(_r[0])
+            except Exception as _e_ea2:
+                print(f"[eod_accum] calls db error: {_e_ea2}")
 
-                for _ni in (tk.news or [])[:8]:
-                    _pub = _ni.get("providerPublishTime") or \
-                           (_ni.get("content") or {}).get("pubDate")
-                    _pub_ts = None
-                    if isinstance(_pub, (int, float)):
-                        _pub_ts = _dt_ea.datetime.fromtimestamp(_pub, tz=_et)
-                    elif isinstance(_pub, str):
-                        try:
-                            _m = _re_ea.match(
-                                r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})", _pub)
-                            if _m:
-                                _pub_ts = _dt_ea.datetime(
-                                    int(_m.group(1)), int(_m.group(2)), int(_m.group(3)),
-                                    int(_m.group(4)), int(_m.group(5)),
-                                    tzinfo=_pytz_ea.utc,
-                                ).astimezone(_et)
-                        except Exception: pass
+            # Add Yahoo screener: any US stock up ≥1% with ≥$10M mkt cap (catches names not on watchlist)
+            try:
+                _eq_eod = _yf_ea.EquityQuery("and", [
+                    _yf_ea.EquityQuery("gte", ["percentchange",    1.0]),
+                    _yf_ea.EquityQuery("eq",  ["region",           "us"]),
+                    _yf_ea.EquityQuery("gte", ["intradaymarketcap", 10_000_000]),
+                ])
+                for _offset in (0, 250):   # two pages = top 500 gainers
+                    _pg_scr = _yf_ea.screen(_eq_eod, sortField="percentchange", sortAsc=False, size=250, offset=_offset)
+                    for _q in (_pg_scr.get("quotes") or []):
+                        _sym = _q.get("symbol", "")
+                        if _sym and "." not in _sym and len(_sym) <= 5:
+                            _ticker_set.add(_sym)
+                print(f"[eod_accum] universe after screener: {len(_ticker_set)} tickers")
+            except Exception as _e_scr:
+                print(f"[eod_accum] screener error: {_e_scr}")
 
-                    if _pub_ts and _pub_ts >= _cutoff:
-                        news_today_cnt += 1
-                        _ht = (_ni.get("title") or
-                               ((_ni.get("content") or {}).get("title") or ""))
-                        if not news_headline:
-                            news_headline = (_ht[:90]) if _ht else None
-                        _ht_l = _ht.lower()
-                        if any(kw in _ht_l for kw in _HARD_KW):
-                            news_type = "hard"
-                        elif news_type != "hard":
-                            news_type = "soft"
+            _tickers = list(_ticker_set)
+            if not _tickers:
+                return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
+                                "generated_at": _dt_ea.datetime.now().strftime("%I:%M %p ET")})
 
-                has_news = news_today_cnt > 0
-                if not has_news:
-                    news_type = "none"
-            except Exception:
-                pass
+            def _score_eod_ticker(ticker):
+                try:
+                    tk = _yf_ea.Ticker(ticker)
+                    fi = tk.fast_info
+                    prev_close = float(getattr(fi, "previous_close", 0) or 0)
+                    avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
+                    mkt_cap    = float(getattr(fi, "market_cap", 0) or 0)
+                    if prev_close <= 0 or avg_vol <= 0: return None
 
-            return {
-                "ticker":          ticker,
-                "close":           round(close_px, 2),
-                "prev_close":      round(prev_close, 2),
-                "price_chg_pct":   round(price_chg, 2),
-                "day_high":        round(day_high, 2),
-                "day_low":         round(day_low, 2),
-                "closing_range":   round(closing_range, 3),
-                "eod_vol":         int(eod_vol),
-                "eod_rel_vol":     round(eod_rel_vol, 1),
-                "late_flow":       round(min(late_flow, 99.0), 1),
-                "late_surge_pct":  round(late_surge, 2),
-                "quiet_surge":     round(quiet_surge, 1),
-                "accum_score":     accum_score,
-                "signal_type":     signal_type,
-                "mkt_cap_m":       round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
-                "has_news":        has_news,
-                "news_headline":   news_headline,
-                "news_today_cnt":  news_today_cnt,
-                "news_type":       news_type,
+                    hist = _td_intraday(ticker, "1min")
+                    if hist is None or hist.empty or len(hist) < 10: return None
+                    hist.index = hist.index.tz_convert(_et)
+
+                    close_px  = float(hist["Close"].iloc[-1])
+                    open_px   = float(hist["Open"].iloc[0])
+                    day_high  = float(hist["High"].max())
+                    day_low   = float(hist["Low"].min())
+                    if close_px <= 0 or day_high <= day_low: return None
+
+                    price_chg = (close_px - prev_close) / prev_close * 100
+                    if price_chg < -30.0: return None  # only exclude real crashes
+
+                    # ── Closing range: 1.0 = at the high, 0.0 = at the low ──────────
+                    closing_range = (close_px - day_low) / (day_high - day_low)
+
+                    # ── Last 30-min window (3:30–4:00 PM ET) ─────────────────────────
+                    eod_bars = hist[hist.index.time >= _dt_ea.time(15, 30)]
+                    if eod_bars.empty: return None
+
+                    eod_vol = float(eod_bars["Volume"].sum())
+
+                    # Avg last-30-min volume: last 30 min ≈ 7.7% of a 390-min day.
+                    avg_eod_vol = avg_vol * 0.08
+                    if avg_eod_vol <= 0: return None
+                    eod_rel_vol = eod_vol / avg_eod_vol
+                    if eod_rel_vol < 2.5: return None  # need at least some late-day surge
+
+                    # ── Late money flow (3:30–4:00 PM only) ──────────────────────────
+                    late_inflow = late_outflow = 0.0
+                    for _, row in eod_bars.iterrows():
+                        if row["Volume"] <= 0: continue
+                        avg_p = (float(row["Open"]) + float(row["Close"])) / 2
+                        dv    = avg_p * float(row["Volume"])
+                        if float(row["Close"]) >= float(row["Open"]): late_inflow  += dv
+                        else:                                          late_outflow += dv
+                    late_flow = (late_inflow / late_outflow) if late_outflow > 0 else 99.0
+
+                    # ── Late price surge (how much did it move in last 30 min) ───────
+                    pre_330 = hist[hist.index.time < _dt_ea.time(15, 30)]
+                    price_330 = float(pre_330["Close"].iloc[-1]) if not pre_330.empty else open_px
+                    late_surge = (close_px - price_330) / price_330 * 100
+
+                    # ── "Quiet then surge" signal ─────────────────────────────────────
+                    mid_bars  = hist[(hist.index.time >= _dt_ea.time(11, 0)) &
+                                     (hist.index.time <= _dt_ea.time(14, 30))]
+                    mid_vol   = float(mid_bars["Volume"].sum()) if not mid_bars.empty else 1.0
+                    mid_bars_count = len(mid_bars) or 1
+                    mid_vol_per_min  = mid_vol / mid_bars_count
+                    eod_bars_count   = len(eod_bars) or 1
+                    eod_vol_per_min  = eod_vol / eod_bars_count
+                    quiet_surge = eod_vol_per_min / mid_vol_per_min if mid_vol_per_min > 0 else 1.0
+
+                    # ── Determine signal type ─────────────────────────────────────────
+                    # ACCUM: buyers winning, good close, quiet-then-surge → +5-15% next day
+                    is_accum = (
+                        late_flow >= 2.0 and
+                        closing_range >= 0.50 and
+                        quiet_surge >= 1.5 and
+                        price_chg >= -20.0
+                    )
+                    # SQUEEZE: MASSIVE EOD vol (50×+) + sellers winning + weak close
+                    # → shorts loading in at close, get squeezed next morning → +15-50%
+                    is_squeeze = (
+                        eod_rel_vol >= 50.0 and
+                        late_flow < 2.0 and
+                        closing_range < 0.50 and
+                        close_px >= 1.0 and
+                        (mkt_cap or 0) >= 20_000_000
+                    )
+
+                    if not (is_accum or is_squeeze):
+                        return None
+
+                    signal_type = "squeeze" if (is_squeeze and not is_accum) else "accum"
+
+                    # ── Accumulation score ────────────────────────────────────────────
+                    if signal_type == "accum":
+                        # Weights: EOD rel-vol × late flow conviction × closing strength
+                        accum_score = round(eod_rel_vol * min(late_flow, 10.0) * (0.5 + closing_range), 1)
+                    else:
+                        # Squeeze score: pure volume anomaly (the bigger the surge, the more shorts loaded)
+                        accum_score = round(eod_rel_vol, 1)
+
+                    # ── News catalyst check ───────────────────────────────────────────
+                    # If the stock had news today it's likely a news-driven move, not a pump setup.
+                    has_news       = False
+                    news_headline  = None
+                    news_today_cnt = 0
+                    news_type      = "none"   # "hard" | "soft" | "none"
+                    # Hard-news keywords: company-specific events that explain the price move.
+                    _HARD_KW = {
+                        "earnings","results","revenue","guidance","beats","beat","miss","misses",
+                        "q1","q2","q3","q4","fiscal","quarterly","annual",
+                        "merger","acquisition","acquires","buyout","takeover","deal","offer",
+                        "fda","approval","approved","clearance","trial","phase",
+                        "dividend","buyback","secondary","offering","ipo","spinoff",
+                        "sec","lawsuit","settlement","restatement","bankruptcy","default",
+                        "press release","reports","announces","raised","lowers","cuts","raises",
+                        "record","outlook","forecast","reaffirm",
+                    }
+                    # Soft-news keywords: general analysis/comparison articles, not company events.
+                    _SOFT_KW = {
+                        " vs "," versus ","best stocks","top stocks","should you buy","is it a buy",
+                        "watchlist","watch list","radar","analysis","analyst","target price",
+                        "keep off","small-cap","mid-cap","large-cap","sector","industry",
+                        "here's why","here is why","worth watching",
+                    }
+                    try:
+                        import re as _re_ea
+                        _now_et   = _dt_ea.datetime.now(_et)
+                        # 36-hour window: catches after-hours articles from yesterday evening
+                        # (e.g., earnings transcript posted at 8 PM the night before).
+                        _cutoff   = _now_et - _dt_ea.timedelta(hours=36)
+
+                        for _ni in (tk.news or [])[:8]:
+                            _pub = _ni.get("providerPublishTime") or \
+                                   (_ni.get("content") or {}).get("pubDate")
+                            _pub_ts = None
+                            if isinstance(_pub, (int, float)):
+                                _pub_ts = _dt_ea.datetime.fromtimestamp(_pub, tz=_et)
+                            elif isinstance(_pub, str):
+                                try:
+                                    _m = _re_ea.match(
+                                        r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})", _pub)
+                                    if _m:
+                                        _pub_ts = _dt_ea.datetime(
+                                            int(_m.group(1)), int(_m.group(2)), int(_m.group(3)),
+                                            int(_m.group(4)), int(_m.group(5)),
+                                            tzinfo=_pytz_ea.utc,
+                                        ).astimezone(_et)
+                                except Exception: pass
+
+                            if _pub_ts and _pub_ts >= _cutoff:
+                                news_today_cnt += 1
+                                _ht = (_ni.get("title") or
+                                       ((_ni.get("content") or {}).get("title") or ""))
+                                if not news_headline:
+                                    news_headline = (_ht[:90]) if _ht else None
+                                _ht_l = _ht.lower()
+                                if any(kw in _ht_l for kw in _HARD_KW):
+                                    news_type = "hard"
+                                elif news_type != "hard":
+                                    news_type = "soft"
+
+                        has_news = news_today_cnt > 0
+                        if not has_news:
+                            news_type = "none"
+                    except Exception:
+                        pass
+
+                    return {
+                        "ticker":          ticker,
+                        "close":           round(close_px, 2),
+                        "prev_close":      round(prev_close, 2),
+                        "price_chg_pct":   round(price_chg, 2),
+                        "day_high":        round(day_high, 2),
+                        "day_low":         round(day_low, 2),
+                        "closing_range":   round(closing_range, 3),
+                        "eod_vol":         int(eod_vol),
+                        "eod_rel_vol":     round(eod_rel_vol, 1),
+                        "late_flow":       round(min(late_flow, 99.0), 1),
+                        "late_surge_pct":  round(late_surge, 2),
+                        "quiet_surge":     round(quiet_surge, 1),
+                        "accum_score":     accum_score,
+                        "signal_type":     signal_type,
+                        "mkt_cap_m":       round(mkt_cap / 1_000_000, 1) if mkt_cap else None,
+                        "has_news":        has_news,
+                        "news_headline":   news_headline,
+                        "news_today_cnt":  news_today_cnt,
+                        "news_type":       news_type,
+                    }
+                except Exception:
+                    return None
+
+            _results_ea = []
+            with _TPE_ea(max_workers=25) as _ex_ea:
+                _futs_ea = {_ex_ea.submit(_score_eod_ticker, t): t for t in _tickers}
+                for _fut_ea in _ac_ea(_futs_ea):
+                    _r_ea = _fut_ea.result()
+                    if _r_ea: _results_ea.append(_r_ea)
+
+            # ── Split into accumulation vs squeeze setups ─────────────────────────
+            _accum_ea   = [r for r in _results_ea if r.get("signal_type") != "squeeze"]
+            _squeeze_ea = [r for r in _results_ea if r.get("signal_type") == "squeeze"]
+            _accum_ea.sort(  key=lambda x: -x["accum_score"])
+            _squeeze_ea.sort(key=lambda x: -x["accum_score"])  # squeeze score = eod_rel_vol
+
+            # ── Enrich top picks with short interest + anchored VWAP ──────────────
+            _enrich_pool = (_accum_ea[:15] + _squeeze_ea[:15])
+            def _enrich_ea(_r):
+                for _k, _v in _get_short_data(_r["ticker"]).items():
+                    if _r.get(_k) is None:   # never overwrite an already-computed value
+                        _r[_k] = _v
+            with _TPE_ea(max_workers=10) as _ex_short:
+                list(_ex_short.map(_enrich_ea, _enrich_pool))
+
+            # ── Persist today's top picks to DB ────────────────────────────────────
+            _scan_date_ea = _et_today().isoformat()
+            _persist_ea = (_accum_ea[:15] + _squeeze_ea[:10])
+            try:
+                with _pg_ea.connect(_DB_URL) as _c_sv, _c_sv.cursor() as _cu_sv:
+                    for _r in _persist_ea:
+                        _cu_sv.execute("""
+                            INSERT INTO eod_accum_picks
+                                (scan_date, ticker, close_price, accum_score, news_type, news_headline,
+                                 eod_rel_vol, late_flow, closing_range, price_chg_pct, mkt_cap_m, signal_type)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (scan_date, ticker) DO UPDATE SET
+                                close_price=EXCLUDED.close_price, accum_score=EXCLUDED.accum_score,
+                                news_type=EXCLUDED.news_type, news_headline=EXCLUDED.news_headline,
+                                eod_rel_vol=EXCLUDED.eod_rel_vol, late_flow=EXCLUDED.late_flow,
+                                closing_range=EXCLUDED.closing_range, price_chg_pct=EXCLUDED.price_chg_pct,
+                                mkt_cap_m=EXCLUDED.mkt_cap_m, signal_type=EXCLUDED.signal_type, scanned_at=NOW()
+                        """, (_scan_date_ea, _r["ticker"], _r["close"], _r["accum_score"],
+                              _r["news_type"], _r["news_headline"], _r["eod_rel_vol"],
+                              _r["late_flow"], _r["closing_range"], _r["price_chg_pct"],
+                              _r["mkt_cap_m"], _r.get("signal_type", "accum")))
+                    _c_sv.commit()
+            except Exception as _e_sv:
+                print(f"[eod_accum] db save error: {_e_sv}")
+
+            _out_ea = {
+                "candidates":     _accum_ea[:15],
+                "squeeze_setups": _squeeze_ea[:10],
+                "total_found":    len(_results_ea),
+                "scanned":        len(_tickers),
+                "generated_at":   _dt_ea.datetime.now().strftime("%I:%M %p ET"),
             }
-        except Exception:
-            return None
+            app._eod_accum_cache    = _out_ea
+            app._eod_accum_cache_ts = _dt_ea.datetime.now()
+    
+        except Exception as _e_bg:
+            print(f"[eod_accum] background scan error: {_e_bg}")
+        finally:
+            app._eod_accum_scanning = False
 
-    _results_ea = []
-    with _TPE_ea(max_workers=25) as _ex_ea:
-        _futs_ea = {_ex_ea.submit(_score_eod_ticker, t): t for t in _tickers}
-        for _fut_ea in _ac_ea(_futs_ea):
-            _r_ea = _fut_ea.result()
-            if _r_ea: _results_ea.append(_r_ea)
-
-    # ── Split into accumulation vs squeeze setups ─────────────────────────
-    _accum_ea   = [r for r in _results_ea if r.get("signal_type") != "squeeze"]
-    _squeeze_ea = [r for r in _results_ea if r.get("signal_type") == "squeeze"]
-    _accum_ea.sort(  key=lambda x: -x["accum_score"])
-    _squeeze_ea.sort(key=lambda x: -x["accum_score"])  # squeeze score = eod_rel_vol
-
-    # ── Enrich top picks with short interest + anchored VWAP ──────────────
-    _enrich_pool = (_accum_ea[:15] + _squeeze_ea[:15])
-    def _enrich_ea(_r):
-        for _k, _v in _get_short_data(_r["ticker"]).items():
-            if _r.get(_k) is None:   # never overwrite an already-computed value
-                _r[_k] = _v
-    with _TPE_ea(max_workers=10) as _ex_short:
-        list(_ex_short.map(_enrich_ea, _enrich_pool))
-
-    # ── Persist today's top picks to DB ────────────────────────────────────
-    _scan_date_ea = _et_today().isoformat()
-    _persist_ea = (_accum_ea[:15] + _squeeze_ea[:10])
-    try:
-        with _pg_ea.connect(_DB_URL) as _c_sv, _c_sv.cursor() as _cu_sv:
-            for _r in _persist_ea:
-                _cu_sv.execute("""
-                    INSERT INTO eod_accum_picks
-                        (scan_date, ticker, close_price, accum_score, news_type, news_headline,
-                         eod_rel_vol, late_flow, closing_range, price_chg_pct, mkt_cap_m, signal_type)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (scan_date, ticker) DO UPDATE SET
-                        close_price=EXCLUDED.close_price, accum_score=EXCLUDED.accum_score,
-                        news_type=EXCLUDED.news_type, news_headline=EXCLUDED.news_headline,
-                        eod_rel_vol=EXCLUDED.eod_rel_vol, late_flow=EXCLUDED.late_flow,
-                        closing_range=EXCLUDED.closing_range, price_chg_pct=EXCLUDED.price_chg_pct,
-                        mkt_cap_m=EXCLUDED.mkt_cap_m, signal_type=EXCLUDED.signal_type, scanned_at=NOW()
-                """, (_scan_date_ea, _r["ticker"], _r["close"], _r["accum_score"],
-                      _r["news_type"], _r["news_headline"], _r["eod_rel_vol"],
-                      _r["late_flow"], _r["closing_range"], _r["price_chg_pct"],
-                      _r["mkt_cap_m"], _r.get("signal_type", "accum")))
-            _c_sv.commit()
-    except Exception as _e_sv:
-        print(f"[eod_accum] db save error: {_e_sv}")
-
-    _out_ea = {
-        "candidates":     _accum_ea[:15],
-        "squeeze_setups": _squeeze_ea[:10],
-        "total_found":    len(_results_ea),
-        "scanned":        len(_tickers),
-        "generated_at":   _dt_ea.datetime.now().strftime("%I:%M %p ET"),
-    }
-    app._eod_accum_cache    = _out_ea
-    app._eod_accum_cache_ts = _dt_ea.datetime.now()
-    return jsonify(_out_ea)
+    app._eod_accum_scanning = True
+    import threading as _thr_ea
+    _thr_ea.Thread(target=_run_eod_scan, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True,
+                        "note": "Refreshing in background…"})
+    return jsonify({"candidates": [], "squeeze_setups": [], "total_found": 0,
+                    "scanned": 0, "generated_at": "Scanning…",
+                    "note": "Scan started — results in ~60s"})
 
 
 @app.route("/stock-api/eod-accum-track", methods=["GET"])
