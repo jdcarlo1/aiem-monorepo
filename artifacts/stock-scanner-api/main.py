@@ -941,6 +941,9 @@ _OWNER_EMAIL = os.getenv("ALERT_EMAIL", "joeldcarlo@gmail.com")
 # once and trip yfinance rate limits.
 import threading as _threading
 _CONVICTION_SCAN_LOCK = _threading.Lock()
+# Prevents concurrent Polygon grouped-daily calls from doubling the request rate
+# and tripping the Starter plan 5-req/min cap (each scan already sleeps 13s between calls).
+_POLYGON_RVOL_LOCK = _threading.Lock()
 # Serializes the wake-up catch-up so two simultaneous requests can't split the
 # due slots between threads and each send a "collapsed" email for the same window.
 _OWNER_CATCHUP_LOCK = _threading.Lock()
@@ -24401,18 +24404,25 @@ def _polygon_full_market_scan() -> list:
     Scan all 11,000+ US stocks for unusual relative volume using Polygon grouped daily.
     Uses 5 API calls total. Returns top movers sorted by RVOL descending.
     Caches in app._cache['polygon_rvol'] and persists to DB.
+    Lock prevents concurrent runs from doubling the Polygon request rate.
     """
+    if not _POLYGON_RVOL_LOCK.acquire(blocking=False):
+        app.logger.info("[polygon_rvol] scan already running — skipping concurrent call")
+        cached = getattr(app, "_polygon_rvol_cache", {})
+        return cached.get("movers", [])
+
     import time as _t2
 
     days = _polygon_recent_trading_days(5)
     if not days:
+        _POLYGON_RVOL_LOCK.release()
         return []
 
     app.logger.info(f"[polygon_rvol] fetching up to {len(days)} candidate days: {days[:5]}...")
     daily_data = []
     for _day in days:
         _data = _polygon_grouped_daily(_day)
-        _t2.sleep(0.7)
+        _t2.sleep(13)  # Polygon Starter = 5 req/min → need ≥12s between calls
         if not _data:
             app.logger.info(f"[polygon_rvol] {_day}: 0 tickers (holiday/error) — skipping")
             continue
@@ -24422,6 +24432,7 @@ def _polygon_full_market_scan() -> list:
             break
 
     if not daily_data:
+        _POLYGON_RVOL_LOCK.release()
         return []
 
     yesterday_day, yesterday_data = daily_data[0]
@@ -24518,6 +24529,7 @@ def _polygon_full_market_scan() -> list:
     except Exception as _e3:
         app.logger.error(f"[polygon_rvol] DB save error: {_e3}")
 
+    _POLYGON_RVOL_LOCK.release()
     return top
 
 

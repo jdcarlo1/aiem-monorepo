@@ -19,8 +19,10 @@ The global `requests.Session.__init__` is patched in main.py to inject the Yahoo
 ## DB table
 `polygon_rvol_scan` — columns: scan_date, ticker, price, open_price, high, low, vwap, gap_pct, volume, avg_volume, rvol, close_strength. UNIQUE(scan_date, ticker).
 
-## Holiday handling
-June 19 (Juneteenth) = 0 results from Polygon. Function fetches n+3 candidates and skips any day returning empty dict. 0.7s sleep between API calls to stay within 3 req/sec Polygon Starter limit.
+## Rate limit: 13s sleep + lock (CRITICAL)
+Polygon Starter = 5 req/min. Must sleep 13s between each grouped-daily call or Polygon returns 429.
+`_POLYGON_RVOL_LOCK` (threading.Lock) prevents concurrent runs (startup catchup + admin trigger firing simultaneously) from doubling the call rate. Non-blocking acquire: second caller returns cached data immediately.
+June 19 (Juneteenth) = 0 results from Polygon — expected, function skips and tries next day.
 
 ## What the scan catches
 - RTB appeared in June 22 scan at #26 (RVOL=5.1x, +20.4%) — the stock that ran +151% over 5 days
