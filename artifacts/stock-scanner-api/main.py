@@ -14150,7 +14150,12 @@ def squeeze_detector():
 @app.route("/stock-api/insider/trades", methods=["GET"])
 def insider_trades_route():
     if _yf_breaker_open():
-        return jsonify({"trades": [], "count": 0, "stale": True})
+        _it_db = _load_scan_cache("insider-trades", days_back=7)
+        if _it_db:
+            return jsonify({**_it_db, "stale": True,
+                            "note": "Yahoo throttled — showing last saved insider activity"})
+        return jsonify({"trades": [], "count": 0, "stale": True,
+                        "note": "Yahoo throttled — no cached data yet"})
     days    = int(request.args.get("days", 30))
     tickers = DEFAULT_LEADERBOARD
     from concurrent.futures import ThreadPoolExecutor as _TPE_it, TimeoutError as _TOE_it
@@ -14160,10 +14165,17 @@ def insider_trades_route():
         trades = _fut_it.result(timeout=4.0)
     except _TOE_it:
         _ex_it.shutdown(wait=False, cancel_futures=True)
+        _it_db = _load_scan_cache("insider-trades", days_back=7)
+        if _it_db:
+            return jsonify({**_it_db, "stale": True,
+                            "note": "fetch timeout — showing last saved insider activity"})
         return jsonify({"trades": [], "count": 0, "stale": True,
                         "note": "fetch timeout — serving empty; Yahoo may be throttled"})
     _ex_it.shutdown(wait=False)
-    return jsonify({"trades": trades, "count": len(trades)})
+    _it_out = {"trades": trades, "count": len(trades)}
+    if trades:
+        _save_scan_cache("insider-trades", _it_out)
+    return jsonify(_it_out)
 
 
 @app.route("/stock-api/ai/thesis", methods=["POST"])
