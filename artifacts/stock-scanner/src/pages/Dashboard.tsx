@@ -5749,7 +5749,7 @@ function MultiSignalTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
 
       <div style={{ marginTop: 22, padding: "13px 16px", background: "rgba(167,139,250,0.04)", border: "1px solid rgba(167,139,250,0.1)", borderRadius: 12 }}>
         <p style={{ fontFamily: BB, fontSize: 10, color: "#64748b", margin: 0, lineHeight: 2 }}>
-          <strong style={{ color: "#a78bfa" }}>How it works:</strong> {maxSig} independent signals checked per ticker: 8 live quant (volume, momentum, 52wk high) + 13 cross-referenced from your real scanner caches (dark pool, unusual calls, gamma wall, max pain, vol crush, squeeze, whale, AI trades, bull flow, quant score, cheap IV, call intent, morning runners).<br/>
+          <strong style={{ color: "#a78bfa" }}>How it works:</strong> {maxSig} independent signals checked per ticker: 8 live quant (volume, momentum, 52wk high) + cross-referenced from your real scanner caches (dark pool, unusual calls, gamma wall, squeeze, whale, AI trades, bull flow, quant score, cheap IV, morning runners).<br/>
           <strong style={{ color: "#fbbf24" }}>Click any row</strong> → AI generates a single thesis using ALL convergent signals at once. <strong style={{ color: "#4ade80" }}>★ Star</strong> any row to save it to your watchlist.
         </p>
       </div>
@@ -13803,11 +13803,6 @@ export default function Dashboard() {
     { id: "morningbrief", label: "🌅 MORNING BRIEF" },
     { id: "convergence",  label: "⚡ CONVERGENCE" },
     { id: "darkpool",     label: "🌑 DARK POOL" },
-    { id: "putintent",    label: "🎯 PUT INTENT" },
-    { id: "callintent",   label: "🔵 CALL INTENT" },
-    { id: "volcrush",     label: "🌡️ VOL CRUSH" },
-    { id: "smartvretail", label: "⚔️ SMART vs RETAIL" },
-    { id: "maxpain",      label: "📍 MAX PAIN" },
     { id: "gammawall",    label: "🧲 GAMMA WALL" },
     { id: "premarket",    label: "PRE-MARKET" },
     { id: "bullflow",     label: "BULL FLOW" },
