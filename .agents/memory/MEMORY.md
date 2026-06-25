@@ -56,3 +56,4 @@
 - [Startup cache preload](startup-cache-preload.md) — boot preload fills unusual-calls cache from DB in 5s; use inline SQL (not _load_todays_unusual_calls_from_db which is defined later in file)
 - [Tradier setup](tradier-setup.md) — paper account token gives 401 on quotes/chains; needs brokerage account; fills Polygon market-hours OI gap; integration point is _scan_one before Polygon
 - [Flow Streak ignition signal](flow-streak-ignition.md) — rvol≥1.5× + day≥3% + close_pos≥0.70 on same streak day; derived from ASTE/AMLX backtest; 71/851 stocks flagged on first live scan
+- [Short Calls grading fix](short-calls-grading-fix.md) — _parse_expiry_date NameError + outcome-stuck-OPEN bug; both fixed; startup trigger added

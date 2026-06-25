@@ -11725,7 +11725,7 @@ def _parse_expiry_date(expiry_str, trade_date):
     """Parse an options expiry string into a date. Returns None if unparseable."""
     if not expiry_str:
         return None
-    from datetime import date as _d, timedelta as _td
+    from datetime import date as _d, datetime as _dt, timedelta as _td
     import re as _re
     s = expiry_str.strip()
     # Try common explicit formats
@@ -11958,11 +11958,12 @@ def _update_ai_short_call_outcomes():
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT id, ticker, trade_date, stock_price, strike, breakeven, expiry,
-                       t1_price, t3_price, t5_price, expiry_price
+                       t1_price, t3_price, t5_price, expiry_price,
+                       t1_win, t3_win, t5_win, expiry_win
                 FROM ai_short_calls_log
                 WHERE outcome = 'OPEN'
-                ORDER BY trade_date DESC
-                LIMIT 100
+                ORDER BY trade_date ASC
+                LIMIT 150
             """)
             rows = cur.fetchall()
             if not rows:
@@ -11970,35 +11971,54 @@ def _update_ai_short_call_outcomes():
             today = _date3.today()
 
             def _fetch_close(ticker, target_dt):
+                # Try Tradier first (fast, paid, reliable)
                 try:
                     _h = _td_history(ticker, start_date=str(target_dt))
-                    return float(_h["Close"].iloc[0]) if _h is not None and not _h.empty else None
+                    if _h is not None and not _h.empty:
+                        return float(_h["Close"].iloc[0])
                 except Exception:
-                    return None
+                    pass
+                # Fallback: yfinance historical (slower but broader coverage)
+                try:
+                    import yfinance as _yf_sc
+                    end_dt = target_dt + _td3(days=7)
+                    _tkr = _yf_sc.Ticker(ticker)
+                    _hf = _tkr.history(start=str(target_dt), end=str(end_dt), timeout=8)
+                    if _hf is not None and not _hf.empty:
+                        return float(_hf["Close"].iloc[0])
+                except Exception:
+                    pass
+                return None
 
             def _scwin(close, p0, bkeven):
-                """WIN = stock closed above breakeven. Fallback: up >=2%."""
+                """WIN = stock closed at or above breakeven. Fallback: up >=2%."""
                 if close is None or p0 is None:
                     return None
                 if bkeven and bkeven > 0:
                     return close >= bkeven
                 return (close - p0) / p0 * 100 >= 2.0
 
+            updated = 0
             for row in rows:
-                id_, ticker, trade_date, p0, strike, bkeven, expiry_str, t1p, t3p, t5p, exp_p = row
+                (id_, ticker, trade_date, p0, strike, bkeven, expiry_str,
+                 t1p, t3p, t5p, exp_p,
+                 t1w, t3w, t5w, exp_w) = row
                 updates = {}
 
-                # Expiry outcome
                 exp_date = _parse_expiry_date(expiry_str, trade_date)
+
+                # Expiry outcome — fetch if expiry passed and not yet recorded
                 if exp_date and exp_date <= today and exp_p is None:
                     close = _fetch_close(ticker, exp_date)
                     if close is not None and p0:
                         pct = round((close - p0) / p0 * 100, 2)
                         updates["expiry_price"] = close
                         updates["expiry_pct"]   = pct
-                        updates["expiry_win"]   = _scwin(close, p0, bkeven)
+                        w = _scwin(close, p0, bkeven)
+                        updates["expiry_win"]   = w
+                        exp_w = w  # use for outcome resolution below
 
-                # T+1, T+3, T+5
+                # T+1, T+3, T+5 — fetch each if target date has passed and not yet recorded
                 for n, col_p, col_pct, col_win, existing in [
                     (1, "t1_price", "t1_pct", "t1_win", t1p),
                     (3, "t3_price", "t3_pct", "t3_win", t3p),
@@ -12014,28 +12034,54 @@ def _update_ai_short_call_outcomes():
                         pct = round((close - p0) / p0 * 100, 2)
                         updates[col_p]   = close
                         updates[col_pct] = pct
-                        updates[col_win] = _scwin(close, p0, bkeven)
+                        w = _scwin(close, p0, bkeven)
+                        updates[col_win] = w
+                        # keep local vars in sync for outcome resolution
+                        if col_win == "t1_win": t1w = w
+                        elif col_win == "t3_win": t3w = w
+                        elif col_win == "t5_win": t5w = w
 
-                if updates:
-                    exp_win_val = updates.get("expiry_win")
-                    t5_pct_val  = updates.get("t5_pct")
-                    t5_close    = updates.get("t5_price")
-                    outcome = "OPEN"
-                    if exp_win_val is not None:
-                        outcome = "WIN" if exp_win_val else "LOSS"
-                    elif t5_pct_val is not None:
-                        outcome = "WIN" if _scwin(t5_close, p0, bkeven) else "LOSS"
+                # Resolve outcome using ALL available data (existing + newly fetched).
+                # Priority: expiry_win > t5_win > t3_win (expiry past) > t1_win (expiry well past)
+                outcome = "OPEN"
+                if exp_w is not None:
+                    outcome = "WIN" if exp_w else "LOSS"
+                elif t5w is not None:
+                    outcome = "WIN" if t5w else "LOSS"
+                elif t3w is not None and exp_date and exp_date <= today:
+                    outcome = "WIN" if t3w else "LOSS"
+                elif t1w is not None and exp_date and exp_date and exp_date <= (today - _td3(days=3)):
+                    outcome = "WIN" if t1w else "LOSS"
+
+                # Write update whenever: new prices were fetched OR outcome can now be resolved
+                if updates or outcome != "OPEN":
                     updates["outcome"] = outcome
                     set_sql = ", ".join(f"{k} = %s" for k in updates)
                     cur.execute(f"UPDATE ai_short_calls_log SET {set_sql} WHERE id = %s",
                                 list(updates.values()) + [id_])
+                    updated += 1
+
             conn.commit()
-        print(f"[ai_short_calls_log] outcomes updated for {len(rows)} entries")
+        print(f"[ai_short_calls_log] outcomes updated for {updated} entries")
     except Exception as e:
         print(f"[ai_short_calls_log] update_outcomes error: {e}")
+        import traceback as _tb_sc; _tb_sc.print_exc()
 
 
 _init_ai_short_calls_log_table()
+
+# Startup: grade any unresolved picks in the background (catches up after redeploy)
+def _startup_grade_short_calls():
+    import threading as _thr_sg
+    def _bg():
+        import time as _time_sg
+        _time_sg.sleep(30)  # let other startup jobs settle first
+        try:
+            _update_ai_short_call_outcomes()
+        except Exception as _e:
+            print(f"[startup_grade] error: {_e}")
+    _thr_sg.Thread(target=_bg, daemon=True).start()
+_startup_grade_short_calls()
 
 
 def _init_signal_history_table():
