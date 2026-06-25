@@ -166,7 +166,7 @@ function MultipleChoice({
               ) : isSelected ? (
                 "✓"
               ) : (
-                opt.letter
+                displayLabel
               )}
             </div>
             <div className="pt-1 text-base font-medium leading-snug">{opt.text}</div>

@@ -3,6 +3,7 @@
 - [Yahoo breaker cooldown](yf-breaker-cooldown.md) — must be ≥300s; 60s caused trip→probe→trip spiral all morning; do not reduce
 - [Market-open tab spinners](market-open-spinners.md) — _yahoo_breaker NameError killed market_overview+squeeze_setup; 5 endpoints missing breaker guard; breaker conventions
 - [NCLEX Prep project state](nclex-prep-state.md) — question bank counts, categories, next question number, stack, and key constraints
+- [NCLEX always-B root cause](nclex-always-b.md) — 72% of questions had correct_letter="B" in DB (generation bug); fix = PL/pgSQL Fisher-Yates shuffle of options + correct_letter update; also clean explanation texts of letter refs
 - [Payment flow fixes](payment-flow-fixes.md) — three critical bugs fixed: webhook URL, success/cancel URL, webhook handler crash
 - [StockScanner AI state](stockscanner-state.md) — full product state: landing page design, Stripe setup, SMS live via email gateway, key files, scheduler times
 - [Alert delivery channel](sms-delivery-solution.md) — alerts are EMAIL-ONLY now (Twilio+tmomail removed); never gate scan logic on a delivery channel's availability
