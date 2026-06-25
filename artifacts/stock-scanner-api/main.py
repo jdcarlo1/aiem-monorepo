@@ -1816,16 +1816,17 @@ try:
         id="eod_scan",
         replace_existing=True,
     )
-    # Grinder EOD scan: Mon-Fri 4:20 PM ET — Polygon grouped daily + FINRA dark pool (no yfinance)
+    # Grinder morning scan: Mon-Fri 8:30 AM ET — uses previous 2 days' complete Polygon bars
+    # Runs pre-market so the watchlist is ready before the bell for same-day entries.
     def _run_grinder_eod():
         try:
             import threading as _thr_ge
             _thr_ge.Thread(target=run_grinder_eod_scan, daemon=True).start()
         except Exception as _e_ge:
-            print(f"[scheduler] grinder eod scan error: {_e_ge}")
+            print(f"[scheduler] grinder scan error: {_e_ge}")
     _scheduler.add_job(
         _run_grinder_eod,
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=20, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=30, timezone=_ET),
         id="grinder_eod_scan",
         replace_existing=True,
     )

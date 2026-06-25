@@ -14880,7 +14880,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {stale && (
-                        <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">⏳ Scan: 4:20 PM ET</span>
+                        <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">⏳ Next scan: 8:30 AM ET</span>
                       )}
                       <span className="text-slate-600 text-xs">{data?.as_of}</span>
                       <button
@@ -14908,7 +14908,7 @@ export default function Dashboard() {
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 text-center">
                     <div className="text-slate-400 text-sm">No results yet</div>
                     <div className="text-slate-600 text-xs mt-1">
-                      {data?.note ?? "Scan runs 4:20 PM ET weekdays · uses Polygon + FINRA data only"}
+                      {data?.note ?? "Scan runs 8:30 AM ET weekdays · uses Polygon + FINRA data only"}
                     </div>
                   </div>
                 )}
@@ -14984,6 +14984,7 @@ export default function Dashboard() {
                   <div>• <span className="text-slate-300">4 required filters:</span> two-day slow grind (0.4–4% each day) · D2 low &gt; D1 low · both days closed in top half of range · FINRA off-exchange ≥ 48%</div>
                   <div>• <span className="text-slate-300">Score</span> = avg daily gain × higher-low bonus (1.4×) × close-position bonus × dark pool bonus (1.2–1.5×)</div>
                   <div>• <span className="text-slate-300">Dark pool signals:</span> EXTREME ≥ 65% · HIGH ≥ 58% · ELEVATED ≥ 52% · NOTABLE ≥ 48%</div>
+                  <div>• <span className="text-slate-300">Timing:</span> Scans at 8:30 AM ET using prior 2 days' complete Polygon bars — watchlist is ready before the bell so you can enter Day 2 during the session</div>
                   <div>• <span className="text-slate-300">Data:</span> Polygon grouped daily + FINRA Reg SHO — no Yahoo/yfinance, never causes throttling on other tabs</div>
                 </div>
               </div>
