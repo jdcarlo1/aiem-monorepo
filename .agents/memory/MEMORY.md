@@ -55,3 +55,4 @@
 - [Unusual-calls threshold mismatch](unusual-calls-threshold-mismatch.md) — scan min_voi and endpoint DB vol_oi filters are separate gates; must keep in sync; microcap endpoint returns `signals` key not `hits`; OTM lower bound is -15%
 - [Startup cache preload](startup-cache-preload.md) — boot preload fills unusual-calls cache from DB in 5s; use inline SQL (not _load_todays_unusual_calls_from_db which is defined later in file)
 - [Tradier setup](tradier-setup.md) — paper account token gives 401 on quotes/chains; needs brokerage account; fills Polygon market-hours OI gap; integration point is _scan_one before Polygon
+- [Flow Streak ignition signal](flow-streak-ignition.md) — rvol≥1.5× + day≥3% + close_pos≥0.70 on same streak day; derived from ASTE/AMLX backtest; 71/851 stocks flagged on first live scan

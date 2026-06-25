@@ -1784,6 +1784,10 @@ export interface NetFlowStreakRow {
   avg_pct_per_day:  number | null; // avg % of mktcap per day
   cap_tier:         string;
   days:             NetFlowDayDot[];
+  // Ignition signal (ASTE/AMLX backtest-derived)
+  has_ignition:     boolean;      // rvol≥1.5x + day≥3% + close in top 70% of range
+  max_rvol:         number;       // peak relative volume during streak
+  max_day_pct:      number;       // peak single-day gain during streak
 }
 
 export interface NetFlowStreakResult {

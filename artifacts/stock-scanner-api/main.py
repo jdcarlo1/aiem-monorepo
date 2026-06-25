@@ -13604,17 +13604,35 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
                 pass
 
             # Build per-day flow list (oldest → newest)
-            daily = []
+            # Track vol_series to compute rolling 20-day avg volume for rvol
+            daily      = []
+            vol_series = []
             for dt, row in hist.iterrows():
                 vol = float(row.get("Volume", 0))
                 if vol <= 0:
                     continue
-                avg   = (float(row["Open"]) + float(row["Close"])) / 2
-                dv    = avg * vol
-                is_up = float(row["Close"]) >= float(row["Open"])
-                net_m = round(dv / 1_000_000 if is_up else -dv / 1_000_000, 3)
+                open_p  = float(row["Open"])
+                close_p = float(row["Close"])
+                high_p  = float(row.get("High", close_p))
+                low_p   = float(row.get("Low",  close_p))
+                avg     = (open_p + close_p) / 2
+                dv      = avg * vol
+                is_up   = close_p >= open_p
+                net_m   = round(dv / 1_000_000 if is_up else -dv / 1_000_000, 3)
+                day_pct = round((close_p - open_p) / open_p * 100, 2) if open_p > 0 else 0.0
+                day_rng = high_p - low_p
+                close_pos = round((close_p - low_p) / day_rng, 3) if day_rng > 0 else 0.5
+
+                # rvol vs rolling 20-day average (prior days only)
+                avg_vol_20 = (sum(vol_series[-20:]) / min(len(vol_series), 20)) if vol_series else vol
+                rvol = round(vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
+
                 date_str = dt.strftime("%Y-%m-%d") if hasattr(dt, "strftime") else str(dt)[:10]
-                daily.append({"date": date_str, "net_m": net_m, "positive": net_m > 0})
+                daily.append({
+                    "date": date_str, "net_m": net_m, "positive": net_m > 0,
+                    "day_pct": day_pct, "close_pos": close_pos, "rvol": rvol, "vol": vol,
+                })
+                vol_series.append(vol)
 
             if not daily:
                 return None
@@ -13636,6 +13654,26 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
             total_net_m     = round(sum(streak_net_vals), 3)
             avg_daily_net_m = round(total_net_m / streak, 3)
             min_daily_net_m = round(min(streak_net_vals), 3)
+
+            # ── Ignition signal ──────────────────────────────────────────────────
+            # Based on ASTE/AMLX backtest: real sustained moves share a day within
+            # the streak where rvol ≥ 1.5× AND price gained ≥ 3% AND the stock
+            # closed in the top 70%+ of the day's range (strong close, not faded).
+            # False spikes (one-day blow-off) fail because the streak collapses to 0
+            # before a 2-day confirmation forms.
+            max_rvol     = 0.0
+            max_day_pct  = 0.0
+            has_ignition = False
+            for d in streak_days:
+                r  = d.get("rvol", 0.0)
+                p  = d.get("day_pct", 0.0)
+                cp = d.get("close_pos", 0.5)
+                if r  > max_rvol:    max_rvol    = r
+                if p  > max_day_pct: max_day_pct = p
+                if r >= 1.5 and p >= 3.0 and cp >= 0.70:
+                    has_ignition = True
+            max_rvol    = round(max_rvol, 2)
+            max_day_pct = round(max_day_pct, 2)
 
             # Consistency: how even is the buying across days?
             # min/avg ratio — 1.0 = perfectly even, 0.0 = all in one day
@@ -13674,6 +13712,10 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
                 "avg_pct_per_day":  avg_pct_day,      # avg % of mktcap flowing in per day
                 "cap_tier":         cap_tier,
                 "days":             daily[-n_days:],  # last N daily dots for UI
+                # Ignition signal fields (ASTE/AMLX backtest-derived)
+                "has_ignition":     has_ignition,     # True = rvol≥1.5x + day≥3% + close in top 70% of range on same streak day
+                "max_rvol":         max_rvol,         # peak rvol during streak
+                "max_day_pct":      max_day_pct,      # peak single-day gain during streak
             }
         except Exception:
             return None

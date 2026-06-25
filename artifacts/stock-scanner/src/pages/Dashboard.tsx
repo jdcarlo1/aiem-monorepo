@@ -12451,7 +12451,8 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
   const [error, setError]         = useState<string | null>(null);
   const [lastRun, setLastRun]     = useState<Date | null>(null);
   const [saved, setSaved]         = useState<Record<string, boolean>>({});
-  const [minStreak, setMinStreak] = useState<1 | 3 | 5 | 10>(1);
+  const [minStreak, setMinStreak]           = useState<1 | 3 | 5 | 10>(1);
+  const [showIgnitionOnly, setIgnitionOnly] = useState(false);
   // AI signal state
   const [aiSignals, setAiSignals] = useState<AISignalResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -12540,7 +12541,8 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 
   const filtered = (data?.results ?? []).filter(r => {
     if (r.streak < minStreak) return false;
-    if (r.consistency < 0.4) return false;   // always exclude Low consistency
+    if (r.consistency < 0.4) return false;        // always exclude Low consistency
+    if (showIgnitionOnly && !r.has_ignition) return false;  // rvol≥1.5x + day≥3% + strong close
     return true;
   });
 
@@ -12691,6 +12693,27 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         ))}
       </div>
 
+      {/* Ignition Signal filter */}
+      <button
+        onClick={() => setIgnitionOnly(v => !v)}
+        className={`w-full py-2.5 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-2 ${
+          showIgnitionOnly
+            ? "bg-orange-950/60 border-orange-600/70 text-orange-300"
+            : "border-slate-700/60 text-slate-500 hover:text-slate-300 hover:border-slate-600"
+        }`}
+      >
+        <span>⚡</span>
+        <span>Ignition Signal</span>
+        {showIgnitionOnly && (
+          <span className="text-orange-500/70 font-normal">
+            · rvol ≥1.5× + day ≥3% + strong close
+          </span>
+        )}
+        {!showIgnitionOnly && (
+          <span className="text-slate-600 font-normal">· filter for ASTE/AMLX-style setups</span>
+        )}
+      </button>
+
       {/* Cold state */}
       {!loading && !lastRun && !error && (
         <div className="text-center py-20 text-slate-500">
@@ -12731,7 +12754,7 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
                 <div
                   key={row.ticker}
                   onClick={() => onSelectTicker(row.ticker)}
-                  className={`bg-slate-900 border rounded-xl p-4 cursor-pointer transition-all hover:border-slate-600 ${isBig ? "border-emerald-700/50" : "border-slate-800"}`}
+                  className={`bg-slate-900 border rounded-xl p-4 cursor-pointer transition-all hover:border-slate-600 ${row.has_ignition ? "border-orange-700/50" : isBig ? "border-emerald-700/50" : "border-slate-800"}`}
                 >
                   {/* Top row */}
                   <div className="flex items-start justify-between gap-2 mb-3">
@@ -12742,6 +12765,11 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
                       <span className={`text-xs font-medium ${tierColor[row.cap_tier] ?? "text-slate-400"}`}>
                         {row.cap_tier}
                       </span>
+                      {row.has_ignition && (
+                        <span className="text-xs px-2 py-0.5 rounded-full border font-bold bg-orange-950/60 text-orange-300 border-orange-700/50">
+                          ⚡ {row.max_rvol}× · +{row.max_day_pct.toFixed(1)}%
+                        </span>
+                      )}
                       <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${badge.color}`}>
                         {badge.icon} {badge.label}
                       </span>
