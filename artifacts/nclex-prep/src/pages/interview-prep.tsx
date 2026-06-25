@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   useGetSessionStatus,
@@ -41,7 +41,8 @@ function SingleChoice({
 }) {
   return (
     <div className="space-y-3 mb-8">
-      {options.map((opt) => {
+      {options.map((opt, index) => {
+        const displayLabel = "ABCDE"[index] ?? opt.letter;
         const isSelected = selected === opt.letter;
         const showResult = !!answerResult;
         const correctLetters = answerResult?.correctLetter.split(",").map((s) => s.trim()) ?? [];
@@ -85,7 +86,7 @@ function SingleChoice({
               ) : showResult && isWrongSelection ? (
                 <XCircle className="w-5 h-5" />
               ) : (
-                opt.letter
+                displayLabel
               )}
             </div>
             <div className="pt-1 text-base font-medium leading-snug">{opt.text}</div>
@@ -105,6 +106,7 @@ export default function InterviewPrep() {
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [answerResult, setAnswerResult] = useState<AnswerResultState | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [shuffledOptions, setShuffledOptions] = useState<{ letter: string; text: string }[] | null>(null);
 
   const { data: sessionStatus, isLoading: isSessionLoading } = useGetSessionStatus(
     { sessionId },
@@ -129,6 +131,14 @@ export default function InterviewPrep() {
     { query: { enabled: !!currentQuestionSummary?.id } }
   );
 
+  useEffect(() => {
+    if (currentQuestion) {
+      const shuffled = [...(currentQuestion.options ?? [])].sort(() => Math.random() - 0.5);
+      setShuffledOptions(shuffled);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQuestion?.id]);
+
   const handleOptionSelect = (letter: string) => {
     if (answerResult) return;
     setSelectedLetter(letter);
@@ -152,6 +162,7 @@ export default function InterviewPrep() {
     }
     setSelectedLetter(null);
     setAnswerResult(null);
+    setShuffledOptions(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -311,7 +322,7 @@ export default function InterviewPrep() {
             </h2>
 
             <SingleChoice
-              options={currentQuestion.options}
+              options={shuffledOptions ?? currentQuestion.options}
               selected={selectedLetter}
               answerResult={answerResult}
               onSelect={handleOptionSelect}

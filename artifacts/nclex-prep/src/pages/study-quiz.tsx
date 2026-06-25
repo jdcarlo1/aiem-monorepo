@@ -47,7 +47,8 @@ function SingleChoice({
 }) {
   return (
     <div className="space-y-3 mb-8">
-      {options.map((opt) => {
+      {options.map((opt, index) => {
+        const displayLabel = "ABCDE"[index] ?? opt.letter;
         const isSelected = selected === opt.letter;
         const showResult = !!answerResult;
         const correctLetters = answerResult?.correctLetter.split(",").map((s) => s.trim()) ?? [];
@@ -83,7 +84,7 @@ function SingleChoice({
               ) : showResult && isWrongSelection ? (
                 <XCircle className="w-5 h-5" />
               ) : (
-                opt.letter
+                displayLabel
               )}
             </div>
             <div className="pt-1 text-base font-medium leading-snug">{opt.text}</div>
@@ -113,7 +114,8 @@ function MultipleChoice({
       <p className="text-sm font-semibold text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 inline-block mb-2">
         Select all that apply
       </p>
-      {options.map((opt) => {
+      {options.map((opt, index) => {
+        const displayLabel = "ABCDE"[index] ?? opt.letter;
         const isSelected = selected.includes(opt.letter);
         const showResult = !!answerResult;
         const isCorrect = correctLetters.includes(opt.letter);
@@ -152,7 +154,7 @@ function MultipleChoice({
                 : showResult && isWrongSelection ? <XCircle className="w-5 h-5" />
                 : showResult && isMissed ? <CheckCircle2 className="w-5 h-5" />
                 : isSelected ? "✓"
-                : opt.letter}
+                : displayLabel}
             </div>
             <div className="pt-1 text-base font-medium leading-snug">{opt.text}</div>
           </button>
@@ -521,6 +523,8 @@ export default function StudyQuiz() {
   const [selectedLetters, setSelectedLetters] = useState<string[]>([]);
   // ordered / drag-and-drop
   const [orderedItems, setOrderedItems] = useState<{ letter: string; text: string }[] | null>(null);
+  // shuffled display order for single/multiple questions
+  const [shuffledOptions, setShuffledOptions] = useState<{ letter: string; text: string }[] | null>(null);
 
   const [answerResult, setAnswerResult] = useState<LocalAnswerResult | null>(null);
   const [completed, setCompleted] = useState(false);
@@ -549,11 +553,15 @@ export default function StudyQuiz() {
     { query: { enabled: !!currentQuestionSummary?.id } }
   );
 
-  // Initialize orderedItems when a new ordered question loads
+  // Shuffle options on each new question
   useEffect(() => {
-    if (currentQuestion?.questionType === "ordered" && !answerResult) {
+    if (!currentQuestion) return;
+    if (currentQuestion.questionType === "ordered" && !answerResult) {
       const shuffled = [...(currentQuestion.options ?? [])].sort(() => Math.random() - 0.5);
       setOrderedItems(shuffled);
+    } else if (currentQuestion.questionType !== "ordered") {
+      const shuffled = [...(currentQuestion.options ?? [])].sort(() => Math.random() - 0.5);
+      setShuffledOptions(shuffled);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentQuestion?.id]);
@@ -608,6 +616,7 @@ export default function StudyQuiz() {
     setSelectedLetter(null);
     setSelectedLetters([]);
     setOrderedItems(null);
+    setShuffledOptions(null);
     setAnswerResult(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -617,6 +626,7 @@ export default function StudyQuiz() {
     setSelectedLetter(null);
     setSelectedLetters([]);
     setOrderedItems(null);
+    setShuffledOptions(null);
     setAnswerResult(null);
     setCompleted(false);
     setScore({ correct: 0, total: 0 });
@@ -777,14 +787,14 @@ export default function StudyQuiz() {
               />
             ) : questionType === "multiple" ? (
               <MultipleChoice
-                options={currentQuestion.options}
+                options={shuffledOptions ?? currentQuestion.options}
                 selected={selectedLetters}
                 answerResult={answerResult}
                 onToggle={handleToggleMultiple}
               />
             ) : (
               <SingleChoice
-                options={currentQuestion.options}
+                options={shuffledOptions ?? currentQuestion.options}
                 selected={selectedLetter}
                 answerResult={answerResult}
                 onSelect={(l) => { if (!answerResult) setSelectedLetter(l); }}

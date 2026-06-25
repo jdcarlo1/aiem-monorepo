@@ -37,7 +37,8 @@ function SingleChoice({
 }) {
   return (
     <div className="space-y-3 mb-8">
-      {options.map((opt) => {
+      {options.map((opt, index) => {
+        const displayLabel = "ABCDE"[index] ?? opt.letter;
         const isSelected = selected === opt.letter;
         const showResult = !!answerResult;
         const correctLetters = answerResult?.correctLetter.split(",").map(s => s.trim()) ?? [];
@@ -82,7 +83,7 @@ function SingleChoice({
               ) : showResult && isWrongSelection ? (
                 <XCircle className="w-5 h-5" />
               ) : (
-                opt.letter
+                displayLabel
               )}
             </div>
             <div className="pt-1 text-base font-medium leading-snug">{opt.text}</div>
@@ -396,6 +397,7 @@ export default function Quiz() {
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [selectedLetters, setSelectedLetters] = useState<string[]>([]);
   const [orderedItems, setOrderedItems] = useState<{ letter: string; text: string }[] | null>(null);
+  const [shuffledOptions, setShuffledOptions] = useState<{ letter: string; text: string }[] | null>(null);
   const [answerResult, setAnswerResult] = useState<AnswerResultState | null>(null);
 
   // Adaptive engine state
@@ -457,9 +459,13 @@ export default function Quiz() {
   const questionType = currentQuestion?.questionType ?? "single";
 
   useEffect(() => {
-    if (currentQuestion?.questionType === "ordered" && !answerResult) {
+    if (!currentQuestion) return;
+    if (currentQuestion.questionType === "ordered" && !answerResult) {
       const shuffled = [...(currentQuestion.options ?? [])].sort(() => Math.random() - 0.5);
       setOrderedItems(shuffled);
+    } else if (currentQuestion.questionType !== "ordered") {
+      const shuffled = [...(currentQuestion.options ?? [])].sort(() => Math.random() - 0.5);
+      setShuffledOptions(shuffled);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentQuestion?.id]);
@@ -531,6 +537,7 @@ export default function Quiz() {
     setSelectedLetter(null);
     setSelectedLetters([]);
     setOrderedItems(null);
+    setShuffledOptions(null);
     setAnswerResult(null);
     setCurrentQuestionId(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -700,14 +707,14 @@ export default function Quiz() {
               />
             ) : questionType === "multiple" ? (
               <MultipleChoice
-                options={currentQuestion.options}
+                options={shuffledOptions ?? currentQuestion.options}
                 selected={selectedLetters}
                 answerResult={answerResult}
                 onToggle={handleToggleLetter}
               />
             ) : (
               <SingleChoice
-                options={currentQuestion.options}
+                options={shuffledOptions ?? currentQuestion.options}
                 selected={selectedLetter}
                 answerResult={answerResult}
                 onSelect={handleOptionSelect}
