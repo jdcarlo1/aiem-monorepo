@@ -51,7 +51,7 @@ const testimonials = [
     name: "David K., BSN-RN",
     school: "UCLA School of Nursing",
     quote:
-      "27 categories covering every clinical area I needed. The burn unit, ICU, and maternity questions were detailed and realistic. For $20/month vs. $150 for prep books? This is a no-brainer for any nursing student.",
+      "27 categories covering every clinical area I needed. The burn unit, ICU, and maternity questions were detailed and realistic. For $22/month vs. $150 for prep books? This is a no-brainer for any nursing student.",
     stars: 5,
     tag: "1st attempt pass",
   },
@@ -65,7 +65,7 @@ const comparisonRows = [
   { feature: "2,778+ questions across 59 categories", us: true, them: "Limited" },
   { feature: "Instant answer feedback", us: true, them: false },
   { feature: "Available 24/7 on any device", us: true, them: true },
-  { feature: "Cost", us: "$20/mo or $100 lifetime", them: "$50–$200+" },
+  { feature: "Cost", us: "$22/mo or $110 lifetime", them: "$50–$200+" },
 ];
 
 export default function Home() {
@@ -161,7 +161,7 @@ export default function Home() {
             </Link>
             {(!sessionStatus || !sessionStatus.isSubscribed) && (
               <p className="text-sm text-muted-foreground">
-                10 free questions · Then $20/mo or $100 lifetime
+                10 free questions · Then $22/mo or $110 lifetime
               </p>
             )}
           </div>

@@ -671,11 +671,11 @@ export default function StudyQuiz() {
               {category || "This Question Bank"} is a Premium Feature
             </h1>
             <p className="text-muted-foreground mb-8 leading-relaxed">
-              Unlock all nursing school question banks, NCLEX prep, and interview prep with a one-time $100 lifetime plan.
+              Unlock all nursing school question banks, NCLEX prep, and interview prep with a one-time $110 lifetime plan.
             </p>
             <div className="flex flex-col gap-3">
               <Button size="lg" className="rounded-xl w-full" onClick={() => setLocation("/paywall")}>
-                Unlock Lifetime Access — $100
+                Unlock Lifetime Access — $110
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
               <Link href={backLink}>

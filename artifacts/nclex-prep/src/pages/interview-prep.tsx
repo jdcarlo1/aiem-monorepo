@@ -214,11 +214,11 @@ export default function InterviewPrep() {
               Interview Prep is a Premium Feature
             </h1>
             <p className="text-muted-foreground mb-8 leading-relaxed">
-              Unlock all 20 nursing interview questions with detailed rationales — plus 2,000+ practice questions across all categories — with a one-time $100 lifetime plan.
+              Unlock all 20 nursing interview questions with detailed rationales — plus 2,000+ practice questions across all categories — with a one-time $110 lifetime plan.
             </p>
             <div className="flex flex-col gap-3">
               <Button size="lg" className="rounded-xl w-full" onClick={() => setLocation("/paywall")}>
-                Unlock Lifetime Access — $100
+                Unlock Lifetime Access — $110
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
               <Link href="/">

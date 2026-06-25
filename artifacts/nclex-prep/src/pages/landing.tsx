@@ -881,7 +881,7 @@ export default function Landing() {
         </Link>
 
         <p className="text-sm text-blue-700 font-semibold mt-3 mb-4">
-          or unlock everything — <strong>$20/mo</strong> or <strong>$100</strong> one-time lifetime access
+          or unlock everything — <strong>$22/mo</strong> or <strong>$110</strong> one-time lifetime access
         </p>
 
         <div className="inline-flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-5 py-3 mt-1">
@@ -1100,7 +1100,7 @@ export default function Landing() {
           nclexai.org
         </p>
         <p className="text-gray-400 text-sm mt-1">
-          $20/mo or $100 lifetime after free trial
+          $22/mo or $110 lifetime after free trial
         </p>
       </section>
     </div>
