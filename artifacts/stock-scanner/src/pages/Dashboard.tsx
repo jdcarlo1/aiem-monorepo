@@ -12,13 +12,13 @@ import {
   fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchGammaWall,
-  fetchAITrades, triggerAITradesRegenerate, checkAITradesSubscription, fetchAIShortCalls, AIShortCall, fetchSignalFeed, fetchCompositeScore,
+  fetchAITrades, triggerAITradesRegenerate, checkAITradesSubscription, fetchAIShortCalls, AIShortCall, fetchCompositeScore,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
   SignalOutcome, DailyTop10Result, ConvergenceRow, PremarketRow, MorningBrief, DarkPoolRow,
   GammaWallRow, GammaStrike,
-  AITradeSetup, SignalEvent, CompositeScoreRow,
+  AITradeSetup, CompositeScoreRow,
   fetchAITradeLog, AITradeLogEntry, AITradeLogResult,
   fetchAIShortCallsLog, AIShortCallLogEntry, AIShortCallLogResult,
   fetchConvictionCalls, triggerConvictionScan, ConvictionCallSignal, ConvictionCallStrike,
@@ -5154,77 +5154,6 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
               </div>
             );
           })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---- Signal Feed Tab -----------------------------------------------------
-function SignalFeedTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-  const [events, setEvents]   = useState<SignalEvent[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
-  const [filter, setFilter]   = useState<string>("ALL");
-
-  const run = async () => {
-    setLoading(true);
-    try {
-      const d = await fetchSignalFeed();
-      setEvents(d.events || []);
-      setGeneratedAt(d.generated_at);
-    } catch {} finally { setLoading(false); }
-  };
-  useEffect(() => { run(); const t = setInterval(run, 300000); return () => clearInterval(t); }, []);
-
-  const types = ["ALL", ...Array.from(new Set(events.map(e => e.type)))];
-  const visible = filter === "ALL" ? events : events.filter(e => e.type === filter);
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-            📡 Live Signal Feed
-            {loading && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />}
-          </h2>
-          <p className="text-slate-500 text-sm mt-0.5">Real-time notable signals — IV spikes, smart money divergence, max pain gaps, accumulation bursts.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {generatedAt && <span className="text-slate-600 text-xs">{new Date(generatedAt).toLocaleTimeString()} · auto-refreshes every 5 min</span>}
-          <button onClick={() => run()} disabled={loading} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", color: "#4ade80" }}>{loading ? "Scanning…" : "↻ Refresh"}</button>
-        </div>
-      </div>
-
-      {/* Filter pills */}
-      <div className="flex gap-2 flex-wrap mb-5">
-        {types.map(t => (
-          <button key={t} onClick={() => setFilter(t)} className="px-3 py-1 rounded-full text-xs font-bold transition-all"
-            style={{ background: filter === t ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)", color: filter === t ? "#fff" : "#64748b", border: filter === t ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(255,255,255,0.07)" }}>{t}</button>
-        ))}
-      </div>
-
-      {loading && events.length === 0 && (
-        <div className="text-center py-16 text-slate-500 text-sm">Scanning 20 tickers for notable signal activity…<div className="text-xs text-slate-600 mt-2">~20 seconds</div></div>
-      )}
-      {!loading && visible.length === 0 && <div className="text-center py-16 text-slate-500 text-sm">No notable signals detected right now. Markets may be quiet.</div>}
-
-      {visible.length > 0 && (
-        <div className="space-y-2">
-          {visible.map((ev, i) => (
-            <div key={i} onClick={() => onSelectTicker(ev.ticker)} className="flex items-start gap-4 rounded-xl p-4 cursor-pointer hover:bg-white/5 transition-colors" style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.07)" }}>
-              <span className="text-2xl shrink-0 mt-0.5">{ev.icon}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="font-black text-white">{ev.ticker}</span>
-                  <span className="text-slate-500 text-xs">${ev.price?.toFixed(2)}</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: `${ev.color}15`, color: ev.color, border: `1px solid ${ev.color}30` }}>{ev.type}</span>
-                </div>
-                <p className="text-slate-400 text-sm">{ev.msg}</p>
-              </div>
-              <span className="text-slate-700 text-xs shrink-0 mt-1">→</span>
-            </div>
-          ))}
         </div>
       )}
     </div>
@@ -13704,7 +13633,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"signalboard"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -13797,8 +13726,7 @@ export default function Dashboard() {
   const TABS = [
     { id: "overview",     label: "OVERVIEW" },
     { id: "aitrades",     label: "🤖 AI TRADES" },
-    { id: "signalboard",  label: "📡 SIGNAL FEED" },
-    { id: "composite",    label: "🎯 SCORE BOARD" },
+      { id: "composite",    label: "🎯 SCORE BOARD" },
     { id: "topscore",     label: "💎 TOP SCORE 8+" },
     { id: "morningbrief", label: "🌅 MORNING BRIEF" },
     { id: "convergence",  label: "⚡ CONVERGENCE" },
@@ -14434,7 +14362,6 @@ export default function Dashboard() {
         {tab === "convergence" && <ConvergenceTab onSelectTicker={selectTicker} />}
         {tab === "darkpool" && <DarkPoolTab onSelectTicker={selectTicker} />}
         {tab === "aitrades"     && <AITradesTab     onSelectTicker={selectTicker} />}
-        {tab === "signalboard"  && <SignalFeedTab   onSelectTicker={selectTicker} />}
         {tab === "composite"    && <CompositeBoardTab onSelectTicker={selectTicker} />}
         {tab === "topscore"     && <TopScoreTab       onSelectTicker={selectTicker} />}
         {tab === "gammawall"    && <GammaWallTab    onSelectTicker={selectTicker} />}

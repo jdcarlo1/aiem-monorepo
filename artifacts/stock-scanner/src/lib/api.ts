@@ -905,13 +905,6 @@ export function fetchEodSweepTrackRecord() {
   return fetchJson<EodSweepTrackData>("/eod-sweep-track-record");
 }
 
-export interface SignalEvent {
-  ticker: string; price: number; type: string;
-  icon: string; color: string; msg: string;
-}
-export function fetchSignalFeed() {
-  return fetchJson<{ events: SignalEvent[]; generated_at: string }>("/signal-feed");
-}
 
 export interface CompositeScoreRow {
   ticker: string; price: number; score: number;
