@@ -113,7 +113,8 @@ function MultipleChoice({
       <p className="text-sm font-semibold text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 inline-block mb-2">
         Select all that apply
       </p>
-      {options.map((opt) => {
+      {options.map((opt, index) => {
+        const displayLabel = "ABCDE"[index] ?? opt.letter;
         const isSelected = selected.includes(opt.letter);
         const showResult = !!answerResult;
         const isCorrect = correctLetters.includes(opt.letter);

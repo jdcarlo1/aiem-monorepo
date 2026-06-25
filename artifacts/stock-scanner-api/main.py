@@ -2552,9 +2552,6 @@ try:
             "/stock-api/squeeze/detector":  "squeeze_detector",
             "/stock-api/breakout/radar":    "breakout_radar",
             "/stock-api/darkpool":          "darkpool",
-            "/stock-api/vol-crush":         "vol_crush",
-            "/stock-api/call-intent":       "call_intent",
-            "/stock-api/max-pain":          "max_pain",
             "/stock-api/gamma-wall":        "gamma_wall",
             "/stock-api/convergence":       "convergence",
             "/stock-api/premarket":         "premarket",
@@ -2601,9 +2598,6 @@ try:
         def _w():
             _call_route("Bull Flow",      "/stock-api/bull-flow/top10",   "POST", b"{}")
             _call_route("Squeeze",        "/stock-api/squeeze/detector",  "POST", b"{}")
-            _call_route("Vol Crush",      "/stock-api/vol-crush")
-            _call_route("Call Intent",    "/stock-api/call-intent")
-            _call_route("Max Pain",       "/stock-api/max-pain")
             _call_route("Gamma Wall",     "/stock-api/gamma-wall")
             _call_route("Breakout Radar", "/stock-api/breakout/radar",    "POST", b"{}")
             _call_route("Convergence",    "/stock-api/convergence")
