@@ -13627,7 +13627,7 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
                 else:
                     break
 
-            if streak < 2:
+            if streak < 1:
                 return None
 
             # Accumulated net flow over the streak window

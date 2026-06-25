@@ -12451,9 +12451,7 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
   const [error, setError]         = useState<string | null>(null);
   const [lastRun, setLastRun]     = useState<Date | null>(null);
   const [saved, setSaved]         = useState<Record<string, boolean>>({});
-  const [minStreak, setMinStreak] = useState<3 | 5 | 10 | 15>(5);
-  // Institutional filter: requires consistency ≥ 0.3 (buying is evenly distributed, not spiked)
-  const [instOnly, setInstOnly]   = useState(true);
+  const [minStreak, setMinStreak] = useState<1 | 3 | 5 | 10>(1);
   // AI signal state
   const [aiSignals, setAiSignals] = useState<AISignalResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -12542,7 +12540,7 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
 
   const filtered = (data?.results ?? []).filter(r => {
     if (r.streak < minStreak) return false;
-    if (instOnly && r.consistency < 0.3) return false;   // spike buyers filtered out
+    if (r.consistency < 0.4) return false;   // always exclude Low consistency
     return true;
   });
 
@@ -12680,38 +12678,15 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         </div>
       )}
 
-      {/* Institutional filter explainer */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-white font-bold text-sm">🏦 Institutional Filter</div>
-            <p className="text-slate-500 text-xs mt-0.5">
-              Requires <span className="text-white">consistency ≥ 30%</span> — buying evenly distributed across days, not one big spike surrounded by tiny days
-            </p>
-          </div>
-          <button
-            onClick={() => setInstOnly(v => !v)}
-            className={`shrink-0 px-4 py-2 rounded-lg text-xs font-bold border transition-all ${instOnly ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-500"}`}
-          >
-            {instOnly ? "ON" : "OFF"}
-          </button>
-        </div>
-        {!instOnly && (
-          <div className="text-xs text-orange-400 border border-orange-800/40 bg-orange-950/20 rounded-lg px-3 py-2">
-            ⚠️ Institutional filter OFF — results may include retail-driven spikes
-          </div>
-        )}
-      </div>
-
       {/* Streak length filter */}
       <div className="flex gap-2">
-        {([3, 5, 10, 15] as const).map((n, i) => (
+        {([1, 3, 5, 10] as const).map((n, i) => (
           <button
             key={n}
             onClick={() => setMinStreak(n)}
             className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-colors ${minStreak === n ? "bg-emerald-600 border-emerald-500 text-white" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
           >
-            {["3+ days", "1 week+", "2 weeks+", "3 weeks+"][i]}
+            {["1+ day", "3+ days", "1 week+", "2 weeks+"][i]}
           </button>
         ))}
       </div>
@@ -12739,8 +12714,8 @@ function NetFlowStreakTab({ onSelectTicker }: { onSelectTicker: (t: string) => v
         <>
           {filtered.length === 0 && (
             <div className="text-center py-10 text-slate-600 text-sm space-y-2">
-              <div>No conviction plays found with current filters</div>
-              <div className="text-xs">Try lowering the streak minimum or turning off the institutional filter</div>
+              <div>No plays found with current filters</div>
+              <div className="text-xs">Try lowering the streak minimum (1+ day shows everything)</div>
             </div>
           )}
 
