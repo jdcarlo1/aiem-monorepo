@@ -5757,11 +5757,13 @@ function IVRankTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) 
           <div style={{ marginTop: 18 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
               <span style={{ fontFamily: BB, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>{result.ticker}</span>
-              <span style={{ fontFamily: BB, color: "#94a3b8", fontSize: 14 }}>${result.price.toFixed(2)}</span>
-              <span style={{ fontFamily: BB, fontWeight: 700, fontSize: 12,
-                color: result.day_chg >= 0 ? "#4ade80" : "#f87171" }}>
-                {result.day_chg >= 0 ? "+" : ""}{result.day_chg}% today
-              </span>
+              {result.price != null && <span style={{ fontFamily: BB, color: "#94a3b8", fontSize: 14 }}>${result.price.toFixed(2)}</span>}
+              {result.day_chg != null && (
+                <span style={{ fontFamily: BB, fontWeight: 700, fontSize: 12,
+                  color: result.day_chg >= 0 ? "#4ade80" : "#f87171" }}>
+                  {result.day_chg >= 0 ? "+" : ""}{result.day_chg}% today
+                </span>
+              )}
               {result.expiry_used && (
                 <span style={{ fontFamily: BB, color: "#334155", fontSize: 10 }}>Options expiry: {result.expiry_used}</span>
               )}
@@ -5884,7 +5886,7 @@ function IVRankTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) 
                       <div style={{ fontFamily: BB, color: "#475569", fontSize: 9 }}>IV 30d</div>
                     </div>
                     <div>
-                      <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 16, color: "#a78bfa" }}>{r.hv30.toFixed(1)}%</div>
+                      <div style={{ fontFamily: BB, fontWeight: 900, fontSize: 16, color: "#a78bfa" }}>{r.hv30 != null ? `${r.hv30.toFixed(1)}%` : "N/A"}</div>
                       <div style={{ fontFamily: BB, color: "#475569", fontSize: 9 }}>HV 30d</div>
                     </div>
                     {r.iv_hv_ratio !== null && (
@@ -5899,11 +5901,13 @@ function IVRankTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) 
 
                   {/* IV rank bar */}
                   <div>
-                    <div style={{ fontFamily: BB, color: "#475569", fontSize: 9, marginBottom: 3 }}>IV rank {r.iv_rank.toFixed(0)}/100</div>
-                    <div style={{ height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 99 }}>
-                      <div style={{ height: "100%", width: `${r.iv_rank}%`,
-                        background: ivRankColor(r.iv_rank), borderRadius: 99, transition: "width 0.4s" }} />
-                    </div>
+                    <div style={{ fontFamily: BB, color: "#475569", fontSize: 9, marginBottom: 3 }}>IV rank {r.iv_rank != null ? `${r.iv_rank.toFixed(0)}/100` : "N/A"}</div>
+                    {r.iv_rank != null && (
+                      <div style={{ height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 99 }}>
+                        <div style={{ height: "100%", width: `${r.iv_rank}%`,
+                          background: ivRankColor(r.iv_rank), borderRadius: 99, transition: "width 0.4s" }} />
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -14414,7 +14418,7 @@ export default function Dashboard() {
         {/* ── Runner Outcomes Tab Component ── */}
         {(() => {
           function RunnerOutcomesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-            const { data, isLoading, refetch } = useQuery({
+            const { data, isLoading, isFetching, refetch } = useQuery({
               queryKey: ["runner-outcomes"],
               queryFn: fetchRunnerOutcomes,
               refetchInterval: 300_000,
@@ -14462,8 +14466,8 @@ export default function Dashboard() {
                       Every 2 PM Day 1 signal tracked to D+3, D+5, D+10 · Strategy: buy D1, sell D5 close
                     </p>
                   </div>
-                  <button onClick={() => refetch()} style={{ background: "rgba(56,189,248,0.1)", border: "1px solid rgba(56,189,248,0.3)", color: "#38bdf8", padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
-                    Refresh
+                  <button onClick={() => refetch()} disabled={isFetching} style={{ background: "rgba(56,189,248,0.1)", border: "1px solid rgba(56,189,248,0.3)", color: "#38bdf8", padding: "7px 16px", borderRadius: 8, cursor: isFetching ? "default" : "pointer", fontSize: 12, fontWeight: 700, opacity: isFetching ? 0.6 : 1 }}>
+                    {isFetching ? "Refreshing…" : "↻ Refresh"}
                   </button>
                 </div>
 
