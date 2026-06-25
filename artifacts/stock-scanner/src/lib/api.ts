@@ -640,63 +640,6 @@ export function fetchDarkPool() {
   return fetchJson<{ results: DarkPoolRow[]; date: string | null; total_in_db: number; generating?: boolean; stale?: boolean }>("/darkpool");
 }
 
-export interface PutIntentRow {
-  ticker: string;
-  price: number;
-  hedge_prem_m: number;
-  bear_prem_m: number;
-  hedge_pct: number;
-  bear_pct: number;
-  verdict: "BEARISH BET" | "HEDGE" | "MIXED";
-  top_bear_strike: number | null;
-  top_bear_expiry: string | null;
-}
-
-export function fetchPutIntent() {
-  return fetchJson<{ results: PutIntentRow[]; scanned: number }>("/options-intent");
-}
-
-export interface VolCrushRow {
-  ticker: string; price: number; current_iv: number; hv_30: number;
-  iv_hv_ratio: number | null; iv_rank: number;
-  verdict: "HIGH FEAR" | "ELEVATED" | "NORMAL" | "LOW IV";
-  earnings_date: string | null;
-}
-export function fetchVolCrush() {
-  return fetchJson<{ results: VolCrushRow[]; scanned: number; generating?: boolean }>("/vol-crush");
-}
-
-export interface CallIntentRow {
-  ticker: string; price: number; fomo_prem_m: number; accum_prem_m: number;
-  accum_vol_m: number; accum_oi_m: number;
-  fomo_vol_m: number; fomo_oi_m: number;
-  fomo_pct: number; accum_pct: number;
-  verdict: "FOMO" | "ACCUMULATION" | "MIXED";
-  top_accum_strike: number | null; top_accum_expiry: string | null;
-  top_accum_otm_pct: number;
-}
-export function fetchCallIntent() {
-  return fetchJson<{ results: CallIntentRow[]; scanned: number; generating?: boolean }>("/call-intent");
-}
-
-export interface SmartVsRetailRow {
-  ticker: string; price: number; smart_prem_m: number; retail_prem_m: number;
-  smart_cp: number; retail_cp: number;
-  divergence: "SMART BULLISH"|"SMART BEARISH"|"RETAIL BULLISH"|"RETAIL BEARISH"|"ALIGNED"|"NEUTRAL";
-  signal_strength: "STRONG" | "MODERATE" | "WEAK";
-}
-export function fetchSmartVsRetail() {
-  return fetchJson<{ results: SmartVsRetailRow[]; scanned: number; generating?: boolean }>("/smart-vs-retail");
-}
-
-export interface MaxPainRow {
-  ticker: string; price: number; max_pain: number; distance_pct: number;
-  direction: "ABOVE PAIN" | "BELOW PAIN"; nearest_expiry: string; days_to_exp: number;
-}
-export function fetchMaxPain() {
-  return fetchJson<{ results: MaxPainRow[]; scanned: number }>("/max-pain");
-}
-
 export interface GammaStrike {
   strike: number; call_oi: number; put_oi: number; total_oi: number; net_gamma: number;
 }
