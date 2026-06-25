@@ -1750,14 +1750,15 @@ try:
             import traceback
             print(f"[scheduler] {label} unusual-calls scan error: {e}\n{traceback.format_exc()}")
 
-    # Unusual calls scan — hourly at :05 past the hour (lands between other jobs
-    # that fire on :00/:45). Rate limiter caps all Yahoo calls at 3/sec globally,
-    # so each scan takes ~12 min; 48 min idle between scans lets Yahoo's IP
-    # throttle clear before the next scan starts.
-    # 8 slots/day: 9:05, 10:05, 11:05, 12:05, 13:05, 14:05, 15:05, 16:00
+    # Unusual calls scan — fires at :36 past 9 AM (first slot AFTER market opens at
+    # 9:30 AM; _intraday_scan_allowed() requires ≥9:30 AM so 9:05 always skipped),
+    # then hourly at :05 past the hour for remaining slots.
+    # Rate limiter caps all Yahoo calls at 3/sec globally so each scan takes ~12 min;
+    # ~48 min idle between scans lets Yahoo's IP throttle clear before the next scan.
+    # 8 slots/day: 9:36, 10:05, 11:05, 12:05, 13:05, 14:05, 15:05, 16:00
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("market-open"),
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=5, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=36, timezone=_ET),
         id="market_open_unusual_calls",
         replace_existing=True,
     )
@@ -3058,7 +3059,7 @@ try:
 
     _scheduler.start()
     print("[scheduler] APScheduler started — "
-          "scans (hourly): 9:05/10:05/11:05 AM, 12:05/1:05/2:05/3:05/4:00 PM ET | "
+          "scans (hourly): 9:36/10:05/11:05 AM, 12:05/1:05/2:05/3:05/4:00 PM ET | "
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
