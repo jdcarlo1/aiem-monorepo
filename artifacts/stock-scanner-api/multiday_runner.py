@@ -1234,3 +1234,341 @@ def build_day2_email_html(confirmed: list) -> str:
   </div>
   {sections}
 </div></body></html>"""
+
+
+# ── Steady Grinder EOD Scan ────────────────────────────────────────────────
+# Completely isolated from all other scanner tabs — own table, own functions.
+# Data sources: Polygon grouped daily (no yfinance) + FINRA Reg SHO (requests).
+# Scheduler: 4:20 PM ET weekdays via _start_scheduler() in main.py.
+
+def _init_steady_grinder_scan_table():
+    """CREATE TABLE IF NOT EXISTS steady_grinder_scan — runs once at startup."""
+    import psycopg2 as pg
+    with pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS steady_grinder_scan (
+                id               SERIAL PRIMARY KEY,
+                scan_date        DATE NOT NULL,
+                ticker           TEXT NOT NULL,
+                price            FLOAT,
+                d1_date          DATE,
+                d1_close         FLOAT,
+                d1_low           FLOAT,
+                d1_high          FLOAT,
+                d1_pct           FLOAT,
+                d1_close_pos     FLOAT,
+                d1_volume        BIGINT,
+                d2_date          DATE,
+                d2_close         FLOAT,
+                d2_low           FLOAT,
+                d2_high          FLOAT,
+                d2_pct           FLOAT,
+                d2_close_pos     FLOAT,
+                d2_volume        BIGINT,
+                higher_low       BOOLEAN,
+                dark_pool_pct    FLOAT,
+                dark_pool_signal TEXT,
+                score            FLOAT,
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(scan_date, ticker)
+            )
+        """)
+        c.commit()
+    print("[grinder_eod] table ready")
+
+
+def _polygon_daily_grinder(date_str: str) -> dict:
+    """Full-market OHLCV for one date via Polygon grouped daily endpoint.
+    Uses urllib (NOT requests) so it bypasses the yfinance circuit-breaker patch.
+    Returns {ticker: {open, high, low, close, volume}}.
+    """
+    import urllib.request, json as _json
+    api_key = os.environ.get("POLYGON_API_KEY", "")
+    if not api_key:
+        print("[grinder_eod] POLYGON_API_KEY not set")
+        return {}
+    url = (
+        f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
+        f"?adjusted=true&include_otc=false&apiKey={api_key}"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            data = _json.loads(resp.read())
+        out = {}
+        for r in (data.get("results") or []):
+            t = r.get("T", "")
+            if not t or "." in t or len(t) > 5:
+                continue
+            out[t] = {
+                "open":   r.get("o"),
+                "high":   r.get("h"),
+                "low":    r.get("l"),
+                "close":  r.get("c"),
+                "volume": r.get("v"),
+            }
+        return out
+    except Exception as e:
+        print(f"[grinder_eod] polygon daily {date_str} error: {e}")
+        return {}
+
+
+def _finra_dp_grinder(ticker_set: set) -> dict:
+    """FINRA Reg SHO off-exchange pct for a set of tickers.
+    Returns {ticker: off_exchange_pct_float}.  Tries most-recent weekday first.
+    """
+    import requests as _req
+    from datetime import datetime as _dt2, timedelta as _td2
+    now = _dt2.now()
+    for days_back in range(6):
+        d = now - _td2(days=days_back)
+        if d.weekday() >= 5:
+            continue
+        date_str = d.strftime("%Y%m%d")
+        combined: dict = {}
+        for code in ["FNSQ", "FNYX"]:
+            url = f"https://cdn.finra.org/equity/regsho/daily/{code}shvol{date_str}.txt"
+            try:
+                r = _req.get(url, timeout=12)
+                if r.status_code != 200:
+                    continue
+                for line in r.text.strip().split("\n")[1:]:
+                    parts = line.strip().split("|")
+                    if len(parts) < 5:
+                        continue
+                    sym = parts[1].strip()
+                    if sym not in ticker_set:
+                        continue
+                    try:
+                        sv = int(float(parts[2]))
+                        tv = int(float(parts[4]))
+                    except Exception:
+                        continue
+                    if sym in combined:
+                        combined[sym]["sv"] += sv
+                        combined[sym]["tv"] += tv
+                    else:
+                        combined[sym] = {"sv": sv, "tv": tv}
+            except Exception:
+                continue
+        if combined:
+            return {
+                tk: round(d2["sv"] / d2["tv"] * 100, 1)
+                for tk, d2 in combined.items()
+                if d2["tv"] >= 50_000
+            }
+    return {}
+
+
+def run_grinder_eod_scan() -> list:
+    """
+    EOD grinder: 4-factor institutional accumulation detector.
+
+    Factor 1 — Two-day slow grind: each day up +0.4 % – +4.0 % (not explosive).
+    Factor 2 — Higher low: D2 low > D1 low (buyers stepping in at higher prices).
+    Factor 3 — VWAP-proxy close: both days close in top 50 % of daily range.
+    Factor 4 — Dark pool confirmation: FINRA off-exchange ratio ≥ 48 %.
+
+    No yfinance.  Polygon grouped daily = 2 API calls for all US stocks.
+    """
+    import psycopg2 as pg
+
+    today   = _today_et()
+    d2_date = _prev_trading_day(today, 1)
+    d1_date = _prev_trading_day(today, 2)
+
+    print(f"[grinder_eod] scanning d1={d1_date} d2={d2_date}")
+
+    d1_data = _polygon_daily_grinder(str(d1_date))
+    d2_data = _polygon_daily_grinder(str(d2_date))
+
+    if not d1_data or not d2_data:
+        print(f"[grinder_eod] polygon empty — d1={len(d1_data)} d2={len(d2_data)}")
+        return []
+
+    print(f"[grinder_eod] polygon loaded — d1={len(d1_data)} d2={len(d2_data)} tickers")
+
+    candidates = []
+    for ticker in set(d1_data) & set(d2_data):
+        try:
+            d1 = d1_data[ticker]
+            d2 = d2_data[ticker]
+
+            d1_open  = float(d1.get("open")  or 0)
+            d1_close = float(d1.get("close") or 0)
+            d1_low   = float(d1.get("low")   or 0)
+            d1_high  = float(d1.get("high")  or 0)
+            d1_vol   = int(d1.get("volume")  or 0)
+
+            d2_open  = float(d2.get("open")  or 0)
+            d2_close = float(d2.get("close") or 0)
+            d2_low   = float(d2.get("low")   or 0)
+            d2_high  = float(d2.get("high")  or 0)
+            d2_vol   = int(d2.get("volume")  or 0)
+
+            # Liquidity gate
+            if d2_close < 8:       continue
+            if d2_vol  < 150_000:  continue
+            if d1_close <= 0 or d2_close <= 0: continue
+
+            # Factor 1: slow grind range per day
+            d1_pct = (d1_close - d1_open) / d1_open * 100 if d1_open > 0 else 0
+            d2_pct = (d2_close - d2_open) / d2_open * 100 if d2_open > 0 else 0
+            if not (0.4 <= d1_pct <= 4.0): continue
+            if not (0.4 <= d2_pct <= 4.0): continue
+
+            # Factor 2: higher low
+            higher_low = bool(d2_low > d1_low)
+
+            # Factor 3: close in top 50 % of range
+            d1_range     = d1_high - d1_low
+            d2_range     = d2_high - d2_low
+            d1_close_pos = (d1_close - d1_low) / d1_range if d1_range > 0 else 0.5
+            d2_close_pos = (d2_close - d2_low) / d2_range if d2_range > 0 else 0.5
+            if d1_close_pos < 0.5: continue
+            if d2_close_pos < 0.5: continue
+
+            hl_bonus   = 1.4 if higher_low else 1.0
+            cp_bonus   = 1.0 + (d2_close_pos - 0.5) * 0.6
+            base_score = (d1_pct + d2_pct) / 2
+            score      = round(base_score * hl_bonus * cp_bonus, 2)
+
+            candidates.append({
+                "ticker":       ticker,
+                "price":        round(d2_close, 2),
+                "d1_date":      str(d1_date),
+                "d1_close":     round(d1_close, 4),
+                "d1_low":       round(d1_low, 4),
+                "d1_high":      round(d1_high, 4),
+                "d1_pct":       round(d1_pct, 2),
+                "d1_close_pos": round(d1_close_pos * 100, 1),
+                "d1_volume":    d1_vol,
+                "d2_date":      str(d2_date),
+                "d2_close":     round(d2_close, 4),
+                "d2_low":       round(d2_low, 4),
+                "d2_high":      round(d2_high, 4),
+                "d2_pct":       round(d2_pct, 2),
+                "d2_close_pos": round(d2_close_pos * 100, 1),
+                "d2_volume":    d2_vol,
+                "higher_low":   higher_low,
+                "score":        score,
+            })
+        except Exception:
+            continue
+
+    print(f"[grinder_eod] pre-dp candidates: {len(candidates)}")
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    top_cands = candidates[:400]
+    dp_data   = _finra_dp_grinder({c["ticker"] for c in top_cands})
+
+    results = []
+    for c in top_cands:
+        ticker = c["ticker"]
+        dp_pct = dp_data.get(ticker)
+
+        if dp_pct is not None:
+            if   dp_pct >= 65: dp_signal = "EXTREME"
+            elif dp_pct >= 58: dp_signal = "HIGH"
+            elif dp_pct >= 52: dp_signal = "ELEVATED"
+            elif dp_pct >= 48: dp_signal = "NOTABLE"
+            else:              dp_signal = "NONE"
+            dp_bonus = 1.5 if dp_pct >= 58 else (1.2 if dp_pct >= 48 else 1.0)
+        else:
+            dp_pct = None; dp_signal = "NONE"; dp_bonus = 1.0
+
+        if dp_signal == "NONE" and c["score"] < 2.0:
+            continue
+
+        c["dark_pool_pct"]    = dp_pct
+        c["dark_pool_signal"] = dp_signal
+        c["score"]            = round(c["score"] * dp_bonus, 2)
+        results.append(c)
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    results = results[:60]
+    print(f"[grinder_eod] final: {len(results)} results")
+
+    if results:
+        try:
+            with pg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                for r in results:
+                    cur.execute("""
+                        INSERT INTO steady_grinder_scan
+                          (scan_date, ticker, price,
+                           d1_date, d1_close, d1_low, d1_high, d1_pct, d1_close_pos, d1_volume,
+                           d2_date, d2_close, d2_low, d2_high, d2_pct, d2_close_pos, d2_volume,
+                           higher_low, dark_pool_pct, dark_pool_signal, score)
+                        VALUES
+                          (%(scan_date)s, %(ticker)s, %(price)s,
+                           %(d1_date)s, %(d1_close)s, %(d1_low)s, %(d1_high)s,
+                           %(d1_pct)s, %(d1_close_pos)s, %(d1_volume)s,
+                           %(d2_date)s, %(d2_close)s, %(d2_low)s, %(d2_high)s,
+                           %(d2_pct)s, %(d2_close_pos)s, %(d2_volume)s,
+                           %(higher_low)s, %(dark_pool_pct)s, %(dark_pool_signal)s, %(score)s)
+                        ON CONFLICT (scan_date, ticker) DO UPDATE SET
+                          price            = EXCLUDED.price,
+                          d2_pct           = EXCLUDED.d2_pct,
+                          dark_pool_pct    = EXCLUDED.dark_pool_pct,
+                          dark_pool_signal = EXCLUDED.dark_pool_signal,
+                          score            = EXCLUDED.score
+                    """, {**r, "scan_date": today})
+                conn.commit()
+            print(f"[grinder_eod] DB: saved {len(results)} rows for {today}")
+        except Exception as e:
+            print(f"[grinder_eod] DB save error: {e}")
+
+    return results
+
+
+def get_steady_grinder_results() -> dict:
+    """Load the most recent grinder scan from DB (today or last 4 calendar days)."""
+    import psycopg2 as pg, psycopg2.extras, math as _m2
+
+    today  = _today_et()
+    cutoff = today - timedelta(days=4)
+
+    try:
+        with pg.connect(os.environ["DATABASE_URL"]) as c:
+            with c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT scan_date, ticker, price,
+                           d1_date, d1_pct, d1_close_pos, d1_volume,
+                           d2_date, d2_pct, d2_close_pos, d2_volume,
+                           higher_low, dark_pool_pct, dark_pool_signal, score
+                    FROM   steady_grinder_scan
+                    WHERE  scan_date >= %s
+                    ORDER  BY score DESC
+                    LIMIT  60
+                """, (cutoff,))
+                rows = [dict(r) for r in cur.fetchall()]
+
+                cur.execute(
+                    "SELECT MAX(scan_date) AS latest FROM steady_grinder_scan WHERE scan_date >= %s",
+                    (cutoff,),
+                )
+                meta = cur.fetchone()
+    except Exception as e:
+        print(f"[grinder_eod] get results error: {e}")
+        return {"results": [], "count": 0, "scan_date": None, "stale": True,
+                "as_of": datetime.now(_ET_TZ).strftime("%Y-%m-%d %H:%M ET"),
+                "note": "table not yet created — scan runs 4:20 PM ET"}
+
+    def _clean(v):
+        if v is None: return None
+        if isinstance(v, float) and (_m2.isnan(v) or _m2.isinf(v)): return None
+        if isinstance(v, date): return str(v)
+        return v
+
+    clean_rows = [{k: _clean(v) for k, v in r.items()} for r in rows]
+    scan_date  = str(meta["latest"]) if meta and meta.get("latest") else None
+    is_stale   = (scan_date != str(today)) if scan_date else True
+
+    return {
+        "results":   clean_rows,
+        "count":     len(clean_rows),
+        "scan_date": scan_date,
+        "stale":     is_stale,
+        "as_of":     datetime.now(_ET_TZ).strftime("%Y-%m-%d %H:%M ET"),
+    }

@@ -61,6 +61,7 @@ import {
   fetchNanoMorningCandidates, NanoMorningCandidate,
   fetchMultidayRunners, MultidayRunnersData, MultidayRunnerRow,
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
+  fetchGrinderScan, GrinderScanData, GrinderResult,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -13640,7 +13641,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -13798,6 +13799,7 @@ export default function Dashboard() {
     { id: "ics",            label: "🎯 CONVICTION SCORE" },
     { id: "multidayrunner", label: "📈 MULTI-DAY RUNNER" },
     { id: "runneroutcomes", label: "📊 RUNNER OUTCOMES" },
+    { id: "steadygrinder",  label: "🔄 STEADY GRINDERS" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -14844,6 +14846,150 @@ export default function Dashboard() {
             );
           }
           return tab === "multidayrunner" ? <MultidayRunnerTab onSelectTicker={selectTicker} /> : null;
+        })()}
+
+        {/* ── Steady Grinder Tab ── */}
+        {tab === "steadygrinder" && (() => {
+          function SteadyGrinderTab() {
+            const { data, isLoading, refetch, isFetching } = useQuery<GrinderScanData>({
+              queryKey: ["grinder-scan"],
+              queryFn: fetchGrinderScan,
+              refetchInterval: 5 * 60_000,
+            });
+            const results: GrinderResult[] = data?.results ?? [];
+            const scanDate = data?.scan_date;
+            const stale    = data?.stale;
+            const dpColor  = (sig: string) => {
+              if (sig === "EXTREME")  return "#f59e0b";
+              if (sig === "HIGH")     return "#10b981";
+              if (sig === "ELEVATED") return "#38bdf8";
+              if (sig === "NOTABLE")  return "#a78bfa";
+              return "#475569";
+            };
+            const fmtVol = (v: number | null | undefined) => {
+              if (v == null) return "—";
+              return v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`;
+            };
+            return (
+              <div className="space-y-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <div className="text-emerald-400 text-sm font-bold tracking-wider">🔄 STEADY GRINDERS</div>
+                      <div className="text-slate-400 text-xs mt-0.5">2-day institutional grind · higher low · VWAP-proxy close · dark pool confirmed</div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {stale && (
+                        <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">⏳ Scan: 4:20 PM ET</span>
+                      )}
+                      <span className="text-slate-600 text-xs">{data?.as_of}</span>
+                      <button
+                        onClick={() => refetch()}
+                        disabled={isFetching}
+                        className="text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 px-3 py-1 rounded"
+                      >
+                        {isFetching ? "Loading…" : "↻ Refresh"}
+                      </button>
+                    </div>
+                  </div>
+                  {scanDate && (
+                    <div className="text-xs text-slate-600 mt-2">
+                      Scan date: {new Date(scanDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                      {" · "}{results.length} stocks passed all 4 filters
+                    </div>
+                  )}
+                </div>
+
+                {isLoading && (
+                  <div className="text-center text-slate-500 py-16">Loading grinder scan…</div>
+                )}
+
+                {!isLoading && results.length === 0 && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 text-center">
+                    <div className="text-slate-400 text-sm">No results yet</div>
+                    <div className="text-slate-600 text-xs mt-1">
+                      {data?.note ?? "Scan runs 4:20 PM ET weekdays · uses Polygon + FINRA data only"}
+                    </div>
+                  </div>
+                )}
+
+                {results.length > 0 && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="grid grid-cols-5 px-4 py-2 bg-slate-800/50 text-xs text-slate-500 font-semibold uppercase tracking-wider">
+                      <div>Ticker</div>
+                      <div className="text-center">Day 1</div>
+                      <div className="text-center">Day 2</div>
+                      <div className="text-center">Dark Pool</div>
+                      <div className="text-right">Score</div>
+                    </div>
+                    {results.map((r) => (
+                      <div
+                        key={r.ticker}
+                        className="grid grid-cols-5 px-4 py-3 border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors items-center"
+                      >
+                        <div>
+                          <button
+                            onClick={() => { setTicker(r.ticker); setTab("lookup"); }}
+                            className="font-bold text-white text-sm hover:text-emerald-400 transition-colors block text-left"
+                          >
+                            {r.ticker}
+                          </button>
+                          <div className="text-slate-500 text-xs">${r.price?.toFixed(2) ?? "—"}</div>
+                          {r.higher_low && (
+                            <div className="text-emerald-500 text-[10px] font-semibold">↑ Higher Low</div>
+                          )}
+                        </div>
+                        <div className="text-center">
+                          <div className="text-emerald-400 font-bold text-sm">+{r.d1_pct?.toFixed(1) ?? "—"}%</div>
+                          <div className="text-slate-600 text-[10px]">close {r.d1_close_pos?.toFixed(0) ?? "—"}%ile</div>
+                          <div className="text-slate-600 text-[10px]">{fmtVol(r.d1_volume)} vol</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-emerald-400 font-bold text-sm">+{r.d2_pct?.toFixed(1) ?? "—"}%</div>
+                          <div className="text-slate-600 text-[10px]">close {r.d2_close_pos?.toFixed(0) ?? "—"}%ile</div>
+                          <div className="text-slate-600 text-[10px]">{fmtVol(r.d2_volume)} vol</div>
+                        </div>
+                        <div className="text-center">
+                          {r.dark_pool_pct != null ? (
+                            <>
+                              <div className="font-bold text-sm" style={{ color: dpColor(r.dark_pool_signal) }}>
+                                {r.dark_pool_pct.toFixed(1)}%
+                              </div>
+                              <div className="text-[10px] font-semibold" style={{ color: dpColor(r.dark_pool_signal) }}>
+                                {r.dark_pool_signal}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-slate-600 text-xs">—</div>
+                          )}
+                        </div>
+                        <div className="flex justify-end">
+                          <span
+                            className="text-sm font-black px-2.5 py-1 rounded-lg"
+                            style={{
+                              background: r.score >= 3.5 ? "rgba(16,185,129,0.15)" : r.score >= 2.5 ? "rgba(56,189,248,0.12)" : "rgba(71,85,105,0.3)",
+                              color:      r.score >= 3.5 ? "#10b981"               : r.score >= 2.5 ? "#38bdf8"               : "#94a3b8",
+                            }}
+                          >
+                            {r.score?.toFixed(2) ?? "—"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="bg-slate-900/50 border border-slate-800/60 rounded-xl p-4 text-xs text-slate-500 space-y-1.5">
+                  <div className="text-slate-400 font-semibold mb-1">How scores work</div>
+                  <div>• <span className="text-slate-300">4 required filters:</span> two-day slow grind (0.4–4% each day) · D2 low &gt; D1 low · both days closed in top half of range · FINRA off-exchange ≥ 48%</div>
+                  <div>• <span className="text-slate-300">Score</span> = avg daily gain × higher-low bonus (1.4×) × close-position bonus × dark pool bonus (1.2–1.5×)</div>
+                  <div>• <span className="text-slate-300">Dark pool signals:</span> EXTREME ≥ 65% · HIGH ≥ 58% · ELEVATED ≥ 52% · NOTABLE ≥ 48%</div>
+                  <div>• <span className="text-slate-300">Data:</span> Polygon grouped daily + FINRA Reg SHO — no Yahoo/yfinance, never causes throttling on other tabs</div>
+                </div>
+              </div>
+            );
+          }
+          return <SteadyGrinderTab />;
         })()}
 
         {/* ── Nano Morning Tab Component ── */}

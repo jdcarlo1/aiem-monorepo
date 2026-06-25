@@ -42,6 +42,9 @@ from multiday_runner import (
     build_intraday_d1_email_html,
     build_day1_email_html,
     build_day2_email_html,
+    _init_steady_grinder_scan_table,
+    run_grinder_eod_scan,
+    get_steady_grinder_results,
 )
 
 app = Flask(__name__)
@@ -841,6 +844,7 @@ init_call_sweep_log_table()
 init_news_catalyst_log()
 init_midday_log_table()
 init_multiday_runner_tables()
+_init_steady_grinder_scan_table()
 
 def _init_conviction_snapshot_table():
     import psycopg2 as _pg2
@@ -1810,6 +1814,19 @@ try:
         _run_eod_scan,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
         id="eod_scan",
+        replace_existing=True,
+    )
+    # Grinder EOD scan: Mon-Fri 4:20 PM ET — Polygon grouped daily + FINRA dark pool (no yfinance)
+    def _run_grinder_eod():
+        try:
+            import threading as _thr_ge
+            _thr_ge.Thread(target=run_grinder_eod_scan, daemon=True).start()
+        except Exception as _e_ge:
+            print(f"[scheduler] grinder eod scan error: {_e_ge}")
+    _scheduler.add_job(
+        _run_grinder_eod,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=20, timezone=_ET),
+        id="grinder_eod_scan",
         replace_existing=True,
     )
     # Outcomes: Mon-Fri 4:30 PM ET — after market close, fetch closing prices for open AI trade log entries
@@ -23689,6 +23706,16 @@ def runner_outcomes_endpoint():
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e), "signals": [], "tier_stats": []}), 200
+
+
+@app.route("/stock-api/grinder-scan", methods=["GET"])
+def grinder_scan_endpoint():
+    """Steady Grinder tab: 4-factor institutional accumulation (Polygon + FINRA, no yfinance)."""
+    try:
+        data = get_steady_grinder_results()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e), "results": [], "count": 0, "stale": True}), 200
 
 
 if __name__ == "__main__":

@@ -2180,3 +2180,36 @@ export interface RunnerOutcomesData {
 export function fetchRunnerOutcomes() {
   return fetchJson<RunnerOutcomesData>("/runner-outcomes");
 }
+
+// ── Steady Grinder Scan ──────────────────────────────────────────────────
+
+export interface GrinderResult {
+  ticker: string;
+  scan_date: string;
+  price: number;
+  d1_date: string;
+  d1_pct: number;
+  d1_close_pos: number;
+  d1_volume: number;
+  d2_date: string;
+  d2_pct: number;
+  d2_close_pos: number;
+  d2_volume: number;
+  higher_low: boolean;
+  dark_pool_pct: number | null;
+  dark_pool_signal: string;
+  score: number;
+}
+
+export interface GrinderScanData {
+  results: GrinderResult[];
+  count: number;
+  scan_date: string | null;
+  stale: boolean;
+  as_of: string;
+  note?: string;
+}
+
+export function fetchGrinderScan() {
+  return fetchJson<GrinderScanData>("/grinder-scan");
+}
