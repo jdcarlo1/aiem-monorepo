@@ -16679,9 +16679,10 @@ def _run_whale_scan_background():
             except Exception: pass
             return blocks
 
+        _WHALE_EXCLUDE = {"SPX", "NDX"}
         all_blocks = []
         with ThreadPoolExecutor(max_workers=6) as ex:
-            futures = {ex.submit(_scan_whale, t): t for t in DEFAULT_LEADERBOARD}
+            futures = {ex.submit(_scan_whale, t): t for t in DEFAULT_LEADERBOARD if t not in _WHALE_EXCLUDE}
             for fut in as_completed(futures):
                 all_blocks.extend(fut.result() or [])
 
@@ -16714,6 +16715,7 @@ def whale_activity():
                        volume, otm_pct::float, category, tier, price::float
                 FROM whale_blocks
                 WHERE first_seen >= NOW() - INTERVAL '3 days'
+                  AND ticker NOT IN ('SPX', 'NDX')
                 ORDER BY prem_m DESC
                 LIMIT 60
             """)
