@@ -65,3 +65,4 @@
 - [Short Calls grading fix](short-calls-grading-fix.md) — _parse_expiry_date NameError + outcome-stuck-OPEN bug; both fixed; startup trigger added
 - [Signal Discovery Engine](signal-discovery-engine.md) — 3 AIEM tools (list_signal_dimensions/test_new_signal/analyze_missed_movers) + daily 6 PM continuous research loop; wired into Sunday agent + scheduler
 - [Gap+Volume Signal Tab](gap-volume-signal-tab.md) — S2 (gap≥1%+rvol≥2x) survived OOS tight-baseline test (+2.5pp p=0.002); S1 (rvol+range) FAILED; endpoint is pure DB query on polygon_rvol_scan
+- [Flask tab hang root causes](flask-tab-hang-root-causes.md) — 3 layered causes: import lock (openai preload fixes), pool lock no-timeout (acquire with timeout fixes), bg thread storm (startup delay fixes)

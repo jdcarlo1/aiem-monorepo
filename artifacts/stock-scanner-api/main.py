@@ -9737,6 +9737,14 @@ def _safe(v):
     return v
 
 PORT = int(os.environ.get("STOCK_API_PORT", 5050))
+_BOOT_TIME = __import__("time").time()  # server start epoch for startup guards
+# Pre-import heavy modules at load time so bg threads never hold the import lock
+try:
+    from openai import OpenAI as _OpenAI  # noqa: F401
+    from zoneinfo import ZoneInfo as _ZoneInfo  # noqa: F401
+    import concurrent.futures as _concurrent_futures  # noqa: F401
+except Exception as _preload_err:
+    print(f"[preload] {_preload_err}")
 
 
 @app.route("/stock-api/", methods=["GET"])
@@ -9818,8 +9826,24 @@ try:
     import psycopg2.pool as _pg_pool_mod
     _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(minconn=2, maxconn=25, dsn=_DB_URL)
     def _pg_pooled_connect(*_a, **_kw):
-        """Draw a connection from the shared pool instead of opening a new TCP socket."""
-        return _PoolConn(_PG_POOL.getconn(), _PG_POOL)
+        """Draw a connection from the shared pool with timeout support.
+        Uses explicit lock acquisition with timeout so Flask request threads
+        never block indefinitely when background threads hold the pool lock
+        (e.g. during a slow TCP connect() inside _getconn).
+        """
+        _timeout = float(_kw.pop("connect_timeout", None) or 5)
+        # Acquire the pool lock with a deadline — prevents infinite blocking
+        if not _PG_POOL._lock.acquire(blocking=True, timeout=_timeout):
+            raise Exception(
+                f"[db] pool lock busy >{_timeout}s — system under load; try again"
+            )
+        try:
+            _raw = _PG_POOL._getconn()
+        except Exception:
+            _PG_POOL._lock.release()
+            raise
+        _PG_POOL._lock.release()
+        return _PoolConn(_raw, _PG_POOL)
     _psycopg2.connect = _pg_pooled_connect          # patch the module; all aliases follow
     print("[db] connection pool ready (min=2 max=25)")
 except Exception as _pool_init_err:
@@ -24578,33 +24602,52 @@ def squeeze_detector():
 
 @app.route("/stock-api/insider/trades", methods=["GET"])
 def insider_trades_route():
+    from datetime import datetime as _dt_it
+    _it_cache = getattr(app, "_insider_trades_cache", None)
+    _it_ts    = getattr(app, "_insider_trades_ts", None)
+    # Cache hit (30 min) — return instantly with no blocking
+    if _it_cache and _it_ts and (_dt_it.now() - _it_ts).total_seconds() < 1800:
+        return jsonify(_it_cache)
+    # Yahoo throttled — fail fast from memory cache only (zero sync calls)
     if _yf_breaker_open():
-        _it_db = _load_scan_cache("insider-trades", days_back=7)
-        if _it_db:
-            return jsonify({**_it_db, "stale": True,
-                            "note": "Yahoo throttled - showing last saved insider activity"})
+        if _it_cache:
+            return jsonify({**_it_cache, "stale": True,
+                            "note": "Yahoo throttled - showing cached insider activity"})
         return jsonify({"trades": [], "count": 0, "stale": True,
                         "note": "Yahoo throttled - no cached data yet"})
-    days    = int(request.args.get("days", 30))
-    tickers = DEFAULT_LEADERBOARD
-    from concurrent.futures import ThreadPoolExecutor as _TPE_it, TimeoutError as _TOE_it
-    _ex_it  = _TPE_it(max_workers=1)
-    _fut_it = _ex_it.submit(fetch_insider_trades, tickers, days)
-    try:
-        trades = _fut_it.result(timeout=2.5)
-    except _TOE_it:
-        _ex_it.shutdown(wait=False, cancel_futures=True)
-        _it_db = _load_scan_cache("insider-trades", days_back=7)
-        if _it_db:
-            return jsonify({**_it_db, "stale": True,
-                            "note": "fetch timeout - showing last saved insider activity"})
-        return jsonify({"trades": [], "count": 0, "stale": True,
-                        "note": "fetch timeout - serving empty; Yahoo may be throttled"})
-    _ex_it.shutdown(wait=False)
-    _it_out = {"trades": trades, "count": len(trades)}
-    if trades:
-        _save_scan_cache("insider-trades", _it_out)
-    return jsonify(_it_out)
+    # Background fetch — never blocks the request thread
+    _days = int(request.args.get("days", 30))
+    def _bg_it():
+        if getattr(app, "_it_running", False):
+            return
+        app._it_running = True
+        try:
+            from concurrent.futures import ThreadPoolExecutor as _TPE_it, TimeoutError as _TOE_it
+            if _yf_breaker_open():
+                print("[insider_trades] bg skipped — Yahoo rate limited")
+                return
+            with _TPE_it(max_workers=1) as _ex_it:
+                _fut_it = _ex_it.submit(fetch_insider_trades, DEFAULT_LEADERBOARD, _days)
+                try:
+                    trades = _fut_it.result(timeout=30)
+                except _TOE_it:
+                    return
+            _it_out = {"trades": trades, "count": len(trades)}
+            if trades:
+                _save_scan_cache("insider-trades", _it_out)
+            app._insider_trades_cache = _it_out
+            app._insider_trades_ts = _dt_it.now()
+        except Exception as _e_it:
+            print(f"[insider_trades] bg error: {_e_it}")
+        finally:
+            app._it_running = False
+    import threading as _it_thr
+    if not getattr(app, "_it_running", False):
+        _it_thr.Thread(target=_bg_it, daemon=True).start()
+    if _it_cache:
+        return jsonify({**_it_cache, "stale": True, "generating": True})
+    return jsonify({"trades": [], "count": 0, "generating": True,
+                    "note": "Fetching insider trades in background..."})
 
 
 @app.route("/stock-api/ai/thesis", methods=["POST"])
@@ -27986,6 +28029,50 @@ def conviction_stack_endpoint():
             return
         app._stk_scanning = True
         try:
+            # Phase 1: fast DB preload — next request sees stale data without blocking
+            if not getattr(app, "_cs_stk_cache", None):
+                try:
+                    import psycopg2 as _pg_cs_p
+                    _sql_p = (
+                        "SELECT ticker, total_pts, conviction_pct, label, price,"
+                        " layers, meta, rank, universe_count, source, snap_date"
+                        " FROM conviction_stack_watchlist"
+                        " ORDER BY snap_date DESC, rank ASC LIMIT 150"
+                    )
+                    with _pg_cs_p.connect(_DB_URL, connect_timeout=2,
+                                          options="-c statement_timeout=4000 -c lock_timeout=2000") as _c_p,                          _c_p.cursor() as _cu_p:
+                        _cu_p.execute(_sql_p)
+                        _cols_p = [d[0] for d in _cu_p.description]
+                        _rows_p = _cu_p.fetchall()
+                    if _rows_p:
+                        _db_r = []
+                        for _rr in _rows_p:
+                            _dd = dict(zip(_cols_p, _rr))
+                            _db_r.append({
+                                "ticker":         _dd["ticker"],
+                                "total_pts":      float(_dd["total_pts"] or 0),
+                                "conviction_pct": int(_dd["conviction_pct"] or 0),
+                                "label":          _dd["label"] or "",
+                                "price":          float(_dd["price"] or 0),
+                                "layers":         _dd["layers"] if isinstance(_dd["layers"], dict) else {},
+                                "meta":           _dd["meta"] if isinstance(_dd["meta"], dict) else {},
+                                "rank":           int(_dd["rank"] or 0),
+                                "source":         "db",
+                                "snap_date":      str(_dd["snap_date"]) if _dd["snap_date"] else None,
+                            })
+                        app._cs_stk_cache = {"results": _db_r, "count": len(_db_r),
+                                             "stale": True, "source": "db"}
+                        app._cs_stk_ts = _stk_dt.now()
+                except Exception as _dbe:
+                    print(f"[conviction-stack] db preload error: {_dbe}")
+            # Phase 2: live scan — delayed 60s after boot to avoid startup burst
+            import time as _time_stk
+            _delay_stk = max(0, 60 - (_time_stk.time() - _BOOT_TIME))
+            if _delay_stk > 0:
+                _time_stk.sleep(_delay_stk)
+            if _yf_breaker_open():
+                print("[conviction-stack] bg skipped — Yahoo rate limited; using DB data")
+                return
             _results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
             _out = {"results": _results, "count": len(_results),
                     "source": "free_yfinance", "universe_count": len(_results)}
@@ -28002,40 +28089,7 @@ def conviction_stack_endpoint():
     if not getattr(app, "_stk_scanning", False):
         _stk_thr.Thread(target=_bg_stk, daemon=True).start()
     if _cs_stk_cache:
-        return jsonify({**_cs_stk_cache, "stale": True})
-    # No in-memory cache - serve last stored snapshot from DB while live scan runs
-    try:
-        import psycopg2 as _pg_cs_fb
-        with _pg_cs_fb.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=4000") as _c_cs_fb, _c_cs_fb.cursor() as _cu_cs_fb:
-            _cu_cs_fb.execute("""
-                SELECT ticker, total_pts, conviction_pct, label, price,
-                       layers, meta, rank, universe_count, source, snap_date
-                FROM conviction_stack_watchlist
-                ORDER BY snap_date DESC, rank ASC
-                LIMIT 150
-            """)
-            _cs_cols_fb = [d[0] for d in _cu_cs_fb.description]
-            _cs_rows_fb = _cu_cs_fb.fetchall()
-        if _cs_rows_fb:
-            _cs_db_results = []
-            for _r_fb in _cs_rows_fb:
-                _d_fb = dict(zip(_cs_cols_fb, _r_fb))
-                _cs_db_results.append({
-                    "ticker":         _d_fb["ticker"],
-                    "total_pts":      float(_d_fb["total_pts"] or 0),
-                    "conviction_pct": int(_d_fb["conviction_pct"] or 0),
-                    "label":          _d_fb["label"] or "",
-                    "price":          float(_d_fb["price"] or 0),
-                    "layers":         _d_fb["layers"] if isinstance(_d_fb["layers"], dict) else {},
-                    "meta":           _d_fb["meta"]   if isinstance(_d_fb["meta"],   dict) else {},
-                    "rank":           int(_d_fb["rank"] or 0),
-                    "source":         "db",
-                    "snap_date":      str(_d_fb["snap_date"]) if _d_fb["snap_date"] else None,
-                })
-            return jsonify({"results": _cs_db_results, "count": len(_cs_db_results),
-                            "stale": True, "generating": True, "source": "db"})
-    except Exception as _e_cs_fb:
-        print(f"[conviction-stack] db fallback error: {_e_cs_fb}", file=_sys.stderr)
+        return jsonify({**_cs_stk_cache, "stale": True, "generating": True})
     return jsonify({"results": [], "count": 0, "generating": True})
 
 
@@ -29308,12 +29362,16 @@ def ai_short_calls():
             print(f"[ai_short_calls] db_load error: {_dbe}", file=sys.stderr)
             return None
 
-    _db_picks = _load_db_picks() if not _cache else None
 
     def _bg_aisc():
         import sys as _sys
         from openai import OpenAI as _OAI
         try:
+            # Phase 1: fast DB preload so next request sees stale picks immediately
+            _db_picks_bg = _load_db_picks()
+            if _db_picks_bg and not getattr(app, "_aisc_cache", None):
+                app._aisc_cache    = {**_db_picks_bg, "stale": True}
+                app._aisc_cache_ts = _dt.now()
             # ── Load unusual call signals from cache or DB ──────────────────────
             from zoneinfo import ZoneInfo as _ZI
             from datetime import timezone as _tzc
@@ -29796,8 +29854,6 @@ Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no m
     # keeps polling every 15s until fresh picks land.
     if _cache:
         return jsonify({**_cache, "generating": True} if _scanning else _cache)
-    if _db_picks:
-        return jsonify({**_db_picks, "stale": True, "generating": _scanning})
     return jsonify({"picks": [], "generated_at": None, "signals_evaluated": 0, "generating": True})
 
 
@@ -33916,214 +33972,227 @@ def insider_radar():
         return jsonify({"signals": [], "count": 0, "stale": True,
                         "note": "Yahoo rate limited - try again shortly"})
 
-    # DB fallback: serve last computed result on cold start / after restart
-    if not bust and not _cache:
-        _ir_db = _load_scan_cache("insider-radar")
-        if _ir_db:
-            app._insider_radar_cache    = _ir_db
-            app._insider_radar_cache_ts = _dt_ir.datetime.now()
-            return jsonify({**_ir_db, "stale": True})
-
-    try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
-            # All signals $10K+ from last 90 days, newest first
-            cur.execute("""
-                SELECT ticker, price::float, strike::float, expiry,
-                       days_out, volume, oi, vol_oi::float, prem::bigint,
-                       otm_pct::float, iv::float, urgency,
-                       first_seen AT TIME ZONE 'UTC' AS first_seen,
-                       last_seen  AT TIME ZONE 'UTC' AS last_seen
-                FROM unusual_calls_log
-                WHERE prem >= 10000
-                  AND first_seen >= NOW() - INTERVAL '90 days'
-                ORDER BY prem DESC
-            """)
-            cols    = [d[0] for d in cur.description]
-            signals = [dict(zip(cols, r)) for r in cur.fetchall()]
-            for s in signals:
-                for k in ("first_seen", "last_seen"):
-                    if s.get(k): s[k] = s[k].isoformat()
-
-            # Ticker rarity: how many unique signals in 90 days (fewer = more suspicious)
-            cur.execute("""
-                SELECT ticker, COUNT(*) as signal_count, MAX(prem) as max_prem
-                FROM unusual_calls_log
-                WHERE first_seen >= NOW() - INTERVAL '90 days'
-                GROUP BY ticker
-            """)
-            ticker_stats = {r[0]: {"count": r[1], "max_prem": r[2]} for r in cur.fetchall()}
-
-        # Check earnings 90-day window for ALL unique tickers in the DB
-        unique_by_prem = sorted(
-            {s["ticker"] for s in signals},
-            key=lambda t: -(ticker_stats.get(t, {}).get("max_prem", 0))
-        )
-
-        def _earn_90d(ticker):
-            if _yf_breaker_open():
-                return None
-            import datetime as _d2
-            import yfinance as _yf2
-            today  = _et_today()
-            cutoff = today + _d2.timedelta(days=90)
-            try:
-                tk  = _yf2.Ticker(ticker)
-                cal = tk.calendar
-                if cal is None: return None
-                earn_date = None
-                try:
-                    if hasattr(cal, "empty") and not cal.empty:
-                        if "Earnings Date" in cal.index:
-                            earn_date = cal.loc["Earnings Date"].iloc[0]
-                        elif "Earnings Date" in cal.columns:
-                            earn_date = cal.iloc[0]["Earnings Date"]
-                    elif isinstance(cal, dict):
-                        ed = cal.get("Earnings Date", [])
-                        earn_date = ed[0] if ed else None
-                except Exception: return None
-                if earn_date is None: return None
-                earn_dt = earn_date.date() if hasattr(earn_date, "date") else \
-                          _d2.datetime.strptime(str(earn_date)[:10], "%Y-%m-%d").date()
-                if earn_dt < today or earn_dt > cutoff: return None
-                return {"ticker": ticker,
-                        "earnings_date": earn_dt.isoformat(),
-                        "days_until":    (earn_dt - today).days}
-            except Exception: return None
-
-        earnings_map = {}
+    # Background thread: full scan — never blocks request thread
+    def _bg_ir():
+        if getattr(app, "_ir_running", False) and not bust:
+            return
+        app._ir_running = True
         try:
-            with _TPE(max_workers=12) as ex:
-                for r in ex.map(_earn_90d, unique_by_prem, timeout=3.0):
-                    if r: earnings_map[r["ticker"]] = r
-        except Exception:
-            pass  # earnings lookup timed out; scores still work without it
-
-        # Multi-factor suspicion score (0-100)
-        def _score(s):
-            prem  = s.get("prem",   0) or 0
-            voi   = s.get("vol_oi", 0) or 0
-            count = ticker_stats.get(s["ticker"], {}).get("count", 1)
-            earn  = earnings_map.get(s["ticker"])
-            sc    = 0
-            # 1. Ticker rarity - rarely seen = suspicious (0-30)
-            if   count == 1:  sc += 30
-            elif count <= 2:  sc += 25
-            elif count <= 4:  sc += 18
-            elif count <= 8:  sc += 12
-            elif count <= 15: sc += 6
-            else:             sc += 2
-            # 2. Premium size (0-25)
-            if   prem >= 500_000:  sc += 25
-            elif prem >= 200_000:  sc += 20
-            elif prem >= 100_000:  sc += 16
-            elif prem >= 50_000:   sc += 12
-            elif prem >= 20_000:   sc += 8
-            else:                  sc += 4
-            # 3. Vol/OI aggression (0-25)
-            if   voi >= 20: sc += 25
-            elif voi >= 10: sc += 22
-            elif voi >= 5:  sc += 18
-            elif voi >= 3:  sc += 14
-            elif voi >= 2:  sc += 10
-            else:           sc += 5
-            # 4. Earnings proximity (0-20)
-            if earn:
-                d = earn["days_until"]
-                if   d <= 7:  sc += 20
-                elif d <= 14: sc += 19
-                elif d <= 30: sc += 17
-                elif d <= 45: sc += 14
-                elif d <= 60: sc += 11
-                else:         sc += 7
-            return min(sc, 100)
-
-        def _verdict(score, s):
-            earn   = earnings_map.get(s["ticker"])
-            count  = ticker_stats.get(s["ticker"], {}).get("count", 1)
-            prem   = s.get("prem", 0) or 0
-            prem_s = f"${prem/1000:.0f}K" if prem < 1_000_000 else f"${prem/1_000_000:.1f}M"
-            ticker = s["ticker"]
-            if earn:
-                d = earn["days_until"]
-                if score >= 80:
-                    return f"🚨 SEC PATTERN - {prem_s} call bet on a quiet stock · Earnings in {d}d · Textbook pre-announcement insider positioning"
-                elif score >= 65:
-                    return f"WARNING SUSPICIOUS - Abnormal call flow with earnings {d}d away · Possible informed trading or tip chain"
-                elif score >= 50:
-                    return f"👀 WATCH - Options activity on {ticker} · Earnings in {d}d · Monitor for OI accumulation"
-                else:
-                    return f"📡 NOTED - Call activity detected · Earnings approaching in {d}d"
-            else:
-                if score >= 75:
-                    return f"🔍 UNUSUAL - {ticker} rarely sees activity at this size · Possible quiet positioning"
-                elif score >= 55:
-                    return f"📊 ELEVATED - Above-normal options flow · Track OI over coming days for accumulation"
-                elif count <= 2:
-                    return f"📡 RARE - {ticker} has appeared only {count}x in 90 days · Worth monitoring"
-                else:
-                    return f"ℹ ACTIVE - Elevated flow on a stock with regular options activity"
-
-        # Assemble
-        results = []
-        for s in signals:
-            earn = earnings_map.get(s["ticker"])
-            s["suspicion_score"]    = _score(s)
-            s["ticker_appearances"] = ticker_stats.get(s["ticker"], {}).get("count", 1)
-            s["earnings_date"]      = earn["earnings_date"] if earn else None
-            s["days_to_earnings"]   = earn["days_until"]    if earn else None
-            s["verdict"]            = _verdict(s["suspicion_score"], s)
-            s["pre_positioned"]     = bool(
-                (s.get("oi") or 0) >= 100 and (s.get("volume") or 0) < (s.get("oi") or 0) * 0.5
+            # Phase 1: fast DB preload so next request sees stale data immediately
+            if not getattr(app, "_insider_radar_cache", None):
+                _ir_db_bg = _load_scan_cache("insider-radar")
+                if _ir_db_bg:
+                    app._insider_radar_cache    = _ir_db_bg
+                    app._insider_radar_cache_ts = _dt_ir.datetime.now()
+            # Phase 2: full live scan — wait 30s after boot to avoid startup burst
+            import time as _time_ir
+            _delay_ir = max(0, 30 - (_time_ir.time() - _BOOT_TIME))
+            if _delay_ir > 0:
+                _time_ir.sleep(_delay_ir)
+            with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
+                # All signals $10K+ from last 90 days, newest first
+                cur.execute(
+                    "SELECT ticker, price::float, strike::float, expiry,"
+                    " days_out, volume, oi, vol_oi::float, prem::bigint,"
+                    " otm_pct::float, iv::float, urgency,"
+                    " first_seen AT TIME ZONE 'UTC' AS first_seen,"
+                    " last_seen  AT TIME ZONE 'UTC' AS last_seen"
+                    " FROM unusual_calls_log"
+                    " WHERE prem >= 10000"
+                    "   AND first_seen >= NOW() - INTERVAL '90 days'"
+                    " ORDER BY prem DESC"
+                )
+                cols    = [d[0] for d in cur.description]
+                signals = [dict(zip(cols, r)) for r in cur.fetchall()]
+                for s in signals:
+                    for k in ("first_seen", "last_seen"):
+                        if s.get(k): s[k] = s[k].isoformat()
+                cur.execute(
+                    "SELECT ticker, COUNT(*) as signal_count, MAX(prem) as max_prem"
+                    " FROM unusual_calls_log"
+                    " WHERE first_seen >= NOW() - INTERVAL '90 days'"
+                    " GROUP BY ticker"
+                )
+                ticker_stats = {r[0]: {"count": r[1], "max_prem": r[2]} for r in cur.fetchall()}
+    
+            # Check earnings 90-day window for ALL unique tickers in the DB
+            unique_by_prem = sorted(
+                {s["ticker"] for s in signals},
+                key=lambda t: -(ticker_stats.get(t, {}).get("max_prem", 0))
             )
-            results.append(s)
+    
+            def _earn_90d(ticker):
+                if _yf_breaker_open():
+                    return None
+                import datetime as _d2
+                import yfinance as _yf2
+                today  = _et_today()
+                cutoff = today + _d2.timedelta(days=90)
+                try:
+                    tk  = _yf2.Ticker(ticker)
+                    cal = tk.calendar
+                    if cal is None: return None
+                    earn_date = None
+                    try:
+                        if hasattr(cal, "empty") and not cal.empty:
+                            if "Earnings Date" in cal.index:
+                                earn_date = cal.loc["Earnings Date"].iloc[0]
+                            elif "Earnings Date" in cal.columns:
+                                earn_date = cal.iloc[0]["Earnings Date"]
+                        elif isinstance(cal, dict):
+                            ed = cal.get("Earnings Date", [])
+                            earn_date = ed[0] if ed else None
+                    except Exception: return None
+                    if earn_date is None: return None
+                    earn_dt = earn_date.date() if hasattr(earn_date, "date") else \
+                              _d2.datetime.strptime(str(earn_date)[:10], "%Y-%m-%d").date()
+                    if earn_dt < today or earn_dt > cutoff: return None
+                    return {"ticker": ticker,
+                            "earnings_date": earn_dt.isoformat(),
+                            "days_until":    (earn_dt - today).days}
+                except Exception: return None
+    
+            earnings_map = {}
+            try:
+                with _TPE(max_workers=12) as ex:
+                    for r in ex.map(_earn_90d, unique_by_prem, timeout=3.0):
+                        if r: earnings_map[r["ticker"]] = r
+            except Exception:
+                pass  # earnings lookup timed out; scores still work without it
+    
+            # Multi-factor suspicion score (0-100)
+            def _score(s):
+                prem  = s.get("prem",   0) or 0
+                voi   = s.get("vol_oi", 0) or 0
+                count = ticker_stats.get(s["ticker"], {}).get("count", 1)
+                earn  = earnings_map.get(s["ticker"])
+                sc    = 0
+                # 1. Ticker rarity - rarely seen = suspicious (0-30)
+                if   count == 1:  sc += 30
+                elif count <= 2:  sc += 25
+                elif count <= 4:  sc += 18
+                elif count <= 8:  sc += 12
+                elif count <= 15: sc += 6
+                else:             sc += 2
+                # 2. Premium size (0-25)
+                if   prem >= 500_000:  sc += 25
+                elif prem >= 200_000:  sc += 20
+                elif prem >= 100_000:  sc += 16
+                elif prem >= 50_000:   sc += 12
+                elif prem >= 20_000:   sc += 8
+                else:                  sc += 4
+                # 3. Vol/OI aggression (0-25)
+                if   voi >= 20: sc += 25
+                elif voi >= 10: sc += 22
+                elif voi >= 5:  sc += 18
+                elif voi >= 3:  sc += 14
+                elif voi >= 2:  sc += 10
+                else:           sc += 5
+                # 4. Earnings proximity (0-20)
+                if earn:
+                    d = earn["days_until"]
+                    if   d <= 7:  sc += 20
+                    elif d <= 14: sc += 19
+                    elif d <= 30: sc += 17
+                    elif d <= 45: sc += 14
+                    elif d <= 60: sc += 11
+                    else:         sc += 7
+                return min(sc, 100)
+    
+            def _verdict(score, s):
+                earn   = earnings_map.get(s["ticker"])
+                count  = ticker_stats.get(s["ticker"], {}).get("count", 1)
+                prem   = s.get("prem", 0) or 0
+                prem_s = f"${prem/1000:.0f}K" if prem < 1_000_000 else f"${prem/1_000_000:.1f}M"
+                ticker = s["ticker"]
+                if earn:
+                    d = earn["days_until"]
+                    if score >= 80:
+                        return f"🚨 SEC PATTERN - {prem_s} call bet on a quiet stock · Earnings in {d}d · Textbook pre-announcement insider positioning"
+                    elif score >= 65:
+                        return f"WARNING SUSPICIOUS - Abnormal call flow with earnings {d}d away · Possible informed trading or tip chain"
+                    elif score >= 50:
+                        return f"👀 WATCH - Options activity on {ticker} · Earnings in {d}d · Monitor for OI accumulation"
+                    else:
+                        return f"📡 NOTED - Call activity detected · Earnings approaching in {d}d"
+                else:
+                    if score >= 75:
+                        return f"🔍 UNUSUAL - {ticker} rarely sees activity at this size · Possible quiet positioning"
+                    elif score >= 55:
+                        return f"📊 ELEVATED - Above-normal options flow · Track OI over coming days for accumulation"
+                    elif count <= 2:
+                        return f"📡 RARE - {ticker} has appeared only {count}x in 90 days · Worth monitoring"
+                    else:
+                        return f"ℹ ACTIVE - Elevated flow on a stock with regular options activity"
+    
+            # Assemble
+            results = []
+            for s in signals:
+                earn = earnings_map.get(s["ticker"])
+                s["suspicion_score"]    = _score(s)
+                s["ticker_appearances"] = ticker_stats.get(s["ticker"], {}).get("count", 1)
+                s["earnings_date"]      = earn["earnings_date"] if earn else None
+                s["days_to_earnings"]   = earn["days_until"]    if earn else None
+                s["verdict"]            = _verdict(s["suspicion_score"], s)
+                s["pre_positioned"]     = bool(
+                    (s.get("oi") or 0) >= 100 and (s.get("volume") or 0) < (s.get("oi") or 0) * 0.5
+                )
+                results.append(s)
+    
+            # Earnings-linked first, then by suspicion score desc, then by premium desc
+            results.sort(key=lambda x: (
+                0 if x["days_to_earnings"] is not None else 1,
+                -x["suspicion_score"],
+                -(x["prem"] or 0)
+            ))
+    
+            out = {
+                "signals":         results,
+                "total":           len(results),
+                "earnings_linked": sum(1 for r in results if r["days_to_earnings"] is not None),
+                "high_suspicion":  sum(1 for r in results if r["suspicion_score"] >= 65),
+                "rare_tickers":    sum(1 for r in results if r["ticker_appearances"] <= 3),
+                "as_of":           _dt_ir.datetime.now().isoformat(),
+            }
+            app._insider_radar_cache    = out
+            app._insider_radar_cache_ts = _dt_ir.datetime.now()
+            _save_scan_cache("insider-radar", out)
+            # Auto-save high-suspicion signals (score >= 70) to the permanent alert log
+            try:
+                _high = [r for r in results if r["suspicion_score"] >= 70]
+                if _high:
+                    _ins_sql = (
+                        "INSERT INTO insider_alerts"
+                        " (ticker, suspicion_score, prem, strike, expiry,"
+                        "  price_at_detection, vol_oi, earnings_date,"
+                        "  days_to_earnings, ticker_appearances, verdict, pre_positioned)"
+                        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                        " ON CONFLICT (ticker, strike, expiry) DO NOTHING"
+                    )
+                    with _psycopg2.connect(_DB_URL) as _ac, _ac.cursor() as _acur:
+                        for _s in _high:
+                            _acur.execute(_ins_sql, (
+                                _s["ticker"], _s["suspicion_score"], _s.get("prem"),
+                                _s.get("strike"), _s.get("expiry"), _s.get("price"),
+                                _s.get("vol_oi"), _s.get("earnings_date"),
+                                _s.get("days_to_earnings"), _s.get("ticker_appearances"),
+                                _s.get("verdict"), _s.get("pre_positioned", False)))
+                        _ac.commit()
+                    print(f"[insider_radar] Auto-saved {len(_high)} alerts (score≥70) to alert log")
+            except Exception as _ae:
+                print(f"[insider_radar] Alert auto-save error: {_ae}")
+        except Exception as _e_ir:
+            print(f"[insider_radar] bg error: {_e_ir}")
+        finally:
+            app._ir_running = False
 
-        # Earnings-linked first, then by suspicion score desc, then by premium desc
-        results.sort(key=lambda x: (
-            0 if x["days_to_earnings"] is not None else 1,
-            -x["suspicion_score"],
-            -(x["prem"] or 0)
-        ))
-
-        out = {
-            "signals":         results,
-            "total":           len(results),
-            "earnings_linked": sum(1 for r in results if r["days_to_earnings"] is not None),
-            "high_suspicion":  sum(1 for r in results if r["suspicion_score"] >= 65),
-            "rare_tickers":    sum(1 for r in results if r["ticker_appearances"] <= 3),
-            "as_of":           _dt_ir.datetime.now().isoformat(),
-        }
-        app._insider_radar_cache    = out
-        app._insider_radar_cache_ts = _dt_ir.datetime.now()
-        _save_scan_cache("insider-radar", out)
-
-        # Auto-save high-suspicion signals (score >= 70) to the permanent alert log
-        try:
-            _high = [r for r in results if r["suspicion_score"] >= 70]
-            if _high:
-                with _psycopg2.connect(_DB_URL) as _ac, _ac.cursor() as _acur:
-                    for _s in _high:
-                        _acur.execute("""
-                            INSERT INTO insider_alerts
-                                (ticker, suspicion_score, prem, strike, expiry,
-                                 price_at_detection, vol_oi, earnings_date,
-                                 days_to_earnings, ticker_appearances, verdict, pre_positioned)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            ON CONFLICT (ticker, strike, expiry) DO NOTHING
-                        """, (_s["ticker"], _s["suspicion_score"], _s.get("prem"),
-                              _s.get("strike"), _s.get("expiry"), _s.get("price"),
-                              _s.get("vol_oi"), _s.get("earnings_date"),
-                              _s.get("days_to_earnings"), _s.get("ticker_appearances"),
-                              _s.get("verdict"), _s.get("pre_positioned", False)))
-                    _ac.commit()
-                print(f"[insider_radar] Auto-saved {len(_high)} alerts (score≥70) to alert log")
-        except Exception as _ae:
-            print(f"[insider_radar] Alert auto-save error: {_ae}")
-
-        return jsonify(out)
-
-    except Exception as e:
-        return jsonify({"error": str(e), "signals": [], "total": 0,
-                        "earnings_linked": 0, "high_suspicion": 0, "rare_tickers": 0}), 500
+    import threading as _ir_thr
+    if bust or not getattr(app, "_ir_running", False):
+        _ir_thr.Thread(target=_bg_ir, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "stale": True, "generating": True})
+    return jsonify({"signals": [], "total": 0, "generating": True,
+                    "earnings_linked": 0, "high_suspicion": 0, "rare_tickers": 0})
 
 
 @app.route("/stock-api/insider-alerts", methods=["GET"])
