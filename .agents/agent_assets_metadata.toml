@@ -78,3 +78,9 @@ id = "L3DaVIG8AF4BYW3VgwSdr"
 uri = "file://screenshots/value_card.jpg"
 type = "image"
 title = "Everything in One Place — iPhone 16 Plus Size"
+
+[[outputs]]
+id = "QJteoIMFv_8D5VQe6-8-n"
+uri = "file://AIEM_CODE_REVIEW.txt"
+type = "text"
+title = "AIEM Autonomous Trading System — Full Code Review"
