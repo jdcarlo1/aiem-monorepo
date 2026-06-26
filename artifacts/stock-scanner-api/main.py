@@ -14978,6 +14978,1568 @@ def _aiem_tool_analyze_missed_movers(min_move_pct=5.0, lookback_days=30):
         return {"status": "error", "error": str(e)}
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# LOOP A + LOOP B — AIEM Full-Market Research System
+# polygon_market_daily: stores ALL 12K stocks per day (not just top movers)
+# 20 autonomous tools for signal discovery, validation, and invention
+# ════════════════════════════════════════════════════════════════════════════
+
+_MKT_SAFE_COLS = {
+    "gap_pct":        "gap_pct",
+    "rvol":           "rvol",
+    "close_strength": "close_strength",
+    "range_pct":      "range_pct",
+    "close_price":    "close_price",
+    "volume":         "volume",
+    "open_price":     "open_price",
+    "high_price":     "high_price",
+    "low_price":      "low_price",
+    "vwap":           "vwap",
+}
+
+def _mkt_init_tables():
+    """Create polygon_market_daily + aiem_signal_discoveries + all indexes."""
+    import psycopg2
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS polygon_market_daily (
+                    id             SERIAL PRIMARY KEY,
+                    scan_date      DATE NOT NULL,
+                    ticker         VARCHAR(10) NOT NULL,
+                    close_price    FLOAT NOT NULL,
+                    open_price     FLOAT,
+                    high_price     FLOAT,
+                    low_price      FLOAT,
+                    vwap           FLOAT,
+                    volume         BIGINT,
+                    prev_close     FLOAT,
+                    gap_pct        FLOAT,
+                    rvol           FLOAT,
+                    close_strength FLOAT,
+                    range_pct      FLOAT,
+                    UNIQUE (scan_date, ticker)
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pmd_date ON polygon_market_daily (scan_date)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pmd_ticker ON polygon_market_daily (ticker)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pmd_ticker_date ON polygon_market_daily (ticker, scan_date)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pmd_gap ON polygon_market_daily (gap_pct)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pmd_rvol ON polygon_market_daily (rvol)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pmd_close_str ON polygon_market_daily (close_strength)")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_signal_discoveries (
+                    id                SERIAL PRIMARY KEY,
+                    hypothesis_text   TEXT,
+                    conditions_json   JSONB NOT NULL,
+                    horizon           VARCHAR(20) DEFAULT 'next_day',
+                    signal_n          INTEGER,
+                    signal_win_rate   FLOAT,
+                    signal_avg_ret    FLOAT,
+                    baseline_n        INTEGER,
+                    baseline_win_rate FLOAT,
+                    baseline_avg_ret  FLOAT,
+                    edge_broad        FLOAT,
+                    edge_tight        FLOAT,
+                    p_value           FLOAT,
+                    oos_edge          FLOAT,
+                    status            VARCHAR(20) DEFAULT 'new',
+                    discovered_at     TIMESTAMP DEFAULT NOW(),
+                    confirmed_at      TIMESTAMP,
+                    invented_indicator TEXT,
+                    notes             TEXT
+                )
+            """)
+        print("[mkt_init] polygon_market_daily + aiem_signal_discoveries ready")
+    except Exception as _e:
+        print(f"[mkt_init] table init error: {_e}")
+
+
+def _mkt_parse_conditions(conditions: dict):
+    """Convert condition dict → (sql_fragment, params). Whitelist-safe."""
+    parts, params = [], []
+    for key, val in (conditions or {}).items():
+        if key.endswith("_min"):
+            field, op = key[:-4], ">="
+        elif key.endswith("_max"):
+            field, op = key[:-4], "<="
+        else:
+            continue
+        if field not in _MKT_SAFE_COLS:
+            continue
+        try:
+            val = float(val)
+        except (TypeError, ValueError):
+            continue
+        parts.append(f"{_MKT_SAFE_COLS[field]} {op} %s")
+        params.append(val)
+    return (" AND ".join(parts), params)
+
+
+def _mkt_run_two_group(conn, sig_where, sig_params, base_where, base_params, limit=100000):
+    """Fetch returns for two groups and compute all stats. Returns dict or None."""
+    import numpy as _np
+    from scipy import stats as _sc
+
+    def _fetch(where, params):
+        sql = f"""
+            SELECT ((nxt.close_price / NULLIF(t.close_price,0)) - 1) * 100
+            FROM polygon_market_daily t
+            JOIN polygon_market_daily nxt
+              ON nxt.ticker = t.ticker
+             AND nxt.scan_date = (
+                   SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                   WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                 )
+            WHERE t.close_price > 0{(' AND ' + where) if where else ''}
+            LIMIT {limit}
+        """
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return [r[0] for r in cur.fetchall() if r[0] is not None]
+
+    sig = _fetch(sig_where, sig_params)
+    base = _fetch(base_where, base_params)
+    if not sig or not base:
+        return None
+
+    sa, ba = _np.array(sig), _np.array(base)
+    _, pval = _sc.ttest_ind(sa, ba, equal_var=False)
+    return {
+        "signal_n":          len(sa),
+        "signal_win_rate":   round(float(_np.mean(sa > 0)) * 100, 2),
+        "signal_avg_ret":    round(float(_np.mean(sa)), 4),
+        "signal_median_ret": round(float(_np.median(sa)), 4),
+        "baseline_n":        len(ba),
+        "baseline_win_rate": round(float(_np.mean(ba > 0)) * 100, 2),
+        "baseline_avg_ret":  round(float(_np.mean(ba)), 4),
+        "edge_winrate":      round(float(_np.mean(sa > 0) - _np.mean(ba > 0)) * 100, 2),
+        "edge_avg_ret":      round(float(_np.mean(sa) - _np.mean(ba)), 4),
+        "p_value":           round(float(pval), 4),
+        "significant":       bool(pval < 0.05),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 1: Explore the full market dataset dimensions
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_explore_dimensions():
+    """Statistical summary of the full polygon_market_daily universe.
+    Call this FIRST to understand what data exists before testing signals."""
+    import psycopg2
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    COUNT(DISTINCT scan_date) AS n_dates,
+                    MIN(scan_date)::text AS earliest,
+                    MAX(scan_date)::text AS latest,
+                    COUNT(*) AS total_rows,
+                    ROUND(COUNT(*)::numeric / NULLIF(COUNT(DISTINCT scan_date),0), 0) AS avg_stocks_per_day
+                FROM polygon_market_daily
+            """)
+            meta = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
+
+            cur.execute("""
+                SELECT
+                    ROUND(AVG(gap_pct)::numeric,2) AS gap_avg,
+                    ROUND(STDDEV(gap_pct)::numeric,2) AS gap_std,
+                    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY gap_pct)::numeric,2) AS gap_p25,
+                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY gap_pct)::numeric,2) AS gap_p50,
+                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY gap_pct)::numeric,2) AS gap_p75,
+                    ROUND(AVG(rvol)::numeric,2) AS rvol_avg,
+                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY rvol)::numeric,2) AS rvol_p50,
+                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY rvol)::numeric,2) AS rvol_p75,
+                    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY rvol)::numeric,2) AS rvol_p90,
+                    ROUND(AVG(close_strength)::numeric,3) AS cs_avg,
+                    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY close_strength)::numeric,3) AS cs_p25,
+                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY close_strength)::numeric,3) AS cs_p75,
+                    ROUND(AVG(range_pct)::numeric,2) AS range_avg,
+                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY range_pct)::numeric,2) AS range_p50,
+                    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY range_pct)::numeric,2) AS range_p90,
+                    ROUND(AVG(volume)::numeric,0) AS vol_avg,
+                    COUNT(*) FILTER (WHERE gap_pct IS NOT NULL) AS gap_coverage,
+                    COUNT(*) FILTER (WHERE rvol IS NOT NULL) AS rvol_coverage
+                FROM polygon_market_daily
+                WHERE close_price > 0
+            """)
+            dist = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
+
+            # Baseline forward returns
+            cur.execute("""
+                SELECT
+                    COUNT(*) AS n_pairs,
+                    ROUND(AVG(fwd_ret)::numeric, 4) AS avg_next_day_ret,
+                    ROUND((COUNT(*) FILTER (WHERE fwd_ret > 0))::numeric / NULLIF(COUNT(*),0) * 100, 2) AS baseline_win_rate
+                FROM (
+                    SELECT ((nxt.close_price / NULLIF(t.close_price,0)) - 1) * 100 AS fwd_ret
+                    FROM polygon_market_daily t
+                    JOIN polygon_market_daily nxt
+                      ON nxt.ticker = t.ticker
+                     AND nxt.scan_date = (
+                           SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                           WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                         )
+                    WHERE t.close_price > 0
+                    LIMIT 500000
+                ) sub
+            """)
+            baseline = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
+
+            cur.execute("SELECT COUNT(*) FROM aiem_signal_discoveries")
+            disc_count = cur.fetchone()[0]
+
+        return {
+            "status": "ok",
+            "dataset": {k: (int(v) if isinstance(v, (int,)) else str(v) if hasattr(v, 'isoformat') else v)
+                        for k, v in meta.items()},
+            "factor_distributions": {k: float(v) if v is not None else None for k, v in dist.items()},
+            "baseline_returns": {k: float(v) if v is not None else None for k, v in baseline.items()},
+            "prior_discoveries": disc_count,
+            "available_factors": list(_MKT_SAFE_COLS.keys()),
+            "condition_format": "Use {factor}_min and {factor}_max keys, e.g. {'gap_pct_min': 2.0, 'rvol_min': 3.0}",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 2: Test any signal against the full 12K universe
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad"):
+    """Test any combination of market conditions against the full 12K-stock universe.
+    Returns signal win_rate, avg_return, edge vs broad market, and p-value.
+    conditions: dict e.g. {'gap_pct_min': 2.0, 'rvol_min': 3.0, 'close_strength_min': 0.6}
+    baseline: 'broad' (all stocks) or 'tight' (stocks just below each threshold)
+    """
+    import psycopg2
+    if not conditions:
+        return {"status": "error", "error": "conditions dict required"}
+    try:
+        sig_where, sig_params = _mkt_parse_conditions(conditions)
+        if not sig_where:
+            return {"status": "error", "error": "No valid conditions parsed. Use {factor}_min/_max keys."}
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            # Broad baseline = all stocks
+            broad_res = _mkt_run_two_group(conn, sig_where, sig_params, "", [])
+
+            if baseline == "tight":
+                # Tight baseline: stocks that are "close" but don't meet all conditions
+                # Expand each threshold by 50% in the opposite direction
+                tight_parts, tight_params = [], []
+                for key, val in (conditions or {}).items():
+                    if key.endswith("_min"):
+                        field = key[:-4]
+                        if field not in _MKT_SAFE_COLS:
+                            continue
+                        col = _MKT_SAFE_COLS[field]
+                        try:
+                            v = float(val)
+                        except:
+                            continue
+                        # Tight baseline: value within 50% below threshold
+                        tight_parts.append(f"({col} >= %s AND {col} < %s)")
+                        tight_params.extend([v * 0.5, v])
+                    elif key.endswith("_max"):
+                        field = key[:-4]
+                        if field not in _MKT_SAFE_COLS:
+                            continue
+                        col = _MKT_SAFE_COLS[field]
+                        try:
+                            v = float(val)
+                        except:
+                            continue
+                        tight_parts.append(f"({col} > %s AND {col} <= %s)")
+                        tight_params.extend([v, v * 1.5])
+
+                if tight_parts:
+                    tight_where = " OR ".join(tight_parts)
+                    tight_res = _mkt_run_two_group(conn, sig_where, sig_params, f"({tight_where})", tight_params)
+                else:
+                    tight_res = None
+            else:
+                tight_res = None
+
+        if not broad_res:
+            return {"status": "error", "error": "No data — run mkt_explore_dimensions first to confirm data exists."}
+
+        result = {
+            "status": "ok",
+            "conditions_tested": conditions,
+            "vs_broad_market": broad_res,
+        }
+        if tight_res:
+            result["vs_tight_baseline"] = tight_res
+        result["interpretation"] = (
+            f"Signal fires on {broad_res['signal_n']} stock-days. "
+            f"Win rate: {broad_res['signal_win_rate']}% vs market {broad_res['baseline_win_rate']}%. "
+            f"Edge: {broad_res['edge_winrate']:+.1f}pp. "
+            f"p={broad_res['p_value']} ({'SIGNIFICANT' if broad_res['significant'] else 'not significant'})."
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 3: Test the inverse — confirms signal is directional
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_test_inverse(conditions=None, horizon="next_day"):
+    """Test what happens when ALL conditions are ABSENT. If the signal is real,
+    the inverse group should perform WORSE than the broad market.
+    A genuine signal: inverse win_rate < broad win_rate < signal win_rate."""
+    import psycopg2
+    if not conditions:
+        return {"status": "error", "error": "conditions dict required"}
+    try:
+        sig_where, sig_params = _mkt_parse_conditions(conditions)
+        if not sig_where:
+            return {"status": "error", "error": "No valid conditions parsed."}
+
+        inv_where = f"NOT ({sig_where})"
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            sig_res = _mkt_run_two_group(conn, sig_where, sig_params, "", [])
+            inv_res = _mkt_run_two_group(conn, inv_where, sig_params, "", [])
+
+        if not sig_res or not inv_res:
+            return {"status": "error", "error": "Insufficient data for comparison."}
+
+        real_signal = (sig_res["signal_win_rate"] > sig_res["baseline_win_rate"] > inv_res["signal_win_rate"])
+        return {
+            "status": "ok",
+            "conditions": conditions,
+            "signal_group": {"n": sig_res["signal_n"], "win_rate": sig_res["signal_win_rate"],
+                             "avg_ret": sig_res["signal_avg_ret"]},
+            "inverse_group": {"n": inv_res["signal_n"], "win_rate": inv_res["signal_win_rate"],
+                              "avg_ret": inv_res["signal_avg_ret"]},
+            "broad_market": {"win_rate": sig_res["baseline_win_rate"], "avg_ret": sig_res["baseline_avg_ret"]},
+            "directional_confirmed": real_signal,
+            "interpretation": (
+                "REAL DIRECTIONAL SIGNAL: signal > market > inverse."
+                if real_signal else
+                "WARNING: inverse does not underperform — signal may not be directional."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 4: Find optimal threshold for any single factor
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_find_thresholds(factor="gap_pct", direction="min", n_steps=20, horizon="next_day"):
+    """Grid-search 20 threshold values for a single factor to find the optimal cut.
+    direction: 'min' (factor >= threshold) or 'max' (factor <= threshold)
+    Returns the threshold that maximizes win-rate edge vs broad baseline."""
+    import psycopg2
+    import numpy as _np
+    if factor not in _MKT_SAFE_COLS:
+        return {"status": "error", "error": f"Unknown factor. Choose from: {list(_MKT_SAFE_COLS.keys())}"}
+    try:
+        col = _MKT_SAFE_COLS[factor]
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY {col}),
+                       PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY {col})
+                FROM polygon_market_daily WHERE {col} IS NOT NULL AND close_price > 0
+            """)
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return {"status": "error", "error": "No data for this factor."}
+            lo, hi = float(row[0]), float(row[1])
+
+        thresholds = _np.linspace(lo, hi, n_steps)
+        results = []
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            for thr in thresholds:
+                if direction == "min":
+                    w, p = f"{col} >= %s", [thr]
+                else:
+                    w, p = f"{col} <= %s", [thr]
+                res = _mkt_run_two_group(conn, w, p, "", [], limit=50000)
+                if res and res["signal_n"] >= 50:
+                    results.append({
+                        "threshold": round(float(thr), 4),
+                        "n": res["signal_n"],
+                        "win_rate": res["signal_win_rate"],
+                        "avg_ret": res["signal_avg_ret"],
+                        "edge_winrate": res["edge_winrate"],
+                        "edge_avg_ret": res["edge_avg_ret"],
+                        "p_value": res["p_value"],
+                    })
+
+        if not results:
+            return {"status": "error", "error": "No results — insufficient data."}
+
+        best = max(results, key=lambda x: x["edge_winrate"])
+        return {
+            "status": "ok",
+            "factor": factor,
+            "direction": direction,
+            "best_threshold": best["threshold"],
+            "best_edge_winrate": best["edge_winrate"],
+            "best_n": best["n"],
+            "best_p_value": best["p_value"],
+            "all_thresholds": results,
+            "recommendation": (
+                f"Use {factor}_{direction}={best['threshold']} for max edge "
+                f"({best['edge_winrate']:+.1f}pp, n={best['n']}, p={best['p_value']})"
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 5: What did big movers look like the day BEFORE they moved?
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_analyze_top_movers(min_move_pct=5.0, max_move_pct=50.0, horizon="next_day"):
+    """Find stocks that moved min_move_pct%+ the next day and profile their PRIOR day characteristics.
+    Reveals the leading indicators of large moves."""
+    import psycopg2
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    COUNT(*) AS n_movers,
+                    ROUND(AVG(t.gap_pct)::numeric,3) AS avg_gap_pct,
+                    ROUND(AVG(t.rvol)::numeric,3) AS avg_rvol,
+                    ROUND(AVG(t.close_strength)::numeric,3) AS avg_close_strength,
+                    ROUND(AVG(t.range_pct)::numeric,3) AS avg_range_pct,
+                    ROUND(AVG(t.volume)::numeric,0) AS avg_volume,
+                    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.gap_pct)::numeric,3) AS med_gap_pct,
+                    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.rvol)::numeric,3) AS med_rvol,
+                    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.close_strength)::numeric,3) AS med_close_strength,
+                    ROUND(AVG((nxt.close_price/NULLIF(t.close_price,0)-1)*100)::numeric,2) AS avg_actual_move
+                FROM polygon_market_daily t
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker = t.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                     )
+                WHERE t.close_price > 0
+                  AND ((nxt.close_price/NULLIF(t.close_price,0)-1)*100) >= %s
+                  AND ((nxt.close_price/NULLIF(t.close_price,0)-1)*100) <= %s
+            """, [min_move_pct, max_move_pct])
+            mover_row = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
+
+            cur.execute("""
+                SELECT
+                    ROUND(AVG(gap_pct)::numeric,3) AS avg_gap_pct,
+                    ROUND(AVG(rvol)::numeric,3) AS avg_rvol,
+                    ROUND(AVG(close_strength)::numeric,3) AS avg_close_strength,
+                    ROUND(AVG(range_pct)::numeric,3) AS avg_range_pct,
+                    ROUND(AVG(volume)::numeric,0) AS avg_volume
+                FROM polygon_market_daily WHERE close_price > 0
+            """)
+            all_row = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
+
+        def _lift(field):
+            mv = mover_row.get(f"avg_{field}")
+            al = all_row.get(f"avg_{field}")
+            if mv is None or al is None or al == 0:
+                return None
+            return round((float(mv) / float(al) - 1) * 100, 1)
+
+        return {
+            "status": "ok",
+            "criteria": f"Next-day move >= {min_move_pct}% and <= {max_move_pct}%",
+            "n_movers": int(mover_row.get("n_movers") or 0),
+            "avg_actual_move_pct": float(mover_row.get("avg_actual_move") or 0),
+            "pre_move_characteristics": {k: (float(v) if v is not None else None)
+                                         for k, v in mover_row.items() if k != "n_movers"},
+            "vs_all_stocks": {k: (float(v) if v is not None else None) for k, v in all_row.items()},
+            "factor_lifts_vs_average": {
+                "gap_pct":        _lift("gap_pct"),
+                "rvol":           _lift("rvol"),
+                "close_strength": _lift("close_strength"),
+                "range_pct":      _lift("range_pct"),
+            },
+            "insight": "Factor lift = how much higher than average movers scored on each factor the day before the move.",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 6: Analyze false signals — what do losers have that winners don't?
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_analyze_false_signals(conditions=None, win_threshold=2.0, horizon="next_day"):
+    """Among stocks meeting the signal, compare winners (>=win_threshold% next day)
+    vs losers (<0% next day). Reveals what negative filters could improve precision."""
+    import psycopg2
+    if not conditions:
+        return {"status": "error", "error": "conditions dict required"}
+    try:
+        sig_where, sig_params = _mkt_parse_conditions(conditions)
+        if not sig_where:
+            return {"status": "error", "error": "No valid conditions parsed."}
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            base_sql = f"""
+                SELECT t.gap_pct, t.rvol, t.close_strength, t.range_pct, t.volume,
+                       ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 AS fwd_ret
+                FROM polygon_market_daily t
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker = t.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                     )
+                WHERE t.close_price > 0 AND {sig_where}
+                LIMIT 20000
+            """
+            cur.execute(base_sql, sig_params)
+            rows = cur.fetchall()
+
+        import numpy as _np
+        winners = [r for r in rows if r[5] is not None and r[5] >= win_threshold]
+        losers  = [r for r in rows if r[5] is not None and r[5] < 0]
+
+        def _avg_col(rows_list, idx):
+            vals = [r[idx] for r in rows_list if r[idx] is not None]
+            return round(float(_np.mean(vals)), 4) if vals else None
+
+        cols = ["gap_pct", "rvol", "close_strength", "range_pct", "volume"]
+        w_avgs = {c: _avg_col(winners, i) for i, c in enumerate(cols)}
+        l_avgs = {c: _avg_col(losers, i) for i, c in enumerate(cols)}
+
+        diffs = {}
+        for c in cols:
+            if w_avgs[c] is not None and l_avgs[c] is not None and l_avgs[c] != 0:
+                diffs[c] = round((w_avgs[c] - l_avgs[c]) / abs(l_avgs[c]) * 100, 1)
+
+        return {
+            "status": "ok",
+            "conditions": conditions,
+            "total_signal_hits": len(rows),
+            "winners_n": len(winners), "losers_n": len(losers),
+            "winner_avg_factors": w_avgs,
+            "loser_avg_factors": l_avgs,
+            "winner_vs_loser_pct_diff": diffs,
+            "tip": "Factors where winners >> losers are candidates for tighter filter conditions.",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 7: Does the signal work in different market regimes?
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_regime_filter(conditions=None, horizon="next_day"):
+    """Test signal split by market regime (SPY performance that day).
+    Bull: SPY gap_pct >= +0.5%; Bear: SPY gap_pct <= -0.5%; Flat: in between."""
+    import psycopg2
+    if not conditions:
+        return {"status": "error", "error": "conditions dict required"}
+    try:
+        sig_where, sig_params = _mkt_parse_conditions(conditions)
+        if not sig_where:
+            return {"status": "error", "error": "No valid conditions parsed."}
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Get SPY daily returns as regime classifier
+            cur.execute("""
+                SELECT scan_date, gap_pct
+                FROM polygon_market_daily
+                WHERE ticker = 'SPY' ORDER BY scan_date
+            """)
+            spy_rows = cur.fetchall()
+
+        regimes = {}
+        for row in spy_rows:
+            d, g = row[0], row[1]
+            if g is None:
+                regime = "flat"
+            elif g >= 0.5:
+                regime = "bull"
+            elif g <= -0.5:
+                regime = "bear"
+            else:
+                regime = "flat"
+            regimes[str(d)] = regime
+
+        if not regimes:
+            return {"status": "error", "error": "No SPY data in polygon_market_daily. Run daily scan first."}
+
+        results = {}
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            for regime, label in [("bull", "bull"), ("bear", "bear"), ("flat", "flat")]:
+                dates = [d for d, r in regimes.items() if r == regime]
+                if not dates:
+                    continue
+                # Build date-list SQL (safe: dates come from our own DB)
+                date_placeholders = ",".join(["%s"] * len(dates))
+                where = f"{sig_where} AND t.scan_date::text IN ({date_placeholders})"
+                params = sig_params + dates
+                res = _mkt_run_two_group(conn, where, params, "", [], limit=30000)
+                if res:
+                    results[regime] = res
+
+        if not results:
+            return {"status": "error", "error": "No regime data computed."}
+
+        return {
+            "status": "ok",
+            "conditions": conditions,
+            "regime_breakdown": results,
+            "spy_dates_classified": {r: sum(1 for v in regimes.values() if v == r)
+                                     for r in ["bull", "bear", "flat"]},
+            "tip": "If signal only works in bull regime, add SPY filter or use with caution on down days.",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 8: Out-of-sample validation
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_validate_oos(conditions=None, train_pct=0.6, horizon="next_day"):
+    """Split dates into train (first 60%) and test (last 40%) periods.
+    True test of whether a signal generalizes beyond the data it was found in."""
+    import psycopg2
+    if not conditions:
+        return {"status": "error", "error": "conditions dict required"}
+    try:
+        sig_where, sig_params = _mkt_parse_conditions(conditions)
+        if not sig_where:
+            return {"status": "error", "error": "No valid conditions parsed."}
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT scan_date FROM polygon_market_daily ORDER BY scan_date")
+            all_dates = [str(r[0]) for r in cur.fetchall()]
+
+        if len(all_dates) < 10:
+            return {"status": "error", "error": f"Only {len(all_dates)} dates — need ≥10 for OOS split."}
+
+        split = int(len(all_dates) * train_pct)
+        train_dates = all_dates[:split]
+        test_dates  = all_dates[split:]
+
+        def run_period(dates):
+            ph = ",".join(["%s"] * len(dates))
+            w = f"{sig_where} AND t.scan_date::text IN ({ph})"
+            p = sig_params + dates
+            bw = f"t.scan_date::text IN ({ph})"
+            bp = dates
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+                return _mkt_run_two_group(conn, w, p, bw, bp, limit=50000)
+
+        train_res = run_period(train_dates)
+        test_res  = run_period(test_dates)
+
+        if not train_res or not test_res:
+            return {"status": "error", "error": "Insufficient data in one or both periods."}
+
+        oos_holds = (test_res["significant"] and
+                     test_res["edge_winrate"] > 0 and
+                     test_res["signal_win_rate"] > test_res["baseline_win_rate"])
+
+        return {
+            "status": "ok",
+            "conditions": conditions,
+            "train_period": {"dates": len(train_dates), "range": f"{train_dates[0]} to {train_dates[-1]}",
+                             **train_res},
+            "test_period":  {"dates": len(test_dates),  "range": f"{test_dates[0]} to {test_dates[-1]}",
+                             **test_res},
+            "oos_validated": oos_holds,
+            "edge_decay": round(train_res["edge_winrate"] - test_res["edge_winrate"], 2),
+            "verdict": (
+                "PASSES OOS: signal holds in unseen data — safe to save as discovery."
+                if oos_holds else
+                "FAILS OOS: signal doesn't generalize — likely overfit. Do NOT save."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 9: AI generates its own hypotheses from scratch
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_generate_hypotheses(context="", n_hypotheses=8):
+    """Ask GPT-4o to invent novel signal hypotheses based on the market dataset.
+    Returns a list of condition dicts ready to pass to mkt_test_signal.
+    context: optional text describing what you've already found."""
+    try:
+        _oai_client = _get_openai_client()
+        dimension_summary = _mkt_tool_explore_dimensions()
+        dist = dimension_summary.get("factor_distributions", {})
+        baseline = dimension_summary.get("baseline_returns", {})
+
+        prompt = f"""You are an autonomous quantitative trading researcher with access to a full-market daily stock database.
+
+Dataset summary:
+- {dimension_summary.get('dataset', {}).get('n_dates', '?')} trading days, ~{dimension_summary.get('dataset', {}).get('avg_stocks_per_day', '?')} stocks/day
+- Baseline next-day win rate: {baseline.get('baseline_win_rate', '?')}%
+- Baseline avg next-day return: {baseline.get('avg_next_day_ret', '?')}%
+
+Factor distributions (avg values):
+- gap_pct (day gain %): avg={dist.get('gap_avg')}, p25={dist.get('gap_p25')}, p50={dist.get('gap_p50')}, p75={dist.get('gap_p75')}
+- rvol (relative volume): avg={dist.get('rvol_avg')}, p50={dist.get('rvol_p50')}, p75={dist.get('rvol_p75')}, p90={dist.get('rvol_p90')}
+- close_strength (0-1, where close landed in day range): avg={dist.get('cs_avg')}, p25={dist.get('cs_p25')}, p75={dist.get('cs_p75')}
+- range_pct (high-low / low %): avg={dist.get('range_avg')}, p50={dist.get('range_p50')}, p90={dist.get('range_p90')}
+- volume: avg={dist.get('vol_avg')}
+
+Context from prior research: {context if context else 'None yet. This is the first research session.'}
+
+Generate {n_hypotheses} distinct, testable hypotheses about which stock characteristics predict positive next-day returns.
+
+Rules:
+1. Be creative — propose non-obvious combinations
+2. Each hypothesis must map to concrete thresholds using ONLY these fields: gap_pct, rvol, close_strength, range_pct, close_price, volume
+3. Mix simple (1 factor) and complex (2-3 factor) hypotheses
+4. Include at least one counter-intuitive hypothesis (e.g. high range is BAD)
+5. Include at least one that tests a "sweet spot" (not too high, not too low)
+
+Return a JSON array of exactly {n_hypotheses} objects, each with:
+- "hypothesis": string description
+- "conditions": dict with {{"factor_min/max": value}} keys
+- "rationale": string explaining the logic
+
+Return ONLY the JSON array, no other text."""
+
+        resp = _oai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.8,
+            max_tokens=2000,
+        )
+        import json as _j
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        hypotheses = _j.loads(raw)
+        return {
+            "status": "ok",
+            "n_generated": len(hypotheses),
+            "hypotheses": hypotheses,
+            "next_step": "Call mkt_test_signal(conditions=h['conditions']) for each hypothesis. Then mkt_validate_oos on significant ones.",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 10: Save a validated discovery
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=None,
+                              edge_tight=None, signal_n=None, p_value=None,
+                              signal_win_rate=None, baseline_win_rate=None,
+                              signal_avg_ret=None, oos_edge=None,
+                              horizon="next_day", notes=""):
+    """Save a validated signal discovery to the aiem_signal_discoveries table.
+    Only call this AFTER mkt_validate_oos confirms the signal holds out-of-sample."""
+    import psycopg2, json as _j
+    if not conditions:
+        return {"status": "error", "error": "conditions required"}
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO aiem_signal_discoveries
+                    (hypothesis_text, conditions_json, horizon, signal_n, signal_win_rate,
+                     signal_avg_ret, edge_broad, edge_tight, p_value, oos_edge,
+                     baseline_win_rate, status, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'validated', %s)
+                RETURNING id
+            """, (
+                hypothesis_text, _j.dumps(conditions), horizon,
+                signal_n, signal_win_rate, signal_avg_ret,
+                edge_broad, edge_tight, p_value, oos_edge,
+                baseline_win_rate, notes
+            ))
+            disc_id = cur.fetchone()[0]
+        return {"status": "ok", "discovery_id": disc_id,
+                "message": f"Discovery #{disc_id} saved. Visible at /stock-api/aiem/discoveries"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 11: Load prior discoveries to build on past work
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_load_discoveries(status="validated", min_edge_tight=None, min_oos_edge=None):
+    """Load previously saved signal discoveries. Use this at the START of each session
+    to avoid re-discovering the same signals and to build compound strategies."""
+    import psycopg2
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            where_parts = ["1=1"]
+            params = []
+            if status:
+                where_parts.append("status = %s")
+                params.append(status)
+            if min_edge_tight is not None:
+                where_parts.append("edge_tight >= %s")
+                params.append(float(min_edge_tight))
+            if min_oos_edge is not None:
+                where_parts.append("oos_edge >= %s")
+                params.append(float(min_oos_edge))
+            cur.execute(f"""
+                SELECT id, hypothesis_text, conditions_json, horizon,
+                       signal_n, signal_win_rate, signal_avg_ret,
+                       edge_broad, edge_tight, p_value, oos_edge,
+                       status, discovered_at::text, notes
+                FROM aiem_signal_discoveries
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY COALESCE(oos_edge, edge_tight, edge_broad) DESC NULLS LAST
+            """, params)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+        for r in rows:
+            for k, v in r.items():
+                if hasattr(v, 'isoformat'):
+                    r[k] = str(v)
+        return {"status": "ok", "count": len(rows), "discoveries": rows}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 12: Factor correlations — which dimensions predict returns?
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_factor_correlations(horizon="next_day", sample=100000):
+    """Compute Pearson correlation between each factor and next-day return.
+    Also returns factor-to-factor correlations to identify independent signals."""
+    import psycopg2
+    import numpy as _np
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.gap_pct, t.rvol, t.close_strength, t.range_pct,
+                       t.close_price, t.volume,
+                       ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 AS fwd_ret
+                FROM polygon_market_daily t
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker = t.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                     )
+                WHERE t.close_price > 0
+                LIMIT {sample}
+            """)
+            rows = cur.fetchall()
+
+        if len(rows) < 100:
+            return {"status": "error", "error": "Not enough data. Run the daily Polygon scan first."}
+
+        factor_names = ["gap_pct", "rvol", "close_strength", "range_pct", "close_price", "volume"]
+        data = _np.array([[r[i] if r[i] is not None else 0.0 for i in range(7)] for r in rows])
+        fwd_ret = data[:, 6]
+
+        correlations_with_return = {}
+        for i, name in enumerate(factor_names):
+            col = data[:, i]
+            mask = (col != 0) & _np.isfinite(col) & _np.isfinite(fwd_ret)
+            if mask.sum() < 50:
+                correlations_with_return[name] = None
+                continue
+            corr = _np.corrcoef(col[mask], fwd_ret[mask])[0, 1]
+            correlations_with_return[name] = round(float(corr), 4)
+
+        factor_matrix = {}
+        for i, n1 in enumerate(factor_names):
+            for j, n2 in enumerate(factor_names):
+                if i >= j:
+                    continue
+                c1, c2 = data[:, i], data[:, j]
+                mask = _np.isfinite(c1) & _np.isfinite(c2) & (c1 != 0) & (c2 != 0)
+                if mask.sum() < 50:
+                    continue
+                corr = _np.corrcoef(c1[mask], c2[mask])[0, 1]
+                factor_matrix[f"{n1}_vs_{n2}"] = round(float(corr), 4)
+
+        sorted_corr = sorted(correlations_with_return.items(),
+                             key=lambda x: abs(x[1] or 0), reverse=True)
+
+        return {
+            "status": "ok",
+            "n_observations": len(rows),
+            "factor_return_correlations": dict(sorted_corr),
+            "factor_intercorrelations": factor_matrix,
+            "tip": "Factors with low intercorrelation but high return correlation are best for combining.",
+            "best_predictor": sorted_corr[0][0] if sorted_corr else None,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 13: Discover two-factor interaction grid
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_discover_interactions(factor1="gap_pct", factor2="rvol", horizon="next_day"):
+    """Build a 3x3 grid of (low/mid/high) x (low/mid/high) for two factors.
+    Finds synergistic combinations that outperform either factor alone."""
+    import psycopg2
+    if factor1 not in _MKT_SAFE_COLS or factor2 not in _MKT_SAFE_COLS:
+        return {"status": "error",
+                "error": f"Invalid factors. Choose from: {list(_MKT_SAFE_COLS.keys())}"}
+    try:
+        col1 = _MKT_SAFE_COLS[factor1]
+        col2 = _MKT_SAFE_COLS[factor2]
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for col, label in [(col1, factor1), (col2, factor2)]:
+                cur.execute(f"""
+                    SELECT PERCENTILE_CONT(0.33) WITHIN GROUP (ORDER BY {col}),
+                           PERCENTILE_CONT(0.67) WITHIN GROUP (ORDER BY {col})
+                    FROM polygon_market_daily WHERE {col} IS NOT NULL
+                """)
+                row = cur.fetchone()
+                if col == col1:
+                    p33_1, p67_1 = float(row[0] or 0), float(row[1] or 0)
+                else:
+                    p33_2, p67_2 = float(row[0] or 0), float(row[1] or 0)
+
+            grid = {}
+            for tier1, lo1, hi1 in [("low",  None, p33_1), ("mid", p33_1, p67_1), ("high", p67_1, None)]:
+                for tier2, lo2, hi2 in [("low",  None, p33_2), ("mid", p33_2, p67_2), ("high", p67_2, None)]:
+                    parts = []
+                    if lo1 is not None: parts.append(f"{col1} >= {lo1}")
+                    if hi1 is not None: parts.append(f"{col1} < {hi1}")
+                    if lo2 is not None: parts.append(f"{col2} >= {lo2}")
+                    if hi2 is not None: parts.append(f"{col2} < {hi2}")
+                    where = " AND ".join(parts) if parts else "1=1"
+                    cur.execute(f"""
+                        SELECT COUNT(*),
+                               ROUND(AVG(((nxt.close_price/NULLIF(t.close_price,0))-1)*100)::numeric,3),
+                               ROUND((COUNT(*) FILTER (WHERE ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 > 0))
+                                     ::numeric / NULLIF(COUNT(*),0)*100, 2)
+                        FROM polygon_market_daily t
+                        JOIN polygon_market_daily nxt
+                          ON nxt.ticker = t.ticker
+                         AND nxt.scan_date = (
+                               SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                               WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                             )
+                        WHERE t.close_price > 0 AND {where}
+                        LIMIT 30000
+                    """)
+                    r = cur.fetchone()
+                    key = f"{tier1}_{factor1}_x_{tier2}_{factor2}"
+                    grid[key] = {
+                        "n": int(r[0] or 0),
+                        "avg_ret": float(r[1] or 0),
+                        "win_rate": float(r[2] or 0),
+                        "thresholds": {"f1_lo": lo1, "f1_hi": hi1, "f2_lo": lo2, "f2_hi": hi2},
+                    }
+
+        best_cell = max(grid.items(), key=lambda x: x[1]["win_rate"])
+        return {
+            "status": "ok",
+            "factor1": factor1, "factor2": factor2,
+            "grid": grid,
+            "best_combination": best_cell[0],
+            "best_win_rate": best_cell[1]["win_rate"],
+            "best_n": best_cell[1]["n"],
+            "percentile_splits": {
+                f"{factor1}_p33": p33_1, f"{factor1}_p67": p67_1,
+                f"{factor2}_p33": p33_2, f"{factor2}_p67": p67_2,
+            },
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 14: Signal drift — is a signal decaying over time?
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_signal_drift(conditions=None, recent_days=30, historical_days=90, horizon="next_day"):
+    """Compare win rate in the most recent N days vs the prior M days.
+    A decaying signal shows higher historical edge than recent edge."""
+    import psycopg2
+    if not conditions:
+        return {"status": "error", "error": "conditions dict required"}
+    try:
+        sig_where, sig_params = _mkt_parse_conditions(conditions)
+        if not sig_where:
+            return {"status": "error", "error": "No valid conditions parsed."}
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT scan_date FROM polygon_market_daily ORDER BY scan_date DESC LIMIT %s",
+                        [historical_days + 30])
+            all_dates = [str(r[0]) for r in cur.fetchall()]
+
+        if len(all_dates) < recent_days + 5:
+            return {"status": "error",
+                    "error": f"Only {len(all_dates)} dates available. Need >{recent_days+5}."}
+
+        recent_dates = all_dates[:recent_days]
+        hist_dates   = all_dates[recent_days:historical_days]
+
+        def run_period(dates):
+            ph = ",".join(["%s"] * len(dates))
+            w = f"{sig_where} AND t.scan_date::text IN ({ph})"
+            p = sig_params + dates
+            bw = f"t.scan_date::text IN ({ph})"
+            bp = dates
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+                return _mkt_run_two_group(conn, w, p, bw, bp, limit=30000)
+
+        recent_res = run_period(recent_dates)
+        hist_res   = run_period(hist_dates)
+
+        if not recent_res or not hist_res:
+            return {"status": "error", "error": "Insufficient data in one period."}
+
+        drift = hist_res["edge_winrate"] - recent_res["edge_winrate"]
+        decaying = drift > 3.0
+
+        return {
+            "status": "ok",
+            "conditions": conditions,
+            "recent": {"period": f"last {recent_days} trading days", **recent_res},
+            "historical": {"period": f"prior {len(hist_dates)} trading days", **hist_res},
+            "edge_drift_pp": round(drift, 2),
+            "decaying": decaying,
+            "verdict": (
+                f"SIGNAL DECAYING: edge dropped {drift:.1f}pp recently vs historical. Consider retiring."
+                if decaying else
+                f"Signal stable. Recent edge vs historical: {drift:+.1f}pp drift."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 15: Volume patterns — accumulation vs distribution
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_volume_patterns(horizon="next_day"):
+    """Compute win rates for classic volume patterns:
+    - Accumulation: high close_strength + high rvol (institutional buying)
+    - Distribution: low close_strength + high rvol (institutional selling)
+    - Volume dry-up: rvol < 0.5 (quiet before the move)
+    - Normal: everything else"""
+    import psycopg2
+    patterns = {
+        "accumulation":  "close_strength >= 0.7 AND rvol >= 1.5",
+        "distribution":  "close_strength <= 0.3 AND rvol >= 1.5",
+        "volume_dry_up": "rvol < 0.5",
+        "high_rvol_mid_close": "rvol >= 2.0 AND close_strength BETWEEN 0.4 AND 0.6",
+        "gap_accumulation": "gap_pct >= 2.0 AND close_strength >= 0.7 AND rvol >= 1.5",
+    }
+    try:
+        results = {}
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            overall = _mkt_run_two_group(conn, "", [], "", [], limit=200000)
+            for name, where in patterns.items():
+                res = _mkt_run_two_group(conn, where, [], "", [], limit=50000)
+                if res:
+                    results[name] = res
+
+        if not results:
+            return {"status": "error", "error": "No data — run Polygon scan first."}
+
+        best = max(results.items(), key=lambda x: x[1]["edge_winrate"])
+        return {
+            "status": "ok",
+            "overall_baseline": overall,
+            "patterns": results,
+            "best_pattern": best[0],
+            "best_edge_winrate": best[1]["edge_winrate"],
+            "definitions": patterns,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 16: Price patterns — range compression, breakout day
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_price_patterns(horizon="next_day"):
+    """Compute win rates for price structure patterns:
+    - Strong close: closed in top 20% of day range (buyers in control)
+    - Weak close: closed in bottom 20% (sellers in control)
+    - Big range day: range_pct >= 4% (high volatility)
+    - Tight range day: range_pct <= 1% (compression before expansion)
+    - Gap up strong close: gapped up AND closed strong"""
+    import psycopg2
+    patterns = {
+        "strong_close":        "close_strength >= 0.8",
+        "weak_close":          "close_strength <= 0.2",
+        "big_range_day":       "range_pct >= 4.0",
+        "tight_range_day":     "range_pct <= 1.0",
+        "gap_strong_close":    "gap_pct >= 1.0 AND close_strength >= 0.7",
+        "gap_weak_close":      "gap_pct >= 1.0 AND close_strength <= 0.3",
+        "high_price":          "close_price >= 20",
+        "low_price":           "close_price < 5",
+    }
+    try:
+        results = {}
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            for name, where in patterns.items():
+                res = _mkt_run_two_group(conn, where, [], "", [], limit=50000)
+                if res:
+                    results[name] = res
+
+        if not results:
+            return {"status": "error", "error": "No data."}
+
+        best = max(results.items(), key=lambda x: x[1]["edge_winrate"])
+        worst = min(results.items(), key=lambda x: x[1]["edge_winrate"])
+        return {
+            "status": "ok",
+            "patterns": results,
+            "best_pattern": {"name": best[0], "edge": best[1]["edge_winrate"]},
+            "worst_pattern": {"name": worst[0], "edge": worst[1]["edge_winrate"]},
+            "definitions": patterns,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 17: Multi-day momentum features
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_compute_momentum(lookback_days=5, horizon="next_day"):
+    """Compute multi-day return momentum (how stocks did over prior N days)
+    and test whether momentum predicts next-day returns. Tests both momentum
+    continuation and mean-reversion hypotheses."""
+    import psycopg2
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH momentum AS (
+                    SELECT t.ticker, t.scan_date, t.close_price,
+                           ((t.close_price / NULLIF(prev.close_price, 0)) - 1) * 100 AS momentum_pct,
+                           ((nxt.close_price / NULLIF(t.close_price, 0)) - 1) * 100 AS fwd_ret
+                    FROM polygon_market_daily t
+                    JOIN polygon_market_daily prev
+                      ON prev.ticker = t.ticker
+                     AND prev.scan_date = (
+                           SELECT MAX(x.scan_date) FROM polygon_market_daily x
+                           WHERE x.ticker = t.ticker AND x.scan_date < t.scan_date
+                           AND x.scan_date >= t.scan_date - INTERVAL '{lookback_days + 5} days'
+                           LIMIT 1
+                         )
+                    JOIN polygon_market_daily nxt
+                      ON nxt.ticker = t.ticker
+                     AND nxt.scan_date = (
+                           SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                           WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                         )
+                    WHERE t.close_price > 0 AND prev.close_price > 0
+                )
+                SELECT
+                    COUNT(*) AS n,
+                    ROUND(AVG(momentum_pct)::numeric, 3) AS avg_momentum,
+                    -- continuation: high prior return → high next return
+                    ROUND(AVG(fwd_ret) FILTER (WHERE momentum_pct >= 5)::numeric, 4) AS avg_fwd_high_momentum,
+                    ROUND(AVG(fwd_ret) FILTER (WHERE momentum_pct < 0)::numeric, 4) AS avg_fwd_neg_momentum,
+                    ROUND(AVG(fwd_ret) FILTER (WHERE momentum_pct BETWEEN -1 AND 1)::numeric, 4) AS avg_fwd_flat_momentum,
+                    ROUND((COUNT(*) FILTER (WHERE fwd_ret > 0 AND momentum_pct >= 5))::numeric
+                          / NULLIF(COUNT(*) FILTER (WHERE momentum_pct >= 5), 0) * 100, 2) AS wr_high_momentum,
+                    ROUND((COUNT(*) FILTER (WHERE fwd_ret > 0 AND momentum_pct < 0))::numeric
+                          / NULLIF(COUNT(*) FILTER (WHERE momentum_pct < 0), 0) * 100, 2) AS wr_neg_momentum
+                FROM momentum
+                LIMIT 200000
+            """)
+            row = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
+
+        return {
+            "status": "ok",
+            "lookback_days": lookback_days,
+            "n_observations": int(row.get("n") or 0),
+            "avg_momentum_pct": float(row.get("avg_momentum") or 0),
+            "high_momentum_stocks": {
+                "avg_next_day_ret": float(row.get("avg_fwd_high_momentum") or 0),
+                "win_rate": float(row.get("wr_high_momentum") or 0),
+                "definition": "stocks up 5%+ in prior period",
+            },
+            "negative_momentum_stocks": {
+                "avg_next_day_ret": float(row.get("avg_fwd_neg_momentum") or 0),
+                "win_rate": float(row.get("wr_neg_momentum") or 0),
+                "definition": "stocks down in prior period",
+            },
+            "flat_momentum_stocks": {
+                "avg_next_day_ret": float(row.get("avg_fwd_flat_momentum") or 0),
+                "definition": "stocks ±1% in prior period",
+            },
+            "interpretation": "Compare wr_high_momentum vs wr_neg_momentum to determine if trend-following or mean-reversion applies.",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 18: AI invents a completely new indicator
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_invent_indicator(inspiration="", horizon="next_day"):
+    """Ask GPT-4o to invent a completely new composite indicator from first principles,
+    define it as a SQL expression, then test it live against the market database.
+    This is the creative invention tool — each run produces a novel indicator."""
+    import psycopg2
+    try:
+        _oai_client = _get_openai_client()
+        prompt = f"""You are an autonomous quantitative researcher inventing new stock market indicators.
+
+Available database columns in polygon_market_daily:
+- gap_pct: day gain % vs prior close
+- rvol: relative volume (today vol / avg prior vol). NULL if prior data unavailable.
+- close_strength: (close - low) / (high - low), range 0-1
+- range_pct: (high - low) / low * 100, daily range as % of low
+- close_price: closing price
+- open_price: opening price
+- volume: share volume
+
+Inspiration / context: {inspiration if inspiration else 'No prior context. Invent something entirely new.'}
+
+Invent ONE new composite indicator. Rules:
+1. Must be a single SQL expression combining 2+ columns (no subqueries)
+2. Use basic math: +, -, *, /, SQRT, ABS, POWER, NULLIF, LEAST, GREATEST
+3. The expression must return a single float value per row
+4. Think about what combination would identify "institutional accumulation" or "unusual setup"
+5. Be creative — try ratios, products, and weighted combinations
+
+Return JSON with exactly these fields:
+{{"name": "indicator name", "expression": "SQL expression here", "rationale": "why this should predict returns", "high_means": "what a high value indicates"}}
+
+Return ONLY the JSON, no other text."""
+
+        resp = _oai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.9,
+            max_tokens=500,
+        )
+        import json as _j
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        indicator = _j.loads(raw)
+        expr = indicator.get("expression", "")
+
+        # Validate expression is safe (no semicolons, no DROP/DELETE, no subqueries)
+        forbidden = [";", "DROP", "DELETE", "INSERT", "UPDATE", "TRUNCATE",
+                     "SELECT", "--", "/*", "*/", "EXEC", "EXECUTE"]
+        for f in forbidden:
+            if f.upper() in expr.upper():
+                return {"status": "error", "error": f"Unsafe SQL expression detected: {f}"}
+
+        # Test the invented indicator against forward returns
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            test_sql = f"""
+                WITH ind AS (
+                    SELECT
+                        ({expr}) AS indicator_value,
+                        ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 AS fwd_ret
+                    FROM polygon_market_daily t
+                    JOIN polygon_market_daily nxt
+                      ON nxt.ticker = t.ticker
+                     AND nxt.scan_date = (
+                           SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                           WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                         )
+                    WHERE t.close_price > 0 AND ({expr}) IS NOT NULL
+                    LIMIT 100000
+                )
+                SELECT
+                    COUNT(*) AS n,
+                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY indicator_value)::numeric, 4) AS p75,
+                    ROUND(AVG(fwd_ret) FILTER (WHERE indicator_value >= PERCENTILE_CONT(0.75)
+                          WITHIN GROUP (ORDER BY indicator_value) OVER ())::numeric, 4) AS top_quartile_fwd,
+                    ROUND(AVG(fwd_ret) FILTER (WHERE indicator_value < PERCENTILE_CONT(0.25)
+                          WITHIN GROUP (ORDER BY indicator_value) OVER ())::numeric, 4) AS bottom_quartile_fwd,
+                    ROUND((COUNT(*) FILTER (WHERE indicator_value >= PERCENTILE_CONT(0.75)
+                           WITHIN GROUP (ORDER BY indicator_value) OVER ()
+                           AND fwd_ret > 0))::numeric / NULLIF(COUNT(*) FILTER (
+                           WHERE indicator_value >= PERCENTILE_CONT(0.75) WITHIN GROUP
+                           (ORDER BY indicator_value) OVER ()), 0) * 100, 2) AS top_win_rate
+                FROM ind
+            """
+            cur.execute(test_sql)
+            test_row = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
+
+        return {
+            "status": "ok",
+            "invented_indicator": indicator,
+            "test_results": {k: float(v) if v is not None else None for k, v in test_row.items()},
+            "interpretation": (
+                f"Top quartile of '{indicator.get('name')}' achieved "
+                f"{test_row.get('top_win_rate', '?')}% win rate vs bottom quartile "
+                f"{test_row.get('bottom_quartile_fwd', '?')}% avg return."
+            ),
+            "next_step": "If top_win_rate is meaningfully above baseline, test with mkt_test_signal using equivalent threshold conditions.",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 19: Head-to-head signal comparison
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_compare_signals(conditions_a=None, conditions_b=None, horizon="next_day"):
+    """Rigorous A vs B head-to-head comparison of two signal condition sets.
+    Tests both separately AND their intersection to find synergy."""
+    import psycopg2
+    if not conditions_a or not conditions_b:
+        return {"status": "error", "error": "Both conditions_a and conditions_b required."}
+    try:
+        wa, pa = _mkt_parse_conditions(conditions_a)
+        wb, pb = _mkt_parse_conditions(conditions_b)
+        if not wa or not wb:
+            return {"status": "error", "error": "Failed to parse one or both condition sets."}
+
+        intersection_where = f"({wa}) AND ({wb})"
+        intersection_params = pa + pb
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            res_a    = _mkt_run_two_group(conn, wa, pa, "", [])
+            res_b    = _mkt_run_two_group(conn, wb, pb, "", [])
+            res_both = _mkt_run_two_group(conn, intersection_where, intersection_params, "", [])
+
+        if not res_a or not res_b:
+            return {"status": "error", "error": "Insufficient data for comparison."}
+
+        winner = "A" if (res_a["edge_winrate"] > res_b["edge_winrate"]) else "B"
+        synergy = (res_both and res_both["edge_winrate"] > max(res_a["edge_winrate"], res_b["edge_winrate"]))
+
+        return {
+            "status": "ok",
+            "signal_a": {"conditions": conditions_a, **res_a},
+            "signal_b": {"conditions": conditions_b, **res_b},
+            "intersection_a_and_b": ({"conditions": "A AND B", **res_both} if res_both else None),
+            "winner": winner,
+            "synergy_detected": synergy,
+            "verdict": (
+                f"Signal {winner} wins. "
+                + ("Intersection SYNERGY: combining A+B outperforms either alone." if synergy
+                   else "No synergy: combining A+B doesn't outperform the better signal alone.")
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tool 20: Build a composite score from multiple discoveries
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_tool_build_composite(discovery_ids=None, horizon="next_day"):
+    """Combine multiple validated discoveries into a composite signal.
+    Tests: each signal alone vs requiring 2+ signals vs ALL signals.
+    Helps find the optimal combination threshold."""
+    import psycopg2, json as _j
+    if not discovery_ids:
+        return {"status": "error", "error": "discovery_ids list required (get from mkt_load_discoveries)."}
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(discovery_ids))
+            cur.execute(f"""
+                SELECT id, hypothesis_text, conditions_json, signal_win_rate, edge_broad
+                FROM aiem_signal_discoveries
+                WHERE id IN ({placeholders}) AND status = 'validated'
+                ORDER BY COALESCE(edge_broad, 0) DESC
+            """, discovery_ids)
+            discoveries = [dict(zip([d[0] for d in cur.description], r)) for r in cur.fetchall()]
+
+        if not discoveries:
+            return {"status": "error", "error": "No validated discoveries found for given IDs."}
+
+        all_conditions = []
+        for d in discoveries:
+            conds = _j.loads(d["conditions_json"]) if isinstance(d["conditions_json"], str) else d["conditions_json"]
+            all_conditions.append(conds)
+
+        # Test each alone
+        results_solo = []
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            for i, conds in enumerate(all_conditions):
+                w, p = _mkt_parse_conditions(conds)
+                if not w:
+                    continue
+                res = _mkt_run_two_group(conn, w, p, "", [], limit=30000)
+                if res:
+                    results_solo.append({
+                        "discovery_id": discoveries[i]["id"],
+                        "hypothesis": discoveries[i]["hypothesis_text"][:80] if discoveries[i]["hypothesis_text"] else "",
+                        **res
+                    })
+
+            # Test ALL together (AND of all conditions)
+            all_parts, all_params = [], []
+            for conds in all_conditions:
+                w, p = _mkt_parse_conditions(conds)
+                if w:
+                    all_parts.append(f"({w})")
+                    all_params.extend(p)
+            if all_parts:
+                all_where = " AND ".join(all_parts)
+                res_all = _mkt_run_two_group(conn, all_where, all_params, "", [], limit=30000)
+            else:
+                res_all = None
+
+        best_solo = max(results_solo, key=lambda x: x["edge_winrate"]) if results_solo else None
+        composite_better = (res_all and best_solo and
+                            res_all["edge_winrate"] > best_solo["edge_winrate"])
+
+        return {
+            "status": "ok",
+            "n_discoveries_combined": len(discoveries),
+            "individual_results": results_solo,
+            "all_combined": res_all,
+            "best_individual": best_solo,
+            "composite_outperforms_best_solo": composite_better,
+            "verdict": (
+                f"Composite (all {len(discoveries)} signals together) has "
+                f"{res_all['edge_winrate'] if res_all else 'N/A'}pp edge. "
+                + ("COMPOSITE WINS: use all signals together." if composite_better
+                   else f"Best single signal wins: use Discovery #{best_solo['discovery_id']} alone.")
+                if res_all and best_solo else "Insufficient data for comparison."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Historical backfill: re-fetch all missing trading days from Polygon
+# ──────────────────────────────────────────────────────────────────────────
+def _polygon_backfill_historical():
+    """Background thread: fetch all trading days since start_date that are missing
+    from polygon_market_daily. Saves ALL stocks (not just top movers)."""
+    import time as _bt, threading as _bth, psycopg2 as _bpg, urllib.request as _bur, json as _bj
+    from datetime import date as _bdate, timedelta as _btd
+
+    def _run():
+        _bt.sleep(30)  # Let server fully start first
+        print("[backfill] starting polygon_market_daily historical backfill")
+        _key = os.environ.get("POLYGON_API_KEY", "")
+        if not _key:
+            print("[backfill] no POLYGON_API_KEY — skipping")
+            return
+
+        start = _bdate(2026, 4, 1)
+        today = _bdate.today()
+
+        try:
+            with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT scan_date FROM polygon_market_daily")
+                have_dates = {str(r[0]) for r in cur.fetchall()}
+        except Exception as e:
+            print(f"[backfill] DB check error: {e}")
+            return
+
+        # Build candidate trading days
+        candidates = []
+        d = start
+        while d < today:
+            if d.weekday() < 5:  # Mon-Fri
+                ds = d.strftime("%Y-%m-%d")
+                if ds not in have_dates:
+                    candidates.append(ds)
+            d += _btd(days=1)
+
+        if not candidates:
+            print("[backfill] polygon_market_daily already up to date")
+            return
+
+        print(f"[backfill] fetching {len(candidates)} missing dates...")
+        saved_total = 0
+
+        for date_str in candidates:
+            try:
+                url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
+                       f"?adjusted=true&apiKey={_key}")
+                with _bur.urlopen(url, timeout=25) as r:
+                    data = _bj.load(r)
+                status = data.get("status", "")
+                if status not in ("OK", "DELAYED"):
+                    print(f"[backfill] {date_str}: skip (status={status})")
+                    _bt.sleep(13)
+                    continue
+                results = data.get("results", [])
+                if not results:
+                    print(f"[backfill] {date_str}: 0 results (holiday?)")
+                    _bt.sleep(13)
+                    continue
+
+                # Build lookup dict
+                today_data = {x["T"]: x for x in results}
+                rows = []
+                for ticker, r in today_data.items():
+                    close = r.get("c") or 0
+                    open_ = r.get("o") or 0
+                    high  = r.get("h") or 0
+                    low   = r.get("l") or 0
+                    vwap  = r.get("vw") or 0
+                    vol   = r.get("v") or 0
+                    if close < 0.50 or vol < 30000 or close == 0:
+                        continue
+                    cs = ((close - low) / (high - low)) if high > low else None
+                    rng = ((high - low) / low * 100) if low > 0 else None
+                    rows.append((date_str, ticker, close, open_ or None, high or None,
+                                 low or None, vwap or None, int(vol),
+                                 None, None, None, cs, rng))
+
+                if not rows:
+                    print(f"[backfill] {date_str}: no rows after filter")
+                    _bt.sleep(13)
+                    continue
+
+                with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                    cur.executemany("""
+                        INSERT INTO polygon_market_daily
+                            (scan_date, ticker, close_price, open_price, high_price, low_price,
+                             vwap, volume, prev_close, gap_pct, rvol, close_strength, range_pct)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (scan_date, ticker) DO NOTHING
+                    """, rows)
+                    conn.commit()
+
+                saved_total += len(rows)
+                print(f"[backfill] {date_str}: saved {len(rows)} stocks (total so far: {saved_total})")
+                _bt.sleep(13)  # 5 req/min Polygon rate limit
+
+            except Exception as e:
+                print(f"[backfill] {date_str} error: {e}")
+                _bt.sleep(20)
+
+        # Now compute gap_pct for consecutive dates where prev_close available
+        try:
+            with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE polygon_market_daily t
+                    SET prev_close = prev.close_price,
+                        gap_pct = (t.close_price - prev.close_price) / NULLIF(prev.close_price,0) * 100
+                    FROM polygon_market_daily prev
+                    WHERE prev.ticker = t.ticker
+                      AND prev.scan_date = (
+                            SELECT MAX(x.scan_date) FROM polygon_market_daily x
+                            WHERE x.ticker = t.ticker AND x.scan_date < t.scan_date
+                          )
+                      AND t.prev_close IS NULL
+                """)
+                conn.commit()
+                print("[backfill] gap_pct backfill complete")
+        except Exception as e:
+            print(f"[backfill] gap_pct update error: {e}")
+
+        print(f"[backfill] DONE. Total rows saved: {saved_total}")
+
+
+# ── Startup: init tables + launch historical backfill ────────────────────
+try:
+    _mkt_init_tables()
+except Exception as _mkt_e:
+    print(f"[mkt_init] {_mkt_e}")
+try:
+    _polygon_backfill_historical()
+except Exception as _bf_e:
+    print(f"[backfill] {_bf_e}")
+
+    _bth.Thread(target=_run, daemon=True, name="polygon-backfill").start()
+
+
+
 # ── Continuous Research Loop (runs daily + feeds Sunday session) ────────────
 def _run_aiem_continuous_research():
     """
@@ -15409,6 +16971,253 @@ _AIEM_AGENT_TOOLS = [
             "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]}
         }, "required": ["findings", "scoring_adjustments", "confidence"]}
     }},
+    # ── Loop A/B Market Research Tools (20 tools for full 12K-stock universe) ──
+    {"type": "function", "function": {
+        "name": "mkt_explore_dimensions",
+        "description": (
+            "CALL FIRST in any market research session. Returns full statistical summary of the "
+            "polygon_market_daily database: date range, stocks/day, factor distributions (gap_pct, "
+            "rvol, close_strength, range_pct, volume), baseline next-day win rate, and prior "
+            "discovery count. Answers 'what data exists?' before generating any hypotheses."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_test_signal",
+        "description": (
+            "Test any combination of market conditions against the FULL 12K-stock universe "
+            "(polygon_market_daily). Returns signal n, win_rate, avg_return, edge vs broad "
+            "market, and p-value. The core workhorse — call repeatedly with different conditions. "
+            "Use baseline='tight' for the rigorous comparison vs similar-but-not-qualifying stocks."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object",
+                "description": "Dict of {factor_min/max: value}. Allowed: gap_pct, rvol, close_strength, range_pct, close_price, volume, open_price, high_price, low_price, vwap."},
+            "horizon": {"type": "string", "enum": ["next_day"]},
+            "baseline": {"type": "string", "enum": ["broad", "tight"],
+                "description": "broad=vs all stocks; tight=vs stocks just below each threshold."},
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_test_inverse",
+        "description": (
+            "Test the INVERSE of conditions (all conditions ABSENT). A real signal must show: "
+            "signal win_rate > market baseline > inverse win_rate. MANDATORY after any p<0.05 "
+            "finding to confirm the signal is truly directional."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object"},
+            "horizon": {"type": "string", "enum": ["next_day"]},
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_find_thresholds",
+        "description": (
+            "Grid-search 20 threshold values for a single factor to find the optimal cut. "
+            "Returns all thresholds ranked by edge_winrate with n and p_value. "
+            "Use to optimize the threshold of any significant factor."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "factor": {"type": "string",
+                "description": "Factor name: gap_pct, rvol, close_strength, range_pct, close_price, volume."},
+            "direction": {"type": "string", "enum": ["min", "max"],
+                "description": "min = factor >= threshold (looking for high values); max = factor <= threshold."},
+            "n_steps": {"type": "integer", "description": "Number of threshold steps (default 20)."},
+        }, "required": ["factor"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_analyze_top_movers",
+        "description": (
+            "Find stocks that moved min_move_pct%+ the NEXT DAY and profile their PRIOR day "
+            "characteristics. Shows factor lifts vs all stocks — e.g. 'movers had 3x higher rvol "
+            "the day before'. Reveals the true leading indicators of large moves."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_move_pct": {"type": "number", "description": "Min next-day move to qualify (default 5.0%)."},
+            "max_move_pct": {"type": "number", "description": "Max next-day move cap (default 50.0%)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_analyze_false_signals",
+        "description": (
+            "Among stocks meeting signal conditions, compare WINNERS vs LOSERS. "
+            "Reveals what additional filter would cut false positives. "
+            "Shows which factors are higher in winners than losers."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object"},
+            "win_threshold": {"type": "number", "description": "Min % gain to count as winner (default 2.0)."},
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_regime_filter",
+        "description": (
+            "Test the signal broken down by market regime (SPY performance that day). "
+            "Bull: SPY gap_pct >= +0.5%; Bear: SPY <= -0.5%; Flat: between. "
+            "If signal only works in bull regime, it should not be traded on down market days."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object"},
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_validate_oos",
+        "description": (
+            "MANDATORY before saving any discovery. Splits dates into train (first 60%) and test "
+            "(last 40%). Only call mkt_save_discovery if oos_validated=True AND p<0.05. "
+            "A signal that fails OOS is overfit and must NOT be saved."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object"},
+            "train_pct": {"type": "number", "description": "Fraction for training (default 0.6)."},
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_generate_hypotheses",
+        "description": (
+            "Ask GPT-4o to invent N novel signal hypotheses from first principles, given the "
+            "dataset summary and what you've already found. Returns condition dicts ready for "
+            "mkt_test_signal. Call at the START of each research session for fresh ideas."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "context": {"type": "string", "description": "Summary of findings so far to inform new hypotheses."},
+            "n_hypotheses": {"type": "integer", "description": "Number to generate (default 8)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_save_discovery",
+        "description": (
+            "Save a validated signal to aiem_signal_discoveries. "
+            "ONLY call this AFTER mkt_validate_oos returns oos_validated=True. "
+            "Returns discovery_id for use with mkt_build_composite."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object"},
+            "hypothesis_text": {"type": "string"},
+            "edge_broad": {"type": "number"},
+            "edge_tight": {"type": "number"},
+            "signal_n": {"type": "integer"},
+            "p_value": {"type": "number"},
+            "signal_win_rate": {"type": "number"},
+            "baseline_win_rate": {"type": "number"},
+            "signal_avg_ret": {"type": "number"},
+            "oos_edge": {"type": "number"},
+            "notes": {"type": "string"},
+        }, "required": ["conditions", "hypothesis_text"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_load_discoveries",
+        "description": (
+            "Load all previously validated discoveries. Call at the START of each research session "
+            "to avoid re-discovering known signals and to build compound strategies."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "status": {"type": "string", "description": "Filter: validated, new, retired (default: validated)."},
+            "min_edge_tight": {"type": "number"},
+            "min_oos_edge": {"type": "number"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_factor_correlations",
+        "description": (
+            "Compute Pearson correlation between each factor and next-day returns. "
+            "Also computes factor-to-factor correlations. Best signals have high return "
+            "correlation AND low inter-factor correlation (independent of each other)."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "sample": {"type": "integer", "description": "Rows to sample (default 100000)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_discover_interactions",
+        "description": (
+            "Build a 3x3 grid of (low/mid/high) x (low/mid/high) for two factors. "
+            "Finds synergistic combinations that outperform either factor alone. "
+            "Call after mkt_factor_correlations identifies top predictors."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "factor1": {"type": "string"},
+            "factor2": {"type": "string"},
+        }, "required": ["factor1", "factor2"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_signal_drift",
+        "description": (
+            "Detect if a signal is decaying. Compares win rate in the last N trading days "
+            "vs prior M days. Drift > 3pp means the signal is losing effectiveness. "
+            "Run monthly on all saved discoveries."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object"},
+            "recent_days": {"type": "integer", "description": "Most recent N days (default 30)."},
+            "historical_days": {"type": "integer", "description": "Historical comparison window (default 90)."},
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_volume_patterns",
+        "description": (
+            "Test classic volume-based patterns: accumulation (high close_strength + high rvol), "
+            "distribution (low close_strength + high rvol), volume dry-up (rvol < 0.5), "
+            "and gap+accumulation. Returns win_rate for each vs baseline."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_price_patterns",
+        "description": (
+            "Test price structure patterns: strong close (top 20% of day range), weak close "
+            "(bottom 20%), big range day, tight range day, gap+strong close, gap+weak close, "
+            "high price vs low price. Each may predict next-day returns differently."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_compute_momentum",
+        "description": (
+            "Compute multi-day momentum and test continuation vs mean-reversion. "
+            "Shows whether stocks up in the prior N days tend to continue or reverse. "
+            "Determines if trend-following or contrarian strategy applies."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "lookback_days": {"type": "integer", "description": "Days for momentum calc (default 5)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_invent_indicator",
+        "description": (
+            "Ask GPT-4o to invent a completely new composite indicator from first principles, "
+            "define it as a SQL expression using available columns, then test it live. "
+            "Each call produces a novel indicator. Use when standard approaches plateau."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "inspiration": {"type": "string",
+                "description": "Context about what you've found so far to guide invention."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_compare_signals",
+        "description": (
+            "Rigorous A vs B head-to-head comparison of two signal condition sets. "
+            "Tests each separately + their intersection. Reveals synergy (A AND B > either alone) "
+            "or which single signal dominates."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions_a": {"type": "object"},
+            "conditions_b": {"type": "object"},
+        }, "required": ["conditions_a", "conditions_b"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_build_composite",
+        "description": (
+            "Combine multiple validated discoveries into a composite signal. Tests each alone "
+            "vs requiring ALL signals together. Determines optimal combination. "
+            "Use at session end to build the final trading rule from all discoveries."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "discovery_ids": {"type": "array", "items": {"type": "integer"},
+                "description": "List of discovery IDs from mkt_load_discoveries or mkt_save_discovery."},
+        }, "required": ["discovery_ids"]}
+    }}
 ]
 
 
@@ -15438,6 +17247,36 @@ TOOLS AVAILABLE (use in this order):
 19. query_own_prediction_performance — Review Loop B morning agent track record.
 20. list_signal_dimensions       — List all queryable fields + distributions. Call FIRST in discovery.
 21. test_new_signal              — Test any hypothesis against real data. Call repeatedly.
+
+═══════════════════════════════════════════════════════════════
+LOOP A (SUNDAY WEEKLY) + LOOP B (DAILY) — FULL MARKET RESEARCH
+═══════════════════════════════════════════════════════════════
+You also have access to 20 full-market research tools (mkt_*) operating on polygon_market_daily
+(12,000+ stocks every trading day since April 2026). Use these in EVERY session.
+
+MANDATORY WORKFLOW FOR MARKET RESEARCH (always follow this sequence):
+1.  mkt_load_discoveries      — FIRST: load prior validated signals to avoid re-discovery
+2.  mkt_explore_dimensions    — understand dataset size, factor distributions, baseline returns
+3.  mkt_generate_hypotheses   — generate 8 fresh hypotheses from first principles
+4.  mkt_factor_correlations   — find which factors most predict returns (once per session)
+5.  mkt_test_signal           — test each hypothesis (n, win_rate, edge, p-value)
+6.  mkt_test_inverse          — MANDATORY: confirm signal is directional after any p<0.05 find
+7.  mkt_analyze_top_movers    — what did 5%+ movers look like the day before they moved?
+8.  mkt_analyze_false_signals — find what separates winners from false positives
+9.  mkt_volume_patterns       — accumulation/distribution/dry-up pattern win rates
+10. mkt_price_patterns        — strong/weak close, range compression pattern win rates
+11. mkt_compute_momentum      — multi-day momentum continuation vs mean-reversion
+12. mkt_find_thresholds       — grid-search optimal threshold for each significant factor
+13. mkt_discover_interactions — 3x3 grid of best two-factor combinations
+14. mkt_regime_filter         — does signal only work in bull/bear/flat markets?
+15. mkt_compare_signals       — A vs B head-to-head on competing hypotheses
+16. mkt_invent_indicator      — invent a completely new indicator from first principles
+17. mkt_validate_oos          — MANDATORY before saving: 60/40 train/test split
+18. mkt_save_discovery        — save ONLY if oos_validated=True AND p<0.05
+19. mkt_signal_drift          — check if any prior discovery is decaying
+20. mkt_build_composite       — combine top discoveries into final weighted rule
+
+STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
 22. analyze_missed_movers        — Find what big moves you missed and why.
 
 HARD RULES — violating these produces an invalid model:
@@ -15859,6 +17698,27 @@ def _run_aiem_research_agent(max_iterations=None):
         "list_signal_dimensions":          _aiem_tool_list_signal_dimensions,
         "test_new_signal":                 _aiem_tool_test_new_signal,
         "analyze_missed_movers":           _aiem_tool_analyze_missed_movers,
+        # ── Loop A/B Market Research Tools ──────────────────────────────────
+        "mkt_explore_dimensions":    _mkt_tool_explore_dimensions,
+        "mkt_test_signal":           _mkt_tool_test_signal,
+        "mkt_test_inverse":          _mkt_tool_test_inverse,
+        "mkt_find_thresholds":       _mkt_tool_find_thresholds,
+        "mkt_analyze_top_movers":    _mkt_tool_analyze_top_movers,
+        "mkt_analyze_false_signals": _mkt_tool_analyze_false_signals,
+        "mkt_regime_filter":         _mkt_tool_regime_filter,
+        "mkt_validate_oos":          _mkt_tool_validate_oos,
+        "mkt_generate_hypotheses":   _mkt_tool_generate_hypotheses,
+        "mkt_save_discovery":        _mkt_tool_save_discovery,
+        "mkt_load_discoveries":      _mkt_tool_load_discoveries,
+        "mkt_factor_correlations":   _mkt_tool_factor_correlations,
+        "mkt_discover_interactions": _mkt_tool_discover_interactions,
+        "mkt_signal_drift":          _mkt_tool_signal_drift,
+        "mkt_volume_patterns":       _mkt_tool_volume_patterns,
+        "mkt_price_patterns":        _mkt_tool_price_patterns,
+        "mkt_compute_momentum":      _mkt_tool_compute_momentum,
+        "mkt_invent_indicator":      _mkt_tool_invent_indicator,
+        "mkt_compare_signals":       _mkt_tool_compare_signals,
+        "mkt_build_composite":       _mkt_tool_build_composite,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
@@ -28376,6 +30236,50 @@ def _polygon_full_market_scan() -> list:
     except Exception as _e3:
         app.logger.error(f"[polygon_rvol] DB save error: {_e3}")
 
+
+    # ── Save ALL stocks to polygon_market_daily (Loop A/B full-market research) ──
+    try:
+        import psycopg2 as _pg5
+        _all_rows = []
+        _prior_close_map = {}
+        if len(daily_data) > 1:
+            _, _prior_day = daily_data[1]
+            _prior_close_map = {t: _d.get("c", 0) for t, _d in _prior_day.items() if _d.get("c")}
+        for _ticker, _r in yesterday_data.items():
+            _c   = _r.get("c") or 0
+            _o   = _r.get("o") or 0
+            _h   = _r.get("h") or 0
+            _l   = _r.get("l") or 0
+            _vw  = _r.get("vw") or 0
+            _vol = _r.get("v") or 0
+            if _c < 0.50 or _vol < 30000 or _c == 0:
+                continue
+            _cs2   = ((_c - _l) / (_h - _l)) if _h > _l else None
+            _rng2  = ((_h - _l) / _l * 100) if _l > 0 else None
+            _pc   = _prior_close_map.get(_ticker)
+            _gap2  = ((_c - _pc) / _pc * 100) if _pc else None
+            _pvols2 = [_d.get(_ticker, {}).get("v", 0) or 0 for _d in prior_days]
+            _pvols2 = [v for v in _pvols2 if v > 0]
+            _rvol2  = (_vol / (sum(_pvols2) / len(_pvols2))) if _pvols2 else None
+            _all_rows.append((yesterday_day, _ticker, _c,
+                              _o or None, _h or None, _l or None, _vw or None,
+                              int(_vol), _pc, _gap2, _rvol2, _cs2, _rng2))
+        if _all_rows:
+            with _pg5.connect(os.environ["DATABASE_URL"]) as _c5, _c5.cursor() as _cur5:
+                _cur5.executemany(
+                    "INSERT INTO polygon_market_daily "
+                    "(scan_date, ticker, close_price, open_price, high_price, low_price, "
+                    "vwap, volume, prev_close, gap_pct, rvol, close_strength, range_pct) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (scan_date, ticker) DO UPDATE SET "
+                    "close_price=EXCLUDED.close_price, gap_pct=EXCLUDED.gap_pct, "
+                    "rvol=EXCLUDED.rvol, volume=EXCLUDED.volume, "
+                    "close_strength=EXCLUDED.close_strength",
+                    _all_rows)
+            app.logger.info(f"[polygon_market_daily] saved {len(_all_rows)} stocks for {yesterday_day}")
+    except Exception as _e5b:
+        app.logger.error(f"[polygon_market_daily] save error: {_e5b}")
+
     _POLYGON_RVOL_LOCK.release()
     return top
 
@@ -28567,6 +30471,41 @@ def admin_run_aiem_research():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/aiem/discoveries", methods=["GET"])
+def aiem_discoveries_endpoint():
+    """Return all AIEM-validated signal discoveries from the full-market Loop A/B research."""
+    import psycopg2, json as _dj
+    try:
+        status_filter = request.args.get("status", "validated")
+        limit = min(int(request.args.get("limit", 50)), 200)
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, hypothesis_text, conditions_json, horizon, "
+                "signal_n, signal_win_rate, signal_avg_ret, edge_broad, edge_tight, "
+                "p_value, oos_edge, status, discovered_at::text, notes, invented_indicator "
+                "FROM aiem_signal_discoveries "
+                "WHERE (%s IS NULL OR status = %s) "
+                "ORDER BY COALESCE(oos_edge, edge_tight, edge_broad) DESC NULLS LAST "
+                "LIMIT %s",
+                [status_filter, status_filter, limit])
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            cur.execute("SELECT COUNT(*) FROM aiem_signal_discoveries")
+            total = cur.fetchone()[0]
+        for r in rows:
+            if isinstance(r.get("conditions_json"), str):
+                try:
+                    r["conditions_json"] = _dj.loads(r["conditions_json"])
+                except Exception:
+                    pass
+            for k, v in list(r.items()):
+                if hasattr(v, "isoformat"):
+                    r[k] = str(v)
+        return jsonify({"status": "ok", "total": total, "count": len(rows), "discoveries": rows})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e), "discoveries": []}), 200
 
 
 @app.route("/stock-api/aiem-research-status", methods=["GET"])
