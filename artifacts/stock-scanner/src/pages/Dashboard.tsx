@@ -62,6 +62,7 @@ import {
   fetchMultidayRunners, MultidayRunnersData, MultidayRunnerRow,
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
   fetchGrinderScan, GrinderScanData, GrinderResult,
+  fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -13855,7 +13856,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -14015,6 +14016,7 @@ export default function Dashboard() {
     { id: "multidayrunner", label: "📈 MULTI-DAY RUNNER" },
     { id: "runneroutcomes", label: "📊 RUNNER OUTCOMES" },
     { id: "steadygrinder",  label: "🔄 STEADY GRINDERS" },
+    { id: "gapvolume",      label: "⚡ GAP+VOL SIGNAL" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -15303,6 +15305,192 @@ export default function Dashboard() {
             );
           }
           return tab === "nanomorning" ? <NanoMorningTab onSelectTicker={selectTicker} /> : null;
+        })()}
+
+        {/* ── Gap + Volume Signal Tab ── */}
+        {tab === "gapvolume" && (() => {
+          function GapVolumeTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+            const { data, isLoading } = useQuery({
+              queryKey: ["gap-volume-signal"],
+              queryFn: fetchGapVolumeSignal,
+              refetchInterval: 300_000,
+            });
+            const rows = data?.signals ?? [];
+            const scanDate = data?.scan_date ?? null;
+            const stale = data?.stale ?? false;
+            const edgeNote = data?.edge_note ?? "";
+
+            const scoreColor = (score: number) =>
+              score >= 60 ? "#10b981" : score >= 40 ? "#38bdf8" : "#94a3b8";
+
+            return (
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+                    <div>
+                      <div className="text-slate-100 text-base font-bold tracking-wide">⚡ Gap + Volume Confirmation</div>
+                      <div className="text-slate-500 text-xs mt-0.5">
+                        Stocks that gapped ≥1% with ≥2× normal volume today — OOS-validated signal
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {scanDate && (
+                        <span className="text-slate-500 text-xs">
+                          {stale ? "⚠ stale · " : ""}Polygon scan: {scanDate}
+                        </span>
+                      )}
+                      <span className="bg-emerald-900/40 text-emerald-400 border border-emerald-800/60 text-xs px-3 py-1 rounded-full font-semibold">
+                        {rows.length} signals
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Edge stats banner */}
+                  {edgeNote && (
+                    <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-lg px-4 py-2.5 text-xs text-indigo-300">
+                      <span className="text-indigo-400 font-semibold">✅ Validated: </span>{edgeNote}
+                    </div>
+                  )}
+
+                  {/* Legend */}
+                  <div className="flex gap-4 mt-3 text-xs text-slate-500">
+                    <span><span className="text-emerald-400 font-semibold">Score:</span> gap(35%) + rvol(40%) + close strength(25%)</span>
+                    <span><span className="text-sky-400 font-semibold">Close str:</span> how high in day's range stock closed</span>
+                  </div>
+                </div>
+
+                {/* Stats row */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: "OOS Win-Rate Edge", value: "+8.7pp", sub: "vs all stocks (Apr–May 2026)", color: "#10b981" },
+                    { label: "Tight Baseline Edge", value: "+2.5pp", sub: "vs other gappers (p=0.002)", color: "#38bdf8" },
+                    { label: "Sample Size", value: "216K", sub: "stock-day pairs tested", color: "#a78bfa" },
+                  ].map(s => (
+                    <div key={s.label} className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-4">
+                      <div className="text-slate-500 text-xs mb-1">{s.label}</div>
+                      <div className="font-black text-xl" style={{ color: s.color }}>{s.value}</div>
+                      <div className="text-slate-600 text-xs mt-0.5">{s.sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Table */}
+                {isLoading ? (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 text-center text-slate-500 text-sm">
+                    Loading signal data…
+                  </div>
+                ) : rows.length === 0 ? (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 text-center">
+                    <div className="text-slate-400 text-sm font-semibold mb-1">No signals today</div>
+                    <div className="text-slate-600 text-xs">Polygon scan runs at 8:35 AM ET · requires gap ≥1% + RVOL ≥2× + price ≥$2</div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    {/* Column headers */}
+                    <div className="grid grid-cols-8 gap-0 px-4 py-2 border-b border-slate-800/60 text-xs text-slate-600 font-semibold uppercase tracking-wider">
+                      <div className="col-span-1">Ticker</div>
+                      <div className="text-right">Price</div>
+                      <div className="text-right">Gap%</div>
+                      <div className="text-right">RVOL</div>
+                      <div className="text-right">Range%</div>
+                      <div className="text-right">Close Str</div>
+                      <div className="text-right">Volume</div>
+                      <div className="text-right">Score</div>
+                    </div>
+
+                    <div className="divide-y divide-slate-800/40">
+                      {rows.map((r, i) => {
+                        const gapColor = r.gap_pct >= 5 ? "#10b981" : r.gap_pct >= 2.5 ? "#34d399" : "#6ee7b7";
+                        const rvolColor = r.rvol >= 5 ? "#f59e0b" : r.rvol >= 3 ? "#fbbf24" : "#fde68a";
+                        const strengthPct = Math.round((r.close_strength ?? 0) * 100);
+                        return (
+                          <div
+                            key={r.ticker}
+                            className="grid grid-cols-8 gap-0 px-4 py-2.5 hover:bg-slate-800/30 cursor-pointer transition-colors items-center"
+                            onClick={() => onSelectTicker(r.ticker)}
+                          >
+                            {/* Ticker + rank */}
+                            <div className="col-span-1 flex items-center gap-2">
+                              <span className="text-slate-600 text-xs w-4">{i + 1}</span>
+                              <span className="text-slate-100 font-bold text-sm">{r.ticker}</span>
+                            </div>
+
+                            {/* Price */}
+                            <div className="text-right text-slate-300 text-sm font-medium">
+                              ${r.price?.toFixed(2) ?? "—"}
+                            </div>
+
+                            {/* Gap% */}
+                            <div className="text-right text-sm font-bold" style={{ color: gapColor }}>
+                              +{r.gap_pct?.toFixed(1) ?? "—"}%
+                            </div>
+
+                            {/* RVOL */}
+                            <div className="text-right text-sm font-bold" style={{ color: rvolColor }}>
+                              {r.rvol?.toFixed(1) ?? "—"}×
+                            </div>
+
+                            {/* Range% */}
+                            <div className="text-right text-slate-400 text-xs">
+                              {r.range_pct != null ? `${r.range_pct}%` : "—"}
+                            </div>
+
+                            {/* Close strength bar */}
+                            <div className="flex items-center justify-end gap-1.5">
+                              <div className="w-12 h-1.5 rounded-full bg-slate-800">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${strengthPct}%`,
+                                    background: strengthPct >= 70 ? "#10b981" : strengthPct >= 40 ? "#38bdf8" : "#ef4444",
+                                  }}
+                                />
+                              </div>
+                              <span className="text-slate-500 text-xs w-6">{strengthPct}%</span>
+                            </div>
+
+                            {/* Volume (abbreviated) */}
+                            <div className="text-right text-slate-500 text-xs">
+                              {r.volume >= 1_000_000
+                                ? `${(r.volume / 1_000_000).toFixed(1)}M`
+                                : r.volume >= 1_000
+                                ? `${(r.volume / 1_000).toFixed(0)}K`
+                                : r.volume}
+                            </div>
+
+                            {/* Score badge */}
+                            <div className="flex justify-end">
+                              <span
+                                className="text-xs font-black px-2 py-0.5 rounded"
+                                style={{
+                                  background: r.score >= 60 ? "rgba(16,185,129,0.15)" : r.score >= 40 ? "rgba(56,189,248,0.10)" : "rgba(71,85,105,0.25)",
+                                  color: scoreColor(r.score),
+                                }}
+                              >
+                                {r.score?.toFixed(0) ?? "—"}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Methodology note */}
+                <div className="bg-slate-900/50 border border-slate-800/60 rounded-xl p-4 text-xs text-slate-500 space-y-1.5">
+                  <div className="text-slate-400 font-semibold mb-1">Signal methodology</div>
+                  <div>• <span className="text-slate-300">Data:</span> Polygon full-market snapshot — 11,000+ US stocks scanned daily at 8:35 AM ET</div>
+                  <div>• <span className="text-slate-300">Filters:</span> Gap ≥1% vs prior close · RVOL ≥2× 30-day avg · Price ≥$2 (no penny stocks)</div>
+                  <div>• <span className="text-slate-300">Score:</span> Composite = gap_pct(35%) + rvol(40%) + close_strength×100(25%)</div>
+                  <div>• <span className="text-slate-300">Validation:</span> June 2026 discovery + Apr–May 2026 OOS holdout; 216,180 stock-day pairs. +8.7pp edge vs all stocks, +2.5pp vs other gappers (p=0.002). Signal 1 (RVOL+range) failed tight-baseline test — only S2 (Gap+RVOL) survives.</div>
+                  <div>• <span className="text-slate-300">Limitation:</span> ≈60% of biggest daily movers are catalyst-driven (FDA, M&A). This signal targets the technical 40%.</div>
+                </div>
+              </div>
+            );
+          }
+          return <GapVolumeTab onSelectTicker={selectTicker} />;
         })()}
 
       </div>

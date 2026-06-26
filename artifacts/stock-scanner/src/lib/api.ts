@@ -2235,3 +2235,34 @@ export interface GrinderScanData {
 export function fetchGrinderScan() {
   return fetchJson<GrinderScanData>("/grinder-scan");
 }
+
+// ── Gap + Volume Signal (OOS-validated) ──────────────────────────────────────
+
+export interface GapVolumeRow {
+  ticker: string;
+  price: number;
+  open_price: number | null;
+  high: number | null;
+  low: number | null;
+  gap_pct: number;
+  volume: number;
+  avg_volume: number;
+  rvol: number;
+  close_strength: number;
+  range_pct: number | null;
+  score: number;
+  scan_date: string;
+}
+
+export interface GapVolumeResult {
+  signals: GapVolumeRow[];
+  count: number;
+  scan_date: string | null;
+  total_scanned: number;
+  edge_note: string;
+  stale: boolean;
+}
+
+export function fetchGapVolumeSignal() {
+  return fetchJson<GapVolumeResult>("/gap-volume-signal");
+}
