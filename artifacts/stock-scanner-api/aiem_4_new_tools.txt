@@ -1,12 +1,19 @@
 # ═══════════════════════════════════════════════════════════════════════
-# AIEM — 4 Analysis Module Tools  (added to main.py)
-# Modules used: signal_correlation.py  |  signal_magnitude_analysis.py
-#               holding_period_optimizer.py  |  position_sizing.py
+# AIEM — 4 Analysis Module Tools  (patched after code review)
+# Modules: signal_correlation.py | signal_magnitude_analysis.py
+#          holding_period_optimizer.py | position_sizing.py
+# ═══════════════════════════════════════════════════════════════════════
+# Fixes applied (code review 2025-06-26):
+#   FIX 2 — holding_period_optimize: row loop replaced with pd.melt()
+#   FIX 3 — kelly_position_size: logs warning on unrecognized segment_by
+#   FIX 4 — signal_magnitude_analysis: min_bin_samples guard confirmed in
+#            signal_magnitude_analysis.py line 37+54 (already present)
+#   MATH  — Kelly formula f*=p-(1-p)/b verified correct in position_sizing.py
 # ═══════════════════════════════════════════════════════════════════════
 # HOW TO WIRE INTO main.py:
-#   1. Paste PART 1 functions near the other _aiem_tool_* definitions
-#   2. Paste PART 2 schema entries into the _AIEM_AGENT_TOOLS list
-#   3. Paste PART 3 dispatcher entries into the _tool_map dict
+#   1. Paste PART 1 near the other _aiem_tool_* function definitions
+#   2. Paste PART 2 into _AIEM_AGENT_TOOLS list
+#   3. Paste PART 3 into _tool_map dict
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -170,7 +177,7 @@ def _aiem_tool_signal_magnitude_analysis(days_back=60, n_bins=6):
         return {"status": "error", "error": str(e)}
 
 
-# main.py lines 15687–15785
+# main.py lines 15687–15786
 def _aiem_tool_holding_period_optimize(days_back=60, segment_by="conviction"):
     """
     Compare win rate and average return at T+1, T+3, and T+5 exit points,
@@ -213,18 +220,19 @@ def _aiem_tool_holding_period_optimize(days_back=60, segment_by="conviction"):
 
         df = _pd.DataFrame(rows, columns=cols)
 
-        # Reshape to long format: (pick_id, horizon, return_pct)
-        long_rows = []
-        for _, row in df.iterrows():
-            for horizon, col in [(1, "t1_pct"), (3, "t3_pct"), (5, "t5_pct")]:
-                if _pd.notna(row[col]):
-                    long_rows.append({
-                        "pick_id": row["id"],
-                        "horizon": horizon,
-                        "return_pct": float(row[col]) / 100.0,
-                        seg_col: row[seg_col],
-                    })
-        long_df = _pd.DataFrame(long_rows)
+        # Reshape to long format via melt — O(n) not O(n*3) row-by-row
+        _df_melt = _pd.melt(
+            df,
+            id_vars=["id", seg_col],
+            value_vars=["t1_pct", "t3_pct", "t5_pct"],
+            var_name="_hcol",
+            value_name="return_raw",
+        ).dropna(subset=["return_raw"])
+        _hmap = {"t1_pct": 1, "t3_pct": 3, "t5_pct": 5}
+        _df_melt["horizon"]    = _df_melt["_hcol"].map(_hmap)
+        _df_melt["return_pct"] = _df_melt["return_raw"] / 100.0
+        _df_melt["pick_id"]    = _df_melt["id"]
+        long_df = _df_melt[["pick_id", "horizon", "return_pct", seg_col]].copy()
 
         # Overall best horizon
         overall_perf = aggregate_horizon_performance(long_df)
@@ -270,7 +278,7 @@ def _aiem_tool_holding_period_optimize(days_back=60, segment_by="conviction"):
         return {"status": "error", "error": str(e)}
 
 
-# main.py lines 15786–15873
+# main.py lines 15787–15878
 def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
                                    segment_by=None):
     """
@@ -291,9 +299,13 @@ def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
         import pandas as _pd
         from position_sizing import kelly_from_settled_picks
 
-        days_back  = min(int(days_back), 180)
-        frac_mult  = max(0.1, min(float(fractional_multiplier), 0.5))
-        seg_col    = segment_by if segment_by in ("conviction", "confirmed_2d") else None
+        days_back   = min(int(days_back), 180)
+        frac_mult   = max(0.1, min(float(fractional_multiplier), 0.5))
+        _valid_segs = ("conviction", "confirmed_2d")
+        if segment_by is not None and segment_by not in _valid_segs:
+            print(f"[kelly_position_size] unrecognized segment_by={segment_by!r}; "
+                  f"valid: {_valid_segs} — segmentation skipped")
+        seg_col = segment_by if segment_by in _valid_segs else None
 
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("""
@@ -427,7 +439,7 @@ def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
         }, "required": []}
     }},
 
-# ─── PART 3 OF 3: Dispatcher entries (add into _tool_map dict) ─────────
+# ─── PART 3 OF 3: Dispatcher entries (add into _tool_map dict) ─────
 
         "signal_layer_redundancy":   _aiem_tool_signal_layer_redundancy,
         "signal_magnitude_analysis": _aiem_tool_signal_magnitude_analysis,

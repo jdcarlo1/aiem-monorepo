@@ -1,0 +1,69 @@
+# Code Review: AIEM 4 New Analysis Tools
+
+Reviewed file: `aiem_4_new_tools.txt`
+Tools: `signal_layer_redundancy`, `signal_magnitude_analysis`, `holding_period_optimize`, `kelly_position_size`
+
+## Overall
+
+Structurally solid. All four functions follow the existing `_aiem_tool_*` convention
+tightly — same DB connection pattern, same try/except-to-dict error handling, same
+`next_step` field telling the agent what to do with the result. This consistency
+matters for an agent calling these tools autonomously, since it can reason about
+outputs the same way across all of them.
+
+## Issues to fix before wiring in
+
+1. **Unverified math in sibling modules.**
+   All four tools import from sibling modules not included in this file:
+   `signal_correlation.py`, `signal_magnitude_analysis.py`,
+   `holding_period_optimizer.py`, `position_sizing.py`.
+   The math described (Pearson correlation, Kelly fraction, quantile binning) is
+   sound *as described*, but needs verification against the actual module code —
+   especially that `kelly_from_settled_picks` uses the full Kelly formula
+   `(bp - q) / b` with the real payoff ratio, not a naive win-rate-only
+   approximation.
+
+2. **`holding_period_optimize` row-by-row reshape is inefficient at scale.**
+   Lines 218–226 build the long-format DataFrame via a Python loop over rows
+   (O(n_picks × 3)). Fine at current data volume (low thousands of picks), but
+   will slow down if `ai_short_calls_log` grows past ~50k rows. Candidate for
+   `pd.melt()` refactor later — not urgent now.
+
+3. **`kelly_position_size` silently swallows invalid `segment_by` values.**
+   `seg_col = segment_by if segment_by in ("conviction", "confirmed_2d") else None`
+   — if the agent (or a caller) passes a typo'd segment name, it silently skips
+   segmentation instead of raising an error. This can hide a bug as "no
+   segmentation happened" rather than surfacing it. Consider raising/logging on
+   an unrecognized `segment_by` instead of silently defaulting to `None`.
+
+4. **`signal_magnitude_analysis` has no minimum-sample guard per bin.**
+   No check that `n_settled >= 4 × n_bins` or similar. With too few settled
+   picks, some quantile bins could end up with 0–1 samples, producing a noisy
+   or misleading "shape" classification (e.g. `monotonically_increasing` based
+   on a single outlier bin). Worth adding a `min_samples_per_bin` guard inside
+   `magnitude_report` if it isn't already there.
+
+5. **Kelly's "only use after significance is confirmed" rule isn't enforced.**
+   The docstring/tool description tells the agent to only call
+   `kelly_position_size` after `run_statistical_significance` passes, but
+   nothing in the code actually gates on that — it's just an instruction to the
+   agent. If you want this to be a hard rule rather than an honor system,
+   you'd need to check a stored significance flag/result before returning a
+   non-zero `recommended_fraction`.
+
+## Not actually bugs (checked, but fine)
+
+- Dispatcher reference to `_aiem_tool_holding_period_optimize` — function *is*
+  defined (lines 174–270 of the original file); it just wasn't visible in an
+  initial truncated view.
+- `holding_period_optimize`'s `segment_by` default mismatch between function
+  signature (`"conviction"`) and schema (no explicit default) — handled safely
+  by the `seg_col = segment_by if segment_by in (...) else "conviction"` fallback.
+
+## Suggested next step
+
+Before this gets merged into `main.py`, paste in the four sibling modules
+(`signal_correlation.py`, `signal_magnitude_analysis.py`,
+`holding_period_optimizer.py`, `position_sizing.py`) for a full review of the
+underlying math — that's the part with the most risk if it's subtly wrong,
+since results feed directly into position sizing decisions.

@@ -15726,18 +15726,19 @@ def _aiem_tool_holding_period_optimize(days_back=60, segment_by="conviction"):
 
         df = _pd.DataFrame(rows, columns=cols)
 
-        # Reshape to long format: (pick_id, horizon, return_pct)
-        long_rows = []
-        for _, row in df.iterrows():
-            for horizon, col in [(1, "t1_pct"), (3, "t3_pct"), (5, "t5_pct")]:
-                if _pd.notna(row[col]):
-                    long_rows.append({
-                        "pick_id": row["id"],
-                        "horizon": horizon,
-                        "return_pct": float(row[col]) / 100.0,
-                        seg_col: row[seg_col],
-                    })
-        long_df = _pd.DataFrame(long_rows)
+        # Reshape to long format via melt — O(n) not O(n*3) row-by-row
+        _df_melt = _pd.melt(
+            df,
+            id_vars=["id", seg_col],
+            value_vars=["t1_pct", "t3_pct", "t5_pct"],
+            var_name="_hcol",
+            value_name="return_raw",
+        ).dropna(subset=["return_raw"])
+        _hmap = {"t1_pct": 1, "t3_pct": 3, "t5_pct": 5}
+        _df_melt["horizon"]    = _df_melt["_hcol"].map(_hmap)
+        _df_melt["return_pct"] = _df_melt["return_raw"] / 100.0
+        _df_melt["pick_id"]    = _df_melt["id"]
+        long_df = _df_melt[["pick_id", "horizon", "return_pct", seg_col]].copy()
 
         # Overall best horizon
         overall_perf = aggregate_horizon_performance(long_df)
@@ -15803,9 +15804,13 @@ def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
         import pandas as _pd
         from position_sizing import kelly_from_settled_picks
 
-        days_back  = min(int(days_back), 180)
-        frac_mult  = max(0.1, min(float(fractional_multiplier), 0.5))
-        seg_col    = segment_by if segment_by in ("conviction", "confirmed_2d") else None
+        days_back   = min(int(days_back), 180)
+        frac_mult   = max(0.1, min(float(fractional_multiplier), 0.5))
+        _valid_segs = ("conviction", "confirmed_2d")
+        if segment_by is not None and segment_by not in _valid_segs:
+            print(f"[kelly_position_size] unrecognized segment_by={segment_by!r}; "
+                  f"valid: {_valid_segs} — segmentation skipped")
+        seg_col = segment_by if segment_by in _valid_segs else None
 
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("""
