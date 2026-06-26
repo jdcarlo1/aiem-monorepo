@@ -12,7 +12,7 @@ import {
   fetchMarketOverview, fetchSqueezeSignals, fetchInsiderTrades, fetchAIThesis, fetchBreakoutRadar,
   fetchSignalOutcomes, fetchDailyTop10, fetchAIAnalysis,
   fetchConvergence, fetchPremarket, fetchCatalyst, fetchMorningBrief, refreshMorningBrief, fetchDarkPool, fetchGammaWall,
-  fetchAITrades, triggerAITradesRegenerate, checkAITradesSubscription, fetchAIShortCalls, AIShortCall, fetchCompositeScore,
+  fetchAITrades, triggerAITradesRegenerate, checkAITradesSubscription, fetchAIShortCalls, AIShortCall, fetchAIEarlyMovers, AIEarlyMover, fetchCompositeScore,
   StockAnalysis, ScanResult, BacktestResult, AnalyticsResult, Alert,
   PropSignal, PropPosition, PropTrade, PropDeskResult, SmartMoneySignal, SmartMoneyResult,
   CongressTrade, CongressResult, BullFlowRow, MarketOverview, SqueezeSignal, InsiderTrade, BreakoutSignal,
@@ -3906,6 +3906,191 @@ function ETFCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   );
 }
 
+// ── AI EARLY MOVERS TAB — Experimental, completely isolated system ─────────
+// Scans ALL US stocks via Polygon daily. Finds early-stage moves (day 1-2).
+// Separate from everything else — this is an experiment being tested.
+function AIEarlyMoversTab() {
+  const [picks, setPicks]       = useState<AIEarlyMover[]>([]);
+  const [genAt, setGenAt]       = useState<string | null>(null);
+  const [evaluated, setEval]    = useState<number>(0);
+  const [loading, setLoading]   = useState(false);
+  const [generating, setGen]    = useState(false);
+  const [stale, setStale]       = useState(false);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const pollRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const load = async (force = false) => {
+    setLoading(true);
+    try {
+      const d = await fetchAIEarlyMovers(force) as any;
+      setPicks(d.picks || []);
+      setGenAt(d.generated_at || null);
+      setEval(d.signals_evaluated || 0);
+      setGen(!!d.generating);
+      setStale(!!d.stale);
+      if (d.generating) {
+        pollRef.current = setTimeout(() => load(false), 15000);
+      }
+    } catch (e) {
+      console.error("ai-early-movers load error", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => { load(); return () => { if (pollRef.current) clearTimeout(pollRef.current); }; }, []);
+
+  const fmtDate = (s: string | null) => {
+    if (!s) return "—";
+    try { return new Date(s).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:true}); }
+    catch { return s; }
+  };
+
+  return (
+    <div style={{ padding: "16px 12px", fontFamily: "monospace" }}>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, flexWrap:"wrap", gap:8 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:900, color:"#00ff88", letterSpacing:"0.12em" }}>🧠 AI EARLY MOVERS</div>
+          <div style={{ fontSize:10, color:"#666", marginTop:2 }}>
+            EXPERIMENTAL · Full-market Polygon scan · Day 1-2 detection · Isolated system
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          {generating && (
+            <span style={{ fontSize:10, color:"#00ff88", animation:"pulse 1.5s infinite" }}>● GENERATING…</span>
+          )}
+          {stale && !generating && (
+            <span style={{ fontSize:10, color:"#ff8800" }}>⚠ CACHED DATA</span>
+          )}
+          {genAt && !generating && (
+            <span style={{ fontSize:10, color:"#555" }}>Updated {fmtDate(genAt)}</span>
+          )}
+          <button
+            onClick={() => { if (!loading && !generating) load(true); }}
+            disabled={loading || generating}
+            style={{ background:"#111", border:"1px solid #00ff8855", color:"#00ff88", padding:"5px 12px",
+                     borderRadius:4, fontSize:11, cursor: loading||generating ? "not-allowed" : "pointer",
+                     opacity: loading||generating ? 0.5 : 1 }}
+          >
+            {loading ? "…" : "⟳ REGENERATE"}
+          </button>
+        </div>
+      </div>
+
+      {/* Info banner */}
+      <div style={{ background:"#0a1a0a", border:"1px solid #00ff8833", borderRadius:6, padding:"10px 14px", marginBottom:16, fontSize:11, color:"#888" }}>
+        <span style={{ color:"#00ff88", fontWeight:700 }}>How it works:</span> Scans 8,000+ US stocks via Polygon every morning at <span style={{ color:"#ccc" }}>10:20 AM ET</span>.
+        Finds stocks up <span style={{ color:"#ccc" }}>2.5%+</span> on day 1 or 2 of a new move — before the crowd notices.
+        Unusual call flow = smart money confirmation. <span style={{ color:"#ff8800" }}>This is experimental — track results before trading.</span>
+        Evaluated <span style={{ color:"#ccc" }}>{evaluated.toLocaleString()}</span> stocks today.
+      </div>
+
+      {generating && picks.length === 0 && (
+        <div style={{ textAlign:"center", color:"#00ff88", padding:50, fontSize:13 }}>
+          🧠 Scanning full market via Polygon… This takes 30-60 seconds.
+        </div>
+      )}
+      {!generating && picks.length === 0 && (
+        <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:13 }}>
+          No picks yet. Hit Regenerate to run the full-market scan.
+        </div>
+      )}
+
+      {picks.map((p, i) => {
+        const isHigh    = p.conviction === "HIGH";
+        const isCall    = p.rec_type === "BUY_CALL";
+        const accentClr = isHigh ? "#00ff88" : "#888";
+        const isOpen    = expanded === i;
+        return (
+          <div key={i} style={{ background:"#0a0a0a", border:`1px solid ${isHigh?"#00ff8833":"#222"}`,
+                                borderRadius:6, marginBottom:10, overflow:"hidden" }}>
+            {/* Card header row */}
+            <div
+              onClick={() => setExpanded(isOpen ? null : i)}
+              style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", cursor:"pointer" }}
+            >
+              {/* Rank */}
+              <div style={{ fontSize:13, fontWeight:900, color:accentClr, minWidth:18 }}>{i+1}</div>
+              {/* Ticker */}
+              <div style={{ fontSize:16, fontWeight:900, color:"#fff", minWidth:60 }}>{p.ticker}</div>
+              {/* Rec type badge */}
+              <div style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:3,
+                            background: isCall ? "#00ff8822" : "#0088ff22",
+                            color: isCall ? "#00ff88" : "#4499ff",
+                            border: `1px solid ${isCall?"#00ff8855":"#4499ff55"}` }}>
+                {isCall ? "⚡ BUY CALL" : "📈 BUY STOCK"}
+              </div>
+              {/* 2-day confirmed badge */}
+              {p.confirmed_2d && (
+                <div style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:3,
+                              background:"#ff880022", color:"#ff8800", border:"1px solid #ff880055" }}>
+                  ✅ 2-DAY CONFIRMED
+                </div>
+              )}
+              {/* Conviction badge */}
+              <div style={{ fontSize:10, padding:"2px 7px", borderRadius:3, marginLeft:"auto",
+                            background: isHigh?"#00ff8811":"#22222255",
+                            color: isHigh?"#00ff88":"#666",
+                            border:`1px solid ${isHigh?"#00ff8833":"#333"}` }}>
+                {p.conviction}
+              </div>
+              {/* Expand arrow */}
+              <div style={{ color:"#444", fontSize:10 }}>{isOpen?"▲":"▼"}</div>
+            </div>
+
+            {/* Stats row */}
+            <div style={{ display:"flex", gap:20, padding:"0 14px 10px", flexWrap:"wrap" }}>
+              <span style={{ fontSize:11, color:"#888" }}>
+                Price: <span style={{ color:"#fff" }}>${p.stock_price?.toFixed(2)}</span>
+              </span>
+              <span style={{ fontSize:11, color:"#888" }}>
+                Day1: <span style={{ color:"#00ff88", fontWeight:700 }}>+{p.day_ret?.toFixed(1)}%</span>
+              </span>
+              {isCall && p.strike && (
+                <span style={{ fontSize:11, color:"#888" }}>
+                  Strike: <span style={{ color:"#fff" }}>${p.strike}</span>
+                </span>
+              )}
+              {isCall && p.expiry && (
+                <span style={{ fontSize:11, color:"#888" }}>
+                  Exp: <span style={{ color:"#fff" }}>{p.expiry}</span>
+                  {p.days_out && <span style={{ color:"#555" }}> ({p.days_out}d)</span>}
+                </span>
+              )}
+              {p.vol_oi && (
+                <span style={{ fontSize:11, color:"#888" }}>
+                  Vol/OI: <span style={{ color:"#00ff88" }}>{p.vol_oi}x</span>
+                </span>
+              )}
+              {p.prem && (
+                <span style={{ fontSize:11, color:"#888" }}>
+                  Flow: <span style={{ color:"#fff" }}>${(p.prem/1000).toFixed(0)}K</span>
+                </span>
+              )}
+            </div>
+
+            {/* Expanded thesis */}
+            {isOpen && (
+              <div style={{ padding:"10px 14px 14px", borderTop:"1px solid #181818" }}>
+                <div style={{ fontSize:11, color:"#aaa", lineHeight:1.6, marginBottom:8 }}>{p.thesis}</div>
+                <div style={{ fontSize:11, color:"#00ff88" }}>
+                  <span style={{ color:"#555" }}>Key signal: </span>{p.why_it_stands_out}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div style={{ fontSize:10, color:"#333", textAlign:"center", marginTop:20 }}>
+        EXPERIMENTAL SYSTEM · Not financial advice · Track record for 60+ days before sizing up
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // ---- AI Short Calls Tab --------------------------------------------------
 function AIShortCallsTab() {
   const BB_BG   = "#0a0a0a";
@@ -3977,7 +4162,7 @@ function AIShortCallsTab() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <span style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, letterSpacing: "0.08em" }}>⚡ AI SHORT CALLS</span>
-          <span style={{ fontSize: 10, color: BB_DIM, marginLeft: 10 }}>HIGH CONVICTION ONLY · 91% WIN RATE (JUN BACKTEST)</span>
+          <span style={{ fontSize: 10, color: BB_DIM, marginLeft: 10 }}>POLYGON FULL-MARKET SCAN · DAY 1-2 EARLY DETECTION</span>
           {generatedAt && (
             <span style={{ fontSize: 9, color: BB_DIM, marginLeft: 10 }}>
               Generated {new Date(generatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
@@ -4022,9 +4207,9 @@ function AIShortCallsTab() {
         </div>
       )}
 
-      {/* Picks cards — HIGH conviction only (91% WR vs 59% for MEDIUM) */}
-      {picks.filter(p => p.conviction === "HIGH").map((p, i) => {
-        const isHigh = true;
+      {/* Picks cards — all picks, HIGH shown with orange accent */}
+      {picks.map((p, i) => {
+        const isHigh = p.conviction === "HIGH";
         const accentColor = isHigh ? BB_ORANGE : "#888";
         const isOpen = expanded === i;
         const pnlPct = p.stock_price > 0
@@ -4043,32 +4228,61 @@ function AIShortCallsTab() {
                 <span style={{ fontSize: 10, fontWeight: 900, color: "#000" }}>{i + 1}</span>
               </div>
 
-              {/* Ticker + strike/expiry */}
+              {/* Ticker + rec_type + strike/expiry */}
               <div style={{ flex: "0 0 auto", minWidth: 80 }}>
-                <div style={{ fontSize: 14, fontWeight: 900, color: "#fff" }}>{p.ticker}</div>
-                <div style={{ fontSize: 9, color: BB_DIM }}>${p.strike} CALL · {p.expiry}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 14, fontWeight: 900, color: "#fff" }}>{p.ticker}</span>
+                  <span style={{
+                    fontSize: 8, fontWeight: 900, borderRadius: 3, padding: "1px 5px",
+                    background: p.rec_type === "BUY_STOCK" ? "rgba(0,230,118,0.12)" : "rgba(255,102,0,0.12)",
+                    color: p.rec_type === "BUY_STOCK" ? "#00e676" : BB_ORANGE,
+                    border: `1px solid ${p.rec_type === "BUY_STOCK" ? "rgba(0,230,118,0.3)" : "rgba(255,102,0,0.3)"}`,
+                  }}>
+                    {p.rec_type === "BUY_STOCK" ? "📈 STOCK" : "⚡ CALL"}
+                  </span>
+                </div>
+                {p.confirmed_2d && (
+                  <span style={{ fontSize: 8, color: "#00e676", fontWeight: 700 }}>✓ 2-DAY CONFIRMED</span>
+                )}
+                {p.rec_type !== "BUY_STOCK" && p.strike && p.expiry && (
+                  <div style={{ fontSize: 9, color: BB_DIM }}>${p.strike} CALL · {p.expiry}</div>
+                )}
               </div>
 
               {/* Stats row */}
               <div style={{ flex: 1, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 11, color: BB_GREEN, fontWeight: 700 }}>{p.vol_oi}x</div>
-                  <div style={{ fontSize: 8, color: BB_DIM }}>VOL/OI</div>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 11, color: "#fff", fontWeight: 700 }}>${(p.prem / 1000).toFixed(0)}K</div>
-                  <div style={{ fontSize: 8, color: BB_DIM }}>PREM</div>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.days_out}d</div>
-                  <div style={{ fontSize: 8, color: BB_DIM }}>DAYS OUT</div>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 11, color: p.otm_pct > 5 ? "#aaa" : BB_GREEN, fontWeight: 700 }}>
-                    {p.otm_pct > 0 ? "+" : ""}{p.otm_pct}%
+                {p.day_ret != null && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: BB_GREEN, fontWeight: 700 }}>+{p.day_ret?.toFixed(1)}%</div>
+                    <div style={{ fontSize: 8, color: BB_DIM }}>TODAY</div>
                   </div>
-                  <div style={{ fontSize: 8, color: BB_DIM }}>OTM</div>
-                </div>
+                )}
+                {p.vol_oi != null && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: BB_GREEN, fontWeight: 700 }}>{p.vol_oi}x</div>
+                    <div style={{ fontSize: 8, color: BB_DIM }}>VOL/OI</div>
+                  </div>
+                )}
+                {p.prem != null && p.prem > 0 && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#fff", fontWeight: 700 }}>${(p.prem / 1000).toFixed(0)}K</div>
+                    <div style={{ fontSize: 8, color: BB_DIM }}>PREM</div>
+                  </div>
+                )}
+                {p.days_out != null && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.days_out}d</div>
+                    <div style={{ fontSize: 8, color: BB_DIM }}>DAYS OUT</div>
+                  </div>
+                )}
+                {p.otm_pct != null && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: (p.otm_pct ?? 0) > 5 ? "#aaa" : BB_GREEN, fontWeight: 700 }}>
+                      {(p.otm_pct ?? 0) > 0 ? "+" : ""}{p.otm_pct}%
+                    </div>
+                    <div style={{ fontSize: 8, color: BB_DIM }}>OTM</div>
+                  </div>
+                )}
               </div>
 
               {/* Right side: SMP score + conviction + urgency */}
@@ -13774,6 +13988,7 @@ export default function Dashboard() {
     { id: "sweeptrack",      label: "📊 SWEEP TRACK RECORD" },
     { id: "convictiontrack", label: "🎯 CONVICTION TRACK RECORD" },
     { id: "mytrades",        label: "📈 MY TRADES" },
+    { id: "aiearlymovers",   label: "🧠 AI EARLY MOVERS" },
     { id: "aishortcalls",    label: "⚡ AI SHORT CALLS" },
     { id: "shortcallrecord", label: "📋 SHORT CALLS RECORD" },
     { id: "netflow",         label: "💰 NET FLOW" },
@@ -14395,6 +14610,7 @@ export default function Dashboard() {
         {tab === "sweeptrack"      && <EodSweepTrackTab />}
         {tab === "convictiontrack" && <ConvictionTrackTab />}
         {tab === "mytrades"        && <MyTradesTab />}
+        {tab === "aiearlymovers"   && <AIEarlyMoversTab />}
         {tab === "aishortcalls"    && <AIShortCallsTab />}
         {tab === "shortcallrecord" && <ShortCallRecordTab />}
         {tab === "netflow"         && <NetFlowTab onSelectTicker={selectTicker} />}

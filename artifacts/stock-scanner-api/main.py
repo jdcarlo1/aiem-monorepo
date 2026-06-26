@@ -2298,6 +2298,52 @@ try:
         id="sc_outcomes_update",
         replace_existing=True,
     )
+    # AI miss detection: 4:45 PM ET — after market close, detect what AI missed today
+    # so tomorrow's AI prompt learns from overlooked patterns (feedback loop).
+    def _run_aisc_miss_detection():
+        try:
+            import threading as _thr_md2
+            _thr_md2.Thread(target=_detect_aisc_misses, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] aisc miss detection error: {e}")
+    _scheduler.add_job(
+        _run_aisc_miss_detection,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=_ET),
+        id="aisc_miss_detection",
+        replace_existing=True,
+    )
+    # AI Early Movers: 10:20 AM ET — separate experimental system, runs after unusual-calls scan
+    def _run_ai_early_movers():
+        try:
+            import threading as _aiem_sched_thr
+            import requests as _aiem_sched_req
+            _aiem_sched_req.get(
+                "http://127.0.0.1:5050/stock-api/ai-early-movers?force=1",
+                timeout=5,
+            )
+        except Exception as e:
+            print(f"[scheduler] ai_early_movers error: {e}")
+    _scheduler.add_job(
+        _run_ai_early_movers,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=20, timezone=_ET),
+        id="ai_early_movers",
+        replace_existing=True,
+    )
+    # AI Early Movers miss detection: 4:50 PM ET every trading day.
+    # Finds stocks that moved 5%+ but AI didn't pick → saves to ai_early_movers_misses.
+    # Next morning's 10:20 AM scan reads these misses → AI learns from them (feedback loop).
+    def _run_aiem_miss_detection():
+        try:
+            import threading as _aiem_md_thr
+            _aiem_md_thr.Thread(target=_detect_aiem_misses, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] aiem miss detection error: {e}")
+    _scheduler.add_job(
+        _run_aiem_miss_detection,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=50, timezone=_ET),
+        id="aiem_miss_detection",
+        replace_existing=True,
+    )
     # Position monitor: poll Gmail for TRADE: emails every 15 min (market hours)
     def _run_poll_trade_emails():
         if not _intraday_scan_allowed():
@@ -11921,12 +11967,21 @@ def _init_ai_short_calls_log_table():
         expiry_pct        FLOAT,
         expiry_win        BOOL,
         created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        rec_type          TEXT DEFAULT 'BUY_CALL',
+        day_ret           FLOAT,
+        confirmed_2d      BOOL,
         UNIQUE(trade_date, ticker, strike, expiry)
     );
     """
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute(sql)
+            # Add columns if upgrading existing table
+            for _col, _type in [("rec_type","TEXT DEFAULT 'BUY_CALL'"),("day_ret","FLOAT"),("confirmed_2d","BOOL")]:
+                try:
+                    conn.cursor().execute(f"ALTER TABLE ai_short_calls_log ADD COLUMN IF NOT EXISTS {_col} {_type}")
+                except Exception:
+                    pass
             conn.commit()
     except Exception as e:
         print(f"[ai_short_calls_log] init error: {e}")
@@ -11943,8 +11998,8 @@ def _save_ai_short_calls_to_log(picks: list, trade_date: str):
                     INSERT INTO ai_short_calls_log
                         (trade_date, rank, ticker, strike, expiry, days_out, vol_oi,
                          prem, stock_price, otm_pct, breakeven, conviction, urgency,
-                         thesis, why_it_stands_out)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         thesis, why_it_stands_out, rec_type, day_ret, confirmed_2d)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (trade_date, ticker, strike, expiry) DO NOTHING
                 """, (
                     trade_date,
@@ -11962,6 +12017,9 @@ def _save_ai_short_calls_to_log(picks: list, trade_date: str):
                     p.get("urgency"),
                     p.get("thesis"),
                     p.get("why_it_stands_out"),
+                    p.get("rec_type", "BUY_CALL"),
+                    p.get("day_ret"),
+                    p.get("confirmed_2d"),
                 ))
             conn.commit()
         print(f"[ai_short_calls_log] saved {len(picks)} picks for {trade_date}")
@@ -12100,6 +12158,353 @@ def _startup_grade_short_calls():
             print(f"[startup_grade] error: {_e}")
     _thr_sg.Thread(target=_bg, daemon=True).start()
 _startup_grade_short_calls()
+
+# ── AI SHORT CALLS FEEDBACK LOOP ────────────────────────────────────────────
+# Every day at 4:45 PM: compare what AI picked vs ALL stocks that moved 5%+.
+# Store "misses" so next morning the AI sees what patterns it overlooked.
+# This is how the system learns — continuous daily feedback builds the model.
+
+def _init_aisc_misses_table():
+    """Table to store stocks AI missed each day (moved 5%+ but not picked)."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ai_short_calls_misses (
+                    id          SERIAL PRIMARY KEY,
+                    miss_date   DATE NOT NULL,
+                    ticker      TEXT NOT NULL,
+                    day_ret     FLOAT,
+                    volume      BIGINT,
+                    price       FLOAT,
+                    has_uc      BOOL DEFAULT FALSE,
+                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE(miss_date, ticker)
+                );
+            """)
+            conn.commit()
+    except Exception as e:
+        print(f"[aisc_misses] table init error: {e}")
+
+_init_aisc_misses_table()
+
+
+def _detect_aisc_misses():
+    """
+    Run after market close: find stocks that moved 5%+ today but AI did NOT pick.
+    These are the patterns the AI missed — feed them back tomorrow so it learns.
+    Uses Polygon grouped daily (no Yahoo, no rate limits).
+    """
+    import urllib.request as _ur_m, datetime as _bdt_m
+    from zoneinfo import ZoneInfo as _ZI_m
+    _et_m = _ZI_m("America/New_York")
+    _now_m = _bdt_m.datetime.now(_bdt_m.timezone.utc).astimezone(_et_m)
+    _today_str = _now_m.date().isoformat()
+    _pg_key_m = os.environ.get("POLYGON_API_KEY", "")
+    if not _pg_key_m:
+        print("[aisc_misses] no Polygon key — skipping miss detection")
+        return
+
+    try:
+        # 1. What did AI pick today?
+        _picked = set()
+        with _psycopg2.connect(_DB_URL) as _cm, _cm.cursor() as _cuc:
+            _cuc.execute("SELECT ticker FROM ai_short_calls_log WHERE trade_date = %s", (_today_str,))
+            _picked = {r[0] for r in _cuc.fetchall()}
+
+        # 2. Fetch today's Polygon grouped daily (complete once market closes)
+        _url_m = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/"
+                  f"{_today_str}?adjusted=true&include_otc=false&apiKey={_pg_key_m}")
+        with _ur_m.urlopen(_url_m, timeout=20) as _resp_m:
+            _day_data = _json.loads(_resp_m.read())
+        _bars = {r["T"]: r for r in (_day_data.get("results") or [])
+                 if r.get("T") and r.get("c") and r.get("o") and r.get("v")}
+
+        # 3. Also load today's unusual calls tickers
+        _uc_tickers = set()
+        try:
+            _et_sql = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                       "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
+            with _psycopg2.connect(_DB_URL) as _cuc2, _cuc2.cursor() as _cur_uc2:
+                _cur_uc2.execute(
+                    f"SELECT DISTINCT ticker FROM unusual_calls_log WHERE last_seen >= {_et_sql}")
+                _uc_tickers = {r[0] for r in _cur_uc2.fetchall()}
+        except Exception:
+            pass
+
+        # 4. Find significant movers AI missed (5%+ from open, vol >= 80K, price $3-$600)
+        _misses = []
+        for _tk, _bar in _bars.items():
+            if _tk in _picked:
+                continue
+            try:
+                _c = float(_bar.get("c", 0)); _o = float(_bar.get("o", 0))
+                _v = float(_bar.get("v", 0))
+                if _c < 3 or _c > 600 or _v < 80_000 or _o <= 0:
+                    continue
+                _ret = (_c - _o) / _o * 100
+                if _ret < 5.0:
+                    continue
+                _misses.append((_today_str, _tk, round(_ret, 2), int(_v), round(_c, 2), _tk in _uc_tickers))
+            except Exception:
+                continue
+
+        # Sort by day_ret descending — biggest misses first
+        _misses.sort(key=lambda x: -x[2])
+
+        # 5. Save to DB (top 50 misses per day)
+        _saved_count = 0
+        with _psycopg2.connect(_DB_URL) as _cm2, _cm2.cursor() as _cuc3:
+            for _row in _misses[:50]:
+                try:
+                    _cuc3.execute("""
+                        INSERT INTO ai_short_calls_misses
+                            (miss_date, ticker, day_ret, volume, price, has_uc)
+                        VALUES (%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (miss_date, ticker) DO UPDATE
+                            SET day_ret=EXCLUDED.day_ret, volume=EXCLUDED.volume,
+                                price=EXCLUDED.price, has_uc=EXCLUDED.has_uc
+                    """, _row)
+                    _saved_count += 1
+                except Exception:
+                    pass
+            _cm2.commit()
+
+        print(f"[aisc_misses] {_today_str}: AI picked {len(_picked)}, missed {len(_misses)} movers 5%+, saved top {_saved_count}")
+    except Exception as _e_m:
+        import traceback as _tb_m
+        print(f"[aisc_misses] detect error: {_e_m}\n{_tb_m.format_exc()}")
+
+
+def _get_aisc_feedback():
+    """
+    Load yesterday's misses to inject into today's AI prompt.
+    Returns a formatted string section the AI reads as context.
+    If no misses, returns empty string.
+    """
+    import datetime as _bdt_fb
+    from zoneinfo import ZoneInfo as _ZI_fb
+    _et_fb = _ZI_fb("America/New_York")
+    _now_fb = _bdt_fb.datetime.now(_bdt_fb.timezone.utc).astimezone(_et_fb)
+    # Get last trading day
+    _d_fb = _now_fb.date() - _bdt_fb.timedelta(days=1)
+    while _d_fb.weekday() >= 5:
+        _d_fb -= _bdt_fb.timedelta(days=1)
+    try:
+        with _psycopg2.connect(_DB_URL) as _cfb, _cfb.cursor() as _curfb:
+            _curfb.execute("""
+                SELECT m.ticker, m.day_ret, m.price, m.has_uc,
+                       COALESCE(l.ticker IS NOT NULL, FALSE) as was_picked
+                FROM ai_short_calls_misses m
+                LEFT JOIN ai_short_calls_log l
+                    ON l.trade_date = m.miss_date AND l.ticker = m.ticker
+                WHERE m.miss_date = %s
+                ORDER BY m.day_ret DESC
+                LIMIT 20
+            """, (_d_fb.isoformat(),))
+            _rows_fb = _curfb.fetchall()
+        if not _rows_fb:
+            return ""
+        _lines_fb = []
+        for _r in _rows_fb:
+            _tk_fb, _ret_fb, _px_fb, _huc_fb, _picked_fb = _r
+            _tag = "[WITH_OPTIONS_FLOW]" if _huc_fb else "[PRICE_ONLY]"
+            _lines_fb.append(f"  - {_tk_fb}: +{_ret_fb}% from open, price=${_px_fb:.2f} {_tag}")
+        return (
+            f"\nFEEDBACK FROM {_d_fb.isoformat()} (what you missed yesterday — learn these patterns):\n"
+            + "\n".join(_lines_fb)
+            + "\nLook for similar setups today. These tickers moved 5%+ but were not picked. "
+            "Study the pattern: sector, price range, whether options flow was present.\n"
+        )
+    except Exception as _e_fb:
+        print(f"[aisc_feedback] error: {_e_fb}")
+        return ""
+
+
+# ── AI EARLY MOVERS FEEDBACK LOOP ───────────────────────────────────────────
+# Completely separate from AI Short Calls. Runs at 4:50 PM ET every trading day.
+# Detects stocks that moved 5%+ but were NOT picked by AI Early Movers today.
+# Tomorrow morning the AI sees these misses and learns to catch them earlier.
+# Full daily cycle (automatic, every weekday):
+#   10:20 AM → AI scans Polygon, picks 5 early movers → saves to ai_early_movers_log
+#   4:50 PM  → Miss detection runs → finds 5%+ movers AI skipped → ai_early_movers_misses
+#   10:20 AM → AI reads yesterday's misses in prompt → better picks today
+
+def _init_aiem_misses_table():
+    """Table storing stocks AI Early Movers missed each day (moved 5%+ but not picked)."""
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS ai_early_movers_misses (
+                    id          SERIAL PRIMARY KEY,
+                    miss_date   DATE NOT NULL,
+                    ticker      TEXT NOT NULL,
+                    day_ret     FLOAT,
+                    volume      BIGINT,
+                    price       FLOAT,
+                    has_uc      BOOL DEFAULT FALSE,
+                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE(miss_date, ticker)
+                );
+                CREATE INDEX IF NOT EXISTS idx_aiem_misses_date
+                    ON ai_early_movers_misses(miss_date);
+            """)
+            _c.commit()
+    except Exception as _e:
+        print(f"[aiem_misses] table init error: {_e}")
+
+_init_aiem_misses_table()
+
+
+def _detect_aiem_misses():
+    """
+    Runs at 4:50 PM ET after market close.
+    Fetches Polygon grouped daily for today, finds all stocks up 5%+ with decent volume.
+    Cross-references against what AI Early Movers actually picked today.
+    Anything missed (5%+ mover NOT in today's picks) → saved to ai_early_movers_misses.
+    Next morning the AI reads these misses and adjusts its selection criteria.
+    """
+    import urllib.request as _ur_am, datetime as _bdt_am, traceback as _tb_am
+    from zoneinfo import ZoneInfo as _ZI_am
+    _et_am = _ZI_am("America/New_York")
+    _now_am = _bdt_am.datetime.now(_bdt_am.timezone.utc).astimezone(_et_am)
+    _today_str = _now_am.date().isoformat()
+    _pg_key_am = os.environ.get("POLYGON_API_KEY", "")
+    if not _pg_key_am:
+        print("[aiem_misses] no Polygon key — skipping")
+        return
+    try:
+        # 1. What did AI Early Movers pick today?
+        _picked_am = set()
+        with _psycopg2.connect(_DB_URL) as _c_am, _c_am.cursor() as _cu_am:
+            _cu_am.execute(
+                "SELECT ticker FROM ai_early_movers_log WHERE trade_date = %s",
+                (_today_str,)
+            )
+            _picked_am = {r[0] for r in _cu_am.fetchall()}
+
+        # 2. What unusual call tickers are active today? (enrichment only)
+        _uc_am = set()
+        try:
+            _et_sql_am = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                          "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
+            with _psycopg2.connect(_DB_URL) as _c_uc, _c_uc.cursor() as _cu_uc:
+                _cu_uc.execute(
+                    f"SELECT DISTINCT ticker FROM unusual_calls_log WHERE last_seen >= {_et_sql_am}"
+                )
+                _uc_am = {r[0] for r in _cu_uc.fetchall()}
+        except Exception:
+            pass
+
+        # 3. Fetch today's Polygon grouped daily (complete after market close)
+        _url_am = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/"
+                   f"{_today_str}?adjusted=true&include_otc=false&apiKey={_pg_key_am}")
+        with _ur_am.urlopen(_url_am, timeout=20) as _resp_am:
+            _day_am = _json.loads(_resp_am.read())
+        _bars_am = {
+            r["T"]: r for r in (_day_am.get("results") or [])
+            if r.get("T") and r.get("c") and r.get("o") and r.get("v")
+        }
+
+        # 4. Find significant movers AI missed: up 5%+, vol ≥80K, price $3-$600
+        _misses_am = []
+        for _tk, _bar in _bars_am.items():
+            if _tk in _picked_am:
+                continue  # AI correctly picked this — not a miss
+            try:
+                _c = float(_bar.get("c", 0))
+                _o = float(_bar.get("o", 0))
+                _v = float(_bar.get("v", 0))
+                if _c < 3 or _c > 600 or _v < 80_000 or _o <= 0:
+                    continue
+                _ret = (_c - _o) / _o * 100
+                if _ret < 5.0:
+                    continue
+                _misses_am.append((
+                    _today_str,
+                    _tk,
+                    round(_ret, 2),
+                    int(_v),
+                    round(_c, 2),
+                    _tk in _uc_am,
+                ))
+            except Exception:
+                continue
+
+        # Sort biggest misses first — AI learns from the most obvious ones
+        _misses_am.sort(key=lambda x: -x[2])
+
+        # 5. Save top 50 to ai_early_movers_misses (upsert safe to run multiple times)
+        _saved_am = 0
+        with _psycopg2.connect(_DB_URL) as _c_sv, _c_sv.cursor() as _cu_sv:
+            for _row in _misses_am[:50]:
+                try:
+                    _cu_sv.execute("""
+                        INSERT INTO ai_early_movers_misses
+                            (miss_date, ticker, day_ret, volume, price, has_uc)
+                        VALUES (%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (miss_date, ticker) DO UPDATE
+                            SET day_ret=EXCLUDED.day_ret,
+                                volume=EXCLUDED.volume,
+                                price=EXCLUDED.price,
+                                has_uc=EXCLUDED.has_uc
+                    """, _row)
+                    _saved_am += 1
+                except Exception:
+                    pass
+            _c_sv.commit()
+
+        print(
+            f"[aiem_misses] {_today_str}: AI picked {len(_picked_am)}, "
+            f"missed {len(_misses_am)} movers ≥5%, saved top {_saved_am}"
+        )
+    except Exception as _e_am:
+        print(f"[aiem_misses] detect error: {_e_am}\n{_tb_am.format_exc()}")
+
+
+def _get_aiem_feedback():
+    """
+    Called each morning inside _bg_aiem() before building the AI prompt.
+    Loads yesterday's misses from ai_early_movers_misses.
+    Returns a formatted string the AI reads as context:
+      "Yesterday you missed NVDA (+8.2%), SMCI (+6.1%), AAPL (+5.3%)...
+       Look for similar setups today."
+    Returns empty string if no misses (first day, weekend, etc.).
+    """
+    import datetime as _bdt_gf
+    from zoneinfo import ZoneInfo as _ZI_gf
+    _et_gf = _ZI_gf("America/New_York")
+    _now_gf = _bdt_gf.datetime.now(_bdt_gf.timezone.utc).astimezone(_et_gf)
+    # Walk back to the last weekday (skip weekends)
+    _d_gf = _now_gf.date() - _bdt_gf.timedelta(days=1)
+    while _d_gf.weekday() >= 5:
+        _d_gf -= _bdt_gf.timedelta(days=1)
+    try:
+        with _psycopg2.connect(_DB_URL) as _c_gf, _c_gf.cursor() as _cu_gf:
+            _cu_gf.execute("""
+                SELECT ticker, day_ret, price, has_uc
+                FROM ai_early_movers_misses
+                WHERE miss_date = %s
+                ORDER BY day_ret DESC
+                LIMIT 20
+            """, (_d_gf.isoformat(),))
+            _rows_gf = _cu_gf.fetchall()
+        if not _rows_gf:
+            return ""
+        _lines_gf = []
+        for _r in _rows_gf:
+            _tk, _ret, _px, _huc = _r
+            _tag = "[had options flow]" if _huc else "[price momentum only]"
+            _lines_gf.append(f"  - {_tk}: +{_ret}% from open, closed at ${_px:.2f} {_tag}")
+        return (
+            f"\nLEARNING FEEDBACK — what you missed on {_d_gf.isoformat()}:\n"
+            + "\n".join(_lines_gf)
+            + "\nThese stocks moved 5%+ but you did NOT pick them. "
+            "Study the pattern — price range, options flow presence, sector. "
+            "Look for similar setups in today's list and prioritize them.\n"
+        )
+    except Exception as _e_gf:
+        print(f"[aiem_feedback] error: {_e_gf}")
+        return ""
 
 
 def _init_signal_history_table():
@@ -18824,17 +19229,19 @@ def ai_short_calls():
         import sys as _sys
         from openai import OpenAI as _OAI
         try:
-            # -- Load unusual call signals ---------------------------------
+            # ── Load unusual call signals from cache or DB ──────────────────────
+            from zoneinfo import ZoneInfo as _ZI
+            from datetime import timezone as _tzc
+            import urllib.request as _ur_aisc
+            _et = _ZI("America/New_York")
+            _today_et = _dt.now(_tzc.utc).astimezone(_et).date()
+
             uc    = getattr(app, "_unusual_calls_cache", None)
             uc_ts = getattr(app, "_unusual_calls_cache_ts", None)
             hits  = []
             if uc and uc_ts:
                 try:
-                    from zoneinfo import ZoneInfo as _ZI
-                    from datetime import timezone as _tzc
-                    _et = _ZI("America/New_York")
                     _cache_et = uc_ts.replace(tzinfo=_tzc.utc).astimezone(_et).date()
-                    _today_et = _dt.now(_tzc.utc).astimezone(_et).date()
                     if _cache_et == _today_et:
                         hits = uc.get("hits") or []
                 except Exception:
@@ -18842,100 +19249,177 @@ def ai_short_calls():
 
             if not hits:
                 try:
-                    _db_sql = """
-                        SELECT ticker, strike, expiry, days_out, vol_oi, prem, otm_pct, iv, urgency, price
-                        FROM unusual_calls_log
-                        WHERE last_seen >= {interval}
-                          AND days_out BETWEEN 1 AND 30
-                          AND prem >= 500000
-                          AND otm_pct BETWEEN -2 AND 30
-                          AND strike >= price * 0.97
-                        ORDER BY last_seen DESC, vol_oi DESC
-                        LIMIT 25
-                    """
-                    _et_today = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                    _et_floor = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
                                  "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
-                    with _psycopg2.connect(_DB_URL) as conn_fb, conn_fb.cursor() as cur_fb:
-                        cur_fb.execute(_db_sql.format(interval=_et_today))
-                        rows = cur_fb.fetchall()
+                    with _psycopg2.connect(_DB_URL) as _dc2, _dc2.cursor() as _cur2:
+                        _cur2.execute(f"""
+                            SELECT ticker, strike, expiry, days_out, vol_oi, prem, otm_pct, iv, urgency, price
+                            FROM unusual_calls_log
+                            WHERE last_seen >= {_et_floor}
+                              AND days_out BETWEEN 1 AND 30
+                              AND prem >= 500000
+                              AND otm_pct BETWEEN -2 AND 30
+                            ORDER BY last_seen DESC, vol_oi DESC
+                            LIMIT 25
+                        """)
+                        _rows2 = _cur2.fetchall()
                     hits = [
-                        {"ticker": r[0], "strike": r[1], "expiry": str(r[2]), "days_out": r[3],
-                         "vol_oi": float(r[4]), "prem": int(r[5]), "otm_pct": float(r[6]),
-                         "iv": float(r[7]) if r[7] else 0.0, "urgency": r[8], "price": float(r[9])}
-                        for r in rows
+                        {"ticker": r[0], "strike": float(r[1]), "expiry": str(r[2]),
+                         "days_out": int(r[3]), "vol_oi": float(r[4]), "prem": int(r[5]),
+                         "otm_pct": float(r[6]), "iv": float(r[7]) if r[7] else 0.0,
+                         "urgency": r[8], "price": float(r[9]) if r[9] else 0.0}
+                        for r in _rows2
                     ]
-                except Exception as _dbe:
-                    print(f"[ai_short_calls] DB fallback error: {_dbe}", file=_sys.stderr)
+                except Exception as _dbe2:
+                    print(f"[ai_short_calls] DB fallback error: {_dbe2}", file=_sys.stderr)
 
             if not hits:
-                return  # nothing to feed the AI — skip silently
+                print("[ai_short_calls] no unusual calls found — skipping", file=_sys.stderr)
+                return
 
             hits = hits[:30]
 
-            # ── Momentum filter: only keep uptrending stocks (no Yahoo) ────
+            # ── Momentum filter: remove stocks trending DOWN ─────────────────────
+            _pg_key_aisc = os.environ.get("POLYGON_API_KEY", "")
             _momentum_map = {}
             try:
-                import urllib.request as _ureq2, json as _ujson2, datetime as _mdt2, requests as _mreq2
+                import requests as _mreq2
                 _td_tok = os.environ.get("TRADIER_API_TOKEN_2") or os.environ.get("TRADIER_API_TOKEN", "")
                 _all_syms = list(dict.fromkeys(h["ticker"] for h in hits)) + ["SPY"]
                 _td_quotes_raw = {}
                 if _td_tok:
-                    _qr2 = _mreq2.get(
-                        "https://api.tradier.com/v1/markets/quotes",
-                        params={"symbols": ",".join(_all_syms), "greeks": "false"},
-                        headers={"Authorization": f"Bearer {_td_tok}", "Accept": "application/json"},
-                        timeout=8,
-                    )
-                    if _qr2.status_code == 200:
-                        _qd2 = _qr2.json().get("quotes", {}).get("quote", [])
-                        if isinstance(_qd2, dict): _qd2 = [_qd2]
-                        _td_quotes_raw = {q["symbol"]: q for q in _qd2 if q.get("symbol")}
-                # Polygon grouped daily 5 trading days ago
-                _pg_key2 = os.environ.get("POLYGON_API_KEY", "")
+                    try:
+                        _qr2 = _mreq2.get(
+                            "https://api.tradier.com/v1/markets/quotes",
+                            params={"symbols": ",".join(_all_syms), "greeks": "false"},
+                            headers={"Authorization": f"Bearer {_td_tok}", "Accept": "application/json"},
+                            timeout=8,
+                        )
+                        if _qr2.status_code == 200:
+                            _qd2 = _qr2.json().get("quotes", {}).get("quote", [])
+                            if isinstance(_qd2, dict): _qd2 = [_qd2]
+                            _td_quotes_raw = {q["symbol"]: q for q in _qd2 if q.get("symbol")}
+                    except Exception: pass
                 _pg_close5 = {}
-                if _pg_key2:
+                if _pg_key_aisc:
+                    import datetime as _mdt2
                     _pd5 = _mdt2.date.today()
                     _bd = 0
                     while _bd < 7:
                         _pd5 -= _mdt2.timedelta(days=1)
                         if _pd5.weekday() < 5: _bd += 1
                     _pg5_url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/"
-                                f"{_pd5.isoformat()}?adjusted=true&include_otc=false&apiKey={_pg_key2}")
+                                f"{_pd5.isoformat()}?adjusted=true&include_otc=false&apiKey={_pg_key_aisc}")
                     try:
-                        with _ureq2.urlopen(_pg5_url, timeout=12) as _resp5:
-                            _pg5_data = _ujson2.loads(_resp5.read())
+                        with _ur_aisc.urlopen(_pg5_url, timeout=12) as _resp5:
+                            _pg5_data = _json.loads(_resp5.read())
                         for _pr in (_pg5_data.get("results") or []):
                             _pg_close5[_pr["T"]] = float(_pr["c"])
                     except Exception as _pg5e:
                         print(f"[ai_short_calls] polygon 5d error: {_pg5e}", file=_sys.stderr)
-                # SPY 5-day return baseline
                 _spy_5d_ret = 0.0
                 if _td_quotes_raw.get("SPY") and _pg_close5.get("SPY"):
                     _spy_now = float(_td_quotes_raw["SPY"].get("last") or _td_quotes_raw["SPY"].get("close") or 0)
                     _spy_5ago = _pg_close5["SPY"]
                     if _spy_5ago > 0: _spy_5d_ret = (_spy_now - _spy_5ago) / _spy_5ago * 100
-                # Build momentum map per ticker
                 for _tk2 in list(dict.fromkeys(h["ticker"] for h in hits)):
-                    _q2 = _td_quotes_raw.get(_tk2, {})
-                    _now2    = float(_q2.get("last") or _q2.get("close") or 0)
-                    _prev2   = float(_q2.get("prevclose") or 0)
-                    _5ago2   = _pg_close5.get(_tk2, 0)
-                    _r1d     = round((_now2 - _prev2) / _prev2 * 100, 2) if _prev2 > 0 else None
-                    _r5d     = round((_now2 - _5ago2) / _5ago2 * 100, 2) if _5ago2 > 0 and _now2 > 0 else None
-                    _vs_spy  = round(_r5d - _spy_5d_ret, 2) if _r5d is not None else None
-                    _trend2  = "UP" if (_r5d is not None and _r5d > 0) else ("DOWN" if _r5d is not None else "UNKNOWN")
-                    _momentum_map[_tk2] = {"ret1d": _r1d, "ret5d": _r5d, "vs_spy5d": _vs_spy, "trend": _trend2}
-                # Hard filter: drop downtrending tickers before the AI sees them
-                _before_mom = len(hits)
+                    _q2    = _td_quotes_raw.get(_tk2, {})
+                    _now2  = float(_q2.get("last") or _q2.get("close") or 0)
+                    _prev2 = float(_q2.get("prevclose") or 0)
+                    _5ago2 = _pg_close5.get(_tk2, 0)
+                    _r1d2  = round((_now2 - _prev2) / _prev2 * 100, 2) if _prev2 > 0 else None
+                    _r5d2  = round((_now2 - _5ago2) / _5ago2 * 100, 2) if _5ago2 > 0 else None
+                    _vs_spy = round(_r5d2 - _spy_5d_ret, 2) if _r5d2 is not None else None
+                    _trend2 = ("UP" if _r5d2 is not None and _r5d2 >= 0
+                               else "DOWN" if _r5d2 is not None else "UNKNOWN")
+                    _momentum_map[_tk2] = {"ret1d": _r1d2, "ret5d": _r5d2, "vs_spy5d": _vs_spy, "trend": _trend2}
                 hits = [h for h in hits if _momentum_map.get(h["ticker"], {}).get("trend") != "DOWN"]
-                _dropped_mom = _before_mom - len(hits)
-                if _dropped_mom:
-                    print(f"[ai_short_calls] momentum filter removed {_dropped_mom} downtrending tickers", file=_sys.stderr)
+                print(f"[ai_short_calls] {len(hits)} hits after momentum filter", file=_sys.stderr)
             except Exception as _mome:
                 print(f"[ai_short_calls] momentum filter error: {_mome}", file=_sys.stderr)
+
+            if not hits:
+                print("[ai_short_calls] all hits filtered by momentum — skipping", file=_sys.stderr)
+                return
+
+            # Fetch Polygon grouped daily for the last N complete trading days
+            def _prev_tdays_aisc(n):
+                import datetime as _pdt2
+                _days2 = []
+                _now2 = _pdt2.datetime.now(_tzc.utc).astimezone(_et)
+                _d2 = _now2.date()
+                if _now2.hour < 17:
+                    _d2 -= _pdt2.timedelta(days=1)
+                while len(_days2) < n:
+                    if _d2.weekday() < 5:
+                        _days2.append(_d2.isoformat())
+                    _d2 -= _pdt2.timedelta(days=1)
+                return _days2
+
+            def _fetch_pg_grouped(date_str):
+                if not _pg_key_aisc:
+                    return {}
+                _url2 = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/"
+                         f"{date_str}?adjusted=true&include_otc=false&apiKey={_pg_key_aisc}")
+                try:
+                    with _ur_aisc.urlopen(_url2, timeout=18) as _resp2:
+                        _data2 = _json.loads(_resp2.read())
+                    return {r["T"]: r for r in (_data2.get("results") or [])
+                            if r.get("T") and r.get("c") and r.get("v") and r.get("o")}
+                except Exception as _pge2:
+                    print(f"[ai_short_calls] polygon {date_str}: {_pge2}", file=_sys.stderr)
+                    return {}
+
+            _movers = []
+            if _pg_key_aisc:
+                _tdays2 = _prev_tdays_aisc(3)
+                _pg_d0 = _fetch_pg_grouped(_tdays2[0])
+                _pg_d1 = _fetch_pg_grouped(_tdays2[1])
+                print(f"[ai_short_calls] Polygon d0={_tdays2[0]}({len(_pg_d0)}) d1={_tdays2[1]}({len(_pg_d1)})", file=_sys.stderr)
+
+                for _tk2, _bar2 in _pg_d0.items():
+                    try:
+                        _close2 = float(_bar2.get("c", 0))
+                        _open2  = float(_bar2.get("o", 0))
+                        _vol2   = float(_bar2.get("v", 0))
+                        if _close2 < 3 or _close2 > 600: continue
+                        if _vol2 < 80_000: continue
+                        if _open2 <= 0: continue
+                        _day_ret2 = (_close2 - _open2) / _open2 * 100
+                        if _day_ret2 < 2.5: continue
+                        _d1b = _pg_d1.get(_tk2, {})
+                        _d1c2 = float(_d1b.get("c", 0))
+                        _d1o2 = float(_d1b.get("o", 0))
+                        _conf2d = _d1o2 > 0 and _d1c2 > _d1o2 and (_d1c2 - _d1o2) / _d1o2 * 100 >= 1.0
+                        _movers.append({
+                            "ticker": _tk2,
+                            "price": round(_close2, 2),
+                            "day_ret": round(_day_ret2, 2),
+                            "volume": int(_vol2),
+                            "confirmed_2d": _conf2d,
+                        })
+                    except Exception:
+                        continue
+
+                _movers.sort(key=lambda x: (not x["confirmed_2d"], -x["day_ret"]))
+                _movers = _movers[:80]
+                print(f"[ai_short_calls] {len(_movers)} movers ({sum(1 for m in _movers if m['confirmed_2d'])} 2d-confirmed)", file=_sys.stderr)
+
+            # Fallback: if Polygon unavailable, use unusual-call tickers
+            if not _movers and _uc_by_ticker:
+                _movers = [
+                    {"ticker": t, "price": float(u.get("price") or 0), "day_ret": 0.0,
+                     "volume": 0, "confirmed_2d": False}
+                    for t, u in list(_uc_by_ticker.items())[:30]
+                ]
+
+            if not _movers:
+                print("[ai_short_calls] no movers found — skipping", file=_sys.stderr)
+                return
+
             # ─────────────────────────────────────────────────────────────
 
-            # ── Enrich hits with conviction stack + OI buildup ────────────
+            # ── Enrich hits with conviction stack + OI buildup ───────────
             _unique_tickers = list(dict.fromkeys(h["ticker"] for h in hits))
 
             # 1. Conviction stack: most recent score per ticker
@@ -19131,105 +19615,89 @@ def ai_short_calls():
 
             def _enrich_line(i, h):
                 tk = h["ticker"]
-                base = (
-                    f"{i+1}. {tk} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
-                    f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | {'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
-                    f"IV={h.get('iv',0)}% | urgency={h['urgency']} | stock_price=${h['price']:.2f}"
-                )
+                mom = _momentum_map.get(tk, {})
+                line = (f"{i+1}. {tk} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
+                        f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | "
+                        f"{'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
+                        f"IV={h.get('iv',0):.0f}% | urgency={h['urgency']} | "
+                        f"stock_price=${h['price']:.2f}")
+                r1 = mom.get("ret1d")
+                r5 = mom.get("ret5d")
+                vs = mom.get("vs_spy5d")
+                if r1 is not None:
+                    line += f" | 1d={'+' if r1>=0 else ''}{r1}%"
+                if r5 is not None:
+                    line += f" | 5d={'+' if r5>=0 else ''}{r5}%(vs_SPY:{'+' if (vs or 0)>=0 else ''}{vs}%)"
                 cs = _cs_map.get(tk)
                 if cs:
-                    base += f" | conviction_stack={cs['pts']}/10 ({cs['layers']})"
-                else:
-                    base += " | conviction_stack=NO_DATA"
+                    line += f" | conviction_stack={cs['pts']}/10({cs['layers']})"
                 bd = _oi_map.get(tk, 0)
-                base += f" | oi_buildup={bd}d"
+                if bd:
+                    line += f" | oi_buildup={bd}d"
                 fir = _fir_map.get(tk)
-                if fir:
-                    base += f" | FIR={fir['fir']}% (gamma_squeeze_pressure)"
-                else:
-                    base += " | FIR=NO_DATA"
+                if fir and fir["fir"] > 0:
+                    line += f" | FIR={fir['fir']}%"
                 ms = _ms_count_map.get(tk, {})
-                ms_count = ms.get("count", 0)
-                ms_labels = "+".join(ms.get("labels", [])) or "none"
-                base += f" | other_scanners={ms_count}/11 ({ms_labels})"
-                # Charm cascade — actual calculated score from oi_daily_snapshot
+                if ms.get("count", 0):
+                    line += f" | scanners={ms['count']}/11({'+'.join(ms.get('labels',[])[:3])})"
                 ch = _charm_map.get(tk)
                 if ch and ch["score"] > 0:
-                    base += f" | charm_cascade={ch['score']} (expires_in={ch['nearest_days']}d — dealer_forced_buying_accelerates)"
-                else:
-                    base += " | charm_cascade=NO_NEAR_EXPIRY_OI"
-                # Insider radar
+                    line += f" | charm={ch['score']}(exp {ch['nearest_days']}d)"
                 ins = _insider_map.get(tk)
                 if ins:
-                    pp = "PRE_POSITIONED" if ins["pre_positioned"] else ins["verdict"]
-                    base += f" | insider_radar=FLAGGED (suspicion={ins['score']}/100, {pp})"
-                else:
-                    base += " | insider_radar=CLEAN"
-                # Earnings date — critical context for IV crush risk vs catalyst setup
+                    line += f" | insider={'PRE_POS' if ins['pre_positioned'] else ins['verdict']}({ins['score']}/100)"
                 ea = _earnings_map.get(tk)
                 if ea:
-                    base += f" | earnings={ea['date']} ({ea['days_out']}d away)"
-                else:
-                    base += " | earnings=NONE_KNOWN"
-                # Price momentum — 1d and 5d return vs SPY
-                mom = _momentum_map.get(tk, {})
-                if mom:
-                    _r1 = f"{mom['ret1d']:+.1f}%" if mom.get('ret1d') is not None else "n/a"
-                    _r5 = f"{mom['ret5d']:+.1f}%" if mom.get('ret5d') is not None else "n/a"
-                    _vs = f"{mom['vs_spy5d']:+.1f}%" if mom.get('vs_spy5d') is not None else "n/a"
-                    _tr = mom.get('trend', 'UNKNOWN')
-                    base += f" | momentum=trend:{_tr} 1d:{_r1} 5d:{_r5} vs_SPY_5d:{_vs}"
-                return base
+                    line += f" | earnings={ea['date']}({ea['days_out']}d)"
+                return line
 
             signals_text = "\n".join(_enrich_line(i, h) for i, h in enumerate(hits))
 
-            user_msg = f"""These are today's unusual call signals — all tickers have already been filtered to UPTRENDING stocks only (positive 5-day return). Downtrending stocks have been removed before you see this list.
+            user_msg = f"""These are today's unusual call option signals. All tickers have been filtered to UPTRENDING stocks only (positive 5-day return vs SPY). Each signal represents a large institutional options order.
+
+Today's unusual call signals (uptrending stocks only):
 
 {signals_text}
 
-MOMENTUM RULE (mandatory): Only recommend stocks where momentum shows trend:UP. If a ticker shows trend:DOWN or trend:UNKNOWN with no supporting data, skip it. The momentum field shows: trend direction, 1-day return, 5-day return, and 5-day return vs SPY. Prefer stocks outperforming SPY over the last 5 days — these are the names with real institutional sponsorship behind the options flow.
+SIGNAL KEY:
+- Vol/OI = volume-to-open-interest ratio (how aggressively new positions are being opened today)
+- prem = total premium spent ($) — larger = more conviction from the buyer
+- OTM% = how far out of the money the strike is (near-the-money = directional bet)
+- IV = implied volatility (how much the options market expects the stock to move)
+- urgency = sweep urgency from our scanner (URGENT = crossed the ask, multi-exchange)
+- conviction_stack = institutional accumulation score from our 10-layer system
+- FIR = Float Impact Ratio — high FIR means market makers are forced to buy shares as price rises
+- oi_buildup = days open interest has been building (pre-positioning by smart money)
+- scanners = how many of our 11 independent scanners flagged this ticker
+- charm = mechanical dealer buying pressure as expiry approaches
+- insider = unusual insider activity score (PRE_POS = pre-positioned before a catalyst)
 
-EXPIRY RULE: Prefer picks with 21–45 days to expiry. Only select picks with ≤14 days if conviction_stack ≥8/10 AND other_scanners ≥5/11 — both required. Never pick ≤7 day (weekly) options.
+YOUR JOB — Pick the 5 BEST short-term call trades (next 3–30 days):
+1. Highest Vol/OI + large premium + near-the-money strike = strongest signal
+2. URGENT sweep + conviction_stack ≥ 6 = institutional accumulation with options confirmation
+3. FIR > 2% = mechanical buying pressure amplifies the move
+4. oi_buildup ≥ 3d = smart money has been building a position for days
+5. Skip: deep OTM (>20%) with low premium — likely noise or hedging
+6. Skip: any ticker with UNKNOWN or DOWN momentum trend
 
-Select the 5 BEST call trade opportunities from this list. Fewer picks, higher conviction only.
-Criteria (in order of importance):
-1. momentum — trend must be UP with positive 5d return; stocks outperforming SPY (vs_SPY_5d > 0) are highest priority; this is the most important filter
-2. conviction_stack score — if ≥8/10 with multiple layers (dark_pool+short_int+sweep), prioritize heavily
-3. FIR (Float Impact Ratio) — if FIR >2%, market makers are mechanically FORCED to buy shares; FIR >5% is explosive
-4. other_scanners count — how many of 11 independent scanners also flagged this ticker; ≥4/11 = very high probability
-5. oi_buildup days — 3+ days of OI building = smart money was pre-positioning
-6. Vol/OI ratio — fresh institutional buying pressure
-7. Premium size — commitment level
-8. OTM% — closer to ATM is more realistic; avoid >15% OTM unless all other signals are very strong
-9. days_out — 21–45 day window strongly preferred
-10. insider_radar — if FLAGGED, suspicious pre-positioning detected; sweep + insider = someone knows something
-11. earnings — within 7 days: catalyst play (IV crush risk); 8–30 days away: ideal window; NONE_KNOWN: direction play only
-
-Ranking logic:
-- ELITE pick: trend=UP + vs_SPY_5d > +2% + conviction_stack ≥8 + other_scanners ≥4 → rank #1-2
-- STRONG pick: trend=UP + insider_radar=FLAGGED + sweep → rank #1-3
-- SKIP: trend=DOWN or negative 5d return — do not recommend regardless of options flow
-- SKIP: trend=UNKNOWN with no other supporting signals
-The goal: stocks already moving up, with institutional options flow confirming the thesis, with enough time (21–45 days) for the move to fully play out.
-
-For each pick output a JSON object with ALL these fields:
+For each pick, output a JSON object with ALL these fields:
 - ticker (string)
-- strike (number — use the strike from the signal)
-- expiry (string YYYY-MM-DD — use from signal)
-- days_out (integer — from signal)
-- vol_oi (number — from signal)
-- prem (integer — from signal)
-- stock_price (number — from signal)
-- otm_pct (number — from signal)
-- breakeven (number — strike + estimated option premium per share)
+- rec_type ("BUY_CALL")
+- strike (number — from the signal)
+- expiry (string YYYY-MM-DD)
+- days_out (integer)
+- stock_price (number)
+- otm_pct (number)
+- vol_oi (number)
+- prem (integer)
 - conviction ("HIGH" | "MEDIUM")
 - urgency (string — from signal)
-- thesis (string — 2 sentences MAX: why this uptrending stock + options flow is high conviction)
-- why_it_stands_out (string — 1 sentence: the single most compelling data point)
+- thesis (string — 2 sentences MAX explaining the options flow thesis)
+- why_it_stands_out (string — 1 sentence: the single most compelling signal)
 
-Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
+Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no markdown."""
 
-            system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."
+            system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options flow data. You look for institutional smart-money positioning in uptrending stocks. Output valid JSON only."
 
             def _stream_ai():
                 chunks = []
@@ -19322,6 +19790,437 @@ Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON 
         return jsonify({**_cache, "generating": True} if _scanning else _cache)
     if _db_picks:
         return jsonify({**_db_picks, "stale": True, "generating": _scanning})
+    return jsonify({"picks": [], "generated_at": None, "signals_evaluated": 0, "generating": True})
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AI EARLY MOVERS — Completely separate experimental system
+# Scans ALL US stocks via Polygon every day. Finds stocks up 2.5%+ on day 1-2
+# of a new move BEFORE they become obvious. Fully isolated from all other tabs.
+# Schedule: 10:20 AM ET daily. Cache: 4h. Table: ai_early_movers_log.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _init_ai_early_movers_table():
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS ai_early_movers_log (
+                    id           SERIAL PRIMARY KEY,
+                    trade_date   DATE NOT NULL,
+                    rank         INTEGER,
+                    ticker       TEXT NOT NULL,
+                    rec_type     TEXT NOT NULL DEFAULT 'BUY_CALL',
+                    strike       FLOAT,
+                    expiry       TEXT,
+                    days_out     INTEGER,
+                    stock_price  FLOAT,
+                    day_ret      FLOAT,
+                    confirmed_2d BOOL DEFAULT FALSE,
+                    vol_oi       FLOAT,
+                    prem         BIGINT,
+                    conviction   TEXT,
+                    thesis       TEXT,
+                    why_it_stands_out TEXT,
+                    outcome      TEXT DEFAULT 'OPEN',
+                    t3_price     FLOAT,
+                    t3_pct       FLOAT,
+                    t3_win       BOOL,
+                    t7_price     FLOAT,
+                    t7_pct       FLOAT,
+                    t7_win       BOOL,
+                    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_aiem_date ON ai_early_movers_log(trade_date);
+                CREATE INDEX IF NOT EXISTS idx_aiem_ticker ON ai_early_movers_log(ticker);
+            """)
+            _c.commit()
+    except Exception as _e:
+        print(f"[ai_early_movers] table init error: {_e}")
+
+_init_ai_early_movers_table()
+
+
+def _save_ai_early_movers_to_log(picks, trade_date):
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("DELETE FROM ai_early_movers_log WHERE trade_date = %s", (trade_date,))
+            for i, p in enumerate(picks):
+                _cu.execute("""
+                    INSERT INTO ai_early_movers_log
+                        (trade_date, rank, ticker, rec_type, strike, expiry, days_out,
+                         stock_price, day_ret, confirmed_2d, vol_oi, prem, conviction,
+                         thesis, why_it_stands_out)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    trade_date, i+1,
+                    p.get("ticker",""),
+                    p.get("rec_type","BUY_CALL"),
+                    p.get("strike"),
+                    p.get("expiry"),
+                    p.get("days_out"),
+                    p.get("stock_price"),
+                    p.get("day_ret"),
+                    bool(p.get("confirmed_2d", False)),
+                    p.get("vol_oi"),
+                    p.get("prem"),
+                    p.get("conviction","MEDIUM"),
+                    p.get("thesis",""),
+                    p.get("why_it_stands_out",""),
+                ))
+            _c.commit()
+        print(f"[ai_early_movers] saved {len(picks)} picks for {trade_date}")
+    except Exception as _e:
+        print(f"[ai_early_movers] save error: {_e}")
+
+
+@app.route("/stock-api/ai-early-movers", methods=["GET"])
+def ai_early_movers():
+    """Experimental: AI picks from Polygon full-market early-mover scan. Isolated system."""
+    import sys as _aiem_sys
+    from datetime import datetime as _aiem_dt
+
+    force  = request.args.get("force") == "1"
+    _cache = getattr(app, "_aiem_cache", None)
+    _ts    = getattr(app, "_aiem_cache_ts", None)
+    if not force and _cache and _ts and (_aiem_dt.now() - _ts).total_seconds() < 14400:
+        return jsonify(_cache)
+
+    # Warm fallback: load today's picks from DB immediately while bg regen runs
+    def _load_db_aiem():
+        try:
+            _et_floor = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                         "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
+            with _psycopg2.connect(_DB_URL) as _dc, _dc.cursor() as _dcc:
+                _dcc.execute(f"""
+                    SELECT ticker, rec_type, strike, expiry, days_out,
+                           stock_price, day_ret, confirmed_2d, vol_oi, prem,
+                           conviction, thesis, why_it_stands_out, created_at
+                    FROM ai_early_movers_log
+                    WHERE created_at >= {_et_floor}
+                    ORDER BY rank ASC NULLS LAST
+                    LIMIT 20
+                """)
+                _rows = _dcc.fetchall()
+            if not _rows:
+                return None
+            _cols = ["ticker","rec_type","strike","expiry","days_out",
+                     "stock_price","day_ret","confirmed_2d","vol_oi","prem",
+                     "conviction","thesis","why_it_stands_out","created_at"]
+            _picks = []
+            for _r in _rows:
+                _p = dict(zip(_cols, _r))
+                _p["created_at"] = _p["created_at"].isoformat() if _p.get("created_at") else None
+                _picks.append(_p)
+            return {"picks": _picks,
+                    "generated_at": _picks[0].get("created_at"),
+                    "signals_evaluated": len(_picks)}
+        except Exception as _dbe:
+            print(f"[ai_early_movers] db_load error: {_dbe}", file=_aiem_sys.stderr)
+            return None
+
+    _db_picks = _load_db_aiem() if not _cache else None
+
+    def _bg_aiem():
+        import sys as _sys
+        from openai import OpenAI as _OAI
+        import urllib.request as _ur_em
+        from zoneinfo import ZoneInfo as _ZI_em
+        from datetime import timezone as _tzc_em
+        try:
+            _et_em = _ZI_em("America/New_York")
+            _today_em = _aiem_dt.now(_tzc_em.utc).astimezone(_et_em).date()
+            _pg_key_em = os.environ.get("POLYGON_API_KEY", "")
+
+            if not _pg_key_em:
+                print("[ai_early_movers] no Polygon key — skipping", file=_sys.stderr)
+                return
+
+            # ── Load unusual calls as optional enrichment ─────────────────
+            _uc_by_tk = {}
+            try:
+                _uc_raw = []
+                _uc_c = getattr(app, "_unusual_calls_cache", None)
+                _uc_ts2 = getattr(app, "_unusual_calls_cache_ts", None)
+                if _uc_c and _uc_ts2:
+                    _cache_d = _uc_ts2.replace(tzinfo=_tzc_em.utc).astimezone(_et_em).date()
+                    if _cache_d == _today_em:
+                        _uc_raw = _uc_c.get("hits") or []
+                if not _uc_raw:
+                    _et_flr = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                               "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
+                    with _psycopg2.connect(_DB_URL) as _cu2, _cu2.cursor() as _cur2:
+                        _cur2.execute(
+                            f"SELECT ticker,strike,expiry,days_out,vol_oi,prem,otm_pct,iv,urgency,price "
+                            f"FROM unusual_calls_log WHERE last_seen>={_et_flr} "
+                            f"AND prem>=200000 ORDER BY vol_oi DESC LIMIT 80"
+                        )
+                        _uc_raw = [
+                            {"ticker":r[0],"strike":r[1],"expiry":str(r[2]),"days_out":r[3],
+                             "vol_oi":float(r[4]),"prem":int(r[5]),"otm_pct":float(r[6]),
+                             "iv":float(r[7]) if r[7] else 0.0,"urgency":r[8],
+                             "price":float(r[9]) if r[9] else 0.0}
+                            for r in _cur2.fetchall()
+                        ]
+                for _u in _uc_raw:
+                    if _u["ticker"] not in _uc_by_tk:
+                        _uc_by_tk[_u["ticker"]] = _u
+            except Exception as _uce2:
+                print(f"[ai_early_movers] UC load error: {_uce2}", file=_sys.stderr)
+
+            # ── Fetch Polygon grouped daily for last 3 complete trading days ──
+            def _prev_tdays_em(n):
+                import datetime as _pdt_em
+                _days_em = []
+                _now_em = _aiem_dt.now(_tzc_em.utc).astimezone(_et_em)
+                _d_em = _now_em.date()
+                if _now_em.hour < 17:
+                    _d_em -= _pdt_em.timedelta(days=1)
+                while len(_days_em) < n:
+                    if _d_em.weekday() < 5:
+                        _days_em.append(_d_em.isoformat())
+                    _d_em -= _pdt_em.timedelta(days=1)
+                return _days_em
+
+            def _fetch_pg_em(date_str):
+                _url_em = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/"
+                           f"{date_str}?adjusted=true&include_otc=false&apiKey={_pg_key_em}")
+                try:
+                    with _ur_em.urlopen(_url_em, timeout=20) as _r_em:
+                        _d_em = _json.loads(_r_em.read())
+                    return {r["T"]: r for r in (_d_em.get("results") or [])
+                            if r.get("T") and r.get("c") and r.get("v") and r.get("o")}
+                except Exception as _e_em:
+                    print(f"[ai_early_movers] polygon {date_str}: {_e_em}", file=_sys.stderr)
+                    return {}
+
+            _tdays_em = _prev_tdays_em(3)
+            _pg_d0 = _fetch_pg_em(_tdays_em[0])
+            _pg_d1 = _fetch_pg_em(_tdays_em[1])
+            print(f"[ai_early_movers] d0={_tdays_em[0]}({len(_pg_d0)}) d1={_tdays_em[1]}({len(_pg_d1)})", file=_sys.stderr)
+
+            # ── Find early movers: up 2.5%+ from open, vol ≥80K, price $3-$600 ──
+            _movers_em = []
+            for _tk_em, _bar_em in _pg_d0.items():
+                try:
+                    _c_em = float(_bar_em.get("c", 0))
+                    _o_em = float(_bar_em.get("o", 0))
+                    _v_em = float(_bar_em.get("v", 0))
+                    if _c_em < 3 or _c_em > 600: continue
+                    if _v_em < 80_000: continue
+                    if _o_em <= 0: continue
+                    _ret_em = (_c_em - _o_em) / _o_em * 100
+                    if _ret_em < 2.5: continue
+                    _d1b = _pg_d1.get(_tk_em, {})
+                    _d1c = float(_d1b.get("c", 0))
+                    _d1o = float(_d1b.get("o", 0))
+                    _conf = _d1o > 0 and _d1c > _d1o and (_d1c - _d1o) / _d1o * 100 >= 1.0
+                    _movers_em.append({
+                        "ticker": _tk_em,
+                        "price":  round(_c_em, 2),
+                        "day_ret": round(_ret_em, 2),
+                        "volume":  int(_v_em),
+                        "confirmed_2d": _conf,
+                    })
+                except Exception:
+                    continue
+
+            _movers_em.sort(key=lambda x: (not x["confirmed_2d"], -x["day_ret"]))
+            _movers_em = _movers_em[:80]
+            print(f"[ai_early_movers] {len(_movers_em)} movers ({sum(1 for m in _movers_em if m['confirmed_2d'])} confirmed)", file=_sys.stderr)
+
+            if not _movers_em:
+                print("[ai_early_movers] no movers — skipping", file=_sys.stderr)
+                return
+
+            # ── Conviction stack enrichment ───────────────────────────────────
+            _ut_em = list(dict.fromkeys(m["ticker"] for m in _movers_em))
+            _cs_em = {}
+            try:
+                with _psycopg2.connect(_DB_URL) as _ce_em, _ce_em.cursor() as _cc_em:
+                    _cc_em.execute("""
+                        SELECT DISTINCT ON (ticker) ticker, total_pts, label, layers
+                        FROM conviction_stack_watchlist
+                        WHERE ticker = ANY(%s)
+                        ORDER BY ticker, snap_date DESC
+                    """, (_ut_em,))
+                    for _row in _cc_em.fetchall():
+                        _tk2, _pts, _lbl, _lyrs = _row
+                        _ln = ([str(l) for l in _lyrs] if isinstance(_lyrs, list)
+                               else [k for k,v in _lyrs.items() if v] if isinstance(_lyrs, dict) else [])
+                        _cs_em[_tk2] = {"pts": round(float(_pts or 0), 1),
+                                        "label": _lbl or "",
+                                        "layers": "+".join(_ln[:4]) or "sweep_only"}
+            except Exception as _cse2:
+                print(f"[ai_early_movers] conviction stack error: {_cse2}", file=_sys.stderr)
+
+            # ── OI buildup ───────────────────────────────────────────────────
+            _oi_em = {}
+            try:
+                with _psycopg2.connect(_DB_URL) as _oe_em, _oe_em.cursor() as _oc_em:
+                    _oc_em.execute("""
+                        SELECT ticker, COUNT(DISTINCT snapshot_date) AS bd
+                        FROM oi_daily_snapshot
+                        WHERE ticker = ANY(%s)
+                          AND snapshot_date >= CURRENT_DATE - INTERVAL '7 days'
+                          AND days_out BETWEEN 1 AND 35
+                        GROUP BY ticker
+                    """, (_ut_em,))
+                    for _row in _oc_em.fetchall():
+                        _oi_em[_row[0]] = int(_row[1])
+            except Exception as _oie2:
+                print(f"[ai_early_movers] oi_buildup error: {_oie2}", file=_sys.stderr)
+
+            # ── Feedback from yesterday's misses (learning loop) ─────────────
+            _fb_em = ""
+            try:
+                _fb_em = _get_aiem_feedback()
+            except Exception:
+                pass
+
+            # ── Build prompt lines ────────────────────────────────────────────
+            def _enrich_em(i, m):
+                tk = m["ticker"]
+                tag = "✅ 2-DAY CONFIRMED" if m["confirmed_2d"] else "📌 1-DAY MOVE"
+                line = (f"{i+1}. {tk} | {tag} | +{m['day_ret']}% day1 | "
+                        f"price=${m['price']:.2f} | vol={m['volume']:,}")
+                uc = _uc_by_tk.get(tk)
+                if uc:
+                    line += (f" | CALL_FLOW: ${uc['strike']} exp {uc['expiry']} "
+                             f"({uc['days_out']}d) vol/OI={uc['vol_oi']}x "
+                             f"prem=${uc['prem']:,} otm={uc['otm_pct']}% urgency={uc['urgency']}")
+                else:
+                    line += " | NO_OPTIONS_FLOW"
+                cs = _cs_em.get(tk)
+                if cs:
+                    line += f" | conviction={cs['pts']}/10({cs['label']})"
+                bd = _oi_em.get(tk, 0)
+                if bd:
+                    line += f" | oi_buildup={bd}d"
+                return line
+
+            _sig_text_em = "\n".join(_enrich_em(i, m) for i, m in enumerate(_movers_em[:35]))
+
+            _user_msg_em = f"""You are scanning the FULL US stock market (8,000+ stocks) via Polygon every day to find stocks in the VERY EARLY innings of a move — day 1 or day 2 — before the crowd notices. This is an experimental early-detection system.
+{_fb_em}
+Today's early movers (Polygon full-market scan — {_tdays_em[0]}):
+
+{_sig_text_em}
+
+SIGNAL KEY:
+- "✅ 2-DAY CONFIRMED" = stock was up yesterday AND moving again today. Strongest signal — two consecutive days of institutional accumulation.
+- "📌 1-DAY MOVE" = strong move today only. Needs options flow or conviction score to confirm.
+- CALL_FLOW = unusual options buying detected on this ticker today (smart money confirmation).
+- conviction = how many of our 10 institutional signals align (dark pool + OI + sweeps + short interest).
+- oi_buildup = days open interest has been growing (pre-positioning by smart money).
+
+SELECT the 5 BEST opportunities for the next 3-7 days:
+PRIORITY ORDER:
+1. 2-DAY CONFIRMED + CALL_FLOW = HIGHEST (momentum confirmed + smart money in)  → BUY_CALL
+2. 2-DAY CONFIRMED + conviction ≥ 6 (no options) = Strong institutional trend → BUY_STOCK
+3. 1-DAY MOVE + CALL_FLOW + conviction ≥ 5 = Smart money just entered → BUY_CALL
+4. 1-DAY MOVE alone (no confirmation) = SKIP — too risky
+5. NEVER pick stocks up > 15% in one day (parabolic = missed it)
+6. NEVER pick stocks below $5 or above $500
+
+For each pick, output a JSON object with EXACTLY these fields:
+- ticker (string)
+- rec_type ("BUY_CALL" | "BUY_STOCK")
+- strike (number | null — nearest ATM strike if CALL_FLOW present; null for BUY_STOCK)
+- expiry (string YYYY-MM-DD | null — target 14-30 days out; null for BUY_STOCK)
+- days_out (integer | null — null for BUY_STOCK)
+- stock_price (number — current price from signal)
+- day_ret (number — day 1 return percent)
+- confirmed_2d (boolean)
+- vol_oi (number | null — from CALL_FLOW if present)
+- prem (integer | null — from CALL_FLOW if present)
+- conviction ("HIGH" | "MEDIUM")
+- thesis (string — 2 sentences: why this will continue moving for 3-7 more days)
+- why_it_stands_out (string — 1 sentence: the single most compelling signal)
+
+Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no markdown."""
+
+            _sys_msg_em = ("You are a quantitative momentum analyst specializing in early-stage breakout detection. "
+                           "You identify stocks in the first 1-2 days of an institutional accumulation move before "
+                           "they become widely noticed. Output valid JSON only.")
+
+            oai_em = _OAI(
+                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
+                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
+                timeout=90.0,
+            )
+
+            def _stream_aiem():
+                _chunks = []; _finish = "unknown"
+                _stream = oai_em.chat.completions.create(
+                    model="gpt-4o-mini", max_completion_tokens=4000, stream=True,
+                    messages=[{"role":"system","content":_sys_msg_em},
+                              {"role":"user","content":_user_msg_em}],
+                )
+                for _chunk in _stream:
+                    _delta = _chunk.choices[0].delta.content if _chunk.choices else None
+                    if _delta: _chunks.append(_delta)
+                    if _chunk.choices and _chunk.choices[0].finish_reason:
+                        _finish = _chunk.choices[0].finish_reason
+                return "".join(_chunks).strip(), _finish
+
+            def _extract_json_em(raw):
+                if "```" in raw:
+                    for part in raw.split("```"):
+                        s = part.lstrip("json").strip()
+                        if s.startswith("["): return s
+                if not raw.startswith("["):
+                    s = raw.find("["); e = raw.rfind("]")+1
+                    if s >= 0 and e > s: return raw[s:e]
+                return raw
+
+            import time as _time_em
+            raw_em, finish_em = _stream_aiem()
+            raw_em = _extract_json_em(raw_em)
+            if not raw_em:
+                print("[ai_early_movers] empty — retrying in 6s", file=_sys.stderr)
+                _time_em.sleep(6)
+                raw_em, finish_em = _stream_aiem()
+                raw_em = _extract_json_em(raw_em)
+            if not raw_em:
+                print(f"[ai_early_movers] no content (finish={finish_em})", file=_sys.stderr)
+                return
+
+            try:
+                picks_em = _json.loads(raw_em)
+            except Exception:
+                from json_repair import repair_json as _rj2
+                picks_em = _json.loads(_rj2(raw_em))
+
+            out_em = {"picks": picks_em, "generated_at": _aiem_dt.now().isoformat(),
+                      "signals_evaluated": len(_movers_em)}
+            app._aiem_cache    = out_em
+            app._aiem_cache_ts = _aiem_dt.now()
+            try:
+                import threading as _aiem_thr2
+                _aiem_thr2.Thread(
+                    target=_save_ai_early_movers_to_log,
+                    args=(picks_em, _aiem_dt.now().strftime("%Y-%m-%d")),
+                    daemon=True,
+                ).start()
+            except Exception as _sle2:
+                print(f"[ai_early_movers] log save error: {_sle2}", file=_sys.stderr)
+        except Exception as _e_bg:
+            import traceback as _tb_em2
+            print(f"[ai_early_movers] bg error: {_e_bg}\n{_tb_em2.format_exc()}", file=_sys.stderr)
+        finally:
+            app._aiem_scanning = False
+
+    _scanning_em = getattr(app, "_aiem_scanning", False)
+    if force or not _scanning_em:
+        app._aiem_scanning = True
+        import threading as _aiem_thr
+        _aiem_thr.Thread(target=_bg_aiem, daemon=True).start()
+
+    if _cache:
+        return jsonify({**_cache, "generating": True} if getattr(app, "_aiem_scanning", False) else _cache)
+    if _db_picks:
+        return jsonify({**_db_picks, "stale": True, "generating": getattr(app, "_aiem_scanning", False)})
     return jsonify({"picks": [], "generated_at": None, "signals_evaluated": 0, "generating": True})
 
 

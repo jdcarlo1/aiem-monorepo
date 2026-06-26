@@ -35,6 +35,7 @@
 - [Nano Quant Z-Score System](nano-quant-system.md) — replaces V2 as primary alert; 5-factor cross-sectional z-score; 48% WR +3.0%/capital vs V2's 35% WR -0.5%; fires 8:30 AM ET; STRONG = top 15% or z≥0.75
 - [Morning Smart-Money idea emails](smp-morning-ideas.md) — 9:05 ET smp_morning: ONE engine run split into 3 cap-bucket owner emails; morning gate >=4 (EOD stays >=6); shared _smp_build_cards seam; lock only in _owner_send_now
 - [AI Short Calls enrichment](ai-shortcalls-enrichment.md) — AI now sees conviction_stack score + oi_buildup days; ranks multi-signal setups first; SMP still post-pick only
+- [AI Early Movers isolated system](ai-early-movers.md) — completely separate experimental tab; own endpoint, DB table, miss-detection, feedback loop; NEVER mix with other tabs
 - [Nano V2 filter gates](nano-v2-filters.md) — 3 live gates: RVOL 3-60x window + IWM≤-1% suppression; lifted win rate 41%→58%, EV $2.25→$6.97; Jun 11 open problem (don't add more rules yet)
 - [NCLEX affiliate system](nclex-affiliate-system.md) — Stripe Connect Express; transfer logic split: lifetime in checkout.session.completed, monthly in invoice.payment_succeeded (never both)
 - [Routes after app.run() silently 404](routes-after-apprun.md) — Flask routes defined after `if __name__ == "__main__": app.run()` never register; app.run() blocks so nothing below it executes

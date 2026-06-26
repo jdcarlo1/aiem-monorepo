@@ -678,18 +678,40 @@ export function checkAITradesSubscription(email: string) {
   });
 }
 
+export interface AIEarlyMover {
+  ticker: string;
+  rec_type: "BUY_CALL" | "BUY_STOCK";
+  strike: number | null;
+  expiry: string | null;
+  days_out: number | null;
+  stock_price: number;
+  day_ret: number;
+  confirmed_2d: boolean;
+  vol_oi: number | null;
+  prem: number | null;
+  conviction: "HIGH" | "MEDIUM";
+  thesis: string;
+  why_it_stands_out: string;
+}
+export function fetchAIEarlyMovers(force = false) {
+  return fetchJson<{ picks: AIEarlyMover[]; generated_at: string | null; signals_evaluated: number; generating?: boolean; stale?: boolean }>(`/ai-early-movers${force ? "?force=1" : ""}`);
+}
+
 export interface AIShortCall {
   ticker: string;
-  strike: number;
-  expiry: string;
-  days_out: number;
-  vol_oi: number;
-  prem: number;
+  rec_type?: "BUY_CALL" | "BUY_STOCK";
+  strike: number | null;
+  expiry: string | null;
+  days_out: number | null;
+  vol_oi: number | null;
+  prem: number | null;
   stock_price: number;
-  otm_pct: number;
-  breakeven: number;
+  otm_pct: number | null;
+  breakeven: number | null;
+  day_ret?: number;
+  confirmed_2d?: boolean;
   conviction: "HIGH" | "MEDIUM";
-  urgency: string;
+  urgency?: string;
   thesis: string;
   why_it_stands_out: string;
   smp_score?: number;
