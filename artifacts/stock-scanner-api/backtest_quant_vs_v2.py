@@ -544,7 +544,8 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
         nr = nret(c["ticker"], c["cl"][-1])
         if nr is None and next_date is not None:
             continue
-        v2_strong.append({**r, "ticker": c["ticker"], "next_ret": nr})
+        v2_strong.append({**r, "ticker": c["ticker"], "next_ret": nr,
+                          "bt_date": bt_str})
 
     # Score Quant (cross-sectional on the RVOL-gated pool)
     qt_scored  = score_quant_batch(cands_rv)
@@ -555,7 +556,7 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
         nr = nret(r["ticker"], r["cl"][-1])
         if nr is None and next_date is not None:
             continue
-        qt_strong.append({**r, "next_ret": nr})
+        qt_strong.append({**r, "next_ret": nr, "bt_date": bt_str})
 
     # Day summary
     def _day_pl(trs):
@@ -579,7 +580,8 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
     for c in cands_rv:
         nr = nret(c["ticker"], c["cl"][-1])
         if nr is not None:
-            full_universe.append({"ticker": c["ticker"], "next_ret": nr, "week": ""})
+            full_universe.append({"ticker": c["ticker"], "next_ret": nr,
+                                  "bt_date": bt_str, "week": ""})
 
     return (
         [t for t in v2_strong if t["next_ret"] is not None],
@@ -632,8 +634,8 @@ def print_report(stored: dict):
         entry = stored[lbl]
         v2t, qtt = entry[0], entry[1]
         full_u   = entry[2] if len(entry) == 3 else []
-        qt_set   = {t["ticker"] for t in qtt}
-        combined = [t for t in v2t if t["ticker"] in qt_set]
+        qt_set   = {(t["ticker"], t.get("bt_date","")) for t in qtt}
+        combined = [t for t in v2t if (t["ticker"], t.get("bt_date","")) in qt_set]
         tot_v.extend(v2t); tot_q.extend(qtt); tot_c.extend(combined); tot_full.extend(full_u)
         vs = stats(v2t); qs = stats(qtt); cs = stats(combined)
         print(f"  {lbl:<12} │ {vs['n']:>3} {vs['wr']:>4.0f}% ${vs['pl']:>+7.0f} "
@@ -649,8 +651,8 @@ def print_report(stored: dict):
           f"{cs['n']:>3} {cs['wr']:>4.0f}% ${cs['pl']:>+7.0f} {cs['ret']:>+5.1f}%")
 
     # Quant-as-filter breakdown
-    qt_set   = {t["ticker"] for t in tot_c}
-    rejected = [t for t in tot_v if t["ticker"] not in qt_set]
+    qt_set   = {(t["ticker"], t.get("bt_date","")) for t in tot_c}
+    rejected = [t for t in tot_v if (t["ticker"], t.get("bt_date","")) not in qt_set]
     rs = stats(rejected)
     print(
         f"\n  QUANT AS FILTER ON V2 SIGNALS\n"
@@ -707,34 +709,37 @@ def print_report(stored: dict):
     # ── >15% next-day mover analysis ─────────────────────────────────────────
     # Sources from the full RVOL-gated universe (not just picked signals) so
     # we can correctly report big movers that BOTH systems missed.
-    all_v2_tickers = {t["ticker"] for t in tot_v}
-    all_qt_tickers = {t["ticker"] for t in tot_q}
-    all_cm_tickers = {t["ticker"] for t in tot_c}
+    # Use (ticker, bt_date) as unique trade key so same ticker on different
+    # days is counted separately in the caught/missed analysis.
+    v2_keys = {(t["ticker"], t.get("bt_date","")) for t in tot_v}
+    qt_keys = {(t["ticker"], t.get("bt_date","")) for t in tot_q}
+    cm_keys = {(t["ticker"], t.get("bt_date","")) for t in tot_c}
 
+    # Big-mover table: one row per (ticker, bt_date) event ≥15%
     big_movers = {}
     for u in tot_full:
         nr = u.get("next_ret")
         if nr is not None and abs(nr) >= 15:
-            tk = u["ticker"]
-            if tk not in big_movers or abs(nr) > abs(big_movers[tk]["ret"]):
-                big_movers[tk] = {"ret": nr, "week": u.get("week", "")}
+            key = (u["ticker"], u.get("bt_date",""))
+            if key not in big_movers or abs(nr) > abs(big_movers[key]["ret"]):
+                big_movers[key] = {"ret": nr, "week": u.get("week", ""),
+                                   "ticker": u["ticker"]}
 
     if big_movers:
         print(f"\n  >15% NEXT-DAY MOVERS from full RVOL-gated universe — caught vs missed")
-        print(f"  {'Ticker':<7} {'Week':<12} {'Ret%':>6}  V2?   QT?   Both?  Miss?")
-        for tk, info in sorted(big_movers.items(), key=lambda x: abs(x[1]["ret"]), reverse=True):
-            v2c = "✓" if tk in all_v2_tickers else "–"
-            qtc = "✓" if tk in all_qt_tickers else "–"
-            cmc = "✓" if tk in all_cm_tickers else "–"
+        print(f"  {'Ticker':<7} {'Date':<12} {'Week':<12} {'Ret%':>6}  V2?   QT?   Both?  Miss?")
+        for key, info in sorted(big_movers.items(), key=lambda x: abs(x[1]["ret"]), reverse=True):
+            v2c = "✓" if key in v2_keys else "–"
+            qtc = "✓" if key in qt_keys else "–"
+            cmc = "✓" if key in cm_keys else "–"
             missed = "MISS" if (v2c == "–" and qtc == "–") else ""
-            print(f"  {tk:<7} {info['week']:<12} {info['ret']:>+5.1f}%  "
-                  f"{v2c:^5} {qtc:^5} {cmc:^5}  {missed}")
-        total_big = len(big_movers)
-        v2_caught = sum(1 for tk in big_movers if tk in all_v2_tickers)
-        qt_caught = sum(1 for tk in big_movers if tk in all_qt_tickers)
-        cm_caught = sum(1 for tk in big_movers if tk in all_cm_tickers)
-        both_missed = sum(1 for tk in big_movers
-                         if tk not in all_v2_tickers and tk not in all_qt_tickers)
+            print(f"  {info['ticker']:<7} {key[1]:<12} {info['week']:<12}"
+                  f" {info['ret']:>+5.1f}%  {v2c:^5} {qtc:^5} {cmc:^5}  {missed}")
+        total_big   = len(big_movers)
+        v2_caught   = sum(1 for k in big_movers if k in v2_keys)
+        qt_caught   = sum(1 for k in big_movers if k in qt_keys)
+        cm_caught   = sum(1 for k in big_movers if k in cm_keys)
+        both_missed = sum(1 for k in big_movers if k not in v2_keys and k not in qt_keys)
         print(f"\n  V2 caught {v2_caught}/{total_big} ({v2_caught/total_big*100:.0f}%)")
         print(f"  QT caught {qt_caught}/{total_big} ({qt_caught/total_big*100:.0f}%)")
         print(f"  Combined  {cm_caught}/{total_big} ({cm_caught/total_big*100:.0f}%)")
