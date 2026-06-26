@@ -84,3 +84,15 @@ id = "QJteoIMFv_8D5VQe6-8-n"
 uri = "file://AIEM_CODE_REVIEW.txt"
 type = "text"
 title = "AIEM Autonomous Trading System — Full Code Review"
+
+[[outputs]]
+id = "uVgWNERqUBJ3bqedURVnU"
+uri = "file://stockscanner_ai_main.txt"
+type = "text"
+title = "StockScanner AI — main.py (35,024 lines)"
+
+[[outputs]]
+id = "GS4S7cdQKC6Vrx02ce68k"
+uri = "file://stockscanner_ai_options_sweep.txt"
+type = "text"
+title = "StockScanner AI — options_sweep.py (516 lines)"
