@@ -1,0 +1,669 @@
+"""
+AIEM UPGRADES — drop-in fixes + new capabilities for the StockScanner AI
+autonomous research system (main.py).
+
+HOW TO USE THIS FILE:
+Give this whole file to your Replit agent with the instruction:
+"Merge these fixes and new functions into main.py, replacing the broken
+versions of the same-named functions. Wire the new mkt_* tools into
+_AIEM_AGENT_TOOLS and _tool_map the same way the existing mkt_* tools are
+wired."
+
+Sections:
+  1. FIX — backfill never starts (was a no-op)
+  2. FIX — tool dispatch has no error handling (one bad call kills the loop)
+  3. FIX — mkt_invent_indicator SQL (window function inside FILTER)
+  4. FIX — scan lock never released on exception (permanent soft-deadlock)
+  5. NEW — real statistical test ledger + dynamic Bonferroni threshold
+  6. NEW — real sector + market cap data (via Polygon Tickers API)
+  7. NEW — real VIX ingestion (via Polygon Indices API)
+  8. NEW — automated decay-based auto-retirement (the actual "gets smarter"
+           mechanism — code-enforced, not just an instruction to the LLM)
+  9. NEW — signal redundancy / correlation audit (enforces "LAW 21" for real)
+
+None of this is magic. It's the difference between a system that *says* it
+follows rigorous statistical practice in its prompt, and one that actually
+enforces that practice in code where the LLM can't skip it.
+"""
+
+import os
+import time
+import threading
+import psycopg2
+import psycopg2.extras
+import numpy as np
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 1. FIX — Historical backfill never actually starts
+# ════════════════════════════════════════════════════════════════════════
+# PROBLEM: the original function defines a nested _run() but never calls it
+# and never starts a thread for it. Calling _polygon_backfill_historical()
+# does nothing. Replace the original function with this version.
+
+def _polygon_backfill_historical():
+    """Fetch all trading days since start_date that are missing from
+    polygon_market_daily, in a background thread. Saves ALL stocks."""
+    from datetime import date as _bdate, timedelta as _btd
+    import urllib.request as _bur
+    import json as _bj
+
+    def _run():
+        time.sleep(30)  # let server fully start first
+        print("[backfill] starting polygon_market_daily historical backfill")
+        _key = os.environ.get("POLYGON_API_KEY", "")
+        if not _key:
+            print("[backfill] no POLYGON_API_KEY — skipping")
+            return
+
+        start = _bdate(2026, 4, 1)
+        today = _bdate.today()
+
+        try:
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT scan_date FROM polygon_market_daily")
+                have_dates = {str(r[0]) for r in cur.fetchall()}
+        except Exception as e:
+            print(f"[backfill] DB check error: {e}")
+            return
+
+        candidates = []
+        d = start
+        while d < today:
+            if d.weekday() < 5:
+                ds = d.strftime("%Y-%m-%d")
+                if ds not in have_dates:
+                    candidates.append(ds)
+            d += _btd(days=1)
+
+        if not candidates:
+            print("[backfill] polygon_market_daily already up to date")
+            return
+
+        print(f"[backfill] fetching {len(candidates)} missing dates...")
+        saved_total = 0
+
+        for date_str in candidates:
+            try:
+                url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
+                       f"?adjusted=true&apiKey={_key}")
+                with _bur.urlopen(url, timeout=25) as r:
+                    data = _bj.load(r)
+                status = data.get("status", "")
+                if status not in ("OK", "DELAYED"):
+                    time.sleep(13)
+                    continue
+                results = data.get("results", [])
+                if not results:
+                    time.sleep(13)
+                    continue
+
+                today_data = {x["T"]: x for x in results}
+                rows = []
+                for ticker, r in today_data.items():
+                    close = r.get("c") or 0
+                    open_ = r.get("o") or 0
+                    high = r.get("h") or 0
+                    low = r.get("l") or 0
+                    vwap = r.get("vw") or 0
+                    vol = r.get("v") or 0
+                    if close < 0.50 or vol < 30000 or close == 0:
+                        continue
+                    cs = ((close - low) / (high - low)) if high > low else None
+                    rng = ((high - low) / low * 100) if low > 0 else None
+                    rows.append((date_str, ticker, close, open_ or None, high or None,
+                                 low or None, vwap or None, int(vol),
+                                 None, None, None, cs, rng))
+
+                if not rows:
+                    time.sleep(13)
+                    continue
+
+                with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                    cur.executemany("""
+                        INSERT INTO polygon_market_daily
+                            (scan_date, ticker, close_price, open_price, high_price, low_price,
+                             vwap, volume, prev_close, gap_pct, rvol, close_strength, range_pct)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (scan_date, ticker) DO NOTHING
+                    """, rows)
+                    conn.commit()
+
+                saved_total += len(rows)
+                print(f"[backfill] {date_str}: saved {len(rows)} stocks (total: {saved_total})")
+                time.sleep(13)
+
+            except Exception as e:
+                print(f"[backfill] {date_str} error: {e}")
+                time.sleep(20)
+
+        try:
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE polygon_market_daily t
+                    SET prev_close = prev.close_price,
+                        gap_pct = (t.close_price - prev.close_price) / NULLIF(prev.close_price,0) * 100
+                    FROM polygon_market_daily prev
+                    WHERE prev.ticker = t.ticker
+                      AND prev.scan_date = (
+                            SELECT MAX(x.scan_date) FROM polygon_market_daily x
+                            WHERE x.ticker = t.ticker AND x.scan_date < t.scan_date
+                          )
+                      AND t.prev_close IS NULL
+                """)
+                conn.commit()
+                print("[backfill] gap_pct backfill complete")
+        except Exception as e:
+            print(f"[backfill] gap_pct update error: {e}")
+
+        print(f"[backfill] DONE. Total rows saved: {saved_total}")
+
+    # THE FIX: actually start the thread, from inside the function where
+    # _run is in scope. The old code tried to do this from module-level
+    # startup code, where _run didn't exist.
+    threading.Thread(target=_run, daemon=True, name="polygon-backfill").start()
+
+
+# Module-level startup code should now just be:
+#   try:
+#       _mkt_init_tables()
+#   except Exception as _mkt_e:
+#       print(f"[mkt_init] {_mkt_e}")
+#   _polygon_backfill_historical()   # <-- starts its own thread now, no
+#                                          extra Thread(...).start() needed here
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 2. FIX — Tool dispatch has no error handling
+# ════════════════════════════════════════════════════════════════════════
+# PROBLEM: result = fn(**fn_args) is unguarded. A malformed/extra argument
+# from the LLM (e.g. LAW 61 telling it to use conditions_2/conditions_3,
+# which don't exist) throws an uncaught TypeError and kills the whole
+# research session. Replace the dispatch line in both Loop A's main loop
+# and the self-critique pass with this:
+
+def safe_tool_call(fn, fn_args, fn_name):
+    """Call an agent tool function safely. Never lets a bad argument or
+    internal error kill the research loop — returns a structured error
+    the LLM can see and self-correct from instead."""
+    if fn is None:
+        return {"status": "error", "error": f"Unknown tool: {fn_name}"}
+    try:
+        return fn(**fn_args)
+    except TypeError as e:
+        return {
+            "status": "error",
+            "error": f"Bad arguments for {fn_name}: {e}",
+            "hint": "Check the tool's actual parameter names — do not invent new ones.",
+        }
+    except Exception as e:
+        return {"status": "error", "error": f"{fn_name} failed: {e}"}
+
+# Usage (replace the old dispatch line wherever it appears):
+#   fn = _tool_map.get(fn_name)
+#   result = safe_tool_call(fn, fn_args, fn_name)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 3. FIX — mkt_invent_indicator SQL (window fn inside FILTER is illegal)
+# ════════════════════════════════════════════════════════════════════════
+# PROBLEM: PERCENTILE_CONT(...) OVER() cannot be referenced inside an
+# aggregate's FILTER(WHERE...) clause in Postgres — window functions are
+# computed after aggregation. Fix: precompute the thresholds in a CTE.
+
+def build_invent_indicator_test_sql(expr: str) -> str:
+    """Returns corrected SQL for testing an invented indicator expression
+    against forward returns. `expr` must already be validated against the
+    existing forbidden-keyword blocklist before this is called."""
+    return f"""
+        WITH ind AS (
+            SELECT
+                ({expr}) AS indicator_value,
+                ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 AS fwd_ret
+            FROM polygon_market_daily t
+            JOIN polygon_market_daily nxt
+              ON nxt.ticker = t.ticker
+             AND nxt.scan_date = (
+                   SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                   WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                 )
+            WHERE t.close_price > 0 AND ({expr}) IS NOT NULL
+            LIMIT 100000
+        ),
+        thresholds AS (
+            SELECT
+                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY indicator_value) AS p75,
+                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY indicator_value) AS p25
+            FROM ind
+        )
+        SELECT
+            COUNT(*) AS n,
+            ROUND(MAX(t.p75)::numeric, 4) AS p75,
+            ROUND(AVG(ind.fwd_ret) FILTER (WHERE ind.indicator_value >= t.p75)::numeric, 4) AS top_quartile_fwd,
+            ROUND(AVG(ind.fwd_ret) FILTER (WHERE ind.indicator_value < t.p25)::numeric, 4) AS bottom_quartile_fwd,
+            ROUND((COUNT(*) FILTER (WHERE ind.indicator_value >= t.p75 AND ind.fwd_ret > 0))::numeric
+                  / NULLIF(COUNT(*) FILTER (WHERE ind.indicator_value >= t.p75), 0) * 100, 2) AS top_win_rate
+        FROM ind
+        CROSS JOIN thresholds t
+    """
+
+# Usage: replace the old `test_sql = f"""..."""` block in
+# _mkt_tool_invent_indicator with:
+#   test_sql = build_invent_indicator_test_sql(expr)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 4. FIX — scan lock never released on exception
+# ════════════════════════════════════════════════════════════════════════
+# PROBLEM: _polygon_full_market_scan() acquires _POLYGON_RVOL_LOCK with
+# blocking=False but only releases it on two early-return paths and at the
+# very end — no try/finally. One uncaught exception in the movers loop
+# permanently soft-deadlocks every future scan (acquire() keeps failing,
+# stale cache silently returned forever).
+#
+# FIX: wrap the body in try/finally. Apply this pattern to the existing
+# function — keep all your existing logic, just restructure the outer
+# shape like this:
+#
+#   def _polygon_full_market_scan() -> list:
+#       if not _POLYGON_RVOL_LOCK.acquire(blocking=False):
+#           ...return cached...
+#       try:
+#           ... all existing scan logic here, unchanged ...
+#           return top
+#       finally:
+#           _POLYGON_RVOL_LOCK.release()
+#
+# That single `finally` guarantees the lock always comes back, even if
+# Polygon returns malformed data or a DB write fails midway through.
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 5. NEW — Real statistical test ledger + dynamic Bonferroni threshold
+# ════════════════════════════════════════════════════════════════════════
+# Right now "LAW 3" and "LAW 50" tell the LLM to manually track how many
+# tests it's run and adjust its own significance threshold. That's the LLM
+# grading its own homework. This makes it real: every test call is logged
+# to a table, and the system computes the ACTUAL required p-value based on
+# true test count — the LLM can't skip or miscount this.
+
+def _ensure_test_ledger_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS aiem_test_ledger (
+                id            SERIAL PRIMARY KEY,
+                session_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+                tool_name     TEXT NOT NULL,
+                conditions    JSONB,
+                p_value       FLOAT,
+                n             INTEGER,
+                logged_at     TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ledger_date ON aiem_test_ledger (session_date)")
+
+
+def log_statistical_test(tool_name: str, conditions: dict, p_value: float, n: int):
+    """Call this at the end of every mkt_test_signal / mkt_find_thresholds /
+    etc. call that produces a p-value, BEFORE returning the result to the
+    LLM. This is the actual enforcement mechanism for Bonferroni correction
+    — it doesn't rely on the LLM remembering to track anything."""
+    try:
+        _ensure_test_ledger_table()
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO aiem_test_ledger (tool_name, conditions, p_value, n) VALUES (%s,%s,%s,%s)",
+                (tool_name, psycopg2.extras.Json(conditions or {}), p_value, n),
+            )
+    except Exception as e:
+        print(f"[test_ledger] log error: {e}")
+
+
+def get_required_significance_threshold(lookback_days: int = 7) -> dict:
+    """Compute the REAL Bonferroni-corrected p-value threshold based on
+    actual tests run in the lookback window — not the LLM's self-reported
+    count. Wire this as a new tool: mkt_required_pvalue.
+    Call this BEFORE deciding whether any finding is significant."""
+    try:
+        _ensure_test_ledger_table()
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM aiem_test_ledger
+                WHERE session_date >= CURRENT_DATE - %s
+            """, (lookback_days,))
+            n_tests = cur.fetchone()[0] or 0
+        threshold = 0.05 / max(n_tests, 1)
+        return {
+            "status": "ok",
+            "tests_in_window": n_tests,
+            "lookback_days": lookback_days,
+            "required_p_value": round(threshold, 6),
+            "note": ("This is the REAL count from the test ledger, not the agent's "
+                     "self-reported count. Use this threshold, not 0.05, when deciding "
+                     "if a finding is significant."),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 6. NEW — Real sector + market cap data (via Polygon Tickers API)
+# ════════════════════════════════════════════════════════════════════════
+# This is what's missing for LAW 9, 42, 45, 46 to mean anything. Polygon's
+# /v3/reference/tickers endpoint returns sic_description (sector proxy)
+# and market_cap per ticker. Pull it periodically (it changes slowly) and
+# join it into mkt_* queries.
+
+def _ensure_ticker_meta_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ticker_meta (
+                ticker          VARCHAR(10) PRIMARY KEY,
+                sector          TEXT,
+                market_cap      BIGINT,
+                cap_tier        VARCHAR(10),
+                shares_float    BIGINT,
+                updated_at      TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+
+def refresh_ticker_meta(tickers: list, batch_sleep: float = 0.25):
+    """Pull sector + market cap for a list of tickers from Polygon's
+    reference API and upsert into ticker_meta. Run this weekly (sector/cap
+    don't change daily) over the full universe, rate-limited.
+    Wire as a scheduled job, not an agent tool — it's infrastructure, not
+    research."""
+    import urllib.request as ur
+    import json as j
+
+    _ensure_ticker_meta_table()
+    key = os.environ.get("POLYGON_API_KEY", "")
+    if not key:
+        print("[ticker_meta] no POLYGON_API_KEY")
+        return
+
+    def cap_tier(mc):
+        if mc is None:
+            return None
+        if mc < 300_000_000:
+            return "nano"
+        if mc < 2_000_000_000:
+            return "small"
+        if mc < 10_000_000_000:
+            return "mid"
+        return "large"
+
+    rows = []
+    for t in tickers:
+        try:
+            url = f"https://api.polygon.io/v3/reference/tickers/{t}?apiKey={key}"
+            with ur.urlopen(url, timeout=10) as r:
+                data = j.load(r).get("results", {})
+            mc = data.get("market_cap")
+            sector = data.get("sic_description")
+            shares = data.get("share_class_shares_outstanding")
+            rows.append((t, sector, mc, cap_tier(mc), shares))
+        except Exception as e:
+            print(f"[ticker_meta] {t} error: {e}")
+        time.sleep(batch_sleep)  # Polygon rate limits — adjust to your plan
+
+    if rows:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.executemany("""
+                INSERT INTO ticker_meta (ticker, sector, market_cap, cap_tier, shares_float)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (ticker) DO UPDATE SET
+                    sector=EXCLUDED.sector, market_cap=EXCLUDED.market_cap,
+                    cap_tier=EXCLUDED.cap_tier, shares_float=EXCLUDED.shares_float,
+                    updated_at=NOW()
+            """, rows)
+        print(f"[ticker_meta] updated {len(rows)} tickers")
+
+
+def mkt_tool_test_signal_by_segment(conditions: dict, segment: str, sig_where: str,
+                                     sig_params: list, run_two_group_fn) -> dict:
+    """Real implementation of cap-tier / sector segmentation (LAW 9 / 42).
+    segment: 'cap_tier' or 'sector'.
+    sig_where/sig_params: from _mkt_parse_conditions(conditions), passed in
+    so this reuses your existing query builder.
+    run_two_group_fn: pass in _mkt_run_two_group.
+    """
+    if segment not in ("cap_tier", "sector"):
+        return {"status": "error", "error": "segment must be 'cap_tier' or 'sector'"}
+
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT DISTINCT {segment} FROM ticker_meta WHERE {segment} IS NOT NULL")
+        values = [r[0] for r in cur.fetchall()]
+
+    if not values:
+        return {"status": "error",
+                "error": f"No {segment} data in ticker_meta — run refresh_ticker_meta first."}
+
+    results = {}
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+        for v in values:
+            where = (f"{sig_where} AND t.ticker IN "
+                      f"(SELECT ticker FROM ticker_meta WHERE {segment} = %s)")
+            params = sig_params + [v]
+            res = run_two_group_fn(conn, where, params, "", [], limit=30000)
+            if res and res["signal_n"] >= 20:
+                results[str(v)] = res
+
+    if not results:
+        return {"status": "error", "error": "Insufficient data in any segment."}
+
+    best = max(results.items(), key=lambda x: x[1]["edge_winrate"])
+    return {
+        "status": "ok",
+        "segment_type": segment,
+        "conditions": conditions,
+        "by_segment": results,
+        "best_segment": best[0],
+        "best_edge_winrate": best[1]["edge_winrate"],
+    }
+
+# Wire as new agent tools: mkt_segment_by_cap_tier, mkt_segment_by_sector
+# (thin wrappers around mkt_tool_test_signal_by_segment with segment fixed).
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 7. NEW — Real VIX ingestion (via Polygon Indices API)
+# ════════════════════════════════════════════════════════════════════════
+# VIX is an index, not a stock — it will never show up in the grouped
+# daily stocks endpoint you're already using for SPY-as-regime-proxy.
+# It needs Polygon's Indices endpoint (ticker I:VIX) or another data
+# source entirely if your Polygon plan doesn't include indices.
+
+def _ensure_vix_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS vix_daily (
+                scan_date  DATE PRIMARY KEY,
+                vix_close  FLOAT
+            )
+        """)
+
+
+def fetch_and_store_vix(date_str: str):
+    """Pull VIX close for a given date from Polygon Indices API.
+    Requires a Polygon plan with Indices access — check your plan tier.
+    If unavailable, an alternative free source is CBOE's own VIX history
+    CSV or Yahoo Finance's ^VIX endpoint as a fallback."""
+    import urllib.request as ur
+    import json as j
+
+    _ensure_vix_table()
+    key = os.environ.get("POLYGON_API_KEY", "")
+    if not key:
+        return None
+    try:
+        url = f"https://api.polygon.io/v1/open-close/I:VIX/{date_str}?apiKey={key}"
+        with ur.urlopen(url, timeout=10) as r:
+            data = j.load(r)
+        close = data.get("close")
+        if close is None:
+            return None
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO vix_daily (scan_date, vix_close) VALUES (%s,%s)
+                ON CONFLICT (scan_date) DO UPDATE SET vix_close=EXCLUDED.vix_close
+            """, (date_str, close))
+        return close
+    except Exception as e:
+        print(f"[vix] {date_str} error: {e}")
+        return None
+
+
+def classify_vix_regime(vix_value: float) -> str:
+    if vix_value is None:
+        return "unknown"
+    if vix_value < 15:
+        return "low"
+    if vix_value > 25:
+        return "high"
+    return "medium"
+
+# Once vix_daily is populated, mkt_regime_filter can join on scan_date to
+# get a real VIX-bucketed regime instead of just SPY-gap bull/bear/flat —
+# this is what makes LAW 12 and LAW 35 (currently unenforceable) real.
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 8. NEW — Automated decay-based auto-retirement (the real "smarter" loop)
+# ════════════════════════════════════════════════════════════════════════
+# This is the mechanism that actually makes the system improve over time
+# rather than just accumulate stale/decaying signals. Run this as a
+# scheduled weekly job — NOT as something the agent has to remember to do.
+
+def auto_retire_decaying_discoveries(decay_threshold_pp: float = 3.0,
+                                       recent_days: int = 30,
+                                       historical_days: int = 90,
+                                       run_two_group_fn=None,
+                                       parse_conditions_fn=None):
+    """Weekly cron job: re-test every 'validated' discovery's recent edge
+    vs its historical edge. Auto-demote to 'retired' if it's decayed past
+    threshold. This makes signal decay management real instead of relying
+    on the LLM to call mkt_signal_drift and remember to act on it.
+
+    Pass in your existing _mkt_run_two_group and _mkt_parse_conditions
+    functions so this reuses your tested query logic."""
+    import json as j
+
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, conditions_json FROM aiem_signal_discoveries WHERE status='validated'")
+        discoveries = cur.fetchall()
+
+        cur.execute("SELECT DISTINCT scan_date FROM polygon_market_daily ORDER BY scan_date DESC LIMIT %s",
+                    (historical_days + 30,))
+        all_dates = [str(r[0]) for r in cur.fetchall()]
+
+    if len(all_dates) < recent_days + 5:
+        print("[auto_retire] not enough date history yet")
+        return {"checked": 0, "retired": 0}
+
+    recent_dates = all_dates[:recent_days]
+    hist_dates = all_dates[recent_days:historical_days]
+
+    retired = 0
+    for disc_id, cond_json in discoveries:
+        conditions = j.loads(cond_json) if isinstance(cond_json, str) else cond_json
+        sig_where, sig_params = parse_conditions_fn(conditions)
+        if not sig_where:
+            continue
+
+        def run_period(dates):
+            ph = ",".join(["%s"] * len(dates))
+            w = f"{sig_where} AND t.scan_date::text IN ({ph})"
+            p = sig_params + dates
+            bw = f"t.scan_date::text IN ({ph})"
+            bp = dates
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+                return run_two_group_fn(conn, w, p, bw, bp, limit=30000)
+
+        recent_res = run_period(recent_dates)
+        hist_res = run_period(hist_dates)
+        if not recent_res or not hist_res:
+            continue
+
+        drift = hist_res["edge_winrate"] - recent_res["edge_winrate"]
+        if drift > decay_threshold_pp:
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE aiem_signal_discoveries SET status='retired', "
+                    "notes = COALESCE(notes,'') || %s WHERE id=%s",
+                    (f" [AUTO-RETIRED: edge decayed {drift:.1f}pp]", disc_id),
+                )
+            retired += 1
+            print(f"[auto_retire] discovery #{disc_id} retired — decayed {drift:.1f}pp")
+
+    return {"checked": len(discoveries), "retired": retired}
+
+# Wire this with APScheduler the same way the other Loop A/B jobs are
+# wired — e.g. weekly, Sunday 6 PM ET, BEFORE the main research session
+# runs, so the agent always starts from a clean, current discovery library.
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 9. NEW — Signal redundancy / correlation audit (real LAW 21 enforcement)
+# ════════════════════════════════════════════════════════════════════════
+# LAW 21 says never save two signals with >0.70 firing-pattern correlation.
+# Right now that's just a written instruction. This makes it checkable.
+
+def check_signal_redundancy(new_conditions: dict, parse_conditions_fn,
+                              correlation_threshold: float = 0.70) -> dict:
+    """Before saving a new discovery, call this to check whether it fires
+    on substantially the same stock-days as any existing validated
+    discovery. If correlation > threshold, the new signal isn't adding
+    anything — flag it instead of saving it as a 'new' discovery."""
+    import json as j
+
+    new_where, new_params = parse_conditions_fn(new_conditions)
+    if not new_where:
+        return {"status": "error", "error": "Could not parse new conditions"}
+
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, hypothesis_text, conditions_json FROM aiem_signal_discoveries WHERE status='validated'")
+        existing = cur.fetchall()
+
+        cur.execute(f"""
+            SELECT t.scan_date::text || ':' || t.ticker
+            FROM polygon_market_daily t
+            WHERE {new_where}
+        """, new_params)
+        new_fires = set(r[0] for r in cur.fetchall())
+
+    if not new_fires:
+        return {"status": "ok", "redundant_with": [], "message": "New signal fires on 0 rows."}
+
+    overlaps = []
+    for disc_id, hyp, cond_json in existing:
+        conditions = j.loads(cond_json) if isinstance(cond_json, str) else cond_json
+        ex_where, ex_params = parse_conditions_fn(conditions)
+        if not ex_where:
+            continue
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.scan_date::text || ':' || t.ticker
+                FROM polygon_market_daily t
+                WHERE {ex_where}
+            """, ex_params)
+            ex_fires = set(r[0] for r in cur.fetchall())
+        if not ex_fires:
+            continue
+        overlap_pct = len(new_fires & ex_fires) / len(new_fires | ex_fires)
+        if overlap_pct >= correlation_threshold:
+            overlaps.append({"discovery_id": disc_id, "hypothesis": hyp, "overlap_pct": round(overlap_pct, 2)})
+
+    return {
+        "status": "ok",
+        "new_signal_n": len(new_fires),
+        "redundant_with": overlaps,
+        "is_redundant": len(overlaps) > 0,
+        "verdict": ("REDUNDANT — fires on nearly the same days as an existing discovery. "
+                    "Do not save as a new discovery." if overlaps
+                    else "Distinct from existing discoveries — safe to save."),
+    }
+
+# Call this from inside mkt_save_discovery, BEFORE the INSERT — block the
+# save (or auto-relabel as a duplicate) if is_redundant is True.

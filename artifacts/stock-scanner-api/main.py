@@ -3182,6 +3182,30 @@ try:
             replace_existing=True,
         )
 
+    # ── AIEM Enhancement jobs (wired at startup) ──────────────────────────────
+    # VIX: fetch daily at 4:15 PM ET (after market close)
+    try:
+        from apscheduler.triggers.cron import CronTrigger as _CT_aiem
+        _scheduler.add_job(
+            lambda: _mkt_fetch_and_store_vix(),
+            _CT_aiem(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
+            id="aiem_vix_daily", replace_existing=True,
+        )
+        # Ticker meta refresh: every Sunday 10 PM ET (slow, runs overnight)
+        _scheduler.add_job(
+            lambda: _mkt_refresh_ticker_meta_bg(),
+            _CT_aiem(day_of_week="sun", hour=22, minute=0, timezone=_ET),
+            id="aiem_ticker_meta_weekly", replace_existing=True,
+        )
+        # Auto-retire decaying signals: every Sunday 6 PM ET (before Loop A research)
+        _scheduler.add_job(
+            lambda: _mkt_auto_retire_decaying_discoveries(),
+            _CT_aiem(day_of_week="sun", hour=18, minute=0, timezone=_ET),
+            id="aiem_auto_retire_weekly", replace_existing=True,
+        )
+        print("[scheduler] AIEM enhancement jobs scheduled (VIX daily, ticker_meta + auto_retire weekly)")
+    except Exception as _aiem_sched_e:
+        print(f"[scheduler] AIEM enhancement jobs error: {_aiem_sched_e}")
     _scheduler.start()
     print("[scheduler] APScheduler started — "
           "scans (hourly): 9:36/10:05/11:05 AM, 12:05/1:05/2:05/3:05/4:00 PM ET | "
@@ -15277,6 +15301,14 @@ def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad")
             f"Edge: {broad_res['edge_winrate']:+.1f}pp. "
             f"p={broad_res['p_value']} ({'SIGNIFICANT' if broad_res['significant'] else 'not significant'})."
         )
+        # Log to test ledger for real Bonferroni tracking (Enhancement #5)
+        try:
+            _mkt_log_statistical_test(
+                "mkt_test_signal", conditions,
+                broad_res.get("p_value"), broad_res.get("signal_n")
+            )
+        except Exception:
+            pass
         return result
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -15738,6 +15770,19 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
     import psycopg2, json as _j
     if not conditions:
         return {"status": "error", "error": "conditions required"}
+    # Redundancy gate: block save if signal fires on same stock-days as existing discovery
+    try:
+        _rdx = _mkt_check_signal_redundancy(conditions)
+        if _rdx.get("is_redundant"):
+            return {
+                "status": "error",
+                "error": "Signal is redundant (>70% Jaccard overlap) with an existing discovery",
+                "redundant_with": _rdx.get("redundant_with", []),
+                "verdict": _rdx.get("verdict", ""),
+                "note": "Call mkt_load_discoveries to review existing signals and build on them instead.",
+            }
+    except Exception as _rdx_e:
+        pass  # non-fatal: if redundancy check fails, allow the save
     try:
         with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -16652,6 +16697,429 @@ def _run_aiem_continuous_research():
         return {"error": str(e)}
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM UPGRADES — Fixes + New Capabilities (merged from reviewer recommendations)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── FIX 2: Safe tool dispatcher ───────────────────────────────────────────────
+def _mkt_safe_tool_call(fn, fn_args, fn_name):
+    """Safe wrapper around agent tool dispatch. Catches bad kwarg names, missing
+    params, and internal errors — returns structured error the LLM can self-correct
+    from instead of crashing the entire research session."""
+    if fn is None:
+        return {"status": "error", "error": f"Unknown tool: {fn_name}"}
+    try:
+        return fn(**fn_args)
+    except TypeError as _ste:
+        return {
+            "status": "error",
+            "error": f"Bad arguments for {fn_name}: {_ste}",
+            "hint": "Check the tool\'s actual parameter names — do not invent new ones.",
+        }
+    except Exception as _ste:
+        return {"status": "error", "error": f"{fn_name} failed: {_ste}"}
+
+
+# ── Enhancement #5: Real statistical test ledger + dynamic Bonferroni ─────────
+def _mkt_ensure_test_ledger_table():
+    import psycopg2 as _pg_tl
+    try:
+        with _pg_tl.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_test_ledger (
+                    id            SERIAL PRIMARY KEY,
+                    session_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+                    tool_name     TEXT NOT NULL,
+                    conditions    JSONB,
+                    p_value       FLOAT,
+                    n             INTEGER,
+                    logged_at     TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ledger_date ON aiem_test_ledger (session_date)")
+    except Exception as _e:
+        print(f"[test_ledger] table init error: {_e}")
+
+
+def _mkt_log_statistical_test(tool_name: str, conditions: dict, p_value: float, n: int):
+    """Log every statistical test call for real Bonferroni tracking."""
+    try:
+        _mkt_ensure_test_ledger_table()
+        import psycopg2 as _pg_tl, psycopg2.extras as _ext_tl
+        with _pg_tl.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO aiem_test_ledger (tool_name, conditions, p_value, n) VALUES (%s,%s,%s,%s)",
+                (tool_name, _ext_tl.Json(conditions or {}), p_value, n),
+            )
+    except Exception as _e:
+        print(f"[test_ledger] log error: {_e}")
+
+
+def _mkt_tool_required_pvalue(lookback_days=7):
+    """Return the REAL Bonferroni-corrected significance threshold based on how many
+    tests have been run in the lookback window — from the actual ledger, not self-reported."""
+    try:
+        _mkt_ensure_test_ledger_table()
+        import psycopg2 as _pg_tl
+        with _pg_tl.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM aiem_test_ledger WHERE session_date >= CURRENT_DATE - %s",
+                (lookback_days,)
+            )
+            n_tests = cur.fetchone()[0] or 0
+        threshold = 0.05 / max(n_tests, 1)
+        return {
+            "status": "ok",
+            "tests_in_window": n_tests,
+            "lookback_days": lookback_days,
+            "required_p_value": round(threshold, 6),
+            "note": ("REAL count from test ledger — not self-reported. Use this "
+                     "threshold, not 0.05, when deciding if a finding is significant."),
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+# ── Enhancement #6: Real sector + market cap data ─────────────────────────────
+def _mkt_ensure_ticker_meta_table():
+    import psycopg2 as _pg_tm
+    try:
+        with _pg_tm.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ticker_meta (
+                    ticker         VARCHAR(10) PRIMARY KEY,
+                    sector         TEXT,
+                    market_cap     BIGINT,
+                    cap_tier       VARCHAR(10),
+                    shares_float   BIGINT,
+                    updated_at     TIMESTAMP DEFAULT NOW()
+                )
+            """)
+    except Exception as _e:
+        print(f"[ticker_meta] table init error: {_e}")
+
+
+def _mkt_refresh_ticker_meta_bg(tickers=None):
+    """Pull sector + market cap from Polygon /v3/reference/tickers. Runs as
+    background thread (slow, ~0.25s per ticker). Call weekly."""
+    import threading as _thr_tm
+    def _run():
+        import urllib.request as _ur_tm, json as _j_tm, psycopg2 as _pg_tm, time as _t_tm
+        _mkt_ensure_ticker_meta_table()
+        key = os.environ.get("POLYGON_API_KEY", "")
+        if not key:
+            print("[ticker_meta] no POLYGON_API_KEY — skipping")
+            return
+
+        _tickers = tickers
+        if not _tickers:
+            try:
+                with _pg_tm.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT DISTINCT ticker FROM polygon_market_daily WHERE scan_date >= CURRENT_DATE - 7"
+                    )
+                    _tickers = [r[0] for r in cur.fetchall()]
+            except Exception as _e:
+                print(f"[ticker_meta] universe query error: {_e}")
+                return
+
+        def _cap_tier(mc):
+            if mc is None: return None
+            if mc < 300_000_000: return "nano"
+            if mc < 2_000_000_000: return "small"
+            if mc < 10_000_000_000: return "mid"
+            return "large"
+
+        rows = []
+        for t in (_tickers or [])[:3000]:
+            try:
+                url = f"https://api.polygon.io/v3/reference/tickers/{t}?apiKey={key}"
+                with _ur_tm.urlopen(url, timeout=10) as r:
+                    data = _j_tm.load(r).get("results", {})
+                mc = data.get("market_cap")
+                sector = data.get("sic_description")
+                shares = data.get("share_class_shares_outstanding")
+                rows.append((t, sector, mc, _cap_tier(mc), shares))
+            except Exception:
+                pass
+            _t_tm.sleep(0.25)
+
+        if rows:
+            try:
+                with _pg_tm.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                    cur.executemany("""
+                        INSERT INTO ticker_meta (ticker, sector, market_cap, cap_tier, shares_float)
+                        VALUES (%s,%s,%s,%s,%s)
+                        ON CONFLICT (ticker) DO UPDATE SET
+                            sector=EXCLUDED.sector, market_cap=EXCLUDED.market_cap,
+                            cap_tier=EXCLUDED.cap_tier, shares_float=EXCLUDED.shares_float,
+                            updated_at=NOW()
+                    """, rows)
+                print(f"[ticker_meta] updated {len(rows)} tickers")
+            except Exception as _e:
+                print(f"[ticker_meta] save error: {_e}")
+    _thr_tm.Thread(target=_run, daemon=True, name="ticker-meta-refresh").start()
+
+
+def _mkt_tool_segment_by_cap_tier(conditions=None, horizon="next_day"):
+    """Test a signal separately in each real market cap tier (nano/small/mid/large)
+    using Polygon reference data. Implements LAW 9 with actual cap data."""
+    if not conditions:
+        return {"status": "error", "error": "conditions required"}
+    try:
+        import psycopg2 as _pg_sct
+        sig_where, sig_params = _mkt_parse_conditions(conditions)
+        if not sig_where:
+            return {"status": "error", "error": "Could not parse conditions"}
+        results = {}
+        with _pg_sct.connect(os.environ["DATABASE_URL"]) as conn:
+            for tier in ("nano", "small", "mid", "large"):
+                where = (f"{sig_where} AND t.ticker IN "
+                         f"(SELECT ticker FROM ticker_meta WHERE cap_tier = %s)")
+                params = sig_params + [tier]
+                res = _mkt_run_two_group(conn, where, params, "", [], limit=30000)
+                if res and res.get("signal_n", 0) >= 20:
+                    results[tier] = res
+        if not results:
+            return {"status": "error",
+                    "error": "Insufficient data in any cap tier — run ticker_meta weekly refresh first"}
+        best = max(results.items(), key=lambda x: x[1].get("edge_winrate", 0))
+        return {
+            "status": "ok", "conditions": conditions,
+            "by_cap_tier": results,
+            "best_tier": best[0],
+            "best_edge_winrate": best[1].get("edge_winrate"),
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+def _mkt_tool_segment_by_sector(conditions=None, horizon="next_day"):
+    """Test a signal separately in each SIC sector using real Polygon sector data.
+    Implements LAW 42 / LAW 45 — sector relative strength with real data."""
+    if not conditions:
+        return {"status": "error", "error": "conditions required"}
+    try:
+        import psycopg2 as _pg_scs
+        sig_where, sig_params = _mkt_parse_conditions(conditions)
+        if not sig_where:
+            return {"status": "error", "error": "Could not parse conditions"}
+        with _pg_scs.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT sector FROM ticker_meta WHERE sector IS NOT NULL LIMIT 50")
+            sectors = [r[0] for r in cur.fetchall()]
+        if not sectors:
+            return {"status": "error",
+                    "error": "No sector data — run ticker_meta weekly refresh first"}
+        results = {}
+        with _pg_scs.connect(os.environ["DATABASE_URL"]) as conn:
+            for sector in sectors:
+                where = (f"{sig_where} AND t.ticker IN "
+                         f"(SELECT ticker FROM ticker_meta WHERE sector = %s)")
+                params = sig_params + [sector]
+                res = _mkt_run_two_group(conn, where, params, "", [], limit=30000)
+                if res and res.get("signal_n", 0) >= 20:
+                    results[sector] = res
+        if not results:
+            return {"status": "error", "error": "Insufficient data in any sector"}
+        best = max(results.items(), key=lambda x: x[1].get("edge_winrate", 0))
+        return {
+            "status": "ok", "conditions": conditions,
+            "by_sector": results,
+            "best_sector": best[0],
+            "best_edge_winrate": best[1].get("edge_winrate"),
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+# ── Enhancement #7: Real VIX ingestion ────────────────────────────────────────
+def _mkt_ensure_vix_table():
+    import psycopg2 as _pg_vix
+    try:
+        with _pg_vix.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS vix_daily (
+                    scan_date  DATE PRIMARY KEY,
+                    vix_close  FLOAT
+                )
+            """)
+    except Exception as _e:
+        print(f"[vix] table init error: {_e}")
+
+
+def _mkt_fetch_and_store_vix(date_str=None):
+    """Pull VIX close from Polygon Indices API (I:VIX). Requires Indices access on
+    your Polygon plan tier. Stored in vix_daily for use by mkt_regime_filter."""
+    import urllib.request as _ur_vix, json as _j_vix, psycopg2 as _pg_vix
+    from datetime import date as _d_vix
+    _mkt_ensure_vix_table()
+    key = os.environ.get("POLYGON_API_KEY", "")
+    if not key:
+        return None
+    if not date_str:
+        date_str = str(_d_vix.today())
+    try:
+        url = f"https://api.polygon.io/v1/open-close/I:VIX/{date_str}?apiKey={key}"
+        with _ur_vix.urlopen(url, timeout=10) as r:
+            data = _j_vix.load(r)
+        close = data.get("close")
+        if close is None:
+            return None
+        with _pg_vix.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO vix_daily (scan_date, vix_close) VALUES (%s,%s)
+                ON CONFLICT (scan_date) DO UPDATE SET vix_close=EXCLUDED.vix_close
+            """, (date_str, close))
+        app.logger.info(f"[vix] stored {date_str}: {close}")
+        return close
+    except Exception as _e:
+        app.logger.warning(f"[vix] {date_str} fetch error: {_e}")
+        return None
+
+
+def _mkt_classify_vix_regime(vix_value):
+    """Classify a VIX level into a named regime string."""
+    if vix_value is None: return "unknown"
+    if vix_value < 15: return "low"
+    if vix_value > 25: return "high"
+    return "medium"
+
+
+# ── Enhancement #8: Automated decay-based auto-retirement ─────────────────────
+def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30,
+                                           historical_days=90):
+    """Weekly scheduled job: re-test every validated discovery\'s recent edge vs
+    historical edge. Auto-demote to \'retired\' if decayed past threshold. This is the
+    mechanism that makes the system actually improve over time — not just accumulate
+    stale signals."""
+    import psycopg2 as _pg_ar, json as _j_ar
+    try:
+        with _pg_ar.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, conditions_json FROM aiem_signal_discoveries WHERE status=\'validated\'"
+            )
+            discoveries = cur.fetchall()
+            cur.execute(
+                "SELECT DISTINCT scan_date FROM polygon_market_daily ORDER BY scan_date DESC LIMIT %s",
+                (historical_days + 30,)
+            )
+            all_dates = [str(r[0]) for r in cur.fetchall()]
+
+        if len(all_dates) < recent_days + 5:
+            return {"status": "ok", "checked": 0, "retired": 0,
+                    "note": "Not enough date history yet"}
+
+        recent_dates = all_dates[:recent_days]
+        hist_dates = all_dates[recent_days:historical_days]
+        retired = 0
+
+        for disc_id, cond_json in discoveries:
+            try:
+                conditions = _j_ar.loads(cond_json) if isinstance(cond_json, str) else cond_json
+                sig_where, sig_params = _mkt_parse_conditions(conditions)
+                if not sig_where:
+                    continue
+
+                def _run_period(dates, _sw=sig_where, _sp=sig_params):
+                    ph = ",".join(["%s"] * len(dates))
+                    w = f"{_sw} AND t.scan_date::text IN ({ph})"
+                    p = _sp + dates
+                    bw = f"t.scan_date::text IN ({ph})"
+                    with _pg_ar.connect(os.environ["DATABASE_URL"]) as _c:
+                        return _mkt_run_two_group(_c, w, p, bw, dates, limit=30000)
+
+                recent_res = _run_period(recent_dates)
+                hist_res = _run_period(hist_dates)
+                if not recent_res or not hist_res:
+                    continue
+
+                drift = hist_res.get("edge_winrate", 0) - recent_res.get("edge_winrate", 0)
+                if drift > decay_threshold_pp:
+                    with _pg_ar.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE aiem_signal_discoveries SET status=\'retired\', "
+                            "notes = COALESCE(notes,\'\') || %s WHERE id=%s",
+                            (f" [AUTO-RETIRED: edge decayed {drift:.1f}pp]", disc_id),
+                        )
+                    retired += 1
+                    print(f"[auto_retire] discovery #{disc_id} retired — decayed {drift:.1f}pp")
+            except Exception as _e_ar:
+                print(f"[auto_retire] error on #{disc_id}: {_e_ar}")
+
+        return {"status": "ok", "checked": len(discoveries), "retired": retired}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+# ── Enhancement #9: Signal redundancy / correlation audit ─────────────────────
+def _mkt_check_signal_redundancy(conditions, correlation_threshold=0.70):
+    """Before saving a new discovery, check whether it fires on substantially the
+    same stock-days as any existing validated discovery (Jaccard overlap). Enforces
+    LAW 21 in code — the LLM cannot skip this check."""
+    import psycopg2 as _pg_sr, json as _j_sr
+    try:
+        new_where, new_params = _mkt_parse_conditions(conditions)
+        if not new_where:
+            return {"status": "error", "error": "Could not parse conditions"}
+
+        with _pg_sr.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, hypothesis_text, conditions_json "
+                "FROM aiem_signal_discoveries WHERE status=\'validated\'"
+            )
+            existing = cur.fetchall()
+            cur.execute(
+                f"SELECT t.scan_date::text || \':\' || t.ticker "
+                f"FROM polygon_market_daily t WHERE {new_where}",
+                new_params
+            )
+            new_fires = set(r[0] for r in cur.fetchall())
+
+        if not new_fires:
+            return {"status": "ok", "redundant_with": [], "is_redundant": False,
+                    "verdict": "New signal fires on 0 rows — too restrictive to evaluate."}
+
+        overlaps = []
+        for disc_id, hyp, cond_json in existing:
+            try:
+                ex_cond = _j_sr.loads(cond_json) if isinstance(cond_json, str) else cond_json
+                ex_where, ex_params = _mkt_parse_conditions(ex_cond)
+                if not ex_where: continue
+                with _pg_sr.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT t.scan_date::text || \':\' || t.ticker "
+                        f"FROM polygon_market_daily t WHERE {ex_where}",
+                        ex_params
+                    )
+                    ex_fires = set(r[0] for r in cur.fetchall())
+                if not ex_fires: continue
+                jaccard = len(new_fires & ex_fires) / len(new_fires | ex_fires)
+                if jaccard >= correlation_threshold:
+                    overlaps.append({
+                        "discovery_id": disc_id,
+                        "hypothesis": hyp,
+                        "overlap_pct": round(jaccard, 2),
+                    })
+            except Exception:
+                continue
+
+        return {
+            "status": "ok",
+            "new_signal_n": len(new_fires),
+            "redundant_with": overlaps,
+            "is_redundant": len(overlaps) > 0,
+            "verdict": (
+                "REDUNDANT — fires on nearly the same days as an existing discovery. "
+                "Do not save as a new discovery."
+                if overlaps else
+                "Distinct from existing discoveries — safe to save."
+            ),
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
 _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "query_pick_outcomes",
@@ -17223,7 +17691,54 @@ _AIEM_AGENT_TOOLS = [
             "discovery_ids": {"type": "array", "items": {"type": "integer"},
                 "description": "List of discovery IDs from mkt_load_discoveries or mkt_save_discovery."},
         }, "required": ["discovery_ids"]}
-    }}
+    }},
+    # ── New tools: statistical rigor + data depth ──────────────────────────────
+    {"type": "function", "function": {
+        "name": "mkt_required_pvalue",
+        "description": (
+            "Get the REAL Bonferroni-corrected p-value threshold based on how many statistical "
+            "tests have been run in the current window — from the actual test ledger DB, NOT the "
+            "agent's self-reported count. Call this BEFORE deciding whether any finding is "
+            "significant. Implements LAW 3 / LAW 50 in code instead of instruction."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "lookback_days": {"type": "integer", "description": "Days of test history to count (default 7)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_segment_by_cap_tier",
+        "description": (
+            "Test a signal separately in each real market cap tier (nano/small/mid/large) "
+            "using actual Polygon reference data in ticker_meta table. Implements LAW 9 "
+            "with real cap data — not price-bucket proxies."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object", "description": "Signal conditions dict (same format as mkt_test_signal)."},
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_segment_by_sector",
+        "description": (
+            "Test a signal separately in each SIC sector using real Polygon sector data. "
+            "Implements LAW 42 / LAW 45 — actual sector relative strength, not peer proxies."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object", "description": "Signal conditions dict."},
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_check_redundancy",
+        "description": (
+            "Before saving a new discovery, check whether it fires on substantially the same "
+            "stock-days as any existing validated discovery (Jaccard overlap). Enforces LAW 21 "
+            "in code — a signal with >70% overlap is REDUNDANT and should NOT be saved. "
+            "Always call this before mkt_save_discovery."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {"type": "object", "description": "Proposed new signal conditions."},
+            "correlation_threshold": {"type": "number", "description": "Jaccard overlap threshold (default 0.70)."},
+        }, "required": ["conditions"]}
+    }},
 ]
 
 
@@ -17345,13 +17860,13 @@ Every significant signal (p<0.10) must be retested in EXACTLY these three price 
 A signal that only works in one bucket is still a real signal — apply it with the filter.
 A signal tested only on all stocks combined is masking its true nature.
 
-LAW 9 — MARKET CAP SEGMENTATION:
-Test every validated signal separately in three cap tiers:
-  - Nano:   under $300M market cap
-  - Small:  $300M–$2B market cap
-  - Mid:    $2B–$10B market cap
+LAW 9 — MARKET CAP SEGMENTATION (REAL DATA — USE mkt_segment_by_cap_tier):
+Use the mkt_segment_by_cap_tier tool — it runs against the ticker_meta table which
+stores REAL Polygon market cap data (nano <$300M / small $300M-$2B / mid $2B-$10B / large $10B+).
+This is NOT a price-proxy — it is actual market cap from Polygon reference API.
 Nano signals fire faster and bigger but die faster. Mid-cap signals are more persistent.
 A signal that only works in nano should NEVER be deployed on mid-cap names.
+Always call mkt_segment_by_cap_tier on every validated signal before saving it.
 
 LAW 10 — LIQUIDITY GATE:
 Every signal must be validated with a minimum volume floor of 500,000 shares/day.
@@ -17365,11 +17880,13 @@ bear days (SPY down) than bull days must be flagged PRIORITY, saved with notes="
 and elevated to the top of the deployment queue. Bear-alpha signals are extremely rare,
 work when subscribers need the system most, and immediately command premium positioning.
 
-LAW 12 — VOLATILITY NORMALIZATION:
-High-VIX environments compress risk-adjusted returns for all signals. When VIX > 25,
-normalize expected returns: a 4% move in VIX=30 conditions equals ~2.5% in VIX=15.
-Always tag discoveries with the average VIX level during the test period. Signals
-discovered primarily in low-VIX environments may fail during market stress.
+LAW 12 — VOLATILITY NORMALIZATION (REAL VIX — vix_daily TABLE):
+VIX is now ingested daily from Polygon into the vix_daily table (scan_date, vix_close).
+Use SQL: JOIN vix_daily v ON v.scan_date = t.scan_date to filter by real VIX level.
+When VIX > 25, normalize expected returns: a 4% move in VIX=30 equals ~2.5% in VIX=15.
+Always test signals in: (a) low-VIX days (vix_close < 15), (b) high-VIX days (vix_close > 25).
+Tag every discovery with avg_vix of the test period. Signals found only in low-VIX
+environments need a vix_close < 20 filter condition to be safely deployed.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  CATEGORY C: TIME & SEASONALITY PATTERNS  (Laws 13–17)
@@ -17532,14 +18049,15 @@ the NEWEST third. If the win rate is declining, compute the decay rate in pp per
 A signal decaying at >2pp/month will be below 50% within a quarter. Flag it DECAYING
 even if the total p-value is still significant — total significance masks the decay.
 
-LAW 35 — REGIME CONDITIONALITY MATRIX:
-Test every validated signal in all four market regime quadrants:
-  Q1: Bull market + Low volatility (VIX < 15)   — the easy mode
-  Q2: Bull market + High volatility (VIX > 25)  — fear in an uptrend
-  Q3: Bear market + Low volatility (VIX < 15)   — slow grind down
-  Q4: Bear market + High volatility (VIX > 25)  — crash conditions
-A signal that only works in Q1 is not deployable in all conditions. Tag every signal
-with which quadrants it is valid for and suppress it outside those conditions.
+LAW 35 — REGIME CONDITIONALITY MATRIX (REAL — SPY + vix_daily):
+Test every validated signal in all four market regime quadrants using real data:
+  Q1: Bull market + Low volatility  (SPY_ret > 0 AND vix_close < 15)  — easy mode
+  Q2: Bull market + High volatility (SPY_ret > 0 AND vix_close > 25)  — fear in uptrend
+  Q3: Bear market + Low volatility  (SPY_ret < 0 AND vix_close < 15)  — slow grind down
+  Q4: Bear market + High volatility (SPY_ret < 0 AND vix_close > 25)  — crash conditions
+Use mkt_regime_filter for SPY direction, then JOIN vix_daily ON scan_date for VIX tier.
+A signal that only works in Q1 is NOT deployable in all conditions. Tag every saved
+discovery with which quadrants it has been validated in.
 
 LAW 36 — HYPOTHESIS RECYCLING:
 Hypotheses rejected with p between 0.05 and 0.15 are "near-miss" signals — not
@@ -17593,12 +18111,14 @@ rvol = 4.0 when the median is 3.5. Always compute and report the percentile rank
 signal condition within the daily universe. Top 5th percentile signals are elite.
 Top-10% in 3 factors simultaneously is rarer than the threshold conditions suggest.
 
-LAW 42 — RELATIVE STRENGTH AGAINST SECTOR IS REQUIRED:
-Never analyze a stock's return without normalizing it against its sector's return that day.
-A stock up 3% when its sector is up 4% is UNDERPERFORMING — a false positive.
-A stock up 3% when its sector is down 1% is showing 4pp of EXCESS STRENGTH — a real signal.
-Always compute: stock_return - sector_return = excess_return. Signal testing should use
-excess_return as the dependent variable, not raw return.
+LAW 42 — SECTOR RELATIVE STRENGTH (REAL — USE mkt_segment_by_sector):
+Use the mkt_segment_by_sector tool — it tests your signal against real SIC sector data
+from the ticker_meta table (populated by Polygon reference API).
+A signal that works across ALL sectors is sector-agnostic (rare, precious).
+A signal that only works in one sector must be deployed with a sector filter.
+Additionally, compute sector-avg return per day via: AVG(fwd_ret) over ticker_meta JOIN —
+stocks outperforming their sector average by 2pp+ show genuine relative strength.
+Always call mkt_segment_by_sector on every validated signal before saving it.
 
 LAW 43 — FACTOR RANK MOMENTUM (SIGNAL-OF-SIGNALS):
 Track which signals have been WORKING MOST in the last 10 trading days vs the last 30.
@@ -17614,19 +18134,23 @@ Test whether stocks in the top 5% by confluence score outperform top 10% and top
 The goal is to find the THRESHOLD OF ELITENESS — the percentile cutoff where edge
 becomes large enough to trade confidently. Document this threshold every session.
 
-LAW 45 — SECTOR LEADERSHIP CLASSIFICATION:
-Within each sector, identify which stock moved FIRST on any given day vs which followed.
-Leaders (first movers in a sector on a strong day) have more persistent momentum than
-laggards (those playing catch-up 30 minutes later). Test whether early sector movers
-outperform delayed movers by T+1, T+3, T+5. First-mover classification is a signal
-no simple threshold test can capture.
+LAW 45 — SECTOR LEADERSHIP CLASSIFICATION (REAL — ticker_meta sector data):
+Within each SIC sector (available via ticker_meta JOIN), identify the top rvol performer
+per sector per day using: RANK() OVER (PARTITION BY tm.sector, t.scan_date ORDER BY t.rvol DESC).
+Rank-1 stocks per sector (sector leaders) have more persistent momentum than rank-3+ followers.
+Test: does requiring sector_rank = 1 (top rvol in sector) improve signal precision?
+Use mkt_segment_by_sector + additional SQL rank filter to implement this test.
 
-LAW 46 — PEER GROUP RELATIVE VALUE:
-For every validated signal, test it filtered to stocks that are OUTPERFORMING their
-closest market-cap peer group by at least 1.5pp on the signal day. A $500M biotech
-up 3% when all other $300M-$700M biotechs are flat is a different animal than when
-the whole group is up 3%. Relative strength within peer group is a natural filter
-that eliminates false positives driven by sector-wide moves, not company-specific catalysts.
+LAW 46 — PEER GROUP RELATIVE VALUE (REAL — cap_tier + sector from ticker_meta):
+Peer group is now real: same cap_tier (nano/small/mid) AND same sector from ticker_meta.
+Compute peer-avg return per (cap_tier, sector, scan_date) group, then filter to stocks
+outperforming their peer-avg by ≥1.5pp. SQL pattern:
+  WITH peer_avg AS (SELECT tm.cap_tier, tm.sector, t.scan_date,
+    AVG(next_day_ret) AS peer_ret FROM polygon_market_daily t
+    JOIN ticker_meta tm ON tm.ticker = t.ticker GROUP BY 1,2,3)
+  JOIN peer_avg pa ON pa.cap_tier=tm.cap_tier AND pa.sector=tm.sector
+    AND pa.scan_date=t.scan_date WHERE (stock_ret - pa.peer_ret) >= 1.5
+This eliminates false positives driven by sector-wide moves.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  CATEGORY J: WALK-FORWARD & OVERFITTING PREVENTION  (Laws 47–51)
@@ -17731,19 +18255,32 @@ always distinguish: was the unusual call volume on the day BEFORE the move, or o
 same day as the move? Pre-gap options flow = informed money. Same-day flow = reactive money.
 Pre-gap signals should have their own separate and higher-confidence testing track.
 
-LAW 59 — SHORT FLOAT DYNAMICS INTEGRATION:
-For every signal tested, compute the average short_interest / float ratio of the firing
-stocks. Signals that fire predominantly on high-short-float stocks (>15%) have an embedded
-short squeeze component that can dramatically amplify moves. Test whether signals on
-high-short stocks (>15% float shorted) outperform the same signal on low-short stocks
-(<5% float shorted). If yes, short float is a required confirmation condition.
+LAW 59 — FLOAT SIZE AS SQUEEZE PROXY (shares_float in ticker_meta):
+ticker_meta.shares_float stores real float share counts from Polygon reference API.
+While true short_interest % requires FINRA data (not yet wired), float SIZE is available:
+small-float stocks (shares_float < 20M) amplify moves dramatically vs large-float.
+Test every signal split by float tier:
+  - Micro-float: shares_float < 10M (extreme squeeze potential)
+  - Small-float: shares_float 10M-50M
+  - Large-float: shares_float > 100M
+SQL: JOIN ticker_meta tm ON tm.ticker = t.ticker WHERE tm.shares_float < 20000000
+If micro-float outperforms the same signal on large-float by >5pp WR, add shares_float
+as a required deployment filter.
 
-LAW 60 — FLOAT ROTATION VELOCITY:
-Compute how many times the stock's float has traded in the last 5 trading days:
-  float_rotation = sum(5-day volume) / float_shares
-Stocks with float_rotation > 2.0 (the full float has traded twice in 5 days) are in
-active institutional accumulation or distribution. Test whether float_rotation > 1.5
-as an additional filter improves signal precision by reducing slow-moving large-float stocks.
+LAW 60 — FLOAT ROTATION VELOCITY (REAL — polygon_market_daily + ticker_meta):
+shares_float is now real via ticker_meta. Compute float rotation using a SQL self-join:
+  WITH vol5 AS (
+    SELECT ticker, scan_date,
+      SUM(volume) OVER (PARTITION BY ticker ORDER BY scan_date ROWS 4 PRECEDING) AS vol_5d
+    FROM polygon_market_daily
+  )
+  SELECT t.*, (v.vol_5d::float / NULLIF(tm.shares_float, 0)) AS float_rotation
+  FROM polygon_market_daily t
+  JOIN vol5 v ON v.ticker=t.ticker AND v.scan_date=t.scan_date
+  JOIN ticker_meta tm ON tm.ticker=t.ticker
+  WHERE (v.vol_5d::float / NULLIF(tm.shares_float, 0)) > 1.5
+float_rotation > 1.5 (float has traded 1.5× in 5 days) indicates active accumulation.
+Test this as an additional filter on every signal — it often improves precision by 3-8pp.
 
 LAW 61 — MULTI-DAY MOMENTUM SEQUENCE DETECTION:
 Test patterns that span multiple consecutive days, not just single-day conditions:
@@ -17752,7 +18289,7 @@ Test patterns that span multiple consecutive days, not just single-day condition
   - Expanding volume over 3 days (each day's volume higher than prior)
 These multi-day sequences represent sustained institutional interest, not one-day noise.
 They require SQL self-joins on consecutive scan dates — the mkt_test_signal tool
-supports conditions_2 and conditions_3 parameters for this purpose. Use them.
+Use mkt_compute_momentum with multi-day windows or SQL date-range conditions in mkt_test_signal for this purpose.
 
 LAW 62 — CROSS-ASSET CONFIRMATION REQUIREMENT:
 For any signal generating a bullish trade recommendation, test whether requiring same-day
@@ -18244,7 +18781,7 @@ def _run_aiem_research_agent(max_iterations=None):
         print(f"[aiem_research] OpenAI init error: {_oe}")
         return {"error": str(_oe)}
 
-    # ── Full tool map — all 14 tools ──────────────────────────────────────────
+    # ── Full tool map — all 44+ tools ─────────────────────────────────────────
     _tool_map = {
         "query_pick_outcomes":          _aiem_tool_query_pick_outcomes,
         "query_missed_movers":          _aiem_tool_query_missed_movers,
@@ -18290,6 +18827,11 @@ def _run_aiem_research_agent(max_iterations=None):
         "mkt_invent_indicator":      _mkt_tool_invent_indicator,
         "mkt_compare_signals":       _mkt_tool_compare_signals,
         "mkt_build_composite":       _mkt_tool_build_composite,
+        # ── New tools wired in (Enhancement #5-9) ─────────────────────────────
+        "mkt_required_pvalue":       _mkt_tool_required_pvalue,
+        "mkt_segment_by_cap_tier":   _mkt_tool_segment_by_cap_tier,
+        "mkt_segment_by_sector":     _mkt_tool_segment_by_sector,
+        "mkt_check_redundancy":      _mkt_check_signal_redundancy,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
@@ -18351,7 +18893,7 @@ def _run_aiem_research_agent(max_iterations=None):
                 iteration, fn_name, _aj.dumps(fn_args)[:100]))
 
             fn = _tool_map.get(fn_name)
-            result = fn(**fn_args) if fn else {"error": "Unknown tool: {}".format(fn_name)}
+            result = _mkt_safe_tool_call(fn, fn_args, fn_name)
             tool_calls_made += 1
 
             result_str = _aj.dumps(result, default=str)
@@ -30689,185 +31231,189 @@ def _polygon_full_market_scan() -> list:
         cached = getattr(app, "_polygon_rvol_cache", {})
         return cached.get("movers", [])
 
-    import time as _t2
-
-    days = _polygon_recent_trading_days(5)
-    if not days:
-        _POLYGON_RVOL_LOCK.release()
-        return []
-
-    app.logger.info(f"[polygon_rvol] fetching up to {len(days)} candidate days: {days[:5]}...")
-    daily_data = []
-    for _day in days:
-        _data = _polygon_grouped_daily(_day)
-        _t2.sleep(13)  # Polygon Starter = 5 req/min → need ≥12s between calls
-        if not _data:
-            app.logger.info(f"[polygon_rvol] {_day}: 0 tickers (holiday/error) — skipping")
-            continue
-        app.logger.info(f"[polygon_rvol] {_day}: {len(_data)} tickers")
-        daily_data.append((_day, _data))
-        if len(daily_data) >= 5:
-            break
-
-    if not daily_data:
-        _POLYGON_RVOL_LOCK.release()
-        return []
-
-    yesterday_day, yesterday_data = daily_data[0]
-    prior_days = [d for _, d in daily_data[1:]]
-    app.logger.info(f"[polygon_rvol] scanning {yesterday_day}: {len(yesterday_data)} tickers, {len(prior_days)} prior days")
-
-    movers = []
-    for _ticker, _r in yesterday_data.items():
-        _price  = _r.get("c", 0) or 0
-        _vol    = _r.get("v", 0) or 0
-        _open   = _r.get("o", 0) or 0
-        _high   = _r.get("h", 0) or 0
-        _low    = _r.get("l", 0) or 0
-        _vwap   = _r.get("vw", 0) or 0
-
-        if not (1.0 <= _price <= 50.0 and _vol >= 150_000 and _open > 0):
-            continue
-        _gap = (_price - _open) / _open * 100
-        if _gap < 3.0 or _price <= _open:
-            continue
-
-        _pvols = [_d.get(_ticker, {}).get("v", 0) or 0 for _d in prior_days]
-        _pvols = [v for v in _pvols if v > 0]
-        if len(_pvols) < 2:
-            continue
-        _avg = sum(_pvols) / len(_pvols)
-        if _avg < 10_000:
-            continue
-        _rvol = _vol / _avg
-        if _rvol < 5.0:
-            continue
-
-        _range = (_high - _low) if _high > _low else 1
-        _close_str = (_price - _low) / _range
-
-        movers.append({
-            "ticker":         _ticker,
-            "price":          round(_price, 2),
-            "open":           round(_open, 2),
-            "high":           round(_high, 2),
-            "low":            round(_low, 2),
-            "vwap":           round(_vwap, 2),
-            "gap_pct":        round(_gap, 1),
-            "volume":         int(_vol),
-            "avg_volume":     int(_avg),
-            "rvol":           round(_rvol, 1),
-            "close_strength": round(_close_str, 2),
-            "scan_date":      yesterday_day,
-        })
-
-    movers.sort(key=lambda x: x["rvol"], reverse=True)
-    top = movers[:40]
-    app.logger.info(f"[polygon_rvol] scan done: {len(top)} movers from {len(yesterday_data)} tickers")
-
-    app._polygon_rvol_cache = {
-        "movers":        top,
-        "scan_date":     days[0],
-        "total_scanned": len(yesterday_data),
-    }
-
     try:
-        import psycopg2 as _pg3
-        with _pg3.connect(os.environ["DATABASE_URL"]) as _c3, _c3.cursor() as _cur3:
-            _cur3.execute("""
-                CREATE TABLE IF NOT EXISTS polygon_rvol_scan (
-                    id             SERIAL PRIMARY KEY,
-                    scan_date      DATE NOT NULL,
-                    ticker         VARCHAR(10) NOT NULL,
-                    price          FLOAT,
-                    open_price     FLOAT,
-                    high           FLOAT,
-                    low            FLOAT,
-                    vwap           FLOAT,
-                    gap_pct        FLOAT,
-                    volume         BIGINT,
-                    avg_volume     BIGINT,
-                    rvol           FLOAT,
-                    close_strength FLOAT,
-                    UNIQUE(scan_date, ticker)
-                )
-            """)
-            for _m in top:
-                _cur3.execute("""
-                    INSERT INTO polygon_rvol_scan
-                        (scan_date, ticker, price, open_price, high, low, vwap,
-                         gap_pct, volume, avg_volume, rvol, close_strength)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (scan_date, ticker) DO UPDATE SET
-                        price=EXCLUDED.price, rvol=EXCLUDED.rvol, volume=EXCLUDED.volume
-                """, (_m["scan_date"], _m["ticker"], _m["price"], _m["open"],
-                      _m["high"], _m["low"], _m["vwap"], _m["gap_pct"],
-                      _m["volume"], _m["avg_volume"], _m["rvol"], _m["close_strength"]))
-        app.logger.info(f"[polygon_rvol] saved {len(top)} rows to DB")
-    except Exception as _e3:
-        app.logger.error(f"[polygon_rvol] DB save error: {_e3}")
+        import time as _t2
 
+        days = _polygon_recent_trading_days(5)
+        if not days:
+            return []
 
-    # ── Save ALL stocks to polygon_market_daily (Loop A/B full-market research) ──
-    try:
-        import psycopg2 as _pg5
-        _all_rows = []
-        _prior_close_map = {}
-        if len(daily_data) > 1:
-            _, _prior_day = daily_data[1]
-            _prior_close_map = {t: _d.get("c", 0) for t, _d in _prior_day.items() if _d.get("c")}
-        for _ticker, _r in yesterday_data.items():
-            _c   = _r.get("c") or 0
-            _o   = _r.get("o") or 0
-            _h   = _r.get("h") or 0
-            _l   = _r.get("l") or 0
-            _vw  = _r.get("vw") or 0
-            _vol = _r.get("v") or 0
-            if _c < 0.50 or _vol < 30000 or _c == 0:
+        app.logger.info(f"[polygon_rvol] fetching up to {len(days)} candidate days: {days[:5]}...")
+        daily_data = []
+        for _day in days:
+            _data = _polygon_grouped_daily(_day)
+            _t2.sleep(13)  # Polygon Starter = 5 req/min → need ≥12s between calls
+            if not _data:
+                app.logger.info(f"[polygon_rvol] {_day}: 0 tickers (holiday/error) — skipping")
                 continue
-            _cs2   = ((_c - _l) / (_h - _l)) if _h > _l else None
-            _rng2  = ((_h - _l) / _l * 100) if _l > 0 else None
-            _pc   = _prior_close_map.get(_ticker)
-            _gap2  = ((_c - _pc) / _pc * 100) if _pc else None
-            _pvols2 = [_d.get(_ticker, {}).get("v", 0) or 0 for _d in prior_days]
-            _pvols2 = [v for v in _pvols2 if v > 0]
-            _rvol2  = (_vol / (sum(_pvols2) / len(_pvols2))) if _pvols2 else None
-            _all_rows.append((yesterday_day, _ticker, _c,
-                              _o or None, _h or None, _l or None, _vw or None,
-                              int(_vol), _pc, _gap2, _rvol2, _cs2, _rng2))
-        if _all_rows:
-            with _pg5.connect(os.environ["DATABASE_URL"]) as _c5, _c5.cursor() as _cur5:
-                _cur5.executemany(
-                    "INSERT INTO polygon_market_daily "
-                    "(scan_date, ticker, close_price, open_price, high_price, low_price, "
-                    "vwap, volume, prev_close, gap_pct, rvol, close_strength, range_pct) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-                    "ON CONFLICT (scan_date, ticker) DO UPDATE SET "
-                    "close_price=EXCLUDED.close_price, gap_pct=EXCLUDED.gap_pct, "
-                    "rvol=EXCLUDED.rvol, volume=EXCLUDED.volume, "
-                    "close_strength=EXCLUDED.close_strength",
-                    _all_rows)
-            app.logger.info(f"[polygon_market_daily] saved {len(_all_rows)} stocks for {yesterday_day}")
-    except Exception as _e5b:
-        app.logger.error(f"[polygon_market_daily] save error: {_e5b}")
+            app.logger.info(f"[polygon_rvol] {_day}: {len(_data)} tickers")
+            daily_data.append((_day, _data))
+            if len(daily_data) >= 5:
+                break
 
-    _POLYGON_RVOL_LOCK.release()
+        if not daily_data:
+            return []
 
-    # ── Post-scan trigger: fire Loop B immediately on fresh data ──────────────
-    import threading as _pst_thr
-    def _post_scan_loop_b():
-        import time as _pst_t
-        _pst_t.sleep(60)  # 60s: ensure all DB writes are committed and visible
-        app.logger.info("[post_scan] Loop B triggered by fresh Polygon data — running AIEM research")
+        yesterday_day, yesterday_data = daily_data[0]
+        prior_days = [d for _, d in daily_data[1:]]
+        app.logger.info(f"[polygon_rvol] scanning {yesterday_day}: {len(yesterday_data)} tickers, {len(prior_days)} prior days")
+
+        movers = []
+        for _ticker, _r in yesterday_data.items():
+            _price  = _r.get("c", 0) or 0
+            _vol    = _r.get("v", 0) or 0
+            _open   = _r.get("o", 0) or 0
+            _high   = _r.get("h", 0) or 0
+            _low    = _r.get("l", 0) or 0
+            _vwap   = _r.get("vw", 0) or 0
+
+            if not (1.0 <= _price <= 50.0 and _vol >= 150_000 and _open > 0):
+                continue
+            _gap = (_price - _open) / _open * 100
+            if _gap < 3.0 or _price <= _open:
+                continue
+
+            _pvols = [_d.get(_ticker, {}).get("v", 0) or 0 for _d in prior_days]
+            _pvols = [v for v in _pvols if v > 0]
+            if len(_pvols) < 2:
+                continue
+            _avg = sum(_pvols) / len(_pvols)
+            if _avg < 10_000:
+                continue
+            _rvol = _vol / _avg
+            if _rvol < 5.0:
+                continue
+
+            _range = (_high - _low) if _high > _low else 1
+            _close_str = (_price - _low) / _range
+
+            movers.append({
+                "ticker":         _ticker,
+                "price":          round(_price, 2),
+                "open":           round(_open, 2),
+                "high":           round(_high, 2),
+                "low":            round(_low, 2),
+                "vwap":           round(_vwap, 2),
+                "gap_pct":        round(_gap, 1),
+                "volume":         int(_vol),
+                "avg_volume":     int(_avg),
+                "rvol":           round(_rvol, 1),
+                "close_strength": round(_close_str, 2),
+                "scan_date":      yesterday_day,
+            })
+
+        movers.sort(key=lambda x: x["rvol"], reverse=True)
+        top = movers[:40]
+        app.logger.info(f"[polygon_rvol] scan done: {len(top)} movers from {len(yesterday_data)} tickers")
+
+        app._polygon_rvol_cache = {
+            "movers":        top,
+            "scan_date":     days[0],
+            "total_scanned": len(yesterday_data),
+        }
+
         try:
-            _run_aiem_continuous_research()
-            app.logger.info("[post_scan] Loop B research session complete")
-        except Exception as _pst_e:
-            app.logger.error(f"[post_scan] Loop B error: {_pst_e}")
-    _pst_thr.Thread(target=_post_scan_loop_b, daemon=True, name="loop-b-post-scan").start()
-    app.logger.info("[post_scan] Loop B triggered in background (fires in 60s)")
+            import psycopg2 as _pg3
+            with _pg3.connect(os.environ["DATABASE_URL"]) as _c3, _c3.cursor() as _cur3:
+                _cur3.execute("""
+                    CREATE TABLE IF NOT EXISTS polygon_rvol_scan (
+                        id             SERIAL PRIMARY KEY,
+                        scan_date      DATE NOT NULL,
+                        ticker         VARCHAR(10) NOT NULL,
+                        price          FLOAT,
+                        open_price     FLOAT,
+                        high           FLOAT,
+                        low            FLOAT,
+                        vwap           FLOAT,
+                        gap_pct        FLOAT,
+                        volume         BIGINT,
+                        avg_volume     BIGINT,
+                        rvol           FLOAT,
+                        close_strength FLOAT,
+                        UNIQUE(scan_date, ticker)
+                    )
+                """)
+                for _m in top:
+                    _cur3.execute("""
+                        INSERT INTO polygon_rvol_scan
+                            (scan_date, ticker, price, open_price, high, low, vwap,
+                             gap_pct, volume, avg_volume, rvol, close_strength)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (scan_date, ticker) DO UPDATE SET
+                            price=EXCLUDED.price, rvol=EXCLUDED.rvol, volume=EXCLUDED.volume
+                    """, (_m["scan_date"], _m["ticker"], _m["price"], _m["open"],
+                          _m["high"], _m["low"], _m["vwap"], _m["gap_pct"],
+                          _m["volume"], _m["avg_volume"], _m["rvol"], _m["close_strength"]))
+            app.logger.info(f"[polygon_rvol] saved {len(top)} rows to DB")
+        except Exception as _e3:
+            app.logger.error(f"[polygon_rvol] DB save error: {_e3}")
 
-    return top
+
+        # ── Save ALL stocks to polygon_market_daily (Loop A/B full-market research) ──
+        try:
+            import psycopg2 as _pg5
+            _all_rows = []
+            _prior_close_map = {}
+            if len(daily_data) > 1:
+                _, _prior_day = daily_data[1]
+                _prior_close_map = {t: _d.get("c", 0) for t, _d in _prior_day.items() if _d.get("c")}
+            for _ticker, _r in yesterday_data.items():
+                _c   = _r.get("c") or 0
+                _o   = _r.get("o") or 0
+                _h   = _r.get("h") or 0
+                _l   = _r.get("l") or 0
+                _vw  = _r.get("vw") or 0
+                _vol = _r.get("v") or 0
+                if _c < 0.50 or _vol < 30000 or _c == 0:
+                    continue
+                _cs2   = ((_c - _l) / (_h - _l)) if _h > _l else None
+                _rng2  = ((_h - _l) / _l * 100) if _l > 0 else None
+                _pc   = _prior_close_map.get(_ticker)
+                _gap2  = ((_c - _pc) / _pc * 100) if _pc else None
+                _pvols2 = [_d.get(_ticker, {}).get("v", 0) or 0 for _d in prior_days]
+                _pvols2 = [v for v in _pvols2 if v > 0]
+                _rvol2  = (_vol / (sum(_pvols2) / len(_pvols2))) if _pvols2 else None
+                _all_rows.append((yesterday_day, _ticker, _c,
+                                  _o or None, _h or None, _l or None, _vw or None,
+                                  int(_vol), _pc, _gap2, _rvol2, _cs2, _rng2))
+            if _all_rows:
+                with _pg5.connect(os.environ["DATABASE_URL"]) as _c5, _c5.cursor() as _cur5:
+                    _cur5.executemany(
+                        "INSERT INTO polygon_market_daily "
+                        "(scan_date, ticker, close_price, open_price, high_price, low_price, "
+                        "vwap, volume, prev_close, gap_pct, rvol, close_strength, range_pct) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                        "ON CONFLICT (scan_date, ticker) DO UPDATE SET "
+                        "close_price=EXCLUDED.close_price, gap_pct=EXCLUDED.gap_pct, "
+                        "rvol=EXCLUDED.rvol, volume=EXCLUDED.volume, "
+                        "close_strength=EXCLUDED.close_strength",
+                        _all_rows)
+                app.logger.info(f"[polygon_market_daily] saved {len(_all_rows)} stocks for {yesterday_day}")
+        except Exception as _e5b:
+            app.logger.error(f"[polygon_market_daily] save error: {_e5b}")
+
+
+        # ── Post-scan trigger: fire Loop B immediately on fresh data ──────────────
+        import threading as _pst_thr
+        def _post_scan_loop_b():
+            import time as _pst_t
+            _pst_t.sleep(60)  # 60s: ensure all DB writes are committed and visible
+            app.logger.info("[post_scan] Loop B triggered by fresh Polygon data — running AIEM research")
+            try:
+                _run_aiem_continuous_research()
+                app.logger.info("[post_scan] Loop B research session complete")
+            except Exception as _pst_e:
+                app.logger.error(f"[post_scan] Loop B error: {_pst_e}")
+        _pst_thr.Thread(target=_post_scan_loop_b, daemon=True, name="loop-b-post-scan").start()
+        app.logger.info("[post_scan] Loop B triggered in background (fires in 60s)")
+
+        return top
+    except Exception as _pfms_e:
+        app.logger.error(f"[polygon_rvol] unhandled scan error — releasing lock: {_pfms_e}")
+        return []
+    finally:
+        _POLYGON_RVOL_LOCK.release()
+
 
 
 def _get_polygon_rvol_data() -> dict:
