@@ -1,3 +1,4 @@
+- [AIEM 24/7 behavioral engine](aiem-24h-behavioral-engine.md) — behavioral fingerprint (14-dim), pre-move templates, 2,946 historical patterns, 24/7 schedule 14 sessions/week
 - [AIEM options flow tools](aiem-options-flow-tools.md) — 4 tools: ticker history, universe scan, backtest, cross-confirm; no $500K filter; 3 source tables; call_sweep_log missing conviction col fixed
 - [AI Research Agent](aiem-research-agent.md) — autonomous gpt-4o loop queries own DB, discovers correlations, backtests weights, saves scoring model weekly; LOW→HIGH confidence as picks accumulate
 - [AIEM Full Learning Loop](aiem-full-learning-loop.md) — Real Model + Signal Bridge + 5 predictable-event detectors; 17 admin routes; model retrains Sunday 7 PM once ≥200 graded outcomes

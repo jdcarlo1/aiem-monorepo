@@ -2577,6 +2577,155 @@ try:
         id="aiem_research_agent",
         replace_existing=True,
     )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 24/7 AIEM RESEARCH SCHEDULE — the machine never sleeps.
+    # Each session has a distinct focus question so it's not repeating itself.
+    # Behavioral scan every 30 min (market hours) + hourly overnight.
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── Behavioral comparison scan: every 30 min, market hours ───────────
+    # Compares active stocks to pre-move templates every 30 minutes.
+    # Pure DB — no Yahoo/Tradier calls, no throttle risk.
+    def _run_beh_scan_job():
+        try:
+            import threading as _bst
+            _bst.Thread(target=_run_behavioral_comparison_scan, daemon=True).start()
+        except Exception as _e:
+            print(f"[scheduler] behavioral scan error: {_e}")
+    for _beh_h in range(9, 17):
+        for _beh_m in [0, 30]:
+            if _beh_h == 9 and _beh_m < 30:
+                continue
+            _scheduler.add_job(
+                _run_beh_scan_job,
+                CronTrigger(day_of_week="mon-fri", hour=_beh_h, minute=_beh_m, timezone=_ET),
+                id=f"behavioral_scan_{_beh_h}_{_beh_m}",
+                replace_existing=True,
+            )
+
+    # ── Template rebuild: every Sunday 5 PM ET (before retrain at 7 PM) ─
+    _scheduler.add_job(
+        lambda: __import__("threading").Thread(target=_rebuild_templates, daemon=True).start(),
+        CronTrigger(day_of_week="sun", hour=17, minute=0, timezone=_ET),
+        id="behavioral_template_rebuild", replace_existing=True,
+    )
+
+    # ── 24/7 focused research sessions ───────────────────────────────────
+    # Each slot has a distinct question — agent is never idle, never repeating.
+    _FOCUSED_SESSIONS = [
+        # Weekday sessions
+        ("mon-fri", 10, 45, "intraday_options_check", 10,
+         "It is mid-morning. Run mkt_cross_confirm_options and mkt_find_behavioral_matches. "
+         "What options flow is firing RIGHT NOW that cross-confirms with price action today? "
+         "Which active stocks match pre-move behavioral templates? Flag the top 3."),
+
+        ("mon-fri", 13, 0, "midday_accumulation", 10,
+         "Midday check. Run mkt_net_flow_db and mkt_quiet_accumulation. "
+         "Which stocks are quietly grinding higher with sustained inflow? "
+         "Cross-reference with mkt_ticker_options_history for any with call activity. "
+         "Accumulation today often means a breakout in 2-5 days."),
+
+        ("mon-fri", 14, 45, "preclose_positioning", 10,
+         "45 minutes before close. Smart money positions in the last hour. "
+         "Run mkt_options_flow_scan with days_back=1 to catch TODAY's flow. "
+         "Run mkt_find_behavioral_matches. Which stocks are closing strong "
+         "(close_strength > 0.7) WITH options activity? Those are the ones to watch tomorrow."),
+
+        ("mon-fri", 17, 0, "postclose_retrospective", 12,
+         "Market just closed. Run mkt_retrospective_backtest to ask: "
+         "which stocks moved 10%+ today? Could we have predicted them 3-5 days ago? "
+         "What did their fingerprint look like before the move? "
+         "Save any pattern that was predictable to discoveries."),
+
+        ("mon-fri", 20, 0, "evening_deep_analysis", 15,
+         "Evening research session. All data is settled. "
+         "Run mkt_explore_dimensions to find new factor combinations. "
+         "Test 5 new signal hypotheses with mkt_test_signal. "
+         "Validate with mkt_validate_oos. Save anything significant with mkt_save_discovery."),
+
+        ("mon-fri", 23, 0, "latenight_pattern_mining", 12,
+         "Late night pattern mining — no time pressure, go deep. "
+         "Run mkt_factor_correlations to find which metrics correlate with big moves. "
+         "Run mkt_find_thresholds to optimize signal cutoffs. "
+         "Test any hypothesis the evening session flagged. Pure statistics."),
+
+        ("mon-fri", 2, 0, "overnight_deep_research", 15,
+         "Overnight deep research — maximum time, no market noise. "
+         "Run mkt_behavioral_templates and study what the best pre-move setups look like. "
+         "Run mkt_retrospective_backtest with lookback_days=45 to find all catchable moves. "
+         "What is the common thread? Build a composite signal using mkt_build_composite."),
+
+        ("mon-fri", 5, 30, "premarket_brief", 10,
+         "Pre-market research brief — market opens in 4 hours. "
+         "Run mkt_find_behavioral_matches to see what built up overnight. "
+         "Run mkt_net_flow_db to see which stocks had sustained inflow this week. "
+         "Run mkt_pre_squeeze_warning. Identify the top 5 stocks to watch at open."),
+
+        # Saturday — extended research, no market pressure
+        ("sat", 8, 0, "saturday_deep_backtest", 20,
+         "Saturday deep backtest — full week review. "
+         "Run mkt_retrospective_backtest for all 15%+ moves this week. "
+         "What percentage were predictable from the fingerprint? "
+         "What signals were most predictive? Quantify everything with statistics. "
+         "Save all significant findings to discoveries."),
+
+        ("sat", 12, 0, "saturday_signal_optimization", 20,
+         "Saturday signal optimization session. "
+         "Run mkt_find_thresholds for each major factor (rvol, close_strength, gap_pct, vol_accel). "
+         "What are the optimal cutoffs? Test combinations with mkt_test_signal. "
+         "Validate ALL findings out-of-sample with mkt_validate_oos before saving."),
+
+        ("sat", 16, 0, "saturday_options_analysis", 18,
+         "Saturday options analysis. "
+         "Run mkt_options_predicts_price at multiple premium thresholds ($10K, $50K, $100K, $500K). "
+         "Which premium tier is most predictive? Which vol/OI threshold? "
+         "Run mkt_factor_correlations on options features. Build the optimal options signal."),
+
+        ("sat", 20, 0, "saturday_synthesis", 15,
+         "Saturday evening synthesis — consolidate the week. "
+         "Run search_past_findings to review everything saved this week. "
+         "Which discoveries replicated across multiple sessions? "
+         "Build a composite model with mkt_build_composite using the week's best signals. "
+         "Save the weekly synthesis as a high-confidence discovery."),
+
+        # Sunday additions (beyond the existing 7PM retrain + 8PM Loop A)
+        ("sun", 10, 0, "sunday_morning_research", 18,
+         "Sunday morning research — fresh week ahead. "
+         "Run analyze_missed_movers: what big moves happened last week that we missed? "
+         "Run mkt_retrospective_backtest. Were they catchable? "
+         "What would we need to add to catch them next time?"),
+
+        ("sun", 14, 0, "sunday_model_prep", 15,
+         "Sunday afternoon — prepare inputs for tonight's model retrain (7PM). "
+         "Run mkt_behavioral_templates to verify template library is fresh. "
+         "Run mkt_net_flow_db and mkt_find_behavioral_matches. "
+         "Identify the 3 highest-conviction signals currently active — "
+         "these should get elevated weight in tonight's model."),
+    ]
+
+    for _day, _h, _m, _sid, _iter, _prompt in _FOCUSED_SESSIONS:
+        def _make_focused_job(name=_sid, prompt=_prompt, iters=_iter):
+            def _job():
+                try:
+                    import threading as _fst
+                    _fst.Thread(
+                        target=_run_aiem_focused_session,
+                        args=(name, prompt, iters),
+                        daemon=True
+                    ).start()
+                except Exception as _e:
+                    print(f"[aiem_24h:{name}] scheduler error: {_e}")
+            return _job
+        _scheduler.add_job(
+            _make_focused_job(),
+            CronTrigger(day_of_week=_day, hour=_h, minute=_m, timezone=_ET),
+            id=f"aiem_24h_{_sid}",
+            replace_existing=True,
+        )
+    print("[scheduler] 24/7 AIEM research schedule active — "
+          "behavioral scan every 30 min + 14 focused sessions per week + overnight runs")
+
     # Position monitor: poll Gmail for TRADE: emails every 15 min (market hours)
     def _run_poll_trade_emails():
         if not _intraday_scan_allowed():
@@ -18992,6 +19141,868 @@ def _mkt_cross_confirm_options_price(days_back: int = 5,
         return {"status": "error", "error": str(_e)}
 
 
+# ════════════════════════════════════════════════════════════════════════════════
+# AIEM 24/7 ENGINE — behavioral fingerprint, retrospective backtest, net flow,
+# focused research sessions. Runs every session around the clock, no idle time.
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _init_behavioral_tables():
+    """Create tables for behavioral fingerprint engine."""
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS pre_move_templates (
+                    id            SERIAL PRIMARY KEY,
+                    ticker        TEXT NOT NULL,
+                    move_date     DATE NOT NULL,
+                    move_pct      NUMERIC(8,2),
+                    days_before   INTEGER,
+                    avg_gap       NUMERIC(8,4),
+                    avg_rvol      NUMERIC(8,4),
+                    avg_cs        NUMERIC(8,4),
+                    cs_accel      NUMERIC(8,4),
+                    vol_accel_5d  NUMERIC(8,4),
+                    vol_accel_10d NUMERIC(8,4),
+                    price_mom_5d  NUMERIC(8,4),
+                    price_mom_10d NUMERIC(8,4),
+                    avg_range     NUMERIC(8,4),
+                    range_comp    NUMERIC(8,4),
+                    days_positive INTEGER,
+                    vwap_above    NUMERIC(8,4),
+                    high_prog     NUMERIC(8,4),
+                    gap_count     INTEGER,
+                    computed_at   TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(ticker, move_date)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS behavioral_pattern_matches (
+                    id            SERIAL PRIMARY KEY,
+                    scan_time     TIMESTAMPTZ DEFAULT NOW(),
+                    ticker        TEXT NOT NULL,
+                    similarity    NUMERIC(6,4),
+                    matched_ticker TEXT,
+                    matched_date  DATE,
+                    matched_move  NUMERIC(8,2),
+                    days_before_move INTEGER,
+                    current_fingerprint JSONB,
+                    template_fingerprint JSONB,
+                    verdict       TEXT
+                )
+            """)
+            conn.commit()
+        print("[behavioral] tables ready")
+    except Exception as e:
+        print(f"[behavioral] table init error: {e}")
+
+_init_behavioral_tables()
+
+
+def _compute_fingerprint(rows):
+    """
+    Given a list of daily rows (most recent first), compute a 14-dim behavioral
+    fingerprint. Each dimension measures something distinct about the stock's
+    character over the past 5-10 days.
+    rows format: list of dicts with keys:
+      close_price, open_price, high_price, low_price, vwap, volume,
+      prev_close, gap_pct, rvol, close_strength, range_pct
+    Returns dict of named features + numpy array for similarity math.
+    """
+    import numpy as _np_fp
+    if not rows or len(rows) < 3:
+        return None
+
+    def _safe(v, default=0.0):
+        try:
+            return float(v) if v is not None else default
+        except Exception:
+            return default
+
+    r = rows  # most recent first
+    n = len(r)
+
+    # ── Core 5-day averages ───────────────────────────────────────────────────
+    r5  = r[:min(5, n)]
+    r10 = r[:min(10, n)]
+
+    avg_gap  = _np_fp.mean([_safe(x.get('gap_pct')) for x in r5])
+    avg_rvol = _np_fp.mean([_safe(x.get('rvol'), 1.0) for x in r5])
+    avg_cs   = _np_fp.mean([_safe(x.get('close_strength'), 0.5) for x in r5])
+    avg_rng  = _np_fp.mean([_safe(x.get('range_pct')) for x in r5])
+
+    # ── Close-strength acceleration (buying urgency building?) ────────────────
+    cs_recent = _np_fp.mean([_safe(x.get('close_strength'), 0.5) for x in r[:2]]) if n >= 2 else avg_cs
+    cs_prior  = _np_fp.mean([_safe(x.get('close_strength'), 0.5) for x in r[2:5]]) if n >= 5 else avg_cs
+    cs_accel  = float(cs_recent - cs_prior)
+
+    # ── Volume acceleration (smart money stepping in?) ────────────────────────
+    vol_recent_5  = _np_fp.mean([_safe(x.get('volume'), 100000) for x in r[:2]]) if n >= 2 else 100000
+    vol_prior_5   = _np_fp.mean([_safe(x.get('volume'), 100000) for x in r[2:5]]) if n >= 5 else 100000
+    vol_accel_5d  = float((vol_recent_5 / max(vol_prior_5, 1)) - 1)
+
+    vol_recent_10 = _np_fp.mean([_safe(x.get('volume'), 100000) for x in r[:5]]) if n >= 5 else 100000
+    vol_prior_10  = _np_fp.mean([_safe(x.get('volume'), 100000) for x in r[5:10]]) if n >= 10 else vol_prior_5
+    vol_accel_10d = float((vol_recent_10 / max(vol_prior_10, 1)) - 1)
+
+    # ── Price momentum ────────────────────────────────────────────────────────
+    close_now = _safe(r[0].get('close_price'))
+    close_5d  = _safe(r[min(4, n-1)].get('close_price'))
+    close_10d = _safe(r[min(9, n-1)].get('close_price'))
+    price_mom_5d  = float((close_now / max(close_5d,  0.01)) - 1) if close_5d  > 0 else 0.0
+    price_mom_10d = float((close_now / max(close_10d, 0.01)) - 1) if close_10d > 0 else 0.0
+
+    # ── Range compression (coiling before breakout?) ──────────────────────────
+    rng_recent = _np_fp.mean([_safe(x.get('range_pct')) for x in r[:2]]) if n >= 2 else avg_rng
+    rng_prior  = _np_fp.mean([_safe(x.get('range_pct')) for x in r[2:5]]) if n >= 5 else avg_rng
+    range_comp = float(rng_prior - rng_recent)  # positive = tightening = coiling
+
+    # ── Days positive (consistent buying) ────────────────────────────────────
+    days_pos = sum(1 for x in r5
+                   if _safe(x.get('close_price')) > _safe(x.get('prev_close')))
+
+    # ── VWAP discipline (closes above VWAP = institutional support) ───────────
+    vwap_above = float(_np_fp.mean([
+        1.0 if _safe(x.get('close_price')) >= _safe(x.get('vwap'), _safe(x.get('close_price')))
+        else 0.0 for x in r5
+    ]))
+
+    # ── High progression (higher highs = trend strength) ─────────────────────
+    highs = [_safe(x.get('high_price')) for x in r5 if x.get('high_price')]
+    if len(highs) >= 2:
+        diffs = [highs[i] - highs[i+1] for i in range(len(highs)-1)]
+        high_prog = float(_np_fp.mean(diffs) / max(close_now, 0.01))
+    else:
+        high_prog = 0.0
+
+    # ── Gap consistency (multiple gap-up days = institutional accumulation) ───
+    gap_count = sum(1 for x in r5 if _safe(x.get('gap_pct')) > 0.5)
+
+    features = {
+        'avg_gap': round(float(avg_gap), 4),
+        'avg_rvol': round(float(avg_rvol), 4),
+        'avg_cs': round(float(avg_cs), 4),
+        'cs_accel': round(cs_accel, 4),
+        'vol_accel_5d': round(vol_accel_5d, 4),
+        'vol_accel_10d': round(vol_accel_10d, 4),
+        'price_mom_5d': round(price_mom_5d, 4),
+        'price_mom_10d': round(price_mom_10d, 4),
+        'avg_range': round(float(avg_rng), 4),
+        'range_comp': round(range_comp, 4),
+        'days_positive': int(days_pos),
+        'vwap_above': round(vwap_above, 4),
+        'high_prog': round(high_prog, 4),
+        'gap_count': int(gap_count),
+    }
+    vec = _np_fp.array([
+        features['avg_gap'], features['avg_rvol'], features['avg_cs'],
+        features['cs_accel'], features['vol_accel_5d'], features['vol_accel_10d'],
+        features['price_mom_5d'], features['price_mom_10d'], features['avg_range'],
+        features['range_comp'], float(features['days_positive']),
+        features['vwap_above'], features['high_prog'], float(features['gap_count']),
+    ], dtype=float)
+    return {'features': features, 'vec': vec}
+
+
+def _cosine_sim(a, b):
+    import numpy as _np_cs
+    na, nb = _np_cs.linalg.norm(a), _np_cs.linalg.norm(b)
+    if na == 0 or nb == 0:
+        return 0.0
+    return float(_np_cs.dot(a, b) / (na * nb))
+
+
+def _rebuild_templates(min_move_pct=10.0, days_before=10, max_templates=2000):
+    """
+    Rebuild pre_move_templates table from polygon_market_daily big-move events.
+    Called by scheduler Sunday night and on demand.
+    """
+    import json as _tj
+    print(f"[behavioral] rebuilding templates (min_move={min_move_pct}%, days_before={days_before})")
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            # Find big-move days
+            cur.execute("""
+                SELECT ticker, scan_date,
+                       CAST(((close_price / NULLIF(prev_close, 0)) - 1) * 100 AS NUMERIC(8,2)) AS move_pct
+                FROM polygon_market_daily
+                WHERE prev_close > 0 AND close_price > 0 AND volume > 50000
+                  AND ((close_price / NULLIF(prev_close, 0)) - 1) * 100 >= %s
+                ORDER BY scan_date DESC
+                LIMIT %s
+            """, (min_move_pct, max_templates))
+            moves = cur.fetchall()
+
+            built = 0
+            for ticker, move_date, move_pct in moves:
+                # Pull days_before worth of daily data
+                cur.execute("""
+                    SELECT close_price, open_price, high_price, low_price,
+                           vwap, volume, prev_close, gap_pct, rvol,
+                           close_strength, range_pct
+                    FROM polygon_market_daily
+                    WHERE ticker = %s AND scan_date < %s
+                    ORDER BY scan_date DESC LIMIT %s
+                """, (ticker, move_date, days_before))
+                hist_rows = [
+                    dict(close_price=r[0], open_price=r[1], high_price=r[2],
+                         low_price=r[3], vwap=r[4], volume=r[5],
+                         prev_close=r[6], gap_pct=r[7], rvol=r[8],
+                         close_strength=r[9], range_pct=r[10])
+                    for r in cur.fetchall()
+                ]
+                if len(hist_rows) < 3:
+                    continue
+                fp = _compute_fingerprint(hist_rows)
+                if fp is None:
+                    continue
+                f = fp['features']
+                cur.execute("""
+                    INSERT INTO pre_move_templates
+                        (ticker, move_date, move_pct, days_before,
+                         avg_gap, avg_rvol, avg_cs, cs_accel,
+                         vol_accel_5d, vol_accel_10d, price_mom_5d, price_mom_10d,
+                         avg_range, range_comp, days_positive, vwap_above,
+                         high_prog, gap_count)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (ticker, move_date) DO UPDATE SET
+                        move_pct=EXCLUDED.move_pct, avg_rvol=EXCLUDED.avg_rvol,
+                        computed_at=NOW()
+                """, (
+                    ticker, move_date, float(move_pct), days_before,
+                    f['avg_gap'], f['avg_rvol'], f['avg_cs'], f['cs_accel'],
+                    f['vol_accel_5d'], f['vol_accel_10d'],
+                    f['price_mom_5d'], f['price_mom_10d'],
+                    f['avg_range'], f['range_comp'], f['days_positive'],
+                    f['vwap_above'], f['high_prog'], f['gap_count'],
+                ))
+                built += 1
+            conn.commit()
+        print(f"[behavioral] {built} templates built/updated")
+        return built
+    except Exception as e:
+        print(f"[behavioral] template rebuild error: {e}")
+        return 0
+
+
+def _run_behavioral_comparison_scan():
+    """
+    Core 24/7 engine. Runs every 30 min during market hours + every 2 hours
+    overnight. For every currently active stock (unusual calls last 3 days +
+    today's high-rvol names), computes its 14-dim behavioral fingerprint and
+    compares it to the pre_move_templates library.
+    Saves top matches to behavioral_pattern_matches for the owner to review.
+    This answers: 'What does this stock look like NOW vs what other stocks
+    looked like BEFORE they made their big move?'
+    """
+    import json as _bj, datetime as _bd
+    import numpy as _np_bcs
+    print("[behavioral] starting comparison scan...")
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            # ── Step 1: Load templates ────────────────────────────────────────
+            cur.execute("""
+                SELECT ticker, move_date, move_pct, days_before,
+                       avg_gap, avg_rvol, avg_cs, cs_accel,
+                       vol_accel_5d, vol_accel_10d, price_mom_5d, price_mom_10d,
+                       avg_range, range_comp, days_positive, vwap_above,
+                       high_prog, gap_count
+                FROM pre_move_templates
+                WHERE move_pct >= 10
+                ORDER BY computed_at DESC LIMIT 2000
+            """)
+            templates = []
+            for r in cur.fetchall():
+                vec = _np_bcs.array([
+                    float(r[4] or 0), float(r[5] or 1), float(r[6] or 0.5),
+                    float(r[7] or 0), float(r[8] or 0), float(r[9] or 0),
+                    float(r[10] or 0), float(r[11] or 0), float(r[12] or 0),
+                    float(r[13] or 0), float(r[14] or 0), float(r[15] or 0),
+                    float(r[16] or 0), float(r[17] or 0),
+                ], dtype=float)
+                templates.append({
+                    'ticker': r[0], 'move_date': r[1], 'move_pct': float(r[2] or 0),
+                    'days_before': r[3], 'vec': vec,
+                    'features': dict(avg_gap=r[4], avg_rvol=r[5], avg_cs=r[6],
+                                     cs_accel=r[7], vol_accel_5d=r[8], price_mom_5d=r[10])
+                })
+
+            if not templates:
+                print("[behavioral] no templates yet — rebuilding now")
+                _rebuild_templates()
+                return
+
+            # ── Step 2: Get active tickers to scan ───────────────────────────
+            cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '3 days'
+                UNION
+                SELECT DISTINCT ticker FROM unusual_calls_microcap_log
+                WHERE last_seen >= NOW() - INTERVAL '3 days'
+                UNION
+                SELECT ticker FROM polygon_market_daily
+                WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+                  AND rvol >= 2.0 AND close_price >= 2
+                ORDER BY ticker LIMIT 300
+            """)
+            active_tickers = [r[0] for r in cur.fetchall()]
+
+            if not active_tickers:
+                print("[behavioral] no active tickers today")
+                return
+
+            # ── Step 3: Compute fingerprint for each active ticker ────────────
+            matches = []
+            for ticker in active_tickers:
+                cur.execute("""
+                    SELECT close_price, open_price, high_price, low_price,
+                           vwap, volume, prev_close, gap_pct, rvol,
+                           close_strength, range_pct
+                    FROM polygon_market_daily
+                    WHERE ticker = %s
+                    ORDER BY scan_date DESC LIMIT 14
+                """, (ticker,))
+                hist = [
+                    dict(close_price=r[0], open_price=r[1], high_price=r[2],
+                         low_price=r[3], vwap=r[4], volume=r[5],
+                         prev_close=r[6], gap_pct=r[7], rvol=r[8],
+                         close_strength=r[9], range_pct=r[10])
+                    for r in cur.fetchall()
+                ]
+                if len(hist) < 3:
+                    continue
+                fp = _compute_fingerprint(hist)
+                if fp is None:
+                    continue
+
+                # Find the best matching template
+                best_sim, best_tmpl = -1.0, None
+                for tmpl in templates:
+                    sim = _cosine_sim(fp['vec'], tmpl['vec'])
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_tmpl = tmpl
+
+                if best_tmpl and best_sim >= 0.80:
+                    verdict = (
+                        "STRONG PRE-MOVE PATTERN — behavior nearly identical to "
+                        f"{best_tmpl['ticker']} before its {best_tmpl['move_pct']:.0f}% move"
+                        if best_sim >= 0.92
+                        else "MODERATE SIMILARITY — worth watching, pattern developing"
+                    )
+                    matches.append({
+                        'ticker': ticker,
+                        'similarity': round(best_sim, 4),
+                        'matched_ticker': best_tmpl['ticker'],
+                        'matched_date': best_tmpl['move_date'],
+                        'matched_move': best_tmpl['move_pct'],
+                        'days_before_move': best_tmpl['days_before'],
+                        'current_fp': fp['features'],
+                        'template_fp': best_tmpl['features'],
+                        'verdict': verdict,
+                    })
+
+            matches.sort(key=lambda x: x['similarity'], reverse=True)
+
+            # ── Step 4: Save top 25 matches ───────────────────────────────────
+            scan_time = _bd.datetime.now(_ET_TZ)
+            for m in matches[:25]:
+                cur.execute("""
+                    INSERT INTO behavioral_pattern_matches
+                        (scan_time, ticker, similarity, matched_ticker,
+                         matched_date, matched_move, days_before_move,
+                         current_fingerprint, template_fingerprint, verdict)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    scan_time, m['ticker'], m['similarity'],
+                    m['matched_ticker'], m['matched_date'], m['matched_move'],
+                    m['days_before_move'],
+                    _bj.dumps(m['current_fp']), _bj.dumps(m['template_fp']),
+                    m['verdict'],
+                ))
+            conn.commit()
+
+        top = matches[:5]
+        print(f"[behavioral] scan complete — {len(matches)} matches | "
+              f"top: {[(m['ticker'], round(m['similarity'],2)) for m in top]}")
+
+    except Exception as e:
+        print(f"[behavioral] scan error: {e}")
+
+
+# ── AIEM tools for behavioral engine ─────────────────────────────────────────
+
+def _mkt_behavioral_templates(min_move_pct: float = 10.0,
+                               limit: int = 50) -> dict:
+    """Show the pre-move behavioral template library. These are the fingerprints
+    of what stocks looked like BEFORE they made a big move. The agent uses this
+    to understand what early accumulation patterns actually look like in the data."""
+    import psycopg2 as _pg_bt
+    try:
+        with _pg_bt.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, move_date, move_pct, avg_gap, avg_rvol, avg_cs,
+                       cs_accel, vol_accel_5d, price_mom_5d, days_positive,
+                       vwap_above, gap_count
+                FROM pre_move_templates
+                WHERE move_pct >= %s
+                ORDER BY move_pct DESC LIMIT %s
+            """, (min_move_pct, limit))
+            rows = cur.fetchall()
+            cur.execute("SELECT COUNT(*) FROM pre_move_templates")
+            total = cur.fetchone()[0]
+        templates = [{
+            'ticker': r[0], 'move_date': str(r[1]),
+            'move_pct': float(r[2] or 0),
+            'avg_gap': float(r[3] or 0), 'avg_rvol': float(r[4] or 0),
+            'avg_close_strength': float(r[5] or 0),
+            'cs_acceleration': float(r[6] or 0),
+            'vol_acceleration_5d': float(r[7] or 0),
+            'price_mom_5d_pct': round(float(r[8] or 0) * 100, 2),
+            'days_positive_of_5': r[9], 'vwap_above_pct': float(r[10] or 0),
+            'gap_days': r[11],
+        } for r in rows]
+        return {
+            'status': 'ok', 'total_templates': total,
+            'min_move_pct': min_move_pct, 'showing': len(templates),
+            'templates': templates,
+            'how_to_use': (
+                'These fingerprints show what stocks looked like BEFORE their big move. '
+                'High avg_rvol + rising cs_acceleration + positive vol_acceleration_5d '
+                'is the classic pre-move signature. Compare to mkt_find_behavioral_matches '
+                'to see which stocks today look like this.'
+            )
+        }
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
+
+
+def _mkt_find_behavioral_matches(min_similarity: float = 0.80,
+                                   min_move_pct: float = 10.0,
+                                   hours_back: int = 2,
+                                   limit: int = 20) -> dict:
+    """The core pre-move radar. Returns stocks whose CURRENT behavior most closely
+    matches the historical fingerprint of stocks BEFORE they made a big move.
+    Similarity >= 0.92 = nearly identical pattern. This runs automatically every
+    30 min but call this to get the latest results instantly."""
+    import psycopg2 as _pg_fm
+    try:
+        with _pg_fm.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, similarity, matched_ticker, matched_date,
+                       matched_move, days_before_move, verdict,
+                       current_fingerprint, scan_time
+                FROM behavioral_pattern_matches
+                WHERE scan_time >= NOW() - INTERVAL '%s hours'
+                  AND matched_move >= %s
+                  AND similarity >= %s
+                ORDER BY similarity DESC LIMIT %s
+            """, (hours_back, min_move_pct, min_similarity, limit))
+            rows = cur.fetchall()
+        results = [{
+            'ticker': r[0], 'similarity': float(r[1]),
+            'matched_to': r[2], 'matched_move_date': str(r[3]),
+            'matched_move_pct': float(r[4] or 0),
+            'days_before_that_move': r[5],
+            'verdict': r[6],
+            'current_metrics': r[7],
+            'scan_time': str(r[8]),
+        } for r in rows]
+        return {
+            'status': 'ok', 'matches': results, 'n': len(results),
+            'explanation': (
+                f'Stocks whose behavior over the last 5-14 days matches '
+                f'pre-move templates (>={int(min_move_pct)}% moves, '
+                f'similarity >={min_similarity}). '
+                f'The scan runs every 30 min automatically — this shows the freshest results.'
+            )
+        }
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
+
+
+def _mkt_retrospective_backtest(min_move_pct: float = 15.0,
+                                  predict_window_days: int = 5,
+                                  lookback_days: int = 45) -> dict:
+    """
+    Retrospective truth check: for every stock that made a big move in the
+    last N days, ask 'what did our behavioral fingerprint show X days before?'
+    This is how the agent asks: 'Could I have predicted this 5 days ago
+    based on what I know?' High similarity score on the pre-move day =
+    the pattern was visible and catchable.
+    """
+    import psycopg2 as _pg_rb, json as _rbj
+    import numpy as _np_rb
+    try:
+        with _pg_rb.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Find recent big movers
+            cur.execute("""
+                SELECT ticker, scan_date,
+                       CAST(((close_price/NULLIF(prev_close,0))-1)*100 AS NUMERIC(8,2)) AS move_pct
+                FROM polygon_market_daily
+                WHERE prev_close > 0 AND volume > 100000
+                  AND ((close_price/NULLIF(prev_close,0))-1)*100 >= %s
+                  AND scan_date >= CURRENT_DATE - %s
+                ORDER BY scan_date DESC LIMIT 60
+            """, (min_move_pct, lookback_days))
+            movers = cur.fetchall()
+
+            results = []
+            for ticker, move_date, move_pct in movers:
+                # Pull data from predict_window_days BEFORE the move
+                cur.execute("""
+                    SELECT close_price, open_price, high_price, low_price,
+                           vwap, volume, prev_close, gap_pct, rvol,
+                           close_strength, range_pct, scan_date
+                    FROM polygon_market_daily
+                    WHERE ticker = %s AND scan_date < %s
+                    ORDER BY scan_date DESC LIMIT 14
+                """, (ticker, move_date))
+                hist = cur.fetchall()
+                if len(hist) < 3:
+                    continue
+
+                rows_pre = [
+                    dict(close_price=r[0], open_price=r[1], high_price=r[2],
+                         low_price=r[3], vwap=r[4], volume=r[5],
+                         prev_close=r[6], gap_pct=r[7], rvol=r[8],
+                         close_strength=r[9], range_pct=r[10])
+                    for r in hist
+                ]
+                fp = _compute_fingerprint(rows_pre)
+                if fp is None:
+                    continue
+
+                # Check if a template exists for this exact event
+                cur.execute("""
+                    SELECT similarity, avg_rvol, avg_cs, cs_accel, vol_accel_5d
+                    FROM pre_move_templates WHERE ticker=%s AND move_date=%s
+                """, (ticker, move_date))
+                tmpl = cur.fetchone()
+
+                # Find best-matching OTHER template (not itself)
+                cur.execute("""
+                    SELECT ticker, move_date, move_pct,
+                           avg_gap, avg_rvol, avg_cs, cs_accel,
+                           vol_accel_5d, price_mom_5d, avg_range, range_comp,
+                           days_positive, vwap_above, high_prog, gap_count
+                    FROM pre_move_templates
+                    WHERE NOT (ticker=%s AND move_date=%s) AND move_pct >= 10
+                    ORDER BY RANDOM() LIMIT 200
+                """, (ticker, move_date))
+                tmpl_rows = cur.fetchall()
+
+                best_sim, best_match = 0.0, None
+                for tr in tmpl_rows:
+                    tvec = _np_rb.array([float(tr[i] or 0) for i in range(3, 15)], dtype=float)
+                    sim = _cosine_sim(fp['vec'], tvec)
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_match = tr
+
+                predictable = best_sim >= 0.85
+                results.append({
+                    'ticker': ticker,
+                    'move_date': str(move_date),
+                    'move_pct': float(move_pct),
+                    'fingerprint_before_move': fp['features'],
+                    'best_template_match': best_match[0] if best_match else None,
+                    'similarity_to_past_mover': round(best_sim, 4),
+                    'was_predictable': predictable,
+                    'verdict': (
+                        f"YES — pattern visible {predict_window_days}d before move. "
+                        f"Similarity {best_sim:.2f} to {best_match[0] if best_match else 'unknown'}"
+                        if predictable
+                        else f"Pattern not clearly visible (sim={best_sim:.2f}) — "
+                             f"this move came without the standard fingerprint"
+                    )
+                })
+
+            caught = sum(1 for r in results if r['was_predictable'])
+            return {
+                'status': 'ok',
+                'total_moves_analyzed': len(results),
+                'predictable_count': caught,
+                'predictability_rate_pct': round(caught/max(len(results),1)*100, 1),
+                'min_move_pct': min_move_pct,
+                'lookback_days': lookback_days,
+                'results': results,
+                'insight': (
+                    f"{caught}/{len(results)} big moves showed the behavioral fingerprint "
+                    f"before they happened. This is your theoretical catch rate if you "
+                    f"act on high-similarity signals."
+                )
+            }
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
+
+
+def _mkt_ticker_deep_compare(ticker: str, days_back: int = 14) -> dict:
+    """
+    Every metric, every timeframe for one stock. Volume today vs 5 days ago vs
+    10 days ago. Close strength trend. Range compression. VWAP discipline.
+    Price momentum at 3, 5, 10 day windows. Gap consistency. Options activity.
+    This gives the agent the complete behavioral picture for any stock it's
+    researching — like pulling the full chart but in numerical form.
+    """
+    import psycopg2 as _pg_tdc
+    ticker = ticker.upper().strip()
+    try:
+        with _pg_tdc.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT scan_date, close_price, open_price, high_price, low_price,
+                       vwap, volume, prev_close, gap_pct, rvol, close_strength, range_pct
+                FROM polygon_market_daily
+                WHERE ticker = %s ORDER BY scan_date DESC LIMIT %s
+            """, (ticker, days_back))
+            raw = cur.fetchall()
+
+            if not raw:
+                return {'status': 'ok', 'ticker': ticker, 'error': 'No data found'}
+
+            rows = [dict(
+                date=str(r[0]), close_price=float(r[1] or 0), open_price=float(r[2] or 0),
+                high_price=float(r[3] or 0), low_price=float(r[4] or 0),
+                vwap=float(r[5] or 0), volume=int(r[6] or 0),
+                prev_close=float(r[7] or 0), gap_pct=float(r[8] or 0),
+                rvol=float(r[9] or 1), close_strength=float(r[10] or 0.5),
+                range_pct=float(r[11] or 0)
+            ) for r in raw]
+
+            fp = _compute_fingerprint([dict(
+                close_price=r['close_price'], open_price=r['open_price'],
+                high_price=r['high_price'], low_price=r['low_price'],
+                vwap=r['vwap'], volume=r['volume'], prev_close=r['prev_close'],
+                gap_pct=r['gap_pct'], rvol=r['rvol'],
+                close_strength=r['close_strength'], range_pct=r['range_pct']
+            ) for r in rows])
+
+            # Options activity in this window
+            cur.execute("""
+                SELECT COUNT(*), MAX(vol_oi) AS max_voi, SUM(prem)/1000.0 AS total_prem_k
+                FROM unusual_calls_log
+                WHERE ticker = %s AND last_seen >= NOW() - INTERVAL '%s days'
+            """, (ticker, days_back))
+            opt = cur.fetchone()
+
+            # Find what this fingerprint most resembles
+            cur.execute("""
+                SELECT ticker, move_date, move_pct, avg_gap, avg_rvol, avg_cs,
+                       cs_accel, vol_accel_5d, price_mom_5d, avg_range,
+                       range_comp, days_positive, vwap_above, high_prog, gap_count
+                FROM pre_move_templates WHERE move_pct >= 10
+                ORDER BY computed_at DESC LIMIT 500
+            """)
+            import numpy as _np_tdc
+            best_sim, best_match = 0.0, None
+            if fp:
+                for tr in cur.fetchall():
+                    tvec = _np_tdc.array([float(tr[i] or 0) for i in range(3, 15)], dtype=float)
+                    sim = _cosine_sim(fp['vec'], tvec)
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_match = {'ticker': tr[0], 'move_date': str(tr[1]),
+                                      'move_pct': float(tr[2] or 0)}
+
+            return {
+                'status': 'ok', 'ticker': ticker, 'days_analyzed': len(rows),
+                'daily_history': rows,
+                'behavioral_fingerprint': fp['features'] if fp else None,
+                'options_activity': {
+                    'call_hits': int(opt[0] or 0),
+                    'max_vol_oi': float(opt[1] or 0),
+                    'total_premium_k': float(opt[2] or 0)
+                },
+                'closest_historical_match': best_match,
+                'similarity_to_pre_move': round(best_sim, 4),
+                'interpretation': (
+                    f"This stock's recent behavior ({days_back}d) has {round(best_sim*100,1)}% "
+                    f"similarity to {best_match['ticker'] if best_match else 'N/A'} "
+                    f"before its {best_match['move_pct'] if best_match else 0:.0f}% move."
+                    if best_match else "Build more templates first."
+                )
+            }
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
+
+
+def _mkt_net_flow_db(days_back: int = 5, min_rvol: float = 1.5,
+                      limit: int = 30) -> dict:
+    """
+    Net buy/sell pressure derived from polygon_market_daily. Uses close_strength
+    and volume to estimate institutional flow: close_strength > 0.6 with high
+    volume = buyers in control; < 0.4 = sellers. Multi-day sustained inflow is
+    the institutional accumulation signature. No live data dependency — pure DB.
+    Also shows if the flow is ACCELERATING (each day bigger than the last).
+    """
+    import psycopg2 as _pg_nf
+    try:
+        with _pg_nf.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH recent AS (
+                    SELECT ticker, scan_date, volume, close_strength, rvol,
+                           close_price, prev_close,
+                           CASE WHEN close_strength >= 0.5 THEN volume * close_strength
+                                ELSE -volume * (1 - close_strength) END AS flow_proxy
+                    FROM polygon_market_daily
+                    WHERE scan_date >= CURRENT_DATE - {days_back}
+                      AND rvol >= {min_rvol} AND close_price >= 1 AND volume > 10000
+                ),
+                agg AS (
+                    SELECT ticker,
+                           ROUND(SUM(flow_proxy)::numeric / 1000000, 2) AS net_flow_m,
+                           ROUND(AVG(close_strength)::numeric, 3) AS avg_cs,
+                           ROUND(MAX(rvol)::numeric, 2) AS max_rvol,
+                           COUNT(*) AS days_active,
+                           SUM(CASE WHEN flow_proxy > 0 THEN 1 ELSE 0 END) AS days_inflow,
+                           MAX(close_price) AS last_price,
+                           ROUND(SUM(volume)::numeric / 1000000, 2) AS total_vol_m
+                    FROM recent GROUP BY ticker
+                )
+                SELECT ticker, net_flow_m, avg_cs, max_rvol,
+                       days_active, days_inflow, last_price, total_vol_m
+                FROM agg
+                WHERE days_inflow >= 2
+                ORDER BY net_flow_m DESC LIMIT {limit}
+            """)
+            rows = cur.fetchall()
+
+        results = [{
+            'ticker': r[0], 'net_flow_m': float(r[1] or 0),
+            'avg_close_strength': float(r[2] or 0),
+            'max_rvol': float(r[3] or 0),
+            'days_active': r[4], 'days_with_inflow': r[5],
+            'last_price': float(r[6] or 0),
+            'total_volume_m': float(r[7] or 0),
+            'signal': (
+                'STRONG ACCUMULATION' if float(r[1] or 0) > 0 and r[5] >= (days_back - 1) and float(r[2] or 0) >= 0.6
+                else 'MODERATE INFLOW' if float(r[1] or 0) > 0 and r[5] >= 2
+                else 'MIXED'
+            )
+        } for r in rows]
+
+        return {
+            'status': 'ok', 'days_back': days_back, 'min_rvol': min_rvol,
+            'n': len(results), 'results': results,
+            'note': (
+                'Net flow proxy: volume × close_strength (above 0.5 = buyers controlled '
+                'the close). Multi-day sustained positive flow = institutional accumulation. '
+                'Cross-reference with mkt_ticker_options_history for highest conviction.'
+            )
+        }
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
+
+
+def _run_aiem_focused_session(session_name: str, focus_prompt: str,
+                               max_iterations: int = 12):
+    """
+    Parameterized research session. Called by 24/7 scheduler with different
+    prompts and iteration budgets for each time slot. The agent uses all its
+    tools but starts with a specific focus question for that session.
+    """
+    import json as _fsj, datetime as _fsd
+    print(f"[aiem_24h] starting session: {session_name}")
+    try:
+        from openai import OpenAI as _OAIFS
+        _oai = _OAIFS(
+            base_url="https://ai-integrations.replit.com/openai",
+            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
+        )
+    except Exception as _oe:
+        print(f"[aiem_24h:{session_name}] OpenAI init error: {_oe}")
+        return
+
+    # Full tool map — every tool available
+    _fs_tool_map = {
+        "mkt_behavioral_templates":    _mkt_behavioral_templates,
+        "mkt_find_behavioral_matches": _mkt_find_behavioral_matches,
+        "mkt_retrospective_backtest":  _mkt_retrospective_backtest,
+        "mkt_ticker_deep_compare":     _mkt_ticker_deep_compare,
+        "mkt_net_flow_db":             _mkt_net_flow_db,
+        "mkt_ticker_options_history":  _mkt_ticker_options_history,
+        "mkt_options_flow_scan":       _mkt_options_flow_scan,
+        "mkt_options_predicts_price":  _mkt_options_predicts_price,
+        "mkt_cross_confirm_options":   _mkt_cross_confirm_options_price,
+        "mkt_behavioral_templates":    _mkt_behavioral_templates,
+        "mkt_find_behavioral_matches": _mkt_find_behavioral_matches,
+        "mkt_retrospective_backtest":  _mkt_retrospective_backtest,
+        "mkt_ticker_deep_compare":     _mkt_ticker_deep_compare,
+        "mkt_net_flow_db":             _mkt_net_flow_db,
+        "mkt_explore_dimensions":      _mkt_tool_explore_dimensions,
+        "mkt_test_signal":             _mkt_tool_test_signal,
+        "mkt_analyze_top_movers":      _mkt_tool_analyze_top_movers,
+        "mkt_find_thresholds":         _mkt_tool_find_thresholds,
+        "mkt_validate_oos":            _mkt_tool_validate_oos,
+        "mkt_save_discovery":          _mkt_tool_save_discovery,
+        "mkt_load_discoveries":        _mkt_tool_load_discoveries,
+        "mkt_factor_correlations":     _mkt_tool_factor_correlations,
+        "mkt_quiet_accumulation":      _mkt_tool_quiet_accumulation,
+        "mkt_pre_squeeze_warning":     _mkt_tool_pre_squeeze_warning,
+        "mkt_52week_momentum":         _mkt_52week_high_momentum,
+        "mkt_capitulation_detector":   _detect_capitulation_signature,
+        "mkt_segment_by_cap_tier":     _mkt_tool_segment_by_cap_tier,
+        "mkt_regime_filter":           _mkt_tool_regime_filter,
+        "mkt_volume_patterns":         _mkt_tool_volume_patterns,
+        "mkt_price_patterns":          _mkt_tool_price_patterns,
+        "mkt_compute_momentum":        _mkt_tool_compute_momentum,
+        "mkt_build_composite":         _mkt_tool_build_composite,
+        "analyze_missed_movers":       _aiem_tool_analyze_missed_movers,
+        "query_pick_outcomes":         _aiem_tool_query_pick_outcomes,
+        "test_new_signal":             _aiem_tool_test_new_signal,
+        "run_statistical_significance": _aiem_tool_run_statistical_significance,
+        "save_research_model":         _aiem_tool_save_research_model,
+        "search_past_findings":        _aiem_tool_search_past_findings,
+    }
+
+    _fs_schema = _AIEM_AGENT_TOOLS  # reuse existing schema
+
+    session_system = (
+        _AIEM_AGENT_SYSTEM +
+        f"\n\nSESSION FOCUS ({session_name}): {focus_prompt}\n"
+        "Start immediately with the most relevant tools for this session's focus. "
+        "Be systematic. Every finding should be tested statistically before saving."
+    )
+
+    messages = [
+        {"role": "system", "content": session_system},
+        {"role": "user", "content": focus_prompt}
+    ]
+
+    for _i in range(max_iterations):
+        try:
+            resp = _oai.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                tools=_fs_schema,
+                tool_choice="auto",
+                max_tokens=2000,
+                temperature=0.3,
+            )
+            msg = resp.choices[0].message
+            messages.append(msg)
+            if not msg.tool_calls:
+                break
+            for tc in msg.tool_calls:
+                fn = tc.function.name
+                try:
+                    args = _fsj.loads(tc.function.arguments)
+                except Exception:
+                    args = {}
+                if fn in _fs_tool_map:
+                    result = _fs_tool_map[fn](**args)
+                else:
+                    result = {"error": f"unknown tool: {fn}"}
+                messages.append({
+                    "role": "tool", "tool_call_id": tc.id,
+                    "content": _fsj.dumps(result, default=str)[:6000]
+                })
+        except Exception as _e:
+            print(f"[aiem_24h:{session_name}] iteration {_i} error: {_e}")
+            break
+
+    print(f"[aiem_24h:{session_name}] complete ({_i+1} iterations)")
+
+
 _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "query_pick_outcomes",
@@ -19762,6 +20773,50 @@ _AIEM_AGENT_TOOLS = [
             "days_back": {"type": "integer", "description": "Lookback for options activity (default 5)"},
             "min_vol_oi": {"type": "number", "description": "Minimum vol/OI ratio to qualify (default 3.0)"},
             "min_premium_k": {"type": "number", "description": "Min premium in thousands, 0 = all sizes (default 0)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_behavioral_templates",
+        "description": "Show the library of pre-move behavioral fingerprints — what stocks looked like BEFORE they made a 10%+ move. Covers 14 dimensions: gap, RVOL, close_strength acceleration, volume acceleration, price momentum, range compression, VWAP discipline, high progression, gap consistency.",
+        "parameters": {"type": "object", "properties": {
+            "min_move_pct": {"type": "number", "description": "Minimum move size to include (default 10.0)"},
+            "limit": {"type": "integer", "description": "Max templates to return (default 50)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_find_behavioral_matches",
+        "description": "Core pre-move radar: stocks whose CURRENT 14-dim behavioral fingerprint most closely matches historical pre-move templates. Runs automatically every 30 min — call this to get latest results instantly. Similarity >= 0.92 = nearly identical pattern to a stock before its big move.",
+        "parameters": {"type": "object", "properties": {
+            "min_similarity": {"type": "number", "description": "Minimum cosine similarity (default 0.80, use 0.92 for high-confidence only)"},
+            "min_move_pct": {"type": "number", "description": "Minimum historical move size to match against (default 10.0)"},
+            "hours_back": {"type": "integer", "description": "How recent the scan results should be (default 2)"},
+            "limit": {"type": "integer", "description": "Max results (default 20)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_retrospective_backtest",
+        "description": "Truth check: for every stock that made a big move recently, what did its behavioral fingerprint show X days before? Answers: could I have predicted this? High similarity = the pattern was visible and catchable. Use this constantly to measure and improve predictability.",
+        "parameters": {"type": "object", "properties": {
+            "min_move_pct": {"type": "number", "description": "Minimum move size to analyze (default 15.0)"},
+            "predict_window_days": {"type": "integer", "description": "How many days before the move to look (default 5)"},
+            "lookback_days": {"type": "integer", "description": "How far back to find big moves (default 45)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_ticker_deep_compare",
+        "description": "Complete behavioral deep-dive for ONE ticker: every metric at every timeframe — volume today vs 5d vs 10d, close strength trend, range compression, VWAP discipline, price momentum at 3/5/10d, gap consistency, options activity, AND similarity to historical pre-move templates. The full picture in one call.",
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Stock ticker symbol"},
+            "days_back": {"type": "integer", "description": "Days of history to analyze (default 14)"},
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_net_flow_db",
+        "description": "Net institutional buy/sell flow derived from polygon_market_daily volume + close_strength. Multi-day sustained inflow (closing near highs on elevated volume repeatedly) = institutional accumulation signature. No live data dependency — instant DB query. Cross-reference with options flow for highest conviction.",
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Lookback window (default 5)"},
+            "min_rvol": {"type": "number", "description": "Minimum RVOL to include (default 1.5)"},
+            "limit": {"type": "integer", "description": "Max results (default 30)"},
         }, "required": []}
     }},
 ]
@@ -29228,6 +30283,60 @@ def _admin_dividends(ticker):
     if request.headers.get("X-Admin-Token","") != os.environ.get("ADMIN_TOKEN",""):
         return jsonify({"error":"unauthorized"}), 401
     return jsonify(_refresh_dividend_calendar(ticker.upper()))
+
+
+
+@app.route("/stock-api/behavioral-matches", methods=["GET"])
+def behavioral_matches_endpoint():
+    """
+    Returns the latest behavioral pattern matches — stocks whose current
+    14-dim fingerprint most closely matches historical pre-move templates.
+    The agent runs this scan every 30 min automatically. This endpoint
+    exposes the results to the frontend.
+    """
+    import psycopg2 as _pg_bme, json as _bmj
+    try:
+        hours_back = int(request.args.get("hours_back", 4))
+        min_sim    = float(request.args.get("min_similarity", 0.80))
+        limit      = min(int(request.args.get("limit", 30)), 50)
+        with _pg_bme.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (ticker)
+                    ticker, similarity, matched_ticker, matched_date,
+                    matched_move, days_before_move, verdict,
+                    current_fingerprint, scan_time
+                FROM behavioral_pattern_matches
+                WHERE scan_time >= NOW() - INTERVAL '%s hours'
+                  AND similarity >= %s
+                ORDER BY ticker, similarity DESC
+            """, (hours_back, min_sim))
+            rows = cur.fetchall()
+            cur.execute("SELECT COUNT(*) FROM pre_move_templates")
+            tmpl_count = cur.fetchone()[0]
+        results = [{
+            "ticker": r[0],
+            "similarity": float(r[1]),
+            "similarity_pct": f"{float(r[1])*100:.1f}%",
+            "matched_to": r[2],
+            "matched_move_date": str(r[3]),
+            "matched_move_pct": float(r[4] or 0),
+            "days_before_that_move": r[5],
+            "verdict": r[6],
+            "current_metrics": r[7],
+            "scan_time": str(r[8]),
+        } for r in rows]
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        return jsonify({
+            "status": "ok",
+            "results": results[:limit],
+            "n": len(results),
+            "template_library_size": tmpl_count,
+            "scan_frequency": "Every 30 min during market hours, every 2h overnight",
+            "hours_back": hours_back,
+            "min_similarity": min_sim,
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 @app.route("/stock-api/admin/grade-short-calls", methods=["POST"])
