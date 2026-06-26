@@ -2589,9 +2589,19 @@ try:
     def _run_aiem_research_job():
         try:
             import threading as _aiem_rt
-            _aiem_rt.Thread(target=_run_aiem_research_agent, daemon=True).start()
+            # Run ML retrain cycle first — train/validate/promote on settled picks
+            def _retrain_then_research():
+                try:
+                    from retrain_pipeline import run_retrain_cycle as _rtc
+                    _result = _rtc()
+                    print(f"[scheduler] retrain: promoted={_result.get('promoted')} "
+                          f"n={_result.get('n_samples')} reason={_result.get('reason','?')}")
+                except Exception as _rtc_e:
+                    print(f"[scheduler] retrain error: {_rtc_e}")
+                _run_aiem_research_agent()
+            _aiem_rt.Thread(target=_retrain_then_research, daemon=True).start()
             record_job_success("aiem_research_agent")
-            print("[scheduler] AI research agent started")
+            print("[scheduler] AI retrain + research agent started")
         except Exception as e:
             record_job_failure("aiem_research_agent", str(e))
             print(f"[scheduler] aiem research agent error: {e}")
@@ -12598,6 +12608,18 @@ def _save_ai_short_calls_to_log(picks: list, trade_date: str):
                     p.get("confirmed_2d"),
                 ))
             conn.commit()
+        # Log each pick into the ML prediction tracker
+        try:
+            from prediction_logger import log_prediction as _log_pred
+            from feature_engineering import build_feature_row as _bfr
+            for p in picks:
+                _ticker = p.get("ticker")
+                if _ticker:
+                    _feat = _bfr({"trade_date": trade_date, **p}, market_df=None)
+                    _log_pred(_ticker, trade_date, predicted_prob=None,
+                              features=_feat, model_version="rule_based")
+        except Exception as _pl_e:
+            print(f"[prediction_logger] log picks error: {_pl_e}")
         print(f"[ai_short_calls_log] saved {len(picks)} picks for {trade_date}")
     except Exception as e:
         print(f"[ai_short_calls_log] save error: {e}")
@@ -12712,6 +12734,15 @@ def _update_ai_short_call_outcomes():
                     cur.execute(f"UPDATE ai_short_calls_log SET {set_sql} WHERE id = %s",
                                 list(updates.values()) + [id_])
                     updated += 1
+                    # Resolve ML prediction log when pick settles
+                    if outcome != "OPEN":
+                        try:
+                            from prediction_logger import resolve_prediction as _res_pred
+                            _outcome_int = 1 if outcome == "WIN" else 0
+                            _ret = updates.get("t5_pct") or updates.get("t3_pct") or updates.get("t1_pct")
+                            _res_pred(ticker, str(trade_date), _outcome_int, _ret)
+                        except Exception as _rp_e:
+                            print(f"[prediction_logger] resolve error: {_rp_e}")
 
             conn.commit()
         print(f"[ai_short_calls_log] outcomes updated for {updated} entries")
