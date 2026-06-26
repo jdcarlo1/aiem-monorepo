@@ -2787,14 +2787,13 @@ try:
             _thr_sms.Thread(target=_poll_ask_sms, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] poll_ask_sms error: {e}")
-    for _ask_h in range(6, 24):
-        for _ask_m in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]:
-            _scheduler.add_job(
-                _run_poll_ask_sms,
-                CronTrigger(hour=_ask_h, minute=_ask_m, timezone=_ET),
-                id=f"poll_ask_sms_{_ask_h}_{_ask_m}",
-                replace_existing=True,
-            )
+    from apscheduler.triggers.interval import IntervalTrigger as _IntTrig
+    _scheduler.add_job(
+        _run_poll_ask_sms,
+        _IntTrig(minutes=1),
+        id="poll_ask_sms",
+        replace_existing=True,
+    )
 
     # Position monitor: poll Gmail for TRADE: emails every 15 min (market hours)
     def _run_poll_trade_emails():
