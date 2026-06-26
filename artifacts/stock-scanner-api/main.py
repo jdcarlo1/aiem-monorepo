@@ -13103,6 +13103,8 @@ def _get_aiem_research_context():
             total_w += w
             if adj:
                 for k, v in adj.items():
+                    if k.endswith("_p_value") or k.endswith("_n") or k.endswith("_warning") or k in ("note", "regime", "exit_timing"):
+                        continue
                     if isinstance(v, (int, float)):
                         ensemble_weights[k] = ensemble_weights.get(k, 0) + float(v) * w
 
