@@ -1,0 +1,93 @@
+# Code Review — `stockscanner_ai_options_sweep.txt` (Call Sweep Scanner)
+
+## 1. Scoring denominator is wrong / undocumented (highest priority)
+
+`_ICS_TOTAL_WEIGHT = 200` (line 46) is commented as "120 original + 80 new holy grail signals," but the actual numbers don't support that:
+
+- The automatable signals in `_compute_ics_score` (lines 199–262) sum to **107 pts** (20+15+15+12+10+8+8+6+5+5+3+7-3=107, note `earlyMorning` is mutually exclusive across its two branches so it only ever contributes 3, not 6), not 120.
+- The "not automatable" signals (oiSpike 4, quietTicker 3, darkPool 3, preCatalyst 3) add to **13 pts**, which checks out for 107+13=120 matching the manual tool. Fine so far.
+- `holy_grail.compute_holy_grail_signals` is imported with no visibility into its point cap from this file — the comment claims "up to 73 pts," but that's not enforced or asserted anywhere in this module. If `holy_grail` changes its weighting later, `_ICS_TOTAL_WEIGHT` silently becomes wrong and every score is mis-scaled.
+- 120 + 73 = 193, not 200. The extra 7 points in the denominator have no documented source.
+
+**Ask them:** show the actual point breakdown inside `holy_grail.compute_holy_grail_signals` and confirm whether 200 is intentional padding (e.g., headroom for a planned 9th holy-grail signal) or a leftover from an earlier version. Either way, hardcoding a denominator from a different file is fragile — it should either import a constant from `holy_grail` or assert the max attainable score at runtime.
+
+## 2. `_ICS_SMS_THRESHOLD = 80` is asserted, not derived
+
+The comment says this maps to a "65-70% win rate zone" (line 47), but nothing in this file computes or references a win-rate-to-score mapping. Given issue #1, the percentage math underlying that claim is suspect — if the denominator is off, the score-to-win-rate calibration is off too.
+
+**Ask them:** what backtest produced the 65-70% number, and was it run against the *current* `_ICS_TOTAL_WEIGHT=200` scaling, or an older one? If the denominator gets corrected, this threshold needs to be re-derived, not just left at 80.
+
+## 3. `earlyMorning` signal has a window gap and possible double-count illusion
+
+```python
+if now_et.hour == 9 and now_et.minute >= 30:
+    pts += 3
+elif now_et.hour == 10 and now_et.minute == 0:
+    pts += 3
+```
+
+This only fires during `9:30–9:59` and exactly `10:00:00` — `10:00:01` through `10:00:59` falls through and gets nothing, and the stated intent ("9:30–10:00 AM") isn't actually what's implemented (it should be `now_et.hour == 10 and now_et.minute == 0` *and seconds*, or simpler: compare against a `time` object range). Minor in points (3/200) but worth a clean fix:
+
+```python
+t = now_et.time()
+if datetime.strptime("09:30", "%H:%M").time() <= t <= datetime.strptime("10:00", "%H:%M").time():
+    pts += 3
+    labels.append("🌅 Early morning print (informed money)")
+```
+
+## 4. Legacy 6-signal conviction system is dead code
+
+`signals` / `conviction = len(signals)` (lines 365–397) are still computed and stored in `call_sweep_log`, but the actual gating and SMS copy (`_build_sweep_msg`) now run entirely off `ics_score`/`ics_labels`. The header logic in `_build_sweep_msg` even has a stale comment ("replaces the old 6-signal star rating") confirming this. Not a bug, but it's dead weight that:
+- doubles the work done per contract (two scoring systems running every scan)
+- risks someone reading `conviction` from the DB later and assuming it's still the 1–5 star scale described in the module docstring (lines 14–18), when it's actually now storing the ICS score (line 510 passes `ics_score` into the `conviction` column, not `len(signals)`)
+
+**This last point is an actual bug**, not just cruft: `_log_sweep_alert(... conviction, signals_fired)` is called with `ics_score` as the `conviction` argument (line 507-510), so the `call_sweep_log.conviction` column now silently holds 0–100 ICS values, not the 1–4 star rating the schema comment and docstring describe. Any downstream code or dashboard still treating `conviction` as a 1–4 star field will misread it.
+
+## 5. `_get_pc_ratio` always reads the *nearest* expiry, regardless of which expiry triggered the sweep
+
+`_scan_ticker_for_sweeps` loops over every valid expiry (`tk.options`) and computes signals per-strike per-expiry, but `pc_ratio` is computed once per ticker, from `exps[0]` (nearest expiry) only — line 151. If a sweep happens on a 3-week-out contract, the P/C ratio used to score it comes from a completely different (nearest-week) expiry's chain. That's a meaningful confluence-quality issue, not just cosmetic, since `nakedCall` is worth 20/200 points — the single biggest single signal.
+
+## 6. `multi_strike` flag conflates *all* qualifying hits across *all* expiries as one "sweep"
+
+`multi_strike = len(raw_hits) >= 2` (line 402) is set to True if a ticker has 2+ qualifying contracts anywhere across all expiries scanned. The `multiLegSweep` label says "coordinated" (implying same-day, related strikes), but two unrelated qualifying contracts — e.g., a weekly $50 call and a contract expiring in 25 days at $80 — would both get flagged as a "coordinated" multi-leg sweep even though they're not really one trade. Worth tightening to require same-expiry (or expiries within N days of each other) before granting the 15-pt bonus.
+
+## 7. `_get_repeat_sweep_days` window logic
+
+```sql
+WHERE sweep_date >= (now() AT TIME ZONE 'America/New_York')::date - 4
+  AND sweep_date < (now() AT TIME ZONE 'America/New_York')::date
+```
+
+The docstring says "last 3 trading days" but the SQL is a *calendar*-day window of 4 days back, not 3. Over a weekend (e.g., scanning on Monday), this window includes Thu/Fri/Sat/Sun, but Sat/Sun will never have sweep rows anyway since the scanner doesn't run on weekends (line 466-467) — so it's roughly correct in practice, but the off-by-one between "4 calendar days" and "3 trading days" should be made explicit/intentional rather than coincidentally working.
+
+## 8. Bare `except Exception: pass` around the per-contract loop (line 398)
+
+This swallows every error per options row silently — useful for skipping bad data, but if `holy_grail` or a column rename breaks parsing for an entire ticker, you'd get zero alerts with zero error signal until someone notices manually. Worth at least a debug-level log of how many rows were skipped per ticker per scan.
+
+## 9. Performance / cost — yfinance dependency
+
+Per 15-minute scan cycle, for every ticker in `universe`:
+- `_get_vwap` → 1 `yf.Ticker().history()` call
+- `_get_prev_close` → 1 more `yf.Ticker().history()` call (could be merged with the VWAP call — both pull historical bars, just different periods/intervals)
+- `_get_pc_ratio` → 1 `tk.options` + 1 `tk.option_chain()` call
+- `_scan_ticker_for_sweeps` main loop → 1 `tk.option_chain()` call **per valid expiry** (not just the nearest)
+
+For a universe of, say, 30 tickers each with 4-6 valid expiries, that's roughly 30 × (2 + 2 + 5) ≈ 270 yfinance HTTP calls every 15 minutes, all unauthenticated scraping calls with no rate-limit handling or backoff visible in this file. This is the same yfinance fragility you've already been trying to move off of elsewhere in StockScanner AI (Polygon/Tradier/ORATS) — this module wasn't migrated and is a likely source of intermittent missed scans or silent rate-limit failures (which would just look like empty `raw_hits` due to the bare excepts in #8).
+
+**Suggested fix direction:** at minimum, merge the VWAP and prev-close calls into a single `history(period="2d", interval="1m")` pull, and prioritize migrating this module's options-chain calls to whichever paid provider you've settled on, since it's the most request-heavy file in the scan loop.
+
+---
+
+## Summary for the dev
+
+| # | Issue | Severity |
+|---|-------|----------|
+| 1 | `_ICS_TOTAL_WEIGHT=200` doesn't match documented 120+73=193; source of holy_grail max is unverified | High — affects every score |
+| 4 | `conviction` column now stores ICS score (0-100), not legacy star rating (1-4) — schema/docstring mismatch | High — silent data integrity issue |
+| 5 | P/C ratio always pulled from nearest expiry regardless of which expiry the sweep is on | Medium-High — biggest single signal (20 pts) using mismatched data |
+| 2 | 80-point threshold's "65-70% win rate" claim not reproducible from this file alone | Medium — needs backtest source |
+| 6 | `multi_strike` flag doesn't require same/near expiry, so "coordinated" label can be misleading | Medium |
+| 9 | Heavy yfinance call volume per scan cycle, no backoff/rate-limit handling | Medium — reliability risk |
+| 3 | `earlyMorning` window has a small gap and doesn't quite match the stated 9:30-10:00 range | Low |
+| 7 | "3 trading days" docstring vs. 4-calendar-day SQL window | Low |
+| 8 | Bare `except: pass` per contract hides parsing failures silently | Low-Medium — observability gap |
