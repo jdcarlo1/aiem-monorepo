@@ -156,13 +156,36 @@ def build_cache():
     print(f"[build] {len(candidates)} candidate tickers — fetching float/SI …", flush=True)
 
     def _fetch_fi(ticker):
+        """Fetch float/short data from Finviz quote page (not yfinance .info)."""
         try:
-            info = yf.Ticker(ticker).info
-            return ticker, {
-                "float_shares": info.get("floatShares"),
-                "short_pct":    info.get("shortPercentOfFloat"),
-                "short_ratio":  info.get("shortRatio"),
-            }
+            url = f"https://finviz.com/quote.ashx?t={ticker}"
+            hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            resp = requests.get(url, headers=hdrs, timeout=10)
+            txt  = resp.text
+
+            def _fv(label):
+                m = re.search(re.escape(label) + r"</td><td[^>]*>([^<]+)</td>", txt)
+                return m.group(1).strip() if m else None
+
+            def _num(s):
+                if not s or s == "-":
+                    return None
+                s = s.replace(",", "")
+                if s.endswith("B"): return float(s[:-1]) * 1e9
+                if s.endswith("M"): return float(s[:-1]) * 1e6
+                if s.endswith("K"): return float(s[:-1]) * 1e3
+                try: return float(s)
+                except Exception: return None
+
+            fs_str  = _fv("Shs Float")
+            sf_str  = _fv("Short Float")
+            sr_str  = _fv("Short Ratio")
+            float_shares = _num(fs_str)
+            short_pct    = (_num(sf_str.rstrip("%")) / 100.0
+                            if sf_str and "%" in sf_str else None)
+            short_ratio  = _num(sr_str)
+            return ticker, {"float_shares": float_shares,
+                            "short_pct": short_pct, "short_ratio": short_ratio}
         except Exception:
             return ticker, {}
 
@@ -292,10 +315,10 @@ def score_quant_batch(cands: list) -> list:
     Weights: gap 20%, mom 30%, qual 20%, ft 15%, sq 15%.
     ft_z and sq_z are dropped (weight redistributed) when data is unavailable.
 
-    Grade thresholds (cross-sectional, per-day):
-        STRONG : top 15% of composite_z  OR composite_z ≥ 0.75
-        WATCH  : top 30% of composite_z  OR composite_z ≥ 0.25
-        SKIP   : below both thresholds
+    Grade thresholds (cross-sectional, per-day — both conditions must hold):
+        STRONG : top 15% AND composite_z ≥ 0.5
+        WATCH  : top 30% AND composite_z > 0
+        SKIP   : below either threshold
     """
     n = len(cands)
     if n < 3:
@@ -376,9 +399,9 @@ def score_quant_batch(cands: list) -> list:
     n15 = max(1, int(n * 0.15))
     n30 = max(2, int(n * 0.30))
     for rank, r in enumerate(results):
-        if rank < n15 or r["composite_z"] >= 0.75:
+        if rank < n15 and r["composite_z"] >= 0.5:
             r["grade"] = "STRONG"
-        elif rank < n30 or r["composite_z"] >= 0.25:
+        elif rank < n30 and r["composite_z"] > 0:
             r["grade"] = "WATCH"
         else:
             r["grade"] = "SKIP"
@@ -626,8 +649,24 @@ def print_report(stored: dict):
   Return lift  : {vs['ret']:.1f}% → {cs['ret']:.1f}% ({cs['ret']-vs['ret']:>+.1f} pp)
   Trade filter : {vs['n']} → {cs['n']} ({(vs['n']-cs['n'])/vs['n']*100:.0f}% of V2 signals filtered out)""")
 
+    # Quant-only per-trade breakdown (all quant STRONG trades, independent of V2)
+    print(f"\n  QUANT ALONE — all {qs['n']} STRONG trades")
+    print(f"  {'Ticker':<7} {'Week':<12} {'Qz':>7} {'Rnk':>4}  gap    m10    rv    → Ret%    P&L")
+    for lbl in WEEK_LABELS:
+        if lbl not in stored:
+            continue
+        _, qtt = stored[lbl]
+        for t in sorted(qtt, key=lambda x: x.get("composite_z", 0), reverse=True):
+            nr  = t["next_ret"]
+            fla = "✓" if nr > 0 else "✗"
+            print(f"  {t['ticker']:<7} {lbl:<12} "
+                  f"{t.get('composite_z', 0):>+7.3f} {t.get('rank', 0):>4}  "
+                  f"{t.get('gap', 0):>+5.1f}%  {t.get('mom10', 0):>+5.1f}%  "
+                  f"{t.get('rvol', 0):>4.1f}x  → {nr:>+5.1f}%  {fla}  "
+                  f"${max(-50, 1000 * nr / 100):>+5.0f}")
+
     # Combined pick detail
-    print(f"\n  COMBINED PICKS — full detail ({cs['n']} trades)")
+    print(f"\n  COMBINED PICKS — full detail ({cs['n']} trades where BOTH systems agree)")
     print(f"  {'Ticker':<7} {'Week':<12} {'V2sc':>5} {'Qz':>7}  gap    m10    rv    → Ret%    P&L")
     for lbl in WEEK_LABELS:
         if lbl not in stored:
@@ -645,6 +684,44 @@ def print_report(stored: dict):
                   f"{t.get('gap',0):>+5.1f}%  {t.get('mom10',0):>+5.1f}%  "
                   f"{t.get('rvol',0):>4.1f}x  → {nr:>+5.1f}%  {fla}  "
                   f"${max(-50, 1000*nr/100):>+5.0f}")
+
+    # ── >15% next-day mover analysis ─────────────────────────────────────────
+    # For every day in the backtest universe, find tickers that moved >=15%
+    # next day, then check whether V2, Quant, or Combined caught/missed them.
+    all_v2  = {t["ticker"] for t in tot_v}
+    all_qt  = {t["ticker"] for t in tot_q}
+    all_cm  = {t["ticker"] for t in tot_c}
+    big_move_days = {}
+    for lbl in WEEK_LABELS:
+        if lbl not in stored:
+            continue
+        v2t, qtt = stored[lbl]
+        for t in v2t + qtt:
+            nr = t.get("next_ret")
+            if nr is not None and abs(nr) >= 15:
+                tk = t["ticker"]
+                if tk not in big_move_days:
+                    big_move_days[tk] = {"ret": nr, "week": lbl}
+
+    if big_move_days:
+        print(f"\n  >15% NEXT-DAY MOVERS — caught vs missed")
+        print(f"  {'Ticker':<7} {'Week':<12} {'Ret%':>6}  V2?   QT?   Both?")
+        for tk, info in sorted(big_move_days.items(), key=lambda x: abs(x[1]["ret"]), reverse=True):
+            v2c  = "✓" if tk in all_v2 else "–"
+            qtc  = "✓" if tk in all_qt else "–"
+            cmc  = "✓" if tk in all_cm else "–"
+            print(f"  {tk:<7} {info['week']:<12} {info['ret']:>+5.1f}%  "
+                  f"{v2c:^5} {qtc:^5} {cmc:^5}")
+        v2_caught  = sum(1 for tk in big_move_days if tk in all_v2)
+        qt_caught  = sum(1 for tk in big_move_days if tk in all_qt)
+        cm_caught  = sum(1 for tk in big_move_days if tk in all_cm)
+        total_big  = len(big_move_days)
+        print(f"\n  V2 caught {v2_caught}/{total_big} big movers "
+              f"({v2_caught/total_big*100:.0f}%)")
+        print(f"  QT caught {qt_caught}/{total_big} big movers "
+              f"({qt_caught/total_big*100:.0f}%)")
+        print(f"  Combined caught {cm_caught}/{total_big} big movers "
+              f"({cm_caught/total_big*100:.0f}%)")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
