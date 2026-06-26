@@ -458,8 +458,10 @@ def fetch_rvol_map(tickers: list, bt_date: date) -> dict:
 def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
             fi_cache: dict) -> tuple:
     """
-    Returns (v2_strong, qt_strong) lists of trade dicts.
-    Each trade dict has: ticker, next_ret, grade, and system-specific fields.
+    Returns (v2_strong, qt_strong, full_universe) where full_universe is every
+    RVOL-gated candidate with its next-day return (None when unavailable).
+    This lets print_report find big movers that BOTH systems missed, not just
+    ones already captured in v2_strong or qt_strong.
     """
     bt_str = bt_date.strftime("%Y-%m-%d")
     d1, d5, d20 = iwm_stats(iwm_c, bt_date)
@@ -571,9 +573,18 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
     pend_s = f"  ({pending_v}V/{pending_q}Q pending)" if (pending_v or pending_q) else ""
     print(f"  |  V2 {vn}tr {vw}W ${vpl:+.0f}  |  QT {qn}tr {qw}W ${qpl:+.0f}{pend_s}")
 
+    # Full universe: every RVOL-gated candidate with its next-day return.
+    # Needed for big-mover analysis to flag missed signals.
+    full_universe = []
+    for c in cands_rv:
+        nr = nret(c["ticker"], c["cl"][-1])
+        if nr is not None:
+            full_universe.append({"ticker": c["ticker"], "next_ret": nr, "week": ""})
+
     return (
         [t for t in v2_strong if t["next_ret"] is not None],
         [t for t in qt_strong  if t["next_ret"] is not None],
+        full_universe,
     )
 
 
@@ -614,14 +625,16 @@ def print_report(stored: dict):
     sep = "  " + "─" * 90
     print(hdr); print(sub); print(sep)
 
-    tot_v, tot_q, tot_c = [], [], []
+    tot_v, tot_q, tot_c, tot_full = [], [], [], []
     for lbl in WEEK_LABELS:
         if lbl not in stored:
             continue
-        v2t, qtt = stored[lbl]
+        entry = stored[lbl]
+        v2t, qtt = entry[0], entry[1]
+        full_u   = entry[2] if len(entry) == 3 else []
         qt_set   = {t["ticker"] for t in qtt}
         combined = [t for t in v2t if t["ticker"] in qt_set]
-        tot_v.extend(v2t); tot_q.extend(qtt); tot_c.extend(combined)
+        tot_v.extend(v2t); tot_q.extend(qtt); tot_c.extend(combined); tot_full.extend(full_u)
         vs = stats(v2t); qs = stats(qtt); cs = stats(combined)
         print(f"  {lbl:<12} │ {vs['n']:>3} {vs['wr']:>4.0f}% ${vs['pl']:>+7.0f} "
               f"{vs['ret']:>+5.1f}% │ "
@@ -686,42 +699,40 @@ def print_report(stored: dict):
                   f"${max(-50, 1000*nr/100):>+5.0f}")
 
     # ── >15% next-day mover analysis ─────────────────────────────────────────
-    # For every day in the backtest universe, find tickers that moved >=15%
-    # next day, then check whether V2, Quant, or Combined caught/missed them.
-    all_v2  = {t["ticker"] for t in tot_v}
-    all_qt  = {t["ticker"] for t in tot_q}
-    all_cm  = {t["ticker"] for t in tot_c}
-    big_move_days = {}
-    for lbl in WEEK_LABELS:
-        if lbl not in stored:
-            continue
-        v2t, qtt = stored[lbl]
-        for t in v2t + qtt:
-            nr = t.get("next_ret")
-            if nr is not None and abs(nr) >= 15:
-                tk = t["ticker"]
-                if tk not in big_move_days:
-                    big_move_days[tk] = {"ret": nr, "week": lbl}
+    # Sources from the full RVOL-gated universe (not just picked signals) so
+    # we can correctly report big movers that BOTH systems missed.
+    all_v2_tickers = {t["ticker"] for t in tot_v}
+    all_qt_tickers = {t["ticker"] for t in tot_q}
+    all_cm_tickers = {t["ticker"] for t in tot_c}
 
-    if big_move_days:
-        print(f"\n  >15% NEXT-DAY MOVERS — caught vs missed")
-        print(f"  {'Ticker':<7} {'Week':<12} {'Ret%':>6}  V2?   QT?   Both?")
-        for tk, info in sorted(big_move_days.items(), key=lambda x: abs(x[1]["ret"]), reverse=True):
-            v2c  = "✓" if tk in all_v2 else "–"
-            qtc  = "✓" if tk in all_qt else "–"
-            cmc  = "✓" if tk in all_cm else "–"
+    big_movers = {}
+    for u in tot_full:
+        nr = u.get("next_ret")
+        if nr is not None and abs(nr) >= 15:
+            tk = u["ticker"]
+            if tk not in big_movers or abs(nr) > abs(big_movers[tk]["ret"]):
+                big_movers[tk] = {"ret": nr, "week": u.get("week", "")}
+
+    if big_movers:
+        print(f"\n  >15% NEXT-DAY MOVERS from full RVOL-gated universe — caught vs missed")
+        print(f"  {'Ticker':<7} {'Week':<12} {'Ret%':>6}  V2?   QT?   Both?  Miss?")
+        for tk, info in sorted(big_movers.items(), key=lambda x: abs(x[1]["ret"]), reverse=True):
+            v2c = "✓" if tk in all_v2_tickers else "–"
+            qtc = "✓" if tk in all_qt_tickers else "–"
+            cmc = "✓" if tk in all_cm_tickers else "–"
+            missed = "MISS" if (v2c == "–" and qtc == "–") else ""
             print(f"  {tk:<7} {info['week']:<12} {info['ret']:>+5.1f}%  "
-                  f"{v2c:^5} {qtc:^5} {cmc:^5}")
-        v2_caught  = sum(1 for tk in big_move_days if tk in all_v2)
-        qt_caught  = sum(1 for tk in big_move_days if tk in all_qt)
-        cm_caught  = sum(1 for tk in big_move_days if tk in all_cm)
-        total_big  = len(big_move_days)
-        print(f"\n  V2 caught {v2_caught}/{total_big} big movers "
-              f"({v2_caught/total_big*100:.0f}%)")
-        print(f"  QT caught {qt_caught}/{total_big} big movers "
-              f"({qt_caught/total_big*100:.0f}%)")
-        print(f"  Combined caught {cm_caught}/{total_big} big movers "
-              f"({cm_caught/total_big*100:.0f}%)")
+                  f"{v2c:^5} {qtc:^5} {cmc:^5}  {missed}")
+        total_big = len(big_movers)
+        v2_caught = sum(1 for tk in big_movers if tk in all_v2_tickers)
+        qt_caught = sum(1 for tk in big_movers if tk in all_qt_tickers)
+        cm_caught = sum(1 for tk in big_movers if tk in all_cm_tickers)
+        both_missed = sum(1 for tk in big_movers
+                         if tk not in all_v2_tickers and tk not in all_qt_tickers)
+        print(f"\n  V2 caught {v2_caught}/{total_big} ({v2_caught/total_big*100:.0f}%)")
+        print(f"  QT caught {qt_caught}/{total_big} ({qt_caught/total_big*100:.0f}%)")
+        print(f"  Combined  {cm_caught}/{total_big} ({cm_caught/total_big*100:.0f}%)")
+        print(f"  Both missed: {both_missed}/{total_big} ({both_missed/total_big*100:.0f}%)")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -743,11 +754,14 @@ def run_backtest():
     for bt_date, next_date, week_lbl in TRADING_DAYS:
         if week_lbl in weeks_done:
             continue
-        v2s, qts = run_day(bt_date, next_date, all_hist, iwm_c, fi_cache)
+        v2s, qts, full = run_day(bt_date, next_date, all_hist, iwm_c, fi_cache)
+        # Tag each universe entry with its week label for mover reporting
+        for u in full:
+            u["week"] = week_lbl
         if week_lbl not in stored:
-            stored[week_lbl] = ([], [])
-        old_v2, old_qt = stored[week_lbl]
-        stored[week_lbl] = (old_v2 + v2s, old_qt + qts)
+            stored[week_lbl] = ([], [], [])
+        old_v2, old_qt, old_full = stored[week_lbl] if len(stored[week_lbl]) == 3 else (*stored[week_lbl], [])
+        stored[week_lbl] = (old_v2 + v2s, old_qt + qts, old_full + full)
         pickle.dump(stored, open(RESULTS_PATH, "wb"))
 
     print_report(stored)
