@@ -5,6 +5,16 @@ import os
 import math
 import threading
 
+def _thread_excepthook(args):
+    """Global safety net: log unhandled background thread exceptions instead of
+    letting them silently crash the thread (or in some Python versions, the process).
+    The main Flask process stays up; only the individual background job dies."""
+    import sys
+    print(f"[thread_guard] unhandled exception in thread '{args.thread.name}': "
+          f"{args.exc_type.__name__}: {args.exc_value}", file=sys.stderr)
+
+threading.excepthook = _thread_excepthook
+
 from scanner import analyze_ticker, scan_tickers, WATCHLIST_DEFAULT, fetch_stock_data
 from portfolio import get_portfolio, add_position, remove_position, get_portfolio_value
 from backtest import backtest_strategy
