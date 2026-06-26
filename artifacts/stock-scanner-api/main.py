@@ -2344,6 +2344,22 @@ try:
         id="aiem_miss_detection",
         replace_existing=True,
     )
+    # Continuous Research Loop: 6 PM ET Mon-Fri — daily autonomous hypothesis sweep.
+    # Tests 11 standard signal templates against today's new outcome data,
+    # saves any significant findings (p<0.05) to DB for Sunday consolidation.
+    # This is what makes the system smarter every day, not just on Sundays.
+    def _run_continuous_research_job():
+        try:
+            import threading as _crj_thr
+            _crj_thr.Thread(target=_run_aiem_continuous_research, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] continuous research error: {e}")
+    _scheduler.add_job(
+        _run_continuous_research_job,
+        CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=_ET),
+        id="aiem_continuous_research",
+        replace_existing=True,
+    )
     # Loop B — morning forward-looking scan: 9:05 AM ET Mon-Fri
     # Reads fresh Polygon RVOL + conviction + sweep signals, applies learned weights,
     # saves ranked 3-5 day breakout predictions to aiem_predictions table.
@@ -2355,7 +2371,7 @@ try:
             print(f"[scheduler] aiem morning scan error: {e}")
     _scheduler.add_job(
         _run_aiem_morning_job,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=5, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=7, timezone=_ET),
         id="aiem_morning_scan",
         replace_existing=True,
     )
@@ -14292,6 +14308,783 @@ def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
 
 # ── The agentic loop ───────────────────────────────────────────────────────────
 
+
+# ════════════════════════════════════════════════════════════════════════════
+# SIGNAL DISCOVERY ENGINE  —  autonomous hypothesis testing + indicator creation
+# Tools: list_signal_dimensions, test_new_signal, analyze_missed_movers
+# Loop:  _run_aiem_continuous_research  (daily 6 PM ET, also Sunday 7 PM)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _aiem_tool_list_signal_dimensions():
+    """
+    Show all queryable signal dimensions with distributions.
+    Call this FIRST before composing any hypothesis — it tells you exactly
+    what fields exist, their ranges, and how many rows have each field.
+    """
+    import math as _lm
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # Base dataset stats
+            _cu.execute("""
+                SELECT
+                    COUNT(*) AS total_signals,
+                    COUNT(CASE WHEN t3_win THEN 1 END) AS t3_wins,
+                    COUNT(CASE WHEN NOT t3_win THEN 1 END) AS t3_losses,
+                    COUNT(CASE WHEN t5_win IS NOT NULL THEN 1 END) AS t5_graded,
+                    MIN(signal_date) AS earliest,
+                    MAX(signal_date) AS latest,
+                    ROUND(AVG(CASE WHEN t3_win THEN 1.0 ELSE 0 END)*100,1) AS baseline_t3_wr,
+                    ROUND(AVG(t3_pct)*100,2) AS baseline_t3_avg_pct
+                FROM signal_outcomes
+                WHERE t3_win IS NOT NULL
+            """)
+            base = _cu.fetchone()
+
+            # Sweep overlay
+            _cu.execute("""
+                SELECT COUNT(DISTINCT so.id) as sweep_count,
+                       ROUND(AVG(ucl.vol_oi),2) as avg_vol_oi,
+                       ROUND(AVG(ucl.prem::float/1e6),3) as avg_prem_m,
+                       ROUND(MIN(ucl.vol_oi),2) as min_vol_oi,
+                       ROUND(MAX(ucl.vol_oi),2) as max_vol_oi
+                FROM signal_outcomes so
+                JOIN unusual_calls_log ucl ON ucl.ticker=so.ticker
+                    AND DATE(ucl.last_seen AT TIME ZONE 'America/New_York')=so.signal_date
+                WHERE so.t3_win IS NOT NULL
+            """)
+            sweep = _cu.fetchone()
+
+            # call_put_ratio distribution
+            _cu.execute("""
+                SELECT ROUND(MIN(call_put_ratio)::numeric,2),
+                       ROUND(percentile_cont(0.25) WITHIN GROUP(ORDER BY call_put_ratio)::numeric,2),
+                       ROUND(percentile_cont(0.50) WITHIN GROUP(ORDER BY call_put_ratio)::numeric,2),
+                       ROUND(percentile_cont(0.75) WITHIN GROUP(ORDER BY call_put_ratio)::numeric,2),
+                       ROUND(MAX(call_put_ratio)::numeric,2),
+                       COUNT(call_put_ratio)
+                FROM signal_outcomes WHERE t3_win IS NOT NULL AND call_put_ratio IS NOT NULL
+            """)
+            cpr = _cu.fetchone()
+
+            # premium_m distribution
+            _cu.execute("""
+                SELECT ROUND(MIN(premium_m)::numeric,3),
+                       ROUND(percentile_cont(0.25) WITHIN GROUP(ORDER BY premium_m)::numeric,3),
+                       ROUND(percentile_cont(0.50) WITHIN GROUP(ORDER BY premium_m)::numeric,3),
+                       ROUND(percentile_cont(0.75) WITHIN GROUP(ORDER BY premium_m)::numeric,3),
+                       ROUND(MAX(premium_m)::numeric,2),
+                       COUNT(premium_m)
+                FROM signal_outcomes WHERE t3_win IS NOT NULL AND premium_m IS NOT NULL
+            """)
+            prem = _cu.fetchone()
+
+            # day_of_week breakdown
+            _cu.execute("""
+                SELECT TO_CHAR(signal_date,'FMDay') as dow,
+                       COUNT(*) as n,
+                       ROUND(AVG(CASE WHEN t3_win THEN 1.0 ELSE 0 END)*100,1) as wr
+                FROM signal_outcomes WHERE t3_win IS NOT NULL
+                GROUP BY dow ORDER BY wr DESC
+            """)
+            dow = _cu.fetchall()
+
+            # session breakdown
+            _cu.execute("""
+                SELECT session, COUNT(*) as n,
+                       ROUND(AVG(CASE WHEN t3_win THEN 1.0 ELSE 0 END)*100,1) as wr
+                FROM signal_outcomes WHERE t3_win IS NOT NULL AND session IS NOT NULL
+                GROUP BY session ORDER BY wr DESC
+            """)
+            sess = _cu.fetchall()
+
+        return {
+            "status": "ok",
+            "dataset_summary": {
+                "total_graded_signals": base[0],
+                "t3_wins": base[1], "t3_losses": base[2], "t5_graded": base[3],
+                "date_range": f"{base[4]} to {base[5]}",
+                "baseline_t3_win_rate_pct": float(base[6]) if base[6] else None,
+                "baseline_t3_avg_return_pct": float(base[7]) if base[7] else None,
+                "note": "Baseline ~50%% — any signal pushing above 57%% with n≥15 is worth tracking",
+            },
+            "sweep_overlay": {
+                "signals_with_sweep_same_day": sweep[0],
+                "avg_vol_oi": float(sweep[1]) if sweep[1] else None,
+                "avg_prem_m": float(sweep[2]) if sweep[2] else None,
+                "vol_oi_range": f"{sweep[3]} to {sweep[4]}",
+            },
+            "available_conditions": {
+                "numeric_fields": {
+                    "call_put_ratio": {
+                        "description": "Call/put premium ratio at signal time",
+                        "range": f"{cpr[0]} to {cpr[4]}", "p25": float(cpr[1] or 0),
+                        "median": float(cpr[2] or 0), "p75": float(cpr[3] or 0),
+                        "n_non_null": cpr[5],
+                        "usage": "call_put_ratio > 2.0"
+                    },
+                    "premium_m": {
+                        "description": "Sweep premium in $millions",
+                        "range": f"{prem[0]} to {prem[4]}", "p25": float(prem[1] or 0),
+                        "median": float(prem[2] or 0), "p75": float(prem[3] or 0),
+                        "n_non_null": prem[5],
+                        "usage": "premium_m > 0.5"
+                    },
+                    "sweep_vol_oi": {
+                        "description": "Max volume/open-interest ratio from unusual calls on signal date",
+                        "range": "0 to 50+", "typical": "2-10 for unusual activity",
+                        "usage": "sweep_vol_oi > 5"
+                    },
+                    "sweep_premium_m": {
+                        "description": "Max unusual call premium ($M) on signal date",
+                        "usage": "sweep_premium_m > 1.0"
+                    },
+                    "sweep_iv": {
+                        "description": "Max IV seen on unusual calls on signal date (as decimal, e.g. 0.8 = 80%%)",
+                        "usage": "sweep_iv > 0.8"
+                    },
+                    "days_out": {
+                        "description": "Days to expiry of the sweep option",
+                        "usage": "days_out < 30  (means short-dated = more aggressive)"
+                    },
+                    "otm_pct": {
+                        "description": "How far OTM the sweep strike was (negative = OTM)",
+                        "usage": "otm_pct > -10  (near-ATM sweep)"
+                    },
+                },
+                "boolean_fields": {
+                    "has_sweep": {
+                        "description": "Ticker had unusual call sweep on same day as signal",
+                        "coverage": f"{sweep[0]} of {base[0]} signals",
+                        "usage": "has_sweep = true"
+                    },
+                },
+                "categorical_fields": {
+                    "session": {
+                        "description": "Time of day the signal was detected",
+                        "values": [{"session": r[0], "n": r[1], "win_rate_pct": float(r[2])} for r in sess],
+                        "usage": "session = market-open"
+                    },
+                    "day_of_week": {
+                        "description": "Day the signal fired",
+                        "values": [{"day": r[0].strip(), "n": r[1], "win_rate_pct": float(r[2])} for r in dow],
+                        "usage": "day_of_week = Friday"
+                    },
+                    "cap_tier": {
+                        "description": "Market cap tier",
+                        "values": ["nano (<$300M)", "micro ($300M-$2B)", "small ($2B-$10B)", "mid (>$10B)"],
+                        "usage": "cap_tier = nano"
+                    },
+                },
+                "compound_examples": [
+                    "has_sweep = true AND call_put_ratio > 2.0",
+                    "session = market-open AND sweep_vol_oi > 5",
+                    "has_sweep = true AND days_out < 21 AND otm_pct > -15",
+                    "premium_m > 1.0 AND call_put_ratio > 3.0",
+                    "day_of_week = Tuesday AND has_sweep = true",
+                    "sweep_iv > 0.9 AND sweep_vol_oi > 8",
+                ]
+            },
+            "targets": {
+                "t3_win": "3-day win/loss (binary) — most data",
+                "t5_win": "5-day win/loss (binary)",
+                "t3_pct": "3-day return %% (continuous)",
+                "t5_pct": "5-day return %% (continuous)",
+            },
+            "instructions": (
+                "Start with list_signal_dimensions, then compose hypotheses using test_new_signal. "
+                "Combine 2-4 conditions. If a signal shows p<0.05 with n>=15, register it with "
+                "register_hypotheses. Test the INVERSE of any finding to validate it's real. "
+                "New data accumulates daily — re-test old hypotheses weekly."
+            )
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def _aiem_tool_test_new_signal(conditions=None, target="t3_win", lookback_days=90,
+                                segment_by=None, compare_to=None):
+    """
+    Test a novel signal hypothesis against real historical data.
+
+    conditions: list of condition strings, e.g.:
+        ["has_sweep = true", "call_put_ratio > 2.0", "session = market-open"]
+        ["sweep_vol_oi > 5", "days_out < 30"]
+        ['day_of_week = Tuesday', 'has_sweep = true']
+        ["premium_m > 1.0", "otm_pct > -15"]
+
+    target: t3_win (default), t5_win, t3_pct, t5_pct
+
+    segment_by: optionally break down by a field:
+        "day_of_week", "session", "cap_tier", "has_sweep"
+
+    compare_to: a second set of conditions to A/B test against this one.
+        e.g. compare_to=['has_sweep = false'] to see sweep vs no-sweep
+
+    The agent should call this multiple times, varying conditions, to discover
+    which combinations produce statistically real edge. Every call is free —
+    test aggressively.
+    """
+    import re as _re, math as _tm
+    try:
+        import scipy.stats as _stats
+        import numpy as _np
+    except ImportError:
+        return {"status": "error", "error": "scipy not available"}
+
+    if not conditions:
+        return {"status": "error", "error": "conditions list required. Call list_signal_dimensions first."}
+
+    # ── Safe condition parser ─────────────────────────────────────────────────
+    # Maps human-readable field names to SQL expressions in the CTE below.
+    # ONLY these fields are allowed — no arbitrary SQL injection possible.
+    _FIELD_SQL = {
+        "call_put_ratio":  "so.call_put_ratio",
+        "premium_m":       "so.premium_m",
+        "sweep_vol_oi":    "COALESCE(sw.max_vol_oi, 0)",
+        "sweep_premium_m": "COALESCE(sw.max_prem_m, 0)",
+        "sweep_iv":        "COALESCE(sw.max_iv, 0)",
+        "days_out":        "so_uc.min_days_out",
+        "otm_pct":         "so_uc.avg_otm_pct",
+    }
+    _STR_FIELD_SQL = {
+        "session": "so.session",
+        "day_of_week": "TRIM(TO_CHAR(so.signal_date, 'FMDay'))",
+    }
+    _DAY_MAP = {"sunday":0,"monday":1,"tuesday":2,"wednesday":3,"thursday":4,"friday":5,"saturday":6}
+    _CAP_TIERS = {
+        "nano":  "so.mkt_cap_m < 300",
+        "micro": "so.mkt_cap_m BETWEEN 300 AND 2000",
+        "small": "so.mkt_cap_m BETWEEN 2000 AND 10000",
+        "mid":   "so.mkt_cap_m > 10000",
+    }
+
+    def _parse_conditions(cond_list):
+        parts = []
+        for raw in (cond_list or []):
+            c = raw.strip()
+            # Boolean: has_sweep = true/false
+            m = _re.match(r"has_sweep\s*=\s*(true|false)", c, _re.IGNORECASE)
+            if m:
+                parts.append("COALESCE(sw.has_sweep,0) = " + ("1" if m.group(1).lower()=="true" else "0"))
+                continue
+            # cap_tier
+            m = _re.match(r"cap_tier\s*=\s*[\"']?(\w+)[\"']?", c, _re.IGNORECASE)
+            if m:
+                sql = _CAP_TIERS.get(m.group(1).lower())
+                if sql: parts.append(sql)
+                continue
+            # day_of_week
+            m = _re.match(r"day_of_week\s*=\s*[\"']?(\w+)[\"']?", c, _re.IGNORECASE)
+            if m:
+                parts.append(f"EXTRACT(DOW FROM so.signal_date) = {_DAY_MAP.get(m.group(1).lower(),1)}")
+                continue
+            # string fields: session = X
+            m = _re.match(r"(session)\s*=\s*[\"']?([\w\-]+)[\"']?", c, _re.IGNORECASE)
+            if m:
+                field, val = m.group(1).lower(), m.group(2)
+                sql_f = _STR_FIELD_SQL.get(field)
+                if sql_f: parts.append("%s = '%s'" % (sql_f, val))
+                continue
+            # numeric: field op value
+            m = _re.match(r"(\w+)\s*(>=|<=|!=|>|<|=)\s*([\d\.\-]+)", c)
+            if m:
+                field, op, val = m.group(1), m.group(2), m.group(3)
+                sql_f = _FIELD_SQL.get(field)
+                if sql_f:
+                    try: parts.append(f"{sql_f} {op} {float(val)}")
+                    except ValueError: pass
+                continue
+            # unrecognized — skip silently but note it
+        return parts
+
+    def _run_query(cond_sql_parts, tgt, lb):
+        where_extra = ""
+        if cond_sql_parts:
+            where_extra = " AND " + " AND ".join(cond_sql_parts)
+        tgt_col_map = {
+            "t3_win": "so.t3_win", "t5_win": "so.t5_win",
+            "t3_pct": "so.t3_pct", "t5_pct": "so.t5_pct",
+        }
+        tgt_col = tgt_col_map.get(tgt, "so.t3_win")
+        is_binary = tgt.endswith("_win")
+        avail_clause = "so.t3_win IS NOT NULL" if is_binary else f"{tgt_col} IS NOT NULL"
+
+        sql = f"""
+            WITH sw AS (
+                SELECT ticker,
+                       DATE(last_seen AT TIME ZONE 'America/New_York') AS sweep_date,
+                       1 AS has_sweep,
+                       MAX(vol_oi) AS max_vol_oi,
+                       MAX(prem::float/1e6) AS max_prem_m,
+                       MAX(iv) AS max_iv
+                FROM unusual_calls_log
+                GROUP BY ticker, DATE(last_seen AT TIME ZONE 'America/New_York')
+            ),
+            so_uc AS (
+                SELECT ticker,
+                       DATE(last_seen AT TIME ZONE 'America/New_York') AS uc_date,
+                       MIN(days_out) AS min_days_out,
+                       AVG(otm_pct) AS avg_otm_pct
+                FROM unusual_calls_log
+                GROUP BY ticker, DATE(last_seen AT TIME ZONE 'America/New_York')
+            )
+            SELECT {tgt_col},
+                   so.signal_date,
+                   so.session,
+                   EXTRACT(DOW FROM so.signal_date) AS dow_num,
+                   COALESCE(sw.has_sweep,0) AS has_sweep,
+                   so.mkt_cap_m
+            FROM signal_outcomes so
+            LEFT JOIN sw ON sw.ticker=so.ticker AND sw.sweep_date=so.signal_date
+            LEFT JOIN so_uc ON so_uc.ticker=so.ticker AND so_uc.uc_date=so.signal_date
+            WHERE {avail_clause}
+              AND so.signal_date >= NOW()::date - {int(lb)}
+              {where_extra}
+        """
+        with _psycopg2.connect(_DB_URL) as _c2, _c2.cursor() as _cu2:
+            _cu2.execute(sql)
+            return _cu2.fetchall()
+
+    def _compute_stats(rows, tgt, baseline_n, baseline_wins):
+        if not rows: return None
+        vals = [r[0] for r in rows if r[0] is not None]
+        n = len(vals)
+        if n < 3: return {"n": n, "verdict": "TOO_SMALL", "p_value": 1.0}
+        is_binary = tgt.endswith("_win")
+        if is_binary:
+            wins = sum(1 for v in vals if v)
+            wr = wins / n * 100
+            # Two-proportion z-test vs baseline
+            p1, p2 = wins/n, baseline_wins/baseline_n
+            se = _np.sqrt(p1*(1-p1)/n + p2*(1-p2)/baseline_n)
+            z = (p1 - p2) / se if se > 0 else 0
+            p_val = float(2 * (1 - _stats.norm.cdf(abs(z))))
+            # Wilson CI
+            z96 = 1.96
+            p_hat = wins/n
+            denom = 1 + z96**2/n
+            ctr = (p_hat + z96**2/(2*n)) / denom
+            width = z96 * _np.sqrt(p_hat*(1-p_hat)/n + z96**2/(4*n**2)) / denom
+            ci = [round(max(0,ctr-width)*100,1), round(min(100,ctr+width)*100,1)]
+            edge = round(wr - baseline_wins/baseline_n*100, 1)
+            avg_ret = None
+        else:
+            floats = [float(v) for v in vals if v is not None]
+            n = len(floats)
+            if n < 3: return {"n": n, "verdict": "TOO_SMALL", "p_value": 1.0}
+            avg_ret = round(float(_np.mean(floats))*100, 2)
+            std = float(_np.std(floats))*100
+            t_stat, p_val = _stats.ttest_1samp(floats, 0)
+            wins = sum(1 for v in floats if v > 0)
+            wr = wins/n*100
+            ci = [round(avg_ret - 1.96*std/_np.sqrt(n), 2), round(avg_ret + 1.96*std/_np.sqrt(n), 2)]
+            edge = round(avg_ret, 2)
+        p_val = max(1e-6, min(1.0, float(p_val)))
+        if n >= 15 and p_val < 0.05:
+            verdict = "STATISTICALLY REAL — register this finding"
+        elif n >= 10 and p_val < 0.10:
+            verdict = "PROMISING — needs more data to confirm"
+        elif n >= 8 and p_val < 0.20:
+            verdict = "WEAK — directional but not yet significant"
+        else:
+            verdict = "NOISE or insufficient data"
+        return {
+            "n": n, "win_rate_pct": round(wr,1), "avg_return_pct": avg_ret,
+            "p_value": round(p_val,4), "edge_vs_baseline_pct": edge,
+            "ci_95": ci, "verdict": verdict
+        }
+
+    try:
+        # Get baseline
+        with _psycopg2.connect(_DB_URL) as _cb, _cb.cursor() as _cub:
+            _cub.execute(f"""
+                SELECT COUNT(*), SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)
+                FROM signal_outcomes
+                WHERE t3_win IS NOT NULL
+                  AND signal_date >= NOW()::date - {int(lookback_days)}
+            """)
+            base_n, base_wins = _cub.fetchone()
+        base_n = base_n or 1; base_wins = base_wins or 0
+
+        # Parse conditions
+        cond_parts = _parse_conditions(conditions)
+        unrecognized = [c for c in (conditions or [])
+                        if not any(kw in c.lower() for kw in
+                                   ["has_sweep","cap_tier","day_of_week","session","call_put",
+                                    "premium_m","sweep_vol","sweep_prem","sweep_iv","days_out",
+                                    "otm_pct"])]
+
+        # Run primary hypothesis
+        rows = _run_query(cond_parts, target, lookback_days)
+        primary_stats = _compute_stats(rows, target, base_n, base_wins)
+
+        result = {
+            "status": "ok",
+            "hypothesis": {
+                "conditions": conditions,
+                "target": target,
+                "lookback_days": lookback_days,
+                "sql_filters_applied": cond_parts,
+            },
+            "baseline": {
+                "n": base_n,
+                "win_rate_pct": round(base_wins/base_n*100, 1),
+            },
+            "result": primary_stats,
+        }
+
+        if unrecognized:
+            result["warnings"] = [f"Unrecognized condition(s) skipped: {unrecognized}. "
+                                   "Call list_signal_dimensions to see valid field names."]
+
+        # Segment breakdown
+        if segment_by and primary_stats and primary_stats["n"] >= 5:
+            seg_map = {
+                "day_of_week": ("TRIM(TO_CHAR(so.signal_date,'FMDay'))",
+                                ["Monday","Tuesday","Wednesday","Thursday","Friday"]),
+                "session":     ("so.session", None),
+                "has_sweep":   ("COALESCE(sw.has_sweep,0)::text", ["0","1"]),
+                "cap_tier":    ("""CASE WHEN so.mkt_cap_m<300 THEN \'nano\'
+                                        WHEN so.mkt_cap_m<2000 THEN \'micro\'
+                                        WHEN so.mkt_cap_m<10000 THEN \'small\'
+                                        ELSE \'mid\' END""", None),
+            }
+            seg_expr, _ = seg_map.get(segment_by, (None, None))
+            if seg_expr:
+                seg_where = " AND ".join(cond_parts) if cond_parts else "TRUE"
+                avail_col = "t3_win IS NOT NULL" if target.endswith("_win") else f"{target} IS NOT NULL"
+                tgt_sql = {"t3_win":"so.t3_win","t5_win":"so.t5_win",
+                           "t3_pct":"so.t3_pct","t5_pct":"so.t5_pct"}.get(target,"so.t3_win")
+                seg_sql = f"""
+                    WITH sw AS (
+                        SELECT ticker,DATE(last_seen AT TIME ZONE 'America/New_York') AS sweep_date,
+                               1 AS has_sweep,MAX(vol_oi) AS max_vol_oi,
+                               MAX(prem::float/1e6) AS max_prem_m,MAX(iv) AS max_iv
+                        FROM unusual_calls_log
+                        GROUP BY ticker,DATE(last_seen AT TIME ZONE 'America/New_York')
+                    ),
+                    so_uc AS (
+                        SELECT ticker,DATE(last_seen AT TIME ZONE 'America/New_York') AS uc_date,
+                               MIN(days_out) AS min_days_out,AVG(otm_pct) AS avg_otm_pct
+                        FROM unusual_calls_log
+                        GROUP BY ticker,DATE(last_seen AT TIME ZONE 'America/New_York')
+                    )
+                    SELECT {seg_expr} AS seg, COUNT(*) AS n,
+                           AVG(CASE WHEN {tgt_sql} THEN 1.0 ELSE 0 END)*100 AS wr
+                    FROM signal_outcomes so
+                    LEFT JOIN sw ON sw.ticker=so.ticker AND sw.sweep_date=so.signal_date
+                    LEFT JOIN so_uc ON so_uc.ticker=so.ticker AND so_uc.uc_date=so.signal_date
+                    WHERE {avail_col}
+                      AND so.signal_date >= NOW()::date - {int(lookback_days)}
+                      AND ({seg_where})
+                    GROUP BY seg ORDER BY wr DESC
+                """
+                try:
+                    with _psycopg2.connect(_DB_URL) as _cs, _cs.cursor() as _cus:
+                        _cus.execute(seg_sql)
+                        seg_rows = _cus.fetchall()
+                    result["segments"] = [
+                        {"group": str(sr[0]), "n": sr[1], "win_rate_pct": round(float(sr[2] or 0),1)}
+                        for sr in seg_rows
+                    ]
+                except Exception as _se:
+                    result["segment_error"] = str(_se)
+
+        # Compare-to: run A vs B
+        if compare_to:
+            comp_parts = _parse_conditions(compare_to)
+            comp_rows = _run_query(comp_parts, target, lookback_days)
+            comp_stats = _compute_stats(comp_rows, target, base_n, base_wins)
+            result["comparison"] = {
+                "conditions": compare_to,
+                "result": comp_stats,
+                "interpretation": (
+                    "Your hypothesis (%s%% WR, n=%s) " % (primary_stats.get("win_rate_pct"), primary_stats.get("n")) +
+                    "vs compare_to (%s%% WR, n=%s). " % (comp_stats.get("win_rate_pct"), comp_stats.get("n")) +
+                    "Edge difference: %spp." % round((primary_stats.get("win_rate_pct",0) or 0) - (comp_stats.get("win_rate_pct",0) or 0), 1)
+                ) if primary_stats and comp_stats else "insufficient data"
+            }
+
+        # Auto-insight
+        if primary_stats:
+            v = primary_stats.get("verdict","")
+            wr = primary_stats.get("win_rate_pct",0) or 0
+            n = primary_stats.get("n",0)
+            pv = primary_stats.get("p_value",1)
+            edge = primary_stats.get("edge_vs_baseline_pct",0) or 0
+            if "STATISTICALLY REAL" in v:
+                result["auto_insight"] = (
+                    f"FOUND REAL EDGE: {conditions} → {wr}%% win rate on {n} signals "
+                    f"(+{edge}pp above baseline, p={pv}). Register this immediately with "
+                    f"register_hypotheses. Also test the inverse: what happens WITHOUT this condition?"
+                )
+            elif "PROMISING" in v:
+                result["auto_insight"] = (
+                    f"PROMISING but not significant yet: {wr}%% WR on {n} signals (p={pv}). "
+                    f"Try tightening the thresholds or adding one more condition. "
+                    f"Example: if 'has_sweep = true' shows 55%%, try adding 'sweep_vol_oi > 5'."
+                )
+            elif n < 10:
+                result["auto_insight"] = (
+                    f"Only {n} signals match — too few for significance. "
+                    f"Loosen the conditions or use a longer lookback_days. "
+                    f"Signal discovery needs at least 15 matching examples to be meaningful."
+                )
+            else:
+                result["auto_insight"] = (
+                    f"No edge detected ({wr}%% WR, n={n}, p={pv}). "
+                    f"Try varying thresholds or combining with other conditions. "
+                    f"The best discoveries often come from 2-condition combinations, not single filters."
+                )
+
+        return result
+
+    except Exception as e:
+        return {"status": "error", "error": str(e),
+                "hint": "Check condition syntax — call list_signal_dimensions for valid fields"}
+
+
+def _aiem_tool_analyze_missed_movers(min_move_pct=5.0, lookback_days=30):
+    """
+    Find stocks that made big moves (>=min_move_pct) but were NOT in our signal set.
+    Analyzes what unusual activity those stocks HAD that we missed — reveals gaps
+    in our current signal detection logic.
+
+    This is the self-correction loop: after each week, the agent reviews what it
+    missed and proposes new signals to catch those moves earlier.
+    """
+    try:
+        import math as _mm
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # Find big movers from scan_history that weren't caught as signals
+            _cu.execute(f"""
+                WITH big_movers AS (
+                    SELECT sh.ticker, sh.scan_date,
+                           sh.price_chg_pct::float AS day_move,
+                           sh.rel_vol::float AS rvol,
+                           sh.standout_score::float AS score,
+                           sh.mkt_cap_m::float AS mkt_cap_m,
+                           sh.flow_ratio::float AS flow_ratio
+                    FROM scan_history sh
+                    WHERE sh.price_chg_pct >= {float(min_move_pct)}
+                      AND sh.scan_date >= NOW()::date - {int(lookback_days)}
+                ),
+                caught AS (
+                    SELECT DISTINCT ticker, signal_date
+                    FROM signal_outcomes
+                    WHERE signal_date >= NOW()::date - {int(lookback_days)}
+                ),
+                sweep_on_day AS (
+                    SELECT ticker,
+                           DATE(last_seen AT TIME ZONE 'America/New_York') AS sweep_date,
+                           MAX(vol_oi) AS max_vol_oi,
+                           MAX(prem::float/1e6) AS max_prem_m,
+                           MAX(iv) AS max_iv
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL \'{int(lookback_days)} days\'
+                    GROUP BY ticker, DATE(last_seen AT TIME ZONE 'America/New_York')
+                )
+                SELECT bm.ticker, bm.scan_date, bm.day_move, bm.rvol, bm.score,
+                       bm.mkt_cap_m, bm.flow_ratio,
+                       CASE WHEN c.ticker IS NOT NULL THEN true ELSE false END AS was_caught,
+                       sw.max_vol_oi, sw.max_prem_m, sw.max_iv
+                FROM big_movers bm
+                LEFT JOIN caught c ON c.ticker=bm.ticker AND c.signal_date=bm.scan_date
+                LEFT JOIN sweep_on_day sw ON sw.ticker=bm.ticker AND sw.sweep_date=bm.scan_date
+                ORDER BY bm.day_move DESC
+                LIMIT 100
+            """)
+            rows = _cu.fetchall()
+
+        if not rows:
+            return {
+                "status": "ok",
+                "missed_movers": [],
+                "summary": f"No stocks with >{min_move_pct}%% move found in scan_history for last {lookback_days} days.",
+                "note": "scan_history accumulates as the scanner runs — more data available after market hours"
+            }
+
+        all_movers = []
+        for r in rows:
+            all_movers.append({
+                "ticker": r[0], "date": str(r[1]),
+                "day_move_pct": round(float(r[2] or 0), 1),
+                "rel_vol": round(float(r[3] or 0), 1),
+                "standout_score": round(float(r[4] or 0), 1),
+                "mkt_cap_m": round(float(r[5] or 0), 0) if r[5] else None,
+                "flow_ratio": round(float(r[6] or 0), 2),
+                "was_caught": bool(r[7]),
+                "had_sweep": r[8] is not None,
+                "sweep_vol_oi": round(float(r[8]),1) if r[8] else None,
+                "sweep_prem_m": round(float(r[9]),2) if r[9] else None,
+                "sweep_iv": round(float(r[10]),2) if r[10] else None,
+            })
+
+        missed = [m for m in all_movers if not m["was_caught"]]
+        caught = [m for m in all_movers if m["was_caught"]]
+
+        # Pattern analysis for missed movers
+        if missed:
+            missed_with_sweep = [m for m in missed if m["had_sweep"]]
+            missed_no_sweep   = [m for m in missed if not m["had_sweep"]]
+            avg_rvol_missed   = round(sum(m["rel_vol"] for m in missed) / len(missed), 1)
+            avg_score_missed  = round(sum(m["standout_score"] for m in missed) / len(missed), 1)
+            avg_move_missed   = round(sum(m["day_move_pct"] for m in missed) / len(missed), 1)
+
+            sweep_miss_pct    = round(len(missed_with_sweep)/len(missed)*100,1) if missed else 0
+
+            hypotheses = []
+            if missed_with_sweep:
+                avg_voi = round(sum(m["sweep_vol_oi"] for m in missed_with_sweep
+                                    if m["sweep_vol_oi"]) / max(1,len(missed_with_sweep)),1)
+                hypotheses.append(
+                    f"{len(missed_with_sweep)} missed movers HAD unusual call sweeps "
+                    f"(avg vol_oi={avg_voi}x). Test: sweep_vol_oi > {max(1,round(avg_voi*0.5,0))} "
+                    f"with looser premium threshold."
+                )
+            if avg_rvol_missed < 2.0:
+                hypotheses.append(
+                    f"Missed movers had avg RVOL={avg_rvol_missed}x (low) — they moved quietly. "
+                    "Test: lower RVOL threshold or add flow_ratio > 1.5 as primary signal."
+                )
+            if len(missed_no_sweep) > len(missed_with_sweep):
+                hypotheses.append(
+                    f"{len(missed_no_sweep)} missed movers had NO unusual calls but still moved {avg_move_missed}%%. "
+                    "These are organic movers — test: standout_score > 8 OR flow_ratio > 2.5 as standalone signals."
+                )
+        else:
+            hypotheses = ["All big movers were caught! Signal system is comprehensive for this period."]
+
+        return {
+            "status": "ok",
+            "summary": {
+                "big_movers_total": len(all_movers),
+                "caught": len(caught),
+                "missed": len(missed),
+                "catch_rate_pct": round(len(caught)/len(all_movers)*100,1) if all_movers else 0,
+                "avg_missed_move_pct": round(sum(m["day_move_pct"] for m in missed)/len(missed),1) if missed else 0,
+                "missed_with_sweep_pct": round(sum(1 for m in missed if m["had_sweep"])/len(missed)*100,1) if missed else 0,
+            },
+            "missed_movers": missed[:20],
+            "caught_movers": caught[:10],
+            "generated_hypotheses": hypotheses,
+            "next_step": (
+                "For each generated hypothesis, call test_new_signal with those conditions "
+                "to see if they would have caught these moves historically. "
+                "If p<0.05, register_hypotheses to track them."
+            )
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ── Continuous Research Loop (runs daily + feeds Sunday session) ────────────
+def _run_aiem_continuous_research():
+    """
+    Daily autonomous research session. Runs at 6 PM ET Mon-Fri.
+    Tests a rotating battery of hypotheses, updates the research model
+    when real findings emerge. This is the 24/7 learning engine that
+    makes the system smarter every day, not just on Sundays.
+
+    Strategy:
+      1. Review last 7 days of new signal outcomes
+      2. Auto-test 8 standard hypothesis templates with current thresholds
+      3. Analyze any missed movers from today
+      4. If a finding has p<0.05 and n>=15, save to aiem_research_insights
+         and flag for Sunday consolidation
+      5. Log the session so Sunday agent can build on it
+    """
+    import datetime as _crd
+    import json as _crj
+    print("[aiem_continuous] starting daily hypothesis sweep...")
+
+    _HYPOTHESIS_BATTERY = [
+        # Each entry: (description, conditions, target)
+        ("Sweep + high vol/OI", ['has_sweep = true', 'sweep_vol_oi > 5'], "t3_win"),
+        ("Sweep + large premium", ["has_sweep = true", "sweep_premium_m > 0.5"], "t3_win"),
+        ("High call/put ratio + sweep", ["call_put_ratio > 2.0", "has_sweep = true"], "t3_win"),
+        ("Very high call/put ratio", ["call_put_ratio > 3.0"], "t3_win"),
+        ("Market-open session + sweep", ["session = market-open", "has_sweep = true"], "t3_win"),
+        ("Short-dated sweep (< 21 days)", ["has_sweep = true", "days_out < 21"], "t3_win"),
+        ("Near-ATM sweep", ["has_sweep = true", "otm_pct > -10"], "t3_win"),
+        ("High IV sweep", ["has_sweep = true", "sweep_iv > 0.8"], "t3_win"),
+        ("Large premium any direction", ["premium_m > 1.0"], "t3_win"),
+        ("Sweep + T5 target", ["has_sweep = true", "sweep_vol_oi > 3"], "t5_win"),
+        ("Return maximizer: sweep + big prem", ["has_sweep = true", "sweep_premium_m > 1.0"], "t3_pct"),
+    ]
+
+    findings = []
+    try:
+        for desc, conditions, target in _HYPOTHESIS_BATTERY:
+            try:
+                result = _aiem_tool_test_new_signal(conditions=conditions, target=target,
+                                                     lookback_days=60)
+                if result.get("status") == "error":
+                    continue
+                res = result.get("result") or {}
+                n = res.get("n", 0)
+                p = res.get("p_value", 1.0)
+                wr = res.get("win_rate_pct", 0)
+                edge = res.get("edge_vs_baseline_pct", 0)
+                verdict = res.get("verdict", "")
+                if n >= 8:
+                    findings.append({
+                        "description": desc,
+                        "conditions": conditions,
+                        "target": target,
+                        "n": n, "win_rate_pct": wr, "p_value": p,
+                        "edge_vs_baseline_pct": edge,
+                        "verdict": verdict,
+                        "significant": n >= 15 and p < 0.05,
+                    })
+            except Exception as _he:
+                print(f"[aiem_continuous] hypothesis error ({desc}): {_he}")
+
+        # Sort by significance
+        findings.sort(key=lambda x: (x["p_value"], -x["n"]))
+
+        # Save significant findings to DB for Sunday consolidation
+        significant = [f for f in findings if f["significant"]]
+        if significant:
+            with _psycopg2.connect(_DB_URL) as _cs, _cs.cursor() as _cus:
+                for f in significant:
+                    _cus.execute("""
+                        INSERT INTO aiem_research_insights
+                            (week_start, findings, model_weights, embedding)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT DO NOTHING
+                    """, (
+                        _crd.date.today().isoformat(),
+                        _crj.dumps({
+                            "type": "continuous_research_finding",
+                            "description": f["description"],
+                            "conditions": f["conditions"],
+                            "target": f["target"],
+                            "n": f["n"],
+                            "win_rate_pct": f["win_rate_pct"],
+                            "p_value": f["p_value"],
+                            "edge_vs_baseline_pct": f["edge_vs_baseline_pct"],
+                            "found_at": _crd.datetime.now().isoformat(),
+                        }),
+                        _crj.dumps({}), None
+                    ))
+                _cs.commit()
+            print(f"[aiem_continuous] saved {len(significant)} significant finding(s) to DB")
+
+        # Log summary
+        top = findings[:5]
+        print(f"[aiem_continuous] completed. {len(findings)} hypotheses tested, "
+              f"{len(significant)} significant. "
+              f"Best: {top[0]['description'] if top else 'none'} "
+              f"(WR={top[0]['win_rate_pct'] if top else 0}%%, p={top[0]['p_value'] if top else 1})")
+
+        return {"tested": len(findings), "significant": len(significant), "top_findings": top[:3]}
+
+    except Exception as e:
+        print(f"[aiem_continuous] error: {e}")
+        return {"error": str(e)}
+
+
 _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "query_pick_outcomes",
@@ -14512,6 +15305,83 @@ _AIEM_AGENT_TOOLS = [
         }, "required": ["query_text"]}
     }},
     {"type": "function", "function": {
+        "name": "list_signal_dimensions",
+        "description": (
+            "List every queryable signal dimension with its statistical distribution. "
+            "Call this FIRST at the start of any signal discovery session. "
+            "It tells you exactly which fields exist, their ranges, baseline win rates by "
+            "day/session, and ready-to-use example condition strings. "
+            "This prevents you from hallucinating field names that don't exist."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "test_new_signal",
+        "description": (
+            "Test any novel signal hypothesis against real historical data. "
+            "Compose conditions freely from the vocabulary in list_signal_dimensions. "
+            "Returns: sample size, win rate, p-value, 95% CI, edge vs baseline, verdict. "
+            "Verdict levels: STATISTICALLY REAL (p<0.05, n>=15) → register it. "
+            "PROMISING (p<0.10, n>=10) → tighten conditions and re-test. "
+            "NOISE → vary thresholds or combine with another condition. "
+            "Call this as many times as needed — each call is instant. "
+            "Best practice: test a hypothesis, then test its INVERSE to validate. "
+            "Also use segment_by to see if a signal works better on certain days/sessions."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "conditions": {
+                "type": "array", "items": {"type": "string"},
+                "description": (
+                    "List of condition strings. Examples: "
+                    "['has_sweep = true', 'sweep_vol_oi > 5'], "
+                    "['call_put_ratio > 2.0', 'session = market-open'], "
+                    "['days_out < 21', 'has_sweep = true', 'sweep_premium_m > 0.5'], "
+                    "['day_of_week = Tuesday', 'has_sweep = true']. "
+                    "Mix and match freely — the parser handles all combinations."
+                )
+            },
+            "target": {
+                "type": "string",
+                "enum": ["t3_win", "t5_win", "t3_pct", "t5_pct"],
+                "description": "What to predict. t3_win (default) = 3-day win/loss; t3_pct = actual 3-day return."
+            },
+            "lookback_days": {
+                "type": "integer",
+                "description": "How many days of history to test against (default 90, max 180)."
+            },
+            "segment_by": {
+                "type": "string",
+                "enum": ["day_of_week", "session", "has_sweep", "cap_tier"],
+                "description": "Break down results by this dimension to find conditional patterns."
+            },
+            "compare_to": {
+                "type": "array", "items": {"type": "string"},
+                "description": "A second set of conditions for A/B comparison. e.g. ['has_sweep = false'] to contrast."
+            }
+        }, "required": ["conditions"]}
+    }},
+    {"type": "function", "function": {
+        "name": "analyze_missed_movers",
+        "description": (
+            "Find stocks that made big moves but were NOT caught by our signal system. "
+            "Analyzes what those missed stocks had in common — reveals signal gaps. "
+            "Automatically generates candidate hypotheses to test with test_new_signal. "
+            "This is the self-correction loop: review what you missed, then go test "
+            "whether a new signal combination would have caught it. "
+            "Call once per session after reviewing performance."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_move_pct": {
+                "type": "number",
+                "description": "Minimum 1-day move to count as a 'missed mover' (default 5.0%)."
+            },
+            "lookback_days": {
+                "type": "integer",
+                "description": "Days to look back for missed movers (default 30)."
+            }
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
         "name": "query_own_prediction_performance",
         "description": (
             "Review Loop B's forward-looking prediction track record. "
@@ -14567,6 +15437,9 @@ TOOLS AVAILABLE (use in this order):
 17. test_scoring_hypothesis      — Backtest proposed weights before committing. Iterate >= 3x.
 18. save_research_model          — Save final model. LAST call only.
 19. query_own_prediction_performance — Review Loop B morning agent track record.
+20. list_signal_dimensions       — List all queryable fields + distributions. Call FIRST in discovery.
+21. test_new_signal              — Test any hypothesis against real data. Call repeatedly.
+22. analyze_missed_movers        — Find what big moves you missed and why.
 
 HARD RULES — violating these produces an invalid model:
 1. ROLLBACK RULE: If evaluate_previous_model returns MODEL HURT, call rollback_to_previous_model
@@ -14603,10 +15476,25 @@ HARD RULES — violating these produces an invalid model:
 8. SAMPLE RULE: settled_picks < 20 → confidence=LOW, conservative defaults only.
    Do not claim significance with n < 15 per group.
 
+SIGNAL DISCOVERY WORKFLOW (required every Sunday):
+Step A: Call list_signal_dimensions to see what data is available.
+Step B: Call analyze_missed_movers — read the generated_hypotheses it returns.
+Step C: For each generated hypothesis AND 2-3 of your own ideas: call test_new_signal.
+Step D: For any STATISTICALLY REAL finding, call test_new_signal again with the INVERSE
+        conditions (to confirm the effect is real, not just randomness).
+Step E: Register all p<0.05 findings with register_hypotheses before saving the model.
+
+The goal is not just to analyze what happened — it is to INVENT new signals that will
+make next week's picks more accurate. Think like a quant researcher: vary thresholds,
+combine signals in unexpected ways, test the inverse of every finding.
+
 REQUIRED findings content:
 - Previous model verdict (HELPED / NEUTRAL / HURT) and by how many percentage points
 - Loop B morning agent performance: win rate, avg T+3 return, confidence calibration
 - Which signal combos (rvol+conviction+sweep) are working best for Loop B predictions
+- Signal Discovery: at least 3 novel hypotheses tested with test_new_signal this session
+- Any STATISTICALLY REAL new signals found (p<0.05, n>=15) and registered as hypotheses
+- Missed movers analysis: what did we miss and what new signal could catch it next time
 - Your 3-5 pre-registered hypotheses and their outcomes (CONFIRMED / REJECTED / INCONCLUSIVE)
 - Signals tested via multivariate_regression and their controlled p-values
 - Any finding labeled CONFIRMED (recurring) from search_past_findings — and what that means for weights
@@ -14969,6 +15857,9 @@ def _run_aiem_research_agent(max_iterations=None):
         "multivariate_regression":      _aiem_tool_multivariate_regression,
         "search_past_findings":         _aiem_tool_search_past_findings,
         "query_own_prediction_performance": _aiem_tool_query_own_prediction_performance,
+        "list_signal_dimensions":          _aiem_tool_list_signal_dimensions,
+        "test_new_signal":                 _aiem_tool_test_new_signal,
+        "analyze_missed_movers":           _aiem_tool_analyze_missed_movers,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
@@ -21307,6 +22198,21 @@ def admin_run_aiem_morning_scan():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/stock-api/admin/run-aiem-continuous-research", methods=["POST"])
+def admin_run_continuous_research():
+    """Admin: trigger the daily autonomous signal discovery loop immediately."""
+    tok = request.headers.get("X-Admin-Token","")
+    if tok != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        import threading as _crt
+        _crt.Thread(target=_run_aiem_continuous_research, daemon=True).start()
+        return jsonify({"status": "started",
+                        "note": "Signal discovery running. Tests 11 hypotheses + saves significant findings."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/stock-api/admin/run-aiem-grader", methods=["POST"])
 def admin_run_aiem_grader():
     """Admin: trigger Loop B prediction grader immediately."""
@@ -23795,11 +24701,17 @@ def iv_rank():
 
     import threading as _iv_thr_mod
     _iv_out = [None]
-    def _iv_runner(): _iv_out[0] = _compute()
+    def _iv_runner():
+        try: _iv_out[0] = _compute()
+        except Exception as _ive: print(f"[iv_rank] runner error: {_ive}")
     _t = _iv_thr_mod.Thread(target=_iv_runner, daemon=True)
     _t.start()
     _t.join(timeout=4)
-    return jsonify(_iv_out[0] if _iv_out[0] is not None else _iv_empty)
+    try:
+        data = _iv_out[0] if _iv_out[0] is not None else _iv_empty
+        return jsonify(data)
+    except Exception:
+        return jsonify(_iv_empty)
 
 
 IV_SCAN_TICKERS = [
@@ -26512,8 +27424,22 @@ def standout_track():
             "standard": _st_stats([r for r in _rows if 5 <= (r.get("standout_score") or 0) < 10]),
         }
 
-        return jsonify({"picks": _rows, "summary": _summary,
-                        "as_of": _dt_st.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")})
+        # Final safety: round-trip through json to catch any remaining NaN/Inf
+        import json as _json_st
+        try:
+            _payload = {"picks": _rows, "summary": _summary,
+                        "as_of": _dt_st.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")}
+            _json_st.dumps(_payload)  # raises ValueError if NaN remains
+            return jsonify(_payload)
+        except (ValueError, TypeError):
+            # Brute-force: walk every value and null out non-JSON-safe floats
+            import math as _mst2
+            def _scrub(obj):
+                if isinstance(obj, list):   return [_scrub(x) for x in obj]
+                if isinstance(obj, dict):   return {k: _scrub(v) for k, v in obj.items()}
+                if isinstance(obj, float) and (_mst2.isnan(obj) or _mst2.isinf(obj)): return None
+                return obj
+            return jsonify(_scrub(_payload))
 
     except Exception as _e_st:
         print(f"[standout_track] error: {_e_st}")

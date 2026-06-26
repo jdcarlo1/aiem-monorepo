@@ -59,3 +59,4 @@
 - [Tradier setup](tradier-setup.md) — paper account token gives 401 on quotes/chains; needs brokerage account; fills Polygon market-hours OI gap; integration point is _scan_one before Polygon
 - [Flow Streak ignition signal](flow-streak-ignition.md) — rvol≥1.5× + day≥3% + close_pos≥0.70 on same streak day; derived from ASTE/AMLX backtest; 71/851 stocks flagged on first live scan
 - [Short Calls grading fix](short-calls-grading-fix.md) — _parse_expiry_date NameError + outcome-stuck-OPEN bug; both fixed; startup trigger added
+- [Signal Discovery Engine](signal-discovery-engine.md) — 3 AIEM tools (list_signal_dimensions/test_new_signal/analyze_missed_movers) + daily 6 PM continuous research loop; wired into Sunday agent + scheduler
