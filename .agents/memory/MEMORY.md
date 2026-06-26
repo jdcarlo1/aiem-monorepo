@@ -1,3 +1,4 @@
+- [AIEM options flow tools](aiem-options-flow-tools.md) — 4 tools: ticker history, universe scan, backtest, cross-confirm; no $500K filter; 3 source tables; call_sweep_log missing conviction col fixed
 - [AI Research Agent](aiem-research-agent.md) — autonomous gpt-4o loop queries own DB, discovers correlations, backtests weights, saves scoring model weekly; LOW→HIGH confidence as picks accumulate
 - [AIEM Full Learning Loop](aiem-full-learning-loop.md) — Real Model + Signal Bridge + 5 predictable-event detectors; 17 admin routes; model retrains Sunday 7 PM once ≥200 graded outcomes
 - [AIEM Full-Market Research System](aiem-market-research-system.md) — 20 mkt_* tools on polygon_market_daily (12K stocks/day); Loop A Sunday / Loop B daily; discoveries in aiem_signal_discoveries; /aiem/discoveries endpoint

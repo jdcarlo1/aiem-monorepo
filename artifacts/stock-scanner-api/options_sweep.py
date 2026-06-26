@@ -75,6 +75,9 @@ def init_call_sweep_log_table():
                         sent_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
+                # Backfill columns added after initial deploy
+                cur.execute("ALTER TABLE call_sweep_log ADD COLUMN IF NOT EXISTS conviction INTEGER DEFAULT 1")
+                cur.execute("ALTER TABLE call_sweep_log ADD COLUMN IF NOT EXISTS signals_fired TEXT")
                 cur.execute("""
                     CREATE UNIQUE INDEX IF NOT EXISTS call_sweep_log_uniq
                     ON call_sweep_log (ticker, strike, expiry, sweep_date)

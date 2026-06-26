@@ -18642,6 +18642,356 @@ def _get_insider_cluster_signal(ticker: str, days_window=14, min_distinct_buyers
         return {"status":"error","error":str(_e)}
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM OPTIONS FLOW TOOLS — gives the agent the complete options picture.
+#
+# The subscriber tabs filter at $500K+ premium. The agent has NO filter —
+# it can see a $50K REIT sweep or a $80K community-bank sweep just as clearly
+# as a $2M NVDA sweep. Vol/OI ratio matters more than raw dollar size for
+# smaller names. All four tables are queried: call_sweep_log (conviction-scored
+# sweeps), unusual_calls_log (broad daily scanner), unusual_calls_microcap_log
+# (small/micro-cap dedicated scanner).
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _mkt_ticker_options_history(ticker: str, days_back: int = 30,
+                                  min_premium_k: float = 0) -> dict:
+    """For a specific ticker: pull ALL call activity from every options table,
+    no size filter by default. This is the "I found a breakout — what do the
+    options show?" tool. min_premium_k is in thousands (0 = see everything,
+    even $10K community-bank calls)."""
+    import psycopg2 as _pg_toh
+    ticker = ticker.upper().strip()
+    min_prem = int(min_premium_k * 1000)
+    try:
+        with _pg_toh.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # 1. Conviction-scored sweeps (options_sweep scanner)
+            cur.execute("""
+                SELECT sweep_date, strike, expiry, call_volume, open_interest,
+                       vol_oi_ratio, premium, stock_price, conviction, signals_fired
+                FROM call_sweep_log
+                WHERE ticker = %s AND sweep_date >= CURRENT_DATE - %s
+                  AND premium >= %s
+                ORDER BY sweep_date DESC, premium DESC
+            """, (ticker, days_back, min_prem))
+            sweeps = [{"date": str(r[0]), "strike": float(r[1] or 0),
+                       "expiry": r[2], "call_vol": r[3], "oi": r[4],
+                       "vol_oi": float(r[5] or 0), "premium_k": round((r[6] or 0)/1000, 1),
+                       "stock_price": float(r[7] or 0), "conviction": r[8],
+                       "signals": r[9], "source": "sweep_scanner"}
+                      for r in cur.fetchall()]
+
+            # 2. Broad unusual calls scanner
+            cur.execute("""
+                SELECT (last_seen AT TIME ZONE 'America/New_York')::date AS seen_date,
+                       strike, expiry, volume, oi, vol_oi, prem, price, otm_pct, iv, urgency
+                FROM unusual_calls_log
+                WHERE ticker = %s
+                  AND last_seen >= NOW() - INTERVAL '%s days'
+                  AND prem >= %s
+                ORDER BY last_seen DESC, prem DESC
+            """, (ticker, days_back, min_prem))
+            broad = [{"date": str(r[0]), "strike": float(r[1] or 0),
+                      "expiry": r[2], "call_vol": r[3], "oi": r[4],
+                      "vol_oi": float(r[5] or 0), "premium_k": round((r[6] or 0)/1000, 1),
+                      "stock_price": float(r[7] or 0), "otm_pct": float(r[8] or 0),
+                      "iv": float(r[9] or 0), "urgency": r[10], "source": "broad_scanner"}
+                     for r in cur.fetchall()]
+
+            # 3. Micro/small-cap dedicated scanner
+            cur.execute("""
+                SELECT (last_seen AT TIME ZONE 'America/New_York')::date AS seen_date,
+                       strike, expiry, volume, oi, vol_oi, prem, price, otm_pct, iv,
+                       urgency, cap_tier, far_otm_sweep
+                FROM unusual_calls_microcap_log
+                WHERE ticker = %s
+                  AND last_seen >= NOW() - INTERVAL '%s days'
+                  AND prem >= %s
+                ORDER BY last_seen DESC, prem DESC
+            """, (ticker, days_back, min_prem))
+            microcap = [{"date": str(r[0]), "strike": float(r[1] or 0),
+                         "expiry": r[2], "call_vol": r[3], "oi": r[4],
+                         "vol_oi": float(r[5] or 0), "premium_k": round((r[6] or 0)/1000, 1),
+                         "stock_price": float(r[7] or 0), "otm_pct": float(r[8] or 0),
+                         "iv": float(r[9] or 0), "urgency": r[10],
+                         "cap_tier": r[11], "far_otm": r[12], "source": "microcap_scanner"}
+                        for r in cur.fetchall()]
+
+        all_hits = sweeps + broad + microcap
+        all_hits.sort(key=lambda x: (x["date"], x["premium_k"]), reverse=True)
+
+        # Summarize: is there recent options interest? How aggressive?
+        if all_hits:
+            max_voi = max(h["vol_oi"] for h in all_hits)
+            total_prem_k = sum(h["premium_k"] for h in all_hits)
+            max_conviction = max((h.get("conviction") or 1) for h in all_hits)
+            repeat_days = len(set(h["date"] for h in all_hits))
+            summary = {
+                "total_hits": len(all_hits),
+                "total_premium_k": round(total_prem_k, 1),
+                "max_vol_oi_ratio": round(max_voi, 1),
+                "max_conviction_score": max_conviction,
+                "distinct_days_with_activity": repeat_days,
+                "verdict": (
+                    "STRONG OPTIONS SIGNAL — high vol/OI + multi-day activity"
+                    if repeat_days >= 3 and max_voi >= 5
+                    else "MODERATE OPTIONS INTEREST — activity present, watch for follow-through"
+                    if len(all_hits) >= 2 or max_voi >= 3
+                    else "LIGHT OPTIONS ACTIVITY — single observation, low conviction on its own"
+                )
+            }
+        else:
+            summary = {"total_hits": 0, "verdict": "NO OPTIONS ACTIVITY in the lookback window at this premium floor."}
+
+        return {"status": "ok", "ticker": ticker, "days_back": days_back,
+                "min_premium_k": min_premium_k, "summary": summary,
+                "hits": all_hits}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+def _mkt_options_flow_scan(days_back: int = 7, min_premium_k: float = 10,
+                             sort_by: str = "vol_oi", limit: int = 50) -> dict:
+    """Universe-wide options flow scan — ALL tickers with recent call activity,
+    no subscriber-tab size filter. Set min_premium_k=10 to see $10K+ calls
+    (catches small banks, REITs, biotech). sort_by: 'vol_oi', 'premium', 'conviction', 'recent'.
+    This answers: 'what is the options market betting on right now, across the whole universe?'"""
+    import psycopg2 as _pg_ofs
+    min_prem = int(min_premium_k * 1000)
+    sort_col = {"vol_oi": "max_voi DESC", "premium": "total_prem DESC",
+                "conviction": "max_conv DESC", "recent": "last_date DESC"}.get(sort_by, "max_voi DESC")
+    try:
+        with _pg_ofs.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Union all three tables, aggregate per ticker
+            cur.execute(f"""
+                WITH all_flow AS (
+                    SELECT ticker, sweep_date::date AS hit_date,
+                           vol_oi_ratio AS voi, premium AS prem, conviction AS conv
+                    FROM call_sweep_log
+                    WHERE sweep_date >= CURRENT_DATE - %s AND premium >= %s
+                    UNION ALL
+                    SELECT ticker, (last_seen AT TIME ZONE 'America/New_York')::date AS hit_date,
+                           vol_oi AS voi, prem, 1 AS conv
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL '{days_back} days' AND prem >= %s
+                    UNION ALL
+                    SELECT ticker, (last_seen AT TIME ZONE 'America/New_York')::date AS hit_date,
+                           vol_oi AS voi, prem, 2 AS conv
+                    FROM unusual_calls_microcap_log
+                    WHERE last_seen >= NOW() - INTERVAL '{days_back} days' AND prem >= %s
+                )
+                SELECT ticker,
+                       COUNT(*) AS hit_count,
+                       ROUND(MAX(voi)::numeric, 1) AS max_voi,
+                       ROUND(SUM(prem)::numeric / 1000, 1) AS total_prem,
+                       MAX(conv) AS max_conv,
+                       MAX(hit_date) AS last_date,
+                       COUNT(DISTINCT hit_date) AS distinct_days
+                FROM all_flow
+                GROUP BY ticker
+                ORDER BY {sort_col}
+                LIMIT %s
+            """, (days_back, min_prem, min_prem, min_prem, limit))
+            rows = cur.fetchall()
+
+        results = [{"ticker": r[0], "hit_count": r[1], "max_vol_oi": float(r[2] or 0),
+                    "total_premium_k": float(r[3] or 0), "max_conviction": r[4],
+                    "last_date": str(r[5]), "distinct_days": r[6]}
+                   for r in rows]
+        return {"status": "ok", "days_back": days_back, "min_premium_k": min_premium_k,
+                "sort_by": sort_by, "n_tickers": len(results), "results": results,
+                "note": (f"This is the UNFILTERED view — includes small-cap, REIT, community-bank "
+                         f"calls that never appear in the $500K+ subscriber tabs. "
+                         f"Vol/OI ratio is more meaningful than raw premium for small names.")}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+def _mkt_options_predicts_price(days_back: int = 90, forward_days: int = 5,
+                                  min_premium_k: float = 10) -> dict:
+    """Does options call activity actually PRECEDE price moves? Cross-references
+    call_sweep_log with polygon_market_daily forward returns. Runs this honestly:
+    shows win rate AND average return AND median, not just the headline number.
+    Breaks down by conviction score so you know if high-conviction sweeps outperform.
+    This is the validation tool — use it before building a strategy on options signals."""
+    import numpy as _np_opp, psycopg2 as _pg_opp
+    min_prem = int(min_premium_k * 1000)
+    try:
+        with _pg_opp.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT s.ticker, s.sweep_date, s.conviction,
+                       s.premium, s.vol_oi_ratio,
+                       ((fwd.close_price / NULLIF(p0.close_price, 0)) - 1) * 100 AS fwd_ret
+                FROM call_sweep_log s
+                JOIN polygon_market_daily p0
+                  ON p0.ticker = s.ticker AND p0.scan_date = s.sweep_date
+                JOIN polygon_market_daily fwd
+                  ON fwd.ticker = s.ticker
+                 AND fwd.scan_date = (
+                       SELECT scan_date FROM polygon_market_daily x
+                       WHERE x.ticker = s.ticker AND x.scan_date > s.sweep_date
+                       ORDER BY x.scan_date ASC OFFSET %s LIMIT 1)
+                WHERE s.sweep_date >= CURRENT_DATE - %s
+                  AND s.premium >= %s
+                  AND fwd.close_price IS NOT NULL
+            """, (forward_days - 1, days_back, min_prem))
+            rows = cur.fetchall()
+
+        if not rows:
+            return {"status": "ok", "n": 0,
+                    "message": f"No graded sweeps found. Need polygon_market_daily to overlap with call_sweep_log dates."}
+
+        # Overall stats
+        fwd = _np_opp.array([float(r[5]) for r in rows if r[5] is not None])
+        overall = {"n": len(fwd), "win_rate_pct": round(float(_np_opp.mean(fwd > 0))*100, 1),
+                   "avg_fwd_ret_pct": round(float(_np_opp.mean(fwd)), 3),
+                   "median_fwd_ret_pct": round(float(_np_opp.median(fwd)), 3)}
+
+        # By conviction tier
+        by_conv = {}
+        for conv_level in sorted(set(r[2] for r in rows)):
+            tier_rets = _np_opp.array([float(r[5]) for r in rows
+                                       if r[2] == conv_level and r[5] is not None])
+            if len(tier_rets) >= 5:
+                by_conv[f"conviction_{conv_level}"] = {
+                    "n": len(tier_rets),
+                    "win_rate_pct": round(float(_np_opp.mean(tier_rets > 0))*100, 1),
+                    "avg_fwd_ret_pct": round(float(_np_opp.mean(tier_rets)), 3),
+                }
+
+        # High vol/OI (>=5x) vs lower
+        hi_voi = _np_opp.array([float(r[5]) for r in rows if (r[4] or 0) >= 5 and r[5] is not None])
+        lo_voi = _np_opp.array([float(r[5]) for r in rows if (r[4] or 0) < 5 and r[5] is not None])
+
+        return {"status": "ok", "forward_days": forward_days,
+                "min_premium_k": min_premium_k, "days_back": days_back,
+                "overall": overall,
+                "by_conviction": by_conv,
+                "high_vol_oi_5x_plus": {
+                    "n": len(hi_voi),
+                    "win_rate_pct": round(float(_np_opp.mean(hi_voi > 0))*100, 1) if len(hi_voi) > 0 else None,
+                    "avg_fwd_ret_pct": round(float(_np_opp.mean(hi_voi)), 3) if len(hi_voi) > 0 else None,
+                },
+                "low_vol_oi_under_5x": {
+                    "n": len(lo_voi),
+                    "win_rate_pct": round(float(_np_opp.mean(lo_voi > 0))*100, 1) if len(lo_voi) > 0 else None,
+                    "avg_fwd_ret_pct": round(float(_np_opp.mean(lo_voi)), 3) if len(lo_voi) > 0 else None,
+                },
+                "verdict": (
+                    f"Options flow is PREDICTIVE at this premium floor — "
+                    f"{overall['win_rate_pct']}% win rate over {forward_days} days (n={overall['n']})."
+                    if overall["win_rate_pct"] > 52 and overall["n"] >= 30
+                    else f"Not enough graded data yet (n={overall['n']}) — check again in a few weeks."
+                    if overall["n"] < 30
+                    else f"Options flow at ${min_premium_k}K+ threshold showing weak edge ({overall['win_rate_pct']}% WR) — try higher conviction filter."
+                )}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+def _mkt_cross_confirm_options_price(days_back: int = 5,
+                                      min_vol_oi: float = 3.0,
+                                      min_premium_k: float = 0) -> dict:
+    """The highest-conviction setup: tickers where BOTH price/volume (polygon_market_daily)
+    AND options flow (call sweep activity) are confirming simultaneously.
+    No premium floor by default — a $30K small-bank call with 12x vol/OI on a stock
+    with rising close_strength is more interesting than a $1M blue-chip call with 1.5x vol/OI.
+    Returns tickers sorted by combined signal strength."""
+    import psycopg2 as _pg_ccop
+    min_prem = int(min_premium_k * 1000)
+    try:
+        with _pg_ccop.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH recent_options AS (
+                    SELECT ticker,
+                           MAX(vol_oi_ratio) AS max_voi,
+                           SUM(premium)/1000.0 AS total_prem_k,
+                           MAX(conviction) AS max_conv,
+                           COUNT(DISTINCT sweep_date) AS option_days
+                    FROM call_sweep_log
+                    WHERE sweep_date >= CURRENT_DATE - %s AND premium >= %s
+                    GROUP BY ticker
+                    UNION ALL
+                    SELECT ticker,
+                           MAX(vol_oi) AS max_voi,
+                           SUM(prem)/1000.0 AS total_prem_k,
+                           1 AS max_conv,
+                           COUNT(DISTINCT (last_seen AT TIME ZONE 'America/New_York')::date) AS option_days
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL '{days_back} days' AND prem >= %s
+                    GROUP BY ticker
+                    UNION ALL
+                    SELECT ticker,
+                           MAX(vol_oi) AS max_voi,
+                           SUM(prem)/1000.0 AS total_prem_k,
+                           2 AS max_conv,
+                           COUNT(DISTINCT (last_seen AT TIME ZONE 'America/New_York')::date) AS option_days
+                    FROM unusual_calls_microcap_log
+                    WHERE last_seen >= NOW() - INTERVAL '{days_back} days' AND prem >= %s
+                    GROUP BY ticker
+                ),
+                options_agg AS (
+                    SELECT ticker,
+                           MAX(max_voi) AS max_voi,
+                           SUM(total_prem_k) AS total_prem_k,
+                           MAX(max_conv) AS max_conv,
+                           MAX(option_days) AS option_days
+                    FROM recent_options
+                    WHERE max_voi >= %s
+                    GROUP BY ticker
+                ),
+                price_signals AS (
+                    SELECT ticker,
+                           close_strength,
+                           rvol,
+                           gap_pct,
+                           close_price,
+                           scan_date
+                    FROM polygon_market_daily
+                    WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+                      AND close_price > 1
+                )
+                SELECT o.ticker,
+                       ROUND(o.max_voi::numeric, 1) AS max_voi,
+                       ROUND(o.total_prem_k::numeric, 1) AS total_prem_k,
+                       o.max_conv AS conviction,
+                       o.option_days,
+                       ROUND(p.close_strength::numeric, 2) AS close_strength,
+                       ROUND(p.rvol::numeric, 2) AS rvol,
+                       ROUND(p.gap_pct::numeric, 2) AS gap_pct,
+                       p.close_price,
+                       -- Combined score: options signal * price confirmation
+                       (o.max_voi * COALESCE(p.close_strength, 0.5)
+                        * COALESCE(p.rvol, 1.0)
+                        * (1 + o.option_days * 0.3)
+                        * (1 + o.max_conv * 0.2)) AS combined_score
+                FROM options_agg o
+                JOIN price_signals p ON p.ticker = o.ticker
+                ORDER BY combined_score DESC
+                LIMIT 30
+            """, (days_back, min_prem, min_prem, min_prem, min_vol_oi))
+            rows = cur.fetchall()
+
+        results = [{"ticker": r[0], "max_vol_oi": float(r[1] or 0),
+                    "total_options_premium_k": float(r[2] or 0),
+                    "max_conviction": r[3], "option_days": r[4],
+                    "close_strength": float(r[5] or 0), "rvol": float(r[6] or 0),
+                    "gap_pct": float(r[7] or 0), "close_price": float(r[8] or 0),
+                    "combined_score": round(float(r[9] or 0), 2)}
+                   for r in rows]
+
+        return {"status": "ok", "days_back": days_back, "min_vol_oi": min_vol_oi,
+                "min_premium_k": min_premium_k, "n_candidates": len(results),
+                "results": results,
+                "interpretation": (
+                    "These tickers have BOTH elevated call option interest (vol/OI >= threshold) "
+                    "AND positive price action (high close_strength + rvol) today. The combined_score "
+                    "weights multi-day repeat option activity and conviction. A small REIT with 12x "
+                    "vol/OI + strong close beats a blue-chip with 3x vol/OI + average close."
+                )}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
 _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "query_pick_outcomes",
@@ -19369,12 +19719,65 @@ _AIEM_AGENT_TOOLS = [
             "lookback_trading_days": {"type": "integer", "description": "Rolling high window (default 252)"},
         }, "required": []}
     }},
+    {"type": "function", "function": {
+        "name": "mkt_ticker_options_history",
+        "description": (
+            "For a specific ticker: pull ALL call option activity from every scanner table (sweep scanner, broad unusual-calls, micro/small-cap) with NO size filter by default. A $30K REIT call with 12x vol/OI is visible here even though it never appears in the $500K+ subscriber tabs. Use this when you find a breakout or accumulation candidate and want to know: what does the options market show for this stock?"
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Stock ticker symbol"},
+            "days_back": {"type": "integer", "description": "Lookback window in days (default 30)"},
+            "min_premium_k": {"type": "number", "description": "Min premium in thousands, 0 = see everything (default 0)"},
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_options_flow_scan",
+        "description": (
+            "Universe-wide scan: ALL tickers with recent call activity across every options table, sorted by vol/OI ratio, premium, conviction, or recency. Set min_premium_k=10 to see $10K+ calls — catches small banks, REITs, biotech that the subscriber tabs filter out. This answers: what is the options market betting on right now, across the whole universe?"
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Lookback window in days (default 7)"},
+            "min_premium_k": {"type": "number", "description": "Min premium in thousands (default 10, use 0 for all)"},
+            "sort_by": {"type": "string", "description": "Sort order: vol_oi, premium, conviction, recent (default vol_oi)"},
+            "limit": {"type": "integer", "description": "Max results (default 50)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_options_predicts_price",
+        "description": (
+            "Backtest: does call sweep activity in our logs actually PRECEDE forward price moves? Cross-references call_sweep_log with polygon_market_daily real forward returns. Breaks down by conviction tier and vol/OI level so you know which options signals are genuinely predictive vs noise. Run this to validate before building a strategy on options flow."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Lookback window for sweep events (default 90)"},
+            "forward_days": {"type": "integer", "description": "Forward return window in trading days (default 5)"},
+            "min_premium_k": {"type": "number", "description": "Min premium in thousands (default 10)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_cross_confirm_options",
+        "description": (
+            "Highest-conviction setup: tickers where BOTH price/volume action (polygon_market_daily — close_strength, rvol) AND call option flow (any scanner, any premium size) are confirming today. A $30K small-bank call with 12x vol/OI on a stock with strong close beats a $1M blue-chip call with 1.5x vol/OI on an average day. Combined score weights multi-day repeat activity and conviction."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Lookback for options activity (default 5)"},
+            "min_vol_oi": {"type": "number", "description": "Minimum vol/OI ratio to qualify (default 3.0)"},
+            "min_premium_k": {"type": "number", "description": "Min premium in thousands, 0 = all sizes (default 0)"},
+        }, "required": []}
+    }},
 ]
 
 
 _AIEM_AGENT_SYSTEM = """You are an autonomous quantitative research AI with access to a real trading database.
 
 Your mission: analyze your own stock-picking performance, discover what makes picks win or lose, and build the most accurate scoring model possible - which directly improves tomorrow's picks.
+
+CRITICAL NEW CAPABILITY — OPTIONS FLOW TOOLS:
+You can now see the complete options market — not just the $500K+ subscriber-filtered sweeps.
+Use these in every research cycle:
+  - mkt_cross_confirm_options: ALWAYS run this first — finds stocks with BOTH price momentum AND options flow confirming simultaneously
+  - mkt_ticker_options_history: when you find any breakout/accumulation candidate, check its options history (min_premium_k=0 to see everything)
+  - mkt_options_flow_scan: scan the universe for unusual call activity (set min_premium_k=10 for $10K+ calls — catches REITs, banks, biotech)
+  - mkt_options_predicts_price: validate whether options signals are predictive in your data before weighting them heavily
 
 TOOLS AVAILABLE (use in this order):
 1.  evaluate_previous_model      - ALWAYS start here. Was last week's model good or bad?
@@ -20473,6 +20876,10 @@ def _run_aiem_research_agent(max_iterations=None):
         "mkt_gap_fill_probability":   _mkt_gap_fill_probability,
         "mkt_capitulation_detector":  _detect_capitulation_signature,
         "mkt_52week_momentum":        _mkt_52week_high_momentum,
+        "mkt_ticker_options_history":  _mkt_ticker_options_history,
+        "mkt_options_flow_scan":       _mkt_options_flow_scan,
+        "mkt_options_predicts_price":  _mkt_options_predicts_price,
+        "mkt_cross_confirm_options":   _mkt_cross_confirm_options_price,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
