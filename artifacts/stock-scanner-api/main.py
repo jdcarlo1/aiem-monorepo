@@ -13011,6 +13011,42 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
             _c.commit()
         msg = "[aiem_research] saved model {} (confidence={}{})".format(today, confidence, strip_note)
         print(msg)
+
+        # Store embeddings so search_past_findings has data from this session onward
+        try:
+            _oai_emb = _OpenAI(
+                base_url="https://ai-integrations.replit.com/openai",
+                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
+            )
+            _emb_resp = _oai_emb.embeddings.create(
+                model="text-embedding-3-small",
+                input=str(findings)[:2000]
+            )
+            _emb_vec = _emb_resp.data[0].embedding
+            import json as _ej2
+            with _psycopg2.connect(_DB_URL) as _ce, _ce.cursor() as _cue:
+                _cue.execute("""
+                    CREATE TABLE IF NOT EXISTS aiem_finding_embeddings (
+                        research_date DATE PRIMARY KEY,
+                        findings_text TEXT,
+                        embedding JSONB,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                _cue.execute("""
+                    INSERT INTO aiem_finding_embeddings
+                        (research_date, findings_text, embedding)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (research_date) DO UPDATE
+                        SET embedding=EXCLUDED.embedding,
+                            findings_text=EXCLUDED.findings_text,
+                            created_at=NOW()
+                """, (today, str(findings)[:3000], _ej2.dumps(_emb_vec)))
+                _ce.commit()
+            print("[aiem_research] findings embedding stored for RAG")
+        except Exception as _emb_err:
+            print("[aiem_research] embedding store skipped: {}".format(_emb_err))
+
         return {
             "saved": True,
             "date": today,
@@ -13026,6 +13062,339 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
         print("[aiem_research] save error: {}".format(e))
         return {"error": str(e)}
 
+
+
+
+# ── UPGRADE 1: Pre-registered hypotheses ─────────────────────────────────────
+def _aiem_tool_register_hypotheses(hypotheses):
+    """
+    Pre-register the agent's hypotheses BEFORE looking at any data.
+    Prevents p-hacking by committing to what you are testing upfront.
+    hypotheses: list of strings, each a specific, falsifiable, directional claim.
+    Call this as step 3, immediately after evaluate_previous_model (and rollback if needed).
+    """
+    import json as _hj, datetime as _hdt
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_research_hypotheses (
+                    id SERIAL PRIMARY KEY,
+                    research_date DATE NOT NULL,
+                    hypothesis_index INTEGER NOT NULL,
+                    hypothesis_text TEXT NOT NULL,
+                    registered_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(research_date, hypothesis_index)
+                )
+            """)
+            _c.commit()
+            today = _hdt.date.today().isoformat()
+            for i, h in enumerate(hypotheses or []):
+                _cu.execute("""
+                    INSERT INTO aiem_research_hypotheses
+                        (research_date, hypothesis_index, hypothesis_text)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (research_date, hypothesis_index) DO UPDATE
+                        SET hypothesis_text=EXCLUDED.hypothesis_text,
+                            registered_at=NOW()
+                """, (today, i, str(h)))
+            _c.commit()
+        print("[aiem_research] {} hypotheses registered for {}".format(len(hypotheses or []), today))
+        return {
+            "registered": len(hypotheses or []),
+            "date": today,
+            "hypotheses": hypotheses,
+            "instruction": (
+                "Hypotheses locked in. Now run your data queries to TEST each one. "
+                "When you report results, explicitly state which hypothesis was CONFIRMED, "
+                "REJECTED, or INCONCLUSIVE. Do not add new hypotheses post-hoc."
+            )
+        }
+    except Exception as e:
+        print("[aiem_research] register_hypotheses error: {}".format(e))
+        return {"error": str(e)}
+
+
+# ── UPGRADE 2: Multivariate causal inference (logistic regression) ────────────
+def _aiem_tool_multivariate_regression(signal_cols=None, control_cols=None, days_back=60):
+    """
+    Logistic regression controlling for multiple confounders simultaneously.
+    Instead of one-at-a-time correlation, isolates each signal's TRUE effect
+    while holding regime, day_of_week, and other signals constant.
+
+    signal_cols: list of columns to test as predictors of T+3 win.
+        Valid options: 'confirmed_2d', 'high_conviction', 'buy_stock', 'vol_oi_bucket', 'rank'
+    control_cols: list of confounders to control for.
+        Valid options: 'regime' (bull/bear/chop from SPY), 'day_of_week', 'week_of_month'
+    days_back: how many trading days of settled picks to include (default 60)
+
+    Returns: per-signal controlled coefficient, odds-ratio, p-value, and 95% CI.
+    The p-values here are MORE reliable than analyze_signal_correlation because
+    they are not inflated by regime or calendar effects.
+    """
+    import json as _mj, datetime as _mdt
+    from scipy import stats as _st
+    try:
+        from scipy.special import expit as _expit
+        import numpy as _np
+
+        if not signal_cols:
+            signal_cols = ["confirmed_2d", "high_conviction", "buy_stock"]
+        if not control_cols:
+            control_cols = ["regime", "day_of_week"]
+
+        cutoff = (_mdt.date.today() - _mdt.timedelta(days=days_back)).isoformat()
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    co.win_t3,
+                    co.confirmed_2d,
+                    co.high_conviction,
+                    co.buy_stock,
+                    EXTRACT(DOW FROM co.pick_date)::int  AS day_of_week,
+                    EXTRACT(WEEK FROM co.pick_date)::int % 4 AS week_of_month,
+                    CASE
+                        WHEN COALESCE(sc.spy_daily_ret, 0) >  0.005 THEN 1
+                        WHEN COALESCE(sc.spy_daily_ret, 0) < -0.005 THEN -1
+                        ELSE 0
+                    END AS regime,
+                    CASE WHEN co.vol_oi > 3 THEN 1 ELSE 0 END AS vol_oi_bucket,
+                    co.rank
+                FROM conviction_outcomes co
+                LEFT JOIN spy_cache sc ON sc.trade_date = co.pick_date
+                WHERE co.pick_date >= %s
+                  AND co.win_t3 IS NOT NULL
+            """, (cutoff,))
+            rows = _cu.fetchall()
+            cols_all = ["win_t3","confirmed_2d","high_conviction","buy_stock",
+                        "day_of_week","week_of_month","regime","vol_oi_bucket","rank"]
+            data = [{c: r[i] for i, c in enumerate(cols_all)} for r in rows]
+
+        n = len(data)
+        if n < 20:
+            return {"error": "Insufficient settled picks for regression (n={})".format(n),
+                    "n": n, "min_required": 20}
+
+        all_predictors = signal_cols + [c for c in control_cols if c not in signal_cols]
+        available = [p for p in all_predictors if p in cols_all]
+
+        # Build design matrix X and outcome vector y
+        def _safe_float(v):
+            try:
+                return float(v) if v is not None else 0.0
+            except Exception:
+                return 0.0
+
+        y = _np.array([_safe_float(d["win_t3"]) for d in data])
+        Xraw = _np.array([[_safe_float(d.get(p, 0)) for p in available] for d in data])
+
+        # Standardize continuous predictors for interpretable coefficients
+        Xmeans = Xraw.mean(axis=0)
+        Xstds  = Xraw.std(axis=0)
+        Xstds[Xstds == 0] = 1.0
+        X = (Xraw - Xmeans) / Xstds
+        X = _np.column_stack([_np.ones(n), X])  # add intercept
+
+        # Newton-Raphson logistic regression (max 100 iters)
+        theta = _np.zeros(X.shape[1])
+        for _ in range(100):
+            p_hat = _expit(X @ theta)
+            W = p_hat * (1 - p_hat)
+            grad = X.T @ (p_hat - y)
+            H = X.T @ (_np.diag(W) @ X)
+            try:
+                delta = _np.linalg.solve(H + 1e-6 * _np.eye(H.shape[0]), grad)
+                theta -= delta
+                if _np.max(_np.abs(delta)) < 1e-6:
+                    break
+            except Exception:
+                break
+
+        # Compute standard errors and Wald p-values
+        p_hat_final = _expit(X @ theta)
+        W_final = p_hat_final * (1 - p_hat_final)
+        H_final = X.T @ (_np.diag(W_final) @ X)
+        try:
+            var_theta = _np.linalg.inv(H_final + 1e-6 * _np.eye(H_final.shape[0]))
+            se = _np.sqrt(_np.diag(var_theta))
+        except Exception:
+            se = _np.ones(len(theta)) * float("nan")
+
+        results = {}
+        for i, col in enumerate(available):
+            coef = float(theta[i + 1])        # skip intercept
+            se_i = float(se[i + 1])
+            z = coef / se_i if se_i > 0 else float("nan")
+            p = float(2 * (1 - _st.norm.cdf(abs(z)))) if not _np.isnan(z) else float("nan")
+            odds = float(_np.exp(coef))
+            ci_lo = float(_np.exp(coef - 1.96 * se_i))
+            ci_hi = float(_np.exp(coef + 1.96 * se_i))
+            is_signal = col in signal_cols
+            results[col] = {
+                "type": "signal" if is_signal else "control",
+                "coefficient": round(coef, 4),
+                "odds_ratio": round(odds, 3),
+                "ci_95": [round(ci_lo, 3), round(ci_hi, 3)],
+                "p_value": round(p, 4) if not _np.isnan(p) else None,
+                "significant_p05": bool(p < 0.05) if not _np.isnan(p) else False,
+                "interpretation": (
+                    "OR={:.2f}: controlling for {}, a 1-SD increase in {} is associated with "
+                    "{:.0f}% {} odds of a T+3 win (p={:.4f})".format(
+                        odds, ", ".join(control_cols), col,
+                        abs(odds - 1) * 100, "higher" if odds > 1 else "lower",
+                        p if not _np.isnan(p) else 0
+                    )
+                )
+            }
+
+        signal_results = {k: v for k, v in results.items() if v["type"] == "signal"}
+        control_results = {k: v for k, v in results.items() if v["type"] == "control"}
+
+        return {
+            "n": n,
+            "days_back": days_back,
+            "signal_effects": signal_results,
+            "control_effects": control_results,
+            "note": (
+                "These p-values control for ALL other variables simultaneously. "
+                "A signal is truly predictive if p<0.05 here AND in run_statistical_significance. "
+                "Use the controlled p-values from this tool for scoring_adjustments."
+            )
+        }
+    except Exception as e:
+        import traceback
+        print("[aiem_research] multivariate_regression error: {}".format(e))
+        return {"error": str(e), "traceback": traceback.format_exc()[:500]}
+
+
+# ── UPGRADE 3: RAG over past findings (semantic memory) ───────────────────────
+def _aiem_tool_search_past_findings(query_text, weeks_back=16):
+    """
+    Semantic search over past weekly research findings using OpenAI embeddings.
+    Before labeling anything a NEW FINDING, call this to check if it was already
+    documented in a prior week. Returns the top 3 most similar past findings.
+
+    If a finding scores similarity > 0.82 and was seen in the last 4 weeks,
+    label it CONFIRMED (recurring), not NEW FINDING. This prevents the agent
+    from artificially inflating confidence by rediscovering the same pattern.
+    """
+    import json as _rfj, datetime as _rfdt
+    try:
+        import numpy as _np
+
+        cutoff = (_rfdt.date.today() - _rfdt.timedelta(weeks=weeks_back)).isoformat()
+
+        # Ensure embedding cache table exists
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_finding_embeddings (
+                    research_date DATE PRIMARY KEY,
+                    findings_text TEXT,
+                    embedding JSONB,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            _c.commit()
+
+        # Load past findings (text + cached embeddings)
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT ri.research_date, ri.findings, ri.confidence,
+                       fe.embedding
+                FROM aiem_research_insights ri
+                LEFT JOIN aiem_finding_embeddings fe ON fe.research_date = ri.research_date
+                WHERE ri.research_date >= %s
+                  AND ri.research_date < CURRENT_DATE
+                ORDER BY ri.research_date DESC
+                LIMIT 20
+            """, (cutoff,))
+            past_rows = _cu.fetchall()
+
+        if not past_rows:
+            return {
+                "similar_findings": [],
+                "message": "No past findings to compare against yet. This is week 1 of research history.",
+                "query": query_text
+            }
+
+        # Compute embedding for the query
+        _oai = _OpenAI(
+            base_url="https://ai-integrations.replit.com/openai",
+            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
+        )
+
+        def _embed(text):
+            resp = _oai.embeddings.create(
+                model="text-embedding-3-small",
+                input=str(text)[:2000]
+            )
+            return resp.data[0].embedding
+
+        query_emb = _np.array(_embed(query_text))
+
+        results = []
+        for row in past_rows:
+            rd, findings_text, conf, stored_emb = row
+            if stored_emb:
+                past_emb = _np.array(stored_emb)
+            else:
+                # Compute and cache the embedding for this past finding
+                try:
+                    past_emb = _np.array(_embed(str(findings_text or "")[:2000]))
+                    with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+                        _cu.execute("""
+                            INSERT INTO aiem_finding_embeddings
+                                (research_date, findings_text, embedding)
+                            VALUES (%s, %s, %s)
+                            ON CONFLICT (research_date) DO UPDATE
+                                SET embedding=EXCLUDED.embedding,
+                                    findings_text=EXCLUDED.findings_text
+                        """, (rd, str(findings_text or "")[:3000],
+                              _rfj.dumps(past_emb.tolist())))
+                        _c.commit()
+                except Exception:
+                    continue
+
+            # Cosine similarity
+            denom = (_np.linalg.norm(query_emb) * _np.linalg.norm(past_emb))
+            sim = float(_np.dot(query_emb, past_emb) / denom) if denom > 0 else 0.0
+
+            weeks_ago = (_rfdt.date.today() - rd).days // 7 if hasattr(rd, "year") else 99
+            label = ""
+            if sim >= 0.85 and weeks_ago <= 4:
+                label = "CONFIRMED (seen {}w ago) — do NOT count as new evidence".format(weeks_ago)
+            elif sim >= 0.78 and weeks_ago <= 8:
+                label = "LIKELY RECURRING (seen {}w ago) — label as recurring, not novel".format(weeks_ago)
+            elif sim >= 0.65:
+                label = "RELATED (seen {}w ago) — mention prior observation".format(weeks_ago)
+
+            if sim >= 0.60:
+                results.append({
+                    "date": str(rd),
+                    "similarity": round(sim, 3),
+                    "weeks_ago": weeks_ago,
+                    "confidence": conf,
+                    "label": label,
+                    "findings_excerpt": str(findings_text or "")[:400] + "..."
+                })
+
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        top3 = results[:3]
+
+        return {
+            "query": query_text[:200],
+            "similar_findings": top3,
+            "total_past_weeks_searched": len(past_rows),
+            "instruction": (
+                "If similarity >= 0.85 and recent (<= 4 weeks): label CONFIRMED (recurring). "
+                "If similarity >= 0.78 and recent (<= 8 weeks): label LIKELY RECURRING. "
+                "Only call a finding NEW if similarity < 0.65 or no similar past finding exists."
+            )
+        }
+    except Exception as e:
+        import traceback
+        print("[aiem_research] search_past_findings error: {}".format(e))
+        return {"error": str(e), "traceback": traceback.format_exc()[:500]}
 
 
 def _aiem_tool_rollback_to_previous_model():
@@ -13736,6 +14105,70 @@ _AIEM_AGENT_TOOLS = [
         }, "required": ["group_a_wins", "group_a_n", "group_b_wins", "group_b_n"]}
     }},
     {"type": "function", "function": {
+        "name": "register_hypotheses",
+        "description": (
+            "MANDATORY step 3 (after evaluate + optional rollback). "
+            "Pre-register 3-5 specific, directional, falsifiable hypotheses BEFORE "
+            "looking at any data. Each must name a signal, a direction, and a magnitude. "
+            "Example: 'confirmed_2d picks will show >10pp higher T+3 win rate than those without.' "
+            "Locks them in the DB so you cannot change them post-hoc. "
+            "After data queries, explicitly report each as CONFIRMED/REJECTED/INCONCLUSIVE."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "hypotheses": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of 3-5 specific falsifiable hypothesis strings."
+            }
+        }, "required": ["hypotheses"]}
+    }},
+    {"type": "function", "function": {
+        "name": "multivariate_regression",
+        "description": (
+            "Logistic regression controlling for multiple confounders simultaneously. "
+            "Use this INSTEAD OF or IN ADDITION TO analyze_signal_correlation when you want "
+            "a signal's TRUE effect controlling for regime, day-of-week, and other signals at once. "
+            "Much more reliable than one-at-a-time correlation — removes false positives caused "
+            "by bull markets or calendar effects masking the real driver."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "signal_cols": {
+                "type": "array",
+                "items": {"type": "string",
+                          "enum": ["confirmed_2d","high_conviction","buy_stock","vol_oi_bucket","rank"]},
+                "description": "Signals to estimate controlled effects for."
+            },
+            "control_cols": {
+                "type": "array",
+                "items": {"type": "string",
+                          "enum": ["regime","day_of_week","week_of_month"]},
+                "description": "Confounders to hold constant. Default: [regime, day_of_week]."
+            },
+            "days_back": {"type": "integer",
+                          "description": "Days of settled picks to use (default 60, max 90)."}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "search_past_findings",
+        "description": (
+            "Semantic search over all past weekly findings using embedding similarity. "
+            "Call this BEFORE labeling any result a 'new finding'. "
+            "If similarity >= 0.85 and the finding is < 4 weeks old, label it CONFIRMED (recurring) "
+            "— do NOT count it as fresh evidence for a weight increase. "
+            "This prevents the agent from inflating confidence by rediscovering the same pattern."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "query_text": {
+                "type": "string",
+                "description": "The finding you want to check for prior occurrence. Be specific: include signal name, direction, and magnitude."
+            },
+            "weeks_back": {
+                "type": "integer",
+                "description": "How many weeks of history to search (default 16)."
+            }
+        }, "required": ["query_text"]}
+    }},
+    {"type": "function", "function": {
         "name": "save_research_model",
         "description": (
             "Save final conclusions and scoring model to the database. "
@@ -13760,46 +14193,70 @@ Your mission: analyze your own stock-picking performance, discover what makes pi
 TOOLS AVAILABLE (use in this order):
 1.  evaluate_previous_model      — ALWAYS start here. Was last week's model good or bad?
 2.  rollback_to_previous_model   — Call IMMEDIATELY if evaluate_previous_model returns MODEL HURT.
-3.  query_pick_outcomes          — Full T+3/T+7 history and overall win rate.
-4.  query_missed_movers          — What big movers did we miss? Why?
-5.  analyze_signal_correlation   — Which boolean signals predict winners?
-6.  discover_numeric_patterns    — Optimal thresholds for day_ret, vol_oi, stock_price.
-7.  compare_picks_vs_misses      — Systematic bias: what do we avoid that we shouldn't?
-8.  query_market_regime          — Do our signals work in bull vs bear vs chop?
-9.  query_cross_signal_overlap   — Does multi-scanner confirmation improve outcomes?
-10. query_temporal_patterns      — Day of week, OpEx week, week-of-month effects.
-11. query_rank_effectiveness     — Does rank #1 actually outperform rank #5?
-12. query_exit_timing            — T+3 vs T+7: when should we exit per signal type?
-13. test_scoring_hypothesis      — Backtest proposed weights before committing. Iterate ≥3x.
-14. run_statistical_significance — Bootstrap p-value test. MANDATORY before adding any weight.
-15. save_research_model          — Save final model. LAST call only.
+3.  register_hypotheses          — MANDATORY: commit to 3-5 hypotheses BEFORE any data queries.
+4.  query_pick_outcomes          — Full T+3/T+7 history and overall win rate.
+5.  query_missed_movers          — What big movers did we miss? Why?
+6.  analyze_signal_correlation   — Which boolean signals predict winners? (univariate)
+7.  multivariate_regression      — Controlled effect sizes holding regime+day_of_week constant.
+8.  discover_numeric_patterns    — Optimal thresholds for day_ret, vol_oi, stock_price.
+9.  compare_picks_vs_misses      — Systematic bias: what do we avoid that we shouldn't?
+10. query_market_regime          — Do our signals work in bull vs bear vs chop?
+11. query_cross_signal_overlap   — Does multi-scanner confirmation improve outcomes?
+12. query_temporal_patterns      — Day of week, OpEx week, week-of-month effects.
+13. query_rank_effectiveness     — Does rank #1 actually outperform rank #5?
+14. query_exit_timing            — T+3 vs T+7: when should we exit per signal type?
+15. search_past_findings         — Semantic search past reports before calling anything NEW.
+16. run_statistical_significance — Bootstrap p-value test. MANDATORY before adding any weight.
+17. test_scoring_hypothesis      — Backtest proposed weights before committing. Iterate >= 3x.
+18. save_research_model          — Save final model. LAST call only.
 
 HARD RULES — violating these produces an invalid model:
 1. ROLLBACK RULE: If evaluate_previous_model returns MODEL HURT, call rollback_to_previous_model
-   BEFORE doing any other research. Build new weights on top of the restored baseline.
-2. P-VALUE RULE: For EVERY weight you include in scoring_adjustments, you MUST:
-   a) Have called run_statistical_significance for that signal/group comparison.
-   b) Include {key}_p_value and {key}_n in scoring_adjustments alongside the weight.
-   c) Only include weights where p < 0.05. The save function will strip p >= 0.10 automatically.
+   BEFORE any other research. Build new weights on top of the restored baseline.
+
+2. PRE-REGISTRATION RULE: Call register_hypotheses BEFORE any data tools (steps 4+).
+   Write 3-5 specific, directional, falsifiable claims. After data queries, explicitly label
+   each hypothesis CONFIRMED, REJECTED, or INCONCLUSIVE. Never add hypotheses post-hoc.
+   Good example: "confirmed_2d picks will show >10pp higher T+3 win rate vs picks without it."
+   Bad example: "signals probably help" (not falsifiable, no magnitude).
+
+3. CAUSAL DISCIPLINE RULE: For any signal you plan to include in the model, run BOTH:
+   a) analyze_signal_correlation (univariate — raw win rate diff)
+   b) multivariate_regression (controlled — isolates true effect from regime/calendar noise)
+   Only include a signal if BOTH show significance. If univariate is significant but controlled
+   is not, that signal is a regime proxy, not a real edge — exclude it.
+
+4. RAG RULE: Before writing any finding in your narrative, call search_past_findings.
+   If similarity >= 0.85 and the finding was seen <= 4 weeks ago: label CONFIRMED (recurring).
+   If similarity >= 0.78 and <= 8 weeks ago: label LIKELY RECURRING.
+   Only label a finding NEW if similarity < 0.65 or no prior match exists.
+   CONFIRMED findings do NOT justify raising a weight — they confirm the weight already set.
+
+5. P-VALUE RULE: For EVERY weight in scoring_adjustments include {key}_p_value and {key}_n.
+   Use the CONTROLLED p-value from multivariate_regression when available (more reliable).
+   The save function strips weights with p >= 0.10 automatically.
    Example: {"confirmed_2d_bonus": 1.8, "confirmed_2d_bonus_p_value": 0.031, "confirmed_2d_bonus_n": 47}
-3. BACKTEST RULE: Test at least 3 different weight combinations with test_scoring_hypothesis.
-   Only save the combination with the highest top-half win rate improvement.
-4. REGIME RULE: Always call query_market_regime. If BULL vs BEAR win rate differs by >10pp,
-   include regime-conditional notes in findings. Do not apply bull-market weights in bear regime.
-5. SAMPLE RULE: If settled_picks < 20, set confidence=LOW and use only conservative defaults.
-   Do not claim statistical significance with n < 15 per group.
 
-REQUIRED findings content (all must be present):
-- What the previous model's verdict was (HELPED/NEUTRAL/HURT) and by how many pp
-- What signals are statistically significant (p-value, n, win rate with vs without)
-- What weights were REMOVED and why (not significant / regime-specific / small sample)
-- Current market regime and whether regime-conditional weights apply
-- Exit timing recommendation (T+3 vs T+7 for current signals)
-- One thing the agent is uncertain about and wants to test next week
+6. BACKTEST RULE: Test >= 3 weight combinations with test_scoring_hypothesis before saving.
+   Only commit the combination with the highest top-half win rate improvement.
 
-Your goal: maximize T+3 win rate for top-ranked picks. Rigorous statistical discipline is
-more important than finding impressive-sounding patterns. A null result ("no significant
-signals found this week") is a valid and honest output."""
+7. REGIME RULE: Always call query_market_regime. Never apply bull-market weights in bear regime.
+
+8. SAMPLE RULE: settled_picks < 20 → confidence=LOW, conservative defaults only.
+   Do not claim significance with n < 15 per group.
+
+REQUIRED findings content:
+- Previous model verdict (HELPED / NEUTRAL / HURT) and by how many percentage points
+- Your 3-5 pre-registered hypotheses and their outcomes (CONFIRMED / REJECTED / INCONCLUSIVE)
+- Signals tested via multivariate_regression and their controlled p-values
+- Any finding labeled CONFIRMED (recurring) from search_past_findings — and what that means for weights
+- Signals REMOVED and why (not significant / regime proxy / small sample)
+- Current market regime and whether regime-conditional adjustments apply
+- Exit timing recommendation (T+3 vs T+7)
+- One open question to test next week
+
+Your goal: maximize T+3 win rate for top-ranked picks. Rigorous statistical discipline beats
+finding impressive-sounding patterns. A null result is a valid, honest, and valuable output."""
 
 
 def _run_aiem_research_agent(max_iterations=None):
@@ -13862,6 +14319,10 @@ def _run_aiem_research_agent(max_iterations=None):
         "query_exit_timing":            _aiem_tool_query_exit_timing,
         "run_statistical_significance": _aiem_tool_run_statistical_significance,
         "save_research_model":          _aiem_tool_save_research_model,
+        # ── Three new upgrades ────────────────────────────────────────────────
+        "register_hypotheses":          _aiem_tool_register_hypotheses,
+        "multivariate_regression":      _aiem_tool_multivariate_regression,
+        "search_past_findings":         _aiem_tool_search_past_findings,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
