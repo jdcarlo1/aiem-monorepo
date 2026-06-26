@@ -2229,7 +2229,8 @@ try:
         id="top_pick_email",
         replace_existing=True,
     )
-    # SMS alert scan: 9:55 AM (staggered from 9:45 to give morning_scan a clear 10-min head start).
+    # SMS alert scan: 10:10 AM - morning_scan (9:45) needs ~20min to complete; firing at
+    # 9:55 caused yfinance saturation. 10:10 gives a clear run after the 9:36-9:55 burst.
     # Only fires on green SPY days - red days historically lose money regardless of signal quality.
     def _run_sms_alert_scan():
         if not _intraday_scan_allowed():
@@ -2241,7 +2242,7 @@ try:
             print(f"[scheduler] sms alert scan error: {_e_sms}")
     _scheduler.add_job(
         _run_sms_alert_scan,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=55, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=10, timezone=_ET),
         id="sms_alert_scan",
         replace_existing=True,
     )
@@ -9498,7 +9499,7 @@ def _poll_ask_sms() -> None:
                         _run_aiem_focused_session(
                             session_name=f"sms_ask_{q[:20].replace(' ','_')}",
                             focus_prompt=p,
-                            max_iterations=8
+                            max_iterations=3
                         )
                         # After session, pull the most recent research insight and reply
                         try:
