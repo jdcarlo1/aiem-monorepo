@@ -101,10 +101,34 @@ title = "StockScanner AI — options_sweep.py"
 id = "XU0tJPgj2GjPpgyXBG8qd"
 uri = "file://artifacts/stock-scanner-api/aiem_4_new_tools.txt"
 type = "text"
-title = "AIEM — 4 New Analysis Tools (patched)"
+title = "5. aiem_4_new_tools (wiring code)"
 
 [[outputs]]
 id = "Vj6q1sjzz-y0afCqKPYK4"
 uri = "file://artifacts/stock-scanner-api/aiem_all_modules.zip"
 type = "unspecified"
 title = "AIEM — All 4 Modules + Wiring Code"
+
+[[outputs]]
+id = "fG3KkGe4wEsyC927oKn4i"
+uri = "file://artifacts/stock-scanner-api/dl_signal_correlation.txt"
+type = "text"
+title = "1. signal_correlation.py"
+
+[[outputs]]
+id = "CEajh9mPAX-_grBV6PgYq"
+uri = "file://artifacts/stock-scanner-api/dl_signal_magnitude_analysis.txt"
+type = "text"
+title = "2. signal_magnitude_analysis.py"
+
+[[outputs]]
+id = "ramCx9vfj1tc9Y9C9I76k"
+uri = "file://artifacts/stock-scanner-api/dl_holding_period_optimizer.txt"
+type = "text"
+title = "3. holding_period_optimizer.py"
+
+[[outputs]]
+id = "bL_QKb04c4SQgAV6R1iGh"
+uri = "file://artifacts/stock-scanner-api/dl_position_sizing.txt"
+type = "text"
+title = "4. position_sizing.py"
