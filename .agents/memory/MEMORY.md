@@ -1,8 +1,10 @@
+- [AIEM email Q&A pipeline](aiem-email-qa.md) — owner emails ASK → IMAP polls every 30s → AIEM 3-iter session → reply; Gmail self-send needs ALL (not UNSEEN); UIDs persisted to /tmp/ask_processed_uids.txt; backtest vec dim mismatch fixed (14 vs 12)
 - [AIEM 24/7 behavioral engine](aiem-24h-behavioral-engine.md) — behavioral fingerprint (14-dim), pre-move templates, 2,946 historical patterns, 24/7 schedule 14 sessions/week
 - [AIEM options flow tools](aiem-options-flow-tools.md) — 4 tools: ticker history, universe scan, backtest, cross-confirm; no $500K filter; 3 source tables; call_sweep_log missing conviction col fixed
 - [AI Research Agent](aiem-research-agent.md) — autonomous gpt-4o loop queries own DB, discovers correlations, backtests weights, saves scoring model weekly; LOW→HIGH confidence as picks accumulate
 - [AIEM Full Learning Loop](aiem-full-learning-loop.md) — Real Model + Signal Bridge + 5 predictable-event detectors; 17 admin routes; model retrains Sunday 7 PM once ≥200 graded outcomes
 - [AIEM Full-Market Research System](aiem-market-research-system.md) — 20 mkt_* tools on polygon_market_daily (12K stocks/day); Loop A Sunday / Loop B daily; discoveries in aiem_signal_discoveries; /aiem/discoveries endpoint
+- [AIEM Barchart-parity indicators](aiem-barchart-indicators.md) — mkt_compute_indicators: SMA/EMA 5/10/20/50/100/200/200wk, RSI, Stoch %K/%D, Williams %R, CCI, MACD, ADX/DI, PSAR, BB, Keltner, OBV, MFI, CMF, ROC, Momentum, 14-signal summary; mkt_screen_by_indicator: 38 indicators across 11K tickers; both in all tool maps + schemas
 - [Conviction scoring engine](conviction-scoring-engine.md) — 4-factor quality score on multi-day runner; CV4=66% WR CI-floor 60.4% n=297; orthogonal to d1_strong; period extended 25d→45d
 - [Tradier migration complete](tradier-migration-complete.md) — Yahoo-only: ^VIX/market_cap/float/earnings/screener; everything else → _td_history/_td_intraday/_td_quotes
 - [Yahoo breaker cooldown](yf-breaker-cooldown.md) — must be ≥300s; 60s caused trip→probe→trip spiral all morning; do not reduce
