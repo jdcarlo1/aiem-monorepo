@@ -2344,6 +2344,35 @@ try:
         id="aiem_miss_detection",
         replace_existing=True,
     )
+    # Loop B — morning forward-looking scan: 9:05 AM ET Mon-Fri
+    # Reads fresh Polygon RVOL + conviction + sweep signals, applies learned weights,
+    # saves ranked 3-5 day breakout predictions to aiem_predictions table.
+    def _run_aiem_morning_job():
+        try:
+            import threading as _amj_thr
+            _amj_thr.Thread(target=_run_aiem_morning_scan, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] aiem morning scan error: {e}")
+    _scheduler.add_job(
+        _run_aiem_morning_job,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=5, timezone=_ET),
+        id="aiem_morning_scan",
+        replace_existing=True,
+    )
+    # Loop B — prediction grader: 4:35 PM ET Mon-Fri
+    # Grades T+1 / T+3 / T+5 outcomes for Loop B predictions using Tradier history.
+    def _run_aiem_grader_job():
+        try:
+            import threading as _agj_thr
+            _agj_thr.Thread(target=_run_aiem_prediction_grader, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] aiem grader error: {e}")
+    _scheduler.add_job(
+        _run_aiem_grader_job,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=_ET),
+        id="aiem_prediction_grader",
+        replace_existing=True,
+    )
     # AI Research Agent: every Sunday 8 PM ET — autonomous self-learning loop.
     # Queries its own pick history, discovers signal correlations, builds a scoring model.
     # Results saved to aiem_research_insights → injected into Monday's pick prompt.
@@ -13066,6 +13095,320 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
 
 
 # ── UPGRADE 1: Pre-registered hypotheses ─────────────────────────────────────
+
+# ── Loop B tool 1: scan market for today's setups ─────────────────────────────
+def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
+    """
+    Pull today's fresh signals from all three sources:
+      1. polygon_rvol_scan  - market-wide RVOL movers (8:35 AM scan)
+      2. conviction_stack_watchlist - stocks scoring 4+ on conviction engine
+      3. call_sweep_log - unusual call sweeps from the last 2 trading days
+    Cross-references them so stocks in multiple sources score higher.
+    Returns ranked candidates so the morning agent can pick the best 5-8.
+    """
+    import datetime as _sdt
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT p.ticker, p.rvol, p.price, p.change_pct, p.dollar_volume
+                FROM polygon_rvol_scan p
+                WHERE p.scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
+                  AND p.rvol >= %s
+                  AND p.price BETWEEN 2 AND %s
+                  AND p.dollar_volume >= 500000
+                ORDER BY p.rvol DESC LIMIT 80
+            """, (min_rvol, max_price))
+            rvol_rows = {r[0]: {"rvol": float(r[1]), "price": float(r[2]),
+                                 "change_pct": float(r[3] or 0),
+                                 "dollar_vol_m": round(float(r[4] or 0)/1e6,2)}
+                         for r in _cu.fetchall()}
+
+            _cu.execute("""
+                SELECT ticker, score, confirmed_2d, high_conviction, scanner_count,
+                       sweep_premium_m, float_m
+                FROM conviction_stack_watchlist
+                WHERE snap_date >= CURRENT_DATE - INTERVAL '2 days'
+                  AND score >= 4
+                ORDER BY score DESC LIMIT 60
+            """)
+            conv_rows = {}
+            for r in _cu.fetchall():
+                conv_rows[r[0]] = {
+                    "conviction_score": float(r[1] or 0),
+                    "confirmed_2d": bool(r[2]),
+                    "high_conviction": bool(r[3]),
+                    "scanner_count": int(r[4] or 0),
+                    "sweep_premium_m": float(r[5] or 0),
+                    "float_m": float(r[6] or 0) if r[6] else None
+                }
+
+            _cu.execute("""
+                SELECT ticker, MAX(vol_oi) as max_voi,
+                       MAX(premium_usd)/1e3 as prem_k,
+                       COUNT(*) as sweep_count
+                FROM call_sweep_log
+                WHERE detected_at >= NOW() - INTERVAL '2 days'
+                  AND vol_oi >= 2
+                GROUP BY ticker
+                ORDER BY MAX(vol_oi) DESC LIMIT 60
+            """)
+            sweep_rows = {}
+            for r in _cu.fetchall():
+                sweep_rows[r[0]] = {
+                    "max_vol_oi": float(r[1] or 0),
+                    "premium_k": round(float(r[2] or 0),1),
+                    "sweep_count": int(r[3] or 0)
+                }
+
+        all_tickers = set(rvol_rows) | set(conv_rows) | set(sweep_rows)
+        candidates = []
+        for ticker in all_tickers:
+            r = rvol_rows.get(ticker, {})
+            c = conv_rows.get(ticker, {})
+            s = sweep_rows.get(ticker, {})
+            sources = sum([bool(r), bool(c), bool(s)])
+            composite = (
+                sources * 2.0 +
+                min(r.get("rvol", 0) / 5.0, 3.0) +
+                c.get("conviction_score", 0) / 3.0 +
+                min(s.get("max_vol_oi", 0) / 5.0, 2.0) +
+                (1.5 if c.get("confirmed_2d") else 0) +
+                (1.0 if c.get("high_conviction") else 0)
+            )
+            price = r.get("price") or 0
+            if price < 1.5 or price > max_price:
+                continue
+            candidates.append({
+                "ticker": ticker,
+                "composite_score": round(composite, 2),
+                "sources_confirming": sources,
+                "price": price,
+                "rvol": r.get("rvol"),
+                "change_pct": r.get("change_pct"),
+                "dollar_vol_m": r.get("dollar_vol_m"),
+                "conviction_score": c.get("conviction_score"),
+                "confirmed_2d": c.get("confirmed_2d", False),
+                "high_conviction": c.get("high_conviction", False),
+                "sweep_vol_oi": s.get("max_vol_oi"),
+                "sweep_premium_k": s.get("premium_k"),
+                "float_m": c.get("float_m"),
+            })
+        candidates.sort(key=lambda x: x["composite_score"], reverse=True)
+        try:
+            learned_ctx = _get_aiem_research_context()
+        except Exception:
+            learned_ctx = "No learned model yet."
+        return {
+            "scan_date": _sdt.date.today().isoformat(),
+            "total_candidates": len(candidates),
+            "top_candidates": candidates[:25],
+            "signal_source_counts": {
+                "polygon_rvol": len(rvol_rows),
+                "conviction_stack": len(conv_rows),
+                "call_sweeps": len(sweep_rows)
+            },
+            "learned_model_context": learned_ctx,
+            "instruction": (
+                "Review top_candidates. Apply learned_model_context weights. "
+                "Select 5-8 best setups for a 3-5 day breakout. "
+                "Prioritize stocks in 2-3 sources. "
+                "Call save_daily_predictions with your ranked list."
+            )
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()[:400]}
+
+
+def _aiem_tool_save_daily_predictions(predictions):
+    """
+    Save the morning agent's forward-looking picks to aiem_predictions.
+    predictions: list of dicts with ticker, rank, confidence_score (0-10),
+    signal_basis, reasoning, predicted_move.
+    """
+    import datetime as _pdt
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_predictions (
+                    id SERIAL PRIMARY KEY,
+                    prediction_date DATE NOT NULL,
+                    ticker VARCHAR(10) NOT NULL,
+                    rank INTEGER,
+                    confidence_score NUMERIC(5,2),
+                    signal_basis TEXT,
+                    reasoning TEXT,
+                    predicted_move TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(prediction_date, ticker)
+                )
+            """)
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_prediction_outcomes (
+                    id SERIAL PRIMARY KEY,
+                    prediction_date DATE NOT NULL,
+                    ticker VARCHAR(10) NOT NULL,
+                    t1_return NUMERIC(8,4),
+                    t3_return NUMERIC(8,4),
+                    t5_return NUMERIC(8,4),
+                    win_t3 BOOLEAN,
+                    win_t5 BOOLEAN,
+                    graded_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(prediction_date, ticker)
+                )
+            """)
+            _c.commit()
+            today = _pdt.date.today().isoformat()
+            saved = []
+            for p in (predictions or []):
+                ticker = str(p.get("ticker","")).upper().strip()
+                if not ticker:
+                    continue
+                _cu.execute("""
+                    INSERT INTO aiem_predictions
+                        (prediction_date, ticker, rank, confidence_score,
+                         signal_basis, reasoning, predicted_move)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (prediction_date, ticker) DO UPDATE
+                        SET rank=EXCLUDED.rank,
+                            confidence_score=EXCLUDED.confidence_score,
+                            signal_basis=EXCLUDED.signal_basis,
+                            reasoning=EXCLUDED.reasoning,
+                            predicted_move=EXCLUDED.predicted_move,
+                            created_at=NOW()
+                """, (today, ticker, p.get("rank"), p.get("confidence_score"),
+                      p.get("signal_basis"), p.get("reasoning"), p.get("predicted_move")))
+                saved.append(ticker)
+            _c.commit()
+        print("[aiem_morning] {} predictions saved for {}".format(len(saved), today))
+        return {
+            "saved": len(saved), "date": today, "tickers": saved,
+            "message": "Predictions locked. T+3 outcomes feed into Sunday's learning loop."
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_tool_query_own_prediction_performance(days_back=45):
+    """
+    Sunday agent tool: review Loop B's forward-looking prediction track record.
+    Shows win rate, avg T+3 return, confidence calibration, performance by rank,
+    and best/worst signal combinations. This is the core feedback loop.
+    """
+    import datetime as _opdt
+    try:
+        cutoff = (_opdt.date.today() - _opdt.timedelta(days=days_back)).isoformat()
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT COUNT(*),
+                    ROUND(AVG(CASE WHEN o.win_t3 THEN 1.0 ELSE 0.0 END)*100,1),
+                    ROUND(AVG(o.t3_return)*100,2),
+                    ROUND(AVG(CASE WHEN o.win_t5 THEN 1.0 ELSE 0.0 END)*100,1),
+                    ROUND(AVG(o.t5_return)*100,2)
+                FROM aiem_predictions p
+                JOIN aiem_prediction_outcomes o
+                  ON o.prediction_date=p.prediction_date AND o.ticker=p.ticker
+                WHERE p.prediction_date >= %s AND o.t3_return IS NOT NULL
+            """, (cutoff,))
+            ov = _cu.fetchone()
+
+            _cu.execute("""
+                SELECT
+                    CASE WHEN p.confidence_score >= 7 THEN 'HIGH (7-10)'
+                         WHEN p.confidence_score >= 4 THEN 'MEDIUM (4-6)'
+                         ELSE 'LOW (0-3)' END as bucket,
+                    COUNT(*),
+                    ROUND(AVG(CASE WHEN o.win_t3 THEN 1.0 ELSE 0.0 END)*100,1),
+                    ROUND(AVG(o.t3_return)*100,2)
+                FROM aiem_predictions p
+                JOIN aiem_prediction_outcomes o
+                  ON o.prediction_date=p.prediction_date AND o.ticker=p.ticker
+                WHERE p.prediction_date >= %s AND o.t3_return IS NOT NULL
+                GROUP BY 1 ORDER BY 1
+            """, (cutoff,))
+            conf_rows = _cu.fetchall()
+
+            _cu.execute("""
+                SELECT p.rank, COUNT(*),
+                    ROUND(AVG(CASE WHEN o.win_t3 THEN 1.0 ELSE 0.0 END)*100,1),
+                    ROUND(AVG(o.t3_return)*100,2)
+                FROM aiem_predictions p
+                JOIN aiem_prediction_outcomes o
+                  ON o.prediction_date=p.prediction_date AND o.ticker=p.ticker
+                WHERE p.prediction_date >= %s AND p.rank <= 5
+                  AND o.t3_return IS NOT NULL
+                GROUP BY p.rank ORDER BY p.rank
+            """, (cutoff,))
+            rank_rows = _cu.fetchall()
+
+            _cu.execute("""
+                SELECT p.signal_basis, COUNT(*),
+                    ROUND(AVG(CASE WHEN o.win_t3 THEN 1.0 ELSE 0.0 END)*100,1),
+                    ROUND(AVG(o.t3_return)*100,2)
+                FROM aiem_predictions p
+                JOIN aiem_prediction_outcomes o
+                  ON o.prediction_date=p.prediction_date AND o.ticker=p.ticker
+                WHERE p.prediction_date >= %s AND o.t3_return IS NOT NULL
+                GROUP BY p.signal_basis HAVING COUNT(*) >= 3
+                ORDER BY AVG(o.t3_return) DESC LIMIT 10
+            """, (cutoff,))
+            signal_rows = _cu.fetchall()
+
+            _cu.execute("""
+                SELECT p.prediction_date, p.ticker, p.rank, p.confidence_score,
+                       p.signal_basis, p.predicted_move,
+                       o.t3_return, o.t5_return, o.win_t3
+                FROM aiem_predictions p
+                LEFT JOIN aiem_prediction_outcomes o
+                  ON o.prediction_date=p.prediction_date AND o.ticker=p.ticker
+                WHERE p.prediction_date >= %s
+                ORDER BY p.prediction_date DESC, p.rank LIMIT 20
+            """, (cutoff,))
+            recent = _cu.fetchall()
+
+        n_total = ov[0] if ov else 0
+        if n_total == 0:
+            return {
+                "n_graded": 0,
+                "message": "No graded predictions yet. Loop B needs a few days before outcomes accumulate.",
+                "days_back": days_back
+            }
+        return {
+            "days_back": days_back, "n_graded": n_total,
+            "overall": {
+                "win_rate_t3": float(ov[1] or 0),
+                "avg_t3_return_pct": float(ov[2] or 0),
+                "win_rate_t5": float(ov[3] or 0),
+                "avg_t5_return_pct": float(ov[4] or 0),
+            },
+            "by_confidence": [
+                {"bucket": r[0], "n": r[1], "win_rate_t3": float(r[2] or 0),
+                 "avg_t3_ret_pct": float(r[3] or 0)}
+                for r in (conf_rows or [])
+            ],
+            "by_rank": [
+                {"rank": r[0], "n": r[1], "win_rate_t3": float(r[2] or 0),
+                 "avg_t3_ret_pct": float(r[3] or 0)}
+                for r in (rank_rows or [])
+            ],
+            "by_signal_combo": [
+                {"signal_basis": r[0], "n": r[1], "win_rate_t3": float(r[2] or 0),
+                 "avg_t3_ret_pct": float(r[3] or 0)}
+                for r in (signal_rows or [])
+            ],
+            "recent_picks": [
+                {"date": str(r[0]), "ticker": r[1], "rank": r[2],
+                 "confidence": float(r[3] or 0), "signal_basis": r[4],
+                 "predicted": r[5],
+                 "t3_return_pct": round(float(r[6])*100,2) if r[6] else None,
+                 "win_t3": r[8]}
+                for r in (recent or [])
+            ]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _aiem_tool_register_hypotheses(hypotheses):
     """
     Pre-register the agent's hypotheses BEFORE looking at any data.
@@ -14169,6 +14512,20 @@ _AIEM_AGENT_TOOLS = [
         }, "required": ["query_text"]}
     }},
     {"type": "function", "function": {
+        "name": "query_own_prediction_performance",
+        "description": (
+            "Review Loop B's forward-looking prediction track record. "
+            "Shows win rate, avg T+3/T+5 return, confidence calibration (does high confidence "
+            "actually predict better outcomes?), performance by rank, and best/worst signal combos. "
+            "Call this to understand how the morning agent is performing and what needs improvement. "
+            "Use results to adjust morning scan weighting criteria."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer",
+                "description": "Days of prediction history to review (default 45)."}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
         "name": "save_research_model",
         "description": (
             "Save final conclusions and scoring model to the database. "
@@ -14209,6 +14566,7 @@ TOOLS AVAILABLE (use in this order):
 16. run_statistical_significance — Bootstrap p-value test. MANDATORY before adding any weight.
 17. test_scoring_hypothesis      — Backtest proposed weights before committing. Iterate >= 3x.
 18. save_research_model          — Save final model. LAST call only.
+19. query_own_prediction_performance — Review Loop B morning agent track record.
 
 HARD RULES — violating these produces an invalid model:
 1. ROLLBACK RULE: If evaluate_previous_model returns MODEL HURT, call rollback_to_previous_model
@@ -14247,6 +14605,8 @@ HARD RULES — violating these produces an invalid model:
 
 REQUIRED findings content:
 - Previous model verdict (HELPED / NEUTRAL / HURT) and by how many percentage points
+- Loop B morning agent performance: win rate, avg T+3 return, confidence calibration
+- Which signal combos (rvol+conviction+sweep) are working best for Loop B predictions
 - Your 3-5 pre-registered hypotheses and their outcomes (CONFIRMED / REJECTED / INCONCLUSIVE)
 - Signals tested via multivariate_regression and their controlled p-values
 - Any finding labeled CONFIRMED (recurring) from search_past_findings — and what that means for weights
@@ -14258,6 +14618,291 @@ REQUIRED findings content:
 Your goal: maximize T+3 win rate for top-ranked picks. Rigorous statistical discipline beats
 finding impressive-sounding patterns. A null result is a valid, honest, and valuable output."""
 
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LOOP B: Daily forward-looking AI scan (9:05 AM ET, Mon-Fri)
+# ══════════════════════════════════════════════════════════════════════════════
+# The morning agent reads fresh signal data from three sources (Polygon RVOL,
+# conviction stack, call sweeps), applies the learned scoring model from
+# Sunday's research, and makes its own ranked 3-5 day breakout predictions.
+# Predictions are saved to aiem_predictions and graded at 4:35 PM.
+# Sunday's research agent reviews the track record weekly and improves the
+# scoring weights — closing the self-learning loop.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_AIEM_MORNING_TOOLS = [
+    {"type": "function", "function": {
+        "name": "scan_market_for_setups",
+        "description": (
+            "Pull today's fresh signals from Polygon RVOL, conviction stack, and call sweeps. "
+            "Returns ranked candidates with composite scores. "
+            "ALWAYS call this first — it also includes the learned model weights as context."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_rvol": {"type": "number", "description": "Min RVOL threshold (default 3.0)"},
+            "max_price": {"type": "number", "description": "Max stock price filter (default 80)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "save_daily_predictions",
+        "description": (
+            "Save your ranked 3-5 day breakout predictions. "
+            "Call LAST after reviewing candidates. "
+            "Include 5-8 picks with your reasoning for each."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "predictions": {
+                "type": "array",
+                "description": "List of prediction objects.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "ticker": {"type": "string"},
+                        "rank": {"type": "integer", "description": "1=highest conviction"},
+                        "confidence_score": {"type": "number",
+                            "description": "0-10 score. 8+ = very high conviction."},
+                        "signal_basis": {"type": "string",
+                            "description": "Which signals triggered: e.g. rvol+conviction+sweep"},
+                        "reasoning": {"type": "string",
+                            "description": "Why this ticker. Pattern, catalyst, setup type."},
+                        "predicted_move": {"type": "string",
+                            "description": "e.g. bullish breakout, targeting +8-15% in 3-5 days"}
+                    }, "required": ["ticker","rank","confidence_score","signal_basis","reasoning"]
+                }
+            }
+        }, "required": ["predictions"]}
+    }},
+]
+
+_AIEM_MORNING_SYSTEM = """You are an autonomous AI market analyst making forward-looking trade predictions.
+
+Your job: scan today's market signals, apply what you've learned from past outcomes, and identify the 5-8 stocks most likely to make a significant move (8-20%) over the next 3-5 trading days.
+
+PROTOCOL:
+1. Call scan_market_for_setups to get today's candidates and the learned model weights.
+2. Study the candidates. Prioritize stocks confirmed by 2-3 signal sources (RVOL + conviction + sweep).
+3. Apply the learned_model_context weights to adjust your ranking.
+4. Select your top 5-8. Be decisive — this is a prediction task, not a research task.
+5. Call save_daily_predictions with your final ranked list.
+
+SELECTION CRITERIA (in order of importance):
+1. Multi-source confirmation: stocks in all 3 sources (RVOL + conviction + sweep) are highest priority
+2. confirmed_2d = True: stock already showed strength two consecutive days — momentum continuation
+3. high_conviction = True: conviction engine scored this 8+
+4. sweep_vol_oi > 5: unusually large call sweep relative to open interest — smart money signal
+5. RVOL > 5 with green open: genuine volume expansion, not just gap-and-fade
+6. Float < 20M: low float amplifies moves
+
+AVOID:
+- Stocks with price > $60 (harder to get big % moves)
+- Stocks with only 1 source confirming (too weak)
+- Stocks you've seen fail with the same setup recently (check learned_model_context)
+
+Your confidence_score should reflect genuine conviction:
+- 8-10: All 3 sources confirm, learned model says this setup works, regime is favorable
+- 5-7: 2 sources confirm, decent setup, some uncertainty
+- 1-4: Only 1 source, or setup type has mixed historical results
+
+Be specific in your reasoning. Explain the pattern, not just the signals."""
+
+
+def _run_aiem_morning_scan():
+    """
+    Daily forward-looking AI scan. Runs 9:05 AM ET Mon-Fri.
+    Reads fresh market signals, applies learned weights, saves ranked predictions.
+    """
+    import threading as _amt
+    import datetime as _amdt
+
+    if not _intraday_scan_allowed():
+        print("[aiem_morning] skipped — outside market hours")
+        return
+
+    def _morning_scan_thread():
+        import json as _amj
+        try:
+            print("[aiem_morning] starting daily forward scan...")
+            _oai = _OpenAI(
+                base_url="https://ai-integrations.replit.com/openai",
+                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY","")
+            )
+            _morning_tool_map = {
+                "scan_market_for_setups":   _aiem_tool_scan_market_for_setups,
+                "save_daily_predictions":   _aiem_tool_save_daily_predictions,
+            }
+            messages = [
+                {"role": "system", "content": _AIEM_MORNING_SYSTEM},
+                {"role": "user", "content": (
+                    "Today is {}. Scan the market and make your predictions for "
+                    "the next 3-5 trading days. Start with scan_market_for_setups.".format(
+                        _amdt.date.today().strftime("%A, %B %d %Y"))
+                )}
+            ]
+            saved = False
+            for _i in range(6):
+                _resp = _oai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    tools=_AIEM_MORNING_TOOLS,
+                    tool_choice="auto",
+                    temperature=0.4,
+                    max_tokens=2000,
+                )
+                _msg = _resp.choices[0].message
+                messages.append({
+                    "role": "assistant",
+                    "content": _msg.content,
+                    "tool_calls": [tc.model_dump() for tc in (_msg.tool_calls or [])]
+                })
+                if not _msg.tool_calls:
+                    break
+                for tc in _msg.tool_calls:
+                    fn_name = tc.function.name
+                    try:
+                        args = _amj.loads(tc.function.arguments or "{}")
+                    except Exception:
+                        args = {}
+                    fn = _morning_tool_map.get(fn_name)
+                    result = fn(**args) if fn else {"error": "Unknown tool"}
+                    result_str = _amj.dumps(result, default=str)
+                    if len(result_str) > 5000:
+                        result_str = result_str[:5000] + "...}"
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result_str
+                    })
+                    if fn_name == "save_daily_predictions":
+                        saved = True
+                        print("[aiem_morning] predictions saved — loop complete")
+                        break
+                else:
+                    continue
+                break
+
+            if not saved:
+                print("[aiem_morning] agent didn't save predictions — no qualifying candidates today")
+        except Exception as _e:
+            print("[aiem_morning] error: {}".format(_e))
+
+    _amt.Thread(target=_morning_scan_thread, daemon=True).start()
+
+
+def _run_aiem_prediction_grader():
+    """
+    Grades Loop B predictions at T+1, T+3, T+5 using Tradier history.
+    Runs 4:35 PM ET Mon-Fri. Updates aiem_prediction_outcomes table.
+    """
+    import datetime as _gdt, json as _gj
+    try:
+        today = _gdt.date.today()
+
+        def _prev_trading_days(n):
+            """Return the date n trading days before today."""
+            d = today
+            count = 0
+            while count < n:
+                d -= _gdt.timedelta(days=1)
+                if d.weekday() < 5:
+                    count += 1
+            return d
+
+        # Grade T+1 (yesterday's predictions), T+3 (3 days ago), T+5 (5 days ago)
+        targets = [
+            (_prev_trading_days(1), "t1_return"),
+            (_prev_trading_days(3), "t3_return"),
+            (_prev_trading_days(5), "t5_return"),
+        ]
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_prediction_outcomes (
+                    id SERIAL PRIMARY KEY,
+                    prediction_date DATE NOT NULL,
+                    ticker VARCHAR(10) NOT NULL,
+                    t1_return NUMERIC(8,4),
+                    t3_return NUMERIC(8,4),
+                    t5_return NUMERIC(8,4),
+                    win_t3 BOOLEAN,
+                    win_t5 BOOLEAN,
+                    graded_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(prediction_date, ticker)
+                )
+            """)
+            _c.commit()
+
+        graded_total = 0
+        for pred_date, col in targets:
+            # Get ungraded predictions for this date
+            with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+                _cu.execute("""
+                    SELECT p.ticker
+                    FROM aiem_predictions p
+                    LEFT JOIN aiem_prediction_outcomes o
+                      ON o.prediction_date=p.prediction_date AND o.ticker=p.ticker
+                    WHERE p.prediction_date=%s
+                      AND (o.{col} IS NULL OR o.id IS NULL)
+                """.format(col=col), (pred_date,))
+                tickers = [r[0] for r in _cu.fetchall()]
+
+            if not tickers:
+                continue
+
+            # Get entry prices (from prediction date) and today's close
+            # Use Tradier history: fetch a window around pred_date → today
+            from_date = pred_date.isoformat()
+            to_date = today.isoformat()
+
+            for ticker in tickers:
+                try:
+                    hist = _td_history(ticker, from_date, to_date)
+                    if not hist or len(hist) < 2:
+                        continue
+                    # Entry = close on prediction_date (first bar on or after pred_date)
+                    bars_by_date = {_gdt.date.fromisoformat(b["date"]): b
+                                    for b in hist if "date" in b and "close" in b}
+                    # Find entry: close on pred_date or next available
+                    entry_price = None
+                    for offset in range(5):
+                        d = pred_date + _gdt.timedelta(days=offset)
+                        if d in bars_by_date:
+                            entry_price = float(bars_by_date[d]["close"])
+                            break
+                    if not entry_price:
+                        continue
+
+                    # Find exit: close on today or most recent available
+                    exit_price = None
+                    for offset in range(5):
+                        d = today - _gdt.timedelta(days=offset)
+                        if d in bars_by_date:
+                            exit_price = float(bars_by_date[d]["close"])
+                            break
+                    if not exit_price:
+                        continue
+
+                    ret = (exit_price - entry_price) / entry_price
+
+                    with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+                        _cu.execute("""
+                            INSERT INTO aiem_prediction_outcomes
+                                (prediction_date, ticker, {col}, win_t3, win_t5)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (prediction_date, ticker) DO UPDATE
+                                SET {col}=EXCLUDED.{col},
+                                    win_t3=CASE WHEN EXCLUDED.{col} IS NOT NULL
+                                               THEN EXCLUDED.{col} > 0 ELSE aiem_prediction_outcomes.win_t3 END,
+                                    graded_at=NOW()
+                        """.format(col=col), (pred_date, ticker, ret, ret > 0, ret > 0))
+                        _c.commit()
+                    graded_total += 1
+                except Exception as _te:
+                    print("[aiem_grader] {} error: {}".format(ticker, _te))
+
+        print("[aiem_grader] graded {} outcomes".format(graded_total))
+    except Exception as e:
+        print("[aiem_grader] error: {}".format(e))
 
 def _run_aiem_research_agent(max_iterations=None):
     """
@@ -14323,6 +14968,7 @@ def _run_aiem_research_agent(max_iterations=None):
         "register_hypotheses":          _aiem_tool_register_hypotheses,
         "multivariate_regression":      _aiem_tool_multivariate_regression,
         "search_past_findings":         _aiem_tool_search_past_findings,
+        "query_own_prediction_performance": _aiem_tool_query_own_prediction_performance,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
@@ -20566,6 +21212,83 @@ def eod_sweeps():
         print(f"[eod_sweeps] error: {e}\n{traceback.format_exc()}", file=__import__("sys").stderr)
         return jsonify({"error": str(e), "signals": []}), 500
 
+
+
+
+@app.route("/stock-api/aiem-predictions", methods=["GET"])
+def aiem_predictions():
+    """GET today's (or recent) Loop B forward-looking predictions."""
+    import datetime as _apdt
+    try:
+        days = min(int(request.args.get("days", 5)), 30)
+        cutoff = (_apdt.date.today() - _apdt.timedelta(days=days)).isoformat()
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT p.prediction_date, p.ticker, p.rank, p.confidence_score,
+                       p.signal_basis, p.reasoning, p.predicted_move, p.created_at,
+                       o.t1_return, o.t3_return, o.t5_return, o.win_t3
+                FROM aiem_predictions p
+                LEFT JOIN aiem_prediction_outcomes o
+                  ON o.prediction_date=p.prediction_date AND o.ticker=p.ticker
+                WHERE p.prediction_date >= %s
+                ORDER BY p.prediction_date DESC, p.rank ASC
+            """, (cutoff,))
+            rows = _cu.fetchall()
+        results = []
+        for r in rows:
+            results.append({
+                "prediction_date": str(r[0]),
+                "ticker": r[1],
+                "rank": r[2],
+                "confidence_score": float(r[3]) if r[3] else None,
+                "signal_basis": r[4],
+                "reasoning": r[5],
+                "predicted_move": r[6],
+                "created_at": str(r[7]),
+                "t1_return_pct": round(float(r[8])*100,2) if r[8] else None,
+                "t3_return_pct": round(float(r[9])*100,2) if r[9] else None,
+                "t5_return_pct": round(float(r[10])*100,2) if r[10] else None,
+                "win_t3": r[11],
+            })
+        today_picks = [r for r in results
+                       if r["prediction_date"] == _apdt.date.today().isoformat()]
+        return jsonify({
+            "today_predictions": today_picks,
+            "recent_predictions": results,
+            "total": len(results),
+            "next_scan": "Tomorrow 9:05 AM ET",
+            "manual_trigger": "POST /stock-api/admin/run-aiem-morning-scan"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "today_predictions": []}), 500
+
+
+@app.route("/stock-api/admin/run-aiem-morning-scan", methods=["POST"])
+def admin_run_aiem_morning_scan():
+    """Admin: trigger Loop B morning scan immediately."""
+    tok = request.headers.get("X-Admin-Token","")
+    if tok != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        import threading as _amthr
+        _amthr.Thread(target=_run_aiem_morning_scan, daemon=True).start()
+        return jsonify({"status": "started", "note": "Morning scan running. Check /stock-api/aiem-predictions in ~60s."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/admin/run-aiem-grader", methods=["POST"])
+def admin_run_aiem_grader():
+    """Admin: trigger Loop B prediction grader immediately."""
+    tok = request.headers.get("X-Admin-Token","")
+    if tok != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        import threading as _agthr
+        _agthr.Thread(target=_run_aiem_prediction_grader, daemon=True).start()
+        return jsonify({"status": "started", "note": "Grader running. Check /stock-api/aiem-predictions in ~30s."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/stock-api/admin/test-emails", methods=["POST"])
 def admin_test_emails():
