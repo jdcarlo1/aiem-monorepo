@@ -39,12 +39,33 @@ _LOW_IV_THRESHOLD = 50.0   # IV% below this = cheap options = real conviction bu
 _GAMMA_ROUND_PCT  = 0.5    # strike within 0.5% of a round $5 number = gamma zone
 _GAMMA_MIN_OI     = 500    # minimum OI at that strike to matter
 
-# ── ICS auto-scoring ──────────────────────────────────────────────────────────
-# Weights mirror the manual Institutional Conviction Score tool (total = 120).
-# Signals not automatable (oiSpike=4, quietTicker=3, darkPool=3, preCatalyst=3)
-# never fire but stay in denominator so scores are comparable with the manual tool.
-_ICS_TOTAL_WEIGHT  = 200  # 120 original + 80 new holy grail signals
-_ICS_SMS_THRESHOLD = 80   # only send SMS when automated score reaches this (65-70% win rate zone)
+# ── ICS signal weights (named so denominator stays in sync automatically) ─────
+_W_NAKED_CALL    = 20   # pc_ratio < 0.5 (directional conviction)
+_W_ASK_SIDE      = 15   # vol/OI >= 3x (market-order urgency)
+_W_MULTI_LEG     = 15   # >= 2 qualifying strikes same scan
+_W_PREMIUM       = 12   # premium >= $500K
+_W_SHORT_OTM     = 10   # weekly OTM (<= 7d, strike > price)
+_W_ABOVE_VWAP    = 8    # price >= VWAP
+_W_HEAVY_VOL     = 8    # vol >= 500 contracts
+_W_REPEAT        = 6    # swept on a prior day this week
+_W_RED_DAY       = 5    # buying calls on a down day
+_W_LOW_IVR       = 5    # IV < 50% (cheap = real conviction)
+_W_EARLY_MORNING = 3    # 9:30–10:00 AM ET print
+_W_TIGHT_SPREAD  = 7    # bid/ask spread < 3% of mid
+# Non-automatable signals (manual tool only — NOT in denominator):
+#   oiSpike=4, quietTicker=3, darkPool=3, preCatalyst=3 → 13 pts
+_ICS_AUTOMATABLE_WEIGHT = (
+    _W_NAKED_CALL + _W_ASK_SIDE + _W_MULTI_LEG + _W_PREMIUM +
+    _W_SHORT_OTM + _W_ABOVE_VWAP + _W_HEAVY_VOL + _W_REPEAT +
+    _W_RED_DAY + _W_LOW_IVR + _W_EARLY_MORNING + _W_TIGHT_SPREAD
+)  # = 114
+# holy_grail is an optional additive bonus (up to 73 pts). When the module is
+# unavailable it contributes 0, so we score against the automatable base only.
+# Scores will exceed 100 when holy_grail fires — that's intentional (bonus signal).
+_ICS_TOTAL_WEIGHT  = _ICS_AUTOMATABLE_WEIGHT   # 114; kept as alias for formula
+_ICS_SMS_THRESHOLD = 60   # 60/114 ≈ 53% of automatable max → 65-70% win rate zone
+                           # (old 80/200=40% made max reachable score=57 → no alerts ever fired)
+                           # recalibrate against live backtest once 30+ signals accumulate
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -196,69 +217,66 @@ def _compute_ics_score(h: dict, now_et: datetime) -> tuple[int, list[str]]:
     pts = 0
     labels = []
 
-    # nakedCall (20) — P/C < 0.5 means 2:1 more call vol than put = directional conviction
+    # nakedCall — P/C < 0.5 means 2:1 more call vol than put = directional conviction
     pc = h.get("pc_ratio")
     if pc is not None and pc < 0.5:
-        pts += 20
+        pts += _W_NAKED_CALL
         labels.append(f"📣 Directional (P/C {pc}) — naked conviction")
 
-    # askSide (15) — vol/OI >= 3x = someone is paying up, not limit-fishing
+    # askSide — vol/OI >= 3x = someone is paying up, not limit-fishing
     if h["vol_oi"] >= 3.0:
-        pts += 15
+        pts += _W_ASK_SIDE
         labels.append(f"⚡ Ask-side urgency ({h['vol_oi']}x ratio)")
 
-    # multiLegSweep (15) — multiple qualifying strikes this scan cycle
+    # multiLegSweep — multiple qualifying strikes this scan cycle
     if h.get("multi_strike", False):
-        pts += 15
+        pts += _W_MULTI_LEG
         labels.append("🔀 Multi-strike sweep (coordinated)")
 
-    # premiumSize (12)
+    # premiumSize
     if h["premium"] >= 500_000:
-        pts += 12
+        pts += _W_PREMIUM
         labels.append(f"💰 Premium ${h['premium']//1000}K (institutional size)")
 
-    # shortDatedOTM (10)
+    # shortDatedOTM
     if h["days_out"] <= 7 and h["otm_pct"] > 0:
-        pts += 10
+        pts += _W_SHORT_OTM
         labels.append(f"📅 Weekly OTM +{h['otm_pct']}% ({h['days_out']}d) — speculative")
 
-    # aboveVWAP (8)
+    # aboveVWAP
     if h["above_vwap"]:
-        pts += 8
+        pts += _W_ABOVE_VWAP
         labels.append(f"✅ Above VWAP (${h['vwap']:.2f})")
 
-    # heavyVolume (8) — absolute options volume >= 500 contracts
+    # heavyVolume — absolute options volume >= 500 contracts
     if h["vol"] >= 500:
-        pts += 8
+        pts += _W_HEAVY_VOL
         labels.append(f"📊 Heavy vol {h['vol']:,} contracts")
 
-    # repeatActivity (6)
+    # repeatActivity
     if h["repeat_days"] >= 1:
-        pts += 6
+        pts += _W_REPEAT
         labels.append(f"🔁 Repeat sweep {h['repeat_days']}d in a row")
 
-    # redDayBuy (5) — buying calls while stock is down = conviction
+    # redDayBuy — buying calls while stock is down = conviction
     if h.get("red_day", False):
-        pts += 5
+        pts += _W_RED_DAY
         labels.append("🔴 Buying on red day — strong conviction")
 
-    # lowIVR (5)
+    # lowIVR
     if 0 < h["iv"] < _LOW_IV_THRESHOLD:
-        pts += 5
+        pts += _W_LOW_IVR
         labels.append(f"📉 Low IV {h['iv']:.0f}% (cheap, expects big move)")
 
-    # earlyMorning (3) — 9:30–10:00 AM ET
-    if now_et.hour == 9 and now_et.minute >= 30:
-        pts += 3
-        labels.append("🌅 Early morning print (informed money)")
-    elif now_et.hour == 10 and now_et.minute == 0:
-        pts += 3
+    # earlyMorning — 9:30–10:00 AM ET
+    if (now_et.hour == 9 and now_et.minute >= 30) or (now_et.hour == 10 and now_et.minute == 0):
+        pts += _W_EARLY_MORNING
         labels.append("🌅 Early morning print (informed money)")
 
-    # Signal 5: Bid/ask spread tightening (7 pts) — options spread < 3% of mid
+    # tightSpread — bid/ask spread < 3% of mid
     spread_pct = h.get("spread_pct", 100.0)
     if 0 < spread_pct < 3.0:
-        pts += 7
+        pts += _W_TIGHT_SPREAD
         labels.append(f"📐 Tight options spread {spread_pct:.1f}% — market maker direction confidence")
 
     # Holy Grail signals (up to 73 pts) — delta flow, tape, VWAP bands, MFI,
