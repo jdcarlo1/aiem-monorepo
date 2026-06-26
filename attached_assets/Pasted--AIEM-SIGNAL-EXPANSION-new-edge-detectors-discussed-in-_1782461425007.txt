@@ -1,0 +1,538 @@
+"""
+AIEM SIGNAL EXPANSION — new edge detectors discussed in research notes.
+
+HOW TO USE: give this to your Replit agent with the instruction:
+"Add these as new mkt_* tools, wired into _AIEM_AGENT_TOOLS and _tool_map
+the same way the existing mkt_* tools are wired. Sections A-D use data you
+already have. Sections E-G need a data source check first — read the
+warning comment at the top of each before building against it."
+
+────────────────────────────────────────────────────────────────────────
+WHAT'S BUILDABLE RIGHT NOW with polygon_market_daily (no new data needed):
+  A. Volume/price divergence (quiet accumulation)
+  B. Volatility compression / squeeze detection
+  C. Combined compression + accumulation composite
+  D. Point-in-time, survivorship-bias-aware universe table
+
+WHAT NEEDS A DATA FEED YOU MAY NOT HAVE YET (code provided, but verify
+the data source exists/is in your plan BEFORE building against it):
+  E. Dealer gamma/GEX exposure — needs options open-interest-by-strike
+     data. If your "options flow infrastructure" only logs individual
+     sweep trades (not full OI by strike per expiration), you don't have
+     what this needs yet — that's a different, bigger data product.
+  F. Dark pool print clustering — needs an actual dark pool/ATS print
+     feed (FINRA ADF tape or a paid provider like Unusual Whales/Finazon).
+     Polygon's standard stock aggregates do NOT include this.
+  G. Short interest / borrow rate softening — Polygon has some short
+     interest data on certain plans, but "borrow rate" (cost to borrow)
+     specifically is NOT a Polygon product — that needs a securities
+     lending data provider (e.g. Ortex, IBKR's locate API).
+
+NOT INCLUDED: microstructure/VPIN order-flow toxicity. That needs
+tick-level bid/ask data, which is a fundamentally different (and
+expensive) data tier than daily bars. Don't build this until you've
+deliberately decided to invest in tick infra — it's not a small add-on.
+────────────────────────────────────────────────────────────────────────
+"""
+
+import os
+import time
+import psycopg2
+import numpy as np
+
+
+# ════════════════════════════════════════════════════════════════════════
+# A. Volume/price divergence — quiet accumulation detector
+# ════════════════════════════════════════════════════════════════════════
+# Price flat/tight, volume creeping above its 20/50-day average without a
+# big price reaction. This is fully computable from polygon_market_daily.
+
+def mkt_tool_quiet_accumulation(min_days_history=55, vol_lookback=20,
+                                  price_range_max_pct=3.0, vol_ratio_min=1.3,
+                                  horizon="next_day"):
+    """Find stocks where volume is rising above its 20-day average while
+    price stays in a tight range — the classic 'someone is accumulating
+    without moving price' signature. Tests forward returns for this setup
+    vs baseline."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH vol_avg AS (
+                    SELECT ticker, scan_date,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {vol_lookback - 1} PRECEDING AND CURRENT ROW
+                           ) AS avg_vol_20,
+                           MAX(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                           ) AS max_close_5d,
+                           MIN(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                           ) AS min_close_5d,
+                           volume, close_price
+                    FROM polygon_market_daily
+                    WHERE close_price > 1
+                ),
+                flagged AS (
+                    SELECT ticker, scan_date,
+                           (volume::float / NULLIF(avg_vol_20, 0)) AS vol_ratio,
+                           ((max_close_5d - min_close_5d) / NULLIF(min_close_5d, 0) * 100) AS range_5d_pct
+                    FROM vol_avg
+                    WHERE avg_vol_20 IS NOT NULL
+                )
+                SELECT t.ticker, t.scan_date,
+                       ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 AS fwd_ret
+                FROM flagged f
+                JOIN polygon_market_daily t ON t.ticker = f.ticker AND t.scan_date = f.scan_date
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker = t.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                     )
+                WHERE f.vol_ratio >= %s AND f.range_5d_pct <= %s
+                LIMIT 50000
+            """, (vol_ratio_min, price_range_max_pct))
+            rows = cur.fetchall()
+
+            cur.execute("""
+                SELECT COUNT(*),
+                       ROUND(AVG(((nxt.close_price/NULLIF(t.close_price,0))-1)*100)::numeric, 3),
+                       ROUND((COUNT(*) FILTER (WHERE ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 > 0))
+                             ::numeric / NULLIF(COUNT(*),0) * 100, 2)
+                FROM polygon_market_daily t
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker = t.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                     )
+                WHERE t.close_price > 1
+                LIMIT 500000
+            """)
+            base_n, base_avg, base_wr = cur.fetchone()
+
+        if not rows:
+            return {"status": "error", "error": "No qualifying setups found — try loosening thresholds."}
+
+        fwd_rets = np.array([r[2] for r in rows if r[2] is not None])
+        win_rate = round(float(np.mean(fwd_rets > 0)) * 100, 2)
+        avg_ret = round(float(np.mean(fwd_rets)), 4)
+
+        return {
+            "status": "ok",
+            "setup": "quiet_accumulation",
+            "n": len(fwd_rets),
+            "win_rate": win_rate,
+            "avg_fwd_ret": avg_ret,
+            "edge_winrate": round(win_rate - float(base_wr or 0), 2),
+            "baseline_win_rate": float(base_wr or 0),
+            "baseline_n": int(base_n or 0),
+            "params": {"vol_lookback": vol_lookback, "price_range_max_pct": price_range_max_pct,
+                       "vol_ratio_min": vol_ratio_min},
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# B. Volatility compression / squeeze detector
+# ════════════════════════════════════════════════════════════════════════
+# Bollinger-style band width contracting + declining realized vol. Doesn't
+# predict direction — flags "something is about to happen."
+
+def mkt_tool_volatility_squeeze(lookback=20, squeeze_percentile=20, horizon="next_day"):
+    """Find stocks whose rolling N-day price range (Bollinger-width proxy)
+    is in the bottom Nth percentile of its own recent history — a
+    compression/squeeze setup. Tests forward move magnitude (abs value,
+    since this doesn't predict direction)."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH rolling_width AS (
+                    SELECT ticker, scan_date, close_price,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback - 1} PRECEDING AND CURRENT ROW
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback - 1} PRECEDING AND CURRENT ROW
+                           ), 0) AS band_width_pct
+                    FROM polygon_market_daily
+                    WHERE close_price > 1
+                ),
+                ranked AS (
+                    SELECT ticker, scan_date, close_price, band_width_pct,
+                           PERCENT_RANK() OVER (PARTITION BY ticker ORDER BY band_width_pct) AS pct_rank
+                    FROM rolling_width
+                    WHERE band_width_pct IS NOT NULL
+                )
+                SELECT r.ticker, r.scan_date,
+                       ABS(((nxt.close_price/NULLIF(r.close_price,0))-1)*100) AS abs_fwd_move
+                FROM ranked r
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker = r.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker = r.ticker AND x.scan_date > r.scan_date
+                     )
+                WHERE r.pct_rank <= %s
+                LIMIT 50000
+            """, (squeeze_percentile / 100.0,))
+            rows = cur.fetchall()
+
+        if not rows:
+            return {"status": "error", "error": "No squeeze setups found — try a higher percentile."}
+
+        moves = np.array([r[2] for r in rows if r[2] is not None])
+        return {
+            "status": "ok",
+            "setup": "volatility_squeeze",
+            "n": len(moves),
+            "avg_abs_fwd_move_pct": round(float(np.mean(moves)), 3),
+            "median_abs_fwd_move_pct": round(float(np.median(moves)), 3),
+            "p75_abs_fwd_move_pct": round(float(np.percentile(moves, 75)), 3),
+            "note": ("This measures move MAGNITUDE, not direction. Combine with "
+                     "mkt_tool_quiet_accumulation or gap signals to get directional bias."),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# C. Combined compression + accumulation composite
+# ════════════════════════════════════════════════════════════════════════
+# Rising volume into a tightening range — a much stronger setup than
+# either signal alone, per the research notes.
+
+def mkt_tool_accumulation_into_squeeze(vol_ratio_min=1.3, squeeze_percentile=25, horizon="next_day"):
+    """Find stocks that show BOTH quiet accumulation (rising volume, flat
+    price) AND volatility compression (tightening range) at the same
+    time. Tests whether the combination outperforms either alone."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH metrics AS (
+                    SELECT ticker, scan_date, close_price, volume,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                           ) AS avg_vol_20,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                           ), 0) AS band_width_pct
+                    FROM polygon_market_daily
+                    WHERE close_price > 1
+                ),
+                ranked AS (
+                    SELECT ticker, scan_date, close_price,
+                           (volume::float / NULLIF(avg_vol_20, 0)) AS vol_ratio,
+                           PERCENT_RANK() OVER (PARTITION BY ticker ORDER BY band_width_pct) AS width_rank
+                    FROM metrics
+                    WHERE avg_vol_20 IS NOT NULL AND band_width_pct IS NOT NULL
+                )
+                SELECT r.ticker, r.scan_date,
+                       ((nxt.close_price/NULLIF(r.close_price,0))-1)*100 AS fwd_ret
+                FROM ranked r
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker = r.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker = r.ticker AND x.scan_date > r.scan_date
+                     )
+                WHERE r.vol_ratio >= %s AND r.width_rank <= %s
+                LIMIT 50000
+            """, (vol_ratio_min, squeeze_percentile / 100.0))
+            rows = cur.fetchall()
+
+        if not rows:
+            return {"status": "error", "error": "No combined setups found — loosen thresholds."}
+
+        fwd_rets = np.array([r[2] for r in rows if r[2] is not None])
+        win_rate = round(float(np.mean(fwd_rets > 0)) * 100, 2)
+        return {
+            "status": "ok",
+            "setup": "accumulation_into_squeeze",
+            "n": len(fwd_rets),
+            "win_rate": win_rate,
+            "avg_fwd_ret": round(float(np.mean(fwd_rets)), 4),
+            "note": "Compare this win_rate/avg_ret against mkt_tool_quiet_accumulation and "
+                    "mkt_tool_volatility_squeeze run separately — confirms whether combining adds real edge.",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# D. Point-in-time, survivorship-bias-aware universe table
+# ════════════════════════════════════════════════════════════════════════
+# Pulls delisted/inactive tickers from Polygon's reference API so the
+# system can know what existed on a given historical date, not just
+# today's surviving universe.
+
+def _ensure_ticker_lifecycle_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ticker_lifecycle (
+                ticker        VARCHAR(10) PRIMARY KEY,
+                active        BOOLEAN,
+                listed_date   DATE,
+                delisted_date DATE,
+                updated_at    TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+
+def refresh_ticker_lifecycle(include_delisted=True, batch_sleep=0.25):
+    """Pull active + delisted ticker records from Polygon's reference API
+    and store listed/delisted dates. Run weekly. This is what makes
+    'was X actually tradeable on date Y' a real, checkable question
+    instead of an assumption baked into today's survivor-only universe."""
+    import urllib.request as ur
+    import json as j
+
+    _ensure_ticker_lifecycle_table()
+    key = os.environ.get("POLYGON_API_KEY", "")
+    if not key:
+        print("[ticker_lifecycle] no POLYGON_API_KEY")
+        return
+
+    rows = []
+    for active_flag in ([True, False] if include_delisted else [True]):
+        cursor_url = (f"https://api.polygon.io/v3/reference/tickers"
+                       f"?market=stocks&active={str(active_flag).lower()}&limit=1000&apiKey={key}")
+        next_url = cursor_url
+        while next_url:
+            try:
+                with ur.urlopen(next_url, timeout=15) as r:
+                    data = j.load(r)
+                for res in data.get("results", []):
+                    rows.append((
+                        res.get("ticker"), active_flag,
+                        res.get("list_date"),
+                        None if active_flag else res.get("delisted_utc", "").split("T")[0] or None,
+                    ))
+                next_url = data.get("next_url")
+                if next_url:
+                    next_url += f"&apiKey={key}"
+                time.sleep(batch_sleep)
+            except Exception as e:
+                print(f"[ticker_lifecycle] fetch error: {e}")
+                break
+
+    if rows:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.executemany("""
+                INSERT INTO ticker_lifecycle (ticker, active, listed_date, delisted_date)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (ticker) DO UPDATE SET
+                    active=EXCLUDED.active, listed_date=EXCLUDED.listed_date,
+                    delisted_date=EXCLUDED.delisted_date, updated_at=NOW()
+            """, rows)
+        print(f"[ticker_lifecycle] stored {len(rows)} ticker records")
+
+
+def was_ticker_active_on(ticker: str, check_date: str) -> bool:
+    """Point-in-time check: was this ticker actually tradeable on this
+    date? Use this to filter backtests so they don't silently assume
+    today's survivors always existed."""
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT listed_date, delisted_date FROM ticker_lifecycle WHERE ticker = %s
+        """, (ticker,))
+        row = cur.fetchone()
+    if not row:
+        return True  # unknown — don't silently exclude, but this should be logged/flagged
+    listed, delisted = row
+    if listed and check_date < str(listed):
+        return False
+    if delisted and check_date > str(delisted):
+        return False
+    return True
+
+
+# ════════════════════════════════════════════════════════════════════════
+# E. Dealer gamma / GEX exposure — ⚠️ REQUIRES OPTIONS OI-BY-STRIKE DATA
+# ════════════════════════════════════════════════════════════════════════
+# DO NOT wire this in until you've confirmed you have a table like:
+#   options_chain_snapshot(ticker, scan_date, expiration, strike,
+#                           option_type, open_interest, gamma, underlying_price)
+# A table of individual SWEEP TRADES (which is what "options flow
+# infrastructure" usually means) is NOT the same thing — sweeps tell you
+# about a single trade, GEX needs the FULL open-interest-by-strike chain,
+# refreshed daily, across all expirations.
+#
+# SIGN CONVENTION WARNING: the formula below uses the common retail-GEX
+# convention (dealers assumed net long calls / short puts from
+# market-making flow). This convention is NOT universal — different
+# providers define it differently. Before trusting any output, validate
+# it against a known reference value (e.g. compare your computed SPY GEX
+# for a specific date against a published SpotGamma/SqueezeMetrics number
+# for that same date). Getting the sign wrong silently inverts every
+# downstream pinning/flip signal — verify before using.
+
+def compute_gex_by_strike(ticker: str, scan_date: str):
+    """Aggregate net dealer gamma exposure by strike for one ticker/date.
+    Requires options_chain_snapshot table — will error cleanly if it
+    doesn't exist yet, rather than silently returning garbage."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT strike, option_type, open_interest, gamma, underlying_price
+                FROM options_chain_snapshot
+                WHERE ticker = %s AND scan_date = %s
+            """, (ticker, scan_date))
+            rows = cur.fetchall()
+    except psycopg2.errors.UndefinedTable:
+        return {"status": "error",
+                "error": "options_chain_snapshot table doesn't exist. GEX modeling "
+                         "needs a real options-OI-by-strike data source first — "
+                         "this is not derivable from sweep trade logs alone."}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+    if not rows:
+        return {"status": "error", "error": f"No options chain data for {ticker} on {scan_date}."}
+
+    by_strike = {}
+    spot = rows[0][4]
+    for strike, opt_type, oi, gamma, _ in rows:
+        if oi is None or gamma is None:
+            continue
+        # Standard convention: dealers short gamma on calls sold to retail,
+        # long gamma on puts sold to retail (i.e. dealer GEX = call_gamma*call_OI
+        # - put_gamma*put_OI). VALIDATE THIS SIGN against a known reference
+        # before trusting it — see warning above.
+        contrib = gamma * oi * 100 * (spot ** 2) * 0.01
+        if opt_type == "put":
+            contrib = -contrib
+        by_strike[strike] = by_strike.get(strike, 0.0) + contrib
+
+    net_gex = sum(by_strike.values())
+    flip_candidates = sorted(by_strike.items(), key=lambda x: abs(x[1]))[:3]
+
+    return {
+        "status": "ok",
+        "ticker": ticker, "scan_date": scan_date, "spot": spot,
+        "net_gex": round(net_gex, 2),
+        "gex_by_strike": {str(k): round(v, 2) for k, v in sorted(by_strike.items())},
+        "approx_gamma_flip_candidates": [str(k) for k, v in flip_candidates],
+        "warning": "Sign convention not independently validated — cross-check against a "
+                   "known reference value before trading on this.",
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# F. Dark pool print clustering — ⚠️ REQUIRES A DARK POOL DATA FEED
+# ════════════════════════════════════════════════════════════════════════
+# Polygon's standard stock aggregates do NOT include off-exchange/dark
+# pool prints. You'd need either: FINRA's ADF tape (has reporting lag and
+# is not trivial to parse), or a paid aggregator (Unusual Whales, Finazon,
+# Cheddar Flow, etc.) that already normalizes this. Do not build the table
+# below until you've picked and confirmed access to one of those sources.
+
+def detect_dark_pool_clustering(ticker: str, scan_date: str, cluster_band_pct=1.0):
+    """Detect whether dark pool prints are clustering at/above current
+    price (grind-up precursor) vs below (reversal floor setup).
+    Requires a dark_pool_prints(ticker, price, size, ts) table populated
+    from a real data feed — see warning above."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT close_price FROM polygon_market_daily
+                WHERE ticker = %s AND scan_date = %s
+            """, (ticker, scan_date))
+            row = cur.fetchone()
+            if not row:
+                return {"status": "error", "error": "No price data for that ticker/date."}
+            current_price = row[0]
+
+            cur.execute("""
+                SELECT price, size FROM dark_pool_prints
+                WHERE ticker = %s AND ts::date = %s
+            """, (ticker, scan_date))
+            prints = cur.fetchall()
+    except psycopg2.errors.UndefinedTable:
+        return {"status": "error",
+                "error": "dark_pool_prints table doesn't exist. This needs a real "
+                         "dark pool/ATS data feed — not something Polygon's standard "
+                         "stock aggregates provide."}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+    if not prints:
+        return {"status": "error", "error": "No dark pool prints found for that ticker/date."}
+
+    above = sum(sz for p, sz in prints if p >= current_price * (1 - cluster_band_pct / 100))
+    below = sum(sz for p, sz in prints if p < current_price * (1 - cluster_band_pct / 100))
+    total = above + below
+
+    return {
+        "status": "ok",
+        "ticker": ticker, "scan_date": scan_date, "current_price": current_price,
+        "volume_at_or_above_price": above,
+        "volume_below_price": below,
+        "pct_at_or_above": round(above / total * 100, 1) if total else None,
+        "interpretation": ("Clustering AT/ABOVE price = grind-up precursor (buyers paying up). "
+                            "Clustering BELOW = potential floor/reversal setup."),
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# G. Short interest / borrow rate softening — ⚠️ VERIFY DATA AVAILABILITY
+# ════════════════════════════════════════════════════════════════════════
+# Polygon offers SOME short interest data (FINRA bi-monthly reporting) on
+# certain plans — check your specific plan before building against this
+# endpoint. "Borrow rate" / cost-to-borrow specifically is NOT something
+# Polygon provides at all — that requires a securities lending data
+# provider (Ortex, IBKR locate API, etc.). The function below covers the
+# short-interest half only.
+
+def _ensure_short_interest_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS short_interest_history (
+                ticker         VARCHAR(10),
+                settlement_date DATE,
+                short_interest BIGINT,
+                days_to_cover  FLOAT,
+                PRIMARY KEY (ticker, settlement_date)
+            )
+        """)
+
+
+def refresh_short_interest(ticker: str):
+    """Pull short interest history for a ticker. VERIFY this endpoint is
+    included in your Polygon plan before relying on it — short interest
+    reporting is bi-monthly (not daily) and availability varies by plan."""
+    import urllib.request as ur
+    import json as j
+
+    _ensure_short_interest_table()
+    key = os.environ.get("POLYGON_API_KEY", "")
+    if not key:
+        return {"status": "error", "error": "no POLYGON_API_KEY"}
+    try:
+        url = f"https://api.polygon.io/stocks/v1/short-interest?ticker={ticker}&apiKey={key}"
+        with ur.urlopen(url, timeout=10) as r:
+            data = j.load(r)
+        results = data.get("results", [])
+        if not results:
+            return {"status": "error",
+                     "error": "No short interest data returned — endpoint may not be in your plan."}
+        rows = [(ticker, res.get("settlement_date"), res.get("short_interest"),
+                  res.get("days_to_cover")) for res in results]
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.executemany("""
+                INSERT INTO short_interest_history (ticker, settlement_date, short_interest, days_to_cover)
+                VALUES (%s,%s,%s,%s) ON CONFLICT (ticker, settlement_date) DO NOTHING
+            """, rows)
+        return {"status": "ok", "rows_stored": len(rows)}
+    except Exception as e:
+        return {"status": "error", "error": f"Endpoint may not be available on your plan: {e}"}

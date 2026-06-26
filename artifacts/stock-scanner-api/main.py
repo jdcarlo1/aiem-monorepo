@@ -3197,6 +3197,12 @@ try:
             _CT_aiem(day_of_week="sun", hour=22, minute=0, timezone=_ET),
             id="aiem_ticker_meta_weekly", replace_existing=True,
         )
+        # Ticker lifecycle (survivorship bias correction): every Sunday 8 PM ET
+        _scheduler.add_job(
+            lambda: _mkt_refresh_ticker_lifecycle_bg(),
+            _CT_aiem(day_of_week="sun", hour=20, minute=0, timezone=_ET),
+            id="aiem_ticker_lifecycle_weekly", replace_existing=True,
+        )
         # Auto-retire decaying signals: every Sunday 6 PM ET (before Loop A research)
         _scheduler.add_job(
             lambda: _mkt_auto_retire_decaying_discoveries(),
@@ -17120,6 +17126,361 @@ def _mkt_check_signal_redundancy(conditions, correlation_threshold=0.70):
         return {"status": "error", "error": str(_e)}
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM SIGNAL EXPANSION — Sections A-D (all use polygon_market_daily)
+# Sections E (GEX), F (dark pool), G (short borrow) deliberately excluded:
+# they require data feeds not in our Polygon Starter plan.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── A. Quiet accumulation: volume rising, price flat ─────────────────────────
+def _mkt_tool_quiet_accumulation(vol_lookback=20, price_range_max_pct=3.0,
+                                  vol_ratio_min=1.3, horizon="next_day"):
+    """Find stocks where volume is rising above its 20-day average while price
+    stays in a tight 5-day range — the classic institutional-accumulation-
+    without-moving-price signature. All computed from polygon_market_daily."""
+    import psycopg2 as _pg_qa
+    import numpy as _np_qa
+    try:
+        with _pg_qa.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH vol_avg AS (
+                    SELECT ticker, scan_date,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {vol_lookback - 1} PRECEDING AND CURRENT ROW
+                           ) AS avg_vol_20,
+                           MAX(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                           ) AS max_close_5d,
+                           MIN(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                           ) AS min_close_5d,
+                           volume, close_price
+                    FROM polygon_market_daily
+                    WHERE close_price > 1
+                ),
+                flagged AS (
+                    SELECT ticker, scan_date,
+                           (volume::float / NULLIF(avg_vol_20, 0)) AS vol_ratio,
+                           ((max_close_5d - min_close_5d) / NULLIF(min_close_5d, 0) * 100) AS range_5d_pct
+                    FROM vol_avg
+                    WHERE avg_vol_20 IS NOT NULL
+                )
+                SELECT t.ticker, t.scan_date,
+                       ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 AS fwd_ret
+                FROM flagged f
+                JOIN polygon_market_daily t ON t.ticker=f.ticker AND t.scan_date=f.scan_date
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker = t.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker=t.ticker AND x.scan_date > t.scan_date)
+                WHERE f.vol_ratio >= %s AND f.range_5d_pct <= %s
+                LIMIT 50000
+            """, (vol_ratio_min, price_range_max_pct))
+            rows = cur.fetchall()
+            cur.execute("""
+                SELECT COUNT(*),
+                       ROUND((COUNT(*) FILTER (WHERE
+                           ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 > 0))
+                           ::numeric / NULLIF(COUNT(*),0) * 100, 2)
+                FROM polygon_market_daily t
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker=t.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker=t.ticker AND x.scan_date > t.scan_date)
+                WHERE t.close_price > 1 LIMIT 500000
+            """)
+            base_n, base_wr = cur.fetchone()
+
+        if not rows:
+            return {"status": "error", "error": "No qualifying setups — try loosening thresholds"}
+        fwd = _np_qa.array([r[2] for r in rows if r[2] is not None], dtype=float)
+        win_rate = round(float(_np_qa.mean(fwd > 0)) * 100, 2)
+        return {
+            "status": "ok", "setup": "quiet_accumulation",
+            "n": len(fwd), "win_rate": win_rate,
+            "avg_fwd_ret": round(float(_np_qa.mean(fwd)), 4),
+            "edge_winrate": round(win_rate - float(base_wr or 0), 2),
+            "baseline_win_rate": float(base_wr or 0),
+            "baseline_n": int(base_n or 0),
+            "params": {"vol_lookback": vol_lookback,
+                       "price_range_max_pct": price_range_max_pct,
+                       "vol_ratio_min": vol_ratio_min},
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+# ── B. Volatility squeeze: Bollinger-width compression ───────────────────────
+def _mkt_tool_volatility_squeeze(lookback=20, squeeze_percentile=20, horizon="next_day"):
+    """Find stocks whose rolling N-day Bollinger-width proxy is in the bottom
+    Nth percentile of its own history — a compression/coil-spring setup.
+    Measures forward move MAGNITUDE (directional-neutral — combine with A or C)."""
+    import psycopg2 as _pg_vs
+    import numpy as _np_vs
+    try:
+        with _pg_vs.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH rolling_width AS (
+                    SELECT ticker, scan_date, close_price,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback - 1} PRECEDING AND CURRENT ROW
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback - 1} PRECEDING AND CURRENT ROW
+                           ), 0) AS band_width_pct
+                    FROM polygon_market_daily WHERE close_price > 1
+                ),
+                ranked AS (
+                    SELECT ticker, scan_date, close_price, band_width_pct,
+                           PERCENT_RANK() OVER (PARTITION BY ticker ORDER BY band_width_pct) AS pct_rank
+                    FROM rolling_width WHERE band_width_pct IS NOT NULL
+                )
+                SELECT r.ticker, r.scan_date,
+                       ABS(((nxt.close_price/NULLIF(r.close_price,0))-1)*100) AS abs_fwd_move,
+                       ((nxt.close_price/NULLIF(r.close_price,0))-1)*100 AS fwd_ret
+                FROM ranked r
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker=r.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker=r.ticker AND x.scan_date > r.scan_date)
+                WHERE r.pct_rank <= %s LIMIT 50000
+            """, (squeeze_percentile / 100.0,))
+            rows = cur.fetchall()
+
+        if not rows:
+            return {"status": "error", "error": "No squeeze setups — try a higher percentile"}
+        moves = _np_vs.array([r[2] for r in rows if r[2] is not None], dtype=float)
+        rets = _np_vs.array([r[3] for r in rows if r[3] is not None], dtype=float)
+        return {
+            "status": "ok", "setup": "volatility_squeeze",
+            "n": len(moves),
+            "avg_abs_fwd_move_pct": round(float(_np_vs.mean(moves)), 3),
+            "median_abs_fwd_move_pct": round(float(_np_vs.median(moves)), 3),
+            "p75_abs_fwd_move_pct": round(float(_np_vs.percentile(moves, 75)), 3),
+            "directional_win_rate": round(float(_np_vs.mean(rets > 0)) * 100, 2),
+            "note": ("Measures move MAGNITUDE, not direction. Combine with "
+                     "mkt_quiet_accumulation (rising vol) or a gap filter "
+                     "to add directional bias."),
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+# ── C. Accumulation-into-squeeze composite ───────────────────────────────────
+def _mkt_tool_accumulation_into_squeeze(vol_ratio_min=1.3, squeeze_percentile=25,
+                                         horizon="next_day"):
+    """Find stocks showing BOTH rising volume (accumulation) AND tightening
+    range (squeeze) simultaneously — a much higher-conviction setup than
+    either alone. Compare its edge_winrate vs mkt_quiet_accumulation and
+    mkt_volatility_squeeze run separately to confirm the combination adds value."""
+    import psycopg2 as _pg_ais
+    import numpy as _np_ais
+    try:
+        with _pg_ais.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH metrics AS (
+                    SELECT ticker, scan_date, close_price, volume,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                           ) AS avg_vol_20,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                           ), 0) AS band_width_pct
+                    FROM polygon_market_daily WHERE close_price > 1
+                ),
+                ranked AS (
+                    SELECT ticker, scan_date, close_price,
+                           (volume::float / NULLIF(avg_vol_20, 0)) AS vol_ratio,
+                           PERCENT_RANK() OVER (PARTITION BY ticker ORDER BY band_width_pct) AS width_rank
+                    FROM metrics
+                    WHERE avg_vol_20 IS NOT NULL AND band_width_pct IS NOT NULL
+                )
+                SELECT r.ticker, r.scan_date,
+                       ((nxt.close_price/NULLIF(r.close_price,0))-1)*100 AS fwd_ret
+                FROM ranked r
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker=r.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker=r.ticker AND x.scan_date > r.scan_date)
+                WHERE r.vol_ratio >= %s AND r.width_rank <= %s
+                LIMIT 50000
+            """, (vol_ratio_min, squeeze_percentile / 100.0))
+            rows = cur.fetchall()
+
+            cur.execute("""
+                SELECT COUNT(*),
+                       ROUND((COUNT(*) FILTER (WHERE
+                           ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 > 0))
+                           ::numeric / NULLIF(COUNT(*),0) * 100, 2)
+                FROM polygon_market_daily t
+                JOIN polygon_market_daily nxt
+                  ON nxt.ticker=t.ticker
+                 AND nxt.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker=t.ticker AND x.scan_date > t.scan_date)
+                WHERE t.close_price > 1 LIMIT 500000
+            """)
+            base_n, base_wr = cur.fetchone()
+
+        if not rows:
+            return {"status": "error", "error": "No combined setups — loosen thresholds"}
+        fwd = _np_ais.array([r[2] for r in rows if r[2] is not None], dtype=float)
+        win_rate = round(float(_np_ais.mean(fwd > 0)) * 100, 2)
+        return {
+            "status": "ok", "setup": "accumulation_into_squeeze",
+            "n": len(fwd), "win_rate": win_rate,
+            "avg_fwd_ret": round(float(_np_ais.mean(fwd)), 4),
+            "edge_winrate": round(win_rate - float(base_wr or 0), 2),
+            "baseline_win_rate": float(base_wr or 0),
+            "baseline_n": int(base_n or 0),
+            "params": {"vol_ratio_min": vol_ratio_min, "squeeze_percentile": squeeze_percentile},
+            "note": ("Compare edge_winrate here vs mkt_quiet_accumulation and "
+                     "mkt_volatility_squeeze separately to confirm the combination "
+                     "adds real edge beyond each signal alone."),
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+# ── D. Survivorship-bias-aware universe — ticker lifecycle table ──────────────
+def _ensure_ticker_lifecycle_table():
+    import psycopg2 as _pg_lc
+    try:
+        with _pg_lc.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ticker_lifecycle (
+                    ticker        VARCHAR(10) PRIMARY KEY,
+                    active        BOOLEAN,
+                    listed_date   DATE,
+                    delisted_date DATE,
+                    updated_at    TIMESTAMP DEFAULT NOW()
+                )
+            """)
+    except Exception as _e:
+        print(f"[ticker_lifecycle] table init error: {_e}")
+
+
+def _mkt_refresh_ticker_lifecycle_bg():
+    """Pull active + delisted ticker records from Polygon reference API and store
+    listed/delisted dates. Runs as background thread weekly (Sunday 8 PM ET).
+    This is what makes point-in-time survivorship correction a real, checkable
+    fact instead of an assumption baked into today's survivor-only universe."""
+    import threading as _thr_lc
+    def _run():
+        import urllib.request as _ur_lc, json as _j_lc, psycopg2 as _pg_lc, time as _t_lc
+        _ensure_ticker_lifecycle_table()
+        key = os.environ.get("POLYGON_API_KEY", "")
+        if not key:
+            print("[ticker_lifecycle] no POLYGON_API_KEY — skipping")
+            return
+        rows = []
+        for active_flag in (True, False):
+            next_url = (
+                f"https://api.polygon.io/v3/reference/tickers"
+                f"?market=stocks&active={str(active_flag).lower()}&limit=1000&apiKey={key}"
+            )
+            page = 0
+            while next_url and page < 50:  # cap at 50k tickers per flag
+                try:
+                    with _ur_lc.urlopen(next_url, timeout=15) as r:
+                        data = _j_lc.load(r)
+                    for res in data.get("results", []):
+                        dl = res.get("delisted_utc", "") or ""
+                        rows.append((
+                            res.get("ticker"), active_flag,
+                            res.get("list_date"),
+                            dl.split("T")[0] if dl else None,
+                        ))
+                    next_url = data.get("next_url")
+                    if next_url:
+                        next_url += f"&apiKey={key}"
+                    page += 1
+                    _t_lc.sleep(0.25)
+                except Exception as _e:
+                    print(f"[ticker_lifecycle] fetch error (page {page}): {_e}")
+                    break
+        if rows:
+            try:
+                with _pg_lc.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                    cur.executemany("""
+                        INSERT INTO ticker_lifecycle (ticker, active, listed_date, delisted_date)
+                        VALUES (%s,%s,%s,%s)
+                        ON CONFLICT (ticker) DO UPDATE SET
+                            active=EXCLUDED.active, listed_date=EXCLUDED.listed_date,
+                            delisted_date=EXCLUDED.delisted_date, updated_at=NOW()
+                    """, rows)
+                print(f"[ticker_lifecycle] stored {len(rows)} ticker lifecycle records")
+            except Exception as _e:
+                print(f"[ticker_lifecycle] save error: {_e}")
+    _thr_lc.Thread(target=_run, daemon=True, name="ticker-lifecycle-refresh").start()
+
+
+def _mkt_tool_check_survivorship(ticker, check_date):
+    """Point-in-time survivorship check: was this ticker actually tradeable on
+    this date? Use before backtest inclusion to avoid survivorship bias — a stock
+    that delisted in 2024 is silently absent from today's universe but may have
+    been the worst-performing stock during the test period."""
+    import psycopg2 as _pg_sv
+    try:
+        with _pg_sv.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT listed_date, delisted_date, active FROM ticker_lifecycle WHERE ticker=%s",
+                (ticker,)
+            )
+            row = cur.fetchone()
+        if not row:
+            return {
+                "status": "ok", "ticker": ticker, "check_date": check_date,
+                "was_active": None,
+                "warning": ("Not in ticker_lifecycle table — run mkt_refresh_universe "
+                            "to populate. Returning None (unknown) not True/False."),
+            }
+        listed, delisted, active = row
+        tradeable = True
+        if listed and check_date < str(listed):
+            tradeable = False
+        if delisted and check_date > str(delisted):
+            tradeable = False
+        return {
+            "status": "ok", "ticker": ticker, "check_date": check_date,
+            "was_active": tradeable,
+            "listed_date": str(listed) if listed else None,
+            "delisted_date": str(delisted) if delisted else None,
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+def _mkt_tool_refresh_universe():
+    """Kick off a background refresh of the ticker_lifecycle survivorship table
+    (active + delisted tickers from Polygon reference API). Takes ~5-10 min.
+    Also refreshes ticker_meta (sector + market cap) in the same pass."""
+    try:
+        _mkt_refresh_ticker_lifecycle_bg()
+        _mkt_refresh_ticker_meta_bg()
+        return {
+            "status": "ok",
+            "message": "Lifecycle + meta refresh launched in background threads. "
+                       "Both tables will be updated over the next ~5-10 minutes.",
+        }
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
 _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "query_pick_outcomes",
@@ -17738,6 +18099,70 @@ _AIEM_AGENT_TOOLS = [
             "conditions": {"type": "object", "description": "Proposed new signal conditions."},
             "correlation_threshold": {"type": "number", "description": "Jaccard overlap threshold (default 0.70)."},
         }, "required": ["conditions"]}
+    }},
+    # ── Signal Expansion A-D (no new data feed required) ──────────────────────
+    {"type": "function", "function": {
+        "name": "mkt_quiet_accumulation",
+        "description": (
+            "Find stocks where volume is rising above its 20-day average while price stays "
+            "in a tight 5-day range — the classic institutional-accumulation-without-moving-"
+            "price signature. Returns win_rate, avg_fwd_ret, and edge vs broad baseline. "
+            "All computed from polygon_market_daily — no new data source needed."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "vol_lookback": {"type": "integer", "description": "Rolling average window for volume (default 20)."},
+            "price_range_max_pct": {"type": "number", "description": "Max 5-day price range % to qualify (default 3.0)."},
+            "vol_ratio_min": {"type": "number", "description": "Min vol/avg_vol ratio to qualify (default 1.3)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_volatility_squeeze",
+        "description": (
+            "Find stocks whose rolling Bollinger-width proxy is in the bottom Nth percentile "
+            "of its own history — a compression/coil-spring setup before a big move. "
+            "Returns move MAGNITUDE (directional-neutral). Combine with mkt_quiet_accumulation "
+            "or gap filters to get directional bias. All from polygon_market_daily."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "lookback": {"type": "integer", "description": "Rolling window for Bollinger width (default 20)."},
+            "squeeze_percentile": {"type": "integer", "description": "Bottom Nth percentile to qualify as squeezed (default 20)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_accumulation_squeeze",
+        "description": (
+            "Find stocks showing BOTH rising volume (quiet accumulation) AND tightening range "
+            "(volatility compression) simultaneously — the highest-conviction pre-move setup. "
+            "ALWAYS compare its win_rate against mkt_quiet_accumulation and mkt_volatility_squeeze "
+            "run separately to confirm the combination genuinely adds edge."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "vol_ratio_min": {"type": "number", "description": "Min vol/avg_vol ratio (default 1.3)."},
+            "squeeze_percentile": {"type": "integer", "description": "Squeeze width percentile threshold (default 25)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_check_survivorship",
+        "description": (
+            "Point-in-time survivorship check: was ticker X actually tradeable on date Y? "
+            "Use before including any stock in a backtest to avoid survivorship bias — "
+            "stocks that delisted are silently absent from today's universe but often had "
+            "the worst returns during the test period."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol to check."},
+            "check_date": {"type": "string", "description": "Date string YYYY-MM-DD to check against."},
+        }, "required": ["ticker", "check_date"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_refresh_universe",
+        "description": (
+            "Kick off a background refresh of the ticker_lifecycle survivorship table "
+            "(active + delisted tickers) and ticker_meta (sector + market cap). "
+            "Runs as background threads — takes ~5-10 min to complete. "
+            "Call this if mkt_check_survivorship returns unknown results."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []}
     }},
 ]
 
@@ -18832,6 +19257,12 @@ def _run_aiem_research_agent(max_iterations=None):
         "mkt_segment_by_cap_tier":   _mkt_tool_segment_by_cap_tier,
         "mkt_segment_by_sector":     _mkt_tool_segment_by_sector,
         "mkt_check_redundancy":      _mkt_check_signal_redundancy,
+        # ── Signal Expansion A-D ──────────────────────────────────────────────
+        "mkt_quiet_accumulation":    _mkt_tool_quiet_accumulation,
+        "mkt_volatility_squeeze":    _mkt_tool_volatility_squeeze,
+        "mkt_accumulation_squeeze":  _mkt_tool_accumulation_into_squeeze,
+        "mkt_check_survivorship":    _mkt_tool_check_survivorship,
+        "mkt_refresh_universe":      _mkt_tool_refresh_universe,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
