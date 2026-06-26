@@ -1,3 +1,4 @@
+- [AI Research Agent](aiem-research-agent.md) — autonomous gpt-4o loop queries own DB, discovers correlations, backtests weights, saves scoring model weekly; LOW→HIGH confidence as picks accumulate
 - [Conviction scoring engine](conviction-scoring-engine.md) — 4-factor quality score on multi-day runner; CV4=66% WR CI-floor 60.4% n=297; orthogonal to d1_strong; period extended 25d→45d
 - [Tradier migration complete](tradier-migration-complete.md) — Yahoo-only: ^VIX/market_cap/float/earnings/screener; everything else → _td_history/_td_intraday/_td_quotes
 - [Yahoo breaker cooldown](yf-breaker-cooldown.md) — must be ≥300s; 60s caused trip→probe→trip spiral all morning; do not reduce
