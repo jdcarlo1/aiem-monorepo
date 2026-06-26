@@ -1037,7 +1037,7 @@ export default function Landing() {
           {/* Monthly */}
           <div className="border border-gray-200 rounded-2xl p-8 text-left">
             <div className="text-gray-500 text-sm font-medium mb-2">Monthly</div>
-            <div className="text-4xl font-extrabold text-gray-900 mb-1">$20</div>
+            <div className="text-4xl font-extrabold text-gray-900 mb-1">$22</div>
             <div className="text-gray-400 text-sm mb-6">per month, cancel anytime</div>
             <ul className="space-y-3 mb-8">
               {["All 2,778+ questions", "All 59 categories", "NGN-format questions", "AI explanations", "Interview prep"].map((item) => (
@@ -1060,7 +1060,7 @@ export default function Landing() {
               BEST VALUE
             </div>
             <div className="text-blue-600 text-sm font-medium mb-2">Lifetime</div>
-            <div className="text-4xl font-extrabold text-gray-900 mb-1">$100</div>
+            <div className="text-4xl font-extrabold text-gray-900 mb-1">$110</div>
             <div className="text-gray-400 text-sm mb-6">one-time payment, forever</div>
             <ul className="space-y-3 mb-8">
               {["All 2,778+ questions", "All 59 categories", "NGN-format questions", "AI explanations", "Interview prep", "Future questions included"].map((item) => (

@@ -506,7 +506,7 @@ export default function Home() {
                   <div className="rounded-2xl border border-border bg-card p-8 flex flex-col shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200">
                     <p className="text-sm font-semibold text-muted-foreground mb-2">Monthly</p>
                     <div className="flex items-baseline gap-1 mb-1">
-                      <span className="text-5xl font-extrabold text-foreground">$20</span>
+                      <span className="text-5xl font-extrabold text-foreground">$22</span>
                       <span className="text-muted-foreground font-medium">/month</span>
                     </div>
                     <p className="text-xs text-muted-foreground mb-6">Cancel anytime</p>
@@ -531,7 +531,7 @@ export default function Home() {
                     </div>
                     <p className="text-sm font-semibold text-muted-foreground mb-2">Lifetime</p>
                     <div className="flex items-baseline gap-1 mb-1">
-                      <span className="text-5xl font-extrabold text-foreground">$100</span>
+                      <span className="text-5xl font-extrabold text-foreground">$110</span>
                       <span className="text-muted-foreground font-medium">one-time</span>
                     </div>
                     <p className="text-xs text-muted-foreground mb-6">Pay once · Access forever</p>
@@ -589,7 +589,7 @@ export default function Home() {
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </Button>
                 </Link>
-                <p className="text-sm text-muted-foreground mt-4">10 free questions · $20/month or $100 lifetime · Cancel anytime</p>
+                <p className="text-sm text-muted-foreground mt-4">10 free questions · $22/month or $110 lifetime · Cancel anytime</p>
               </>
             )}
           </div>
