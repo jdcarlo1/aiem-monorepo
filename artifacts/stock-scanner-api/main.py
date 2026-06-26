@@ -12948,9 +12948,52 @@ def _aiem_tool_test_scoring_hypothesis(weights, days_back=30):
 
 
 def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="MEDIUM"):
-    """Persist the agent's conclusions to aiem_research_insights."""
+    """
+    Persist research conclusions to aiem_research_insights.
+    Enforces p-value discipline: any weight key that lacks a matching
+    {key}_p_value entry (or has p_value >= 0.10) is STRIPPED and flagged.
+    This prevents the agent from encoding statistically insignificant patterns.
+    """
     import json as _rjson, datetime as _rdt
     try:
+        adj = dict(scoring_adjustments) if scoring_adjustments else {}
+        stripped = []
+        validated = {}
+
+        # Separate weight keys from metadata/p-value entries
+        weight_keys = [k for k in adj if not k.endswith("_p_value")
+                       and not k.endswith("_n") and k not in ("note","regime","exit_timing")]
+        for k in weight_keys:
+            p_key = k + "_p_value"
+            p_val = adj.get(p_key)
+            if p_val is None:
+                # No p-value provided — allow through with warning (may be backtest-derived)
+                validated[k] = adj[k]
+                validated[p_key] = "NOT_TESTED"
+            elif float(p_val) >= 0.10:
+                # Statistically insignificant — strip from model
+                stripped.append("{} (p={}, NOT SIGNIFICANT)".format(k, p_val))
+            else:
+                # p < 0.10 — include (strict gate is p<0.05, warn 0.05-0.10)
+                validated[k] = adj[k]
+                validated[p_key] = p_val
+                if float(p_val) >= 0.05:
+                    validated[k + "_warning"] = "MARGINAL (p={})".format(p_val)
+
+        # Always carry through metadata fields
+        for meta_k in ("note", "regime", "exit_timing"):
+            if meta_k in adj:
+                validated[meta_k] = adj[meta_k]
+        # Carry through _n sample size fields
+        for k in adj:
+            if k.endswith("_n"):
+                validated[k] = adj[k]
+
+        strip_note = ""
+        if stripped:
+            strip_note = " | STRIPPED non-significant: {}".format(", ".join(stripped))
+            findings = findings + "\n\n[ENFORCEMENT] The following weights were REMOVED for failing p>=0.10 significance: {}".format(", ".join(stripped))
+
         today = _rdt.date.today().isoformat()
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("""
@@ -12963,15 +13006,94 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
                         confidence=EXCLUDED.confidence,
                         created_at=NOW()
             """, (today, findings,
-                  _rjson.dumps(scoring_adjustments) if scoring_adjustments else None,
+                  _rjson.dumps(validated) if validated else None,
                   confidence))
             _c.commit()
-        print(f"[aiem_research] saved model for {today} (confidence={confidence})")
-        return {"saved": True, "date": today, "confidence": confidence}
+        msg = "[aiem_research] saved model {} (confidence={}{})".format(today, confidence, strip_note)
+        print(msg)
+        return {
+            "saved": True,
+            "date": today,
+            "confidence": confidence,
+            "weights_validated": [k for k in weight_keys if k not in [s.split(" ")[0] for s in stripped]],
+            "weights_stripped": stripped,
+            "enforcement_note": (
+                "Weights with p>=0.10 were stripped. "
+                "To include a weight, run run_statistical_significance first and include {key}_p_value in scoring_adjustments."
+            ) if stripped else "All weights passed significance check."
+        }
     except Exception as e:
-        print(f"[aiem_research] save error: {e}")
+        print("[aiem_research] save error: {}".format(e))
         return {"error": str(e)}
 
+
+
+def _aiem_tool_rollback_to_previous_model():
+    """
+    Actually roll back today's model to the previous week's validated weights.
+    Called when evaluate_previous_model returns MODEL HURT.
+    Copies the second-most-recent model into today's record, preserving the
+    rollback note in findings so the email shows why it happened.
+    Returns the restored weights so the agent can build from that baseline.
+    """
+    import json as _rbj, datetime as _rbdt
+    try:
+        today = _rbdt.date.today().isoformat()
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # Get the two most recent models
+            _cu.execute("""
+                SELECT research_date, findings, scoring_adjustments, confidence
+                FROM aiem_research_insights
+                ORDER BY research_date DESC
+                LIMIT 2
+            """)
+            rows = _cu.fetchall()
+
+        if len(rows) < 2:
+            return {
+                "rolled_back": False,
+                "reason": "Only one model in history — nothing to roll back to.",
+                "action": "Continue with fresh research using conservative defaults."
+            }
+
+        prev_date, prev_findings, prev_weights, prev_conf = rows[1]
+
+        # Write previous model as today's baseline with rollback note
+        rollback_note = (
+            "\n\n[ROLLBACK] Previous model (dated {}) was restored because "
+            "evaluate_previous_model detected degraded pick performance (MODEL HURT). "
+            "This session's new research should build ON TOP of these restored weights.".format(prev_date)
+        )
+        restored_findings = str(prev_findings or "") + rollback_note
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                INSERT INTO aiem_research_insights
+                    (research_date, findings, scoring_adjustments, confidence)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (research_date) DO UPDATE
+                    SET findings=EXCLUDED.findings,
+                        scoring_adjustments=EXCLUDED.scoring_adjustments,
+                        confidence=EXCLUDED.confidence,
+                        created_at=NOW()
+            """, (today, restored_findings, _rbj.dumps(prev_weights) if prev_weights else None,
+                  prev_conf))
+            _c.commit()
+
+        print("[aiem_research] ROLLED BACK to model from {}".format(prev_date))
+        return {
+            "rolled_back": True,
+            "restored_from_date": str(prev_date),
+            "restored_confidence": prev_conf,
+            "restored_weights": prev_weights or {},
+            "action": (
+                "Baseline restored. Now run your full research to find what IMPROVED vs this baseline. "
+                "When you call save_research_model, build on these weights — do not start from scratch."
+            )
+        }
+    except Exception as e:
+        print("[aiem_research] rollback error: {}".format(e))
+        return {"error": str(e)}
 
 def _aiem_tool_query_market_regime(days_back=60):
     """
@@ -13544,6 +13666,16 @@ _AIEM_AGENT_TOOLS = [
         }, "required": []}
     }},
     {"type": "function", "function": {
+        "name": "rollback_to_previous_model",
+        "description": (
+            "ONLY call this if evaluate_previous_model returned MODEL HURT verdict. "
+            "Actually copies the previous week's validated weights back as today's baseline. "
+            "After calling this, continue research to build improvements ON TOP of the restored weights. "
+            "Do NOT call unless MODEL HURT is confirmed — a neutral model should be updated, not rolled back."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
         "name": "evaluate_previous_model",
         "description": (
             "Grade last week's scoring model: did picks improve AFTER the model was applied vs BEFORE? "
@@ -13623,33 +13755,51 @@ _AIEM_AGENT_TOOLS = [
 
 _AIEM_AGENT_SYSTEM = """You are an autonomous quantitative research AI with access to a real trading database.
 
-Your mission: analyze your own stock-picking performance, discover what makes picks win or lose, and build the most accurate scoring model possible — which will directly improve tomorrow's picks.
+Your mission: analyze your own stock-picking performance, discover what makes picks win or lose, and build the most accurate scoring model possible — which directly improves tomorrow's picks.
 
 TOOLS AVAILABLE (use in this order):
-1. evaluate_previous_model     — ALWAYS start here. Was last week's model good or bad?
-2. query_pick_outcomes         — Full T+3/T+7 history. How are we doing overall?
-3. query_missed_movers         — What big movers did we miss? Why?
-4. analyze_signal_correlation  — Which boolean signals predict winners?
-5. discover_numeric_patterns   — Find optimal numeric thresholds (day_ret, vol_oi, price)
-6. compare_picks_vs_misses     — Systematic bias: what do we avoid that we shouldn't?
-7. query_market_regime         — Do our signals work in bull vs bear vs chop?
-8. query_cross_signal_overlap  — Does multi-scanner confirmation predict better outcomes?
-9. query_temporal_patterns     — Day of week, OpEx week effects
-10. query_rank_effectiveness   — Does rank #1 actually outperform rank #5?
-11. query_exit_timing          — T+3 vs T+7: when should we exit?
-12. test_scoring_hypothesis    — Backtest proposed weights before committing. ITERATE.
-13. run_statistical_significance — Verify findings are not noise before including them.
-14. save_research_model        — Save final model. LAST call only.
+1.  evaluate_previous_model      — ALWAYS start here. Was last week's model good or bad?
+2.  rollback_to_previous_model   — Call IMMEDIATELY if evaluate_previous_model returns MODEL HURT.
+3.  query_pick_outcomes          — Full T+3/T+7 history and overall win rate.
+4.  query_missed_movers          — What big movers did we miss? Why?
+5.  analyze_signal_correlation   — Which boolean signals predict winners?
+6.  discover_numeric_patterns    — Optimal thresholds for day_ret, vol_oi, stock_price.
+7.  compare_picks_vs_misses      — Systematic bias: what do we avoid that we shouldn't?
+8.  query_market_regime          — Do our signals work in bull vs bear vs chop?
+9.  query_cross_signal_overlap   — Does multi-scanner confirmation improve outcomes?
+10. query_temporal_patterns      — Day of week, OpEx week, week-of-month effects.
+11. query_rank_effectiveness     — Does rank #1 actually outperform rank #5?
+12. query_exit_timing            — T+3 vs T+7: when should we exit per signal type?
+13. test_scoring_hypothesis      — Backtest proposed weights before committing. Iterate ≥3x.
+14. run_statistical_significance — Bootstrap p-value test. MANDATORY before adding any weight.
+15. save_research_model          — Save final model. LAST call only.
 
-RESEARCH DISCIPLINE:
-- Evaluate the previous model BEFORE building a new one.
-- Run statistical_significance on any finding before including it in the model.
-- Test at least 3 different weight combinations with test_scoring_hypothesis.
-- Check regime (query_market_regime) before finalizing weights — regime-blind models overfit.
-- If sample size < 20 settled picks, set confidence=LOW and use conservative default weights.
-- findings must include: what changed vs last week, what regime conditions apply, exit timing recommendation, and any signals you are DOWN-WEIGHTING and why.
+HARD RULES — violating these produces an invalid model:
+1. ROLLBACK RULE: If evaluate_previous_model returns MODEL HURT, call rollback_to_previous_model
+   BEFORE doing any other research. Build new weights on top of the restored baseline.
+2. P-VALUE RULE: For EVERY weight you include in scoring_adjustments, you MUST:
+   a) Have called run_statistical_significance for that signal/group comparison.
+   b) Include {key}_p_value and {key}_n in scoring_adjustments alongside the weight.
+   c) Only include weights where p < 0.05. The save function will strip p >= 0.10 automatically.
+   Example: {"confirmed_2d_bonus": 1.8, "confirmed_2d_bonus_p_value": 0.031, "confirmed_2d_bonus_n": 47}
+3. BACKTEST RULE: Test at least 3 different weight combinations with test_scoring_hypothesis.
+   Only save the combination with the highest top-half win rate improvement.
+4. REGIME RULE: Always call query_market_regime. If BULL vs BEAR win rate differs by >10pp,
+   include regime-conditional notes in findings. Do not apply bull-market weights in bear regime.
+5. SAMPLE RULE: If settled_picks < 20, set confidence=LOW and use only conservative defaults.
+   Do not claim statistical significance with n < 15 per group.
 
-Your goal is to maximize T+3 win rate for top-ranked picks while avoiding overfit on small samples."""
+REQUIRED findings content (all must be present):
+- What the previous model's verdict was (HELPED/NEUTRAL/HURT) and by how many pp
+- What signals are statistically significant (p-value, n, win rate with vs without)
+- What weights were REMOVED and why (not significant / regime-specific / small sample)
+- Current market regime and whether regime-conditional weights apply
+- Exit timing recommendation (T+3 vs T+7 for current signals)
+- One thing the agent is uncertain about and wants to test next week
+
+Your goal: maximize T+3 win rate for top-ranked picks. Rigorous statistical discipline is
+more important than finding impressive-sounding patterns. A null result ("no significant
+signals found this week") is a valid and honest output."""
 
 
 def _run_aiem_research_agent(max_iterations=None):
@@ -13697,20 +13847,21 @@ def _run_aiem_research_agent(max_iterations=None):
 
     # ── Full tool map — all 14 tools ──────────────────────────────────────────
     _tool_map = {
-        "query_pick_outcomes":         _aiem_tool_query_pick_outcomes,
-        "query_missed_movers":         _aiem_tool_query_missed_movers,
-        "analyze_signal_correlation":  _aiem_tool_analyze_signal_correlation,
-        "compare_picks_vs_misses":     _aiem_tool_compare_picks_vs_misses,
-        "discover_numeric_patterns":   _aiem_tool_discover_numeric_patterns,
-        "test_scoring_hypothesis":     _aiem_tool_test_scoring_hypothesis,
-        "query_market_regime":         _aiem_tool_query_market_regime,
-        "query_cross_signal_overlap":  _aiem_tool_query_cross_signal_overlap,
-        "evaluate_previous_model":     _aiem_tool_evaluate_previous_model,
-        "query_temporal_patterns":     _aiem_tool_query_temporal_patterns,
-        "query_rank_effectiveness":    _aiem_tool_query_rank_effectiveness,
-        "query_exit_timing":           _aiem_tool_query_exit_timing,
+        "query_pick_outcomes":          _aiem_tool_query_pick_outcomes,
+        "query_missed_movers":          _aiem_tool_query_missed_movers,
+        "analyze_signal_correlation":   _aiem_tool_analyze_signal_correlation,
+        "compare_picks_vs_misses":      _aiem_tool_compare_picks_vs_misses,
+        "discover_numeric_patterns":    _aiem_tool_discover_numeric_patterns,
+        "test_scoring_hypothesis":      _aiem_tool_test_scoring_hypothesis,
+        "query_market_regime":          _aiem_tool_query_market_regime,
+        "query_cross_signal_overlap":   _aiem_tool_query_cross_signal_overlap,
+        "evaluate_previous_model":      _aiem_tool_evaluate_previous_model,
+        "rollback_to_previous_model":   _aiem_tool_rollback_to_previous_model,
+        "query_temporal_patterns":      _aiem_tool_query_temporal_patterns,
+        "query_rank_effectiveness":     _aiem_tool_query_rank_effectiveness,
+        "query_exit_timing":            _aiem_tool_query_exit_timing,
         "run_statistical_significance": _aiem_tool_run_statistical_significance,
-        "save_research_model":         _aiem_tool_save_research_model,
+        "save_research_model":          _aiem_tool_save_research_model,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
@@ -13881,7 +14032,7 @@ def _run_aiem_research_agent(max_iterations=None):
 
     log_lines.append("[aiem_research] tool_calls_made={}".format(tool_calls_made))
 
-    # ── Phase 3: Weekly research email to owner ───────────────────────────────
+    # ── Phase 3: Weekly research email — detailed per-finding statistics ────────
     try:
         from email_alerts import send_email_raw
         _today = _ardt.date.today().isoformat()
@@ -13900,41 +14051,144 @@ def _run_aiem_research_agent(max_iterations=None):
         _mweights  = _mrow[1] if _mrow else {}
         _mconf     = _mrow[2] if _mrow else "LOW"
 
-        _weights_html = ""
+        # ── Build per-finding statistics table ─────────────────────────────────
+        # Parse scoring_adjustments to extract weight + p_value + n per signal
+        _sig_rows = ""
         if _mweights:
-            _weights_html = "<ul>" + "".join(
-                "<li><b>{}</b>: {}</li>".format(k, v)
-                for k, v in _mweights.items()
-            ) + "</ul>"
+            import json as _ej
+            _adj = _mweights if isinstance(_mweights, dict) else {}
+            # Collect base weight keys (not metadata suffixes)
+            _wkeys = sorted(set(
+                k for k in _adj
+                if not k.endswith("_p_value") and not k.endswith("_n")
+                   and not k.endswith("_warning") and k not in ("note","regime","exit_timing")
+            ))
+            for _wk in _wkeys:
+                _wval  = _adj.get(_wk, "—")
+                _wpval = _adj.get(_wk + "_p_value", "NOT TESTED")
+                _wn    = _adj.get(_wk + "_n", "—")
+                _wwarn = _adj.get(_wk + "_warning", "")
+
+                # Significance color
+                if _wpval == "NOT TESTED":
+                    _sig_color = "#8b949e"; _sig_label = "not tested"
+                elif _wpval == "NOT_TESTED":
+                    _sig_color = "#8b949e"; _sig_label = "not tested"
+                else:
+                    try:
+                        _pf = float(_wpval)
+                        if _pf < 0.01:
+                            _sig_color = "#3fb950"; _sig_label = "STRONG ✓"
+                        elif _pf < 0.05:
+                            _sig_color = "#3fb950"; _sig_label = "significant ✓"
+                        elif _pf < 0.10:
+                            _sig_color = "#f0883e"; _sig_label = "marginal ⚠"
+                        else:
+                            _sig_color = "#f85149"; _sig_label = "NOT SIG ✗"
+                    except Exception:
+                        _sig_color = "#8b949e"; _sig_label = str(_wpval)
+
+                _warn_html = ""
+                if _wwarn:
+                    _warn_html = "<br><span style='color:#f0883e;font-size:11px;'>⚠ {}</span>".format(_wwarn)
+
+                _sig_rows += """
+                  <tr>
+                    <td style="padding:6px 10px;color:#e6edf3;">{key}</td>
+                    <td style="padding:6px 10px;color:#79c0ff;text-align:center;">{val}</td>
+                    <td style="padding:6px 10px;text-align:center;color:#8b949e;">{n}</td>
+                    <td style="padding:6px 10px;text-align:center;color:#8b949e;">{pval}</td>
+                    <td style="padding:6px 10px;text-align:center;color:{sc};">{sl}{warn}</td>
+                  </tr>""".format(
+                    key=_wk, val=_wval, n=_wn,
+                    pval=_wpval if _wpval not in ("NOT_TESTED","NOT TESTED") else "—",
+                    sc=_sig_color, sl=_sig_label, warn=_warn_html
+                )
+
+            # Add metadata rows (note, regime, exit_timing) as plain rows
+            for _mk in ("note", "regime", "exit_timing"):
+                if _mk in _adj:
+                    _sig_rows += """
+                  <tr style="border-top:1px solid #30363d;">
+                    <td style="padding:6px 10px;color:#8b949e;">{k}</td>
+                    <td colspan="4" style="padding:6px 10px;color:#8b949e;font-style:italic;">{v}</td>
+                  </tr>""".format(k=_mk, v=str(_adj[_mk])[:200])
+
+        _weights_table = ""
+        if _sig_rows:
+            _weights_table = """
+            <table style="width:100%;border-collapse:collapse;background:#161b22;border-radius:6px;overflow:hidden;">
+              <thead>
+                <tr style="background:#21262d;">
+                  <th style="padding:8px 10px;text-align:left;color:#58a6ff;">Signal / Weight</th>
+                  <th style="padding:8px 10px;text-align:center;color:#58a6ff;">Value</th>
+                  <th style="padding:8px 10px;text-align:center;color:#58a6ff;">n</th>
+                  <th style="padding:8px 10px;text-align:center;color:#58a6ff;">p-value</th>
+                  <th style="padding:8px 10px;text-align:center;color:#58a6ff;">Significance</th>
+                </tr>
+              </thead>
+              <tbody>{rows}</tbody>
+            </table>""".format(rows=_sig_rows)
+        else:
+            _weights_table = "<div style='color:#8b949e;padding:12px;'>No weights saved this session.</div>"
+
+        # ── Confidence badge color ─────────────────────────────────────────────
+        _conf_color = {"HIGH": "#3fb950", "MEDIUM": "#f0883e", "LOW": "#f85149"}.get(_mconf, "#8b949e")
 
         _email_html = """
-        <div style="font-family:monospace;max-width:700px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:24px;border-radius:8px;">
-          <h2 style="color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:12px;">
-            🤖 AI Research Agent — Weekly Report {date}
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',monospace;max-width:720px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:24px;border-radius:8px;">
+          <h2 style="color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:12px;margin-top:0;">
+            AI Research Agent &mdash; Weekly Report {date}
           </h2>
-          <div style="background:#161b22;padding:16px;border-radius:6px;margin:16px 0;">
-            <b style="color:#3fb950;">Confidence:</b> <span style="color:#f0883e;">{conf}</span><br>
-            <b style="color:#3fb950;">Tool calls made:</b> {calls}<br>
-            <b style="color:#3fb950;">Settled picks analyzed:</b> {settled}
+
+          <div style="display:flex;gap:12px;margin:16px 0;flex-wrap:wrap;">
+            <div style="background:#161b22;padding:12px 18px;border-radius:6px;flex:1;min-width:140px;">
+              <div style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Confidence</div>
+              <div style="color:{conf_color};font-size:20px;font-weight:700;margin-top:4px;">{conf}</div>
+            </div>
+            <div style="background:#161b22;padding:12px 18px;border-radius:6px;flex:1;min-width:140px;">
+              <div style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Settled Picks</div>
+              <div style="color:#e6edf3;font-size:20px;font-weight:700;margin-top:4px;">{settled}</div>
+            </div>
+            <div style="background:#161b22;padding:12px 18px;border-radius:6px;flex:1;min-width:140px;">
+              <div style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Tool Calls</div>
+              <div style="color:#e6edf3;font-size:20px;font-weight:700;margin-top:4px;">{calls}</div>
+            </div>
           </div>
-          <h3 style="color:#58a6ff;">Findings</h3>
-          <div style="background:#161b22;padding:16px;border-radius:6px;white-space:pre-wrap;">{findings}</div>
-          <h3 style="color:#58a6ff;">Learned Scoring Weights</h3>
-          <div style="background:#161b22;padding:16px;border-radius:6px;">{weights}</div>
-          <div style="margin-top:24px;color:#8b949e;font-size:12px;">
-            These weights are now active in tomorrow's AI Early Movers picks.<br>
-            View full history: GET /stock-api/aiem-research-status
+
+          <h3 style="color:#58a6ff;margin-top:20px;">Research Findings</h3>
+          <div style="background:#161b22;padding:16px;border-radius:6px;white-space:pre-wrap;line-height:1.6;font-size:13px;">{findings}</div>
+
+          <h3 style="color:#58a6ff;margin-top:20px;">
+            Validated Scoring Weights
+            <span style="font-size:12px;font-weight:400;color:#8b949e;margin-left:8px;">
+              (p-value shown per signal &mdash; enforced p&lt;0.10 gate, target p&lt;0.05)
+            </span>
+          </h3>
+          {weights_table}
+
+          <div style="margin-top:20px;background:#161b22;padding:12px 16px;border-radius:6px;border-left:3px solid #58a6ff;">
+            <span style="color:#8b949e;font-size:12px;">
+              These weights are now active in tomorrow's AI Early Movers picks.
+              Weights with p&ge;0.10 were automatically stripped before saving.
+              View full history: GET /stock-api/aiem-research-status
+            </span>
           </div>
         </div>
         """.format(
-            date=_today, conf=_mconf, calls=tool_calls_made,
-            settled=_settled, findings=str(_mfindings)[:2000],
-            weights=_weights_html or "None"
+            date=_today,
+            conf=_mconf,
+            conf_color=_conf_color,
+            settled=_settled,
+            calls=tool_calls_made,
+            findings=str(_mfindings)[:3000].replace("<","&lt;").replace(">","&gt;"),
+            weights_table=_weights_table
         )
 
         _sent = send_email_raw(
             _OWNER_EMAIL,
-            "🤖 AI Research Agent Report — {} (confidence={})".format(_today, _mconf),
+            "AI Research Agent — {} | confidence={} | {} settled picks".format(
+                _today, _mconf, _settled),
             _email_html
         )
         log_lines.append("[aiem_research] Owner email sent={}".format(_sent))
