@@ -3042,13 +3042,22 @@ try:
         if not _intraday_scan_allowed():
             return
         import threading as _othr
+        import time as _wt
         def _w():
+            # Stagger each refresh 30s apart (Claude rec #3): avoids all endpoint
+            # locks firing simultaneously, which queued user requests for 10-15 min.
             _call_route("Bull Flow",      "/stock-api/bull-flow/top10",   "POST", b"{}")
+            _wt.sleep(30)
             _call_route("Squeeze",        "/stock-api/squeeze/detector",  "POST", b"{}")
+            _wt.sleep(30)
             _call_route("Gamma Wall",     "/stock-api/gamma-wall")
+            _wt.sleep(30)
             _call_route("Breakout Radar", "/stock-api/breakout/radar",    "POST", b"{}")
+            _wt.sleep(30)
             _call_route("Convergence",    "/stock-api/convergence")
+            _wt.sleep(30)
             _call_route("Pre-Market",     "/stock-api/premarket")
+            _wt.sleep(30)
             _call_route("Dark Pool",      "/stock-api/darkpool")
         _othr.Thread(target=_w, daemon=True).start()
         print("[warmer] options wave started (all tabs)")
@@ -23266,7 +23275,16 @@ def net_flow_scan():
             and (_dt.now() - _nf_ts).total_seconds() < 300):
         return jsonify(_nf_cache)
 
-    with app._nf_lock:
+    _nf_stale = getattr(app, "_nf_cache", None)
+    if not app._nf_lock.acquire(timeout=2):
+        if _nf_stale:
+            _nf_sb = dict(_nf_stale)
+            _nf_sb["stale"] = True
+            _nf_sb["note"] = "Scan in progress - showing last result"
+            return jsonify(_nf_sb)
+        return jsonify({"results": [], "scanned": 0, "stale": True,
+                        "note": "Scan in progress - check back in ~60s"})
+    try:
         _nf_cache = getattr(app, "_nf_cache", None)
         _nf_ts    = getattr(app, "_nf_cache_ts", None)
         _nf_key   = getattr(app, "_nf_cache_key", None)
@@ -23319,6 +23337,8 @@ def net_flow_scan():
         app._nf_cache_ts  = _dt.now()
         app._nf_cache_key = tickers
         return jsonify(out)
+    finally:
+        app._nf_lock.release()
 
 
 @app.route("/stock-api/net-flow/single", methods=["GET"])
@@ -25948,14 +25968,15 @@ def _ai_trades_worker():
                     f"/stock-api/signal-feed",
                     f"/stock-api/composite-score",
                 ]
+                import time as _cwt
                 def _fetch(path):
                     try: _ur.urlopen(f"http://127.0.0.1:{PORT}{path}", timeout=90)
                     except Exception: pass
-                with ThreadPoolExecutor(max_workers=4) as ex:
-                    futs = [ex.submit(_fetch, p) for p in warm_paths]
-                    for f in as_completed(futs):
-                        try: f.result()
-                        except: pass
+                # Sequential with 5s gap (Claude rec #3): avoids simultaneous lock
+                # contention across all tabs that caused 10-15 min request queuing.
+                for _wp in warm_paths:
+                    _fetch(_wp)
+                    _cwt.sleep(5)
                 # After warming, retry AI trades generation once
                 import time as _time
                 _time.sleep(2)
@@ -27340,9 +27361,19 @@ def unusual_calls():
             return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
                             "error": str(_nh_e)})
 
-    # Only one scan at a time - concurrent requests block here until the scan
-    # finishes, then the re-check returns the fresh cache instead of re-scanning.
-    with app._uc_lock:
+    # Quick fix (Claude rec #1): never block a user request >2s on the scan lock.
+    # If the warmer is holding the lock, serve stale cache immediately instead of
+    # queuing the request for the full 10-15 min scan duration.
+    _stale_before_lock = getattr(app, "_unusual_calls_cache", None)
+    if not app._uc_lock.acquire(timeout=2):
+        if _stale_before_lock:
+            _sb = dict(_stale_before_lock)
+            _sb["stale"] = True
+            _sb["note"] = "Scan in progress - showing last result"
+            return jsonify(_sb)
+        return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "Scan in progress - check back in ~60s"})
+    try:
         # Re-check after acquiring lock - another thread may have just finished
         _cache = getattr(app, "_unusual_calls_cache", None)
         _ts    = getattr(app, "_unusual_calls_cache_ts", None)
@@ -27589,6 +27620,9 @@ def unusual_calls():
             from datetime import timedelta as _td
             app._unusual_calls_cache_ts = _dt.now() - _td(seconds=720)
         return jsonify(out)
+
+    finally:
+        app._uc_lock.release()
 
 
 @app.route("/stock-api/unusual-calls/microcap", methods=["GET"])
