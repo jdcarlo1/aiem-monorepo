@@ -1390,6 +1390,7 @@ _JOB_STALENESS_HOURS = {
     "aiem_continuous_research": 26,   # daily Mon-Fri 6 PM
     "vix_daily_fetch":          26,   # daily Mon-Fri 4:15 PM
     "aiem_auto_retire":         170,  # weekly Sunday 6 PM
+    "aiem_model_retrain":      170,  # weekly Sunday 7 PM
 }
 
 
@@ -3374,6 +3375,36 @@ try:
             lambda: _mkt_refresh_ticker_lifecycle_bg(),
             _CT_aiem(day_of_week="sun", hour=20, minute=0, timezone=_ET),
             id="aiem_ticker_lifecycle_weekly", replace_existing=True,
+        )
+        # Model retrain: every Sunday 7 PM ET (before Loop A at 8 PM)
+        # Will skip silently if fewer than 200 graded outcomes exist
+        def _run_model_retrain_job():
+            try:
+                import threading as _mrt
+                _mrt.Thread(target=_train_and_register_model, daemon=True).start()
+                record_job_success("aiem_model_retrain")
+            except Exception as _e:
+                record_job_failure("aiem_model_retrain", str(_e))
+                print(f"[scheduler] model retrain error: {_e}")
+        _scheduler.add_job(
+            _run_model_retrain_job,
+            _CT_aiem(day_of_week="sun", hour=19, minute=0, timezone=_ET),
+            id="aiem_model_retrain_weekly", replace_existing=True,
+        )
+        # Signal bridge daily jobs: 4:50 PM Mon-Fri
+        # Runs pre-squeeze + breakout detectors, logs fires, grades pending
+        def _run_signal_bridge_job():
+            if not _intraday_scan_allowed():
+                return
+            try:
+                import threading as _sbj
+                _sbj.Thread(target=_run_daily_signal_jobs, daemon=True).start()
+            except Exception as _e:
+                print(f"[scheduler] signal bridge error: {_e}")
+        _scheduler.add_job(
+            _run_signal_bridge_job,
+            _CT_aiem(day_of_week="mon-fri", hour=16, minute=50, timezone=_ET),
+            id="signal_bridge_daily", replace_existing=True,
         )
         # Auto-retire decaying signals: every Sunday 6 PM ET (before Loop A research)
         _scheduler.add_job(
@@ -17663,6 +17694,954 @@ def _mkt_tool_refresh_universe():
 
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM REAL MODEL — logistic regression trained on accumulated real outcomes
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ensure_model_registry():
+    import psycopg2 as _pg_mr
+    try:
+        with _pg_mr.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS model_registry (
+                    id              SERIAL PRIMARY KEY,
+                    trained_at      TIMESTAMP DEFAULT NOW(),
+                    feature_names   JSONB,
+                    coefficients    JSONB,
+                    intercept       FLOAT,
+                    n_train         INTEGER,
+                    n_test          INTEGER,
+                    train_auc       FLOAT,
+                    test_auc        FLOAT,
+                    is_deployed     BOOLEAN DEFAULT FALSE,
+                    notes           TEXT
+                )
+            """)
+    except Exception as _e:
+        print(f"[model_registry] init error: {_e}")
+
+_ensure_model_registry()
+
+# Features pulled from JOIN aiem_predictions + polygon_market_daily + signal_fire_log
+_AIEM_FEATURE_COLUMNS = [
+    "gap_pct", "rvol", "close_strength", "range_pct",
+    "confidence_score", "rank",
+    "pre_squeeze_warning_active", "accumulation_breakout_active",
+]
+
+def _extract_training_data(min_date=None):
+    """Pull every graded prediction with its features and real outcome."""
+    import psycopg2 as _pg_etd
+    query = """
+        SELECT
+            COALESCE(d.gap_pct, 0),
+            COALESCE(d.rvol, 1),
+            COALESCE(d.close_strength, 0.5),
+            COALESCE(d.range_pct, 0),
+            COALESCE(p.confidence_score::float, 5),
+            COALESCE(p.rank::float, 5),
+            COALESCE(psw.pre_squeeze_warning_active, 0),
+            COALESCE(ab.accumulation_breakout_active, 0),
+            o.win_t3
+        FROM aiem_predictions p
+        JOIN aiem_prediction_outcomes o
+          ON o.prediction_date = p.prediction_date AND o.ticker = p.ticker
+        LEFT JOIN polygon_market_daily d
+          ON d.ticker = p.ticker AND d.scan_date = p.prediction_date
+        LEFT JOIN (
+            SELECT ticker, fire_date, 1 AS pre_squeeze_warning_active
+            FROM signal_fire_log WHERE signal_name = 'pre_squeeze_warning'
+        ) psw ON psw.ticker = p.ticker AND psw.fire_date = p.prediction_date
+        LEFT JOIN (
+            SELECT ticker, fire_date, 1 AS accumulation_breakout_active
+            FROM signal_fire_log WHERE signal_name = 'accumulation_breakout'
+        ) ab ON ab.ticker = p.ticker AND ab.fire_date = p.prediction_date
+        WHERE o.win_t3 IS NOT NULL
+    """
+    params = []
+    if min_date:
+        query += " AND p.prediction_date >= %s"
+        params.append(min_date)
+    try:
+        with _pg_etd.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+    except Exception as _e:
+        print(f"[aiem_model] extract_training_data error: {_e}")
+        return [], [], _AIEM_FEATURE_COLUMNS
+    if not rows:
+        return [], [], _AIEM_FEATURE_COLUMNS
+    X = [[float(v) if v is not None else 0.0 for v in row[:-1]] for row in rows]
+    y = [1 if row[-1] else 0 for row in rows]
+    return X, y, _AIEM_FEATURE_COLUMNS
+
+def _train_and_register_model(min_samples=200, test_fraction=0.3):
+    """Retrain on accumulated outcomes using time-ordered walk-forward split.
+    Will NOT deploy if new model's test AUC regresses vs current deployed."""
+    import math as _math_tr
+    try:
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import roc_auc_score
+    except ImportError:
+        return {"status": "error", "error": "scikit-learn not installed"}
+    _ensure_model_registry()
+    X, y, feature_names = _extract_training_data()
+    n = len(X)
+    if n < min_samples:
+        return {"status": "skip",
+                "message": f"Only {n} graded outcomes — need {min_samples} before training. "
+                           f"Keep using LLM-based scoring until enough data accumulates."}
+    if len(set(y)) < 2:
+        return {"status": "error", "error": "All outcomes same class — cannot train."}
+    split = int(n * (1 - test_fraction))
+    X_tr, X_te = X[:split], X[split:]
+    y_tr, y_te = y[:split], y[split:]
+    if len(set(y_tr)) < 2 or len(set(y_te)) < 2:
+        return {"status": "error", "error": "Train or test split has only one class."}
+    model = LogisticRegression(max_iter=1000, class_weight="balanced")
+    model.fit(X_tr, y_tr)
+    tr_auc = roc_auc_score(y_tr, model.predict_proba(X_tr)[:, 1])
+    te_auc = roc_auc_score(y_te, model.predict_proba(X_te)[:, 1])
+    current = _get_deployed_model()
+    should_deploy = True
+    note = "No model currently deployed — this becomes the first."
+    if current["status"] == "ok":
+        prior_auc = current["model"]["test_auc"]
+        if te_auc < prior_auc:
+            should_deploy = False
+            note = f"New AUC {te_auc:.3f} < deployed {prior_auc:.3f} — NOT deploying."
+        else:
+            note = f"New AUC {te_auc:.3f} vs prior {prior_auc:.3f} — deploying."
+    coefficients = {name: float(c) for name, c in zip(feature_names, model.coef_[0])}
+    import psycopg2 as _pg_trm, json as _jtrm
+    with _pg_trm.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        if should_deploy:
+            cur.execute("UPDATE model_registry SET is_deployed=FALSE WHERE is_deployed=TRUE")
+        cur.execute("""
+            INSERT INTO model_registry
+                (feature_names, coefficients, intercept, n_train, n_test,
+                 train_auc, test_auc, is_deployed, notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+        """, (_jtrm.dumps(feature_names), _jtrm.dumps(coefficients),
+              float(model.intercept_[0]), len(X_tr), len(X_te),
+              float(tr_auc), float(te_auc), should_deploy, note))
+        model_id = cur.fetchone()[0]
+    print(f"[aiem_model] trained model_id={model_id} deploy={should_deploy} "
+          f"n={n} te_auc={te_auc:.3f} — {note}")
+    return {"status": "ok", "model_id": model_id, "deployed": should_deploy,
+            "n_train": len(X_tr), "n_test": len(X_te),
+            "train_auc": round(tr_auc, 4), "test_auc": round(te_auc, 4),
+            "coefficients": coefficients, "note": note}
+
+def _get_deployed_model() -> dict:
+    import psycopg2 as _pg_gdm, json as _jgdm
+    try:
+        _ensure_model_registry()
+        with _pg_gdm.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, feature_names, coefficients, intercept, train_auc, test_auc, trained_at
+                FROM model_registry WHERE is_deployed=TRUE
+                ORDER BY trained_at DESC LIMIT 1
+            """)
+            row = cur.fetchone()
+        if not row:
+            return {"status": "error", "error": "No deployed model yet."}
+        return {"status": "ok", "model": {
+            "id": row[0],
+            "feature_names": row[1] if isinstance(row[1], list) else _jgdm.loads(row[1]),
+            "coefficients": row[2] if isinstance(row[2], dict) else _jgdm.loads(row[2]),
+            "intercept": row[3], "train_auc": row[4], "test_auc": row[5],
+            "trained_at": str(row[6]),
+        }}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+def _score_candidate(features: dict) -> dict:
+    """Score a single candidate using the deployed model. Pure Python — no sklearn at serve time."""
+    import math as _math_sc
+    deployed = _get_deployed_model()
+    if deployed["status"] != "ok":
+        return {"status": "error", "error": "No deployed model — using LLM scoring for now."}
+    m = deployed["model"]
+    z = m["intercept"]
+    missing = []
+    for name in m["feature_names"]:
+        if name not in features:
+            missing.append(name)
+            continue
+        z += m["coefficients"][name] * float(features[name])
+    prob = 1 / (1 + _math_sc.exp(-z))
+    return {"status": "ok", "model_id": m["id"],
+            "win_probability": round(prob, 4),
+            "model_test_auc": m["test_auc"],
+            "missing_features": missing or None}
+
+def _get_model_history() -> dict:
+    import psycopg2 as _pg_gmh
+    try:
+        _ensure_model_registry()
+        with _pg_gmh.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, trained_at, n_train, n_test, train_auc, test_auc, is_deployed, notes
+                FROM model_registry ORDER BY trained_at ASC
+            """)
+            rows = cur.fetchall()
+        return {"status": "ok", "history": [
+            {"id": r[0], "trained_at": str(r[1]), "n_train": r[2], "n_test": r[3],
+             "train_auc": r[4], "test_auc": r[5], "deployed": r[6], "notes": r[7]}
+            for r in rows
+        ]}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM ACCUMULATION-TO-DISTRIBUTION LIFECYCLE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ensure_watched_positions_table():
+    import psycopg2 as _pg_wp
+    try:
+        with _pg_wp.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS watched_positions (
+                    id           SERIAL PRIMARY KEY,
+                    ticker       VARCHAR(10) NOT NULL,
+                    entry_date   DATE NOT NULL,
+                    entry_price  FLOAT NOT NULL,
+                    entry_reason TEXT,
+                    status       VARCHAR(20) DEFAULT 'open',
+                    exit_date    DATE,
+                    exit_price   FLOAT,
+                    exit_reason  TEXT,
+                    created_at   TIMESTAMP DEFAULT NOW()
+                )
+            """)
+    except Exception as _e:
+        print(f"[watched_positions] init error: {_e}")
+
+_ensure_watched_positions_table()
+
+def detect_accumulation_breakout(lookback_squeeze=20, breakout_vol_ratio=2.0):
+    """Find tickers that had a quiet-accumulation setup AND are breaking out today on volume."""
+    import psycopg2 as _pg_dab
+    try:
+        with _pg_dab.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH range_hist AS (
+                    SELECT ticker, scan_date, close_price, volume,
+                           MAX(high_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_squeeze} PRECEDING AND 1 PRECEDING
+                           ) AS prior_high,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
+                           ) AS prior_avg_vol,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_squeeze} PRECEDING AND 1 PRECEDING
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_squeeze} PRECEDING AND 1 PRECEDING
+                           ), 0) AS prior_band_width
+                    FROM polygon_market_daily WHERE close_price > 1
+                )
+                SELECT ticker, scan_date, close_price,
+                       (volume::float / NULLIF(prior_avg_vol,0)) AS vol_ratio,
+                       ((close_price - prior_high) / NULLIF(prior_high,0) * 100) AS breakout_pct
+                FROM range_hist
+                WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+                  AND close_price > prior_high
+                  AND (volume::float / NULLIF(prior_avg_vol,0)) >= %s
+                  AND prior_band_width IS NOT NULL
+                  AND prior_band_width <= (
+                        SELECT PERCENTILE_CONT(0.30) WITHIN GROUP (ORDER BY prior_band_width)
+                        FROM range_hist WHERE prior_band_width IS NOT NULL
+                      )
+                ORDER BY vol_ratio DESC LIMIT 50
+            """, (breakout_vol_ratio,))
+            rows = cur.fetchall()
+        candidates = [{"ticker": r[0], "scan_date": str(r[1]), "close_price": r[2],
+                       "vol_ratio": round(r[3], 2), "breakout_pct": round(r[4], 2)}
+                      for r in rows]
+        return {"status": "ok", "n_candidates": len(candidates), "candidates": candidates,
+                "interpretation": "Broke out of prior compression range on elevated volume today — entry trigger."}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+def open_watched_position(ticker: str, entry_date: str, entry_price: float, entry_reason: str):
+    _ensure_watched_positions_table()
+    import psycopg2 as _pg_owp
+    with _pg_owp.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO watched_positions (ticker, entry_date, entry_price, entry_reason)
+            VALUES (%s,%s,%s,%s) RETURNING id
+        """, (ticker, entry_date, entry_price, entry_reason))
+        pos_id = cur.fetchone()[0]
+    return {"status": "ok", "position_id": pos_id}
+
+def get_open_positions() -> list:
+    _ensure_watched_positions_table()
+    import psycopg2 as _pg_gop
+    with _pg_gop.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, ticker, entry_date, entry_price FROM watched_positions WHERE status='open'")
+        return [{"id": r[0], "ticker": r[1], "entry_date": str(r[2]), "entry_price": r[3]}
+                for r in cur.fetchall()]
+
+def detect_distribution_signature(ticker: str, entry_date: str, entry_price: float,
+                                    run_lookback: int = 10) -> dict:
+    """Check an open position for signs the move is exhausting. Returns exhaustion score + which signals fired."""
+    import numpy as _np_dds, psycopg2 as _pg_dds
+    try:
+        with _pg_dds.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT scan_date, close_price, high_price, low_price, volume, close_strength
+                FROM polygon_market_daily
+                WHERE ticker=%s AND scan_date>=%s ORDER BY scan_date ASC
+            """, (ticker, entry_date))
+            rows = cur.fetchall()
+        if len(rows) < 3:
+            return {"status": "ok", "exhaustion_score": 0, "signals_fired": [],
+                    "note": "Not enough days since entry to evaluate yet."}
+        closes = _np_dds.array([r[1] for r in rows if r[1] is not None])
+        volumes = _np_dds.array([r[4] for r in rows if r[4] is not None])
+        close_strengths = [r[5] for r in rows if r[5] is not None]
+        latest_date, latest_close = rows[-1][0], rows[-1][1]
+        run_return_pct = (latest_close / entry_price - 1) * 100
+        signals_fired, score = [], 0
+        if len(volumes) >= 3 and volumes[-1] == volumes.max() and volumes[-1] > _np_dds.mean(volumes[:-1]) * 2.5:
+            signals_fired.append("climax_volume"); score += 2
+        if close_strengths and close_strengths[-1] is not None and close_strengths[-1] < 0.35 and run_return_pct > 8:
+            signals_fired.append("weak_close_after_run"); score += 2
+        if len(closes) >= 5:
+            daily_rets = _np_dds.diff(closes) / closes[:-1] * 100
+            if len(daily_rets) >= 4 and _np_dds.mean(daily_rets[-2:]) < _np_dds.mean(daily_rets[:2]) * 0.4 and run_return_pct > 5:
+                signals_fired.append("deceleration"); score += 1
+        if run_return_pct > 15 and len(rows) <= run_lookback:
+            signals_fired.append("parabolic_extension"); score += 1
+        verdict = ("STRONG EXIT SIGNAL" if score >= 3 else
+                   "WATCH CLOSELY — early distribution signs." if score >= 1 else
+                   "No distribution signature yet.")
+        return {"status": "ok", "ticker": ticker, "run_return_pct": round(run_return_pct, 2),
+                "days_in_position": len(rows), "exhaustion_score": score,
+                "signals_fired": signals_fired, "verdict": verdict,
+                "latest_date": str(latest_date), "latest_close": latest_close}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+def run_daily_exit_check():
+    """Run after market close against every open watched position."""
+    _ensure_watched_positions_table()
+    open_positions = get_open_positions()
+    results = []
+    for pos in open_positions:
+        check = detect_distribution_signature(pos["ticker"], pos["entry_date"], pos["entry_price"])
+        check["position_id"] = pos["id"]
+        results.append(check)
+    flagged = [r for r in results if r.get("exhaustion_score", 0) >= 3]
+    return {"status": "ok", "checked": len(results), "flagged_for_exit": flagged, "all_results": results}
+
+def close_watched_position(position_id: int, exit_date: str, exit_price: float, exit_reason: str):
+    import psycopg2 as _pg_cwp
+    with _pg_cwp.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            UPDATE watched_positions SET status='closed', exit_date=%s, exit_price=%s, exit_reason=%s
+            WHERE id=%s
+        """, (exit_date, exit_price, exit_reason, position_id))
+    return {"status": "ok"}
+
+def get_strategy_track_record() -> dict:
+    import numpy as _np_str, psycopg2 as _pg_str
+    with _pg_str.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT entry_price, exit_price FROM watched_positions WHERE status='closed' AND exit_price IS NOT NULL")
+        rows = cur.fetchall()
+    if not rows:
+        return {"status": "ok", "n_closed": 0, "message": "No closed positions yet."}
+    returns = _np_str.array([(ep / en - 1) * 100 for en, ep in rows])
+    return {"status": "ok", "n_closed": len(returns),
+            "win_rate_pct": round(float(_np_str.mean(returns > 0)) * 100, 2),
+            "avg_return_pct": round(float(_np_str.mean(returns)), 2),
+            "median_return_pct": round(float(_np_str.median(returns)), 2),
+            "best_pct": round(float(_np_str.max(returns)), 2),
+            "worst_pct": round(float(_np_str.min(returns)), 2)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM PRE-SQUEEZE EARLY WARNING
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _mkt_tool_pre_squeeze_warning(slope_window=10, width_window=20,
+                                    min_decline_pct=15.0, max_volume_trend=1.0):
+    """Flag tickers where band width has been DECLINING (compressing) over the last
+    slope_window days while volume stays flat/declining — fires BEFORE mkt_tool_volatility_squeeze."""
+    import psycopg2 as _pg_psw
+    try:
+        with _pg_psw.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH metrics AS (
+                    SELECT ticker, scan_date, close_price, volume,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {width_window - 1} PRECEDING AND CURRENT ROW
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {width_window - 1} PRECEDING AND CURRENT ROW
+                           ), 0) AS band_width_pct,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                           ) AS recent_avg_vol
+                    FROM polygon_market_daily WHERE close_price > 1
+                ),
+                with_lag AS (
+                    SELECT ticker, scan_date, close_price, band_width_pct, recent_avg_vol,
+                           LAG(band_width_pct, {slope_window}) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                           ) AS band_width_pct_lagged,
+                           LAG(recent_avg_vol, {slope_window}) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                           ) AS recent_avg_vol_lagged
+                    FROM metrics WHERE band_width_pct IS NOT NULL
+                )
+                SELECT ticker, scan_date, close_price, band_width_pct, band_width_pct_lagged,
+                       recent_avg_vol, recent_avg_vol_lagged,
+                       ((band_width_pct_lagged - band_width_pct) / NULLIF(band_width_pct_lagged,0) * 100) AS width_decline_pct,
+                       (recent_avg_vol / NULLIF(recent_avg_vol_lagged,0)) AS vol_trend_ratio
+                FROM with_lag
+                WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+                  AND band_width_pct_lagged IS NOT NULL
+                  AND ((band_width_pct_lagged - band_width_pct) / NULLIF(band_width_pct_lagged,0) * 100) >= %s
+                  AND (recent_avg_vol / NULLIF(recent_avg_vol_lagged,0)) <= %s
+                ORDER BY width_decline_pct DESC LIMIT 50
+            """, (min_decline_pct, max_volume_trend))
+            rows = cur.fetchall()
+        candidates = [{"ticker": r[0], "scan_date": str(r[1]), "close_price": r[2],
+                       "current_band_width_pct": round(r[3] * 100, 3),
+                       "band_width_pct_decline": round(r[7], 1),
+                       "volume_trend_ratio": round(r[8], 2)}
+                      for r in rows]
+        return {"status": "ok", "n_candidates": len(candidates), "candidates": candidates,
+                "interpretation": (f"Band width tightened by listed %% over {slope_window} days "
+                                   f"while volume flat/declining — compressing NOW, not yet at "
+                                   f"extreme tightness. Watch for breakout trigger once confirmed.")}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+def _validate_pre_squeeze_lead_time(squeeze_percentile=20, lookback_days=10,
+                                      width_window=20, sample_limit=300):
+    """Validate whether pre-squeeze warning actually gives real lead time before confirmed squeezes."""
+    import numpy as _np_vpsl, psycopg2 as _pg_vpsl
+    try:
+        with _pg_vpsl.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH metrics AS (
+                    SELECT ticker, scan_date,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {width_window - 1} PRECEDING AND CURRENT ROW
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {width_window - 1} PRECEDING AND CURRENT ROW
+                           ), 0) AS band_width_pct
+                    FROM polygon_market_daily WHERE close_price > 1
+                ),
+                ranked AS (
+                    SELECT ticker, scan_date, band_width_pct,
+                           PERCENT_RANK() OVER (PARTITION BY ticker ORDER BY band_width_pct) AS pct_rank
+                    FROM metrics WHERE band_width_pct IS NOT NULL
+                )
+                SELECT ticker, scan_date FROM ranked
+                WHERE pct_rank <= %s ORDER BY scan_date DESC LIMIT %s
+            """, (squeeze_percentile / 100.0, sample_limit))
+            confirmed_events = cur.fetchall()
+        if not confirmed_events:
+            return {"status": "error", "error": "No confirmed squeeze events found."}
+        lead_times, no_warning_count = [], 0
+        with _pg_vpsl.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for ticker, squeeze_date in confirmed_events:
+                cur.execute("""
+                    SELECT scan_date, close_price, volume FROM polygon_market_daily
+                    WHERE ticker=%s AND scan_date<=%s ORDER BY scan_date DESC LIMIT %s
+                """, (ticker, squeeze_date, width_window + lookback_days + 5))
+                hist = cur.fetchall()[::-1]
+                if len(hist) < width_window + lookback_days:
+                    continue
+                closes = _np_vpsl.array([h[1] for h in hist])
+                vols = _np_vpsl.array([h[2] for h in hist])
+                found_lead = None
+                for back in range(1, lookback_days + 1):
+                    idx = len(hist) - 1 - back
+                    if idx - width_window < 0 or idx - 5 < 0:
+                        continue
+                    wn = closes[idx - width_window + 1: idx + 1]
+                    wt = closes[max(0, idx - width_window + 1 - back): idx + 1 - back] if idx + 1 - back > 0 else None
+                    if wt is None or len(wt) < width_window // 2:
+                        continue
+                    wn_std = _np_vpsl.std(wn) / _np_vpsl.mean(wn) if _np_vpsl.mean(wn) else 0
+                    wt_std = _np_vpsl.std(wt) / _np_vpsl.mean(wt) if _np_vpsl.mean(wt) else 0
+                    vn = _np_vpsl.mean(vols[max(0, idx-4):idx+1])
+                    vt = _np_vpsl.mean(vols[max(0, idx-back-4):idx-back+1]) if idx-back >= 0 else vn
+                    if wt_std > 0 and (wt_std - wn_std) / wt_std >= 0.15 and vn <= vt:
+                        found_lead = back
+                if found_lead:
+                    lead_times.append(found_lead)
+                else:
+                    no_warning_count += 1
+        n_checked = len(lead_times) + no_warning_count
+        if n_checked == 0:
+            return {"status": "error", "error": "Not enough history to validate."}
+        return {"status": "ok", "n_confirmed_squeeze_events_checked": n_checked,
+                "n_with_early_warning": len(lead_times),
+                "detection_rate_pct": round(len(lead_times) / n_checked * 100, 1),
+                "avg_lead_time_days": round(float(_np_vpsl.mean(lead_times)), 1) if lead_times else None,
+                "median_lead_time_days": round(float(_np_vpsl.median(lead_times)), 1) if lead_times else None,
+                "verdict": ("Worth using — meaningful detection rate with real lead time."
+                            if lead_times and len(lead_times) / n_checked > 0.4 and _np_vpsl.mean(lead_times) >= 2
+                            else "Marginal — low detection rate or lead time too short.")}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM SIGNAL-TO-MODEL BRIDGE — wires new detectors into the learning loop
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ensure_signal_fire_log():
+    import psycopg2 as _pg_sfl
+    try:
+        with _pg_sfl.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS signal_fire_log (
+                    id          SERIAL PRIMARY KEY,
+                    signal_name VARCHAR(50) NOT NULL,
+                    ticker      VARCHAR(10) NOT NULL,
+                    fire_date   DATE NOT NULL,
+                    fire_price  FLOAT,
+                    metadata    JSONB,
+                    graded      BOOLEAN DEFAULT FALSE,
+                    fwd_ret_3d  FLOAT,
+                    fwd_ret_5d  FLOAT,
+                    fwd_ret_10d FLOAT,
+                    logged_at   TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (signal_name, ticker, fire_date)
+                )
+            """)
+    except Exception as _e:
+        print(f"[signal_fire_log] init error: {_e}")
+
+_ensure_signal_fire_log()
+
+def log_signal_fired(signal_name: str, ticker: str, fire_date: str,
+                      fire_price: float, metadata: dict = None):
+    """Call every time a detector returns a positive hit — permanent log for grading later."""
+    _ensure_signal_fire_log()
+    import json as _j_lsf, psycopg2 as _pg_lsf
+    try:
+        with _pg_lsf.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO signal_fire_log (signal_name, ticker, fire_date, fire_price, metadata)
+                VALUES (%s,%s,%s,%s,%s) ON CONFLICT (signal_name, ticker, fire_date) DO NOTHING
+            """, (signal_name, ticker, fire_date, fire_price, _j_lsf.dumps(metadata or {})))
+        return {"status": "ok"}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+def grade_pending_signals(min_days_elapsed: int = 12):
+    """Grade logged fires against real forward returns once enough time has passed."""
+    from datetime import timedelta as _td_gps
+    _ensure_signal_fire_log()
+    import psycopg2 as _pg_gps
+    cutoff = (__import__("datetime").datetime.utcnow().date() - _td_gps(days=min_days_elapsed)).isoformat()
+    try:
+        with _pg_gps.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id, ticker, fire_date, fire_price FROM signal_fire_log WHERE graded=FALSE AND fire_date<=%s", (cutoff,))
+            pending = cur.fetchall()
+        graded_count = 0
+        with _pg_gps.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for fire_id, ticker, fire_date, fire_price in pending:
+                cur.execute("""
+                    SELECT scan_date, close_price FROM polygon_market_daily
+                    WHERE ticker=%s AND scan_date>%s ORDER BY scan_date ASC LIMIT 10
+                """, (ticker, fire_date))
+                fwd = cur.fetchall()
+                if len(fwd) < 3:
+                    continue
+                def _ret(n): return (fwd[n-1][1] / fire_price - 1) * 100 if fire_price and len(fwd) >= n else None
+                cur.execute("UPDATE signal_fire_log SET graded=TRUE, fwd_ret_3d=%s, fwd_ret_5d=%s, fwd_ret_10d=%s WHERE id=%s",
+                            (_ret(3), _ret(5), _ret(10), fire_id))
+                graded_count += 1
+        return {"status": "ok", "graded_this_run": graded_count, "still_pending": len(pending) - graded_count}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+def get_signal_performance(signal_name: str) -> dict:
+    """Is this specific detector actually any good? Based on real graded outcomes."""
+    import psycopg2 as _pg_gsp
+    try:
+        with _pg_gsp.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*),
+                       ROUND(AVG(fwd_ret_3d)::numeric, 3),
+                       ROUND(AVG(fwd_ret_5d)::numeric, 3),
+                       ROUND((COUNT(*) FILTER (WHERE fwd_ret_5d > 0))::numeric / NULLIF(COUNT(*),0) * 100, 2)
+                FROM signal_fire_log WHERE signal_name=%s AND graded=TRUE
+            """, (signal_name,))
+            row = cur.fetchone()
+        if not row or not row[0]:
+            return {"status": "ok", "n_graded": 0, "message": f"No graded fires yet for '{signal_name}'."}
+        return {"status": "ok", "signal_name": signal_name, "n_graded": row[0],
+                "avg_fwd_ret_3d_pct": float(row[1] or 0),
+                "avg_fwd_ret_5d_pct": float(row[2] or 0),
+                "win_rate_5d_pct": float(row[3] or 0),
+                "verdict": ("Worth keeping as a model feature." if row[0] >= 30 and float(row[3] or 0) > 50
+                            else "Not enough graded samples yet." if row[0] < 30
+                            else "Underperforming — consider retiring.")}
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+def _run_daily_signal_jobs():
+    """Daily job: run new detectors, log fires, grade old ones, check open positions."""
+    try:
+        # 1. Pre-squeeze warning — log all fires
+        psw = _mkt_tool_pre_squeeze_warning()
+        for c in psw.get("candidates", []):
+            log_signal_fired("pre_squeeze_warning", c["ticker"], c["scan_date"],
+                             c["close_price"], metadata={"band_decline": c.get("band_width_pct_decline")})
+
+        # 2. Accumulation breakout — log all fires
+        ab = detect_accumulation_breakout()
+        for c in ab.get("candidates", []):
+            log_signal_fired("accumulation_breakout", c["ticker"], c["scan_date"],
+                             c["close_price"], metadata={"vol_ratio": c.get("vol_ratio"),
+                                                         "breakout_pct": c.get("breakout_pct")})
+
+        # 3. Grade pending signals
+        grade_pending_signals()
+
+        # 4. Check open watched positions for exit signals
+        run_daily_exit_check()
+
+        print(f"[signal_bridge] daily job done: {len(psw.get('candidates',[]))} pre-squeeze, "
+              f"{len(ab.get('candidates',[]))} breakouts logged")
+    except Exception as _e:
+        print(f"[signal_bridge] daily job error: {_e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM ADDITIONAL PREDICTABLE EVENTS — A/B/C/D live on polygon_market_daily;
+# E-I are stubs waiting on future data feeds (tables created, no ingestion yet)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# A. Extreme single-day move mean reversion
+def _mkt_extreme_move_reversion(move_threshold_pct=15.0, horizon_days=3):
+    """Tests whether stocks that moved >move_threshold_pct in one day tend to
+    partially revert over the next horizon_days. Reports up vs down separately —
+    reversion is rarely symmetric."""
+    import numpy as _np_emr, psycopg2 as _pg_emr
+    try:
+        with _pg_emr.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH daily_ret AS (
+                    SELECT ticker, scan_date, close_price,
+                           ((close_price / NULLIF(prev_close,0)) - 1)*100 AS day_ret
+                    FROM polygon_market_daily
+                    WHERE close_price > 1 AND prev_close IS NOT NULL
+                ),
+                extremes AS (
+                    SELECT ticker, scan_date, close_price, day_ret,
+                           CASE WHEN day_ret >= %s THEN 'up' WHEN day_ret <= -%s THEN 'down' END AS direction
+                    FROM daily_ret WHERE ABS(day_ret) >= %s
+                )
+                SELECT e.direction, e.ticker, e.scan_date,
+                       ((fwd.close_price / NULLIF(e.close_price,0)) - 1)*100 AS fwd_ret
+                FROM extremes e
+                JOIN polygon_market_daily fwd ON fwd.ticker = e.ticker
+                 AND fwd.scan_date = (
+                       SELECT scan_date FROM polygon_market_daily x
+                       WHERE x.ticker=e.ticker AND x.scan_date>e.scan_date
+                       ORDER BY x.scan_date ASC OFFSET {horizon_days-1} LIMIT 1)
+                WHERE e.direction IS NOT NULL LIMIT 50000
+            """, (move_threshold_pct, move_threshold_pct, move_threshold_pct))
+            rows = cur.fetchall()
+        if not rows:
+            return {"status":"error","error":"No extreme-move events found at this threshold."}
+        results = {}
+        for direction in ("up","down"):
+            fwd = _np_emr.array([r[3] for r in rows if r[0]==direction and r[3] is not None])
+            if not len(fwd):
+                continue
+            results[direction] = {
+                "n": int(len(fwd)),
+                "avg_fwd_ret_pct": round(float(_np_emr.mean(fwd)),3),
+                "median_fwd_ret_pct": round(float(_np_emr.median(fwd)),3),
+                "reverts_pct": round(float(_np_emr.mean(fwd < 0 if direction=="up" else fwd > 0))*100,2),
+            }
+        return {"status":"ok","move_threshold_pct":move_threshold_pct,
+                "horizon_days":horizon_days,"by_direction":results,
+                "interpretation":"reverts_pct = how often the move partially reversed within the horizon. Compare up vs down — rarely symmetric."}
+    except Exception as _e:
+        return {"status":"error","error":str(_e)}
+
+
+# B. Gap fill probability by size
+def _mkt_gap_fill_probability():
+    """For gap-up days: did the stock touch prior close intraday (fill)?
+    For gap-down: did it trade back up to prior close? Bucketed by gap size."""
+    import psycopg2 as _pg_gfp
+    try:
+        with _pg_gfp.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    CASE WHEN ABS(gap_pct)<2 THEN '0-2%'
+                         WHEN ABS(gap_pct)<4 THEN '2-4%'
+                         WHEN ABS(gap_pct)<8 THEN '4-8%'
+                         ELSE '8%+' END AS gap_bucket,
+                    SIGN(gap_pct) AS gap_dir,
+                    COUNT(*) AS n,
+                    COUNT(*) FILTER (
+                        WHERE (gap_pct>0 AND low_price<=prev_close)
+                           OR (gap_pct<0 AND high_price>=prev_close)
+                    ) AS n_filled
+                FROM polygon_market_daily
+                WHERE prev_close IS NOT NULL AND gap_pct IS NOT NULL
+                  AND ABS(gap_pct)>=0.5 AND close_price>1
+                GROUP BY gap_bucket, gap_dir ORDER BY gap_dir, gap_bucket
+            """)
+            rows = cur.fetchall()
+        return {"status":"ok","results":[
+            {"gap_bucket":r[0],"direction":"up" if r[1]>0 else "down",
+             "n":r[2],"fill_rate_pct":round(r[3]/r[2]*100,1) if r[2] else None}
+            for r in rows],
+            "note":"Fill = intraday touch of prior close, not necessarily close-of-day."}
+    except Exception as _e:
+        return {"status":"error","error":str(_e)}
+
+
+# C. Volume climax reversal — capitulation bottom
+def _detect_capitulation_signature(ticker=None, lookback_days=5):
+    """Big down day + climax volume + close well off the lows — buyers absorbing
+    panic selling. SHORT-TERM bounce signature, not a trend reversal signal."""
+    import psycopg2 as _pg_cap
+    try:
+        ticker_filter = "AND ticker = %s" if ticker else ""
+        params = [ticker] if ticker else []
+        with _pg_cap.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH recent AS (
+                    SELECT ticker, scan_date, close_price, volume, close_strength,
+                           ((close_price/NULLIF(prev_close,0))-1)*100 AS day_ret,
+                           AVG(volume) OVER (PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING) AS avg_vol_20
+                    FROM polygon_market_daily WHERE close_price>1 {ticker_filter}
+                )
+                SELECT ticker, scan_date, close_price, day_ret,
+                       (volume::float/NULLIF(avg_vol_20,0)) AS vol_ratio, close_strength
+                FROM recent
+                WHERE scan_date>=(SELECT MAX(scan_date) FROM polygon_market_daily)-%s
+                  AND day_ret<=-8 AND (volume::float/NULLIF(avg_vol_20,0))>=2.5
+                  AND close_strength>=0.55
+                ORDER BY vol_ratio DESC LIMIT 50
+            """, params+[lookback_days])
+            rows = cur.fetchall()
+        return {"status":"ok","n_candidates":len(rows),
+                "candidates":[{"ticker":r[0],"scan_date":str(r[1]),"close_price":r[2],
+                               "day_ret_pct":round(r[3],2),"vol_ratio":round(r[4],2),"close_strength":round(r[5],2)}
+                              for r in rows],
+                "interpretation":"Big down + climax volume + strong close = buyers absorbing panic. Validate forward returns before trading."}
+    except Exception as _e:
+        return {"status":"error","error":str(_e)}
+
+def _validate_capitulation_signature(forward_days=3):
+    """Backtest the capitulation signature against real forward returns."""
+    import numpy as _np_vc, psycopg2 as _pg_vc
+    try:
+        with _pg_vc.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH recent AS (
+                    SELECT ticker, scan_date, close_price,
+                           ((close_price/NULLIF(prev_close,0))-1)*100 AS day_ret,
+                           AVG(volume) OVER (PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING) AS avg_vol_20,
+                           volume, close_strength
+                    FROM polygon_market_daily WHERE close_price>1
+                ),
+                flagged AS (
+                    SELECT ticker, scan_date, close_price FROM recent
+                    WHERE day_ret<=-8 AND (volume::float/NULLIF(avg_vol_20,0))>=2.5
+                      AND close_strength>=0.55
+                )
+                SELECT f.ticker, f.scan_date,
+                       ((fwd.close_price/NULLIF(f.close_price,0))-1)*100 AS fwd_ret
+                FROM flagged f JOIN polygon_market_daily fwd ON fwd.ticker=f.ticker
+                 AND fwd.scan_date=(
+                       SELECT scan_date FROM polygon_market_daily x
+                       WHERE x.ticker=f.ticker AND x.scan_date>f.scan_date
+                       ORDER BY x.scan_date ASC OFFSET {forward_days-1} LIMIT 1)
+                LIMIT 20000
+            """)
+            rows = cur.fetchall()
+        if not rows:
+            return {"status":"error","error":"No capitulation events in history."}
+        fwd = _np_vc.array([r[2] for r in rows if r[2] is not None])
+        return {"status":"ok","n":len(fwd),
+                "win_rate_pct":round(float(_np_vc.mean(fwd>0))*100,2),
+                "avg_fwd_ret_pct":round(float(_np_vc.mean(fwd)),3)}
+    except Exception as _e:
+        return {"status":"error","error":str(_e)}
+
+
+# D. New 52-week-high momentum continuation
+def _mkt_52week_high_momentum(lookback_trading_days=252):
+    """Stocks making a fresh N-trading-day high. Tests momentum continuation
+    (vs the intuition that "it's too high"). NOTE: depends on real data depth —
+    silently under-detects if most tickers have <6 months of history."""
+    import numpy as _np_52, psycopg2 as _pg_52
+    try:
+        with _pg_52.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH rolling_high AS (
+                    SELECT ticker, scan_date, close_price,
+                           MAX(close_price) OVER (PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_trading_days-1} PRECEDING AND 1 PRECEDING) AS prior_high,
+                           COUNT(*) OVER (PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_trading_days-1} PRECEDING AND 1 PRECEDING) AS days_of_history
+                    FROM polygon_market_daily WHERE close_price>1
+                ),
+                new_highs AS (
+                    SELECT ticker, scan_date, close_price FROM rolling_high
+                    WHERE close_price>prior_high AND days_of_history>={lookback_trading_days//2}
+                )
+                SELECT nh.ticker, nh.scan_date,
+                       ((fwd.close_price/NULLIF(nh.close_price,0))-1)*100 AS fwd_ret
+                FROM new_highs nh JOIN polygon_market_daily fwd ON fwd.ticker=nh.ticker
+                 AND fwd.scan_date=(SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                                    WHERE x.ticker=nh.ticker AND x.scan_date>nh.scan_date)
+                LIMIT 50000
+            """)
+            rows = cur.fetchall()
+        if not rows:
+            return {"status":"error","error":"No new-high events with enough history — check actual data depth per ticker."}
+        fwd = _np_52.array([r[2] for r in rows if r[2] is not None])
+        return {"status":"ok","n":int(len(fwd)),
+                "win_rate_pct":round(float(_np_52.mean(fwd>0))*100,2),
+                "avg_fwd_ret_pct":round(float(_np_52.mean(fwd)),4),
+                "lookback_trading_days":lookback_trading_days,
+                "data_depth_warning":"Only as trustworthy as your actual history depth per ticker."}
+    except Exception as _e:
+        return {"status":"error","error":str(_e)}
+
+
+# E. Ex-dividend mechanics — reference data via Polygon
+def _ensure_dividends_table():
+    import psycopg2 as _pg_div
+    try:
+        with _pg_div.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS dividend_calendar (
+                ticker VARCHAR(10), ex_date DATE, cash_amount FLOAT,
+                PRIMARY KEY (ticker, ex_date))""")
+    except Exception as _e:
+        print(f"[dividend_calendar] init error: {_e}")
+
+_ensure_dividends_table()
+
+def _refresh_dividend_calendar(ticker: str):
+    """Pull dividend history from Polygon reference API."""
+    import urllib.request as _ur_dc, json as _j_dc, psycopg2 as _pg_dc
+    _ensure_dividends_table()
+    key = os.environ.get("POLYGON_API_KEY","")
+    if not key:
+        return {"status":"error","error":"no POLYGON_API_KEY"}
+    try:
+        url = f"https://api.polygon.io/v3/reference/dividends?ticker={ticker}&apiKey={key}"
+        with _ur_dc.urlopen(url, timeout=10) as r:
+            data = _j_dc.load(r)
+        results = data.get("results",[])
+        rows = [(ticker, res.get("ex_dividend_date"), res.get("cash_amount")) for res in results]
+        if rows:
+            with _pg_dc.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.executemany("""INSERT INTO dividend_calendar (ticker,ex_date,cash_amount)
+                    VALUES (%s,%s,%s) ON CONFLICT (ticker,ex_date) DO NOTHING""", rows)
+        return {"status":"ok","rows_stored":len(rows)}
+    except Exception as _e:
+        return {"status":"error","error":str(_e)}
+
+def _is_ex_dividend_today(ticker: str, check_date: str) -> dict:
+    """Context flag — so other detectors can exclude/annotate ex-div days."""
+    import psycopg2 as _pg_exd
+    with _pg_exd.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT cash_amount FROM dividend_calendar WHERE ticker=%s AND ex_date=%s",
+                    (ticker, check_date))
+        row = cur.fetchone()
+    return {"is_ex_dividend":row is not None,"cash_amount":row[0] if row else None}
+
+
+# F-I: Skeleton tables only — no ingestion (data feeds TBD)
+def _ensure_predictable_event_tables():
+    """Create skeleton tables for insider (F), buyback (G), index (H), IPO lockup (I)."""
+    import psycopg2 as _pg_pet
+    try:
+        with _pg_pet.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS insider_transactions (
+                    ticker VARCHAR(10), filer_name TEXT, transaction_date DATE,
+                    transaction_type VARCHAR(10), shares BIGINT, price FLOAT,
+                    filed_at TIMESTAMP,
+                    PRIMARY KEY (ticker, filer_name, transaction_date, shares));
+                CREATE TABLE IF NOT EXISTS buyback_announcements (
+                    ticker VARCHAR(10), announced_date DATE,
+                    authorized_amount BIGINT, source_url TEXT,
+                    PRIMARY KEY (ticker, announced_date));
+                CREATE TABLE IF NOT EXISTS index_membership_changes (
+                    ticker VARCHAR(10), index_name VARCHAR(20), change_type VARCHAR(10),
+                    announced_date DATE, effective_date DATE,
+                    PRIMARY KEY (ticker, index_name, announced_date));
+                CREATE TABLE IF NOT EXISTS ipo_calendar (
+                    ticker VARCHAR(10) PRIMARY KEY,
+                    ipo_date DATE, assumed_lockup_days INTEGER DEFAULT 180);
+            """)
+    except Exception as _e:
+        print(f"[predictable_event_tables] init error: {_e}")
+
+_ensure_predictable_event_tables()
+
+def _get_upcoming_lockup_expirations(days_ahead=14):
+    """Heuristic: 180-day default lockup. Verify against actual prospectus before trading."""
+    import psycopg2 as _pg_lkp
+    try:
+        with _pg_lkp.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, ipo_date, assumed_lockup_days,
+                       (ipo_date + (assumed_lockup_days||' days')::interval)::date AS assumed_expiry
+                FROM ipo_calendar
+                WHERE (ipo_date+(assumed_lockup_days||' days')::interval)::date
+                      BETWEEN CURRENT_DATE AND CURRENT_DATE+%s
+            """, (days_ahead,))
+            rows = cur.fetchall()
+        return {"status":"ok",
+                "candidates":[{"ticker":r[0],"ipo_date":str(r[1]),"assumed_expiry":str(r[3])} for r in rows],
+                "warning":"ASSUMED 180-day estimate — verify each against actual prospectus."}
+    except Exception as _e:
+        return {"status":"error","error":str(_e)}
+
+def _get_insider_cluster_signal(ticker: str, days_window=14, min_distinct_buyers=3):
+    """Once insider_transactions has real data: flags multiple insiders buying same ticker."""
+    import psycopg2 as _pg_ics, psycopg2.errors as _pge_ics
+    try:
+        with _pg_ics.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""SELECT COUNT(DISTINCT filer_name), SUM(shares*price)
+                FROM insider_transactions WHERE ticker=%s AND transaction_type='buy'
+                AND transaction_date>=CURRENT_DATE-%s""", (ticker, days_window))
+            distinct_buyers, total_value = cur.fetchone()
+        return {"status":"ok","ticker":ticker,"distinct_buyers":distinct_buyers or 0,
+                "total_buy_value":total_value or 0,
+                "cluster_signal":(distinct_buyers or 0)>=min_distinct_buyers}
+    except Exception as _e:
+        if "does not exist" in str(_e).lower() or "undefinedtable" in type(_e).__name__.lower():
+            return {"status":"error","error":"insider_transactions has no data yet — needs ingestion built."}
+        return {"status":"error","error":str(_e)}
+
+
 _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "query_pick_outcomes",
@@ -18345,6 +19324,50 @@ _AIEM_AGENT_TOOLS = [
             "Call this if mkt_check_survivorship returns unknown results."
         ),
         "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_pre_squeeze_warning",
+        "description": (
+            "Detect volatility compression WHILE IT IS FORMING — flags tickers where band width "
+            "has been declining for slope_window days with flat/declining volume. Fires BEFORE "
+            "mkt_tool_volatility_squeeze (which requires extreme tightness already). Use this "
+            "to get early-entry lead time on upcoming squeeze setups."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "slope_window": {"type": "integer", "description": "Days over which to measure compression trend (default 10)"},
+            "min_decline_pct": {"type": "number", "description": "Minimum band-width decline %% to qualify (default 15)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_extreme_move_reversion",
+        "description": ("Test whether stocks that moved more than a threshold %% in one day tend to partially "
+                        "revert over the next N days. Reports up vs down separately — reversion is rarely symmetric."),
+        "parameters": {"type": "object", "properties": {
+            "move_threshold_pct": {"type": "number", "description": "Min absolute daily move to qualify (default 15)"},
+            "horizon_days": {"type": "integer", "description": "Forward-return window in trading days (default 3)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_gap_fill_probability",
+        "description": ("Gap fill probability bucketed by size (0-2%%, 2-4%%, 4-8%%, 8%%+). "
+                        "Small gaps fill far more often than large ones on heavy volume."),
+        "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_capitulation_detector",
+        "description": ("Find stocks with a big down day (>=-8%%), extreme volume (>=2.5x avg), and a "
+                        "strong close off the lows — buyers absorbing panic selling. SHORT-TERM bounce signal."),
+        "parameters": {"type": "object", "properties": {
+            "lookback_days": {"type": "integer", "description": "Recent trading days to scan (default 5)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_52week_momentum",
+        "description": ("Stocks making a fresh 52-week high — tests momentum continuation vs reversion. "
+                        "Needs real data depth; silently under-detects if history <6 months per ticker."),
+        "parameters": {"type": "object", "properties": {
+            "lookback_trading_days": {"type": "integer", "description": "Rolling high window (default 252)"},
+        }, "required": []}
     }},
 ]
 
@@ -19445,6 +20468,11 @@ def _run_aiem_research_agent(max_iterations=None):
         "mkt_accumulation_squeeze":  _mkt_tool_accumulation_into_squeeze,
         "mkt_check_survivorship":    _mkt_tool_check_survivorship,
         "mkt_refresh_universe":      _mkt_tool_refresh_universe,
+        "mkt_pre_squeeze_warning":   _mkt_tool_pre_squeeze_warning,
+        "mkt_extreme_move_reversion": _mkt_extreme_move_reversion,
+        "mkt_gap_fill_probability":   _mkt_gap_fill_probability,
+        "mkt_capitulation_detector":  _detect_capitulation_signature,
+        "mkt_52week_momentum":        _mkt_52week_high_momentum,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
@@ -27679,6 +28707,121 @@ def _admin_job_heartbeats():
         return jsonify({"status": "ok", "jobs": rows})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+
+@app.route("/stock-api/admin/model/train", methods=["POST"])
+def _admin_model_train():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    result = _train_and_register_model()
+    return jsonify(result)
+
+@app.route("/stock-api/admin/model/history", methods=["GET"])
+def _admin_model_history():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(_get_model_history())
+
+@app.route("/stock-api/admin/model/current", methods=["GET"])
+def _admin_model_current():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(_get_deployed_model())
+
+@app.route("/stock-api/admin/accumulation/breakouts", methods=["GET"])
+def _admin_accumulation_breakouts():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(detect_accumulation_breakout())
+
+@app.route("/stock-api/admin/accumulation/positions", methods=["GET"])
+def _admin_accumulation_positions():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify({"status": "ok", "open_positions": get_open_positions(),
+                    "track_record": get_strategy_track_record()})
+
+@app.route("/stock-api/admin/accumulation/exit-check", methods=["POST"])
+def _admin_accumulation_exit_check():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(run_daily_exit_check())
+
+@app.route("/stock-api/admin/signal-bridge/performance", methods=["GET"])
+def _admin_signal_bridge_performance():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    signal = request.args.get("signal", "pre_squeeze_warning")
+    return jsonify(get_signal_performance(signal))
+
+@app.route("/stock-api/admin/signal-bridge/grade", methods=["POST"])
+def _admin_signal_bridge_grade():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(grade_pending_signals())
+
+@app.route("/stock-api/admin/pre-squeeze/validate", methods=["GET"])
+def _admin_pre_squeeze_validate():
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(_validate_pre_squeeze_lead_time())
+
+
+@app.route("/stock-api/admin/predictable-events/extreme-move", methods=["GET"])
+def _admin_extreme_move():
+    if request.headers.get("X-Admin-Token","") != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error":"unauthorized"}), 401
+    threshold = float(request.args.get("threshold", 15))
+    horizon = int(request.args.get("horizon", 3))
+    return jsonify(_mkt_extreme_move_reversion(threshold, horizon))
+
+@app.route("/stock-api/admin/predictable-events/gap-fill", methods=["GET"])
+def _admin_gap_fill():
+    if request.headers.get("X-Admin-Token","") != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error":"unauthorized"}), 401
+    return jsonify(_mkt_gap_fill_probability())
+
+@app.route("/stock-api/admin/predictable-events/capitulation", methods=["GET"])
+def _admin_capitulation():
+    if request.headers.get("X-Admin-Token","") != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error":"unauthorized"}), 401
+    ticker = request.args.get("ticker")
+    lookback = int(request.args.get("lookback", 5))
+    return jsonify(_detect_capitulation_signature(ticker, lookback))
+
+@app.route("/stock-api/admin/predictable-events/capitulation/validate", methods=["GET"])
+def _admin_capitulation_validate():
+    if request.headers.get("X-Admin-Token","") != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error":"unauthorized"}), 401
+    return jsonify(_validate_capitulation_signature())
+
+@app.route("/stock-api/admin/predictable-events/52week-momentum", methods=["GET"])
+def _admin_52week_momentum():
+    if request.headers.get("X-Admin-Token","") != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error":"unauthorized"}), 401
+    return jsonify(_mkt_52week_high_momentum())
+
+@app.route("/stock-api/admin/predictable-events/lockup-expirations", methods=["GET"])
+def _admin_lockup_expirations():
+    if request.headers.get("X-Admin-Token","") != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error":"unauthorized"}), 401
+    days_ahead = int(request.args.get("days_ahead", 14))
+    return jsonify(_get_upcoming_lockup_expirations(days_ahead))
+
+@app.route("/stock-api/admin/predictable-events/dividends/<ticker>", methods=["GET"])
+def _admin_dividends(ticker):
+    if request.headers.get("X-Admin-Token","") != os.environ.get("ADMIN_TOKEN",""):
+        return jsonify({"error":"unauthorized"}), 401
+    return jsonify(_refresh_dividend_calendar(ticker.upper()))
+
 
 @app.route("/stock-api/admin/grade-short-calls", methods=["POST"])
 def admin_grade_short_calls():

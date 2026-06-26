@@ -1,0 +1,231 @@
+"""
+AIEM SIGNAL-TO-MODEL BRIDGE — the missing connector. Without this, the
+pre-squeeze warning and accumulation/distribution detectors generate
+signals that nobody is actually learning from. New detector code sitting
+in the codebase does NOT automatically become a feature the real model
+trains on — that connection has to be built explicitly. This is that
+connection.
+
+WHAT THIS DOES:
+  1. Logs every time a detector fires (signal_fire_log) — a permanent
+     record of what fired, when, on what ticker.
+  2. Grades each logged fire against REAL forward returns once enough
+     time has passed — turning "the detector fired" into "and here's
+     what actually happened afterward."
+  3. Exposes those graded fires as FEATURES that get merged into the real
+     model's training data (aiem_real_model.py), so the next retraining
+     cycle can actually tell you — via the model's coefficients — whether
+     these new signals are adding real predictive value or not.
+
+WITHOUT THIS FILE: new detectors are permanently disconnected from the
+learning loop. You'd be looking at their output manually forever, and the
+model would never incorporate them no matter how many weeks pass.
+
+WIRING:
+  - Call log_signal_fired(...) every time detect_accumulation_breakout(),
+    mkt_tool_pre_squeeze_warning(), or detect_distribution_signature()
+    returns a positive hit — in the same daily job that runs them.
+  - Run grade_pending_signals() daily — it grades anything old enough to
+    have a forward outcome (default 5 trading days).
+  - Update aiem_real_model.py's FEATURE_COLUMNS and
+    extract_training_data() to pull in get_signal_features_for_training()
+    below — that's what actually lets the model see these signals.
+"""
+
+import os
+import psycopg2
+from datetime import datetime, timedelta
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 1. Log every detector fire
+# ════════════════════════════════════════════════════════════════════════
+
+def _ensure_signal_fire_log():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS signal_fire_log (
+                id              SERIAL PRIMARY KEY,
+                signal_name     VARCHAR(50) NOT NULL,
+                ticker          VARCHAR(10) NOT NULL,
+                fire_date       DATE NOT NULL,
+                fire_price      FLOAT,
+                metadata        JSONB,
+                graded          BOOLEAN DEFAULT FALSE,
+                fwd_ret_3d      FLOAT,
+                fwd_ret_5d      FLOAT,
+                fwd_ret_10d     FLOAT,
+                logged_at       TIMESTAMP DEFAULT NOW(),
+                UNIQUE (signal_name, ticker, fire_date)
+            )
+        """)
+
+
+def log_signal_fired(signal_name: str, ticker: str, fire_date: str,
+                       fire_price: float, metadata: dict = None):
+    """Call this every time one of the new detectors returns a positive
+    hit. signal_name should be one of: 'pre_squeeze_warning',
+    'accumulation_breakout', 'distribution_exit' (or any new detector you
+    add later — this table is generic, not hardcoded to specific signals)."""
+    _ensure_signal_fire_log()
+    import json as j
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO signal_fire_log (signal_name, ticker, fire_date, fire_price, metadata)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (signal_name, ticker, fire_date) DO NOTHING
+            """, (signal_name, ticker, fire_date, fire_price, j.dumps(metadata or {})))
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# Example wiring inside your daily job:
+#   result = mkt_tool_pre_squeeze_warning()
+#   for c in result.get("candidates", []):
+#       log_signal_fired("pre_squeeze_warning", c["ticker"], c["scan_date"],
+#                          c["close_price"], metadata=c)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 2. Grade fires against REAL forward returns
+# ════════════════════════════════════════════════════════════════════════
+
+def grade_pending_signals(min_days_elapsed: int = 12):
+    """Run daily. Finds logged fires old enough to have real forward
+    price data (default: at least 12 calendar days old, enough to cover
+    a 10-trading-day forward window) and computes their actual forward
+    returns at 3, 5, and 10 trading days. This is what turns 'the
+    detector fired' into real, gradable evidence."""
+    _ensure_signal_fire_log()
+    cutoff = (datetime.utcnow().date() - timedelta(days=min_days_elapsed)).isoformat()
+
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ticker, fire_date, fire_price FROM signal_fire_log
+                WHERE graded = FALSE AND fire_date <= %s
+            """, (cutoff,))
+            pending = cur.fetchall()
+
+        graded_count = 0
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for fire_id, ticker, fire_date, fire_price in pending:
+                cur.execute("""
+                    SELECT scan_date, close_price FROM polygon_market_daily
+                    WHERE ticker = %s AND scan_date > %s
+                    ORDER BY scan_date ASC
+                    LIMIT 10
+                """, (ticker, fire_date))
+                fwd_rows = cur.fetchall()
+                if len(fwd_rows) < 3:
+                    continue  # not enough forward data yet, try again later
+
+                def ret_at(n):
+                    if len(fwd_rows) >= n:
+                        return (fwd_rows[n - 1][1] / fire_price - 1) * 100 if fire_price else None
+                    return None
+
+                cur.execute("""
+                    UPDATE signal_fire_log
+                    SET graded = TRUE, fwd_ret_3d = %s, fwd_ret_5d = %s, fwd_ret_10d = %s
+                    WHERE id = %s
+                """, (ret_at(3), ret_at(5), ret_at(10), fire_id))
+                graded_count += 1
+
+        return {"status": "ok", "graded_this_run": graded_count, "still_pending": len(pending) - graded_count}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 3. Honest scoreboard per signal — does THIS specific detector work?
+# ════════════════════════════════════════════════════════════════════════
+
+def get_signal_performance(signal_name: str) -> dict:
+    """The direct answer to 'is this specific new detector actually any
+    good' — based on graded real outcomes, not on how the idea sounded
+    when we wrote it."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*),
+                       ROUND(AVG(fwd_ret_3d)::numeric, 3),
+                       ROUND(AVG(fwd_ret_5d)::numeric, 3),
+                       ROUND((COUNT(*) FILTER (WHERE fwd_ret_5d > 0))::numeric / NULLIF(COUNT(*),0) * 100, 2)
+                FROM signal_fire_log
+                WHERE signal_name = %s AND graded = TRUE
+            """, (signal_name,))
+            row = cur.fetchone()
+
+        if not row or not row[0]:
+            return {"status": "ok", "n_graded": 0, "message": "No graded fires yet for this signal."}
+
+        return {
+            "status": "ok",
+            "signal_name": signal_name,
+            "n_graded": row[0],
+            "avg_fwd_ret_3d_pct": float(row[1] or 0),
+            "avg_fwd_ret_5d_pct": float(row[2] or 0),
+            "win_rate_5d_pct": float(row[3] or 0),
+            "verdict": (
+                "Worth keeping as a model feature." if row[0] >= 30 and float(row[3] or 0) > 50
+                else "Not enough graded samples yet to judge." if row[0] < 30
+                else "Underperforming — consider this in the next signal redundancy review."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 4. The actual bridge into the real model — turns fires into features
+# ════════════════════════════════════════════════════════════════════════
+
+def get_signal_features_for_training() -> str:
+    """Returns a SQL fragment that you (or your Replit agent) should merge
+    into aiem_real_model.py's extract_training_data() query. This is what
+    actually lets the model SEE these new detectors as inputs, instead of
+    them being invisible to it forever.
+
+    Wire it as an additional LEFT JOIN against signal_fire_log, producing
+    a 1/0 column per signal_name for whether it fired on that ticker/date
+    (or in the N days prior, if you want a 'recently fired' window
+    instead of exact same-day)."""
+    return """
+        -- Add this LEFT JOIN to extract_training_data()'s query in
+        -- aiem_real_model.py, joining on p.ticker / p.prediction_date:
+        LEFT JOIN (
+            SELECT ticker, fire_date,
+                   1 AS pre_squeeze_warning_active
+            FROM signal_fire_log
+            WHERE signal_name = 'pre_squeeze_warning'
+        ) psw ON psw.ticker = p.ticker AND psw.fire_date = p.prediction_date
+        LEFT JOIN (
+            SELECT ticker, fire_date,
+                   1 AS accumulation_breakout_active
+            FROM signal_fire_log
+            WHERE signal_name = 'accumulation_breakout'
+        ) ab ON ab.ticker = p.ticker AND ab.fire_date = p.prediction_date
+
+        -- Then add COALESCE(psw.pre_squeeze_warning_active, 0) and
+        -- COALESCE(ab.accumulation_breakout_active, 0) to the SELECT
+        -- list and to FEATURE_COLUMNS in aiem_real_model.py. Once that's
+        -- done, the next retrain will produce a real coefficient for
+        -- each — positive means the model found it predictive, near-zero
+        -- means it isn't adding anything over what the model already had.
+    """
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Suggested daily job order:
+#   1. Run detectors (pre-squeeze warning, accumulation breakout)
+#   2. log_signal_fired() for each hit
+#   3. grade_pending_signals() — grades anything old enough
+#   4. Weekly: retrain the real model (aiem_real_model.py), now with
+#      these signals included as features via the JOIN above
+#   5. Check get_signal_performance() periodically per signal — if a
+#      detector consistently underperforms, that's your real-data signal
+#      to retire it, not a guess
+# ════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,526 @@
+"""
+AIEM ADDITIONAL PREDICTABLE EVENTS — mechanical/forced-behavior and
+statistically documented patterns, excluding options expiration dynamics
+(saved for once options OI data is hooked up).
+
+READY NOW with polygon_market_daily (no new data needed):
+  A. Extreme single-day move mean reversion
+  B. Gap fill probability by size
+  C. Volume climax reversal (capitulation bottom — inverse of the
+     distribution/exhaustion detector built earlier)
+  D. New 52-week-high momentum continuation
+
+READY WITH A QUICK CHECK (standard reference data, likely in your plan
+but verify before relying on it):
+  E. Ex-dividend mechanics
+  I. IPO lockup expiration (heuristic — see caveat in that section)
+
+NEEDS A DATA FEED YOU DON'T HAVE YET (skeleton only — table + ingestion
+stub so it's ready to wire in once you pick a source, not pretending it
+works today):
+  F. Insider transaction clusters (Form 4) — SEC EDGAR is free but the
+     parsing is genuinely more involved than the others; lower priority
+  G. Buyback authorization announcements — needs a news/filing feed
+  H. Index inclusion/exclusion — needs an index membership data feed
+
+HONEST CALLBACK: D (52-week high) depends on having a full year of clean
+history per ticker. Given the backfill bug fixed earlier, double check
+how deep your actual data goes before trusting this one — it'll quietly
+under-detect if most tickers only have a few months of history.
+"""
+
+import os
+import psycopg2
+import numpy as np
+from datetime import datetime, timedelta
+
+
+# ════════════════════════════════════════════════════════════════════════
+# A. Extreme single-day move mean reversion
+# ════════════════════════════════════════════════════════════════════════
+
+def mkt_tool_extreme_move_reversion(move_threshold_pct=15.0, horizon_days=3):
+    """Tests whether stocks that moved more than `move_threshold_pct` in
+    a single day tend to partially revert over the next `horizon_days`.
+    Reports up-moves and down-moves SEPARATELY — reversion is rarely
+    symmetric (sharp drops often revert harder/faster than sharp rallies)."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH daily_ret AS (
+                    SELECT ticker, scan_date, close_price,
+                           ((close_price / NULLIF(prev_close, 0)) - 1) * 100 AS day_ret
+                    FROM polygon_market_daily
+                    WHERE close_price > 1 AND prev_close IS NOT NULL
+                ),
+                extremes AS (
+                    SELECT ticker, scan_date, close_price, day_ret,
+                           CASE WHEN day_ret >= %s THEN 'up' WHEN day_ret <= -%s THEN 'down' END AS direction
+                    FROM daily_ret
+                    WHERE ABS(day_ret) >= %s
+                )
+                SELECT e.direction, e.ticker, e.scan_date,
+                       ((fwd.close_price / NULLIF(e.close_price, 0)) - 1) * 100 AS fwd_ret
+                FROM extremes e
+                JOIN polygon_market_daily fwd
+                  ON fwd.ticker = e.ticker
+                 AND fwd.scan_date = (
+                       SELECT scan_date FROM polygon_market_daily x
+                       WHERE x.ticker = e.ticker AND x.scan_date > e.scan_date
+                       ORDER BY x.scan_date ASC
+                       OFFSET {horizon_days - 1} LIMIT 1
+                     )
+                WHERE e.direction IS NOT NULL
+                LIMIT 50000
+            """, (move_threshold_pct, move_threshold_pct, move_threshold_pct))
+            rows = cur.fetchall()
+
+        if not rows:
+            return {"status": "error", "error": "No extreme-move events found at this threshold."}
+
+        results = {}
+        for direction in ("up", "down"):
+            fwd_rets = np.array([r[3] for r in rows if r[0] == direction and r[3] is not None])
+            if len(fwd_rets) == 0:
+                continue
+            results[direction] = {
+                "n": len(fwd_rets),
+                "avg_fwd_ret_pct": round(float(np.mean(fwd_rets)), 3),
+                "median_fwd_ret_pct": round(float(np.median(fwd_rets)), 3),
+                "reverts_pct": round(float(np.mean((fwd_rets < 0) if direction == "up" else (fwd_rets > 0))) * 100, 2),
+            }
+
+        return {
+            "status": "ok",
+            "move_threshold_pct": move_threshold_pct,
+            "horizon_days": horizon_days,
+            "by_direction": results,
+            "interpretation": ("'reverts_pct' = how often the move partially gave back "
+                                "ground within the horizon. Compare up vs down — reversion "
+                                "is rarely symmetric."),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# B. Gap fill probability by size
+# ════════════════════════════════════════════════════════════════════════
+
+def mkt_tool_gap_fill_probability():
+    """For gap-up days, did the stock trade back down to touch the prior
+    close intraday (a 'fill')? For gap-down days, did it trade back up to
+    the prior close? Bucketed by gap size — small gaps fill far more
+    often than large ones on heavy volume."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    CASE
+                        WHEN ABS(gap_pct) < 2 THEN '0-2%'
+                        WHEN ABS(gap_pct) < 4 THEN '2-4%'
+                        WHEN ABS(gap_pct) < 8 THEN '4-8%'
+                        ELSE '8%+'
+                    END AS gap_bucket,
+                    SIGN(gap_pct) AS gap_direction,
+                    COUNT(*) AS n,
+                    COUNT(*) FILTER (
+                        WHERE (gap_pct > 0 AND low_price <= prev_close)
+                           OR (gap_pct < 0 AND high_price >= prev_close)
+                    ) AS n_filled
+                FROM polygon_market_daily
+                WHERE prev_close IS NOT NULL AND gap_pct IS NOT NULL
+                  AND ABS(gap_pct) >= 0.5 AND close_price > 1
+                GROUP BY gap_bucket, gap_direction
+                ORDER BY gap_direction, gap_bucket
+            """)
+            rows = cur.fetchall()
+
+        results = []
+        for bucket, direction, n, n_filled in rows:
+            results.append({
+                "gap_bucket": bucket,
+                "direction": "up" if direction > 0 else "down",
+                "n": n,
+                "fill_rate_pct": round(n_filled / n * 100, 1) if n else None,
+            })
+
+        return {"status": "ok", "results": results,
+                 "note": "'Fill' here means intraday touch of prior close — not necessarily close-of-day."}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# C. Volume climax reversal — capitulation bottom (inverse of distribution)
+# ════════════════════════════════════════════════════════════════════════
+
+def detect_capitulation_signature(ticker: str = None, lookback_days: int = 5):
+    """Find stocks with a big down day, extreme volume, but a close well
+    off the day's low (buyers stepping in at the bottom) — the classic
+    capitulation/exhaustion-bottom signature. If ticker is None, scans
+    the most recent trading day across the universe."""
+    try:
+        ticker_filter = "AND ticker = %s" if ticker else ""
+        params = [ticker] if ticker else []
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH recent AS (
+                    SELECT ticker, scan_date, close_price, volume, close_strength,
+                           ((close_price / NULLIF(prev_close, 0)) - 1) * 100 AS day_ret,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
+                           ) AS avg_vol_20
+                    FROM polygon_market_daily
+                    WHERE close_price > 1 {ticker_filter}
+                )
+                SELECT ticker, scan_date, close_price, day_ret,
+                       (volume::float / NULLIF(avg_vol_20, 0)) AS vol_ratio, close_strength
+                FROM recent
+                WHERE scan_date >= (SELECT MAX(scan_date) FROM polygon_market_daily) - %s
+                  AND day_ret <= -8
+                  AND (volume::float / NULLIF(avg_vol_20, 0)) >= 2.5
+                  AND close_strength >= 0.55
+                ORDER BY vol_ratio DESC
+                LIMIT 50
+            """, params + [lookback_days])
+            rows = cur.fetchall()
+
+        candidates = [
+            {"ticker": r[0], "scan_date": str(r[1]), "close_price": r[2],
+             "day_ret_pct": round(r[3], 2), "vol_ratio": round(r[4], 2), "close_strength": round(r[5], 2)}
+            for r in rows
+        ]
+        return {
+            "status": "ok",
+            "n_candidates": len(candidates),
+            "candidates": candidates,
+            "interpretation": ("Big down day + climax volume + strong close (off the lows) = "
+                                "buyers absorbing the panic selling. This is a SHORT-TERM bounce "
+                                "signature, not necessarily a trend reversal — validate the "
+                                "forward-return distribution before trusting it as a strategy."),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def validate_capitulation_signature(forward_days=3):
+    """Backtest the capitulation signature against real forward returns —
+    same honesty principle as the pre-squeeze validation function."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH recent AS (
+                    SELECT ticker, scan_date, close_price,
+                           ((close_price / NULLIF(prev_close, 0)) - 1) * 100 AS day_ret,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
+                           ) AS avg_vol_20,
+                           volume, close_strength
+                    FROM polygon_market_daily WHERE close_price > 1
+                ),
+                flagged AS (
+                    SELECT ticker, scan_date, close_price
+                    FROM recent
+                    WHERE day_ret <= -8 AND (volume::float / NULLIF(avg_vol_20,0)) >= 2.5
+                      AND close_strength >= 0.55
+                )
+                SELECT f.ticker, f.scan_date,
+                       ((fwd.close_price / NULLIF(f.close_price, 0)) - 1) * 100 AS fwd_ret
+                FROM flagged f
+                JOIN polygon_market_daily fwd
+                  ON fwd.ticker = f.ticker
+                 AND fwd.scan_date = (
+                       SELECT scan_date FROM polygon_market_daily x
+                       WHERE x.ticker = f.ticker AND x.scan_date > f.scan_date
+                       ORDER BY x.scan_date ASC OFFSET {forward_days - 1} LIMIT 1
+                     )
+                LIMIT 20000
+            """)
+            rows = cur.fetchall()
+
+        if not rows:
+            return {"status": "error", "error": "No capitulation events found in history."}
+
+        fwd_rets = np.array([r[2] for r in rows if r[2] is not None])
+        return {
+            "status": "ok",
+            "n": len(fwd_rets),
+            "win_rate_pct": round(float(np.mean(fwd_rets > 0)) * 100, 2),
+            "avg_fwd_ret_pct": round(float(np.mean(fwd_rets)), 3),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# D. New 52-week-high momentum continuation
+# ════════════════════════════════════════════════════════════════════════
+
+def mkt_tool_52week_high_momentum(lookback_trading_days=252):
+    """Stocks making a fresh N-trading-day high. Tests whether they tend
+    to keep going (momentum) rather than reverse — a well-documented
+    factor finding, contrary to the 'it's too high now' intuition.
+    NOTE: needs real history depth — see the file-level caveat at top."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH rolling_high AS (
+                    SELECT ticker, scan_date, close_price,
+                           MAX(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_trading_days - 1} PRECEDING AND 1 PRECEDING
+                           ) AS prior_high,
+                           COUNT(*) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_trading_days - 1} PRECEDING AND 1 PRECEDING
+                           ) AS days_of_history
+                    FROM polygon_market_daily WHERE close_price > 1
+                ),
+                new_highs AS (
+                    SELECT ticker, scan_date, close_price
+                    FROM rolling_high
+                    WHERE close_price > prior_high AND days_of_history >= {lookback_trading_days // 2}
+                )
+                SELECT nh.ticker, nh.scan_date,
+                       ((fwd.close_price / NULLIF(nh.close_price, 0)) - 1) * 100 AS fwd_ret
+                FROM new_highs nh
+                JOIN polygon_market_daily fwd
+                  ON fwd.ticker = nh.ticker
+                 AND fwd.scan_date = (
+                       SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                       WHERE x.ticker = nh.ticker AND x.scan_date > nh.scan_date
+                     )
+                LIMIT 50000
+            """)
+            rows = cur.fetchall()
+
+        if not rows:
+            return {"status": "error",
+                     "error": "No qualifying new-high events with enough history. "
+                              "Check actual data depth per ticker before assuming this is broken — "
+                              "it may just mean you don't have enough history yet."}
+
+        fwd_rets = np.array([r[2] for r in rows if r[2] is not None])
+        return {
+            "status": "ok",
+            "n": len(fwd_rets),
+            "win_rate_pct": round(float(np.mean(fwd_rets > 0)) * 100, 2),
+            "avg_fwd_ret_pct": round(float(np.mean(fwd_rets)), 4),
+            "lookback_trading_days": lookback_trading_days,
+            "data_depth_warning": ("This result is only as trustworthy as your actual history "
+                                    "depth per ticker — verify with mkt_explore_dimensions first."),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# E. Ex-dividend mechanics — verify Polygon dividends endpoint is in your plan
+# ════════════════════════════════════════════════════════════════════════
+
+def _ensure_dividends_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS dividend_calendar (
+                ticker      VARCHAR(10),
+                ex_date     DATE,
+                cash_amount FLOAT,
+                PRIMARY KEY (ticker, ex_date)
+            )
+        """)
+
+
+def refresh_dividend_calendar(ticker: str):
+    """Pull dividend history for a ticker from Polygon's reference API.
+    This is standard reference data, commonly included, but confirm it's
+    in your plan tier before relying on it."""
+    import urllib.request as ur
+    import json as j
+
+    _ensure_dividends_table()
+    key = os.environ.get("POLYGON_API_KEY", "")
+    if not key:
+        return {"status": "error", "error": "no POLYGON_API_KEY"}
+    try:
+        url = f"https://api.polygon.io/v3/reference/dividends?ticker={ticker}&apiKey={key}"
+        with ur.urlopen(url, timeout=10) as r:
+            data = j.load(r)
+        results = data.get("results", [])
+        rows = [(ticker, res.get("ex_dividend_date"), res.get("cash_amount")) for res in results]
+        if rows:
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.executemany("""
+                    INSERT INTO dividend_calendar (ticker, ex_date, cash_amount)
+                    VALUES (%s,%s,%s) ON CONFLICT (ticker, ex_date) DO NOTHING
+                """, rows)
+        return {"status": "ok", "rows_stored": len(rows)}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def is_ex_dividend_today(ticker: str, check_date: str) -> dict:
+    """Simple context flag — useful mainly so other detectors can exclude
+    or annotate ex-div days (the mechanical price drop isn't a real
+    signal, it's bookkeeping, and could otherwise look like a fake gap-down)."""
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT cash_amount FROM dividend_calendar WHERE ticker=%s AND ex_date=%s",
+                     (ticker, check_date))
+        row = cur.fetchone()
+    return {"is_ex_dividend": row is not None, "cash_amount": row[0] if row else None}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# F. Insider transaction clusters — MORE INVOLVED, LOWER PRIORITY
+# ════════════════════════════════════════════════════════════════════════
+# SEC EDGAR's full-text search is free but Form 4 data comes as individual
+# filings you'd need to fetch and parse (XML), not a clean bulk table.
+# This is a real signal but meaningfully more engineering effort than
+# anything else in this file. Treat as a "later" item, not "now."
+
+def _ensure_insider_buys_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS insider_transactions (
+                ticker          VARCHAR(10),
+                filer_name      TEXT,
+                transaction_date DATE,
+                transaction_type VARCHAR(10),
+                shares          BIGINT,
+                price           FLOAT,
+                filed_at        TIMESTAMP,
+                PRIMARY KEY (ticker, filer_name, transaction_date, shares)
+            )
+        """)
+
+# NOTE: no ingestion function provided here deliberately — fetching and
+# parsing SEC EDGAR Form 4 XML filings is a real project on its own.
+# Revisit this once the higher-value, lower-effort items above are wired
+# in and validated.
+
+
+def get_insider_cluster_signal(ticker: str, days_window: int = 14, min_distinct_buyers: int = 3):
+    """Once insider_transactions has real data: flags clustering — multiple
+    DIFFERENT insiders buying the same ticker within a short window is a
+    stronger signal than one large purchase from a single insider."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(DISTINCT filer_name), SUM(shares * price)
+                FROM insider_transactions
+                WHERE ticker = %s AND transaction_type = 'buy'
+                  AND transaction_date >= CURRENT_DATE - %s
+            """, (ticker, days_window))
+            distinct_buyers, total_value = cur.fetchone()
+        return {
+            "status": "ok",
+            "ticker": ticker,
+            "distinct_buyers": distinct_buyers or 0,
+            "total_buy_value": total_value or 0,
+            "cluster_signal": (distinct_buyers or 0) >= min_distinct_buyers,
+        }
+    except psycopg2.errors.UndefinedTable:
+        return {"status": "error", "error": "insider_transactions table has no data yet — needs ingestion built."}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# G. Buyback authorization announcements — NEEDS A NEWS/FILING FEED
+# ════════════════════════════════════════════════════════════════════════
+# Not something Polygon's standard market data plans provide directly.
+# Would need an 8-K filing feed or a news API. Skeleton only.
+
+def _ensure_buyback_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS buyback_announcements (
+                ticker          VARCHAR(10),
+                announced_date  DATE,
+                authorized_amount BIGINT,
+                source_url      TEXT,
+                PRIMARY KEY (ticker, announced_date)
+            )
+        """)
+
+# Ingestion deliberately not provided — needs a real filing/news feed
+# decision first. Once you have one, the pattern matches dividend_calendar
+# above: pull, store, then write a detector that checks announced_date
+# proximity to scan_date.
+
+
+# ════════════════════════════════════════════════════════════════════════
+# H. Index inclusion/exclusion — NEEDS AN INDEX MEMBERSHIP FEED
+# ════════════════════════════════════════════════════════════════════════
+# This is the STRONGEST edge in the whole list (index funds are
+# mechanically forced to buy/sell regardless of opinion) but needs a real
+# index membership change feed — not derivable from price/volume data.
+
+def _ensure_index_changes_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS index_membership_changes (
+                ticker          VARCHAR(10),
+                index_name      VARCHAR(20),
+                change_type     VARCHAR(10),
+                announced_date  DATE,
+                effective_date  DATE,
+                PRIMARY KEY (ticker, index_name, announced_date)
+            )
+        """)
+
+# Ingestion deliberately not provided — needs a real data source decision
+# (S&P Dow Jones Indices publishes changes directly; some data vendors
+# bundle this). Worth prioritizing if you ever revisit this list, since
+# it's the most mechanically reliable edge here — just not free/easy data.
+
+
+# ════════════════════════════════════════════════════════════════════════
+# I. IPO lockup expiration — heuristic, verify against real prospectus
+# ════════════════════════════════════════════════════════════════════════
+# CAVEAT: standard lockup periods are commonly 90, 180, or 365 days from
+# IPO date depending on the underwriting agreement — there is NO universal
+# rule. This heuristic assumes 180 days as a default and will be WRONG for
+# any IPO with a different term. Treat this as a rough screen to flag
+# candidates for manual verification against the actual S-1/424B
+# prospectus, not as a precise calendar.
+
+def _ensure_ipo_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ipo_calendar (
+                ticker      VARCHAR(10) PRIMARY KEY,
+                ipo_date    DATE,
+                assumed_lockup_days INTEGER DEFAULT 180
+            )
+        """)
+
+
+def get_upcoming_lockup_expirations(days_ahead: int = 14):
+    """Flags tickers whose ASSUMED (not confirmed) lockup window is
+    expiring soon. Verify each one against its actual prospectus before
+    treating this as a real signal — the 180-day default is a guess, not
+    a fact, for any specific company."""
+    try:
+        _ensure_ipo_table()
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, ipo_date, assumed_lockup_days,
+                       (ipo_date + (assumed_lockup_days || ' days')::interval)::date AS assumed_expiry
+                FROM ipo_calendar
+                WHERE (ipo_date + (assumed_lockup_days || ' days')::interval)::date
+                      BETWEEN CURRENT_DATE AND CURRENT_DATE + %s
+            """, (days_ahead,))
+            rows = cur.fetchall()
+        return {
+            "status": "ok",
+            "candidates": [{"ticker": r[0], "ipo_date": str(r[1]), "assumed_expiry": str(r[3])} for r in rows],
+            "warning": "These are ASSUMED 180-day estimates — verify each against the actual prospectus.",
+        }
+    except psycopg2.errors.UndefinedTable:
+        return {"status": "error", "error": "ipo_calendar has no data yet — needs IPO date ingestion."}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
