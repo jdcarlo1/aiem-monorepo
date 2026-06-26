@@ -9405,11 +9405,16 @@ def _poll_ask_sms() -> None:
     if not hasattr(app, "_aiem_qa_lock"):
         app._aiem_qa_lock = _thr_ask.Semaphore(1)
 
-    # In-memory dedup (backup guard within a session)
+    # Persist processed UIDs to disk so restarts don't reprocess old emails
+    _uid_file = "/tmp/ask_processed_uids.txt"
     if not hasattr(app, "_processed_ask_uids"):
-        app._processed_ask_uids = set()
+        try:
+            with open(_uid_file) as _f:
+                app._processed_ask_uids = set(_f.read().split())
+        except Exception:
+            app._processed_ask_uids = set()
 
-    # Search window: yesterday + today (covers overnight emails without going too far back)
+    # Search window: yesterday + today
     _since = (_dt_poll.now() - _td_poll(days=1)).strftime("%d-%b-%Y")
 
     try:
@@ -9417,14 +9422,16 @@ def _poll_ask_sms() -> None:
         mail.login(user, pwd)
         mail.select("INBOX")
 
-        # UNSEEN + SINCE: skips emails already marked Seen (processed in prior sessions)
+        # Use ALL (not UNSEEN) — Gmail marks self-sent emails as "read" internally
+        # but doesn't set the IMAP \Seen flag, so UNSEEN search misses them.
+        # We use our own processed-UID file to avoid reprocessing.
         gateway_domain = "tmomail.net"
-        _, data1 = mail.search(None, f'UNSEEN FROM "{gateway_domain}" SINCE {_since}')
-        _, data2 = mail.search(None, f'UNSEEN SUBJECT "ASK" SINCE {_since}')
+        _, data1 = mail.search(None, f'FROM "{gateway_domain}" SINCE {_since}')
+        _, data2 = mail.search(None, f'SUBJECT "ASK" SINCE {_since}')
         all_uids = list(set(data1[0].split() + data2[0].split()))
 
-        # Secondary guard: skip UIDs processed this session
-        uids = [u for u in all_uids if u not in app._processed_ask_uids]
+        # Skip UIDs already processed (persisted across restarts)
+        uids = [u for u in all_uids if u.decode() not in app._processed_ask_uids]
         print(f"[poll_ask_sms] checked inbox — {len(uids)} new ASK email(s)")
 
         if not uids:
@@ -9432,9 +9439,13 @@ def _poll_ask_sms() -> None:
             return
 
         for uid in uids:
-            # Mark Seen in IMAP immediately so restarts never reprocess this email
-            mail.store(uid, "+FLAGS", "\\Seen")
-            app._processed_ask_uids.add(uid)
+            uid_str = uid.decode()
+            # Persist to disk immediately — survives restarts
+            app._processed_ask_uids.add(uid_str)
+            try:
+                with open(_uid_file, "a") as _f:
+                    _f.write(uid_str + "\n")
+            except Exception: pass
 
             try:
                 _, msg_data = mail.fetch(uid, "(RFC822)")
@@ -9527,14 +9538,11 @@ def _poll_ask_sms() -> None:
                     # Only 1 AIEM Q&A session at a time
                     if not app._aiem_qa_lock.acquire(blocking=False):
                         print(f"[poll_ask_sms] AIEM busy — queued question will retry next poll")
-                        # Un-mark Seen so it gets picked up next poll
+                        # Remove from processed set so it retries next poll
+                        app._processed_ask_uids.discard(uid_str)
                         try:
-                            _m2 = imaplib.IMAP4_SSL("imap.gmail.com", 993)
-                            _m2.login(user, pwd)
-                            _m2.select("INBOX")
-                            _m2.store(uid, "-FLAGS", "\\Seen")
-                            _m2.logout()
-                            app._processed_ask_uids.discard(uid)
+                            with open(_uid_file, "w") as _f:
+                                _f.write("\n".join(app._processed_ask_uids))
                         except Exception: pass
                         return
                     try:
