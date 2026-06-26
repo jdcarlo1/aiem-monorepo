@@ -652,15 +652,19 @@ def print_report(stored: dict):
     qt_set   = {t["ticker"] for t in tot_c}
     rejected = [t for t in tot_v if t["ticker"] not in qt_set]
     rs = stats(rejected)
-    print(f"""
-  QUANT AS FILTER ON V2 SIGNALS
-  V2 signals Quant REJECTED : {rs['n']:>3}  {rs['wr']:>4.0f}% WR  ${rs['pl']:>+7.0f}  "
-              f"{rs['ret']:>+5.1f}% return/capital
-  V2 signals Quant CONFIRMED: {cs['n']:>3}  {cs['wr']:>4.0f}% WR  ${cs['pl']:>+7.0f}  "
-              f"{cs['ret']:>+5.1f}% return/capital
-  Win-rate lift: {vs['wr']:.0f}% → {cs['wr']:.0f}% ({cs['wr']-vs['wr']:>+.0f} pp)
-  Return lift  : {vs['ret']:.1f}% → {cs['ret']:.1f}% ({cs['ret']-vs['ret']:>+.1f} pp)
-  Trade filter : {vs['n']} → {cs['n']} ({(vs['n']-cs['n'])/vs['n']*100:.0f}% of V2 signals filtered out)""")
+    print(
+        f"\n  QUANT AS FILTER ON V2 SIGNALS\n"
+        f"  V2 signals Quant REJECTED : {rs['n']:>3}  {rs['wr']:>4.0f}% WR"
+        f"  ${rs['pl']:>+7.0f}  {rs['ret']:>+5.1f}% return/capital\n"
+        f"  V2 signals Quant CONFIRMED: {cs['n']:>3}  {cs['wr']:>4.0f}% WR"
+        f"  ${cs['pl']:>+7.0f}  {cs['ret']:>+5.1f}% return/capital\n"
+        f"  Win-rate lift: {vs['wr']:.0f}% → {cs['wr']:.0f}%"
+        f" ({cs['wr']-vs['wr']:>+.0f} pp)\n"
+        f"  Return lift  : {vs['ret']:.1f}% → {cs['ret']:.1f}%"
+        f" ({cs['ret']-vs['ret']:>+.1f} pp)\n"
+        f"  Trade filter : {vs['n']} → {cs['n']}"
+        f" ({(vs['n']-cs['n'])/max(vs['n'],1)*100:.0f}% of V2 signals filtered out)"
+    )
 
     # Quant-only per-trade breakdown (all quant STRONG trades, independent of V2)
     print(f"\n  QUANT ALONE — all {qs['n']} STRONG trades")
@@ -668,7 +672,8 @@ def print_report(stored: dict):
     for lbl in WEEK_LABELS:
         if lbl not in stored:
             continue
-        _, qtt = stored[lbl]
+        entry = stored[lbl]
+        qtt = entry[1]
         for t in sorted(qtt, key=lambda x: x.get("composite_z", 0), reverse=True):
             nr  = t["next_ret"]
             fla = "✓" if nr > 0 else "✗"
@@ -684,7 +689,8 @@ def print_report(stored: dict):
     for lbl in WEEK_LABELS:
         if lbl not in stored:
             continue
-        v2t, qtt = stored[lbl]
+        entry = stored[lbl]
+        v2t, qtt = entry[0], entry[1]
         qt_map = {t["ticker"]: t for t in qtt}
         for t in sorted(v2t, key=lambda x: x.get("score", 0), reverse=True):
             if t["ticker"] not in qt_map:
