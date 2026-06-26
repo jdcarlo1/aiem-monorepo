@@ -2708,7 +2708,7 @@ try:
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
 
-    for _mi_h, _mi_m in [(9, 35), (10, 15), (13, 0)]:
+    for _mi_h, _mi_m in [(9, 53), (10, 15), (13, 0)]:  # was 9:35; moved to 9:53 to clear 9:36/9:45 burst
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -19341,83 +19341,6 @@ def ai_short_calls():
             if not hits:
                 print("[ai_short_calls] all hits filtered by momentum — skipping", file=_sys.stderr)
                 return
-
-            # Fetch Polygon grouped daily for the last N complete trading days
-            def _prev_tdays_aisc(n):
-                import datetime as _pdt2
-                _days2 = []
-                _now2 = _pdt2.datetime.now(_tzc.utc).astimezone(_et)
-                _d2 = _now2.date()
-                if _now2.hour < 17:
-                    _d2 -= _pdt2.timedelta(days=1)
-                while len(_days2) < n:
-                    if _d2.weekday() < 5:
-                        _days2.append(_d2.isoformat())
-                    _d2 -= _pdt2.timedelta(days=1)
-                return _days2
-
-            def _fetch_pg_grouped(date_str):
-                if not _pg_key_aisc:
-                    return {}
-                _url2 = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/"
-                         f"{date_str}?adjusted=true&include_otc=false&apiKey={_pg_key_aisc}")
-                try:
-                    with _ur_aisc.urlopen(_url2, timeout=18) as _resp2:
-                        _data2 = _json.loads(_resp2.read())
-                    return {r["T"]: r for r in (_data2.get("results") or [])
-                            if r.get("T") and r.get("c") and r.get("v") and r.get("o")}
-                except Exception as _pge2:
-                    print(f"[ai_short_calls] polygon {date_str}: {_pge2}", file=_sys.stderr)
-                    return {}
-
-            _movers = []
-            if _pg_key_aisc:
-                _tdays2 = _prev_tdays_aisc(3)
-                _pg_d0 = _fetch_pg_grouped(_tdays2[0])
-                _pg_d1 = _fetch_pg_grouped(_tdays2[1])
-                print(f"[ai_short_calls] Polygon d0={_tdays2[0]}({len(_pg_d0)}) d1={_tdays2[1]}({len(_pg_d1)})", file=_sys.stderr)
-
-                for _tk2, _bar2 in _pg_d0.items():
-                    try:
-                        _close2 = float(_bar2.get("c", 0))
-                        _open2  = float(_bar2.get("o", 0))
-                        _vol2   = float(_bar2.get("v", 0))
-                        if _close2 < 3 or _close2 > 600: continue
-                        if _vol2 < 80_000: continue
-                        if _open2 <= 0: continue
-                        _day_ret2 = (_close2 - _open2) / _open2 * 100
-                        if _day_ret2 < 2.5: continue
-                        _d1b = _pg_d1.get(_tk2, {})
-                        _d1c2 = float(_d1b.get("c", 0))
-                        _d1o2 = float(_d1b.get("o", 0))
-                        _conf2d = _d1o2 > 0 and _d1c2 > _d1o2 and (_d1c2 - _d1o2) / _d1o2 * 100 >= 1.0
-                        _movers.append({
-                            "ticker": _tk2,
-                            "price": round(_close2, 2),
-                            "day_ret": round(_day_ret2, 2),
-                            "volume": int(_vol2),
-                            "confirmed_2d": _conf2d,
-                        })
-                    except Exception:
-                        continue
-
-                _movers.sort(key=lambda x: (not x["confirmed_2d"], -x["day_ret"]))
-                _movers = _movers[:80]
-                print(f"[ai_short_calls] {len(_movers)} movers ({sum(1 for m in _movers if m['confirmed_2d'])} 2d-confirmed)", file=_sys.stderr)
-
-            # Fallback: if Polygon unavailable, use unusual-call tickers
-            if not _movers and _uc_by_ticker:
-                _movers = [
-                    {"ticker": t, "price": float(u.get("price") or 0), "day_ret": 0.0,
-                     "volume": 0, "confirmed_2d": False}
-                    for t, u in list(_uc_by_ticker.items())[:30]
-                ]
-
-            if not _movers:
-                print("[ai_short_calls] no movers found — skipping", file=_sys.stderr)
-                return
-
-            # ─────────────────────────────────────────────────────────────
 
             # ── Enrich hits with conviction stack + OI buildup ───────────
             _unique_tickers = list(dict.fromkeys(h["ticker"] for h in hits))
