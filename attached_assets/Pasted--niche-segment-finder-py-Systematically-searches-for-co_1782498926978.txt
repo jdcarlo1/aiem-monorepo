@@ -1,0 +1,294 @@
+"""
+niche_segment_finder.py
+
+Systematically searches for context-specific edges that a single aggregate
+model would miss — e.g. "rvol>=3 + gap>=2% works much better specifically
+on semiconductor names in the week before earnings" even if the generic
+version of that signal is unremarkable.
+
+CRITICAL SAFEGUARD: if you test enough subgroups, some will look
+"significant" by pure chance. This module corrects for that with:
+  1. Benjamini-Hochberg false discovery rate correction across all
+     segments tested in one run
+  2. A minimum sample size per segment (no exceptions)
+  3. A mandatory out-of-sample validation step before any segment is
+     reported as a real finding
+
+Do not skip steps 1-3 to "find more" — that's exactly how people convince
+themselves a coincidence is an edge.
+"""
+
+import itertools
+from dataclasses import dataclass
+from typing import List, Optional
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+
+# Hard floor for any segment to even be considered. Lower than this and a
+# win-rate estimate is mostly noise.
+MIN_SEGMENT_SAMPLES = 40
+
+# False discovery rate threshold for the multiple-testing correction.
+FDR_ALPHA = 0.10
+
+
+@dataclass
+class SegmentResult:
+    segment_description: str
+    n_samples: int
+    win_rate: float
+    baseline_win_rate: float
+    lift: float                  # win_rate - baseline_win_rate
+    p_value: float
+    p_value_adjusted: float
+    significant_after_correction: bool
+    validated_out_of_sample: Optional[bool] = None
+    oos_win_rate: Optional[float] = None
+
+
+def _segment_stats(segment_df: pd.DataFrame, baseline_win_rate: float) -> dict:
+    n = len(segment_df)
+    wins = segment_df["outcome"].sum()
+    win_rate = wins / n if n > 0 else np.nan
+
+    # One-proportion z-test against the baseline rate — is this segment's
+    # win rate meaningfully different from the overall population's?
+    if n > 0 and 0 < baseline_win_rate < 1:
+        se = np.sqrt(baseline_win_rate * (1 - baseline_win_rate) / n)
+        z = (win_rate - baseline_win_rate) / se if se > 0 else 0
+        p_value = 2 * (1 - stats.norm.cdf(abs(z)))
+    else:
+        p_value = 1.0
+
+    return {"n": n, "win_rate": win_rate, "p_value": p_value}
+
+
+def search_single_context_columns(
+    df: pd.DataFrame,
+    context_columns: List[str],
+    outcome_col: str = "outcome",
+) -> List[SegmentResult]:
+    """
+    Tests each individual value of each context column as its own segment.
+    E.g. context_columns=["sector", "earnings_window"] tests "sector=Semis",
+    "sector=Biotech", "earnings_window=pre_earnings", etc. one at a time.
+
+    Use search_two_way_interactions() for combinations like
+    "sector=Semis AND earnings_window=pre_earnings".
+    """
+    baseline_win_rate = df[outcome_col].mean()
+    results = []
+
+    for col in context_columns:
+        for value in df[col].dropna().unique():
+            segment_df = df[df[col] == value]
+            if len(segment_df) < MIN_SEGMENT_SAMPLES:
+                continue
+
+            stats_dict = _segment_stats(segment_df, baseline_win_rate)
+            results.append(SegmentResult(
+                segment_description=f"{col} = {value}",
+                n_samples=stats_dict["n"],
+                win_rate=stats_dict["win_rate"],
+                baseline_win_rate=baseline_win_rate,
+                lift=stats_dict["win_rate"] - baseline_win_rate,
+                p_value=stats_dict["p_value"],
+                p_value_adjusted=np.nan,  # filled in after correction
+                significant_after_correction=False,
+            ))
+
+    return results
+
+
+def search_two_way_interactions(
+    df: pd.DataFrame,
+    context_columns: List[str],
+    outcome_col: str = "outcome",
+) -> List[SegmentResult]:
+    """
+    Tests pairs of context columns together — this is where the genuinely
+    interesting niche findings tend to live (e.g. sector AND timing,
+    rather than either alone).
+
+    Limited to 2-way interactions on purpose: 3-way+ combinations explode
+    the number of tests and your sample sizes will collapse below
+    MIN_SEGMENT_SAMPLES almost everywhere, which just wastes a multiple-
+    testing penalty for nothing.
+    """
+    baseline_win_rate = df[outcome_col].mean()
+    results = []
+
+    for col_a, col_b in itertools.combinations(context_columns, 2):
+        values_a = df[col_a].dropna().unique()
+        values_b = df[col_b].dropna().unique()
+
+        for val_a in values_a:
+            for val_b in values_b:
+                segment_df = df[(df[col_a] == val_a) & (df[col_b] == val_b)]
+                if len(segment_df) < MIN_SEGMENT_SAMPLES:
+                    continue
+
+                stats_dict = _segment_stats(segment_df, baseline_win_rate)
+                results.append(SegmentResult(
+                    segment_description=f"{col_a}={val_a} AND {col_b}={val_b}",
+                    n_samples=stats_dict["n"],
+                    win_rate=stats_dict["win_rate"],
+                    baseline_win_rate=baseline_win_rate,
+                    lift=stats_dict["win_rate"] - baseline_win_rate,
+                    p_value=stats_dict["p_value"],
+                    p_value_adjusted=np.nan,
+                    significant_after_correction=False,
+                ))
+
+    return results
+
+
+def _benjamini_hochberg(p_values: List[float], alpha: float) -> tuple:
+    """
+    Manual Benjamini-Hochberg FDR correction (no statsmodels dependency).
+    Returns (rejected: List[bool], p_adjusted: List[float]) in original order.
+    """
+    n = len(p_values)
+    if n == 0:
+        return [], []
+
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
+    sorted_p = [p for _, p in indexed]
+
+    # Step-up adjusted p-values
+    p_adjusted_sorted = [0.0] * n
+    prev = 1.0
+    for i in range(n - 1, -1, -1):
+        rank = i + 1
+        val = sorted_p[i] * n / rank
+        prev = min(prev, val)
+        p_adjusted_sorted[i] = prev
+
+    rejected_sorted = [p <= alpha for p in p_adjusted_sorted]
+
+    # Map back to original order
+    p_adjusted = [0.0] * n
+    rejected = [False] * n
+    for sorted_idx, (orig_idx, _) in enumerate(indexed):
+        p_adjusted[orig_idx] = p_adjusted_sorted[sorted_idx]
+        rejected[orig_idx] = rejected_sorted[sorted_idx]
+
+    return rejected, p_adjusted
+
+
+def apply_multiple_testing_correction(results: List[SegmentResult], alpha: float = FDR_ALPHA) -> List[SegmentResult]:
+    """
+    Benjamini-Hochberg false discovery rate correction. This is the step
+    that stops you from fooling yourself — testing 50 segments at the
+    standard p<0.05 threshold means ~2-3 will look "significant" by chance
+    alone, even with zero real effect anywhere.
+    """
+    if not results:
+        return results
+
+    p_values = [r.p_value for r in results]
+    rejected, p_adjusted = _benjamini_hochberg(p_values, alpha)
+
+    for r, p_adj, sig in zip(results, p_adjusted, rejected):
+        r.p_value_adjusted = p_adj
+        r.significant_after_correction = bool(sig)
+
+    return results
+
+
+def validate_out_of_sample(
+    segment_result: SegmentResult,
+    segment_filter_fn,
+    holdout_df: pd.DataFrame,
+    outcome_col: str = "outcome",
+    min_lift_retained_pct: float = 0.5,
+) -> SegmentResult:
+    """
+    Takes a segment that survived the multiple-testing correction and
+    checks whether the same edge shows up in a holdout dataset the
+    segment search never saw. This is mandatory, not optional — a segment
+    that looked real in-sample but disappears out-of-sample was noise.
+
+    segment_filter_fn: a function that takes the holdout_df and returns
+    the boolean mask for this same segment (you write this based on
+    segment_result.segment_description).
+
+    min_lift_retained_pct: the OOS lift must retain at least this fraction
+    of the in-sample lift to count as validated (default 50%) — some
+    decay between samples is normal, total collapse is not.
+    """
+    mask = segment_filter_fn(holdout_df)
+    oos_segment = holdout_df[mask]
+
+    if len(oos_segment) < MIN_SEGMENT_SAMPLES:
+        segment_result.validated_out_of_sample = False
+        segment_result.oos_win_rate = np.nan
+        return segment_result
+
+    oos_win_rate = oos_segment[outcome_col].mean()
+    oos_baseline = holdout_df[outcome_col].mean()
+    oos_lift = oos_win_rate - oos_baseline
+
+    retained_fraction = oos_lift / segment_result.lift if segment_result.lift != 0 else 0
+    segment_result.oos_win_rate = oos_win_rate
+    segment_result.validated_out_of_sample = (
+        oos_lift > 0 and retained_fraction >= min_lift_retained_pct
+    )
+
+    return segment_result
+
+
+def run_full_segment_search(
+    df: pd.DataFrame,
+    context_columns: List[str],
+    outcome_col: str = "outcome",
+    include_interactions: bool = True,
+) -> pd.DataFrame:
+    """
+    Convenience wrapper: runs single-column and two-way interaction
+    searches, applies multiple-testing correction, and returns a ranked
+    DataFrame of candidates. OOS validation is a separate manual step
+    (see validate_out_of_sample) because it requires you to supply the
+    holdout data and the segment filter logic per finding.
+    """
+    results = search_single_context_columns(df, context_columns, outcome_col)
+
+    if include_interactions:
+        results += search_two_way_interactions(df, context_columns, outcome_col)
+
+    results = apply_multiple_testing_correction(results)
+
+    rows = [
+        {
+            "segment": r.segment_description,
+            "n_samples": r.n_samples,
+            "win_rate": round(r.win_rate, 4),
+            "baseline_win_rate": round(r.baseline_win_rate, 4),
+            "lift": round(r.lift, 4),
+            "p_value": round(r.p_value, 4),
+            "p_value_adjusted": round(r.p_value_adjusted, 4),
+            "significant_after_correction": r.significant_after_correction,
+        }
+        for r in results
+    ]
+
+    out = pd.DataFrame(rows).sort_values("p_value_adjusted")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Example usage (remove or adapt for your actual schema):
+#
+# context_columns = ["sector", "earnings_window", "day_of_week", "market_cap_bucket"]
+# candidates = run_full_segment_search(settled_picks_df, context_columns)
+# print(candidates[candidates["significant_after_correction"]])
+#
+# For any row that survives correction, before trusting it:
+#   1. Define segment_filter_fn matching that exact segment description
+#   2. Run validate_out_of_sample() against a holdout period the search
+#      never touched (e.g. most recent 60 days held out in advance)
+#   3. Only treat it as real if validated_out_of_sample == True
+# ---------------------------------------------------------------------------

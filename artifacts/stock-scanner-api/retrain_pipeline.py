@@ -278,4 +278,18 @@ def run_retrain_cycle() -> dict:
         prod_auc, prod_brier, promoted, reason, summary
     )
 
+    # Run niche segment search on the same settled picks
+    try:
+        from niche_segment_finder import run_segment_search_on_settled_picks as _seg_search
+        seg_results = _seg_search(raw)
+        if not seg_results.empty:
+            sig = seg_results[seg_results["significant_after_correction"] == True]
+            summary["significant_segments"] = len(sig)
+            if not sig.empty:
+                top = sig.head(3)[["segment", "win_rate", "lift", "n_samples"]].to_dict(orient="records")
+                summary["top_segments"] = top
+                print(f"[retrain] top segments: {top}")
+    except Exception as _seg_e:
+        print(f"[retrain] segment search error: {_seg_e}")
+
     return summary

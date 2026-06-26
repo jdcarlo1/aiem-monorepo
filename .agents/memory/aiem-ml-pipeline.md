@@ -35,3 +35,11 @@ description: XGBoost retrain pipeline wired into the Sunday 8pm AIEM job; 6 modu
 New model is ONLY promoted if it beats prod on BOTH AUC and Brier on held-out validation — or if AUC gains >2pp even if Brier doesn't improve. This prevents a bad model from replacing a good one.
 
 **Why:** Financial models have noisy labels and small n; without comparison gate a weekly retrain will routinely promote overfit noise.
+
+## niche_segment_finder.py (7th module)
+- Runs automatically at end of every Sunday retrain cycle (in retrain_pipeline.py)
+- Searches 5 context columns: day_name, conviction_bucket, otm_bucket, expiry_bucket, rvol_bucket
+- Benjamini-Hochberg FDR correction (FDR_ALPHA=0.10) + MIN_SEGMENT_SAMPLES=40 per segment
+- First run (228 picks): 25 segments tested, 0 significant — correct/honest, needs more data
+- Significant findings saved to aiem_segment_findings table
+- As more picks settle, BH correction will pass real edges (need ~40+ picks per segment)
