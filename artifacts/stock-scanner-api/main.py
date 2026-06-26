@@ -9506,7 +9506,7 @@ def _poll_ask_sms() -> None:
                             import psycopg2 as _pg_sms
                             with _pg_sms.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
                                 _cur.execute("""
-                                    SELECT insight_text FROM aiem_research_insights
+                                    SELECT findings FROM aiem_research_insights
                                     ORDER BY created_at DESC LIMIT 1
                                 """)
                                 row = _cur.fetchone()
@@ -9522,13 +9522,21 @@ def _poll_ask_sms() -> None:
                                         f"<div style='background:#f0f4ff;border-left:4px solid #4361ee;"
                                         f"padding:15px;border-radius:4px;white-space:pre-wrap'>{summary}</div>"
                                         f"<p style='color:#888;font-size:12px'>To ask another question, "
-                                        f"reply with subject: ASK: your question</p></div>"
+                                        f"send a new email with ASK in the subject.</p></div>"
                                     )
                                     _ser_rep(_OWNER_EMAIL, f"AIEM Answer: {q[:60]}", _html)
                                 except Exception: pass
                         except Exception as _e:
+                            print(f"[poll_ask_sms] reply error: {_e}")
                             if via_gateway:
                                 _send_sms("✅ Research done — check your email for the full report.")
+                            else:
+                                try:
+                                    from email_alerts import send_email_raw as _ser_fb
+                                    _ser_fb(_OWNER_EMAIL, f"AIEM Answer: {q[:60]}",
+                                            f"<p>Research complete for: <b>{q[:200]}</b><br><br>"
+                                            f"Error retrieving findings: {_e}</p>")
+                                except Exception: pass
                     except Exception as _e:
                         print(f"[poll_ask_sms] session error: {_e}")
                         if via_gateway:
