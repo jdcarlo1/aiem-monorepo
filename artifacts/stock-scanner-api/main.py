@@ -17475,7 +17475,7 @@ def insider_trades_route():
     _ex_it  = _TPE_it(max_workers=1)
     _fut_it = _ex_it.submit(fetch_insider_trades, tickers, days)
     try:
-        trades = _fut_it.result(timeout=4.0)
+        trades = _fut_it.result(timeout=2.5)
     except _TOE_it:
         _ex_it.shutdown(wait=False, cancel_futures=True)
         _it_db = _load_scan_cache("insider-trades", days_back=7)
@@ -21220,6 +21220,36 @@ def aiem_predictions():
     """GET today's (or recent) Loop B forward-looking predictions."""
     import datetime as _apdt
     try:
+        # Ensure tables exist (created lazily by morning scan tool; safe to call here too)
+        with _psycopg2.connect(_DB_URL) as _ci, _ci.cursor() as _cii:
+            _cii.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_predictions (
+                    id SERIAL PRIMARY KEY,
+                    prediction_date DATE NOT NULL,
+                    ticker TEXT NOT NULL,
+                    rank INTEGER,
+                    confidence_score FLOAT,
+                    signal_basis TEXT,
+                    reasoning TEXT,
+                    predicted_move TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(prediction_date, ticker)
+                )
+            """)
+            _cii.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_prediction_outcomes (
+                    id SERIAL PRIMARY KEY,
+                    prediction_date DATE NOT NULL,
+                    ticker TEXT NOT NULL,
+                    entry_price FLOAT,
+                    t1_price FLOAT, t1_return FLOAT,
+                    t3_price FLOAT, t3_return FLOAT, win_t3 BOOLEAN,
+                    t5_price FLOAT, t5_return FLOAT, win_t5 BOOLEAN,
+                    graded_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(prediction_date, ticker)
+                )
+            """)
+            _ci.commit()
         days = min(int(request.args.get("days", 5)), 30)
         cutoff = (_apdt.date.today() - _apdt.timedelta(days=days)).isoformat()
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
@@ -22070,6 +22100,32 @@ def ai_short_calls():
     _ts    = getattr(app, "_aisc_cache_ts", None)
     if not force and _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
         return jsonify(_cache)
+
+    # Yahoo throttled — serve DB picks rather than kicking off a regeneration
+    # that will itself fail trying to fetch live prices
+    if not force and _yf_breaker_open():
+        if _cache:
+            return jsonify({**_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+        # try DB
+        try:
+            _et_floor = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
+                         "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
+            with _psycopg2.connect(_DB_URL) as _sc2, _sc2.cursor() as _scc2:
+                _scc2.execute(f"""
+                    SELECT ticker, strike, expiry, days_out, vol_oi, prem,
+                           thesis, confidence, urgency
+                    FROM ai_short_calls_log
+                    WHERE created_at >= {_et_floor}
+                    ORDER BY confidence DESC LIMIT 5
+                """)
+                _pr2 = [dict(zip([d[0] for d in _scc2.description], r)) for r in _scc2.fetchall()]
+            if _pr2:
+                return jsonify({"picks": _pr2, "count": len(_pr2), "stale": True,
+                                "note": "cached — Yahoo rate limited"})
+        except Exception:
+            pass
+        return jsonify({"picks": [], "count": 0, "stale": True,
+                        "note": "Yahoo rate limited — try again shortly"})
 
     # Load today's AI picks from DB log as an immediate warm fallback so a cold
     # server restart never returns "Load failed" — show yesterday's/this-morning's
@@ -23122,6 +23178,16 @@ def multi_signal_convergence():
     _ts    = getattr(app, "_ms_cache_ts", None)
     if _cache and _ts and (_ms_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
+
+    # Yahoo throttled — fail-fast
+    if _yf_breaker_open():
+        _ms_db = _load_scan_cache("multi-signal")
+        if _ms_db:
+            return jsonify({**_ms_db, "stale": True, "note": "cached — Yahoo rate limited"})
+        if _cache:
+            return jsonify({**_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+        return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "Yahoo rate limited — try again shortly"})
 
     # Market closed — serve last Friday's scan from DB
     if not _intraday_scan_allowed():
@@ -24337,6 +24403,16 @@ def morning_runners():
     if _cache and _ts and (_mr_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
 
+    # Yahoo throttled — fail-fast rather than hang 18s+
+    if _yf_breaker_open():
+        _mr_db = _load_scan_cache("morning-runners")
+        if _mr_db:
+            return jsonify({**_mr_db, "stale": True, "note": "cached — Yahoo rate limited"})
+        if _cache:
+            return jsonify({**_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+        return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "Yahoo rate limited — try again shortly"})
+
     # Market closed — serve last scan from DB rather than an empty live result
     if not _intraday_scan_allowed():
         _mr_db = _load_scan_cache("morning-runners")
@@ -24624,6 +24700,13 @@ def earnings_calendar():
     with _ec_lock:
         if _ec_cache and _ec_cache_ts and (_dt_ec2.datetime.now() - _ec_cache_ts).total_seconds() < _EC_TTL:
             return jsonify(_ec_cache)
+    # Yahoo throttled — serve cached earnings rather than hanging
+    if _yf_breaker_open():
+        with _ec_lock:
+            if _ec_cache:
+                return jsonify({**_ec_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+        return jsonify({"earnings": [], "count": 0, "stale": True,
+                        "note": "Yahoo rate limited — try again shortly"})
     def _bg_ec():
         if getattr(app, "_ec_scanning", False):
             return
@@ -25506,6 +25589,16 @@ def eod_accumulation():
     Pump groups blast socials after hours → retail FOMO creates the morning gap.
     You're positioned BEFORE retail sees it at 9:31 AM.
     """
+    # Yahoo throttled — serve DB cache rather than hanging 18s+
+    if _yf_breaker_open():
+        _ea_db = _load_scan_cache("eod-accumulation")
+        if _ea_db:
+            return jsonify({**_ea_db, "stale": True, "note": "cached — Yahoo rate limited"})
+        _ea_mem = getattr(app, "_ea_cache", None)
+        if _ea_mem:
+            return jsonify({**_ea_mem, "stale": True, "note": "cached — Yahoo rate limited"})
+        return jsonify({"hits": [], "count": 0, "scanned": 0, "stale": True,
+                        "note": "Yahoo rate limited — try again shortly"})
     import datetime as _dt_ea
     import yfinance as _yf_ea
     import psycopg2 as _pg_ea
@@ -26443,6 +26536,16 @@ def insider_radar():
     _cache_ts = getattr(app, "_insider_radar_cache_ts", None)
     if not bust and _cache and _cache_ts and (_dt_ir.datetime.now() - _cache_ts).total_seconds() < 2700:
         return jsonify(_cache)
+
+    # Yahoo throttled — fail-fast
+    if _yf_breaker_open():
+        _ir_db = _load_scan_cache("insider-radar")
+        if _ir_db:
+            return jsonify({**_ir_db, "stale": True, "note": "cached — Yahoo rate limited"})
+        if _cache:
+            return jsonify({**_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+        return jsonify({"signals": [], "count": 0, "stale": True,
+                        "note": "Yahoo rate limited — try again shortly"})
 
     # DB fallback: serve last computed result on cold start / after restart
     if not bust and not _cache:
