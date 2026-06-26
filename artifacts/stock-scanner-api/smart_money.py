@@ -778,6 +778,12 @@ for _t in DEFAULT_LEADERBOARD:
         _deduped.append(_t)
 DEFAULT_LEADERBOARD = _deduped
 
+# Safety cap: scanning 500+ tickers per warmer cycle floods yfinance, trips the
+# circuit breaker, and makes every dashboard tab spin for 5+ min.  The first
+# 500 entries are the most liquid / optionable stocks — exactly what we want.
+# If you need a broader universe, use Polygon grouped-daily (polygon_market_daily).
+DEFAULT_LEADERBOARD = DEFAULT_LEADERBOARD[:500]
+
 
 def _f(v, default=0.0):
     try:
@@ -1314,7 +1320,18 @@ def scan_smart_money(tickers: list) -> dict:
     price_data:   dict[str, object] = {}
     options_data: dict[str, dict]   = {}
 
+    # Abort-on-throttle: if 15 consecutive tickers return no data Yahoo is
+    # rate-limiting us.  Signal all pending futures to skip immediately so the
+    # scan finishes in seconds instead of minutes and the circuit breaker can
+    # reset without starving every dashboard tab.
+    import threading as _sm_thr
+    _abort   = _sm_thr.Event()
+    _nones   = [0]
+    _n_lock  = _sm_thr.Lock()
+
     def _fetch_ticker(t):
+        if _abort.is_set():
+            return t, None, {}
         df   = None
         opts = {}
         try:
@@ -1322,9 +1339,17 @@ def scan_smart_money(tickers: list) -> dict:
         except Exception:
             pass
         try:
-            opts = fetch_options_data(t)
+            if not _abort.is_set():
+                opts = fetch_options_data(t)
         except Exception:
             pass
+        with _n_lock:
+            if df is None:
+                _nones[0] += 1
+                if _nones[0] >= 15:
+                    _abort.set()
+            else:
+                _nones[0] = 0
         return t, df, opts
 
     with ThreadPoolExecutor(max_workers=8) as ex:

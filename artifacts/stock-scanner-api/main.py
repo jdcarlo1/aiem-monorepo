@@ -15,6 +15,20 @@ def _thread_excepthook(args):
 
 threading.excepthook = _thread_excepthook
 
+# ── DB connect timeout global default ────────────────────────────────────────
+# Patches psycopg2.connect() so every call in the entire codebase defaults to
+# connect_timeout=2s.  Prevents indefinite hangs when the DB connection pool is
+# under pressure from concurrent background scans.  Explicit callers that pass
+# their own connect_timeout= value are unaffected (setdefault never overwrites).
+import psycopg2 as _pg_patch
+def _make_safe_pg_connect(_orig_connect):
+    def _safe(*_pa, **_pk):
+        _pk.setdefault("connect_timeout", 2)
+        return _orig_connect(*_pa, **_pk)
+    return _safe
+_pg_patch.connect = _make_safe_pg_connect(_pg_patch.connect)
+del _pg_patch, _make_safe_pg_connect
+
 from scanner import analyze_ticker, scan_tickers, WATCHLIST_DEFAULT, fetch_stock_data
 from portfolio import get_portfolio, add_position, remove_position, get_portfolio_value
 from backtest import backtest_strategy
@@ -1238,7 +1252,7 @@ def _save_scan_cache(endpoint: str, payload: dict) -> None:
     try:
         import json as _scj
         from datetime import date as _scd
-        with _psycopg2.connect(_DB_URL) as _scc, _scc.cursor() as _sccu:
+        with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=3000") as _scc, _scc.cursor() as _sccu:
             _sccu.execute("""
                 CREATE TABLE IF NOT EXISTS scan_result_cache (
                     endpoint   TEXT NOT NULL,
@@ -1264,7 +1278,7 @@ def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
     try:
         from datetime import date as _lcd, timedelta as _lctd
         _cutoff = _lcd.today() - _lctd(days=days_back)
-        with _psycopg2.connect(_DB_URL) as _lcc, _lcc.cursor() as _lccu:
+        with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=3000") as _lcc, _lcc.cursor() as _lccu:
             _lccu.execute("""
                 SELECT payload FROM scan_result_cache
                 WHERE endpoint = %s AND scan_date >= %s
@@ -2983,6 +2997,9 @@ try:
             _h, _m = _et_now.hour, _et_now.minute
             _mins = _h * 60 + _m
             if not _intraday_scan_allowed():
+                return
+            if _yf_breaker_open():
+                print("[cache_warmer] skipping - Yahoo circuit breaker open")
                 return
             print("[cache_warmer] pre-warming smart money scan…")
             _warm_result = scan_smart_money(DEFAULT_LEADERBOARD)
@@ -13536,7 +13553,7 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
         # Store embeddings so search_past_findings has data from this session onward
         try:
             _oai_emb = _OpenAI(
-                base_url="https://ai-integrations.replit.com/openai",
+                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
                 api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
             )
             _emb_resp = _oai_emb.embeddings.create(
@@ -14154,7 +14171,7 @@ def _aiem_tool_search_past_findings(query_text, weeks_back=16):
 
         # Compute embedding for the query
         _oai = _OpenAI(
-            base_url="https://ai-integrations.replit.com/openai",
+            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
             api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
         )
 
@@ -15526,7 +15543,23 @@ def _mkt_init_tables():
                     notes             TEXT
                 )
             """)
-        print("[mkt_init] polygon_market_daily + aiem_signal_discoveries ready")
+        # Also ensure aiem_test_ledger exists (used by mkt_required_pvalue Bonferroni tracking)
+        try:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_test_ledger (
+                    id            SERIAL PRIMARY KEY,
+                    session_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+                    tool_name     TEXT NOT NULL,
+                    conditions    JSONB,
+                    p_value       FLOAT,
+                    n             INTEGER,
+                    logged_at     TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ledger_date ON aiem_test_ledger (session_date)")
+        except Exception:
+            pass
+        print("[mkt_init] polygon_market_daily + aiem_signal_discoveries + aiem_test_ledger ready")
     except Exception as _e:
         print(f"[mkt_init] table init error: {_e}")
 
@@ -19990,7 +20023,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
     try:
         from openai import OpenAI as _OAIFS
         _oai = _OAIFS(
-            base_url="https://ai-integrations.replit.com/openai",
+            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
             api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
         )
     except Exception as _oe:
@@ -21731,7 +21764,7 @@ def _run_aiem_morning_scan():
         try:
             print("[aiem_morning] starting daily forward scan...")
             _oai = _OpenAI(
-                base_url="https://ai-integrations.replit.com/openai",
+                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
                 api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY","")
             )
             _morning_tool_map = {
@@ -21947,7 +21980,7 @@ def _run_aiem_research_agent(max_iterations=None):
     try:
         from openai import OpenAI as _OAIR
         _oai = _OAIR(
-            base_url="https://ai-integrations.replit.com/openai",
+            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
             api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
         )
     except Exception as _oe:
@@ -22023,15 +22056,36 @@ def _run_aiem_research_agent(max_iterations=None):
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
-    messages = [
-        {"role": "system", "content": _AIEM_AGENT_SYSTEM},
-        {"role": "user", "content": (
-            "Begin autonomous research. You have {} settled picks to analyze. "
+    # When pick history is sparse (<10), redirect agent to full-market research tools
+    # (polygon_market_daily has 427K+ rows — agent should never sit idle waiting for picks)
+    if _settled < 10:
+        _user_msg = (
+            "Begin autonomous research. You have {settled} settled picks from ai_early_movers_log "
+            "(not enough for pick-history analysis yet). "
+            "IMPORTANT: Skip evaluate_previous_model and query_pick_outcomes — they need at least 10 picks. "
+            "Instead, do FULL-MARKET research on polygon_market_daily (12,000+ stocks, 427K+ rows): "
+            "1. Call mkt_load_discoveries first to see what's already been found. "
+            "2. Call mkt_explore_dimensions to understand the dataset. "
+            "3. Call mkt_generate_hypotheses to get 8 fresh signal ideas. "
+            "4. Call mkt_factor_correlations to find what predicts big moves. "
+            "5. Test the most promising hypotheses with mkt_test_signal + mkt_validate_oos. "
+            "6. Save anything significant (p<0.05, n>50) with mkt_save_discovery. "
+            "7. Build a composite with mkt_build_composite if you find 2+ confirmed signals. "
+            "Use mkt_required_pvalue to get the correct Bonferroni threshold before saving. "
+            "Save your final model with save_research_model when done."
+        ).format(settled=_settled)
+    else:
+        _user_msg = (
+            "Begin autonomous research. You have {settled} settled picks to analyze. "
             "Start with evaluate_previous_model, then query_pick_outcomes. "
-            "Use all available tools to discover patterns. "
+            "ALSO run full-market research: mkt_load_discoveries → mkt_explore_dimensions → "
+            "mkt_factor_correlations → mkt_test_signal → mkt_validate_oos → mkt_save_discovery. "
             "Run statistical_significance on any finding before including it. "
             "Test multiple weight combinations. Save your model when done."
-        ).format(_settled)}
+        ).format(settled=_settled)
+    messages = [
+        {"role": "system", "content": _AIEM_AGENT_SYSTEM},
+        {"role": "user", "content": _user_msg}
     ]
 
     tool_calls_made = 0
@@ -27952,7 +28006,7 @@ def conviction_stack_endpoint():
     # No in-memory cache - serve last stored snapshot from DB while live scan runs
     try:
         import psycopg2 as _pg_cs_fb
-        with _pg_cs_fb.connect(_DB_URL) as _c_cs_fb, _c_cs_fb.cursor() as _cu_cs_fb:
+        with _pg_cs_fb.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=4000") as _c_cs_fb, _c_cs_fb.cursor() as _cu_cs_fb:
             _cu_cs_fb.execute("""
                 SELECT ticker, total_pts, conviction_pct, label, price,
                        layers, meta, rank, universe_count, source, snap_date
@@ -29201,7 +29255,7 @@ def ai_short_calls():
         try:
             _et_floor = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
                          "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
-            with _psycopg2.connect(_DB_URL) as _sc2, _sc2.cursor() as _scc2:
+            with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=3000") as _sc2, _sc2.cursor() as _scc2:
                 _scc2.execute(f"""
                     SELECT ticker, strike, expiry, days_out, vol_oi, prem,
                            thesis, confidence, urgency
@@ -33739,7 +33793,8 @@ def standout_track():
     import psycopg2.extras as _ext_st
 
     try:
-        with _pg_st.connect(_DB_URL) as _c, _c.cursor(cursor_factory=_ext_st.RealDictCursor) as _cu:
+        with _pg_st.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor(cursor_factory=_ext_st.RealDictCursor) as _cu:
+            _cu.execute("SET statement_timeout = '6000'")
             _cu.execute("""
                 SELECT DISTINCT ON (s.scan_date, s.ticker)
                     s.scan_date,
@@ -33870,7 +33925,7 @@ def insider_radar():
             return jsonify({**_ir_db, "stale": True})
 
     try:
-        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+        with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
             # All signals $10K+ from last 90 days, newest first
             cur.execute("""
                 SELECT ticker, price::float, strike::float, expiry,
@@ -35079,7 +35134,7 @@ def aiem_research_status():
         return jsonify({
             "research_history": rows,
             "latest": rows[0] if rows else None,
-            "context_injected_in_picks": _get_aiem_research_context()[:500] + "..." if _get_aiem_research_context() else "None yet",
+            "context_injected_in_picks": (lambda _ctx: _ctx[:500] + "..." if _ctx else "None yet")(_get_aiem_research_context()),
             "next_scheduled_run": "Sunday 8:00 PM ET",
             "manual_trigger": "POST /stock-api/admin/run-aiem-research (requires X-Admin-Token)"
         })
