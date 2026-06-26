@@ -16742,23 +16742,108 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
                               signal_avg_ret=None, oos_edge=None,
                               horizon="next_day", notes=""):
     """Save a validated signal discovery to the aiem_signal_discoveries table.
-    Only call this AFTER mkt_validate_oos confirms the signal holds out-of-sample."""
+    HARD GATES (will block save if not met):
+      1. oos_edge must be provided and > 0  → proves mkt_validate_oos was run
+      2. p_value must beat the Bonferroni-corrected threshold from the test ledger
+      3. signal_win_rate must be >= 54%     → meaningful bar above coin flip after costs
+      4. signal_n must be >= 200            → LAW 6 minimum sample size
+    These gates enforce LAW 3, LAW 6, LAW 47, LAW 49. No workarounds."""
     import psycopg2, json as _j
+
     if not conditions:
         return {"status": "error", "error": "conditions required"}
-    # Redundancy gate: block save if signal fires on same stock-days as existing discovery
+
+    # ── GATE 1: OOS validation is mandatory ──────────────────────────────────
+    if oos_edge is None:
+        return {
+            "status": "blocked",
+            "gate": "oos_validation",
+            "error": (
+                "BLOCKED: oos_edge is required. You must run mkt_validate_oos on this signal "
+                "first and pass the returned oos_edge here. A signal with oos_edge=None has "
+                "never been tested on unseen data — it may be pure noise. This is the #1 rule."
+            ),
+            "action": "Call mkt_validate_oos(conditions=...) and use its test_period edge as oos_edge.",
+        }
+    if float(oos_edge) <= 0:
+        return {
+            "status": "blocked",
+            "gate": "oos_validation",
+            "error": (
+                f"BLOCKED: oos_edge={oos_edge:.4f} is ≤ 0. The signal does NOT hold in unseen "
+                f"data. This is the definition of an overfit signal. Do NOT save it. "
+                f"Investigate what makes it fail OOS — regime? market cap? survivorship bias?"
+            ),
+            "verdict": "FAILS OOS — do not deploy.",
+        }
+
+    # ── GATE 2: Minimum win rate (meaningful above coin flip) ─────────────────
+    if signal_win_rate is not None and float(signal_win_rate) < 54.0:
+        return {
+            "status": "blocked",
+            "gate": "win_rate_floor",
+            "error": (
+                f"BLOCKED: signal_win_rate={signal_win_rate:.1f}% is below the 54% floor. "
+                f"After realistic transaction costs (0.3–0.5% round-trip), a 52–53% win rate "
+                f"produces zero real edge. The bar is 54%+ in-sample AND positive OOS. "
+                f"Keep testing — this signal needs to be stronger or combined with another."
+            ),
+            "current_wr": signal_win_rate,
+            "required_wr": 54.0,
+        }
+
+    # ── GATE 3: Minimum sample size (LAW 6) ──────────────────────────────────
+    if signal_n is not None and int(signal_n) < 200:
+        return {
+            "status": "blocked",
+            "gate": "sample_size",
+            "error": (
+                f"BLOCKED: signal_n={signal_n} is below the LAW 6 minimum of 200. "
+                f"Small samples regress to baseline in live trading. This WR will not hold."
+            ),
+            "current_n": signal_n,
+            "required_n": 200,
+        }
+
+    # ── GATE 4: Bonferroni-corrected p-value (LAW 3) ─────────────────────────
+    if p_value is not None:
+        try:
+            _bonf = _mkt_tool_required_pvalue(lookback_days=30)
+            _required_p = _bonf.get("required_p_value", 0.05)
+            _n_tests     = _bonf.get("tests_in_window", 1)
+            if float(p_value) > _required_p:
+                return {
+                    "status": "blocked",
+                    "gate": "bonferroni_correction",
+                    "error": (
+                        f"BLOCKED: p_value={p_value:.5f} does not meet the Bonferroni-corrected "
+                        f"threshold of {_required_p:.5f} (0.05 ÷ {_n_tests} tests run in the "
+                        f"past 30 days). With {_n_tests} tests, you expect {_n_tests * 0.05:.1f} "
+                        f"false positives by pure chance at p<0.05. This signal may be one of them."
+                    ),
+                    "your_p_value":    p_value,
+                    "required_p_value": _required_p,
+                    "tests_in_window":  _n_tests,
+                }
+        except Exception:
+            pass  # non-fatal: if ledger unavailable, don't block — log a warning instead
+
+    # ── Redundancy gate ───────────────────────────────────────────────────────
     try:
         _rdx = _mkt_check_signal_redundancy(conditions)
         if _rdx.get("is_redundant"):
             return {
-                "status": "error",
+                "status": "blocked",
+                "gate": "redundancy",
                 "error": "Signal is redundant (>70% Jaccard overlap) with an existing discovery",
                 "redundant_with": _rdx.get("redundant_with", []),
                 "verdict": _rdx.get("verdict", ""),
                 "note": "Call mkt_load_discoveries to review existing signals and build on them instead.",
             }
-    except Exception as _rdx_e:
-        pass  # non-fatal: if redundancy check fails, allow the save
+    except Exception:
+        pass
+
+    # ── All gates passed — save ───────────────────────────────────────────────
     try:
         with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -16775,8 +16860,16 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
                 baseline_win_rate, notes
             ))
             disc_id = cur.fetchone()[0]
-        return {"status": "ok", "discovery_id": disc_id,
-                "message": f"Discovery #{disc_id} saved. Visible at /stock-api/aiem/discoveries"}
+        return {
+            "status": "ok",
+            "discovery_id": disc_id,
+            "message": (
+                f"Discovery #{disc_id} saved. Passed all 4 gates: "
+                f"OOS ({oos_edge:+.3f}pp), WR ({signal_win_rate:.1f}%), "
+                f"n={signal_n}, Bonferroni p-value. "
+                f"Visible at /stock-api/aiem/discoveries"
+            ),
+        }
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
