@@ -9725,6 +9725,70 @@ import json as _json
 import psycopg2 as _psycopg2
 
 _DB_URL = os.getenv("DATABASE_URL", "")
+
+# ── Database connection pool ──────────────────────────────────────────────────
+# Previously every request and background job opened a fresh TCP connection to
+# Postgres (332 call sites, 26+ import aliases). Under morning burst load this
+# caused "FATAL: too many connections" and intermittent 500s.
+#
+# Fix: patch psycopg2.connect once at module load. All local aliases
+# (import psycopg2 as _pg, _pg2, _pg_ar, _bpg, etc.) point to the SAME module
+# object, so one patch covers every call site with zero per-site changes.
+class _PoolConn:
+    """Proxy around a pooled psycopg2 connection. Returns to pool on __exit__/close()."""
+    def __init__(self, conn, pool):
+        self.__dict__.update(_conn=conn, _pool=pool, _returned=False)
+
+    def __getattr__(self, name):
+        return getattr(self.__dict__["_conn"], name)
+
+    def cursor(self, *a, **kw):
+        return self.__dict__["_conn"].cursor(*a, **kw)
+
+    def commit(self):
+        return self.__dict__["_conn"].commit()
+
+    def rollback(self):
+        return self.__dict__["_conn"].rollback()
+
+    def __enter__(self):
+        self.__dict__["_conn"].__enter__()
+        return self
+
+    def __exit__(self, *args):
+        try:
+            return self.__dict__["_conn"].__exit__(*args)   # commit or rollback
+        finally:
+            self._put_back()
+
+    def _put_back(self):
+        if not self.__dict__["_returned"]:
+            self.__dict__["_returned"] = True
+            try:
+                self.__dict__["_pool"].putconn(self.__dict__["_conn"])
+            except Exception:
+                pass
+
+    def close(self):
+        self._put_back()
+
+    def __del__(self):
+        try:
+            self._put_back()
+        except Exception:
+            pass
+
+try:
+    import psycopg2.pool as _pg_pool_mod
+    _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(minconn=2, maxconn=25, dsn=_DB_URL)
+    def _pg_pooled_connect(*_a, **_kw):
+        """Draw a connection from the shared pool instead of opening a new TCP socket."""
+        return _PoolConn(_PG_POOL.getconn(), _PG_POOL)
+    _psycopg2.connect = _pg_pooled_connect          # patch the module; all aliases follow
+    print("[db] connection pool ready (min=2 max=25)")
+except Exception as _pool_init_err:
+    print(f"[db] pool init failed — falling back to direct connections: {_pool_init_err}")
+
 _daily_top10_mem: dict = {"date": None, "data": None}
 _daily_top10_refreshing: dict = {"active": False}
 _daily_top10_refresh_lock = _threading.Lock()

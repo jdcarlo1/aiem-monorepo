@@ -1,0 +1,94 @@
+# StockScanner AI — Backend Code Review (main.py)
+
+**File reviewed:** `stockscanner_ai_main.txt` (Flask backend, ~35,000 lines, 169 routes)
+**Review date:** June 26, 2026
+
+## Summary
+
+Overall the codebase is in solid shape — it compiles cleanly, has no SQL injection vulnerabilities, and uses sensible dedup/safety patterns for scheduled jobs. There is **one real, high-impact bug** worth fixing (no DB connection pooling), plus a couple of lower-priority items.
+
+---
+
+## 1. HIGH PRIORITY — No database connection pooling (likely cause of any intermittent 500s)
+
+**What's happening:**
+The app opens a brand-new raw Postgres connection on almost every request and every background job:
+
+```python
+with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+    ...
+```
+
+This pattern appears **153 times** across the file. Only **2 places** explicitly call `conn.close()`.
+
+**Why it's a problem:**
+`psycopg2`'s `with conn:` only wraps the *transaction* — it commits or rolls back on exit, but it does **not close the underlying connection**. There's also no connection pool anywhere in the file (confirmed — no `psycopg2.pool`, no pgbouncer reference). So every one of the 169 routes, plus the 71+ scheduled jobs, plus the 123 fire-and-forget background threads (`Thread(daemon=True).start()`) that also touch the DB, each opens its own fresh TCP connection to Postgres instead of reusing one.
+
+Under bursty traffic (e.g. several scheduled scans firing close together, or the Autoscale wake-catchup threads triggering alongside a normal request), this is exactly the kind of thing that causes intermittent, hard-to-reproduce `FATAL: too many connections` errors from Postgres.
+
+**Fix (mechanical, one-time):**
+Add a pool once near the top of the file:
+
+```python
+from psycopg2 import pool
+_PG_POOL = pool.ThreadedConnectionPool(2, 20, _DB_URL)
+
+def get_conn():
+    return _PG_POOL.getconn()
+
+def put_conn(conn):
+    _PG_POOL.putconn(conn)
+```
+
+Then replace the 153 occurrences of:
+```python
+with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+    ...
+```
+with:
+```python
+conn = get_conn()
+try:
+    with conn.cursor() as cur:
+        ...
+    conn.commit()
+finally:
+    put_conn(conn)
+```
+
+This is a consistent, repeated pattern, so an AI coding agent (Replit agent, Claude Code, etc.) can do this safely across the whole file in one pass — just point it at this report and the line count above.
+
+---
+
+## 2. LOWER PRIORITY — Single-process assumptions
+
+A few pieces of in-memory state assume the app runs as a single process:
+- `app._eod_sweeps_cache` / `app._eod_sweeps_cache_ts` (in-memory cache)
+- `_last_owner_catchup_ts` / `_last_news_catchup_ts` (throttle timestamps for the wake-catchup background jobs)
+
+These work fine on one worker. If this is ever deployed across multiple gunicorn/uWSGI workers, each worker keeps its own copy, so the "only run this once every 120s / 5 min" throttling won't hold across workers (though the DB-based dedup log tables for emails are a good backstop and limit the real-world damage).
+
+**Not urgent** unless/until you scale to multiple workers.
+
+---
+
+## 3. LOWER PRIORITY — Raw error messages returned to client
+
+Most of the ~770 `except Exception as e:` blocks return `jsonify({"error": str(e)})` directly to the caller. For a single-owner internal tool this is low risk, but it does leak internal details (table/column names, stack info) if this API is ever exposed more broadly or to other users.
+
+**Not urgent**, but worth tightening if you ever open this up beyond yourself.
+
+---
+
+## What's already done well
+
+- **No SQL injection.** ~33 places build SQL with f-strings for dynamic `SET`/filter clauses, but in every case the column *names* come from a hardcoded whitelist (e.g. `allowed = ["entry_price", "exit_price", ...]` or a `_MKT_SAFE_COLS` dict), while actual values stay parameterized (`%s`). That's the correct pattern.
+- **No syntax errors**, no duplicate route/endpoint conflicts (the few paths that looked duplicated are just GET/POST/PATCH/DELETE pairs on the same URL, which is correct REST design).
+- **NaN/Infinity-safe JSON provider** — a thoughtful fix for a real Postgres/numpy gotcha (invalid JSON tokens breaking `JSON.parse` in the browser).
+- **Sensible dedup logic** for the Autoscale wake-catchup jobs (throttled + backed by DB log tables to avoid duplicate emails).
+
+---
+
+## Bottom line for whoever picks this up
+
+Fix #1 (connection pooling). It's the one change with real production impact, and it's mechanical enough for an AI agent to apply consistently across all 153 occurrences in a single pass.
