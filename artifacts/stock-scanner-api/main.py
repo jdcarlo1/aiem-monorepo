@@ -9474,10 +9474,12 @@ def _poll_ask_sms() -> None:
                     except Exception:
                         pass
 
-                # Strip quoted reply lines and "wrote:" attribution lines from body
+                # Strip quoted reply lines, "wrote:" attribution, and "On Fri/Mon/..." date lines
                 body_clean = "\n".join(
                     ln for ln in body_text.splitlines()
-                    if not ln.strip().startswith(">") and "wrote:" not in ln
+                    if not ln.strip().startswith(">")
+                    and "wrote:" not in ln
+                    and not _re.match(r"^On \w{3},", ln.strip())
                 ).strip()
 
                 # Prefer body if it has real content, else fall back to subject
