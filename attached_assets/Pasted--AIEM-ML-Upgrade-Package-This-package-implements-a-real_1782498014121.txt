@@ -1,0 +1,66 @@
+# AIEM ML Upgrade Package
+
+This package implements a real trained-model pipeline to replace the hardcoded
+rvol/gap threshold rules, with proper validation, overfitting guardrails,
+honest performance metrics, and safe auto-promotion logic.
+
+## What's in here
+
+| File | Purpose |
+|---|---|
+| `feature_engineering.py` | Computes the expanded feature set (volume trend, MA position, IV percentile, sector strength, etc.) |
+| `data_prep.py` | Time-aware (walk-forward) train/validation splitting — prevents future data leaking into training |
+| `model_training.py` | Trains the model with regularization + cross-validation, with a rule-based fallback baseline |
+| `evaluation_metrics.py` | Real performance metrics: AUC, calibration, Sharpe, max drawdown, precision-at-confidence-threshold |
+| `retrain_pipeline.py` | Orchestrates retraining: checks sample size, trains candidate, compares vs current production model, only promotes if better |
+| `prediction_logger.py` | Logs every prediction vs eventual outcome, and computes rolling accuracy for an audit dashboard |
+
+## Integration instructions for whoever wires this in
+
+1. **Data requirement.** All of this assumes a table of settled picks with
+   columns: `signal_date`, feature columns (rvol, gap, volume_trend_3d,
+   volume_trend_5d, ma20_relative, ma50_relative, iv_percentile,
+   sector_relative_strength, days_since_earnings, day_of_week, float_size),
+   `outcome` (1 = win, 0 = loss), and `return_pct` (actual % return, needed
+   for Sharpe/drawdown). If any features aren't available yet (e.g. IV
+   percentile), leave them as NaN — the pipeline handles missing features,
+   it just won't use them until they're populated.
+
+2. **Minimum sample size gate.** The pipeline will refuse to promote a
+   trained model to production until there are at least `MIN_SAMPLES = 200`
+   settled picks. Below that, it keeps using the existing rule-based system
+   and just logs what the model *would have* predicted, for comparison.
+   This number is configurable in `retrain_pipeline.py` but should not be
+   lowered — it's already aggressive for financial data.
+
+3. **Wire `retrain_pipeline.run_retrain_cycle()` into your existing cron job**
+   (the Sunday 8pm ET job). It replaces the simple "retrain weekly" logic
+   with a real train → validate → compare → promote-or-reject sequence, and
+   logs the result.
+
+4. **Wire `prediction_logger.log_prediction()`** at the moment any signal is
+   surfaced to the user (pick generated), and
+   **`prediction_logger.resolve_prediction()`** when that pick settles.
+   This is what feeds both the retraining data and the audit dashboard.
+
+5. **Do not let the model auto-promote without the comparison step in
+   `retrain_pipeline.py`.** This is the rollback safety: a new model only
+   replaces the production model if it beats it on a held-out validation
+   set on AUC *and* calibration, not just because it's "newer."
+
+## Honest caveat (don't let this get glossed over)
+
+With well under a few hundred settled picks, none of these metrics are
+statistically reliable yet. This code is the right *architecture* — it
+won't make the system trustworthy until enough real outcomes accumulate.
+The `MIN_SAMPLES` gate exists specifically to stop the system from
+overstating its own confidence before that happens.
+
+## Dependencies
+
+```
+pip install scikit-learn pandas numpy xgboost
+```
+
+`xgboost` is optional — `model_training.py` falls back to
+`LogisticRegression` if it's not installed.
