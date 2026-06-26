@@ -1003,6 +1003,7 @@ _OWNER_EMAIL_SCHEDULE = {
     "multiday_watch":  [(16, 5)],
     "multiday_confirm":[(14, 45)],
     "polygon_rvol":    [(8, 35)],
+    "aiem_digest":     [(18, 55)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
@@ -9160,6 +9161,9 @@ def _owner_send_now(kind: str) -> None:
     elif kind == "polygon_rvol":
         # 8:35 AM ET - Full market RVOL scan via Polygon (11,000+ stocks, 5 API calls).
         _send_polygon_rvol_email()
+    elif kind == "aiem_digest":
+        # 6:55 PM ET Mon–Fri - end-of-day AIEM research summary email.
+        _send_aiem_daily_digest()
 
 
 def _owner_run_due_emails() -> dict:
@@ -17668,6 +17672,279 @@ def _run_aiem_continuous_research():
         print(f"[aiem_continuous] error: {e}")
         return {"error": str(e)}
 
+
+def _send_aiem_daily_digest() -> None:
+    """
+    Owner email: daily AIEM end-of-day summary.
+    Fires at 6:55 PM ET Mon–Fri (after the 6 PM continuous research completes).
+    Shows: hypotheses tested today, significant findings, comparison to yesterday,
+    all-time validated discoveries, and current scoring model state.
+    """
+    import json as _dj, datetime as _dd, psycopg2 as _dpg
+    from email_alerts import send_email_raw, smtp_configured
+    if not smtp_configured():
+        print("[aiem_digest] smtp not configured — skip")
+        return
+
+    today_et = _dd.datetime.now(_ET_TZ).date()
+    yest_et  = today_et - _dd.timedelta(days=1)
+
+    def _parse_findings(raw):
+        """Return list of parsed finding dicts from a findings cell (JSON or text)."""
+        out = []
+        if not raw:
+            return out
+        if isinstance(raw, str):
+            try:
+                parsed = _dj.loads(raw)
+            except Exception:
+                out.append({"type": "text", "summary": raw[:200]})
+                return out
+        else:
+            parsed = raw
+        if isinstance(parsed, dict):
+            out.append(parsed)
+        elif isinstance(parsed, list):
+            out.extend(parsed)
+        return out
+
+    try:
+        with _dpg.connect(os.environ["DATABASE_URL"]) as _dc, _dc.cursor() as _cur:
+
+            # ── Today's research insights ─────────────────────────────────────
+            _cur.execute("""
+                SELECT findings, scoring_adjustments, confidence, tool_calls_made,
+                       created_at AT TIME ZONE 'America/New_York'
+                FROM aiem_research_insights
+                WHERE research_date = %s
+                ORDER BY created_at DESC
+            """, (today_et,))
+            today_rows = _cur.fetchall()
+
+            # ── Yesterday's research insights (for comparison) ────────────────
+            _cur.execute("""
+                SELECT findings, confidence
+                FROM aiem_research_insights
+                WHERE research_date = %s
+                ORDER BY created_at DESC
+            """, (yest_et,))
+            yest_rows = _cur.fetchall()
+
+            # ── All signal discoveries ────────────────────────────────────────
+            _cur.execute("""
+                SELECT hypothesis_text, status, signal_win_rate, signal_n,
+                       edge_broad, oos_edge, p_value,
+                       discovered_at AT TIME ZONE 'America/New_York'
+                FROM aiem_signal_discoveries
+                ORDER BY discovered_at DESC LIMIT 10
+            """)
+            discoveries = _cur.fetchall()
+
+            # ── Hypothesis battery totals from continuous research ────────────
+            _cur.execute("""
+                SELECT COUNT(*) FROM aiem_test_ledger WHERE session_date = %s
+            """, (today_et,))
+            tests_today = (_cur.fetchone() or [0])[0]
+
+    except Exception as _de:
+        print(f"[aiem_digest] DB error: {_de}")
+        return
+
+    # ── Parse today's findings ────────────────────────────────────────────────
+    today_continuous = []  # findings from hypothesis battery
+    today_agent      = []  # findings from research agent
+    scoring_model    = {}
+    agent_conf       = "–"
+    agent_tools      = 0
+    agent_time       = None
+
+    for row in today_rows:
+        raw_findings, raw_adj, conf, tools, ts = row
+        items = _parse_findings(raw_findings)
+        for item in items:
+            if isinstance(item, dict) and item.get("type") == "continuous_research_finding":
+                today_continuous.append(item)
+            elif isinstance(item, dict) and item.get("type") == "text":
+                today_agent.append(item["summary"])
+            elif isinstance(item, dict):
+                today_agent.append(str(item.get("findings", str(item)))[:200])
+        if conf and conf != "LOW" and not scoring_model and raw_adj:
+            try:
+                scoring_model = raw_adj if isinstance(raw_adj, dict) else _dj.loads(raw_adj)
+            except Exception:
+                pass
+        if tools and int(tools) > agent_tools:
+            agent_conf  = conf or "–"
+            agent_tools = int(tools)
+            agent_time  = ts
+
+    # ── Parse yesterday for delta ─────────────────────────────────────────────
+    yest_sig = 0
+    for row in yest_rows:
+        items = _parse_findings(row[0])
+        yest_sig += sum(1 for x in items
+                        if isinstance(x, dict) and x.get("type") == "continuous_research_finding")
+
+    today_sig = len(today_continuous)
+    delta_sig = today_sig - yest_sig
+
+    # ── Build HTML ────────────────────────────────────────────────────────────
+    DARK  = "#0f172a"
+    CARD  = "#1e293b"
+    MUTED = "#64748b"
+    TEXT  = "#cbd5e1"
+    HEAD  = "#f1f5f9"
+    GREEN = "#22c55e"
+    AMBER = "#f59e0b"
+    BLUE  = "#38bdf8"
+    RED   = "#ef4444"
+
+    def _card(content, accent="#38bdf8"):
+        return (f'<div style="background:{CARD};border-left:3px solid {accent};'
+                f'border-radius:6px;padding:14px 16px;margin:10px 0;">{content}</div>')
+
+    def _pct_color(v):
+        try:
+            return GREEN if float(v) > 0 else RED
+        except Exception:
+            return MUTED
+
+    # Section 1 — Activity summary
+    act_rows = ""
+    if today_continuous:
+        best = sorted(today_continuous, key=lambda x: x.get("p_value", 1.0))[:3]
+        for f in best:
+            wr   = f.get("win_rate_pct", 0)
+            edge = f.get("edge_vs_baseline_pct", 0)
+            p    = f.get("p_value", 1.0)
+            desc = f.get("description", "–")
+            act_rows += (
+                f'<tr><td style="color:{TEXT};padding:4px 8px;">{desc}</td>'
+                f'<td style="color:{GREEN};padding:4px 8px;text-align:center;">{wr:.1f}%</td>'
+                f'<td style="color:{_pct_color(edge)};padding:4px 8px;text-align:center;">{edge:+.1f}pp</td>'
+                f'<td style="color:{MUTED};padding:4px 8px;text-align:center;">{p:.3f}</td></tr>'
+            )
+    elif today_agent:
+        act_rows = (f'<tr><td colspan="4" style="color:{MUTED};padding:6px 8px;">'
+                    f'{today_agent[0][:180]}</td></tr>')
+    else:
+        act_rows = (f'<tr><td colspan="4" style="color:{MUTED};padding:6px 8px;">'
+                    f'No research run recorded today yet.</td></tr>')
+
+    delta_color = GREEN if delta_sig > 0 else (AMBER if delta_sig == 0 else RED)
+    delta_str   = f"{delta_sig:+d}" if delta_sig != 0 else "±0"
+
+    act_section = _card(
+        f'<div style="font-size:11px;color:{MUTED};text-transform:uppercase;'
+        f'letter-spacing:.5px;margin-bottom:8px;">Today\'s Hypothesis Battery</div>'
+        f'<div style="font-size:22px;font-weight:700;color:{HEAD};">'
+        f'{today_sig} <span style="font-size:14px;color:{delta_color};">{delta_str} vs yesterday</span></div>'
+        f'<div style="font-size:12px;color:{MUTED};margin:4px 0 12px;">significant findings today'
+        f' · {yest_sig} yesterday · {tests_today} ledger tests logged</div>'
+        f'<table style="width:100%;border-collapse:collapse;">'
+        f'<tr><th style="color:{MUTED};font-size:11px;text-align:left;padding:4px 8px;">Finding</th>'
+        f'<th style="color:{MUTED};font-size:11px;padding:4px 8px;">Win Rate</th>'
+        f'<th style="color:{MUTED};font-size:11px;padding:4px 8px;">Edge</th>'
+        f'<th style="color:{MUTED};font-size:11px;padding:4px 8px;">p-value</th></tr>'
+        f'{act_rows}</table>', accent=BLUE
+    )
+
+    # Section 2 — Validated discoveries
+    disc_rows = ""
+    for disc in discoveries:
+        hyp, status, wr, n, edge_b, oos, pval, disc_at = disc
+        wr_pct  = float(wr or 0) if wr else 0
+        edge_v  = float(edge_b or 0) if edge_b else 0
+        oos_v   = float(oos or 0) if oos else None
+        s_color = GREEN if status == "validated" else AMBER
+        disc_rows += (
+            f'<tr><td style="color:{TEXT};padding:5px 8px;max-width:260px;">'
+            f'<span style="font-size:10px;background:{s_color}22;color:{s_color};'
+            f'padding:1px 6px;border-radius:4px;margin-right:6px;">{status.upper()}</span>'
+            f'{str(hyp)[:90]}</td>'
+            f'<td style="color:{GREEN};padding:5px 8px;text-align:center;">{wr_pct:.1f}%</td>'
+            f'<td style="color:{_pct_color(edge_v)};padding:5px 8px;text-align:center;">'
+            f'{edge_v:+.2f}pp</td>'
+            f'<td style="color:{MUTED};padding:5px 8px;text-align:center;">'
+            f'{"OOS "+str(round(oos_v,2))+"pp" if oos_v else "–"}</td>'
+            f'<td style="color:{MUTED};padding:5px 8px;font-size:11px;">'
+            f'{disc_at.strftime("%b %d") if disc_at else "–"}</td></tr>'
+        )
+    if not disc_rows:
+        disc_rows = (f'<tr><td colspan="5" style="color:{MUTED};padding:8px;">'
+                     f'No discoveries yet — building up as hypotheses are validated.</td></tr>')
+
+    disc_section = _card(
+        f'<div style="font-size:11px;color:{MUTED};text-transform:uppercase;'
+        f'letter-spacing:.5px;margin-bottom:10px;">Validated Signal Discoveries</div>'
+        f'<table style="width:100%;border-collapse:collapse;">'
+        f'<tr><th style="color:{MUTED};font-size:11px;text-align:left;padding:4px 8px;">Hypothesis</th>'
+        f'<th style="color:{MUTED};font-size:11px;padding:4px 8px;">WR</th>'
+        f'<th style="color:{MUTED};font-size:11px;padding:4px 8px;">Edge</th>'
+        f'<th style="color:{MUTED};font-size:11px;padding:4px 8px;">OOS</th>'
+        f'<th style="color:{MUTED};font-size:11px;padding:4px 8px;">Found</th></tr>'
+        f'{disc_rows}</table>', accent=GREEN
+    )
+
+    # Section 3 — Research agent status
+    if scoring_model and isinstance(scoring_model, dict):
+        model_rows = ""
+        skip_keys  = {"note", "vol_oi_factor_p_value", "confirmed_2d_bonus_p_value"}
+        for k, v in scoring_model.items():
+            if k in skip_keys:
+                continue
+            model_rows += (f'<tr><td style="color:{MUTED};padding:3px 8px;font-size:12px;">{k}</td>'
+                           f'<td style="color:{TEXT};padding:3px 8px;font-size:12px;">{v}</td></tr>')
+        model_html = (f'<table style="width:100%;border-collapse:collapse;">'
+                      f'{model_rows}</table>')
+    else:
+        model_html = (f'<span style="color:{MUTED};font-size:12px;">Scoring model uses default '
+                      f'conservative weights (needs more settled picks to adapt)</span>')
+
+    agent_section = _card(
+        f'<div style="font-size:11px;color:{MUTED};text-transform:uppercase;'
+        f'letter-spacing:.5px;margin-bottom:8px;">Research Agent · Scoring Model</div>'
+        f'<div style="font-size:12px;color:{MUTED};margin-bottom:10px;">'
+        f'Last run: {agent_time.strftime("%b %d %H:%M ET") if agent_time else "not today"}'
+        f' · Confidence: <b style="color:{HEAD};">{agent_conf}</b>'
+        f' · Tool calls: <b style="color:{HEAD};">{agent_tools}</b></div>'
+        f'{model_html}', accent=AMBER
+    )
+
+    html = f"""
+<html><body style="background:{DARK};margin:0;padding:0;font-family:system-ui,sans-serif;">
+<div style="max-width:680px;margin:0 auto;padding:24px 16px;">
+
+  <div style="margin-bottom:20px;">
+    <div style="font-size:20px;font-weight:700;color:{HEAD};">
+      🤖 AIEM Daily Digest
+    </div>
+    <div style="font-size:13px;color:{MUTED};margin-top:4px;">
+      {today_et.strftime("%A, %B %d, %Y")} · End-of-day research summary
+    </div>
+  </div>
+
+  {act_section}
+  {disc_section}
+  {agent_section}
+
+  <div style="margin-top:20px;font-size:11px;color:{MUTED};border-top:1px solid #1e293b;
+              padding-top:12px;">
+    StockScanner AI · AIEM autonomous research engine ·
+    Runs daily at 6 PM ET (hypothesis battery) + Sunday 8 PM ET (full agent)
+  </div>
+</div>
+</body></html>"""
+
+    try:
+        send_email_raw(
+            to_email=os.environ.get("OWNER_EMAIL", os.environ.get("SMTP_FROM", "")),
+            subject=f"🤖 AIEM Daily Digest — {today_sig} findings · {today_et.strftime('%b %d')}",
+            html_body=html,
+        )
+        print(f"[aiem_digest] sent — {today_sig} findings today, {delta_str} vs yesterday")
+    except Exception as _se:
+        print(f"[aiem_digest] send error: {_se}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
