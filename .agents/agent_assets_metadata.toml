@@ -96,3 +96,9 @@ id = "GS4S7cdQKC6Vrx02ce68k"
 uri = "file://stockscanner_ai_options_sweep.txt"
 type = "text"
 title = "StockScanner AI — options_sweep.py"
+
+[[outputs]]
+id = "XU0tJPgj2GjPpgyXBG8qd"
+uri = "file://artifacts/stock-scanner-api/aiem_4_new_tools.txt"
+type = "text"
+title = "AIEM — 4 New Analysis Tools"
