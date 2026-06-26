@@ -1,0 +1,224 @@
+"""
+AIEM PRE-SQUEEZE EARLY WARNING — catches volatility compression WHILE
+IT'S FORMING, before it reaches the extreme tightness threshold that
+mkt_tool_volatility_squeeze (built earlier) requires to fire.
+
+WHY THIS IS DIFFERENT FROM WHAT WAS ALREADY BUILT:
+  - mkt_tool_volatility_squeeze (signal_expansion.py) flags stocks ALREADY
+    in the bottom 20th percentile of their own band width — it tells you
+    "this is tight right now."
+  - detect_accumulation_breakout (accumulation_distribution.py) confirms
+    a move AFTER it breaks out of a squeeze that already existed.
+  - THIS file is the missing piece: it watches the TREND/SLOPE of
+    compression forming, so it can flag a stock while it's still tightening
+    — days before it would actually qualify as an extreme squeeze. That's
+    the actual lead time you want for an early entry.
+
+HONEST CAVEAT: this is a derivative of a derivative — the slope of
+volatility, which is inherently noisier than volatility itself. A
+declining-band-width trend can stall, reverse, or just stay loose without
+ever tightening into a real squeeze. That's WHY this file includes a
+backtest function (validate_pre_squeeze_lead_time) — don't trust this
+signal until you've checked, on your own historical data, how often a
+"forming" flag actually turned into a real squeeze, and how many days of
+real lead time it gave you on average. If the lead time is only 1 day or
+the false-positive rate is high, this isn't adding much over just waiting
+for the confirmed squeeze.
+"""
+
+import os
+import psycopg2
+import numpy as np
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 1. Pre-squeeze early warning — catches compression while forming
+# ════════════════════════════════════════════════════════════════════════
+
+def mkt_tool_pre_squeeze_warning(slope_window=10, width_window=20,
+                                   min_decline_pct=15.0, max_volume_trend=1.0):
+    """Flag tickers where:
+      1. Band width (volatility proxy) has been DECLINING over the last
+         `slope_window` days by at least `min_decline_pct`% — i.e.
+         actively compressing right now, not just already tight.
+      2. Volume is flat or declining (interest drying up, a classic
+         pre-squeeze tell) rather than already elevated — elevated volume
+         usually means the move has already started, which is the
+         breakout case, not the formation case.
+    This is meant to fire BEFORE mkt_tool_volatility_squeeze would."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH metrics AS (
+                    SELECT ticker, scan_date, close_price, volume,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {width_window - 1} PRECEDING AND CURRENT ROW
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {width_window - 1} PRECEDING AND CURRENT ROW
+                           ), 0) AS band_width_pct,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                           ) AS recent_avg_vol
+                    FROM polygon_market_daily
+                    WHERE close_price > 1
+                ),
+                with_lag AS (
+                    SELECT ticker, scan_date, close_price, band_width_pct, recent_avg_vol,
+                           LAG(band_width_pct, {slope_window}) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                           ) AS band_width_pct_lagged,
+                           LAG(recent_avg_vol, {slope_window}) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                           ) AS recent_avg_vol_lagged
+                    FROM metrics
+                    WHERE band_width_pct IS NOT NULL
+                )
+                SELECT ticker, scan_date, close_price, band_width_pct, band_width_pct_lagged,
+                       recent_avg_vol, recent_avg_vol_lagged,
+                       ((band_width_pct_lagged - band_width_pct) / NULLIF(band_width_pct_lagged, 0) * 100) AS width_decline_pct,
+                       (recent_avg_vol / NULLIF(recent_avg_vol_lagged, 0)) AS vol_trend_ratio
+                FROM with_lag
+                WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+                  AND band_width_pct_lagged IS NOT NULL
+                  AND ((band_width_pct_lagged - band_width_pct) / NULLIF(band_width_pct_lagged, 0) * 100) >= %s
+                  AND (recent_avg_vol / NULLIF(recent_avg_vol_lagged, 0)) <= %s
+                ORDER BY width_decline_pct DESC
+                LIMIT 50
+            """, (min_decline_pct, max_volume_trend))
+            rows = cur.fetchall()
+
+        candidates = [
+            {
+                "ticker": r[0], "scan_date": str(r[1]), "close_price": r[2],
+                "current_band_width_pct": round(r[3] * 100, 3),
+                "band_width_pct_decline": round(r[7], 1),
+                "volume_trend_ratio": round(r[8], 2),
+            }
+            for r in rows
+        ]
+        return {
+            "status": "ok",
+            "n_candidates": len(candidates),
+            "candidates": candidates,
+            "interpretation": (
+                "Band width has tightened by the listed %% over the last "
+                f"{slope_window} days while volume stayed flat/declining — "
+                "these are COMPRESSING NOW, not yet at the extreme tightness "
+                "mkt_tool_volatility_squeeze requires. Watch for the breakout "
+                "trigger (detect_accumulation_breakout) once they qualify."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 2. Validation — does this actually give you real lead time, or noise?
+# ════════════════════════════════════════════════════════════════════════
+# THIS IS THE PART YOU SHOULD RUN BEFORE TRUSTING THE SIGNAL ABOVE.
+
+def validate_pre_squeeze_lead_time(squeeze_percentile=20, lookback_days=10,
+                                      width_window=20, sample_limit=300):
+    """For every CONFIRMED squeeze event (band width actually reached the
+    extreme percentile), look backward up to `lookback_days` and check
+    whether the early-warning condition (declining width + flat/declining
+    volume) was already true — and if so, how many days BEFORE the
+    confirmed squeeze it first fired. This tells you the REAL average
+    lead time, and the false-positive rate (how often the warning fires
+    without a real squeeze following)."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Step 1: find confirmed squeeze events (reused threshold logic)
+            cur.execute(f"""
+                WITH metrics AS (
+                    SELECT ticker, scan_date,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {width_window - 1} PRECEDING AND CURRENT ROW
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {width_window - 1} PRECEDING AND CURRENT ROW
+                           ), 0) AS band_width_pct
+                    FROM polygon_market_daily WHERE close_price > 1
+                ),
+                ranked AS (
+                    SELECT ticker, scan_date, band_width_pct,
+                           PERCENT_RANK() OVER (PARTITION BY ticker ORDER BY band_width_pct) AS pct_rank
+                    FROM metrics WHERE band_width_pct IS NOT NULL
+                )
+                SELECT ticker, scan_date FROM ranked
+                WHERE pct_rank <= %s
+                ORDER BY scan_date DESC
+                LIMIT %s
+            """, (squeeze_percentile / 100.0, sample_limit))
+            confirmed_events = cur.fetchall()
+
+        if not confirmed_events:
+            return {"status": "error", "error": "No confirmed squeeze events found to validate against."}
+
+        lead_times = []
+        no_warning_count = 0
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for ticker, squeeze_date in confirmed_events:
+                cur.execute("""
+                    SELECT scan_date, close_price, volume
+                    FROM polygon_market_daily
+                    WHERE ticker = %s AND scan_date <= %s
+                    ORDER BY scan_date DESC
+                    LIMIT %s
+                """, (ticker, squeeze_date, width_window + lookback_days + 5))
+                hist = cur.fetchall()[::-1]  # chronological order
+
+                if len(hist) < width_window + lookback_days:
+                    continue
+
+                closes = np.array([h[1] for h in hist])
+                vols = np.array([h[2] for h in hist])
+                dates = [h[0] for h in hist]
+
+                found_lead = None
+                for back in range(1, lookback_days + 1):
+                    idx = len(hist) - 1 - back
+                    if idx - width_window < 0 or idx - 5 < 0:
+                        continue
+                    window_now = closes[idx - width_window + 1: idx + 1]
+                    window_then = closes[max(0, idx - width_window + 1 - back): idx + 1 - back] if idx + 1 - back > 0 else None
+                    if window_then is None or len(window_then) < width_window // 2:
+                        continue
+                    width_now = np.std(window_now) / np.mean(window_now) if np.mean(window_now) else 0
+                    width_then = np.std(window_then) / np.mean(window_then) if np.mean(window_then) else 0
+                    vol_now = np.mean(vols[max(0, idx - 4):idx + 1])
+                    vol_then = np.mean(vols[max(0, idx - back - 4):idx - back + 1]) if idx - back >= 0 else vol_now
+
+                    if width_then > 0 and (width_then - width_now) / width_then >= 0.15 and vol_now <= vol_then:
+                        found_lead = back
+
+                if found_lead:
+                    lead_times.append(found_lead)
+                else:
+                    no_warning_count += 1
+
+        n_checked = len(lead_times) + no_warning_count
+        if n_checked == 0:
+            return {"status": "error", "error": "Not enough history to validate any events."}
+
+        return {
+            "status": "ok",
+            "n_confirmed_squeeze_events_checked": n_checked,
+            "n_with_early_warning": len(lead_times),
+            "detection_rate_pct": round(len(lead_times) / n_checked * 100, 1),
+            "avg_lead_time_days": round(float(np.mean(lead_times)), 1) if lead_times else None,
+            "median_lead_time_days": round(float(np.median(lead_times)), 1) if lead_times else None,
+            "verdict": (
+                "Worth using — meaningful detection rate with real lead time."
+                if lead_times and len(lead_times) / n_checked > 0.4 and np.mean(lead_times) >= 2
+                else "Marginal — low detection rate or lead time too short to be useful over "
+                     "just waiting for the confirmed squeeze. Consider not deploying this as-is."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
