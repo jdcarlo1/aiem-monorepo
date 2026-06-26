@@ -1,0 +1,47 @@
+# Request: Need the 4 underlying analysis modules
+
+The wiring code for the 4 new AIEM tools (signal_layer_redundancy,
+signal_magnitude_analysis, holding_period_optimize, kelly_position_size) looks
+good structurally, but it only contains the `main.py` integration layer — the
+SQL queries, schema entries, and dispatcher hooks.
+
+That code imports from 4 separate modules that were NOT included:
+
+- `signal_correlation.py` → function `run_full_correlation_report()`
+- `signal_magnitude_analysis.py` → function `magnitude_report()`
+- `holding_period_optimizer.py` → functions `aggregate_horizon_performance()`
+  and `find_optimal_horizon()`
+- `position_sizing.py` → function `kelly_from_settled_picks()`
+
+Before this gets merged in, please confirm:
+
+1. Do these 4 files already exist in the codebase? If so, please share the full
+   contents of each.
+2. If they don't exist yet, they need to be built — and the math needs to match
+   exactly what the wiring code expects:
+   - `kelly_from_settled_picks(df, fractional_multiplier=...)` must return an
+     object with attributes: `win_rate`, `avg_win_pct`, `avg_loss_pct`,
+     `payoff_ratio`, `full_kelly_fraction`, `recommended_fraction`,
+     `fractional_kelly_multiplier`, `warning`. The Kelly formula should be
+     the standard `(bp - q) / b` using the real payoff ratio — not a
+     win-rate-only approximation.
+   - `run_full_correlation_report(df, signal_cols, threshold=...)` must return
+     a dict with keys `correlation_matrix` (pandas DataFrame), `redundant_pairs`
+     (DataFrame with columns `signal_a`, `signal_b`, `correlation`), and
+     `cluster_summary` (dict with `n_raw_signals`, `n_effective_clusters`,
+     `clusters`).
+   - `magnitude_report(df, cols, outcome_col=..., n_bins=...)` must return a
+     dict keyed by column name, each with `status`, `shape`
+     (e.g. `monotonically_increasing` / `peaks_in_middle` / `non_monotonic`),
+     and `table` (DataFrame with `signal_min`, `signal_max`, `signal_mean`,
+     `n`, `win_rate` per bin). Should include a minimum-samples-per-bin guard
+     so thin bins don't produce a misleading shape classification.
+   - `aggregate_horizon_performance(long_df)` and `find_optimal_horizon(perf,
+     optimize_for=...)` must operate on a long-format DataFrame
+     (`pick_id`, `horizon`, `return_pct`, segment column) and return per-horizon
+     win rate / avg return, plus the best horizon and its sample count.
+
+This matters because the agent makes independent sizing and signal decisions
+off these outputs — a subtly wrong Kelly formula or correlation calculation
+won't throw an error, it'll just quietly produce confident-looking wrong
+recommendations that get acted on.
