@@ -2737,6 +2737,24 @@ try:
          "Run mkt_net_flow_db and mkt_find_behavioral_matches. "
          "Identify the 3 highest-conviction signals currently active — "
          "these should get elevated weight in tonight's model."),
+
+        ("mon-fri", 17, 15, "movers_postmortem", 16,
+         "DAILY POST-MORTEM — market just closed. Your job: find out WHY today's "
+         "big movers moved, and whether it was predictable. "
+         "Step 1: Use mkt_analyze_top_movers to pull today's biggest gainers (5%+, vol>500K). "
+         "Step 2: For the top 15 movers, use mkt_retrospective_backtest(min_move_pct=5.0, "
+         "predict_window_days=5, lookback_days=21) to pull what each stock was showing "
+         "5, 10, and 14 trading days BEFORE today's move. "
+         "Step 3: Use mkt_ticker_deep_compare to find what these movers had IN COMMON "
+         "before the move — same volume pattern? Same price tightening? Same gap behavior? "
+         "Step 4: Use mkt_find_behavioral_matches to see which behavioral template each matched. "
+         "Step 5: Identify the 1-2 pre-move conditions that appeared in ≥60% of today's movers. "
+         "Step 6: Use mkt_test_signal to validate that condition as a forward-looking signal. "
+         "Step 7: Run mkt_validate_oos. If OOS edge > 0, WR ≥ 54%, n ≥ 200 — save with mkt_save_discovery. "
+         "Step 8: Summarize your findings clearly: 'Today X stocks moved 5%+. They shared Y pattern "
+         "Z days earlier. Going forward, look for this pattern as an early warning.' "
+         "This is the most important research session of the day — turn today's surprises "
+         "into tomorrow's early warnings."),
     ]
 
     for _day, _h, _m, _sid, _iter, _prompt in _FOCUSED_SESSIONS:
