@@ -9465,11 +9465,25 @@ def _poll_ask_sms() -> None:
                         pass
 
                 # Build the user's question from subject + body
-                combined = f"{subject} {body_text}".strip()
+                # For reply chains, prefer the body text (new content only)
+                # Strip quoted lines ("> ...") and signatures from body
+                body_clean = "\n".join(
+                    ln for ln in body_text.splitlines()
+                    if not ln.strip().startswith(">") and "wrote:" not in ln
+                ).strip()
 
-                # Strip "ASK:" prefix if present
-                question = _re.sub(r"(?i)^ask:\s*", "", combined).strip()
-                # Remove any email signature / reply chains (keep first 500 chars)
+                # Use body if it has real content, otherwise fall back to subject
+                if body_clean and len(body_clean) > 5:
+                    combined = body_clean
+                else:
+                    combined = subject
+
+                # Strip common email prefixes: Re:, Fw:, ASK:, AIEM Answer:
+                question = _re.sub(
+                    r"(?i)^(re:\s*|fw:\s*|fwd:\s*|aiem answer:\s*|ask:\s*)+",
+                    "", combined
+                ).strip()
+                # Remove any remaining reply chains (keep first 500 chars)
                 question = question[:500].split("\n>")[0].strip()
 
                 if not question or len(question) < 3:
@@ -9502,60 +9516,45 @@ def _poll_ask_sms() -> None:
                     f"then 1-2 supporting facts. No fluff."
                 )
 
-                def _run_and_reply(q=question, p=prompt):
+                def _run_and_reply(q=question, p=prompt, _vg=via_gateway):
                     try:
-                        # Capture the last assistant message by monkey-patching print
-                        # Run the session — it will use all tools
-                        import io as _io, threading as _thr_sms
-                        _run_aiem_focused_session(
+                        answer_text = _run_aiem_focused_session(
                             session_name=f"sms_ask_{q[:20].replace(' ','_')}",
                             focus_prompt=p,
                             max_iterations=3
                         )
-                        # After session, pull the most recent research insight and reply
-                        try:
-                            import psycopg2 as _pg_sms
-                            with _pg_sms.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
-                                _cur.execute("""
-                                    SELECT findings FROM aiem_research_insights
-                                    ORDER BY created_at DESC LIMIT 1
-                                """)
-                                row = _cur.fetchone()
-                                summary = row[0] if row and row[0] else "Research complete — no new insights saved."
-                            if via_gateway:
-                                _send_sms(f"📊 {summary[:280]}")
-                            else:
-                                try:
-                                    from email_alerts import send_email_raw as _ser_rep
-                                    _html = (
-                                        f"<div style='font-family:Arial,sans-serif;max-width:600px'>"
-                                        f"<h3 style='color:#1a1a2e'>📊 AIEM Research: {q[:80]}</h3>"
-                                        f"<div style='background:#f0f4ff;border-left:4px solid #4361ee;"
-                                        f"padding:15px;border-radius:4px;white-space:pre-wrap'>{summary}</div>"
-                                        f"<p style='color:#888;font-size:12px'>To ask another question, "
-                                        f"send a new email with ASK in the subject.</p></div>"
-                                    )
-                                    _ser_rep(_OWNER_EMAIL, f"AIEM Answer: {q[:60]}", _html)
-                                except Exception: pass
-                        except Exception as _e:
-                            print(f"[poll_ask_sms] reply error: {_e}")
-                            if via_gateway:
-                                _send_sms("✅ Research done — check your email for the full report.")
-                            else:
-                                try:
-                                    from email_alerts import send_email_raw as _ser_fb
-                                    _ser_fb(_OWNER_EMAIL, f"AIEM Answer: {q[:60]}",
-                                            f"<p>Research complete for: <b>{q[:200]}</b><br><br>"
-                                            f"Error retrieving findings: {_e}</p>")
-                                except Exception: pass
+                        summary = answer_text if answer_text and len(answer_text) > 10 \
+                            else "Research complete — no summary was generated. Try rephrasing your question."
+
+                        # Clean subject: strip any "AIEM Answer:" stacking
+                        import re as _re3
+                        clean_q = _re3.sub(r"(?i)^(re:\s*|aiem answer:\s*|ask:\s*)+", "", q).strip()[:60]
+
+                        if _vg:
+                            _send_sms(f"📊 {summary[:280]}")
+                        else:
+                            try:
+                                from email_alerts import send_email_raw as _ser_rep
+                                _html = (
+                                    f"<div style='font-family:Arial,sans-serif;max-width:600px'>"
+                                    f"<h3 style='color:#1a1a2e'>📊 AIEM Research: {clean_q}</h3>"
+                                    f"<div style='background:#f0f4ff;border-left:4px solid #4361ee;"
+                                    f"padding:15px;border-radius:4px;white-space:pre-wrap'>{summary}</div>"
+                                    f"<p style='color:#888;font-size:12px'>To ask another question, "
+                                    f"send a new email with ASK in the subject.</p></div>"
+                                )
+                                _ser_rep(_OWNER_EMAIL, f"AIEM Answer: {clean_q}", _html)
+                            except Exception as _e2:
+                                print(f"[poll_ask_sms] email send error: {_e2}")
                     except Exception as _e:
                         print(f"[poll_ask_sms] session error: {_e}")
-                        if via_gateway:
+                        if _vg:
                             _send_sms("⚠️ Research hit an error. Try again or check the dashboard.")
                         else:
                             try:
                                 from email_alerts import send_email_raw as _ser_err
-                                _ser_err(_OWNER_EMAIL, "AIEM: Research error", f"<p>Hit an error researching: <b>{q[:100]}</b>. Please try again.</p>")
+                                _ser_err(_OWNER_EMAIL, "AIEM: Research error",
+                                         f"<p>Hit an error researching: <b>{q[:100]}</b>. Please try again.</p>")
                             except Exception: pass
 
                 import threading as _thr_ask
@@ -21052,6 +21051,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
     """
     import json as _fsj, datetime as _fsd
     print(f"[aiem_24h] starting session: {session_name}")
+    _last_text = ""
     try:
         from openai import OpenAI as _OAIFS
         _oai = _OAIFS(
@@ -21130,6 +21130,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
             )
             msg = resp.choices[0].message
             messages.append(msg)
+            if msg.content:
+                _last_text = msg.content
             if not msg.tool_calls:
                 break
             for tc in msg.tool_calls:
@@ -21151,6 +21153,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
             break
 
     print(f"[aiem_24h:{session_name}] complete ({_i+1} iterations)")
+    return _last_text
 
 
 _AIEM_AGENT_TOOLS = [
