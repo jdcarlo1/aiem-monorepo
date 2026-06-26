@@ -9419,6 +9419,13 @@ def _poll_ask_sms() -> None:
                 _, msg_data = mail.fetch(uid, "(RFC822)")
                 msg = _em.message_from_bytes(msg_data[0][1])
 
+                # Capture sender email for reply routing
+                raw_from = msg.get("From", "")
+                import re as _re2
+                _from_match = _re2.search(r"[\w\.\+\-]+@[\w\.\-]+", raw_from)
+                sender_email = _from_match.group(0) if _from_match else ""
+                via_gateway  = "tmomail.net" in sender_email or "gateway" in sender_email
+
                 # Decode subject
                 raw_subj = msg.get("Subject", "")
                 subj_parts = _dh(raw_subj)
@@ -9459,7 +9466,15 @@ def _poll_ask_sms() -> None:
                 mail.store(uid, "+FLAGS", "\\Seen")
 
                 # Immediately confirm receipt
-                _send_sms(f"Got it! Researching: {question[:80]}... reply in ~5-10 min 🔍")
+                if via_gateway:
+                    _send_sms(f"Got it! Researching: {question[:80]}... reply in ~5-10 min 🔍")
+                else:
+                    try:
+                        from email_alerts import send_email_raw as _ser_ack
+                        _ser_ack(_OWNER_EMAIL, "AIEM: Got your question ✅",
+                            f"<p>Got it! Researching: <b>{question[:120]}</b></p>"
+                            f"<p>I'll email you the full answer in 5–10 minutes.</p>")
+                    except Exception: pass
 
                 # Build focused AIEM prompt
                 prompt = (
@@ -9483,7 +9498,7 @@ def _poll_ask_sms() -> None:
                             focus_prompt=p,
                             max_iterations=8
                         )
-                        # After session, pull the most recent research insight as SMS summary
+                        # After session, pull the most recent research insight and reply
                         try:
                             import psycopg2 as _pg_sms
                             with _pg_sms.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
@@ -9492,16 +9507,34 @@ def _poll_ask_sms() -> None:
                                     ORDER BY created_at DESC LIMIT 1
                                 """)
                                 row = _cur.fetchone()
-                                if row and row[0]:
-                                    summary = row[0][:280]
-                                    _send_sms(f"📊 {summary}")
-                                else:
-                                    _send_sms("✅ Research done — check your email for the full report.")
+                                summary = row[0] if row and row[0] else "Research complete — no new insights saved."
+                            if via_gateway:
+                                _send_sms(f"📊 {summary[:280]}")
+                            else:
+                                try:
+                                    from email_alerts import send_email_raw as _ser_rep
+                                    _html = (
+                                        f"<div style='font-family:Arial,sans-serif;max-width:600px'>"
+                                        f"<h3 style='color:#1a1a2e'>📊 AIEM Research: {q[:80]}</h3>"
+                                        f"<div style='background:#f0f4ff;border-left:4px solid #4361ee;"
+                                        f"padding:15px;border-radius:4px;white-space:pre-wrap'>{summary}</div>"
+                                        f"<p style='color:#888;font-size:12px'>To ask another question, "
+                                        f"reply with subject: ASK: your question</p></div>"
+                                    )
+                                    _ser_rep(_OWNER_EMAIL, f"AIEM Answer: {q[:60]}", _html)
+                                except Exception: pass
                         except Exception as _e:
-                            _send_sms("✅ Research done — check your email for the full report.")
+                            if via_gateway:
+                                _send_sms("✅ Research done — check your email for the full report.")
                     except Exception as _e:
                         print(f"[poll_ask_sms] session error: {_e}")
-                        _send_sms("⚠️ Research hit an error. Try again or check the dashboard.")
+                        if via_gateway:
+                            _send_sms("⚠️ Research hit an error. Try again or check the dashboard.")
+                        else:
+                            try:
+                                from email_alerts import send_email_raw as _ser_err
+                                _ser_err(_OWNER_EMAIL, "AIEM: Research error", f"<p>Hit an error researching: <b>{q[:100]}</b>. Please try again.</p>")
+                            except Exception: pass
 
                 import threading as _thr_ask
                 _thr_ask.Thread(target=_run_and_reply, daemon=True).start()
