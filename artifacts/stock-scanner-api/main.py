@@ -27096,11 +27096,6 @@ def _ai_trades_worker():
             try:
                 import urllib.request as _ur
                 warm_paths = [
-                    f"/stock-api/vol-crush",
-                    f"/stock-api/call-intent",
-                    f"/stock-api/options-intent",
-                    f"/stock-api/smart-vs-retail",
-                    f"/stock-api/max-pain",
                     f"/stock-api/gamma-wall",
                     f"/stock-api/darkpool",
                     f"/stock-api/premarket",
