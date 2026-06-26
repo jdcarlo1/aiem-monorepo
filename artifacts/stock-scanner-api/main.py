@@ -17277,6 +17277,52 @@ MANDATORY WORKFLOW FOR MARKET RESEARCH (always follow this sequence):
 20. mkt_build_composite       — combine top discoveries into final weighted rule
 
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
+
+═══════════════════════════════════════════════════════════════
+STANDING RESEARCH DIRECTIVES (follow every session, in order)
+═══════════════════════════════════════════════════════════════
+
+DIRECTIVE 1 — CHECK DECAY FIRST:
+Before generating any new hypotheses, call mkt_signal_drift on every entry returned by
+mkt_load_discoveries. Flag discoveries with edge_drift > 3pp as decaying. Document which
+signals are holding vs fading before adding any new ones.
+
+DIRECTIVE 2 — CLOSE STRENGTH IS UNDEREXPLORED:
+close_strength (where price closed within its day range, 0=at low, 1=at high) is
+hypothesized to be the single strongest underweighted predictor we have. Dedicate at least
+3 of your 8 generated hypotheses to close_strength combinations every session.
+
+DIRECTIVE 3 — FIND PRICE-BUCKET-SPECIFIC SIGNALS:
+Every significant signal (p<0.10) must be retested in these three buckets separately:
+  - Penny:  close_price_max=5
+  - Low:    close_price_min=5, close_price_max=15
+  - Mid:    close_price_min=15, close_price_max=50
+A signal that only works in one bucket is still valuable — note the restriction.
+
+DIRECTIVE 4 — FIND SIGNALS INDEPENDENT OF GAP:
+Gap + volume (S2) is already validated. Actively hunt for signals that work WITHOUT gap.
+Test conditions with gap_pct_max=0.5 to find what predicts returns in the flat-open
+universe. Independent signals are MORE valuable than variations of what we already know.
+
+DIRECTIVE 5 — BEAR MARKET ALPHA IS THE HOLY GRAIL:
+Call mkt_regime_filter on every validated signal. Any signal with higher edge on bear days
+(SPY down) than bull days must be flagged PRIORITY and saved with notes="bear_alpha".
+These are extremely rare and immediately actionable for both long and short setups.
+
+DIRECTIVE 6 — MINIMUM SAMPLE SIZE = 200:
+Never save a discovery with signal_n < 200. Small-sample signals are statistical noise.
+If a signal fires on fewer than 200 stock-days across the full dataset, discard it
+regardless of win rate. Fragile signals that rarely fire cannot be traded reliably.
+
+DIRECTIVE 7 — COMPOSITE IS THE SESSION GOAL:
+Every session must end with mkt_build_composite using all discoveries saved that session
+plus the top 3 prior discoveries from mkt_load_discoveries. Report whether the composite
+outperforms any individual signal. The composite rule is the output, not individual signals.
+
+DIRECTIVE 8 — INVENT SOMETHING NEW EVERY SESSION:
+Every session must include at least one call to mkt_invent_indicator. Provide the
+discoveries found so far as the inspiration parameter. Never skip invention — the ability
+to create indicators no human has defined is the primary advantage of this system.
 22. analyze_missed_movers        — Find what big moves you missed and why.
 
 HARD RULES — violating these produces an invalid model:
@@ -30281,6 +30327,21 @@ def _polygon_full_market_scan() -> list:
         app.logger.error(f"[polygon_market_daily] save error: {_e5b}")
 
     _POLYGON_RVOL_LOCK.release()
+
+    # ── Post-scan trigger: fire Loop B immediately on fresh data ──────────────
+    import threading as _pst_thr
+    def _post_scan_loop_b():
+        import time as _pst_t
+        _pst_t.sleep(60)  # 60s: ensure all DB writes are committed and visible
+        app.logger.info("[post_scan] Loop B triggered by fresh Polygon data — running AIEM research")
+        try:
+            _run_aiem_continuous_research()
+            app.logger.info("[post_scan] Loop B research session complete")
+        except Exception as _pst_e:
+            app.logger.error(f"[post_scan] Loop B error: {_pst_e}")
+    _pst_thr.Thread(target=_post_scan_loop_b, daemon=True, name="loop-b-post-scan").start()
+    app.logger.info("[post_scan] Loop B triggered in background (fires in 60s)")
+
     return top
 
 
