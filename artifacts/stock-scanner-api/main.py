@@ -2650,95 +2650,17 @@ try:
     # ── 24/7 focused research sessions ───────────────────────────────────
     # Each slot has a distinct question — agent is never idle, never repeating.
     _FOCUSED_SESSIONS = [
-        # Weekday sessions
-        ("mon-fri", 10, 45, "intraday_options_check", 10,
-         "It is mid-morning. Run mkt_cross_confirm_options and mkt_find_behavioral_matches. "
-         "What options flow is firing RIGHT NOW that cross-confirms with price action today? "
-         "Which active stocks match pre-move behavioral templates? Flag the top 3."),
+        # ── 3 sessions/weekday only — ~$0.50-0.80/day total ──────────────
 
-        ("mon-fri", 13, 0, "midday_accumulation", 10,
-         "Midday check. Run mkt_net_flow_db and mkt_quiet_accumulation. "
-         "Which stocks are quietly grinding higher with sustained inflow? "
-         "Cross-reference with mkt_ticker_options_history for any with call activity. "
-         "Accumulation today often means a breakout in 2-5 days."),
+        # 1. Pre-close: best stocks setting up for tomorrow (2:45 PM)
+        ("mon-fri", 14, 45, "preclose_positioning", 8,
+         "45 minutes before close. Which stocks are closing strong today with options activity? "
+         "Run mkt_options_flow_scan with days_back=1 for TODAY's flow. "
+         "Run mkt_find_behavioral_matches. Stocks with close_strength > 0.7 AND call activity "
+         "are the ones to watch tomorrow morning. Flag the top 3 with reasoning."),
 
-        ("mon-fri", 14, 45, "preclose_positioning", 10,
-         "45 minutes before close. Smart money positions in the last hour. "
-         "Run mkt_options_flow_scan with days_back=1 to catch TODAY's flow. "
-         "Run mkt_find_behavioral_matches. Which stocks are closing strong "
-         "(close_strength > 0.7) WITH options activity? Those are the ones to watch tomorrow."),
-
-        ("mon-fri", 17, 0, "postclose_retrospective", 12,
-         "Market just closed. Run mkt_retrospective_backtest to ask: "
-         "which stocks moved 10%+ today? Could we have predicted them 3-5 days ago? "
-         "What did their fingerprint look like before the move? "
-         "Save any pattern that was predictable to discoveries."),
-
-        ("mon-fri", 20, 0, "evening_deep_analysis", 15,
-         "Evening research session. All data is settled. "
-         "Run mkt_explore_dimensions to find new factor combinations. "
-         "Test 5 new signal hypotheses with mkt_test_signal. "
-         "Validate with mkt_validate_oos. Save anything significant with mkt_save_discovery."),
-
-        ("mon-fri", 23, 0, "latenight_pattern_mining", 12,
-         "Late night pattern mining — no time pressure, go deep. "
-         "Run mkt_factor_correlations to find which metrics correlate with big moves. "
-         "Run mkt_find_thresholds to optimize signal cutoffs. "
-         "Test any hypothesis the evening session flagged. Pure statistics."),
-
-        ("mon-fri", 2, 0, "overnight_deep_research", 15,
-         "Overnight deep research — maximum time, no market noise. "
-         "Run mkt_behavioral_templates and study what the best pre-move setups look like. "
-         "Run mkt_retrospective_backtest with lookback_days=45 to find all catchable moves. "
-         "What is the common thread? Build a composite signal using mkt_build_composite."),
-
-        ("mon-fri", 5, 30, "premarket_brief", 10,
-         "Pre-market research brief — market opens in 4 hours. "
-         "Run mkt_find_behavioral_matches to see what built up overnight. "
-         "Run mkt_net_flow_db to see which stocks had sustained inflow this week. "
-         "Run mkt_pre_squeeze_warning. Identify the top 5 stocks to watch at open."),
-
-        # Saturday — extended research, no market pressure
-        ("sat", 8, 0, "saturday_deep_backtest", 20,
-         "Saturday deep backtest — full week review. "
-         "Run mkt_retrospective_backtest for all 15%+ moves this week. "
-         "What percentage were predictable from the fingerprint? "
-         "What signals were most predictive? Quantify everything with statistics. "
-         "Save all significant findings to discoveries."),
-
-        ("sat", 12, 0, "saturday_signal_optimization", 20,
-         "Saturday signal optimization session. "
-         "Run mkt_find_thresholds for each major factor (rvol, close_strength, gap_pct, vol_accel). "
-         "What are the optimal cutoffs? Test combinations with mkt_test_signal. "
-         "Validate ALL findings out-of-sample with mkt_validate_oos before saving."),
-
-        ("sat", 16, 0, "saturday_options_analysis", 18,
-         "Saturday options analysis. "
-         "Run mkt_options_predicts_price at multiple premium thresholds ($10K, $50K, $100K, $500K). "
-         "Which premium tier is most predictive? Which vol/OI threshold? "
-         "Run mkt_factor_correlations on options features. Build the optimal options signal."),
-
-        ("sat", 20, 0, "saturday_synthesis", 15,
-         "Saturday evening synthesis — consolidate the week. "
-         "Run search_past_findings to review everything saved this week. "
-         "Which discoveries replicated across multiple sessions? "
-         "Build a composite model with mkt_build_composite using the week's best signals. "
-         "Save the weekly synthesis as a high-confidence discovery."),
-
-        # Sunday additions (beyond the existing 7PM retrain + 8PM Loop A)
-        ("sun", 10, 0, "sunday_morning_research", 18,
-         "Sunday morning research — fresh week ahead. "
-         "Run analyze_missed_movers: what big moves happened last week that we missed? "
-         "Run mkt_retrospective_backtest. Were they catchable? "
-         "What would we need to add to catch them next time?"),
-
-        ("sun", 14, 0, "sunday_model_prep", 15,
-         "Sunday afternoon — prepare inputs for tonight's model retrain (7PM). "
-         "Run mkt_behavioral_templates to verify template library is fresh. "
-         "Run mkt_net_flow_db and mkt_find_behavioral_matches. "
-         "Identify the 3 highest-conviction signals currently active — "
-         "these should get elevated weight in tonight's model."),
-
+        # 2. Daily post-mortem: why did today's movers move? (5:15 PM)
+        # — most valuable session, turns surprises into tomorrow's early warnings
         ("mon-fri", 17, 15, "movers_postmortem", 16,
          "DAILY POST-MORTEM — market just closed. Your job: find out WHY today's "
          "big movers moved, and whether it was predictable. "
