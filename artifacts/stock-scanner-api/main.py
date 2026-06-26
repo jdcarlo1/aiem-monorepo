@@ -13210,8 +13210,8 @@ def _aiem_tool_query_pick_outcomes(days_back=30):
             _cu.execute("""
                 SELECT trade_date, ticker, rank, rec_type, stock_price, day_ret,
                        confirmed_2d, vol_oi, conviction,
-                       t3_pct, t3_win, t7_pct, t7_win, outcome
-                FROM ai_early_movers_log
+                       t3_pct, t3_win, t5_pct, t5_win, outcome
+                FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
                 ORDER BY trade_date DESC, rank ASC
             """, (days_back,))
@@ -13221,9 +13221,9 @@ def _aiem_tool_query_pick_outcomes(days_back=30):
             if hasattr(r.get("trade_date"), "isoformat"):
                 r["trade_date"] = r["trade_date"].isoformat()
         settled_t3 = [r for r in rows if r.get("t3_win") is not None]
-        settled_t7 = [r for r in rows if r.get("t7_win") is not None]
+        settled_t7 = [r for r in rows if r.get("t5_win") is not None]
         t3_wr = round(sum(1 for r in settled_t3 if r["t3_win"]) / len(settled_t3) * 100, 1) if settled_t3 else None
-        t7_wr = round(sum(1 for r in settled_t7 if r["t7_win"]) / len(settled_t7) * 100, 1) if settled_t7 else None
+        t7_wr = round(sum(1 for r in settled_t7 if r["t5_win"]) / len(settled_t7) * 100, 1) if settled_t7 else None
         return {
             "picks": rows,
             "total_picks": len(rows),
@@ -13231,8 +13231,8 @@ def _aiem_tool_query_pick_outcomes(days_back=30):
             "settled_t3": len(settled_t3),
             "settled_t7": len(settled_t7),
             "overall_t3_win_rate_pct": t3_wr,
-            "overall_t7_win_rate_pct": t7_wr,
-            "note": "t3_win/t7_win are None for picks not yet settled"
+            "overall_t5_win_rate_pct": t7_wr,
+            "note": "t3_win/t5_win are None for picks not yet settled"
         }
     except Exception as e:
         return {"error": str(e)}
@@ -13281,11 +13281,11 @@ def _aiem_tool_analyze_signal_correlation(signal="confirmed_2d", days_back=30):
                            COUNT(*) AS n,
                            SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
                            SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
-                           SUM(CASE WHEN t7_win THEN 1 ELSE 0 END)::float AS t7_wins,
-                           SUM(CASE WHEN t7_win IS NOT NULL THEN 1 ELSE 0 END) AS t7_settled,
+                           SUM(CASE WHEN t5_win THEN 1 ELSE 0 END)::float AS t5_wins,
+                           SUM(CASE WHEN t5_win IS NOT NULL THEN 1 ELSE 0 END) AS t7_settled,
                            AVG(t3_pct) AS avg_t3_pct,
-                           AVG(t7_pct) AS avg_t7_pct
-                    FROM ai_early_movers_log
+                           AVG(t5_pct) AS avg_t5_pct
+                    FROM ai_short_calls_log
                     WHERE trade_date >= CURRENT_DATE - %s
                     GROUP BY confirmed_2d
                 """, (days_back,))
@@ -13295,11 +13295,11 @@ def _aiem_tool_analyze_signal_correlation(signal="confirmed_2d", days_back=30):
                            COUNT(*) AS n,
                            SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
                            SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
-                           SUM(CASE WHEN t7_win THEN 1 ELSE 0 END)::float AS t7_wins,
-                           SUM(CASE WHEN t7_win IS NOT NULL THEN 1 ELSE 0 END) AS t7_settled,
+                           SUM(CASE WHEN t5_win THEN 1 ELSE 0 END)::float AS t5_wins,
+                           SUM(CASE WHEN t5_win IS NOT NULL THEN 1 ELSE 0 END) AS t7_settled,
                            AVG(t3_pct) AS avg_t3_pct,
-                           AVG(t7_pct) AS avg_t7_pct
-                    FROM ai_early_movers_log
+                           AVG(t5_pct) AS avg_t5_pct
+                    FROM ai_short_calls_log
                     WHERE trade_date >= CURRENT_DATE - %s
                     GROUP BY (conviction = 'HIGH')
                 """, (days_back,))
@@ -13309,11 +13309,11 @@ def _aiem_tool_analyze_signal_correlation(signal="confirmed_2d", days_back=30):
                            COUNT(*) AS n,
                            SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
                            SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
-                           SUM(CASE WHEN t7_win THEN 1 ELSE 0 END)::float AS t7_wins,
-                           SUM(CASE WHEN t7_win IS NOT NULL THEN 1 ELSE 0 END) AS t7_settled,
+                           SUM(CASE WHEN t5_win THEN 1 ELSE 0 END)::float AS t5_wins,
+                           SUM(CASE WHEN t5_win IS NOT NULL THEN 1 ELSE 0 END) AS t7_settled,
                            AVG(t3_pct) AS avg_t3_pct,
-                           AVG(t7_pct) AS avg_t7_pct
-                    FROM ai_early_movers_log
+                           AVG(t5_pct) AS avg_t5_pct
+                    FROM ai_short_calls_log
                     WHERE trade_date >= CURRENT_DATE - %s
                     GROUP BY (rec_type = 'BUY_STOCK')
                 """, (days_back,))
@@ -13329,7 +13329,7 @@ def _aiem_tool_analyze_signal_correlation(signal="confirmed_2d", days_back=30):
             results[label] = {
                 "count": n,
                 "t3_win_rate_pct": round(t3w / t3s * 100, 1) if t3s else None,
-                "t7_win_rate_pct": round(t7w / t7s * 100, 1) if t7s else None,
+                "t5_win_rate_pct": round(t7w / t7s * 100, 1) if t7s else None,
                 "avg_t3_return_pct": round(float(avg3), 2) if avg3 else None,
                 "avg_t7_return_pct": round(float(avg7), 2) if avg7 else None,
                 "settled_t3": int(t3s or 0),
@@ -13357,8 +13357,8 @@ def _aiem_tool_compare_picks_vs_misses(days_back=30):
                     SUM(CASE WHEN conviction='HIGH' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) AS high_conviction_rate,
                     COUNT(*) AS n,
                     AVG(t3_pct) AS avg_forward_t3,
-                    AVG(t7_pct) AS avg_forward_t7
-                FROM ai_early_movers_log
+                    AVG(t5_pct) AS avg_forward_t7
+                FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
             """, (days_back,))
             pick_stats = dict(zip([d[0] for d in _cu.description], _cu.fetchone()))
@@ -13415,8 +13415,8 @@ def _aiem_tool_discover_numeric_patterns(metric="day_ret", days_back=30):
                     SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
                     SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
                     AVG(t3_pct) AS avg_t3_pct,
-                    AVG(t7_pct) AS avg_t7_pct
-                FROM ai_early_movers_log
+                    AVG(t5_pct) AS avg_t5_pct
+                FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
                   AND {metric} IS NOT NULL
             """, (days_back,))
@@ -13452,8 +13452,8 @@ def _aiem_tool_test_scoring_hypothesis(weights, days_back=30):
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("""
                 SELECT ticker, trade_date, confirmed_2d, conviction, rec_type,
-                       day_ret, vol_oi, t3_win, t7_win, t3_pct, t7_pct
-                FROM ai_early_movers_log
+                       day_ret, vol_oi, t3_win, t5_win, t3_pct, t5_pct
+                FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
                   AND t3_win IS NOT NULL
             """, (days_back,))
@@ -13494,8 +13494,8 @@ def _aiem_tool_test_scoring_hypothesis(weights, days_back=30):
             "bottom_half_n": len(bot_half),
             "top_half_t3_win_rate_pct": _wr(top_half, "t3_win"),
             "bottom_half_t3_win_rate_pct": _wr(bot_half, "t3_win"),
-            "top_half_t7_win_rate_pct": _wr(top_half, "t7_win"),
-            "bottom_half_t7_win_rate_pct": _wr(bot_half, "t7_win"),
+            "top_half_t5_win_rate_pct": _wr(top_half, "t5_win"),
+            "bottom_half_t5_win_rate_pct": _wr(bot_half, "t5_win"),
             "improvement_vs_random_t3": (
                 round((_wr(top_half,"t3_win") or 0) - (_wr(picks,"t3_win") or 0), 1)
             ),
@@ -14355,9 +14355,9 @@ def _aiem_tool_query_market_regime(days_back=60):
                     a.trade_date,
                     a.ticker,
                     a.t3_win,
-                    a.t7_win,
+                    a.t5_win,
                     a.t3_pct,
-                    a.t7_pct,
+                    a.t5_pct,
                     a.confirmed_2d,
                     a.conviction,
                     CASE
@@ -14371,7 +14371,7 @@ def _aiem_tool_query_market_regime(days_back=60):
                         WHEN sc.vix_level IS NOT NULL THEN 'HIGH_VIX'
                         ELSE 'UNKNOWN'
                     END AS vix_regime
-                FROM ai_early_movers_log a
+                FROM ai_short_calls_log a
                 LEFT JOIN (
                     SELECT DISTINCT ON (date)
                         date,
@@ -14389,7 +14389,7 @@ def _aiem_tool_query_market_regime(days_back=60):
             return {"error": "No settled picks or no spy_daily_cache data yet", "days_back": days_back}
 
         from collections import defaultdict
-        regime_stats = defaultdict(lambda: {"n":0,"t3_wins":0,"t7_wins":0,"t7_n":0,"t3_pcts":[]})
+        regime_stats = defaultdict(lambda: {"n":0,"t3_wins":0,"t5_wins":0,"t7_n":0,"t3_pcts":[]})
         vix_stats    = defaultdict(lambda: {"n":0,"t3_wins":0,"t3_pcts":[]})
         for row in rows:
             d = dict(zip(cols, row))
@@ -14434,7 +14434,7 @@ def _aiem_tool_query_cross_signal_overlap(days_back=30):
             # Picks with conviction_stack on same day
             _cu.execute("""
                 SELECT
-                    a.ticker, a.trade_date, a.t3_win, a.t7_win, a.t3_pct,
+                    a.ticker, a.trade_date, a.t3_win, a.t5_win, a.t3_pct,
                     (EXISTS (
                         SELECT 1 FROM conviction_stack_watchlist csw
                         WHERE csw.ticker = a.ticker
@@ -14445,7 +14445,7 @@ def _aiem_tool_query_cross_signal_overlap(days_back=30):
                         WHERE ucl.ticker = a.ticker
                           AND ucl.scan_date = a.trade_date
                     )) AS in_unusual_calls
-                FROM ai_early_movers_log a
+                FROM ai_short_calls_log a
                 WHERE a.trade_date >= CURRENT_DATE - %s
                   AND a.t3_win IS NOT NULL
             """, (days_back,))
@@ -14518,7 +14518,7 @@ def _aiem_tool_evaluate_previous_model(lookback_weeks=2):
                 SELECT COUNT(*) as n,
                        SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float as wins,
                        AVG(t3_pct) as avg_ret
-                FROM ai_early_movers_log
+                FROM ai_short_calls_log
                 WHERE trade_date >= %s - INTERVAL '14 days'
                   AND trade_date <  %s
                   AND t3_win IS NOT NULL
@@ -14530,7 +14530,7 @@ def _aiem_tool_evaluate_previous_model(lookback_weeks=2):
                 SELECT COUNT(*) as n,
                        SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float as wins,
                        AVG(t3_pct) as avg_ret
-                FROM ai_early_movers_log
+                FROM ai_short_calls_log
                 WHERE trade_date >= %s
                   AND t3_win IS NOT NULL
             """, (latest_model_date,))
@@ -14592,8 +14592,8 @@ def _aiem_tool_query_temporal_patterns(days_back=60):
                     SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
                     SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
                     AVG(t3_pct) AS avg_t3_pct,
-                    AVG(t7_pct) AS avg_t7_pct
-                FROM ai_early_movers_log
+                    AVG(t5_pct) AS avg_t5_pct
+                FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
                 GROUP BY 1, 2, 3
                 ORDER BY 1
@@ -14624,7 +14624,7 @@ def _aiem_tool_query_temporal_patterns(days_back=60):
                     SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
                     SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
                     AVG(t3_pct) AS avg_t3_pct
-                FROM ai_early_movers_log
+                FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
                 GROUP BY 1
             """, (days_back,))
@@ -14636,7 +14636,7 @@ def _aiem_tool_query_temporal_patterns(days_back=60):
             n3 = int(d.get("t3_settled") or 0)
             d["t3_win_rate_pct"] = round(float(d["t3_wins"])/n3*100,1) if n3 else None
             d["avg_t3_pct"] = round(float(d["avg_t3_pct"]),2) if d.get("avg_t3_pct") else None
-            d["avg_t7_pct"] = round(float(d["avg_t7_pct"]),2) if d.get("avg_t7_pct") else None
+            d["avg_t5_pct"] = round(float(d["avg_t5_pct"]),2) if d.get("avg_t5_pct") else None
             d.pop("t3_wins", None)
             dow_results.append(d)
 
@@ -14678,8 +14678,8 @@ def _aiem_tool_query_rank_effectiveness(days_back=30):
                     SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
                     SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
                     AVG(t3_pct) AS avg_t3_pct,
-                    AVG(t7_pct) AS avg_t7_pct
-                FROM ai_early_movers_log
+                    AVG(t5_pct) AS avg_t5_pct
+                FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
                   AND rank IS NOT NULL AND rank <= 10
                 GROUP BY rank
@@ -14693,7 +14693,7 @@ def _aiem_tool_query_rank_effectiveness(days_back=30):
             n3 = int(d.get("t3_settled") or 0)
             d["t3_win_rate_pct"] = round(float(d["t3_wins"])/n3*100,1) if n3 else None
             d["avg_t3_pct"] = round(float(d["avg_t3_pct"]),2) if d.get("avg_t3_pct") else None
-            d["avg_t7_pct"] = round(float(d["avg_t7_pct"]),2) if d.get("avg_t7_pct") else None
+            d["avg_t5_pct"] = round(float(d["avg_t5_pct"]),2) if d.get("avg_t5_pct") else None
             result.append(d)
         # Compute rank premium: rank1 vs rank5+ win rate gap
         rank1 = next((r for r in result if r["rank"]==1), None)
@@ -14733,12 +14733,12 @@ def _aiem_tool_query_exit_timing(days_back=30):
                     confirmed_2d,
                     COUNT(*) FILTER (WHERE t3_win IS NOT NULL) AS n_t3,
                     AVG(t3_pct) AS avg_t3,
-                    AVG(t7_pct) AS avg_t7,
+                    AVG(t5_pct) AS avg_t7,
                     SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float /
                         NULLIF(SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END), 0) AS t3_wr,
-                    SUM(CASE WHEN t7_win THEN 1 ELSE 0 END)::float /
-                        NULLIF(SUM(CASE WHEN t7_win IS NOT NULL THEN 1 ELSE 0 END), 0) AS t7_wr
-                FROM ai_early_movers_log
+                    SUM(CASE WHEN t5_win THEN 1 ELSE 0 END)::float /
+                        NULLIF(SUM(CASE WHEN t5_win IS NOT NULL THEN 1 ELSE 0 END), 0) AS t7_wr
+                FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
                 GROUP BY conviction, confirmed_2d
                 ORDER BY conviction, confirmed_2d
@@ -14752,21 +14752,21 @@ def _aiem_tool_query_exit_timing(days_back=30):
             t3_wr = float(d["t3_wr"]) if d.get("t3_wr") else None
             t7_wr = float(d["t7_wr"]) if d.get("t7_wr") else None
             t3_pct = float(d["avg_t3"]) if d.get("avg_t3") else None
-            t7_pct = float(d["avg_t7"]) if d.get("avg_t7") else None
+            t5_pct = float(d["avg_t7"]) if d.get("avg_t7") else None
             result.append({
                 "conviction": d.get("conviction"),
                 "confirmed_2d": d.get("confirmed_2d"),
                 "n": int(d.get("n_t3") or 0),
                 "t3_win_rate_pct": round(t3_wr*100,1) if t3_wr else None,
-                "t7_win_rate_pct": round(t7_wr*100,1) if t7_wr else None,
+                "t5_win_rate_pct": round(t7_wr*100,1) if t7_wr else None,
                 "avg_t3_pct": round(t3_pct,2) if t3_pct else None,
-                "avg_t7_pct": round(t7_pct,2) if t7_pct else None,
+                "avg_t5_pct": round(t5_pct,2) if t5_pct else None,
                 "hold_adds_return": (
-                    round((t7_pct or 0) - (t3_pct or 0), 2) if t3_pct and t7_pct else None
+                    round((t5_pct or 0) - (t3_pct or 0), 2) if t3_pct and t5_pct else None
                 ),
                 "recommendation": (
-                    "HOLD_TO_T7" if (t7_pct and t3_pct and t7_pct > t3_pct + 0.5) else
-                    "EXIT_AT_T3" if (t7_pct and t3_pct and t3_pct > t7_pct + 0.5) else
+                    "HOLD_TO_T7" if (t5_pct and t3_pct and t5_pct > t3_pct + 0.5) else
+                    "EXIT_AT_T3" if (t5_pct and t3_pct and t3_pct > t5_pct + 0.5) else
                     "NEUTRAL"
                 )
             })
@@ -21983,7 +21983,7 @@ def _run_aiem_research_agent(max_iterations=None):
     # Scale with how many settled picks exist - more data = agent can go deeper
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
-            _cu.execute("SELECT COUNT(*) FROM ai_early_movers_log WHERE t3_win IS NOT NULL")
+            _cu.execute("SELECT COUNT(*) FROM ai_short_calls_log WHERE t3_win IS NOT NULL")
             _settled = _cu.fetchone()[0] or 0
     except Exception:
         _settled = 0
