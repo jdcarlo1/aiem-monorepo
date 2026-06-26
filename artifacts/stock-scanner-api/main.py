@@ -15552,16 +15552,19 @@ def _aiem_tool_signal_layer_redundancy(days_back=60, threshold=0.70):
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("""
                 SELECT
-                    CASE WHEN confirmed_2d THEN 1 ELSE 0 END    AS confirmed_2d,
-                    CASE WHEN high_conviction THEN 1 ELSE 0 END AS high_conviction,
-                    CASE WHEN buy_stock THEN 1 ELSE 0 END       AS buy_stock,
-                    COALESCE(day_ret, 0)::float                 AS gap_pct,
-                    COALESCE(vol_oi, 0)::float                  AS vol_oi,
-                    COALESCE(stock_price, 0)::float             AS stock_price,
-                    CASE WHEN t3_win THEN 1 ELSE 0 END          AS t3_win
+                    CASE WHEN confirmed_2d THEN 1 ELSE 0 END        AS confirmed_2d,
+                    CASE WHEN conviction = 'HIGH' THEN 1 ELSE 0 END AS is_high_conviction,
+                    COALESCE(day_ret, 0)::float                     AS gap_pct,
+                    COALESCE(vol_oi, 0)::float                      AS vol_oi,
+                    COALESCE(stock_price, 0)::float                 AS stock_price,
+                    COALESCE(prem, 0)::float / 1000.0               AS prem_k,
+                    COALESCE(otm_pct, 0)::float                     AS otm_pct,
+                    COALESCE(days_out, 0)::float                    AS days_out,
+                    CASE WHEN t3_win THEN 1 ELSE 0 END              AS t3_win
                 FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
                   AND stock_price IS NOT NULL
+                  AND t3_win IS NOT NULL
             """, (days_back,))
             rows = _cu.fetchall()
             cols = [d[0] for d in _cu.description]
@@ -15570,8 +15573,9 @@ def _aiem_tool_signal_layer_redundancy(days_back=60, threshold=0.70):
             return {"status": "no_data", "days_back": days_back}
 
         df = _pd.DataFrame(rows, columns=cols)
-        signal_cols = ["confirmed_2d", "high_conviction", "buy_stock",
-                       "gap_pct", "vol_oi", "stock_price", "t3_win"]
+        signal_cols = ["confirmed_2d", "is_high_conviction",
+                       "gap_pct", "vol_oi", "stock_price",
+                       "prem_k", "otm_pct", "days_out", "t3_win"]
         report = run_full_correlation_report(df, signal_cols, threshold=threshold)
 
         corr_dict = report["correlation_matrix"].round(3).to_dict()
