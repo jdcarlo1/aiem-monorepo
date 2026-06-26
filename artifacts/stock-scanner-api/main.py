@@ -9388,11 +9388,11 @@ def _send_sms(message: str, to: str = None) -> None:
 
 def _poll_ask_sms() -> None:
     """
-    Poll Gmail for ASK: messages from the owner (direct email or T-Mobile gateway).
-    Uses date-based search (last 2 days) + in-memory UID dedup so self-sent Gmail
-    emails (already marked Seen) are still picked up.
+    Poll Gmail INBOX for UNSEEN ASK emails from the owner.
+    After processing, marks emails Seen in IMAP so they are never reprocessed
+    across restarts. One AIEM Q&A session runs at a time.
     """
-    import imaplib, email as _em, re as _re
+    import imaplib, email as _em, re as _re, threading as _thr_ask
     from email.header import decode_header as _dh
     from datetime import datetime as _dt_poll, timedelta as _td_poll
 
@@ -9401,42 +9401,48 @@ def _poll_ask_sms() -> None:
     if not user or not pwd:
         return
 
-    # In-memory set of UIDs already processed this server session
+    # One AIEM Q&A session at a time — non-blocking check
+    if not hasattr(app, "_aiem_qa_lock"):
+        app._aiem_qa_lock = _thr_ask.Semaphore(1)
+
+    # In-memory dedup (backup guard within a session)
     if not hasattr(app, "_processed_ask_uids"):
         app._processed_ask_uids = set()
 
-    # IMAP date filter: last 2 days (catches today + any yesterday stragglers)
-    _since = (_dt_poll.now() - _td_poll(days=2)).strftime("%d-%b-%Y")
+    # Search window: yesterday + today (covers overnight emails without going too far back)
+    _since = (_dt_poll.now() - _td_poll(days=1)).strftime("%d-%b-%Y")
 
     try:
         mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
         mail.login(user, pwd)
         mail.select("INBOX")
 
-        # Search by date + subject — works whether email is Seen or Unseen.
-        # This catches: self-sent emails, gateway SMS, forwarded questions.
+        # UNSEEN + SINCE: skips emails already marked Seen (processed in prior sessions)
         gateway_domain = "tmomail.net"
-        _, data1 = mail.search(None, f'FROM "{gateway_domain}" SINCE {_since}')
-        _, data2 = mail.search(None, f'SUBJECT "ASK" SINCE {_since}')
+        _, data1 = mail.search(None, f'UNSEEN FROM "{gateway_domain}" SINCE {_since}')
+        _, data2 = mail.search(None, f'UNSEEN SUBJECT "ASK" SINCE {_since}')
         all_uids = list(set(data1[0].split() + data2[0].split()))
 
-        # Filter to only UIDs not yet processed this session
+        # Secondary guard: skip UIDs processed this session
         uids = [u for u in all_uids if u not in app._processed_ask_uids]
-        print(f"[poll_ask_sms] checked inbox — {len(uids)} new ASK email(s) (of {len(all_uids)} recent)")
+        print(f"[poll_ask_sms] checked inbox — {len(uids)} new ASK email(s)")
 
         if not uids:
             mail.logout()
             return
 
         for uid in uids:
+            # Mark Seen in IMAP immediately so restarts never reprocess this email
+            mail.store(uid, "+FLAGS", "\\Seen")
+            app._processed_ask_uids.add(uid)
+
             try:
                 _, msg_data = mail.fetch(uid, "(RFC822)")
                 msg = _em.message_from_bytes(msg_data[0][1])
 
-                # Capture sender email for reply routing
+                # Sender routing
                 raw_from = msg.get("From", "")
-                import re as _re2
-                _from_match = _re2.search(r"[\w\.\+\-]+@[\w\.\-]+", raw_from)
+                _from_match = _re.search(r"[\w\.\+\-]+@[\w\.\-]+", raw_from)
                 sender_email = _from_match.group(0) if _from_match else ""
                 via_gateway  = "tmomail.net" in sender_email or "gateway" in sender_email
 
@@ -9447,6 +9453,10 @@ def _poll_ask_sms() -> None:
                     p.decode(enc or "utf-8") if isinstance(p, bytes) else p
                     for p, enc in subj_parts
                 )
+
+                # Skip emails that are AIEM's own replies (prevents feedback loop)
+                if _re.search(r"(?i)aiem answer:", subject):
+                    continue
 
                 # Extract body text
                 body_text = ""
@@ -9464,71 +9474,80 @@ def _poll_ask_sms() -> None:
                     except Exception:
                         pass
 
-                # Build the user's question from subject + body
-                # For reply chains, prefer the body text (new content only)
-                # Strip quoted lines ("> ...") and signatures from body
+                # Strip quoted reply lines and "wrote:" attribution lines from body
                 body_clean = "\n".join(
                     ln for ln in body_text.splitlines()
                     if not ln.strip().startswith(">") and "wrote:" not in ln
                 ).strip()
 
-                # Use body if it has real content, otherwise fall back to subject
-                if body_clean and len(body_clean) > 5:
-                    combined = body_clean
-                else:
-                    combined = subject
+                # Prefer body if it has real content, else fall back to subject
+                combined = body_clean if body_clean and len(body_clean) > 5 else subject
 
-                # Strip common email prefixes: Re:, Fw:, ASK:, AIEM Answer:
+                # Strip email prefixes: Re:, Fw:, ASK:, AIEM Answer:
                 question = _re.sub(
                     r"(?i)^(re:\s*|fw:\s*|fwd:\s*|aiem answer:\s*|ask:\s*)+",
                     "", combined
                 ).strip()
-                # Remove any remaining reply chains (keep first 500 chars)
                 question = question[:500].split("\n>")[0].strip()
 
-                if not question or len(question) < 3:
-                    app._processed_ask_uids.add(uid)
+                # Must be a real question (not just "Hey", "ASK", blank test, etc.)
+                if len(question) < 20:
+                    print(f"[poll_ask_sms] skipped — too short: '{question[:40]}'")
                     continue
 
                 print(f"[poll_ask_sms] question: {question[:100]}")
-                app._processed_ask_uids.add(uid)
 
-                # Immediately confirm receipt
+                # Send receipt confirmation
                 if via_gateway:
-                    _send_sms(f"Got it! Researching: {question[:80]}... reply in ~5-10 min 🔍")
+                    _send_sms(f"Got it! Researching: {question[:80]}... reply in ~5 min")
                 else:
                     try:
                         from email_alerts import send_email_raw as _ser_ack
                         _ser_ack(_OWNER_EMAIL, "AIEM: Got your question ✅",
                             f"<p>Got it! Researching: <b>{question[:120]}</b></p>"
-                            f"<p>I'll email you the full answer in 5–10 minutes.</p>")
+                            f"<p>I'll email you the answer in a few minutes.</p>")
                     except Exception: pass
 
                 # Build focused AIEM prompt
                 prompt = (
-                    f"The owner just texted you this question from their phone: '{question}'\n\n"
-                    f"Research this thoroughly using your tools. If they mention specific tickers, "
-                    f"use mkt_retrospective_backtest and mkt_find_behavioral_matches for those tickers. "
-                    f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
+                    f"The owner sent you this question: '{question}'\n\n"
+                    f"Research this thoroughly using your tools. "
+                    f"If they mention specific tickers, use mkt_retrospective_backtest and "
+                    f"mkt_find_behavioral_matches for those tickers. "
+                    f"If they ask why stocks moved today, use mkt_analyze_top_movers + "
+                    f"mkt_retrospective_backtest on the movers. "
                     f"If they ask about a pattern or signal, use mkt_test_signal to validate it. "
-                    f"After your research, write a BRIEF SMS REPLY (under 280 chars) that directly answers "
-                    f"their question with the most important finding. Start with the direct answer, "
-                    f"then 1-2 supporting facts. No fluff."
+                    f"End with a clear, direct answer to their specific question. "
+                    f"Be concise but complete — 2-4 paragraphs max."
                 )
 
                 def _run_and_reply(q=question, p=prompt, _vg=via_gateway):
+                    # Only 1 AIEM Q&A session at a time
+                    if not app._aiem_qa_lock.acquire(blocking=False):
+                        print(f"[poll_ask_sms] AIEM busy — queued question will retry next poll")
+                        # Un-mark Seen so it gets picked up next poll
+                        try:
+                            _m2 = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+                            _m2.login(user, pwd)
+                            _m2.select("INBOX")
+                            _m2.store(uid, "-FLAGS", "\\Seen")
+                            _m2.logout()
+                            app._processed_ask_uids.discard(uid)
+                        except Exception: pass
+                        return
                     try:
                         answer_text = _run_aiem_focused_session(
                             session_name=f"sms_ask_{q[:20].replace(' ','_')}",
                             focus_prompt=p,
                             max_iterations=3
                         )
-                        summary = answer_text if answer_text and len(answer_text) > 10 \
-                            else "Research complete — no summary was generated. Try rephrasing your question."
+                        summary = (answer_text.strip()
+                                   if answer_text and len(answer_text.strip()) > 20
+                                   else "AIEM couldn't generate a summary. Try asking again with more detail.")
 
-                        # Clean subject: strip any "AIEM Answer:" stacking
-                        import re as _re3
-                        clean_q = _re3.sub(r"(?i)^(re:\s*|aiem answer:\s*|ask:\s*)+", "", q).strip()[:60]
+                        clean_q = _re.sub(
+                            r"(?i)^(re:\s*|aiem answer:\s*|ask:\s*)+", "", q
+                        ).strip()[:60]
 
                         if _vg:
                             _send_sms(f"📊 {summary[:280]}")
@@ -9549,15 +9568,16 @@ def _poll_ask_sms() -> None:
                     except Exception as _e:
                         print(f"[poll_ask_sms] session error: {_e}")
                         if _vg:
-                            _send_sms("⚠️ Research hit an error. Try again or check the dashboard.")
+                            _send_sms("Research hit an error. Try again.")
                         else:
                             try:
                                 from email_alerts import send_email_raw as _ser_err
                                 _ser_err(_OWNER_EMAIL, "AIEM: Research error",
                                          f"<p>Hit an error researching: <b>{q[:100]}</b>. Please try again.</p>")
                             except Exception: pass
+                    finally:
+                        app._aiem_qa_lock.release()
 
-                import threading as _thr_ask
                 _thr_ask.Thread(target=_run_and_reply, daemon=True).start()
 
             except Exception as _e:
