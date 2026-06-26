@@ -6149,9 +6149,9 @@ def _run_nano_morning_ranking():
                 _n15 = max(1, int(_n * 0.15)); _n30 = max(2, int(_n * 0.30))
                 _top60_sorted = sorted(_top60, key=lambda x: x["quant_composite_z"], reverse=True)
                 for _qrank, r in enumerate(_top60_sorted):
-                    if _qrank < _n15 or r["quant_composite_z"] >= 0.75:
+                    if _qrank < _n15 and r["quant_composite_z"] >= 0.5:
                         r["quant_grade"] = "STRONG"
-                    elif _qrank < _n30 or r["quant_composite_z"] >= 0.25:
+                    elif _qrank < _n30 and r["quant_composite_z"] > 0:
                         r["quant_grade"] = "WATCH"
                     else:
                         r["quant_grade"] = "SKIP"
