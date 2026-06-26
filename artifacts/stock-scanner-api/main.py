@@ -18872,6 +18872,69 @@ def ai_short_calls():
 
             hits = hits[:30]
 
+            # ── Momentum filter: only keep uptrending stocks (no Yahoo) ────
+            _momentum_map = {}
+            try:
+                import urllib.request as _ureq2, json as _ujson2, datetime as _mdt2, requests as _mreq2
+                _td_tok = os.environ.get("TRADIER_API_TOKEN_2") or os.environ.get("TRADIER_API_TOKEN", "")
+                _all_syms = list(dict.fromkeys(h["ticker"] for h in hits)) + ["SPY"]
+                _td_quotes_raw = {}
+                if _td_tok:
+                    _qr2 = _mreq2.get(
+                        "https://api.tradier.com/v1/markets/quotes",
+                        params={"symbols": ",".join(_all_syms), "greeks": "false"},
+                        headers={"Authorization": f"Bearer {_td_tok}", "Accept": "application/json"},
+                        timeout=8,
+                    )
+                    if _qr2.status_code == 200:
+                        _qd2 = _qr2.json().get("quotes", {}).get("quote", [])
+                        if isinstance(_qd2, dict): _qd2 = [_qd2]
+                        _td_quotes_raw = {q["symbol"]: q for q in _qd2 if q.get("symbol")}
+                # Polygon grouped daily 5 trading days ago
+                _pg_key2 = os.environ.get("POLYGON_API_KEY", "")
+                _pg_close5 = {}
+                if _pg_key2:
+                    _pd5 = _mdt2.date.today()
+                    _bd = 0
+                    while _bd < 7:
+                        _pd5 -= _mdt2.timedelta(days=1)
+                        if _pd5.weekday() < 5: _bd += 1
+                    _pg5_url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/"
+                                f"{_pd5.isoformat()}?adjusted=true&include_otc=false&apiKey={_pg_key2}")
+                    try:
+                        with _ureq2.urlopen(_pg5_url, timeout=12) as _resp5:
+                            _pg5_data = _ujson2.loads(_resp5.read())
+                        for _pr in (_pg5_data.get("results") or []):
+                            _pg_close5[_pr["T"]] = float(_pr["c"])
+                    except Exception as _pg5e:
+                        print(f"[ai_short_calls] polygon 5d error: {_pg5e}", file=_sys.stderr)
+                # SPY 5-day return baseline
+                _spy_5d_ret = 0.0
+                if _td_quotes_raw.get("SPY") and _pg_close5.get("SPY"):
+                    _spy_now = float(_td_quotes_raw["SPY"].get("last") or _td_quotes_raw["SPY"].get("close") or 0)
+                    _spy_5ago = _pg_close5["SPY"]
+                    if _spy_5ago > 0: _spy_5d_ret = (_spy_now - _spy_5ago) / _spy_5ago * 100
+                # Build momentum map per ticker
+                for _tk2 in list(dict.fromkeys(h["ticker"] for h in hits)):
+                    _q2 = _td_quotes_raw.get(_tk2, {})
+                    _now2    = float(_q2.get("last") or _q2.get("close") or 0)
+                    _prev2   = float(_q2.get("prevclose") or 0)
+                    _5ago2   = _pg_close5.get(_tk2, 0)
+                    _r1d     = round((_now2 - _prev2) / _prev2 * 100, 2) if _prev2 > 0 else None
+                    _r5d     = round((_now2 - _5ago2) / _5ago2 * 100, 2) if _5ago2 > 0 and _now2 > 0 else None
+                    _vs_spy  = round(_r5d - _spy_5d_ret, 2) if _r5d is not None else None
+                    _trend2  = "UP" if (_r5d is not None and _r5d > 0) else ("DOWN" if _r5d is not None else "UNKNOWN")
+                    _momentum_map[_tk2] = {"ret1d": _r1d, "ret5d": _r5d, "vs_spy5d": _vs_spy, "trend": _trend2}
+                # Hard filter: drop downtrending tickers before the AI sees them
+                _before_mom = len(hits)
+                hits = [h for h in hits if _momentum_map.get(h["ticker"], {}).get("trend") != "DOWN"]
+                _dropped_mom = _before_mom - len(hits)
+                if _dropped_mom:
+                    print(f"[ai_short_calls] momentum filter removed {_dropped_mom} downtrending tickers", file=_sys.stderr)
+            except Exception as _mome:
+                print(f"[ai_short_calls] momentum filter error: {_mome}", file=_sys.stderr)
+            # ─────────────────────────────────────────────────────────────
+
             # ── Enrich hits with conviction stack + OI buildup ────────────
             _unique_tickers = list(dict.fromkeys(h["ticker"] for h in hits))
 
@@ -19108,34 +19171,46 @@ def ai_short_calls():
                     base += f" | earnings={ea['date']} ({ea['days_out']}d away)"
                 else:
                     base += " | earnings=NONE_KNOWN"
+                # Price momentum — 1d and 5d return vs SPY
+                mom = _momentum_map.get(tk, {})
+                if mom:
+                    _r1 = f"{mom['ret1d']:+.1f}%" if mom.get('ret1d') is not None else "n/a"
+                    _r5 = f"{mom['ret5d']:+.1f}%" if mom.get('ret5d') is not None else "n/a"
+                    _vs = f"{mom['vs_spy5d']:+.1f}%" if mom.get('vs_spy5d') is not None else "n/a"
+                    _tr = mom.get('trend', 'UNKNOWN')
+                    base += f" | momentum=trend:{_tr} 1d:{_r1} 5d:{_r5} vs_SPY_5d:{_vs}"
                 return base
 
             signals_text = "\n".join(_enrich_line(i, h) for i, h in enumerate(hits))
 
-            user_msg = f"""These are today's unusual call signals (Vol/OI ≥3x, ≤30 day expiry, OTM/near-ATM calls only):
+            user_msg = f"""These are today's unusual call signals — all tickers have already been filtered to UPTRENDING stocks only (positive 5-day return). Downtrending stocks have been removed before you see this list.
 
 {signals_text}
 
-Select the 20 BEST short-term call trade opportunities from this list. Rank by conviction.
+MOMENTUM RULE (mandatory): Only recommend stocks where momentum shows trend:UP. If a ticker shows trend:DOWN or trend:UNKNOWN with no supporting data, skip it. The momentum field shows: trend direction, 1-day return, 5-day return, and 5-day return vs SPY. Prefer stocks outperforming SPY over the last 5 days — these are the names with real institutional sponsorship behind the options flow.
+
+EXPIRY RULE: Prefer picks with 21–45 days to expiry. Only select picks with ≤14 days if conviction_stack ≥8/10 AND other_scanners ≥5/11 — both required. Never pick ≤7 day (weekly) options.
+
+Select the 5 BEST call trade opportunities from this list. Fewer picks, higher conviction only.
 Criteria (in order of importance):
-1. conviction_stack score — if ≥8/10 with multiple layers (dark_pool+short_int+sweep), this is the strongest signal; prioritize heavily
-2. FIR (Float Impact Ratio) — if FIR >2%, market makers are mechanically FORCED to buy shares as delta rises; this creates a self-reinforcing squeeze loop; FIR >5% is explosive; prioritize any sweep where FIR data exists
-3. other_scanners count — how many of 11 independent scanners (dark_pool, whale, squeeze, morning_runner, gamma_wall, vol_crush, etc.) also flagged this ticker today; ≥4/11 = very high probability, ≥7/11 = near-certain institutional play
-4. oi_buildup days — 3+ days of OI building before today's sweep = smart money was pre-positioning; strongly prefer these
-5. Vol/OI ratio — fresh institutional buying pressure
-6. Premium size — commitment level
-7. OTM% — closer to ATM is more realistic target; avoid >15% OTM unless all other signals are very strong
-8. urgency tier and days_out
-9. charm_cascade score — CALCULATED by the system using real OI data: score = OI × 100 × max(0, 20 - |otm_pct|) / (days_out × 10). Higher = more forced dealer buying per day. A high charm score with 1-5 days left = mechanical buying pressure that ACCELERATES every day. Prioritize sweeps where charm_cascade is high and expiry is close.
-10. insider_radar — if FLAGGED, your scanner detected suspicious pre-positioning. Sweep + insider flag = someone almost certainly knows something. Prioritize heavily.
-11. earnings — if earnings are within 7 days: this is a catalyst play (high reward but IV crush risk after); if earnings are 8-30 days away: ideal window (sweep before catalyst, time for move); if NONE_KNOWN: direction play only, no binary event.
+1. momentum — trend must be UP with positive 5d return; stocks outperforming SPY (vs_SPY_5d > 0) are highest priority; this is the most important filter
+2. conviction_stack score — if ≥8/10 with multiple layers (dark_pool+short_int+sweep), prioritize heavily
+3. FIR (Float Impact Ratio) — if FIR >2%, market makers are mechanically FORCED to buy shares; FIR >5% is explosive
+4. other_scanners count — how many of 11 independent scanners also flagged this ticker; ≥4/11 = very high probability
+5. oi_buildup days — 3+ days of OI building = smart money was pre-positioning
+6. Vol/OI ratio — fresh institutional buying pressure
+7. Premium size — commitment level
+8. OTM% — closer to ATM is more realistic; avoid >15% OTM unless all other signals are very strong
+9. days_out — 21–45 day window strongly preferred
+10. insider_radar — if FLAGGED, suspicious pre-positioning detected; sweep + insider = someone knows something
+11. earnings — within 7 days: catalyst play (IV crush risk); 8–30 days away: ideal window; NONE_KNOWN: direction play only
 
 Ranking logic:
-- ELITE pick: conviction_stack ≥8 + FIR >2% + other_scanners ≥4 + charm_cascade score >0 → rank #1-5
-- STRONG pick: insider_radar=FLAGGED + sweep → rank #1-10 regardless of other scores (someone knows something)
-- AVOID: earnings within 3 days + far OTM → IV crush will kill the call even if direction is right
-- NOISE: conviction_stack=NO_DATA + FIR=NO_DATA + other_scanners=0 + charm_cascade=NO_NEAR_EXPIRY_OI → rank #16-20
-The goal is sweeps where MULTIPLE independent systems — options flow, dealer mechanics, smart money, AND scanner cross-reference — all confirm the same thesis on the same day.
+- ELITE pick: trend=UP + vs_SPY_5d > +2% + conviction_stack ≥8 + other_scanners ≥4 → rank #1-2
+- STRONG pick: trend=UP + insider_radar=FLAGGED + sweep → rank #1-3
+- SKIP: trend=DOWN or negative 5d return — do not recommend regardless of options flow
+- SKIP: trend=UNKNOWN with no other supporting signals
+The goal: stocks already moving up, with institutional options flow confirming the thesis, with enough time (21–45 days) for the move to fully play out.
 
 For each pick output a JSON object with ALL these fields:
 - ticker (string)
@@ -19146,13 +19221,13 @@ For each pick output a JSON object with ALL these fields:
 - prem (integer — from signal)
 - stock_price (number — from signal)
 - otm_pct (number — from signal)
-- breakeven (number — strike + estimated option premium per share; estimate option price as prem / (vol * 100) if vol known, else use a reasonable estimate)
+- breakeven (number — strike + estimated option premium per share)
 - conviction ("HIGH" | "MEDIUM")
 - urgency (string — from signal)
-- thesis (string — 2 sentences MAX: why this signal is high conviction, what the move scenario is)
+- thesis (string — 2 sentences MAX: why this uptrending stock + options flow is high conviction)
 - why_it_stands_out (string — 1 sentence: the single most compelling data point)
 
-Return a JSON array of exactly 20 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
+Return a JSON array of exactly 5 objects. Sort by conviction (HIGH first). JSON only, no markdown."""
 
             system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options activity. Output valid JSON only."
 
