@@ -16226,6 +16226,7 @@ Return ONLY the JSON, no other text."""
                 return {"status": "error", "error": f"Unsafe SQL expression detected: {f}"}
 
         # Test the invented indicator against forward returns
+        # Fix: precompute p75/p25 in a CTE — window functions cannot be used inside FILTER clauses
         with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             test_sql = f"""
                 WITH ind AS (
@@ -16241,20 +16242,24 @@ Return ONLY the JSON, no other text."""
                          )
                     WHERE t.close_price > 0 AND ({expr}) IS NOT NULL
                     LIMIT 100000
+                ),
+                thresholds AS (
+                    SELECT
+                        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY indicator_value) AS p75,
+                        PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY indicator_value) AS p25
+                    FROM ind
                 )
                 SELECT
-                    COUNT(*) AS n,
-                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY indicator_value)::numeric, 4) AS p75,
-                    ROUND(AVG(fwd_ret) FILTER (WHERE indicator_value >= PERCENTILE_CONT(0.75)
-                          WITHIN GROUP (ORDER BY indicator_value) OVER ())::numeric, 4) AS top_quartile_fwd,
-                    ROUND(AVG(fwd_ret) FILTER (WHERE indicator_value < PERCENTILE_CONT(0.25)
-                          WITHIN GROUP (ORDER BY indicator_value) OVER ())::numeric, 4) AS bottom_quartile_fwd,
-                    ROUND((COUNT(*) FILTER (WHERE indicator_value >= PERCENTILE_CONT(0.75)
-                           WITHIN GROUP (ORDER BY indicator_value) OVER ()
-                           AND fwd_ret > 0))::numeric / NULLIF(COUNT(*) FILTER (
-                           WHERE indicator_value >= PERCENTILE_CONT(0.75) WITHIN GROUP
-                           (ORDER BY indicator_value) OVER ()), 0) * 100, 2) AS top_win_rate
-                FROM ind
+                    COUNT(i.*) AS n,
+                    ROUND(t.p75::numeric, 4) AS p75,
+                    ROUND(AVG(i.fwd_ret) FILTER (WHERE i.indicator_value >= t.p75)::numeric, 4) AS top_quartile_fwd,
+                    ROUND(AVG(i.fwd_ret) FILTER (WHERE i.indicator_value < t.p25)::numeric, 4)  AS bottom_quartile_fwd,
+                    ROUND(
+                        (COUNT(*) FILTER (WHERE i.indicator_value >= t.p75 AND i.fwd_ret > 0))::numeric
+                        / NULLIF(COUNT(*) FILTER (WHERE i.indicator_value >= t.p75), 0)
+                        * 100, 2
+                    ) AS top_win_rate
+                FROM ind i, thresholds t
             """
             cur.execute(test_sql)
             test_row = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
@@ -16525,6 +16530,9 @@ def _polygon_backfill_historical():
 
         print(f"[backfill] DONE. Total rows saved: {saved_total}")
 
+    # Launch as self-contained background thread (imports are local to _run)
+    _bth.Thread(target=_run, daemon=True, name="polygon-backfill").start()
+
 
 # ── Startup: init tables + launch historical backfill ────────────────────
 try:
@@ -16534,9 +16542,7 @@ except Exception as _mkt_e:
 try:
     _polygon_backfill_historical()
 except Exception as _bf_e:
-    print(f"[backfill] {_bf_e}")
-
-    _bth.Thread(target=_run, daemon=True, name="polygon-backfill").start()
+    print(f"[backfill] startup error: {_bf_e}")
 
 
 
