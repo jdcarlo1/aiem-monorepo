@@ -1,0 +1,308 @@
+"""
+AIEM REAL MODEL — replaces "GPT-4o writes JSON weights" with an actual
+model retrained on accumulated real outcomes.
+
+ARCHITECTURE — how this fits with your existing autonomous agent:
+  - GPT-4o agent KEEPS doing: generating new hypotheses, deciding what to
+    investigate, writing the research narrative, flagging regime changes.
+    That's genuine LLM-appropriate work.
+  - GPT-4o agent STOPS doing: setting the actual scoring weights. That job
+    moves to a real logistic regression model, retrained periodically on
+    REAL graded outcomes from aiem_prediction_outcomes.
+  - The agent's new job in Loop A becomes: propose which FEATURES the
+    model should consider (e.g. "test adding rvol_x_close_strength as a
+    feature"), not propose the weights themselves. You decide whether to
+    let it auto-add features or just suggest them for you to approve.
+
+WHY LOGISTIC REGRESSION (not gradient boosting / deep learning):
+  - Coefficients are directly readable — you can see exactly why the
+    model scored something high, which matches the explainability your
+    LLM narrative is trying to give you anyway.
+  - Far less prone to overfitting on modest sample sizes (hundreds to a
+    few thousand graded predictions, which is realistically where you
+    are for a while). Gradient boosting needs more data to be trustworthy.
+  - No model-serialization headaches — coefficients are stored as plain
+    JSON, and scoring is just a dot product + sigmoid in pure Python, so
+    Loop B doesn't even need sklearn installed to USE the model, only to
+    TRAIN it.
+  - Once you have 2,000+ well-graded outcomes and want to revisit this,
+    swap LogisticRegression for sklearn's GradientBoostingClassifier —
+    the rest of this pipeline (registry, gating, scoring interface)
+    doesn't need to change.
+
+COLD START: with under ~200 graded outcomes (your own LAW 6 threshold),
+this will refuse to train and you should keep using the LLM-based
+approach until there's enough real data to fit something honest.
+"""
+
+import os
+import json
+import math
+import psycopg2
+from datetime import datetime
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 1. Model registry — stores every trained model version, so you can
+#    SEE whether it's actually improving over time, not just assume it is
+# ════════════════════════════════════════════════════════════════════════
+
+def _ensure_model_registry():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS model_registry (
+                id              SERIAL PRIMARY KEY,
+                trained_at      TIMESTAMP DEFAULT NOW(),
+                feature_names   JSONB,
+                coefficients    JSONB,
+                intercept       FLOAT,
+                n_train         INTEGER,
+                n_test          INTEGER,
+                train_auc       FLOAT,
+                test_auc        FLOAT,
+                is_deployed     BOOLEAN DEFAULT FALSE,
+                notes           TEXT
+            )
+        """)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 2. Feature extraction from REAL accumulated outcomes
+# ════════════════════════════════════════════════════════════════════════
+# IMPORTANT: adjust the column names in this query to match your actual
+# aiem_predictions schema — I'm using the fields referenced elsewhere in
+# your system (confirmed_2d, high_conviction, sweep_vol_oi, etc.) but you
+# should verify these are the real column names before running this.
+
+FEATURE_COLUMNS = [
+    "gap_pct", "rvol", "close_strength", "range_pct",
+    "confidence_score", "rank",
+]
+# Add boolean/categorical signal flags here once you've confirmed the
+# real column names, e.g.: "has_sweep", "high_conviction", "confirmed_2d"
+
+
+def extract_training_data(min_date=None):
+    """Pull every graded prediction with its features and real outcome.
+    Returns (X, y, feature_names) ready for training.
+    y = 1 if win_t3 else 0 (swap to t3_return for a regression target
+    later if you want predicted MAGNITUDE, not just win/loss)."""
+    query = f"""
+        SELECT
+            p.{', p.'.join(FEATURE_COLUMNS)},
+            o.win_t3
+        FROM aiem_predictions p
+        JOIN aiem_prediction_outcomes o
+          ON o.prediction_date = p.prediction_date AND o.ticker = p.ticker
+        WHERE o.win_t3 IS NOT NULL
+    """
+    params = []
+    if min_date:
+        query += " AND p.prediction_date >= %s"
+        params.append(min_date)
+
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+
+    if not rows:
+        return [], [], FEATURE_COLUMNS
+
+    X = [[float(v) if v is not None else 0.0 for v in row[:-1]] for row in rows]
+    y = [1 if row[-1] else 0 for row in rows]
+    return X, y, FEATURE_COLUMNS
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 3. Train, validate, and only deploy if it doesn't make things worse
+# ════════════════════════════════════════════════════════════════════════
+
+def train_and_register_model(min_samples=200, test_fraction=0.3,
+                               min_test_auc_improvement=0.0):
+    """Retrain on accumulated outcomes. Uses a TIME-ORDERED split (train
+    on older predictions, test on more recent ones) — same walk-forward
+    philosophy as your mkt_validate_oos tool, applied to the real model
+    instead of individual signals.
+
+    Will NOT deploy the new model unless its test AUC is at least as good
+    as the currently deployed model's test AUC (minus
+    min_test_auc_improvement as a small allowed tolerance). This is the
+    actual enforcement mechanism for 'only gets smarter, never silently
+    gets worse' — a real code gate, not an instruction to an LLM."""
+    try:
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import roc_auc_score
+    except ImportError:
+        return {"status": "error",
+                 "error": "scikit-learn not installed. Run: pip install scikit-learn --break-system-packages"}
+
+    _ensure_model_registry()
+
+    X, y, feature_names = extract_training_data()
+    n = len(X)
+    if n < min_samples:
+        return {"status": "error",
+                 "error": f"Only {n} graded outcomes — need at least {min_samples} "
+                          f"before training a real model. Keep using the LLM-based "
+                          f"approach until then."}
+
+    if len(set(y)) < 2:
+        return {"status": "error", "error": "All outcomes are the same class — can't train."}
+
+    split_idx = int(n * (1 - test_fraction))
+    X_train, X_test = X[:split_idx], X[split_idx:]
+    y_train, y_test = y[:split_idx], y[split_idx:]
+
+    if len(set(y_train)) < 2 or len(set(y_test)) < 2:
+        return {"status": "error", "error": "Train or test split has only one class — "
+                                              "need more balanced data or a different split fraction."}
+
+    model = LogisticRegression(max_iter=1000, class_weight="balanced")
+    model.fit(X_train, y_train)
+
+    train_auc = roc_auc_score(y_train, model.predict_proba(X_train)[:, 1])
+    test_auc = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
+
+    # Check against currently deployed model before deciding to deploy
+    current = get_deployed_model()
+    should_deploy = True
+    comparison_note = "No model currently deployed — this becomes the first one."
+    if current["status"] == "ok":
+        prior_test_auc = current["model"]["test_auc"]
+        if test_auc < prior_test_auc - min_test_auc_improvement:
+            should_deploy = False
+            comparison_note = (f"New model test AUC ({test_auc:.3f}) is worse than "
+                                f"currently deployed model ({prior_test_auc:.3f}) — NOT deploying.")
+        else:
+            comparison_note = (f"New model test AUC ({test_auc:.3f}) vs prior "
+                                f"({prior_test_auc:.3f}) — deploying.")
+
+    coefficients = {name: float(c) for name, c in zip(feature_names, model.coef_[0])}
+
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        if should_deploy:
+            cur.execute("UPDATE model_registry SET is_deployed = FALSE WHERE is_deployed = TRUE")
+        cur.execute("""
+            INSERT INTO model_registry
+                (feature_names, coefficients, intercept, n_train, n_test,
+                 train_auc, test_auc, is_deployed, notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
+        """, (
+            json.dumps(feature_names), json.dumps(coefficients), float(model.intercept_[0]),
+            len(X_train), len(X_test), float(train_auc), float(test_auc),
+            should_deploy, comparison_note,
+        ))
+        model_id = cur.fetchone()[0]
+
+    return {
+        "status": "ok",
+        "model_id": model_id,
+        "deployed": should_deploy,
+        "n_train": len(X_train), "n_test": len(X_test),
+        "train_auc": round(train_auc, 4), "test_auc": round(test_auc, 4),
+        "coefficients": coefficients,
+        "comparison_note": comparison_note,
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 4. Scoring — what Loop B actually calls to rank today's candidates
+# ════════════════════════════════════════════════════════════════════════
+
+def get_deployed_model() -> dict:
+    """Fetch the currently deployed model's coefficients."""
+    try:
+        _ensure_model_registry()
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, feature_names, coefficients, intercept, train_auc, test_auc, trained_at
+                FROM model_registry WHERE is_deployed = TRUE
+                ORDER BY trained_at DESC LIMIT 1
+            """)
+            row = cur.fetchone()
+        if not row:
+            return {"status": "error", "error": "No deployed model yet."}
+        return {
+            "status": "ok",
+            "model": {
+                "id": row[0],
+                "feature_names": row[1] if isinstance(row[1], list) else json.loads(row[1]),
+                "coefficients": row[2] if isinstance(row[2], dict) else json.loads(row[2]),
+                "intercept": row[3], "train_auc": row[4], "test_auc": row[5],
+                "trained_at": str(row[6]),
+            },
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def score_candidate(features: dict) -> dict:
+    """Score a single candidate ticker using the deployed model. This is
+    what Loop B (the morning agent) should call for each candidate
+    INSTEAD OF trusting the LLM's own confidence_score guess. Pure
+    Python — no sklearn needed at serving time.
+
+    features: dict with the same keys as FEATURE_COLUMNS, e.g.
+        {"gap_pct": 3.2, "rvol": 4.1, "close_strength": 0.81,
+         "range_pct": 5.0, "confidence_score": 7, "rank": 1}
+    """
+    deployed = get_deployed_model()
+    if deployed["status"] != "ok":
+        return {"status": "error", "error": "No deployed model — fall back to LLM scoring for now."}
+
+    m = deployed["model"]
+    z = m["intercept"]
+    missing = []
+    for name in m["feature_names"]:
+        if name not in features:
+            missing.append(name)
+            continue
+        z += m["coefficients"][name] * float(features[name])
+
+    prob = 1 / (1 + math.exp(-z))
+    return {
+        "status": "ok",
+        "model_id": m["id"],
+        "win_probability": round(prob, 4),
+        "model_test_auc": m["test_auc"],
+        "missing_features": missing or None,
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 5. Model performance over time — the actual proof of "getting smarter"
+# ════════════════════════════════════════════════════════════════════════
+
+def get_model_history() -> dict:
+    """Returns every trained model version with its test AUC, so you can
+    literally watch (or fail to watch) the model improve over successive
+    retrainings. This is the honest answer to 'is it actually getting
+    smarter' — a chart of this over time, not a vibe."""
+    try:
+        _ensure_model_registry()
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, trained_at, n_train, n_test, train_auc, test_auc, is_deployed, notes
+                FROM model_registry ORDER BY trained_at ASC
+            """)
+            rows = cur.fetchall()
+        return {
+            "status": "ok",
+            "history": [
+                {"id": r[0], "trained_at": str(r[1]), "n_train": r[2], "n_test": r[3],
+                 "train_auc": r[4], "test_auc": r[5], "deployed": r[6], "notes": r[7]}
+                for r in rows
+            ],
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Suggested schedule: retrain weekly (e.g. Sunday, before Loop A runs),
+# so Loop A's research session always has the current model's
+# coefficients available as context — it can see which features the
+# model is actually weighting heavily and propose NEW features to test
+# around that, instead of guessing blind.
+# ════════════════════════════════════════════════════════════════════════

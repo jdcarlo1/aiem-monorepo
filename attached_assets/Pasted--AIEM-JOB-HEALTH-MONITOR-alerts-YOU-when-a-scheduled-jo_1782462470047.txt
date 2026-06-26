@@ -1,0 +1,136 @@
+"""
+AIEM JOB HEALTH MONITOR — alerts YOU when a scheduled job silently fails
+or doesn't run in its expected window.
+
+HOW TO USE:
+1. In every scheduled job (Loop A, Loop B, daily Polygon scan, backfill,
+   prediction grader, etc.), call record_job_success(job_name) at the end
+   on success, and record_job_failure(job_name, str(e)) in the except block.
+2. Set up a SEPARATE scheduled job — e.g. every 30 min — that calls
+   run_health_watchdog(...) below. Keep it separate from the jobs it
+   monitors, so a failure in your main system doesn't also take down the
+   thing that's supposed to alert you about failures.
+3. Set these environment variables for email alerts: SMTP_HOST, SMTP_USER,
+   SMTP_PASS, ALERT_EMAIL_TO. If unset, alerts just print to logs instead
+   of failing.
+"""
+
+import os
+import psycopg2
+from datetime import datetime, timedelta
+
+
+def _ensure_job_heartbeat_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS job_heartbeats (
+                job_name      VARCHAR(50) PRIMARY KEY,
+                last_success  TIMESTAMP,
+                last_attempt  TIMESTAMP,
+                last_error    TEXT,
+                consecutive_failures INTEGER DEFAULT 0
+            )
+        """)
+
+
+def record_job_success(job_name: str):
+    """Call at the END of every scheduled job on success."""
+    _ensure_job_heartbeat_table()
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO job_heartbeats (job_name, last_success, last_attempt, consecutive_failures)
+            VALUES (%s, NOW(), NOW(), 0)
+            ON CONFLICT (job_name) DO UPDATE SET
+                last_success=NOW(), last_attempt=NOW(), consecutive_failures=0, last_error=NULL
+        """, (job_name,))
+
+
+def record_job_failure(job_name: str, error: str):
+    """Call in the except block of every scheduled job. Tracks consecutive
+    failures so you can alert on a PATTERN, not just one transient blip."""
+    _ensure_job_heartbeat_table()
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO job_heartbeats (job_name, last_attempt, last_error, consecutive_failures)
+            VALUES (%s, NOW(), %s, 1)
+            ON CONFLICT (job_name) DO UPDATE SET
+                last_attempt=NOW(), last_error=%s,
+                consecutive_failures = job_heartbeats.consecutive_failures + 1
+        """, (job_name, error, error))
+
+
+def check_job_health(max_staleness_hours: dict) -> dict:
+    """Call this from a separate watchdog job (e.g. every 30 min) to check
+    whether any job is overdue or has repeated failures.
+
+    max_staleness_hours: dict mapping job_name -> max hours allowed since
+    last success, e.g.:
+        {"loop_a": 168, "loop_b": 26, "daily_scan": 26, "prediction_grader": 26}
+    Adjust to your actual schedule, with some buffer built in."""
+    _ensure_job_heartbeat_table()
+    alerts = []
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT job_name, last_success, consecutive_failures, last_error FROM job_heartbeats")
+        rows = cur.fetchall()
+
+    now = datetime.utcnow()
+    for job_name, last_success, fails, last_error in rows:
+        max_hrs = max_staleness_hours.get(job_name)
+        if max_hrs is None:
+            continue
+        if last_success is None or (now - last_success) > timedelta(hours=max_hrs):
+            alerts.append({
+                "job": job_name,
+                "issue": "STALE — hasn't succeeded within expected window",
+                "last_success": str(last_success),
+                "consecutive_failures": fails,
+                "last_error": last_error,
+            })
+        elif fails >= 3:
+            alerts.append({
+                "job": job_name,
+                "issue": f"{fails} consecutive failures (last succeeded {last_success})",
+                "last_error": last_error,
+            })
+
+    return {"status": "ok", "alerts": alerts, "checked_at": str(now)}
+
+
+def send_alert_email(subject: str, body: str):
+    """Minimal alert sender — wire this to whatever email you already use
+    for transactional mail, or swap for a Slack/Discord webhook. This is
+    the part that actually closes the loop — health checks are useless
+    if nothing notifies you."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    host = os.environ.get("SMTP_HOST")
+    user = os.environ.get("SMTP_USER")
+    pw = os.environ.get("SMTP_PASS")
+    to_addr = os.environ.get("ALERT_EMAIL_TO")
+    if not all([host, user, pw, to_addr]):
+        print(f"[alert] SMTP not configured — would have sent: {subject}\n{body}")
+        return
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = user
+    msg["To"] = to_addr
+    try:
+        with smtplib.SMTP_SSL(host, 465) as s:
+            s.login(user, pw)
+            s.sendmail(user, [to_addr], msg.as_string())
+    except Exception as e:
+        print(f"[alert] failed to send: {e}")
+
+
+def run_health_watchdog(max_staleness_hours: dict):
+    """Wire this as its own scheduled job, every 30 min, separate from
+    the jobs it's monitoring (so a monitoring job failure doesn't depend
+    on the same code path that's broken)."""
+    result = check_job_health(max_staleness_hours)
+    if result["alerts"]:
+        body = "\n\n".join(
+            f"Job: {a['job']}\nIssue: {a['issue']}\nLast error: {a.get('last_error')}"
+            for a in result["alerts"]
+        )
+        send_alert_email(f"[StockScanner AI] {len(result['alerts'])} job(s) need attention", body)

@@ -1,0 +1,292 @@
+"""
+AIEM ACCUMULATION-TO-DISTRIBUTION LIFECYCLE — detects early quiet
+accumulation (entry), tracks the position through the move, and detects
+crowd/euphoria arrival (exit) — automatically, without you needing to
+watch it manually.
+
+HONEST FRAMING: "buy before the crowd, sell to the crowd" is the oldest,
+most attempted trade thesis in markets. The entry signal here (quiet
+accumulation) is genuinely detectable from your data. The exit signal
+(distribution/euphoria) is the part that actually matters more, because
+that's where discipline — not cleverness — separates outcomes. This
+system is built so the EXIT is mechanical and rule-based, not something
+you have to decide emotionally in the moment.
+
+PIPELINE:
+  1. ENTRY: mkt_tool_quiet_accumulation (already built) flags a candidate
+  2. CONFIRMATION: detect_accumulation_breakout() confirms the move is
+     actually starting (price breaking the prior tight range on rising
+     volume) — accumulation alone doesn't tell you WHEN, just that
+     something MIGHT happen
+  3. TRACKING: open_watched_position() logs it, then a daily job checks
+     each open position against distribution/exhaustion signals
+  4. EXIT: detect_distribution_signature() flags when the crowd has
+     arrived / the move looks exhausted — climax volume, weak closes
+     after a big run, parabolic deceleration
+
+This generates ALERTS for you to act on. It does not place trades.
+"""
+
+import os
+import psycopg2
+import numpy as np
+from datetime import datetime
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 1. ENTRY CONFIRMATION — accumulation + actual breakout (not just setup)
+# ════════════════════════════════════════════════════════════════════════
+
+def detect_accumulation_breakout(lookback_squeeze=20, breakout_vol_ratio=2.0):
+    """Find tickers that had a quiet-accumulation/squeeze setup AND are
+    NOW breaking out of that range on rising volume. This is the actual
+    entry trigger — the setup alone just tells you to watch, this tells
+    you to act."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                WITH range_hist AS (
+                    SELECT ticker, scan_date, close_price, volume,
+                           MAX(high_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_squeeze} PRECEDING AND 1 PRECEDING
+                           ) AS prior_high,
+                           AVG(volume) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
+                           ) AS prior_avg_vol,
+                           STDDEV(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_squeeze} PRECEDING AND 1 PRECEDING
+                           ) / NULLIF(AVG(close_price) OVER (
+                               PARTITION BY ticker ORDER BY scan_date
+                               ROWS BETWEEN {lookback_squeeze} PRECEDING AND 1 PRECEDING
+                           ), 0) AS prior_band_width
+                    FROM polygon_market_daily
+                    WHERE close_price > 1
+                )
+                SELECT ticker, scan_date, close_price,
+                       (volume::float / NULLIF(prior_avg_vol, 0)) AS vol_ratio,
+                       ((close_price - prior_high) / NULLIF(prior_high, 0) * 100) AS breakout_pct
+                FROM range_hist
+                WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+                  AND close_price > prior_high
+                  AND (volume::float / NULLIF(prior_avg_vol, 0)) >= %s
+                  AND prior_band_width IS NOT NULL
+                  AND prior_band_width <= (
+                        SELECT PERCENTILE_CONT(0.30) WITHIN GROUP (ORDER BY prior_band_width)
+                        FROM range_hist WHERE prior_band_width IS NOT NULL
+                      )
+                ORDER BY vol_ratio DESC
+                LIMIT 50
+            """, (breakout_vol_ratio,))
+            rows = cur.fetchall()
+
+        candidates = [
+            {"ticker": r[0], "scan_date": str(r[1]), "close_price": r[2],
+             "vol_ratio": round(r[3], 2), "breakout_pct": round(r[4], 2)}
+            for r in rows
+        ]
+        return {
+            "status": "ok",
+            "n_candidates": len(candidates),
+            "candidates": candidates,
+            "interpretation": ("These broke out of a prior compression/accumulation range "
+                                "on elevated volume TODAY — this is the entry trigger, not "
+                                "just a watchlist add."),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 2. POSITION TRACKING — log entries, monitor daily
+# ════════════════════════════════════════════════════════════════════════
+
+def _ensure_watched_positions_table():
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS watched_positions (
+                id              SERIAL PRIMARY KEY,
+                ticker          VARCHAR(10) NOT NULL,
+                entry_date      DATE NOT NULL,
+                entry_price     FLOAT NOT NULL,
+                entry_reason    TEXT,
+                status          VARCHAR(20) DEFAULT 'open',
+                exit_date       DATE,
+                exit_price      FLOAT,
+                exit_reason     TEXT,
+                created_at      TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+
+def open_watched_position(ticker: str, entry_date: str, entry_price: float, entry_reason: str):
+    """Call this when you act on a detect_accumulation_breakout() signal.
+    This is a tracking log — it does not place a trade."""
+    _ensure_watched_positions_table()
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO watched_positions (ticker, entry_date, entry_price, entry_reason)
+            VALUES (%s,%s,%s,%s) RETURNING id
+        """, (ticker, entry_date, entry_price, entry_reason))
+        pos_id = cur.fetchone()[0]
+    return {"status": "ok", "position_id": pos_id}
+
+
+def get_open_positions() -> list:
+    _ensure_watched_positions_table()
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, ticker, entry_date, entry_price FROM watched_positions WHERE status='open'")
+        return [{"id": r[0], "ticker": r[1], "entry_date": str(r[2]), "entry_price": r[3]} for r in cur.fetchall()]
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 3. EXIT SIGNAL — distribution / crowd-arrival / exhaustion detection
+# ════════════════════════════════════════════════════════════════════════
+# This is the half that actually matters most. Look for the SIGNATURE of
+# the crowd having arrived: climax volume, weakening closes after a big
+# run, deceleration of the move. None of these predict the top exactly —
+# they tell you the risk/reward has flipped against staying in.
+
+def detect_distribution_signature(ticker: str, entry_date: str, entry_price: float,
+                                    run_lookback: int = 10) -> dict:
+    """Check an open position for signs the move is exhausting / the
+    crowd has arrived. Returns a composite exhaustion score and which
+    specific signals fired, so you can see WHY it's flagging, not just
+    a single opaque number."""
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT scan_date, close_price, high_price, low_price, volume, close_strength
+                FROM polygon_market_daily
+                WHERE ticker = %s AND scan_date >= %s
+                ORDER BY scan_date ASC
+            """, (ticker, entry_date))
+            rows = cur.fetchall()
+
+        if len(rows) < 3:
+            return {"status": "ok", "exhaustion_score": 0, "signals_fired": [],
+                     "note": "Not enough days since entry to evaluate yet."}
+
+        closes = np.array([r[1] for r in rows if r[1] is not None])
+        volumes = np.array([r[4] for r in rows if r[4] is not None])
+        close_strengths = [r[5] for r in rows if r[5] is not None]
+        latest_date, latest_close = rows[-1][0], rows[-1][1]
+
+        run_return_pct = (latest_close / entry_price - 1) * 100
+        signals_fired = []
+        score = 0
+
+        # Signal 1: climax volume — today's volume is the highest of the run
+        if len(volumes) >= 3 and volumes[-1] == volumes.max() and volumes[-1] > np.mean(volumes[:-1]) * 2.5:
+            signals_fired.append("climax_volume")
+            score += 2
+
+        # Signal 2: weak close after a big run — high volume but closed
+        # in the bottom half of the day's range (distribution into strength)
+        if close_strengths and close_strengths[-1] is not None and close_strengths[-1] < 0.35 and run_return_pct > 8:
+            signals_fired.append("weak_close_after_run")
+            score += 2
+
+        # Signal 3: deceleration — day-over-day gains shrinking after an
+        # initial acceleration (the move is running out of energy)
+        if len(closes) >= 5:
+            daily_rets = np.diff(closes) / closes[:-1] * 100
+            if len(daily_rets) >= 4 and np.mean(daily_rets[-2:]) < np.mean(daily_rets[:2]) * 0.4 and run_return_pct > 5:
+                signals_fired.append("deceleration")
+                score += 1
+
+        # Signal 4: parabolic — the run itself is statistically extreme
+        # relative to the ticker's own recent volatility
+        if run_return_pct > 15 and len(rows) <= run_lookback:
+            signals_fired.append("parabolic_extension")
+            score += 1
+
+        # Signal 5: gap-and-fail — gapped up today but couldn't hold,
+        # closing below the open (exhaustion within the day)
+        today_open_approx = rows[-1][3]  # using low as rough proxy if no open column pulled
+        if len(rows) >= 1:
+            pass  # placeholder — wire in open_price directly if you want a stricter gap-fail check
+
+        verdict = (
+            "STRONG EXIT SIGNAL — multiple distribution signs present." if score >= 3 else
+            "WATCH CLOSELY — early distribution signs." if score >= 1 else
+            "No distribution signature yet — accumulation/trend may still be intact."
+        )
+
+        return {
+            "status": "ok",
+            "ticker": ticker,
+            "run_return_pct": round(run_return_pct, 2),
+            "days_in_position": len(rows),
+            "exhaustion_score": score,
+            "signals_fired": signals_fired,
+            "verdict": verdict,
+            "latest_date": str(latest_date),
+            "latest_close": latest_close,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def run_daily_exit_check():
+    """Run this once a day (e.g. after market close) against every open
+    watched position. Returns the full list so you can review and decide
+    — this surfaces the signal, it doesn't auto-sell anything."""
+    _ensure_watched_positions_table()
+    open_positions = get_open_positions()
+    results = []
+    for pos in open_positions:
+        check = detect_distribution_signature(pos["ticker"], pos["entry_date"], pos["entry_price"])
+        check["position_id"] = pos["id"]
+        results.append(check)
+
+    flagged = [r for r in results if r.get("exhaustion_score", 0) >= 3]
+    return {
+        "status": "ok",
+        "checked": len(results),
+        "flagged_for_exit": flagged,
+        "all_results": results,
+    }
+
+
+def close_watched_position(position_id: int, exit_date: str, exit_price: float, exit_reason: str):
+    """Call this once you've actually exited, to close the loop on the
+    tracking record — this is what lets you later measure whether THIS
+    specific strategy (accumulation entry -> distribution exit) actually
+    makes money over time, instead of just feeling like it does."""
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            UPDATE watched_positions
+            SET status='closed', exit_date=%s, exit_price=%s, exit_reason=%s
+            WHERE id=%s
+        """, (exit_date, exit_price, exit_reason, position_id))
+    return {"status": "ok"}
+
+
+def get_strategy_track_record() -> dict:
+    """The honest scoreboard: did accumulation-entry -> distribution-exit
+    actually make money on closed positions? This is the real test of
+    whether this whole approach works, not a feeling."""
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT entry_price, exit_price FROM watched_positions
+            WHERE status='closed' AND exit_price IS NOT NULL
+        """)
+        rows = cur.fetchall()
+
+    if not rows:
+        return {"status": "ok", "n_closed": 0, "message": "No closed positions yet."}
+
+    returns = [(exit_p / entry_p - 1) * 100 for entry_p, exit_p in rows]
+    returns = np.array(returns)
+    return {
+        "status": "ok",
+        "n_closed": len(returns),
+        "win_rate_pct": round(float(np.mean(returns > 0)) * 100, 2),
+        "avg_return_pct": round(float(np.mean(returns)), 2),
+        "median_return_pct": round(float(np.median(returns)), 2),
+        "best_pct": round(float(np.max(returns)), 2),
+        "worst_pct": round(float(np.min(returns)), 2),
+    }

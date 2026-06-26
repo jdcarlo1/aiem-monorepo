@@ -52,7 +52,7 @@ CORS(app)
 
 # ── NaN/Inf-safe JSON ─────────────────────────────────────────────────────────
 # Postgres float columns and numpy computations can yield NaN/Infinity. Python's
-# default json emits the literal tokens `NaN`/`Infinity`, which are INVALID JSON —
+# default json emits the literal tokens `NaN`/`Infinity`, which are INVALID JSON -
 # the browser's JSON.parse throws and the tab spins forever ("Load failed"). This
 # provider recursively replaces NaN/Inf with null so every response is valid JSON.
 # Wrapped in try/except so it can never itself break a response.
@@ -63,7 +63,7 @@ def _json_sanitize(o):
     if isinstance(o, float):
         return None if (_math_san.isnan(o) or _math_san.isinf(o)) else o
     # numpy scalars (float32/float64) inherit from float above, but Decimal does not.
-    # psycopg2 NUMERIC/FLOAT8 columns can carry Decimal("NaN") — convert and check.
+    # psycopg2 NUMERIC/FLOAT8 columns can carry Decimal("NaN") - convert and check.
     try:
         import decimal as _dec_san
         if isinstance(o, _dec_san.Decimal):
@@ -112,7 +112,7 @@ _last_owner_catchup_ts = 0.0
 @app.before_request
 def _owner_catchup_on_wake():
     """Backup for Autoscale (which sleeps and misses scheduled emails): when ANY
-    request wakes this server — e.g. the owner opens the site in the morning — fire
+    request wakes this server - e.g. the owner opens the site in the morning - fire
     the catch-up in the background so today's due-but-unsent owner emails go out.
     Throttled + non-blocking so it never slows a request. Harmless on a Reserved VM:
     the owner_email_log claims dedupe it against the real-time scheduler."""
@@ -139,11 +139,11 @@ _last_news_catchup_ts = 0.0
 @app.before_request
 def _news_catchup_on_wake():
     """Backup for the NEWS CATALYST alert emails. The scheduled news scans run
-    9:31–10:30 ET, but on Autoscale a sleeping server misses them — the owner saw a
+    9:31–10:30 ET, but on Autoscale a sleeping server misses them - the owner saw a
     catalyst email land at 10:44 instead of in the 9:31 window. So when ANY request
     wakes the server during the trading day, fire a fresh news-catalyst scan in the
     background. run_news_catalyst_scan dedupes per-ticker via its own log table, so a
-    re-run only ever emails NEW catalysts — never a duplicate. Throttled + non-blocking
+    re-run only ever emails NEW catalysts - never a duplicate. Throttled + non-blocking
     so it never slows a request; harmless on a Reserved VM (the dedup log guards it
     against the real-time scheduler)."""
     global _last_news_catchup_ts
@@ -173,7 +173,7 @@ def _news_catchup_on_wake():
 _NTFY_TOPIC = "stockscanner-joel-9x7k2"
 
 def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell") -> bool:
-    """Send a push notification via ntfy.sh — never raises. Returns True on 2xx."""
+    """Send a push notification via ntfy.sh - never raises. Returns True on 2xx."""
     try:
         import requests as _r
         # Use JSON body so emoji/unicode in title/body don't hit latin-1 header encoding limits
@@ -196,7 +196,7 @@ def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell"
 # short global cooldown so subsequent yfinance HTTP calls fail FAST instead of
 # hanging (and piling up on Flask worker threads). Tab endpoints then fall back
 # to cached/DB snapshots quickly rather than spinning forever. Scoped to Yahoo
-# hosts only — OpenAI/Anthropic/Stripe/Finviz traffic is untouched.
+# hosts only - OpenAI/Anthropic/Stripe/Finviz traffic is untouched.
 import time as _time_cb
 # ── Yahoo circuit breaker with half-open recovery (single-probe) ─────────────
 # When Yahoo throttles, the breaker trips → all calls fail fast for a cooldown.
@@ -211,7 +211,7 @@ _YF_BREAKER_LOCK = threading.Lock()
 
 # ── Global yfinance rate limiter (token bucket) ──────────────────────────────
 # Caps ALL yfinance HTTP calls at 3/second across every thread and every job.
-# This is the primary defence against Yahoo throttling — no burst is possible.
+# This is the primary defence against Yahoo throttling - no burst is possible.
 class _YFRateLimiter:
     def __init__(self, calls_per_sec: float = 3.0):
         self._lock   = threading.Lock()
@@ -235,7 +235,7 @@ _POLYGON_RATE_LIMITER = _YFRateLimiter(calls_per_sec=3.0)  # Starter plan: safe 
 
 # ── Rotating leaderboard cursor ────────────────────────────────────────────────
 # Each hourly scan covers a fresh 1,000-ticker segment so the full 6,610-ticker
-# universe completes across 7 scans by ~3:10 PM — leaving 50 min to place trades.
+# universe completes across 7 scans by ~3:10 PM - leaving 50 min to place trades.
 _lb_cursor      = 0
 _lb_cursor_lock = threading.Lock()
 
@@ -297,7 +297,7 @@ class _YFBreakerCompat:
     """Thin shim so _yahoo_breaker.allow() / .record_success() / .record_failure()
     calls route through the single shared _YF_BREAKER state.  Previously these
     names were used in market_overview and squeeze_setup background threads but
-    never defined — causing a silent NameError that prevented both scans from ever
+    never defined - causing a silent NameError that prevented both scans from ever
     completing (tabs spun forever)."""
     def allow(self) -> bool:  return not _yf_breaker_open()
     def record_success(self): _yf_breaker_probe_success()
@@ -305,7 +305,7 @@ class _YFBreakerCompat:
 _yahoo_breaker = _YFBreakerCompat()
 
 # Yahoo also throttles via HTTP 401 "Unauthorized" / "Invalid Crumb" floods. These
-# are NOT 429/503 and NOT exceptions — they're returned responses that yfinance
+# are NOT 429/503 and NOT exceptions - they're returned responses that yfinance
 # silently swallows as "no data" (hence the "$X possibly delisted" log spam), so
 # the breaker above never trips and scans churn through hundreds of slow 401s.
 # A single 401 can be a benign crumb refresh, so we only trip on a sustained BURST.
@@ -400,12 +400,12 @@ except Exception as _tpe:
     print(f"[startup] timeout adapter failed (non-fatal): {_tpe}")
 
 # yfinance 1.4.1 fetches from Yahoo via curl_cffi (browser TLS impersonation),
-# NOT requests — so the adapter above does NOT cover it. yfinance also hard-codes
+# NOT requests - so the adapter above does NOT cover it. yfinance also hard-codes
 # timeout=30s per call, so when Yahoo is slow the dashboard tabs hang ~30s and the
 # spinner never resolves. This patch wraps curl_cffi's Session.request to, for
 # yahoo.com URLs only: (a) cap the per-call timeout to 8s, and (b) trip the shared
 # global circuit breaker on rate-limit (429/503) or timeout so that subsequent
-# Yahoo calls fail INSTANTLY for a short cooldown — endpoints then fall back to
+# Yahoo calls fail INSTANTLY for a short cooldown - endpoints then fall back to
 # cached/DB data in <1s instead of spinning. Non-Yahoo curl_cffi traffic (if any)
 # is passed through untouched.
 try:
@@ -420,11 +420,11 @@ try:
             return _cffi_orig_request(self, method, url, *args, **kwargs)
         if _yf_breaker_open():
             # Back off (releasing the GIL) so scan worker threads don't hot-loop
-            # and starve the Flask HTTP threads while Yahoo is throttling — keeps
+            # and starve the Flask HTTP threads while Yahoo is throttling - keeps
             # the dashboard tabs loading from cache/DB instead of erroring out.
             _time_cb.sleep(0.05)
             raise _CffiErr("yfinance circuit breaker open (Yahoo rate-limited)")
-        # Rate-limit EVERY Yahoo HTTP call globally — prevents bursts from any job.
+        # Rate-limit EVERY Yahoo HTTP call globally - prevents bursts from any job.
         # 3 req/sec sustained means ~180/min across ALL background threads combined.
         _YF_RATE_LIMITER.acquire()
         _t = kwargs.get("timeout", None)
@@ -433,7 +433,7 @@ try:
         try:
             _resp = _cffi_orig_request(self, method, url, *args, **kwargs)
         except Exception:
-            # Timeout or connection error — trip the breaker so subsequent calls
+            # Timeout or connection error - trip the breaker so subsequent calls
             # fail fast and free up threads for the Flask HTTP workers.
             with _YF_BREAKER_LOCK:
                 _YF_BREAKER["state"] = "open"
@@ -461,7 +461,7 @@ except Exception as _ce:
 # ── Shared Tradier data helpers ────────────────────────────────────────────────
 # Drop-in replacements for yfinance quotes, daily bars, and intraday bars.
 # All return the same DataFrame schema as yfinance so downstream code is unchanged.
-# Token: TRADIER_API_TOKEN_2 (brokerage account — real-time data). Falls back to
+# Token: TRADIER_API_TOKEN_2 (brokerage account - real-time data). Falls back to
 # TRADIER_API_TOKEN if set. Returns empty result on auth failure / network error.
 
 def _td_quotes(symbols: list) -> dict:
@@ -578,7 +578,7 @@ def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
         if not _bars:
             return _ti_pd.DataFrame()
         _df = _ti_pd.DataFrame(_bars)
-        # Tradier returns naive ET timestamps — localize explicitly so callers can
+        # Tradier returns naive ET timestamps - localize explicitly so callers can
         # call between_time() and tz_convert() without extra handling.
         _df["time"] = _ti_pd.to_datetime(_df["time"]).dt.tz_localize("America/New_York")
         _df = _df.set_index("time").rename(columns={
@@ -603,7 +603,7 @@ import threading as _tdc_thr
 _tdc_lock  = _tdc_thr.Lock()
 _tdc_cache: dict = {}   # (ticker, expiry) → (df_calls, df_puts, ts)
 _tde_cache: dict = {}   # ticker → (expiry_list, ts)
-_TDC_TTL   = 600        # 10-min shared cache — option data changes slowly intraday
+_TDC_TTL   = 600        # 10-min shared cache - option data changes slowly intraday
 
 def _td_headers():
     import os as _tdc_os
@@ -830,7 +830,7 @@ composite_scan.init_meta_table()
 composite_scan.init_watchlist_table()
 init_signal_outcomes_table()
 # Backfill T+3/T+5/T+10 prices for any existing rows that haven't been filled yet.
-# Runs once at startup in a background thread — won't block the server or affect any tab.
+# Runs once at startup in a background thread - won't block the server or affect any tab.
 def _backfill_signal_outcomes():
     try:
         update_signal_outcome_prices()
@@ -897,14 +897,14 @@ _init_conviction_outcomes_table()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TOP SCORE 8+ — L1-L8 Smart Money Pressure snapshot + track record
+# TOP SCORE 8+ - L1-L8 Smart Money Pressure snapshot + track record
 # ------------------------------------------------------------------------------
 # The TOP SCORE 8+ tab is scored by the EXISTING 8-layer money-pressure engine
 # (_run_five_layer_conviction): total_pts >= 8 = EXTREME. This block persists the
 # daily EXTREME cohort and measures STOCK returns from a next-open entry over
 # 1/2/3/4 weeks. Universe today = whatever the FREE options feed covers (~25-150
 # tickers the engine already signals); adding a paid feed later just widens the
-# engine's universe — no change needed here or in the tab (the `source` /
+# engine's universe - no change needed here or in the tab (the `source` /
 # `universe_count` fields are the forward-compatibility seam).
 # Defined BEFORE the scheduler `try:` block so its jobs can reference them.
 # ══════════════════════════════════════════════════════════════════════════════
@@ -934,7 +934,7 @@ def _et_today_iso():
 # /conviction-stack endpoint and snapshot_conviction_stack() so the universe the
 # tab shows matches the universe that gets logged. The frontend reads the
 # explicit `universe_count` field (not len(results)), so widening coverage later
-# with a paid feed only needs this raised — no tab rewrite required.
+# with a paid feed only needs this raised - no tab rewrite required.
 CONVICTION_STACK_MAX = 60
 
 # Owner inbox for personal (non-customer) intraday alert copies. Matches the
@@ -1266,6 +1266,169 @@ def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
         return None
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# JOB HEALTH MONITOR - alerts owner when scheduled jobs silently fail
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ensure_job_heartbeat_table():
+    import psycopg2 as _pg_hb
+    try:
+        with _pg_hb.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS job_heartbeats (
+                    job_name             VARCHAR(80) PRIMARY KEY,
+                    last_success         TIMESTAMP,
+                    last_attempt         TIMESTAMP,
+                    last_error           TEXT,
+                    consecutive_failures INTEGER DEFAULT 0
+                )
+            """)
+    except Exception as _e:
+        print(f"[job_health] table init error: {_e}")
+
+
+def record_job_success(job_name: str):
+    """Call at the end of every scheduled job on success."""
+    try:
+        _ensure_job_heartbeat_table()
+        import psycopg2 as _pg_rs
+        with _pg_rs.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO job_heartbeats
+                    (job_name, last_success, last_attempt, consecutive_failures)
+                VALUES (%s, NOW(), NOW(), 0)
+                ON CONFLICT (job_name) DO UPDATE SET
+                    last_success=NOW(), last_attempt=NOW(),
+                    consecutive_failures=0, last_error=NULL
+            """, (job_name,))
+    except Exception as _e:
+        print(f"[job_health] record_success error for {job_name}: {_e}")
+
+
+def record_job_failure(job_name: str, error: str):
+    """Call in the except block of every scheduled job."""
+    try:
+        _ensure_job_heartbeat_table()
+        import psycopg2 as _pg_rf
+        with _pg_rf.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO job_heartbeats
+                    (job_name, last_attempt, last_error, consecutive_failures)
+                VALUES (%s, NOW(), %s, 1)
+                ON CONFLICT (job_name) DO UPDATE SET
+                    last_attempt=NOW(), last_error=%s,
+                    consecutive_failures = job_heartbeats.consecutive_failures + 1
+            """, (job_name, error[:1000], error[:1000]))
+    except Exception as _e:
+        print(f"[job_health] record_failure error for {job_name}: {_e}")
+
+
+def check_job_health(max_staleness_hours: dict) -> dict:
+    """Check whether any monitored job is overdue or has repeated failures."""
+    from datetime import datetime as _dt_hc, timedelta as _td_hc
+    try:
+        _ensure_job_heartbeat_table()
+        import psycopg2 as _pg_hc
+        with _pg_hc.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT job_name, last_success, consecutive_failures, last_error,
+                       last_attempt
+                FROM job_heartbeats
+            """)
+            rows = cur.fetchall()
+    except Exception as _e:
+        return {"status": "error", "error": str(_e)}
+
+    now = _dt_hc.utcnow()
+    alerts = []
+    seen = set()
+    for job_name, last_success, fails, last_error, last_attempt in rows:
+        seen.add(job_name)
+        max_hrs = max_staleness_hours.get(job_name)
+        if max_hrs is None:
+            continue
+        stale = (last_success is None or
+                 (now - last_success) > _td_hc(hours=max_hrs))
+        if stale:
+            alerts.append({
+                "job": job_name,
+                "issue": f"STALE - no success in {max_hrs}h window",
+                "last_success": str(last_success),
+                "last_attempt": str(last_attempt),
+                "consecutive_failures": fails,
+                "last_error": last_error,
+            })
+        elif fails and fails >= 3:
+            alerts.append({
+                "job": job_name,
+                "issue": f"{fails} consecutive failures (last ok: {last_success})",
+                "last_error": last_error,
+            })
+
+    # Jobs that have NEVER run (not in DB yet)
+    for job_name, max_hrs in max_staleness_hours.items():
+        if job_name not in seen:
+            alerts.append({
+                "job": job_name,
+                "issue": "NEVER RUN - no heartbeat record exists yet",
+                "last_success": None,
+            })
+
+    return {"status": "ok", "alerts": alerts,
+            "total_jobs": len(max_staleness_hours),
+            "healthy": len(max_staleness_hours) - len(alerts),
+            "checked_at": str(now)}
+
+
+# Staleness thresholds for each monitored job (hours)
+_JOB_STALENESS_HOURS = {
+    "polygon_daily_scan":       26,   # daily 8:35 AM
+    "aiem_research_agent":      170,  # weekly Sunday 8 PM (7d + 2h buffer)
+    "aiem_morning_scan":        26,   # daily Mon-Fri 9:07 AM
+    "aiem_prediction_grader":   26,   # daily Mon-Fri 4:35 PM
+    "aiem_continuous_research": 26,   # daily Mon-Fri 6 PM
+    "vix_daily_fetch":          26,   # daily Mon-Fri 4:15 PM
+    "aiem_auto_retire":         170,  # weekly Sunday 6 PM
+}
+
+
+def _run_health_watchdog():
+    """Scheduled every 30 min. Checks job heartbeats and emails owner on issues."""
+    result = check_job_health(_JOB_STALENESS_HOURS)
+    if result.get("status") == "error":
+        print(f"[job_health] watchdog DB error: {result.get('error')}")
+        return
+    alerts = result.get("alerts", [])
+    healthy = result.get("healthy", 0)
+    total = result.get("total_jobs", 0)
+    print(f"[job_health] watchdog: {healthy}/{total} jobs healthy, {len(alerts)} alerts")
+    if not alerts:
+        return
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        owner = os.environ.get("OWNER_EMAIL", "")
+        if not smtp_configured() or not owner:
+            for a in alerts:
+                print(f"[job_health] ALERT -- {a['job']}: {a['issue']}")
+            return
+        lines = ["StockScanner AI - {} job(s) need attention".format(len(alerts))]
+        for a in alerts:
+            lines.append("* {}: {}".format(a['job'], a['issue']))
+            if a.get("last_error"):
+                lines.append("  Last error: {}".format(a['last_error'][:200]))
+            if a.get("last_success"):
+                lines.append("  Last success: {}".format(a['last_success']))
+        lines.append("Checked at: {} UTC".format(result['checked_at']))
+        send_email_raw(
+            owner,
+            "[StockScanner AI] WARNING: {} job alert(s) - action needed".format(len(alerts)),
+            "\n".join(lines),
+        )
+    except Exception as _e:
+        print(f"[job_health] alert email error: {_e}")
+
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -1276,10 +1439,10 @@ try:
     def _do_scan_and_save(session: str) -> None:
         """Run a Smart Money scan, save scores to history, then email subscribers."""
         if not _intraday_scan_allowed():
-            print(f"[scheduler] {session} scan skipped — market closed (holiday/weekend)")
+            print(f"[scheduler] {session} scan skipped - market closed (holiday/weekend)")
             return
         if _yf_breaker_open():
-            print(f"[scheduler] {session} smart-money scan skipped — Yahoo circuit breaker open")
+            print(f"[scheduler] {session} smart-money scan skipped - Yahoo circuit breaker open")
             return
         result  = scan_smart_money(DEFAULT_LEADERBOARD)
         signals = result.get("leaderboard", [])
@@ -1290,28 +1453,28 @@ try:
         print(f"[scheduler] {session} scan → {out}")
 
     def _run_premarket_scan():
-        """9:00 AM ET — overnight OI; options haven't opened yet."""
+        """9:00 AM ET - overnight OI; options haven't opened yet."""
         try:
             _do_scan_and_save("premarket")
         except Exception as e:
             print(f"[scheduler] pre-market scan error: {e}")
 
     def _run_morning_scan():
-        """9:45 AM ET — first real options data 15 min after open."""
+        """9:45 AM ET - first real options data 15 min after open."""
         try:
             _do_scan_and_save("morning")
         except Exception as e:
             print(f"[scheduler] morning scan error: {e}")
 
     def _run_preclose_scan():
-        """3:30 PM ET — 30 min before close. Last chance to act."""
+        """3:30 PM ET - 30 min before close. Last chance to act."""
         try:
             _do_scan_and_save("preclose")
         except Exception as e:
             print(f"[scheduler] pre-close scan error: {e}")
 
     def _run_eod_scan():
-        """4:15 PM ET — full-day final options flow summary."""
+        """4:15 PM ET - full-day final options flow summary."""
         try:
             _do_scan_and_save("eod")
         except Exception as e:
@@ -1334,7 +1497,7 @@ try:
     # Delay first run of all "interval" jobs by 3 min so they don't burst-compete
     # with Flask startup + health checks right after a restart or fresh deploy.
     _sched_start_delay = _dt_sched.now(_ET) + _td_sched(minutes=3)
-    # Pre-market: Mon-Fri 9:00 AM ET  (overnight OI — who loaded up positions yesterday)
+    # Pre-market: Mon-Fri 9:00 AM ET  (overnight OI - who loaded up positions yesterday)
     _scheduler.add_job(
         _run_premarket_scan,
         CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone=_ET),
@@ -1348,7 +1511,7 @@ try:
         id="morning_scan",
         replace_existing=True,
     )
-    # Pre-close: Mon-Fri 3:30 PM ET  (30 min before 4 PM close — still time to act)
+    # Pre-close: Mon-Fri 3:30 PM ET  (30 min before 4 PM close - still time to act)
     _scheduler.add_job(
         _run_preclose_scan,
         CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone=_ET),
@@ -1378,10 +1541,10 @@ try:
                 "apiKey": _key,
             }
             while url:
-                _POLYGON_RATE_LIMITER.acquire()   # 3/sec cap — prevents Starter 429s
+                _POLYGON_RATE_LIMITER.acquire()   # 3/sec cap - prevents Starter 429s
                 resp = _pg_req.get(url, params=params, timeout=8)
                 if resp.status_code == 403:
-                    print(f"[polygon] 403 on {ticker} — check API key/plan")
+                    print(f"[polygon] 403 on {ticker} - check API key/plan")
                     return None
                 if resp.status_code == 429:
                     import time as _pg_time; _pg_time.sleep(2)
@@ -1444,7 +1607,7 @@ try:
             valid_exps = [
                 e for e in _exp_raw
                 if 1 <= (_td_dt.strptime(e, "%Y-%m-%d") - _now_td).days + 1 <= max_exp_days
-            ][:3]   # 3 nearest expirations — caps API calls to 5 total per ticker
+            ][:3]   # 3 nearest expirations - caps API calls to 5 total per ticker
             if not valid_exps:
                 return price, None
 
@@ -1479,12 +1642,12 @@ try:
             print(f"[tradier] error {ticker}: {_e_td}")
             return 0, None
 
-    # EOD unusual-calls auto-scan — populates unusual_calls_log so the EOD SWEEP tab
+    # EOD unusual-calls auto-scan - populates unusual_calls_log so the EOD SWEEP tab
     # has data without a user needing to manually open the Unusual Calls tab first.
     def _run_unusual_calls_scan(label: str):
         _force = label in ("manual-trigger", "admin-eod")
         if not _intraday_scan_allowed() and not _force:
-            print(f"[scheduler] unusual-calls ({label}) skipped — market closed (holiday/weekend)")
+            print(f"[scheduler] unusual-calls ({label}) skipped - market closed (holiday/weekend)")
             return
         try:
             import yfinance as yf
@@ -1568,7 +1731,7 @@ try:
                         int(r.get("openInterest") or 0) > 0 for r in pg_rows
                     ))
                     # Use Polygon if: (a) OI is available (after close), or
-                    #                 (b) market hours — volume-only detection mode
+                    #                 (b) market hours - volume-only detection mode
                     if pg_rows and (_pg_has_oi or _mkt_hours):
                         # Fetch underlying price (Starter: underlying_asset.price is None)
                         for r in pg_rows:
@@ -1610,7 +1773,7 @@ try:
                                 if prem < min_prem: continue
                                 if oi == 0:
                                     # Market-hours mode: OI not yet settled by exchange.
-                                    # Use a raw volume floor to avoid noise — only flag
+                                    # Use a raw volume floor to avoid noise - only flag
                                     # contracts with meaningful activity (100+ contracts).
                                     if vol < 100: continue
                                     voi = 0.0
@@ -1630,7 +1793,7 @@ try:
                         return hits
 
                     # Polygon had no data for this ticker (API error / unlisted).
-                    # During market hours, skip non-priority tickers — Yahoo would be
+                    # During market hours, skip non-priority tickers - Yahoo would be
                     # too slow and rate-limited for the full universe. EOD Polygon scan
                     # covers them after 16:00 when OI is populated.
                     if _mkt_hours and not is_etf and ticker not in set(_PRIORITY_FIRST):
@@ -1647,7 +1810,7 @@ try:
                     if not price:
                         _yf_note_silent_throttle()
                         return hits
-                    # Cap to the 4 nearest valid expiries — limits Yahoo API calls per ticker
+                    # Cap to the 4 nearest valid expiries - limits Yahoo API calls per ticker
                     # from potentially 20+ chains to 4, keeping total scan time within budget.
                     _valid_exps = [
                         _e for _e in (tk.options or [])
@@ -1686,9 +1849,9 @@ try:
                 except Exception: pass
                 return hits
             # Build augmented universe:
-            #  0. priority tickers — always first (high-volume names we never want to miss)
-            #  1. earnings + movers today — catches catalyst moves early
-            #  2. rotating 1,000-ticker leaderboard segment — full 6,610 covered across 7
+            #  0. priority tickers - always first (high-volume names we never want to miss)
+            #  1. earnings + movers today - catches catalyst moves early
+            #  2. rotating 1,000-ticker leaderboard segment - full 6,610 covered across 7
             #     hourly scans (9:05→3:05 ET), completing the universe by ~3:10 PM so
             #     all unusual activity is visible before the 4 PM options trading deadline.
             _PRIORITY_FIRST = [
@@ -1735,10 +1898,10 @@ try:
                     # not all 332 stuck ones (would be ~11 min without this).
                     for _f in futs:
                         _f.cancel()
-                    print(f"[scheduler] {label} scan 180s timeout — {_uc_done}/{len(_universe)} tickers done, saving {len(all_hits)} partial hits")
+                    print(f"[scheduler] {label} scan 180s timeout - {_uc_done}/{len(_universe)} tickers done, saving {len(all_hits)} partial hits")
             _save_unusual_calls_to_db(all_hits)
             # Refresh the in-memory cache with ALL of today's accumulated sweeps so
-            # that earlier scans' results stay visible — not just this scan's slice.
+            # that earlier scans' results stay visible - not just this scan's slice.
             from datetime import datetime as _dt_sch
             _today_all = _load_todays_unusual_calls_from_db(_ETF_SET)
             if _today_all:
@@ -1754,7 +1917,7 @@ try:
             import traceback
             print(f"[scheduler] {label} unusual-calls scan error: {e}\n{traceback.format_exc()}")
 
-    # Unusual calls scan — fires at :36 past 9 AM (first slot AFTER market opens at
+    # Unusual calls scan - fires at :36 past 9 AM (first slot AFTER market opens at
     # 9:30 AM; _intraday_scan_allowed() requires ≥9:30 AM so 9:05 always skipped),
     # then hourly at :05 past the hour for remaining slots.
     # Rate limiter caps all Yahoo calls at 3/sec globally so each scan takes ~12 min;
@@ -1816,7 +1979,7 @@ try:
         id="eod_scan",
         replace_existing=True,
     )
-    # Grinder morning scan: Mon-Fri 8:30 AM ET — uses previous 2 days' complete Polygon bars
+    # Grinder morning scan: Mon-Fri 8:30 AM ET - uses previous 2 days' complete Polygon bars
     # Runs pre-market so the watchlist is ready before the bell for same-day entries.
     def _run_grinder_eod():
         try:
@@ -1830,7 +1993,7 @@ try:
         id="grinder_eod_scan",
         replace_existing=True,
     )
-    # Outcomes: Mon-Fri 4:30 PM ET — after market close, fetch closing prices for open AI trade log entries
+    # Outcomes: Mon-Fri 4:30 PM ET - after market close, fetch closing prices for open AI trade log entries
     def _run_outcomes_update():
         if not _intraday_scan_allowed():
             return
@@ -1844,7 +2007,7 @@ try:
         id="outcomes_update",
         replace_existing=True,
     )
-    # Signal snapshot: Mon-Fri 4:00 PM ET — snapshot today's signals for multi-day persistence tracking
+    # Signal snapshot: Mon-Fri 4:00 PM ET - snapshot today's signals for multi-day persistence tracking
     def _run_signal_snapshot():
         if not _intraday_scan_allowed():
             return
@@ -1858,7 +2021,7 @@ try:
         id="signal_snapshot",
         replace_existing=True,
     )
-    # Daily vol snapshot: Mon-Fri 4:05 PM ET — store IV skew + short interest for future percentile ranking
+    # Daily vol snapshot: Mon-Fri 4:05 PM ET - store IV skew + short interest for future percentile ranking
     def _run_daily_vol_snapshot():
         if not _intraday_scan_allowed():
             return
@@ -1872,7 +2035,7 @@ try:
         id="daily_vol_snapshot",
         replace_existing=True,
     )
-    # Multi-Day Runner — Day 1 watch scan: Mon-Fri 4:05 PM ET
+    # Multi-Day Runner - Day 1 watch scan: Mon-Fri 4:05 PM ET
     # Scans large-cap universe for ≥3% ignitions, saves to DB, emails owner watchlist.
     def _run_multiday_day1():
         try:
@@ -1889,7 +2052,7 @@ try:
         id="multiday_day1_scan",
         replace_existing=True,
     )
-    # Multi-Day Runner — Day 2 confirm: Mon-Fri 2:45 PM ET
+    # Multi-Day Runner - Day 2 confirm: Mon-Fri 2:45 PM ET
     # Checks yesterday's watch list live, sends BUY SIGNAL email for confirmed entries.
     def _run_multiday_day2():
         try:
@@ -1906,7 +2069,7 @@ try:
         id="multiday_day2_confirm",
         replace_existing=True,
     )
-    # Multi-Day Runner — Intraday D1 signal: Mon-Fri 2:00 PM ET
+    # Multi-Day Runner - Intraday D1 signal: Mon-Fri 2:00 PM ET
     # Checks all 3 cap tiers: VWAP hold + top-30%-range + RVOL ≥ 2x → BUY NOW email
     def _run_multiday_intraday():
         try:
@@ -1919,7 +2082,7 @@ try:
         id="multiday_intraday_scan",
         replace_existing=True,
     )
-    # Multi-Day Runner — Outcomes updater: Mon-Fri 4:30 PM ET
+    # Multi-Day Runner - Outcomes updater: Mon-Fri 4:30 PM ET
     # Fills D+3 / D+5 / D+10 returns on past signals for the outcomes tab
     def _run_multiday_outcomes():
         try:
@@ -1933,7 +2096,7 @@ try:
         id="multiday_outcomes_update",
         replace_existing=True,
     )
-    # SPY cache refresh: Mon-Fri 9:05 AM ET — pre-warm SPY 1y cache before market opens
+    # SPY cache refresh: Mon-Fri 9:05 AM ET - pre-warm SPY 1y cache before market opens
     def _run_spy_cache_refresh():
         if not _intraday_scan_allowed():
             return
@@ -1961,7 +2124,7 @@ try:
             print(f"[scheduler] micro-cap pre-warm → scanned {out.get('scanned', 0)} tickers, {positive} micro/small positive")
         except Exception as e:
             print(f"[scheduler] micro-cap pre-warm error: {e}")
-    # Start at 10:00, not 9:00 — removes the 9:00 and 9:30 prewarm slots that
+    # Start at 10:00, not 9:00 - removes the 9:00 and 9:30 prewarm slots that
     # collide with the morning ranking scans and owner emails.
     _scheduler.add_job(
         _run_microcap_prewarm,
@@ -1970,7 +2133,7 @@ try:
         replace_existing=True,
     )
     # Micro-cap options scan: Mon-Fri at 10:30 AM, 3:30 PM, 4:00 PM, 4:15 PM ET
-    # EOD runs are the richest — rate limits relax after close, full day's volume captured
+    # EOD runs are the richest - rate limits relax after close, full day's volume captured
     def _run_microcap_options_auto():
         if not _intraday_scan_allowed():
             return
@@ -1987,7 +2150,7 @@ try:
             id=f"microcap_options_auto_{_mc_hour}_{_mc_min}",
             replace_existing=True,
         )
-    # AI Trades auto-generation: Mon-Fri 10:00 AM ET — caches are warm after 9:45 AM morning scan
+    # AI Trades auto-generation: Mon-Fri 10:00 AM ET - caches are warm after 9:45 AM morning scan
     def _run_ai_trades_auto():
         if not _intraday_scan_allowed():
             return
@@ -2006,7 +2169,7 @@ try:
     )
     # Morning inflows emails: fired after each scan wave so DB is fully written
     # Trimmed to 3 slots (was 6) to reduce 9:30-10:30 burst saturation.
-    # 9:36 AM = 1 min after the 9:35 double-pass scan — double-confirmed early entry.
+    # 9:36 AM = 1 min after the 9:35 double-pass scan - double-confirmed early entry.
     # 10:01 AM = updated confirmation wave. 13:01 PM = midday catch-up.
     def _run_morning_inflows_email():
         if not _intraday_scan_allowed():
@@ -2023,7 +2186,7 @@ try:
             id=f"morning_inflows_email_{_mi_eh}_{_mi_em}",
             replace_existing=True,
         )
-    # Top Pick of the Day: Mon-Fri 9:45 AM ET — #1 conviction setup + specific call option to buy.
+    # Top Pick of the Day: Mon-Fri 9:45 AM ET - #1 conviction setup + specific call option to buy.
     # Single slot (was 9:35, 9:40, 9:45) to reduce burst; the 9:45 slot is when options data is stable.
     def _run_top_pick_email():
         if not _intraday_scan_allowed():
@@ -2040,7 +2203,7 @@ try:
         replace_existing=True,
     )
     # SMS alert scan: 9:55 AM (staggered from 9:45 to give morning_scan a clear 10-min head start).
-    # Only fires on green SPY days — red days historically lose money regardless of signal quality.
+    # Only fires on green SPY days - red days historically lose money regardless of signal quality.
     def _run_sms_alert_scan():
         if not _intraday_scan_allowed():
             return
@@ -2055,7 +2218,7 @@ try:
         id="sms_alert_scan",
         replace_existing=True,
     )
-    # Exit alert scan: every 15 min — watches stocks alerted today for VWAP breaks
+    # Exit alert scan: every 15 min - watches stocks alerted today for VWAP breaks
     def _run_exit_alert_scan():
         if not _intraday_scan_allowed():
             return
@@ -2073,7 +2236,7 @@ try:
         replace_existing=True,
     )
     # Mid-Day Breakout scan: every 5 min 10:30 AM – 3:30 PM ET
-    # Confirmed trend + above VWAP + 15-min momentum — lower risk than morning entry
+    # Confirmed trend + above VWAP + 15-min momentum - lower risk than morning entry
     def _run_midday_breakout_scan():
         if not _intraday_scan_allowed():
             return
@@ -2128,7 +2291,7 @@ try:
         id="steady_grinder_scan",
         replace_existing=True,
     )
-    # VWAP Reclaim scan: every 5 min — immediate SMS when alerted stock reclaims VWAP
+    # VWAP Reclaim scan: every 5 min - immediate SMS when alerted stock reclaims VWAP
     def _run_vwap_reclaim_scan():
         if not _intraday_scan_allowed():
             return
@@ -2147,7 +2310,7 @@ try:
         replace_existing=True,
     )
 
-    # Call sweep scan: every 15 min — watches alerted tickers for bullish options sweeps above VWAP
+    # Call sweep scan: every 15 min - watches alerted tickers for bullish options sweeps above VWAP
     def _run_call_sweep_scan():
         if not _intraday_scan_allowed():
             return
@@ -2165,7 +2328,7 @@ try:
         replace_existing=True,
     )
 
-    # EOD accum picks email: 3:46 PM ET — 1 min after the 3:45 PM scan saves picks
+    # EOD accum picks email: 3:46 PM ET - 1 min after the 3:45 PM scan saves picks
     def _run_eod_accum_email_job():
         if not _intraday_scan_allowed():
             return
@@ -2180,7 +2343,7 @@ try:
         id="eod_accum_email",
         replace_existing=True,
     )
-    # Pre-Close Swing Setup scan: 2:00 PM ET — scan takes ~20-30 min to process
+    # Pre-Close Swing Setup scan: 2:00 PM ET - scan takes ~20-30 min to process
     # all tickers via yfinance, so SMS lands ~2:20-2:30 PM = 90 min to analyze
     # and buy before close. Daily OHLCV data is fully available by 2 PM.
     def _run_eod_swing_job():
@@ -2247,7 +2410,7 @@ try:
             id=f"hc_calls_email_{_hc_h}_{_hc_m}",
             replace_existing=True,
         )
-    # AI Short Calls auto-generation: Mon-Fri 10:15 AM ET — after scanner caches warm
+    # AI Short Calls auto-generation: Mon-Fri 10:15 AM ET - after scanner caches warm
     def _run_ai_short_calls_auto():
         if not _intraday_scan_allowed():
             return
@@ -2263,7 +2426,7 @@ try:
                         if picks:
                             _save_ai_short_calls_to_log(picks, _et_today_iso())
                             print(f"[scheduler] AI short calls saved {len(picks)} picks")
-                            # HIGH conviction only — 91% WR vs 59% for MEDIUM (backtest Jun 1-13)
+                            # HIGH conviction only - 91% WR vs 59% for MEDIUM (backtest Jun 1-13)
                             high = [p for p in picks if p.get("conviction") == "HIGH"]
                             if high:
                                 import threading as _thr_sc
@@ -2283,8 +2446,8 @@ try:
         id="ai_short_calls_auto",
         replace_existing=True,
     )
-    # AI Short Calls outcomes: Mon-Fri 4:32 PM ET — alongside AI trade outcomes
-    # NOTE: no _intraday_scan_allowed() guard here — outcome lookups are historical
+    # AI Short Calls outcomes: Mon-Fri 4:32 PM ET - alongside AI trade outcomes
+    # NOTE: no _intraday_scan_allowed() guard here - outcome lookups are historical
     # yfinance fetches and must run AFTER market close. The old guard closed at 4:30 PM
     # (990 mins) while this job fires at 4:32 PM (992 mins), silently skipping every day.
     def _run_sc_outcomes():
@@ -2298,7 +2461,7 @@ try:
         id="sc_outcomes_update",
         replace_existing=True,
     )
-    # AI miss detection: 4:45 PM ET — after market close, detect what AI missed today
+    # AI miss detection: 4:45 PM ET - after market close, detect what AI missed today
     # so tomorrow's AI prompt learns from overlooked patterns (feedback loop).
     def _run_aisc_miss_detection():
         try:
@@ -2312,7 +2475,7 @@ try:
         id="aisc_miss_detection",
         replace_existing=True,
     )
-    # AI Early Movers: 10:20 AM ET — separate experimental system, runs after unusual-calls scan
+    # AI Early Movers: 10:20 AM ET - separate experimental system, runs after unusual-calls scan
     def _run_ai_early_movers():
         try:
             import threading as _aiem_sched_thr
@@ -2344,7 +2507,7 @@ try:
         id="aiem_miss_detection",
         replace_existing=True,
     )
-    # Continuous Research Loop: 6 PM ET Mon-Fri — daily autonomous hypothesis sweep.
+    # Continuous Research Loop: 6 PM ET Mon-Fri - daily autonomous hypothesis sweep.
     # Tests 11 standard signal templates against today's new outcome data,
     # saves any significant findings (p<0.05) to DB for Sunday consolidation.
     # This is what makes the system smarter every day, not just on Sundays.
@@ -2352,7 +2515,9 @@ try:
         try:
             import threading as _crj_thr
             _crj_thr.Thread(target=_run_aiem_continuous_research, daemon=True).start()
+            record_job_success("aiem_continuous_research")
         except Exception as e:
+            record_job_failure("aiem_continuous_research", str(e))
             print(f"[scheduler] continuous research error: {e}")
     _scheduler.add_job(
         _run_continuous_research_job,
@@ -2360,14 +2525,16 @@ try:
         id="aiem_continuous_research",
         replace_existing=True,
     )
-    # Loop B — morning forward-looking scan: 9:05 AM ET Mon-Fri
+    # Loop B - morning forward-looking scan: 9:05 AM ET Mon-Fri
     # Reads fresh Polygon RVOL + conviction + sweep signals, applies learned weights,
     # saves ranked 3-5 day breakout predictions to aiem_predictions table.
     def _run_aiem_morning_job():
         try:
             import threading as _amj_thr
             _amj_thr.Thread(target=_run_aiem_morning_scan, daemon=True).start()
+            record_job_success("aiem_morning_scan")
         except Exception as e:
+            record_job_failure("aiem_morning_scan", str(e))
             print(f"[scheduler] aiem morning scan error: {e}")
     _scheduler.add_job(
         _run_aiem_morning_job,
@@ -2375,13 +2542,15 @@ try:
         id="aiem_morning_scan",
         replace_existing=True,
     )
-    # Loop B — prediction grader: 4:35 PM ET Mon-Fri
+    # Loop B - prediction grader: 4:35 PM ET Mon-Fri
     # Grades T+1 / T+3 / T+5 outcomes for Loop B predictions using Tradier history.
     def _run_aiem_grader_job():
         try:
             import threading as _agj_thr
             _agj_thr.Thread(target=_run_aiem_prediction_grader, daemon=True).start()
+            record_job_success("aiem_prediction_grader")
         except Exception as e:
+            record_job_failure("aiem_prediction_grader", str(e))
             print(f"[scheduler] aiem grader error: {e}")
     _scheduler.add_job(
         _run_aiem_grader_job,
@@ -2389,15 +2558,17 @@ try:
         id="aiem_prediction_grader",
         replace_existing=True,
     )
-    # AI Research Agent: every Sunday 8 PM ET — autonomous self-learning loop.
+    # AI Research Agent: every Sunday 8 PM ET - autonomous self-learning loop.
     # Queries its own pick history, discovers signal correlations, builds a scoring model.
     # Results saved to aiem_research_insights → injected into Monday's pick prompt.
     def _run_aiem_research_job():
         try:
             import threading as _aiem_rt
             _aiem_rt.Thread(target=_run_aiem_research_agent, daemon=True).start()
+            record_job_success("aiem_research_agent")
             print("[scheduler] AI research agent started")
         except Exception as e:
+            record_job_failure("aiem_research_agent", str(e))
             print(f"[scheduler] aiem research agent error: {e}")
     _scheduler.add_job(
         _run_aiem_research_job,
@@ -2443,7 +2614,7 @@ try:
                 id=f"monitor_positions_{_mo_h}_{_mo_m}",
                 replace_existing=True,
             )
-    # Signal outcomes: Mon-Fri 4:33 PM ET — fills stored T+3/T+5/T+10 prices (no live fetch on page load)
+    # Signal outcomes: Mon-Fri 4:33 PM ET - fills stored T+3/T+5/T+10 prices (no live fetch on page load)
     def _run_signal_outcomes():
         if not _intraday_scan_allowed():
             return
@@ -2457,7 +2628,7 @@ try:
         id="signal_outcomes_update",
         replace_existing=True,
     )
-    # EOD sweep outcomes: Mon-Fri 4:35 PM ET — fills T+1/T+3/T+5 closing prices
+    # EOD sweep outcomes: Mon-Fri 4:35 PM ET - fills T+1/T+3/T+5 closing prices
     def _run_eod_sweep_outcomes():
         if not _intraday_scan_allowed():
             return
@@ -2471,7 +2642,7 @@ try:
         id="eod_sweep_outcomes",
         replace_existing=True,
     )
-    # Multiday flow streak scan: Mon-Fri 4:40 PM ET — pre-populates DB so the
+    # Multiday flow streak scan: Mon-Fri 4:40 PM ET - pre-populates DB so the
     # Flow Streak tab serves instantly on weekends/restarts (no live yfinance hang).
     def _run_multiday_streak_eod():
         try:
@@ -2489,7 +2660,7 @@ try:
         id="multiday_streak_eod",
         replace_existing=True,
     )
-    # EOD sweep auto-log: Mon-Fri 4:20 PM ET — ensures track record is populated without
+    # EOD sweep auto-log: Mon-Fri 4:20 PM ET - ensures track record is populated without
     # anyone needing to visit the tab.  Busts the cache then calls the route directly.
     def _auto_log_eod_sweeps():
         if not _intraday_scan_allowed():
@@ -2509,7 +2680,7 @@ try:
         id="eod_sweep_auto_log",
         replace_existing=True,
     )
-    # Conviction calls snapshot: 4:25 PM ET — after EOD unusual-calls scans finish,
+    # Conviction calls snapshot: 4:25 PM ET - after EOD unusual-calls scans finish,
     # snapshot EXTREME+HIGH picks to DB and send email + SMS digest.
     def _run_conviction_snapshot():
         if not _intraday_scan_allowed():
@@ -2525,7 +2696,7 @@ try:
         id="conviction_snapshot",
         replace_existing=True,
     )
-    # Conviction outcomes: 4:32 PM ET — fill D+1/D+3/D+5 prices for past snapshots
+    # Conviction outcomes: 4:32 PM ET - fill D+1/D+3/D+5 prices for past snapshots
     def _run_conviction_outcomes():
         if not _intraday_scan_allowed():
             return
@@ -2540,7 +2711,7 @@ try:
         id="conviction_outcomes",
         replace_existing=True,
     )
-    # Morning Gamma Watchlist SMS: 8:45 AM ET — yesterday's unusual calls = today's squeeze list
+    # Morning Gamma Watchlist SMS: 8:45 AM ET - yesterday's unusual calls = today's squeeze list
     def _run_morning_gamma_watchlist():
         if not _intraday_scan_allowed():
             return
@@ -2556,7 +2727,7 @@ try:
         replace_existing=True,
     )
     # Intraday Gamma Pressure Scanner: every 5 min, 9:35 AM–3:30 PM ET
-    # FIR > 2% = MMs are forced to buy >2% of float — deterministic squeeze signal
+    # FIR > 2% = MMs are forced to buy >2% of float - deterministic squeeze signal
     def _run_gamma_pressure_job():
         if not _intraday_scan_allowed():
             return
@@ -2571,10 +2742,10 @@ try:
         id="gamma_pressure_scan",
         replace_existing=True,
     )
-    # OI Accumulation Snapshot: 4:30 PM ET — captures final EOD OI for all tickers
+    # OI Accumulation Snapshot: 4:30 PM ET - captures final EOD OI for all tickers
     # Compared to prior day at morning SMS time to detect multi-day smart-money loading
     def _run_oi_snapshot_job():
-        # No _intraday_scan_allowed() guard — this job runs at 4:30 PM ET, AFTER
+        # No _intraday_scan_allowed() guard - this job runs at 4:30 PM ET, AFTER
         # market close (guard ceiling is 4:30 PM so scheduler jitter at 4:31 PM
         # would silently block it). Cron trigger already limits to Mon-Fri.
         from datetime import date as _oisd
@@ -2587,7 +2758,7 @@ try:
             _oisd(2026, 12, 25),
         })
         if _oisdtm.now(_oisptz.timezone("America/New_York")).date() in _US_MARKET_HOLIDAYS_2026:
-            print("[scheduler] OI snapshot skipped — market holiday")
+            print("[scheduler] OI snapshot skipped - market holiday")
             return
         try:
             import threading as _thr_ois
@@ -2600,9 +2771,9 @@ try:
         id="oi_snapshot_eod",
         replace_existing=True,
     )
-    # Pre-market OI refresh: 8:30 AM ET — runs OI snapshot before market open
+    # Pre-market OI refresh: 8:30 AM ET - runs OI snapshot before market open
     def _run_premarket_oi_refresh():
-        # No _intraday_scan_allowed() guard — 8:30 AM is before market open (9:30 AM)
+        # No _intraday_scan_allowed() guard - 8:30 AM is before market open (9:30 AM)
         # so the guard (floor = 9:30 AM) would always block this. Cron limits to Mon-Fri.
         from datetime import date as _pmoisd
         import pytz as _pmoiptz
@@ -2627,7 +2798,7 @@ try:
         id="oi_snapshot_premarket",
         replace_existing=True,
     )
-    # Whale + High Conviction crossover alert — every 30 min, 10 AM–3:30 PM ET
+    # Whale + High Conviction crossover alert - every 30 min, 10 AM–3:30 PM ET
     def _run_whale_hc_cross():
         if not _intraday_scan_allowed():
             return
@@ -2642,7 +2813,7 @@ try:
         id="whale_hc_crossover",
         replace_existing=True,
     )
-    # Scan cache warmer — every 15 min during market hours so on-demand scans feel instant
+    # Scan cache warmer - every 15 min during market hours so on-demand scans feel instant
     def _warm_sm_cache():
         try:
             from datetime import datetime as _dtw
@@ -2693,9 +2864,9 @@ try:
         except Exception as _we:
             print(f"[warmer] ✗ {label}: {_we}")
 
-    # Wave 1 — 8:00 AM ET: tabs that use prior-day / overnight data
+    # Wave 1 - 8:00 AM ET: tabs that use prior-day / overnight data
     # Pre-Market (4 AM pre-market prices), Dark Pool (FINRA data published overnight),
-    # Convergence (price/momentum — no live vol needed)
+    # Convergence (price/momentum - no live vol needed)
     def _run_early_warmer():
         if not _intraday_scan_allowed():
             return
@@ -2714,9 +2885,9 @@ try:
         replace_existing=True,
     )
 
-    # Wave 2 — 10:45 AM ET: options-based tabs (75 min of live market activity)
-    # Wave 3 — 11:30 AM ET: second pass with more mature intraday vol/OI
-    # Wave 4 — 4:18 PM ET:  EOD — freshest data of the day after close
+    # Wave 2 - 10:45 AM ET: options-based tabs (75 min of live market activity)
+    # Wave 3 - 11:30 AM ET: second pass with more mature intraday vol/OI
+    # Wave 4 - 4:18 PM ET:  EOD - freshest data of the day after close
     def _run_options_warmer():
         if not _intraday_scan_allowed():
             return
@@ -2732,7 +2903,7 @@ try:
         _othr.Thread(target=_w, daemon=True).start()
         print("[warmer] options wave started (all tabs)")
 
-    # 9:45 slot removed — options_warmer used to fire at same time as morning_scan,
+    # 9:45 slot removed - options_warmer used to fire at same time as morning_scan,
     # causing both to compete for the 4-thread APScheduler pool and the Yahoo Finance
     # API simultaneously. Moved to 10:05 to give morning_scan a clear ~20 min head start.
     for _ow_hour, _ow_min in [(10, 5), (10, 45), (11, 30), (16, 18)]:
@@ -2743,7 +2914,7 @@ try:
             replace_existing=True,
         )
 
-    # Insider outcomes: Mon-Fri 4:37 PM ET — check post-earnings prices for flagged alerts
+    # Insider outcomes: Mon-Fri 4:37 PM ET - check post-earnings prices for flagged alerts
     def _run_insider_outcomes():
         if not _intraday_scan_allowed():
             return
@@ -2777,7 +2948,7 @@ try:
             replace_existing=True,
         )
 
-    # ── Nano-cap breakout scanner — EOD + pre-market ─────────────────────
+    # ── Nano-cap breakout scanner - EOD + pre-market ─────────────────────
     def _run_nano_breakout():
         if not _intraday_scan_allowed():
             return
@@ -3048,7 +3219,7 @@ try:
         replace_existing=True,
     )
 
-    # EOD Accumulation scanner: 3:45 PM and 3:55 PM ET — detects late-day pump accumulation
+    # EOD Accumulation scanner: 3:45 PM and 3:55 PM ET - detects late-day pump accumulation
     # so users can buy before the close and sell into the next-morning gap.
     def _run_eod_accum():
         try:
@@ -3112,7 +3283,7 @@ try:
     # paying customers keep their existing cadence untouched.
     # Every fire claims its (kind, slot, today) row in owner_email_log BEFORE
     # sending. The wake-up catch-up (_owner_run_due_emails, fired on any request)
-    # claims the same rows, so the two paths can NEVER double-send a slot — even
+    # claims the same rows, so the two paths can NEVER double-send a slot - even
     # side-by-side on a Reserved VM. Intraday smart-money is email-only; the EOD
     # 16:50 run additionally snapshots the L1-L8 track record (one engine run).
     def _owner_scheduled_fire(kind, slot):
@@ -3121,7 +3292,7 @@ try:
                 if _owner_claim_slot(kind, slot):
                     _owner_send_now(kind)
                 else:
-                    print(f"[owner_email] {kind}/{slot} already sent today — skip")
+                    print(f"[owner_email] {kind}/{slot} already sent today - skip")
             except Exception as _e_of:
                 print(f"[owner_email] scheduled fire error {kind}/{slot}: {_e_of}")
         import threading as _t_of
@@ -3142,7 +3313,7 @@ try:
         def _w():
             got = _CONVICTION_SCAN_LOCK.acquire(timeout=120)
             if not got:
-                print("[scheduler] EOD conviction: scan lock busy — proceeding unguarded")
+                print("[scheduler] EOD conviction: scan lock busy - proceeding unguarded")
             try:
                 results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
                 try:
@@ -3187,7 +3358,8 @@ try:
     try:
         from apscheduler.triggers.cron import CronTrigger as _CT_aiem
         _scheduler.add_job(
-            lambda: _mkt_fetch_and_store_vix(),
+            lambda: (record_job_success("vix_daily_fetch") if _mkt_fetch_and_store_vix() is not None
+                     else record_job_failure("vix_daily_fetch", "fetch returned None (plan may lack Indices access)")),
             _CT_aiem(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
             id="aiem_vix_daily", replace_existing=True,
         )
@@ -3205,15 +3377,24 @@ try:
         )
         # Auto-retire decaying signals: every Sunday 6 PM ET (before Loop A research)
         _scheduler.add_job(
-            lambda: _mkt_auto_retire_decaying_discoveries(),
+            lambda: (record_job_success("aiem_auto_retire")
+                     if not _mkt_auto_retire_decaying_discoveries().get("status") == "error"
+                     else record_job_failure("aiem_auto_retire", "auto_retire returned error")),
             _CT_aiem(day_of_week="sun", hour=18, minute=0, timezone=_ET),
             id="aiem_auto_retire_weekly", replace_existing=True,
         )
+        # Job health watchdog: every 30 min - separate from the jobs it monitors
+        _scheduler.add_job(
+            _run_health_watchdog,
+            _CT_aiem(minute="*/30"),
+            id="job_health_watchdog", replace_existing=True,
+        )
         print("[scheduler] AIEM enhancement jobs scheduled (VIX daily, ticker_meta + auto_retire weekly)")
+        print("[scheduler] Job health watchdog scheduled (every 30 min)")
     except Exception as _aiem_sched_e:
         print(f"[scheduler] AIEM enhancement jobs error: {_aiem_sched_e}")
     _scheduler.start()
-    print("[scheduler] APScheduler started — "
+    print("[scheduler] APScheduler started - "
           "scans (hourly): 9:36/10:05/11:05 AM, 12:05/1:05/2:05/3:05/4:00 PM ET | "
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
@@ -3221,7 +3402,7 @@ try:
           "sc (stealth): 8:15 AM ranking, 9:37 watch, 9:47 buy | "
           "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
           "morning inflows: 9:42 + 10:01 + 13:01 | "
-          "outcomes: 4:30-4:35 PM | cache warmer: every 90 min — Mon–Fri ET")
+          "outcomes: 4:30-4:35 PM | cache warmer: every 90 min - Mon–Fri ET")
 
     # ── Startup catch-up scan ──────────────────────────────────────────────
     # If the server restarts mid-day (e.g. after a deploy) it will have
@@ -3237,14 +3418,14 @@ try:
             _hour_et  = _now_et.hour
             _today_et = _now_et.strftime("%Y-%m-%d")
 
-            # ── Unusual calls (Polygon) — run any time on weekdays ──────────
+            # ── Unusual calls (Polygon) - run any time on weekdays ──────────
             # Polygon uses an API key (not Yahoo IP) so there's no throttle risk
             # running after hours.  This ensures the conviction tab is populated
             # immediately after a publish / redeploy, even if it happens at night.
             if _dow < 5:   # weekday only (no point scanning Sat/Sun OCC data)
                 # Check for QUALIFYING rows (meet HC thresholds), not just any row.
                 # A broken earlier scan may have written low-quality rows that pass
-                # the date check but produce 0 HC signals — always re-scan in that case.
+                # the date check but produce 0 HC signals - always re-scan in that case.
                 _need_uc = True
                 try:
                     with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cur:
@@ -3260,13 +3441,13 @@ try:
                 except Exception:
                     pass
                 if _need_uc:
-                    print(f"[startup_catchup] no qualifying unusual-calls data for {_today_et} — running catch-up scan")
+                    print(f"[startup_catchup] no qualifying unusual-calls data for {_today_et} - running catch-up scan")
                     try:
                         _run_unusual_calls_scan("startup-catchup")
                     except Exception as _e_uc:
                         print(f"[startup_catchup] unusual-calls error: {_e_uc}")
 
-            # ── Microcap (Yahoo) — only during market hours ──────────────────
+            # ── Microcap (Yahoo) - only during market hours ──────────────────
             # Yahoo throttles aggressively; restrict to 9 AM–5 PM ET on weekdays.
             if _dow < 5 and 9 <= _hour_et < 17:
                 _need_mc = True
@@ -3282,12 +3463,12 @@ try:
                 except Exception:
                     pass
                 if _need_mc:
-                    print(f"[startup_catchup] no microcap data for {_today_et} — running catch-up scan")
+                    print(f"[startup_catchup] no microcap data for {_today_et} - running catch-up scan")
                     _time_su.sleep(30)   # stagger after unusual-calls to avoid concurrent Yahoo calls
                     try:
                         hits = _run_microcap_options_scan()
                         _save_microcap_calls_to_db(hits)
-                        print(f"[startup_catchup] microcap done — {len(hits)} signals saved")
+                        print(f"[startup_catchup] microcap done - {len(hits)} signals saved")
                     except Exception as _e_mc:
                         print(f"[startup_catchup] microcap error: {_e_mc}")
         except Exception as _e_su:
@@ -3300,7 +3481,7 @@ try:
     # ── Instant cache preload ───────────────────────────────────────────────
     # Runs 5 s after boot (just enough for DB connections to settle).
     # Immediately fills app._unusual_calls_cache from stored DB rows so
-    # every tab shows real data from the very first page load — even when
+    # every tab shows real data from the very first page load - even when
     # Yahoo is rate-limited and no live scan has run yet.
     # If today's data exists → serve it fresh (stale=False).
     # If no today's data yet → serve most-recent stored rows (stale=True)
@@ -3325,7 +3506,7 @@ try:
                 _rows_pl = _cur_pl.fetchall()
                 _is_stale_pl = False
                 if not _rows_pl:
-                    # No today data yet — load most recent stored signals as stale fallback
+                    # No today data yet - load most recent stored signals as stale fallback
                     _cur_pl.execute("""
                         SELECT ticker, price::float, strike::float, expiry::text, days_out,
                                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
@@ -3347,7 +3528,7 @@ try:
                 _lbl = "stale fallback" if _is_stale_pl else "today"
                 print(f"[startup_preload] ✅ {len(_hits_pl)} {_lbl} signals loaded into cache immediately")
             else:
-                print("[startup_preload] DB empty — nothing to preload yet")
+                print("[startup_preload] DB empty - nothing to preload yet")
         except Exception as _e_pl:
             print(f"[startup_preload] error: {_e_pl}")
 
@@ -3360,7 +3541,7 @@ except Exception as _e:
 def _fetch_earnings_today() -> list:
     """
     Return tickers that have earnings announced today (before/after market).
-    Uses the Yahoo Finance earnings calendar endpoint — no API key required.
+    Uses the Yahoo Finance earnings calendar endpoint - no API key required.
     These stocks get prepended to the scan queue so pre-earnings call activity
     is never missed regardless of their position in DEFAULT_LEADERBOARD.
     """
@@ -3488,7 +3669,7 @@ def _send_unusual_calls_alert(hits: list) -> None:
         for sub in subs:
             if send_email_raw(sub["email"], f"🚨 {len(alerts)} Unusual Call Signal{'s' if len(alerts) != 1 else ''} Detected", html):
                 sent += 1
-        print(f"[unusual_alert] sent alert to {sent}/{len(subs)} subscribers — {len(alerts)} signals")
+        print(f"[unusual_alert] sent alert to {sent}/{len(subs)} subscribers - {len(alerts)} signals")
         top_a = alerts[0]
         _send_ntfy(
             f"🚨 {len(alerts)} Unusual Call Signal{'s' if len(alerts)!=1 else ''} Detected",
@@ -3510,24 +3691,24 @@ def _send_ai_short_calls_high_conviction(picks: list) -> None:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
         from sms_alerts import send_sms
         if not smtp_configured():
-            print("[ai_hc_alert] no email or SMS configured — skipping")
+            print("[ai_hc_alert] no email or SMS configured - skipping")
             return
 
         from datetime import datetime as _dt
         date_str = _dt.now().strftime("%b %d")
         time_str = _dt.now().strftime("%-I:%M %p ET")
 
-        # ── Personal brief alert (email) — one line per pick ─────────────────
+        # ── Personal brief alert (email) - one line per pick ─────────────────
         if smtp_configured():
-            lines = [f"⚡ HIGH CONVICTION CALLS ({date_str}) — {len(picks)} picks:"]
+            lines = [f"⚡ HIGH CONVICTION CALLS ({date_str}) - {len(picks)} picks:"]
             for p in picks:
                 otm = f"{p.get('otm_pct', 0):+.1f}%OTM"
-                lines.append(f"• {p['ticker']} ${p['strike']} {p.get('expiry','')[:10]} | Vol/OI {p.get('vol_oi',0):.1f}x | {otm}")
+                lines.append(f"* {p['ticker']} ${p['strike']} {p.get('expiry','')[:10]} | Vol/OI {p.get('vol_oi',0):.1f}x | {otm}")
             lines.append("→ nclexai.org/stock-scanner/")
             sms_text = "\n".join(lines)
             send_sms(sms_text)
             _send_ntfy(
-                f"⚡ {len(picks)} HIGH Conviction Call{'s' if len(picks)!=1 else ''} — {date_str}",
+                f"⚡ {len(picks)} HIGH Conviction Call{'s' if len(picks)!=1 else ''} - {date_str}",
                 sms_text,
                 priority="urgent",
                 tags="money_with_wings,chart_with_upwards_trend",
@@ -3542,7 +3723,7 @@ def _send_ai_short_calls_high_conviction(picks: list) -> None:
             otm_pct  = p.get("otm_pct", 0)
             otm_str  = f"+{otm_pct:.1f}%" if otm_pct >= 0 else f"{otm_pct:.1f}%"
             prem_str = f"${p.get('prem', 0):,.0f}"
-            be_str   = f"${p.get('breakeven', 0):.2f}" if p.get("breakeven") else "—"
+            be_str   = f"${p.get('breakeven', 0):.2f}" if p.get("breakeven") else "-"
             cards_html += f"""
             <div style="background:#111827;border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:16px 18px;margin-bottom:12px;">
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
@@ -3585,7 +3766,7 @@ def _send_ai_short_calls_high_conviction(picks: list) -> None:
             <div style="font-size:12px;color:#475569;margin-top:4px;">{date_str} · {time_str} · 91% win rate (Jun backtest)</div>
           </div>
           <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:11px;color:#94a3b8;">
-            <strong style="color:#fbbf24;">Why only HIGH?</strong> Backtest Jun 1–13: HIGH conviction = 91% WR (10/11 signals). MEDIUM = 59% WR — not worth the risk. You're only seeing the best setups.
+            <strong style="color:#fbbf24;">Why only HIGH?</strong> Backtest Jun 1–13: HIGH conviction = 91% WR (10/11 signals). MEDIUM = 59% WR - not worth the risk. You're only seeing the best setups.
           </div>
           {cards_html}
           <div style="text-align:center;margin-top:20px;">
@@ -3599,16 +3780,16 @@ def _send_ai_short_calls_high_conviction(picks: list) -> None:
         subs = get_active_subscribers()
         sent = 0
         for sub in subs:
-            if send_email_raw(sub["email"], f"⚡ {len(picks)} HIGH Conviction Call{'s' if len(picks)!=1 else ''} — {date_str}", html):
+            if send_email_raw(sub["email"], f"⚡ {len(picks)} HIGH Conviction Call{'s' if len(picks)!=1 else ''} - {date_str}", html):
                 sent += 1
-        print(f"[ai_hc_alert] sent to {sent}/{len(subs)} subscribers — {len(picks)} HIGH conviction picks")
+        print(f"[ai_hc_alert] sent to {sent}/{len(subs)} subscribers - {len(picks)} HIGH conviction picks")
     except Exception as _e:
         print(f"[ai_hc_alert] error (non-fatal): {_e}")
 
 
 def _save_and_send_conviction_snapshot() -> None:
     """
-    4:25 PM ET Mon-Fri — snapshot today's HIGH CONVICTION tab to DB + send email + SMS.
+    4:25 PM ET Mon-Fri - snapshot today's HIGH CONVICTION tab to DB + send email + SMS.
     Saves EXTREME + HIGH picks so every day's signals are preserved for review.
     """
     import math as _m
@@ -3638,7 +3819,7 @@ def _save_and_send_conviction_snapshot() -> None:
             rows_raw = cur.fetchall()
 
         if not rows_raw:
-            print("[conviction_snapshot] no qualifying rows today — skipping")
+            print("[conviction_snapshot] no qualifying rows today - skipping")
             return
 
         cols = ["ticker","price","strike","expiry","days_out","vol_oi","prem","otm_pct","iv","urgency","last_seen"]
@@ -3698,7 +3879,7 @@ def _save_and_send_conviction_snapshot() -> None:
         # ── EXTREME + HIGH only for alerts ────────────────────────────────────
         alert_picks = [r for r in results if r["conviction"] in ("EXTREME", "HIGH")]
         if not alert_picks:
-            print("[conviction_snapshot] no EXTREME/HIGH today — skipping alerts")
+            print("[conviction_snapshot] no EXTREME/HIGH today - skipping alerts")
             return
 
         date_str = _dt.now(_pytz.timezone("US/Eastern")).strftime("%B %d, %Y")
@@ -3721,7 +3902,7 @@ def _save_and_send_conviction_snapshot() -> None:
         sms_body = "\n".join(lines)
         try:
             from email_alerts import send_email_raw as _ser
-            _ser("joeldcarlo@gmail.com", f"🔥 EOD Conviction — {date_str}", f"<pre>{sms_body}</pre>")
+            _ser("joeldcarlo@gmail.com", f"🔥 EOD Conviction - {date_str}", f"<pre>{sms_body}</pre>")
         except Exception as _se:
             print(f"[conviction_snapshot] email error: {_se}")
 
@@ -3734,7 +3915,7 @@ def _save_and_send_conviction_snapshot() -> None:
 
         # ── Email ─────────────────────────────────────────────────────────────
         if not smtp_configured():
-            print("[conviction_snapshot] SMTP not configured — SMS only")
+            print("[conviction_snapshot] SMTP not configured - SMS only")
             return
         subs = get_active_subscribers()
         if not subs:
@@ -3816,7 +3997,7 @@ def _save_and_send_conviction_snapshot() -> None:
 
 def _fill_conviction_outcomes() -> None:
     """
-    4:32 PM ET Mon-Fri — fetch next-day closes for past conviction snapshots.
+    4:32 PM ET Mon-Fri - fetch next-day closes for past conviction snapshots.
     Fills D+1, D+3, D+5 % change vs entry price so win rates are always current.
     """
     import psycopg2 as _pg
@@ -3919,7 +4100,7 @@ def _fill_conviction_outcomes() -> None:
         print(f"[conviction_outcomes] error: {e}\n{traceback.format_exc()}")
 
 
-_whale_hc_alerted: dict = {}   # {date_str: set(ticker)} — prevents repeat SMS same day
+_whale_hc_alerted: dict = {}   # {date_str: set(ticker)} - prevents repeat SMS same day
 
 def _check_whale_hc_crossover() -> None:
     """
@@ -3942,7 +4123,7 @@ def _check_whale_hc_crossover() -> None:
             return
 
         if not smtp_configured():
-            print("[whale_hc] SMTP not configured — skipping")
+            print("[whale_hc] SMTP not configured - skipping")
             return
 
         db_url = os.environ["DATABASE_URL"]
@@ -3962,7 +4143,7 @@ def _check_whale_hc_crossover() -> None:
             # columns: ticker, prem_m, days_out, strike, expiry, tier
 
             if not whale_rows:
-                print("[whale_hc] no whale LEAPS today — skip")
+                print("[whale_hc] no whale LEAPS today - skip")
                 return
 
             # 2. High Conviction tab: best strike+expiry per ticker from unusual_calls_log today
@@ -4044,11 +4225,11 @@ def _send_eod_accum_email() -> None:
     try:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
         if not smtp_configured():
-            print("[eod_accum_email] SMTP not configured — skipping")
+            print("[eod_accum_email] SMTP not configured - skipping")
             return
         subs = get_active_subscribers()
         if not subs:
-            print("[eod_accum_email] no subscribers — skipping")
+            print("[eod_accum_email] no subscribers - skipping")
             return
 
         import psycopg2, os as _os
@@ -4067,7 +4248,7 @@ def _send_eod_accum_email() -> None:
         cur.close(); con.close()
 
         if not rows:
-            print("[eod_accum_email] no picks for today — skipping")
+            print("[eod_accum_email] no picks for today - skipping")
             return
 
         accum = [r for r in rows if (r[8] or "accum") == "accum"]
@@ -4116,16 +4297,16 @@ def _send_eod_accum_email() -> None:
             chg_str   = f"+{chg:.1f}%" if chg and chg >= 0 else f"{chg:.1f}%"
             chg_color = "#22c55e" if chg and chg >= 0 else "#ef4444"
             cr_pct    = f"{(cr or 0)*100:.0f}%"
-            lf_str    = "MAX" if lf and lf >= 99 else f"{lf:.1f}×" if lf else "—"
-            vol_str   = f"{vol:.1f}×" if vol else "—"
-            score_str = f"{score:.0f}" if score else "—"
+            lf_str    = "MAX" if lf and lf >= 99 else f"{lf:.1f}×" if lf else "-"
+            vol_str   = f"{vol:.1f}×" if vol else "-"
+            score_str = f"{score:.0f}" if score else "-"
             medal     = {1:"🥇",2:"🥈",3:"🥉"}.get(rank, f"#{rank}")
-            cap_str   = f"${cap/1000:.1f}B" if cap and cap >= 1000 else (f"${cap:.0f}M" if cap else "—")
+            cap_str   = f"${cap/1000:.1f}B" if cap and cap >= 1000 else (f"${cap:.0f}M" if cap else "-")
             score_color = "#22c55e" if score and score >= 100 else "#06b6d4" if score and score >= 30 else "#f59e0b"
             if earnings_flag == "TODAY":
-                earn_badge = '<span style="display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#dc2626;border-radius:3px;padding:1px 5px;margin-top:3px;">⚠️ EARNINGS TODAY — HIGH RISK</span>'
+                earn_badge = '<span style="display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#dc2626;border-radius:3px;padding:1px 5px;margin-top:3px;">WARNING EARNINGS TODAY - HIGH RISK</span>'
             elif earnings_flag == "TOMORROW":
-                earn_badge = '<span style="display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#b45309;border-radius:3px;padding:1px 5px;margin-top:3px;">⚠️ EARNINGS TOMORROW</span>'
+                earn_badge = '<span style="display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#b45309;border-radius:3px;padding:1px 5px;margin-top:3px;">WARNING EARNINGS TOMORROW</span>'
             elif earnings_flag == "IN 2 DAYS":
                 earn_badge = '<span style="display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#1d4ed8;border-radius:3px;padding:1px 5px;margin-top:3px;">📅 EARNINGS IN 2 DAYS</span>'
             else:
@@ -4214,7 +4395,7 @@ def _send_eod_accum_email() -> None:
         for sub in subs:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
-        print(f"[eod_accum_email] sent to {sent}/{len(subs)} subscribers — {len(accum)} picks")
+        print(f"[eod_accum_email] sent to {sent}/{len(subs)} subscribers - {len(accum)} picks")
     except Exception as _e:
         import traceback
         print(f"[eod_accum_email] error: {_e}\n{traceback.format_exc()}")
@@ -4223,7 +4404,7 @@ def _send_eod_accum_email() -> None:
 def _send_top_pick_email() -> None:
     """
     9:45 AM daily email: #1 highest 8-layer conviction setup + specific call option to buy.
-    This is the actionable signal — one stock, one call, sent before the move.
+    This is the actionable signal - one stock, one call, sent before the move.
     """
     try:
         from email_alerts import send_email_raw, smtp_configured
@@ -4236,7 +4417,7 @@ def _send_top_pick_email() -> None:
         # ── Run full 8-layer conviction to find #1 pick ───────────────────────
         results = _run_five_layer_conviction(max_tickers=20)
         if not results:
-            print("[top_pick] no conviction results today — skipping")
+            print("[top_pick] no conviction results today - skipping")
             return
 
         pick = results[0]
@@ -4249,7 +4430,7 @@ def _send_top_pick_email() -> None:
 
         # ── Scan live options to find best call to buy ────────────────────────
         best_call = None
-        chains_read = 0   # how many option chains we actually read — lets us tell
+        chains_read = 0   # how many option chains we actually read - lets us tell
                           # "feed throttled, couldn't check" apart from "checked, nothing liquid"
         try:
             tk = _TdTicker(ticker)
@@ -4322,7 +4503,7 @@ def _send_top_pick_email() -> None:
             if key == "oi_accum"       and "oi_pct" in meta:
                 detail = f"OI grew {meta['oi_pct']:.0f}% overnight"
             elif key == "short_int"    and "si_pct" in meta:
-                detail = f"{meta['si_pct']:.1f}% of float short — squeeze fuel"
+                detail = f"{meta['si_pct']:.1f}% of float short - squeeze fuel"
             elif key == "float_pressure" and "float_pressure_pct" in meta:
                 detail = f"{meta['float_pressure_pct']:.1f}% of float in delta obligations"
             elif key == "far_otm_sweep" and "sweep_voi" in meta:
@@ -4332,10 +4513,10 @@ def _send_top_pick_email() -> None:
                 leads = ", ".join(meta.get("sector_leads", [])[:2])
                 detail = f"{meta['sector'].replace('_',' ').title()} sector hot · leads: {leads}"
             elif key == "gamma_fir"    and "fir" in meta:
-                detail = f"FIR={meta['fir']:.1f}× — MMs forced to buy shares"
+                detail = f"FIR={meta['fir']:.1f}× - MMs forced to buy shares"
             elif key == "charm"        and "charm_score" in meta:
                 detail = f"charm score {meta['charm_score']:.0f}"
-            detail_html = f"<span style='color:#94a3b8;font-size:12px;'> — {detail}</span>" if detail else ""
+            detail_html = f"<span style='color:#94a3b8;font-size:12px;'> - {detail}</span>" if detail else ""
             layer_html += f"""
             <tr>
               <td style="padding:7px 14px;border-bottom:1px solid #1e293b;">
@@ -4353,7 +4534,7 @@ def _send_top_pick_email() -> None:
         def _expiry_rec(conviction_score, days_to_cover):
             if conviction_score >= 8:
                 return {"action": "CALL", "weeks": 2,
-                        "reason": "EXTREME score — mechanics force move within days, 2-week cap"}
+                        "reason": "EXTREME score - mechanics force move within days, 2-week cap"}
             elif conviction_score >= 6:
                 if days_to_cover > 0:
                     days_needed = (days_to_cover * 1.5) + 5
@@ -4362,16 +4543,16 @@ def _send_top_pick_email() -> None:
                     reason = f"DTC {days_to_cover:.0f}d → ({days_to_cover:.0f}×1.5)+5 = {days_needed:.0f} trading days needed"
                 else:
                     wks = 3
-                    reason = "HIGH score, no DTC data — default 3-week window"
+                    reason = "HIGH score, no DTC data - default 3-week window"
                 return {"action": "CALL", "weeks": wks, "reason": reason}
             elif conviction_score >= 4:
                 hold = max(2, round((days_to_cover * 1.2) / 5)) if days_to_cover > 0 else 3
                 hold = min(hold, 4)
                 return {"action": "STOCK", "hold_weeks": hold,
-                        "reason": f"Score {conviction_score:.1f}/10 — timing too uncertain for calls; stock safer"}
+                        "reason": f"Score {conviction_score:.1f}/10 - timing too uncertain for calls; stock safer"}
             else:
                 return {"action": "STOCK", "hold_weeks": 2,
-                        "reason": "Low conviction — stock only"}
+                        "reason": "Low conviction - stock only"}
 
         erec = _expiry_rec(score, dtc)
 
@@ -4382,7 +4563,7 @@ def _send_top_pick_email() -> None:
             hold_w = erec.get("hold_weeks", 3)
             call_html = f"""
             <div style="margin:20px 0;padding:16px 18px;background:#1a1f2e;border:2px solid #f59e0b;border-radius:8px;">
-              <div style="color:#f59e0b;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">📈 TRADE RECOMMENDATION — BUY STOCK, NOT CALLS</div>
+              <div style="color:#f59e0b;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">📈 TRADE RECOMMENDATION - BUY STOCK, NOT CALLS</div>
               <div style="color:#f1f5f9;font-size:22px;font-weight:900;">BUY ${ticker} STOCK</div>
               <div style="color:#94a3b8;font-size:14px;margin-top:6px;">Hold for <b style="color:#fbbf24;">{hold_w} weeks</b></div>
               <div style="margin-top:8px;color:#38bdf8;font-size:12px;">WHY: {erec['reason']}</div>
@@ -4390,7 +4571,7 @@ def _send_top_pick_email() -> None:
                 Entry: market open or first pullback · Stop: 7-8% below entry · Target: 10-20% gain
               </div>
             </div>"""
-            call_sms = f"\n📈 BUY STOCK: ${ticker} — hold {hold_w} weeks\n⚠️ Skip calls — {erec['reason']}"
+            call_sms = f"\n📈 BUY STOCK: ${ticker} - hold {hold_w} weeks\nWARNING Skip calls - {erec['reason']}"
         elif best_call:
             c = best_call
             exp_fmt = _dt.strptime(c["exp"], "%Y-%m-%d").strftime("%b %d")
@@ -4399,7 +4580,7 @@ def _send_top_pick_email() -> None:
             wk = erec["weeks"]
             call_html = f"""
             <div style="margin:20px 0;padding:16px 18px;background:#0f2027;border:2px solid #22c55e;border-radius:8px;">
-              <div style="color:#22c55e;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">🎯 CALL OPTION TO BUY — {wk}-WEEK EXPIRY</div>
+              <div style="color:#22c55e;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">🎯 CALL OPTION TO BUY - {wk}-WEEK EXPIRY</div>
               <div style="color:#f1f5f9;font-size:22px;font-weight:900;">${ticker} ${c['strike']:.0f}C &nbsp;<span style="font-size:14px;color:#94a3b8;">exp {exp_fmt} · {c['days']}d</span></div>
               <div style="margin-top:8px;">
                 <span style="color:#f1f5f9;font-size:16px;">Bid <b>${c['bid']:.2f}</b> · Ask <b>${c['ask']:.2f}</b> · Mid <b style="color:#22c55e;">${c['mid']:.2f}</b></span>
@@ -4414,14 +4595,14 @@ def _send_top_pick_email() -> None:
                 Entry: market open or first 15-min pullback · Target: +50–100% on the option · Stop: close below today's open
               </div>
             </div>"""
-            call_sms = f"\n🎯 BUY: ${ticker} ${c['strike']:.0f}C exp {exp_fmt} @ ${c['mid']:.2f}\n📅 {wk}-WEEK CALL — {erec['reason']}"
+            call_sms = f"\n🎯 BUY: ${ticker} ${c['strike']:.0f}C exp {exp_fmt} @ ${c['mid']:.2f}\n📅 {wk}-WEEK CALL - {erec['reason']}"
         else:
             hold_w = erec.get("weeks", 2)
             _sweep_voi = meta.get("sweep_voi")
             if _sweep_voi:
                 # We couldn't confirm a fresh, tradable quote (the free feed throttles
                 # the LIVE option-chain lookup), but Layer 7 already recorded a real
-                # far-OTM sweep on this name — so never claim "no calls exist." Show
+                # far-OTM sweep on this name - so never claim "no calls exist." Show
                 # the swept contract as evidence and recommend stock as the safe play.
                 _sw_strike = meta.get("sweep_strike") or 0
                 _sw_exp    = meta.get("sweep_expiry") or ""
@@ -4445,32 +4626,32 @@ def _send_top_pick_email() -> None:
                 _seen_txt = f", seen {_seen_lbl}" if _seen_lbl else ""
                 call_html = f"""
             <div style="margin:20px 0;padding:16px 18px;background:#1a1f2e;border:2px solid #f59e0b;border-radius:8px;">
-              <div style="color:#f59e0b;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">📈 TRADE RECOMMENDATION — BUY STOCK</div>
+              <div style="color:#f59e0b;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">📈 TRADE RECOMMENDATION - BUY STOCK</div>
               <div style="color:#f1f5f9;font-size:22px;font-weight:900;">BUY ${ticker} STOCK</div>
               <div style="color:#94a3b8;font-size:14px;margin-top:6px;">Hold for <b style="color:#fbbf24;">{hold_w} weeks</b></div>
               <div style="margin-top:10px;color:#38bdf8;font-size:12px;">
-                🐳 A far-OTM call sweep hit the {_strike_txt}{_exp_txt}{_seen_txt} ({_ps} premium · {_sw_otm:.0f}% OTM) — that's the bullish signal. A clean, tight-spread call to buy couldn't be confirmed on the live chain right now, so stock is the safer entry.
+                🐳 A far-OTM call sweep hit the {_strike_txt}{_exp_txt}{_seen_txt} ({_ps} premium · {_sw_otm:.0f}% OTM) - that's the bullish signal. A clean, tight-spread call to buy couldn't be confirmed on the live chain right now, so stock is the safer entry.
               </div>
               <div style="margin-top:8px;color:#64748b;font-size:11px;">
                 Entry: market open or first pullback · Stop: 7-8% below entry · Target: 10-20% gain
               </div>
             </div>"""
-                call_sms = f"\n📈 BUY ${ticker} STOCK, hold {hold_w} weeks\n🐳 Sweep hit {_strike_txt}{_exp_txt}{_seen_txt} ({_ps}) — no live tradable call confirmed, stock safer"
+                call_sms = f"\n📈 BUY ${ticker} STOCK, hold {hold_w} weeks\n🐳 Sweep hit {_strike_txt}{_exp_txt}{_seen_txt} ({_ps}) - no live tradable call confirmed, stock safer"
             elif chains_read == 0:
-                # The live option chain was unreachable (feed throttled) — say so
+                # The live option chain was unreachable (feed throttled) - say so
                 # honestly instead of asserting there are no liquid calls.
                 call_html = f"""
             <div style="margin:20px 0;padding:14px 18px;background:#1e293b;border-radius:8px;color:#94a3b8;font-size:13px;">
-              ⚠️ Couldn't read a live option chain right now. <b style="color:#fbbf24;">Buy ${ticker} stock instead, hold {hold_w} weeks.</b>
+              WARNING Couldn't read a live option chain right now. <b style="color:#fbbf24;">Buy ${ticker} stock instead, hold {hold_w} weeks.</b>
             </div>"""
-                call_sms = f"\n📈 Live option chain unavailable — BUY ${ticker} STOCK, hold {hold_w} weeks"
+                call_sms = f"\n📈 Live option chain unavailable - BUY ${ticker} STOCK, hold {hold_w} weeks"
             else:
-                # We DID read the chain and nothing met the liquidity bar — genuine.
+                # We DID read the chain and nothing met the liquidity bar - genuine.
                 call_html = f"""
             <div style="margin:20px 0;padding:14px 18px;background:#1e293b;border-radius:8px;color:#94a3b8;font-size:13px;">
-              ⚠️ No liquid near-money calls right now (thin volume / wide spreads). <b style="color:#fbbf24;">Buy ${ticker} stock instead, hold {hold_w} weeks.</b>
+              WARNING No liquid near-money calls right now (thin volume / wide spreads). <b style="color:#fbbf24;">Buy ${ticker} stock instead, hold {hold_w} weeks.</b>
             </div>"""
-                call_sms = f"\n📈 No liquid calls — BUY ${ticker} STOCK, hold {hold_w} weeks"
+                call_sms = f"\n📈 No liquid calls - BUY ${ticker} STOCK, hold {hold_w} weeks"
 
         badge_color = "#ef4444" if "EXTREME" in label else "#f97316" if "HIGH" in label else "#eab308"
         label_clean = label.replace("🔴 ","").replace("🟠 ","").replace("🟡 ","").replace("🔵 ","")
@@ -4506,7 +4687,7 @@ def _send_top_pick_email() -> None:
 
   <div style="background:#111827;border-radius:10px;overflow:hidden;margin-bottom:16px;">
     <div style="padding:12px 14px;border-bottom:1px solid #1e293b;">
-      <span style="color:#64748b;font-size:11px;font-weight:700;letter-spacing:1px;">WHY THIS SETUP — LAYERS FIRING</span>
+      <span style="color:#64748b;font-size:11px;font-weight:700;letter-spacing:1px;">WHY THIS SETUP - LAYERS FIRING</span>
     </div>
     <table style="width:100%;border-collapse:collapse;">
       {layer_html}
@@ -4523,7 +4704,7 @@ def _send_top_pick_email() -> None:
 </body></html>"""
 
         # ── Send email ────────────────────────────────────────────────────────
-        subject = f"⚡ Top Pick: ${ticker} — {label_clean} {score:.1f}/10 · {date_str}"
+        subject = f"⚡ Top Pick: ${ticker} - {label_clean} {score:.1f}/10 · {date_str}"
         if smtp_configured():
             try:
                 send_email_raw("joeldcarlo@gmail.com", subject, html)
@@ -4533,15 +4714,15 @@ def _send_top_pick_email() -> None:
 
         # ── Send SMS ──────────────────────────────────────────────────────────
         sms_body = (
-            f"⚡ TOP PICK: ${ticker} — {label_clean} {score:.1f}/10\n"
+            f"⚡ TOP PICK: ${ticker} - {label_clean} {score:.1f}/10\n"
             f"{price_str} · Float {float_str} · SI {si_str}"
             f"{call_sms}\n"
             f"Layers: " + ", ".join(f"{LAYER_LABELS.get(k,('?',k))[0]}:{v:.1f}" for k,v in sorted(layers.items(), key=lambda x:-x[1])[:4])
         )
 
-        # ── ntfy push notification (primary — no carrier blocking) ───────────────
+        # ── ntfy push notification (primary - no carrier blocking) ───────────────
         _send_ntfy(
-            f"Top Pick: ${ticker} — {label_clean} {score:.1f}/10",
+            f"Top Pick: ${ticker} - {label_clean} {score:.1f}/10",
             sms_body,
             priority="urgent" if score >= 8 else "high",
             tags="chart_with_upwards_trend,money_with_wings",
@@ -4570,7 +4751,7 @@ def _expiry_recommendation(score: float, dtc: float) -> dict:
     import math as _math
     if score >= 8:
         return {"action": "CALL", "weeks": 2,
-                "reason": "EXTREME score — mechanics force the move within days; 2-week call"}
+                "reason": "EXTREME score - mechanics force the move within days; 2-week call"}
     elif score >= 6:
         if dtc and dtc > 0:
             days_needed = (dtc * 1.5) + 5
@@ -4578,15 +4759,15 @@ def _expiry_recommendation(score: float, dtc: float) -> dict:
             reason = f"days-to-cover {dtc:.0f} → ({dtc:.0f}×1.5)+5 ≈ {days_needed:.0f} trading days needed"
         else:
             wks = 3
-            reason = "HIGH score, no days-to-cover data — default 3-week window"
+            reason = "HIGH score, no days-to-cover data - default 3-week window"
         return {"action": "CALL", "weeks": wks, "reason": reason}
     elif score >= 4:
         hold = min(max(2, round((dtc * 1.2) / 5)), 4) if dtc and dtc > 0 else 3
         return {"action": "STOCK", "hold_weeks": hold,
-                "reason": f"Score {score:.1f}/10 — timing too uncertain for calls; stock is safer"}
+                "reason": f"Score {score:.1f}/10 - timing too uncertain for calls; stock is safer"}
     else:
         return {"action": "STOCK", "hold_weeks": 2,
-                "reason": "Low conviction — stock only"}
+                "reason": "Low conviction - stock only"}
 
 
 def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
@@ -4594,7 +4775,7 @@ def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
     near/just-OTM, tight spread). When target_weeks is given, selection is biased
     to expirations near that window so an 8+/2-week call doesn't return a 6-week
     contract. Results cached ~45 min per (ticker, target_weeks). Returns a dict
-    with strike, exp, days, bid/ask/mid — or None if nothing liquid is found."""
+    with strike, exp, days, bid/ask/mid - or None if nothing liquid is found."""
     import time as _time
     from datetime import datetime as _dt, date as _date
     if not price or price <= 0:
@@ -4671,7 +4852,7 @@ def _smp_build_cards(signals: list) -> tuple:
     cap-split idea emails so every surface renders a signal identically.
 
     Option-chain trade lookup (_scan_best_call) only runs for CALL recs, and
-    _expiry_recommendation returns CALL only for score>=6 — so MODERATE (4-5.9)
+    _expiry_recommendation returns CALL only for score>=6 - so MODERATE (4-5.9)
     morning ideas never touch the chain API. Returns (cards_html, sms_lines)."""
     from datetime import datetime as _dt
     LAYER_LABELS = {
@@ -4710,13 +4891,13 @@ def _smp_build_cards(signals: list) -> tuple:
             else:
                 hold_w = rec.get("weeks", 2)
                 trade_headline = f"BUY ${ticker} STOCK"
-                trade_sub = f"No liquid call found right now — buy shares, hold ~{hold_w} weeks"
+                trade_sub = f"No liquid call found right now - buy shares, hold ~{hold_w} weeks"
                 trade_color = "#f59e0b"
                 sms_lines.append(f"${ticker} {score:.1f}/10 → no liquid calls, buy stock ~{hold_w}wk")
         else:
             hold_w = rec.get("hold_weeks", 3)
             trade_headline = f"BUY ${ticker} STOCK"
-            trade_sub = f"Hold ~{hold_w} weeks — {rec['reason']}"
+            trade_sub = f"Hold ~{hold_w} weeks - {rec['reason']}"
             trade_color = "#38bdf8"
             sms_lines.append(f"${ticker} {score:.1f}/10 → buy stock, hold ~{hold_w}wk")
 
@@ -4743,15 +4924,15 @@ def _smp_build_cards(signals: list) -> tuple:
                 <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">{trade_sub}</div>
               </div>
               <div style="padding:8px 16px;">
-                <span style="font-size:10px;color:#475569;">Layers firing: {top_layers or '—'}</span>
+                <span style="font-size:10px;color:#475569;">Layers firing: {top_layers or '-'}</span>
               </div>
             </div>"""
     return cards_html, sms_lines
 
 
 def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) -> None:
-    """Owner email: every Smart-Money-Pressure signal scored /10 (L1-L8 engine) —
-    EXTREME (8+) and HIGH (6-7.9) — each with a concrete trade next to its score:
+    """Owner email: every Smart-Money-Pressure signal scored /10 (L1-L8 engine) -
+    EXTREME (8+) and HIGH (6-7.9) - each with a concrete trade next to its score:
     a specific call strike + expiration date (and how many weeks out) when the
     score is high enough, otherwise buy-the-stock with a hold window. Only sends
     when at least one 6+ signal exists, so quiet windows stay silent."""
@@ -4759,19 +4940,19 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
         from email_alerts import send_email_raw, smtp_configured
         from datetime import datetime as _dt
         if not smtp_configured():
-            print("[smart_money_email] SMTP not configured — skipping")
+            print("[smart_money_email] SMTP not configured - skipping")
             return
 
         if results is None:
             results = _run_five_layer_conviction(max_tickers=40)
         if not results:
-            print("[smart_money_email] no engine results — skipping")
+            print("[smart_money_email] no engine results - skipping")
             return
 
         ranked = sorted(results, key=lambda r: float(r.get("total_pts", 0) or 0), reverse=True)
         signals = [r for r in ranked if float(r.get("total_pts", 0) or 0) >= 6.0][:max_picks]
         if not signals:
-            print("[smart_money_email] no 6+ signals — skipping (quiet window)")
+            print("[smart_money_email] no 6+ signals - skipping (quiet window)")
             return
 
         date_str = _dt.now().strftime("%A, %B %d · %I:%M %p")
@@ -4783,7 +4964,7 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:18px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 Smart Money Pressure — Scored /10</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 Smart Money Pressure - Scored /10</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">L1-L8 money-pressure engine · {n_ext} EXTREME (8+) · {n_high} HIGH (6-7.9) · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
@@ -4888,11 +5069,11 @@ def _smp_send_morning_bucket(signals: list, label: str, accent: str, date_str: s
     html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:18px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🌅 Morning Smart-Money Ideas — {label}</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🌅 Morning Smart-Money Ideas - {label}</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">L1-L8 pressure engine · pre-open scan · {n_ext} EXTREME (8+) · {n_high} HIGH (6-7.9) · {n_mod} MODERATE (4-5.9) · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
-            <b style="color:#cbd5e1;">Idea generation, not a buy list.</b> The same Smart Money Pressure engine, scored /10, narrowed to <b>{label}</b> optionable names. Higher score = higher likelihood it works. This is a <b>pre-open</b> read built on fresh premarket open-interest plus prior-day sweep / charm / sector context — intraday gamma builds after the open, so scores firm up through the morning.
+            <b style="color:#cbd5e1;">Idea generation, not a buy list.</b> The same Smart Money Pressure engine, scored /10, narrowed to <b>{label}</b> optionable names. Higher score = higher likelihood it works. This is a <b>pre-open</b> read built on fresh premarket open-interest plus prior-day sweep / charm / sector context - intraday gamma builds after the open, so scores firm up through the morning.
           </div>
           {cards_html}
           <div style="text-align:center;margin:8px 0 16px;">
@@ -4902,31 +5083,31 @@ def _smp_send_morning_bucket(signals: list, label: str, accent: str, date_str: s
             StockScanner AI · Not financial advice. Options carry substantial risk of loss.
           </p>
         </div>"""
-    subject = f"🌅 Morning Ideas — {label}: {len(signals)} scored · {date_str}"
+    subject = f"🌅 Morning Ideas - {label}: {len(signals)} scored · {date_str}"
     ok = send_email_raw(_OWNER_EMAIL, subject, html)
-    print(f"[smp_morning] {label}: sent={ok} ({len(signals)} ideas — {n_ext} EXTREME / {n_high} HIGH / {n_mod} MODERATE)")
+    print(f"[smp_morning] {label}: sent={ok} ({len(signals)} ideas - {n_ext} EXTREME / {n_high} HIGH / {n_mod} MODERATE)")
     return bool(ok)
 
 
 def _send_smp_morning() -> None:
     """Owner MORNING idea emails: ONE pre-open L1-L8 Smart-Money-Pressure engine
-    run, split by market cap into three SEPARATE emails — Small ($300M-$2B), Mid
+    run, split by market cap into three SEPARATE emails - Small ($300M-$2B), Mid
     ($2B-$10B), Large ($10B+). Idea generation (MODERATE+, total_pts>=4), NOT a
     sized buy list. Nano/micro (<$300M) and unknown-cap names are excluded.
 
     The caller (_owner_send_now, kind == 'smp_morning') ALREADY holds
-    _CONVICTION_SCAN_LOCK — do NOT re-acquire it here (threading.Lock is not
+    _CONVICTION_SCAN_LOCK - do NOT re-acquire it here (threading.Lock is not
     reentrant). One slot claim -> one engine run -> up to three emails. Empty
     buckets stay silent and are logged."""
     try:
         from email_alerts import smtp_configured
         from datetime import datetime as _dt
         if not smtp_configured():
-            print("[smp_morning] SMTP not configured — skipping")
+            print("[smp_morning] SMTP not configured - skipping")
             return
         results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
         if not results:
-            print("[smp_morning] no engine results — skipping")
+            print("[smp_morning] no engine results - skipping")
             return
         caps = _smp_market_caps([r.get("ticker", "") for r in results])
         buckets = _smp_bucket_by_cap(results, caps, _SMP_MORNING_MIN_PTS)
@@ -4935,14 +5116,14 @@ def _send_smp_morning() -> None:
         for key, label, accent, _lo, _hi in _SMP_CAP_BUCKETS:
             sigs = buckets.get(key, [])[:_SMP_MORNING_MAX]
             if not sigs:
-                print(f"[smp_morning] {key}: no ideas >= {_SMP_MORNING_MIN_PTS:.0f}/10 with known cap — silent")
+                print(f"[smp_morning] {key}: no ideas >= {_SMP_MORNING_MIN_PTS:.0f}/10 with known cap - silent")
                 continue
             try:
                 if _smp_send_morning_bucket(sigs, label, accent, date_str):
                     sent += 1
             except Exception as _eb:
                 print(f"[smp_morning] {key} send error: {_eb}")
-        print(f"[smp_morning] done — {sent} bucket email(s) sent from {len(results)} scored names")
+        print(f"[smp_morning] done - {sent} bucket email(s) sent from {len(results)} scored names")
     except Exception as _e:
         import traceback
         print(f"[smp_morning] error: {_e}\n{traceback.format_exc()}")
@@ -5007,7 +5188,7 @@ def _build_market_brief_html() -> tuple:
             s = ""
             for r in rows[:6]:
                 cap = r.get("mkt_cap_b")
-                cap_s = f"${cap}B" if cap else "—"
+                cap_s = f"${cap}B" if cap else "-"
                 s += (f"<tr><td style='padding:3px 6px;color:#e2e8f0;font-weight:600;'>{r.get('ticker','')}</td>"
                       f"<td style='padding:3px 6px;color:{color};text-align:right;font-weight:600;'>{_f(r.get('change_pct')):+.2f}%</td>"
                       f"<td style='padding:3px 6px;color:#94a3b8;text-align:right;'>${r.get('price','')}</td>"
@@ -5023,9 +5204,9 @@ def _build_market_brief_html() -> tuple:
         t += "</table>"
         sections.append(_brief_section("📈 Premarket Movers", f"{len(gainers)} up · {len(losers)} down · live now", t))
         if losers and not gainers and len(losers) >= 4:
-            bottom_bits.append(f"<b>One-sided premarket</b> — every mover is red (led by {losers[0].get('ticker','')} {_f(losers[0].get('change_pct')):+.1f}%).")
+            bottom_bits.append(f"<b>One-sided premarket</b> - every mover is red (led by {losers[0].get('ticker','')} {_f(losers[0].get('change_pct')):+.1f}%).")
         elif gainers and not losers and len(gainers) >= 4:
-            bottom_bits.append(f"<b>One-sided premarket</b> — every mover is green (led by {gainers[0].get('ticker','')} {_f(gainers[0].get('change_pct')):+.1f}%).")
+            bottom_bits.append(f"<b>One-sided premarket</b> - every mover is green (led by {gainers[0].get('ticker','')} {_f(gainers[0].get('change_pct')):+.1f}%).")
 
     # 2. Gamma pressure
     gsig = gp.get("signals", []) or []
@@ -5039,7 +5220,7 @@ def _build_market_brief_html() -> tuple:
                      f"<td style='padding:3px 6px;color:#64748b;text-align:right;'>${r.get('top_strike','')} {exp}</td></tr>")
         t = "<table style='width:100%;border-collapse:collapse;font-size:12px;'>" + rows + "</table>"
         adates = sorted({str(r.get('alert_date', '')) for r in gsig if r.get('alert_date')})
-        asof = adates[-1] if adates else "—"
+        asof = adates[-1] if adates else "-"
         sections.append(_brief_section("⚡ Gamma Pressure", f"call-side squeeze pressure · score /10 · as of {asof}", t))
         top = gsig[0]
         bottom_bits.append(f"Highest gamma name is <b>{top.get('ticker','')}</b> (score {_f(top.get('score')):.1f}, {_f(top.get('price_change_pct')):+.1f}%).")
@@ -5054,7 +5235,7 @@ def _build_market_brief_html() -> tuple:
                      f"<td style='padding:3px 6px;color:#94a3b8;text-align:right;'>{r.get('conviction','')}</td>"
                      f"<td style='padding:3px 6px;color:#64748b;text-align:right;'>{_f(r.get('short_pct')):.0f}% short</td></tr>")
         t = "<table style='width:100%;border-collapse:collapse;font-size:12px;'>" + rows + "</table>"
-        asof = dp.get("date") or "—"
+        asof = dp.get("date") or "-"
         sections.append(_brief_section("🟢 Dark-Pool Accumulation", f"off-exchange buying pressure · as of {asof}", t))
         names = ", ".join(r.get('ticker', '') for r in dres[:3] if r.get('ticker'))
         if names:
@@ -5103,10 +5284,10 @@ def _build_market_brief_html() -> tuple:
         sections.append(_brief_section("🔥 Unusual Call Activity", f"{len(uhits)} near-term bullish call bet(s)", t))
     else:
         sections.append(_brief_section("🔥 Unusual Call Activity", "near-term bullish call bets",
-                                       "<div style='font-size:12px;color:#64748b;'>Nothing unusual yet — options aren't active this early in premarket.</div>"))
+                                       "<div style='font-size:12px;color:#64748b;'>Nothing unusual yet - options aren't active this early in premarket.</div>"))
 
     if not bottom_bits:
-        bottom_bits.append("Quiet premarket — nothing notable flagged yet.")
+        bottom_bits.append("Quiet premarket - nothing notable flagged yet.")
     bottom_html = "".join(f"<li style='margin-bottom:5px;'>{b}</li>" for b in bottom_bits)
 
     base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
@@ -5134,13 +5315,13 @@ def _build_market_brief_html() -> tuple:
 
 
 def _send_market_brief_email() -> None:
-    """Owner 8:30 AM daily premarket brief — a plain-English market read sent BEFORE
+    """Owner 8:30 AM daily premarket brief - a plain-English market read sent BEFORE
     the other alert emails. Always sends (even on a quiet morning) so the owner gets
     a consistent daily snapshot. Email-only, owner inbox only."""
     try:
         from email_alerts import send_email_raw, smtp_configured
         if not smtp_configured():
-            print("[market_brief] SMTP not configured — skipping")
+            print("[market_brief] SMTP not configured - skipping")
             return
         subject, html = _build_market_brief_html()
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
@@ -5151,7 +5332,7 @@ def _send_market_brief_email() -> None:
 
 
 def _send_accumulation_watch_email() -> None:
-    """Owner email: stocks in a STEADY multi-day accumulation streak — the
+    """Owner email: stocks in a STEADY multi-day accumulation streak - the
     'staircase' pattern where price climbs day after day on even, institutional-
     style net buying (e.g. ALOY +95% over a month). Built on the multi-day
     net-flow scan (cheap daily OHLCV): consecutive positive-net-flow days plus
@@ -5162,7 +5343,7 @@ def _send_accumulation_watch_email() -> None:
         from email_alerts import send_email_raw, smtp_configured
         from datetime import datetime as _dt
         if not smtp_configured():
-            print("[accumulation_email] SMTP not configured — skipping")
+            print("[accumulation_email] SMTP not configured - skipping")
             return
 
         # Single-flight: share the /net-flow/multiday endpoint's lock+cache so this
@@ -5190,7 +5371,7 @@ def _send_accumulation_watch_email() -> None:
         ))
         picks = picks[:15]
         if not picks:
-            print("[accumulation_email] no steady-accumulation names — skipping (quiet window)")
+            print("[accumulation_email] no steady-accumulation names - skipping (quiet window)")
             return
 
         date_str = _dt.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
@@ -5224,7 +5405,7 @@ def _send_accumulation_watch_email() -> None:
             cons_lbl  = _cons_label(cons)
             medal     = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"#{i+1}")
             price_str = f"${price:.2f}" if price else "?"
-            mcap_str  = f"${mcap_m:,.0f}M" if mcap_m else "—"
+            mcap_str  = f"${mcap_m:,.0f}M" if mcap_m else "-"
 
             sms_lines.append(f"${ticker} {streak}d streak · {cons:.2f} steady · +${total_m:.1f}M ({pct_mc:.2f}% mktcap)")
 
@@ -5238,7 +5419,7 @@ def _send_accumulation_watch_email() -> None:
               </div>
               <div style="padding:12px 16px;background:#0d1424;border-bottom:1px solid #1e293b;">
                 <div style="font-size:18px;font-weight:900;color:{tag_color};">{streak} days straight of net buying</div>
-                <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Consistency {cons:.2f} — {cons_lbl} (even daily loading, not a one-day spike)</div>
+                <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Consistency {cons:.2f} - {cons_lbl} (even daily loading, not a one-day spike)</div>
               </div>
               <div style="padding:10px 16px;font-size:12px;color:#cbd5e1;">
                 <div>💰 <b style="color:#22c55e;">+${total_m:.1f}M</b> net bought over the streak · ~${avg_m:.2f}M/day</div>
@@ -5251,18 +5432,18 @@ def _send_accumulation_watch_email() -> None:
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:18px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">📈 Accumulation Watch — Steady Climbers</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">📈 Accumulation Watch - Steady Climbers</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Multi-day net-flow engine · {n_conv} CONVICTION · {n_build} BUILDING · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
-            These names have climbed several days in a row on <b>even, steady net buying</b> — the stealth-accumulation footprint that often shows up <b>before</b> a bigger move. CONVICTION = 10+ days &amp; very even loading · BUILDING = pattern still forming.
+            These names have climbed several days in a row on <b>even, steady net buying</b> - the stealth-accumulation footprint that often shows up <b>before</b> a bigger move. CONVICTION = 10+ days &amp; very even loading · BUILDING = pattern still forming.
           </div>
           {cards_html}
           <div style="text-align:center;margin:8px 0 16px;">
             <a href="{base_url}/stock-scanner/" style="background:#22c55e;color:#0a0f1a;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Open Accumulation Streak →</a>
           </div>
           <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
-            StockScanner AI · Not financial advice. Accumulation can fail or reverse — use stops and size positions.
+            StockScanner AI · Not financial advice. Accumulation can fail or reverse - use stops and size positions.
           </p>
         </div>"""
 
@@ -5301,7 +5482,7 @@ def _send_accumulation_watch_email() -> None:
 # size for fat-tailed nano payoffs) and keeps fills realistic even on thin tape.
 
 # Position sizing is a FIXED DOLLAR amount per name (shares = $500 / entry price),
-# NOT a fixed share count — so a $1 stock gets ~500 sh and a $4 stock gets ~125 sh.
+# NOT a fixed share count - so a $1 stock gets ~500 sh and a $4 stock gets ~125 sh.
 _NANO_DOLLARS_PER_BUY = 1000
 _NANO_STOP_PCT = 0.05
 _NANO_WATCH_N = 20
@@ -5418,14 +5599,14 @@ def _run_nano_morning_ranking():
     stealth accumulation and persist today's ranked candidate list."""
     _lock = getattr(app, "_nano_morning_lock", None)
     if _lock is not None and not _lock.acquire(blocking=False):
-        print("[nano_morning] ranking already running — skip")
+        print("[nano_morning] ranking already running - skip")
         return
     try:
         import psycopg2 as _pg, json as _json, statistics as _st
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
         universe = _nano_universe()
         if not universe:
-            print("[nano_morning] empty universe — abort ranking")
+            print("[nano_morning] empty universe - abort ranking")
             return
         ucount = len(universe)
 
@@ -5531,13 +5712,13 @@ def _run_nano_morning_ranking():
                 # ── NEW Nano Scoring: v2 (validated on Jun 17-18) ───────────────────
                 # The old system used flow_ratio + conviction + steady_pts which
                 # rewarded accumulation patterns. But the data shows the real winners
-                # have MODERATE gaps (2-8%) and MODERATE momentum — NOT huge volume
+                # have MODERATE gaps (2-8%) and MODERATE momentum - NOT huge volume
                 # spikes or extreme flow ratios. The losers all had gap >10% or
                 # momentum_open >20%. This v2 system flips the priority:
-                #   1. Gap size (primary) — moderate gap = interest, huge gap = pump
-                #   2. Premarket momentum (secondary) — already ran = danger
-                #   3. Relative volume (tertiary) — 3-30x = healthy, >100x = pump
-                #   4. Price momentum (confirmation) — 10-30% = sweet spot
+                #   1. Gap size (primary) - moderate gap = interest, huge gap = pump
+                #   2. Premarket momentum (secondary) - already ran = danger
+                #   3. Relative volume (tertiary) - 3-30x = healthy, >100x = pump
+                #   4. Price momentum (confirmation) - 10-30% = sweet spot
                 #
                 # Weights: gap=40%, momentum=25%, vol=20%, momentum10=15%
                 #
@@ -5545,7 +5726,7 @@ def _run_nano_morning_ranking():
                 #   Winners: gap 2-8%, mom_open 4-15%, rel_vol 4-31x
                 #   Losers:  gap 20-100%, mom_open 20-244%, rel_vol >100x
 
-                # 1. Gap score (0-40) — penalize huge, reward moderate
+                # 1. Gap score (0-40) - penalize huge, reward moderate
                 _gap = ((closes[-1] / closes[-2]) - 1) * 100 if len(closes) >= 2 else 0
                 _gap_pts = 0
                 if   2 <= _gap < 5:   _gap_pts = 35   # sweet spot
@@ -5556,7 +5737,7 @@ def _run_nano_morning_ranking():
                 elif _gap < 0:        _gap_pts = 5    # gap down
                 # _gap >= 20 gets 0 (pump)
 
-                # 2. Premarket momentum (0-25) — how much it ran overnight
+                # 2. Premarket momentum (0-25) - how much it ran overnight
                 # Use the intraday price change as proxy
                 _mom = mom10  # 10-day momentum
                 _mom_pts = 0
@@ -5567,9 +5748,9 @@ def _run_nano_morning_ranking():
                 elif _mom >= 50:       _mom_pts = 0   # pump
                 elif _mom < 0:         _mom_pts = 0   # no momentum
 
-                # 3. Volume score (0-20) — 3-30x is healthy, >100x is pump
+                # 3. Volume score (0-20) - 3-30x is healthy, >100x is pump
                 _rvol = (vol5 / vol20) if vol20 > 0 else 1.0
-                # Hard gates — two-sided RVOL filter:
+                # Hard gates - two-sided RVOL filter:
                 #   < 3x  = no real interest (low-RVOL names had 14-45% win rate Jun 9-13 2026)
                 #   > 60x = pump-and-dump signature (EBON 230x, -9.9% Jun 11; extreme vol = exit, not entry)
                 if _rvol < 3.0 or _rvol > 60.0:
@@ -5580,7 +5761,7 @@ def _run_nano_morning_ranking():
                 elif 15 <= _rvol < 30: _rvol_pts = 12  # hot
                 elif 30 <= _rvol < 60: _rvol_pts = 5   # suspicious
 
-                # 4. 10-day momentum score (0-15) — multi-day confirmation
+                # 4. 10-day momentum score (0-15) - multi-day confirmation
                 _mom10_pts = 0
                 if   10 <= mom10 < 20:  _mom10_pts = 12
                 elif 5 <= mom10 < 10:   _mom10_pts = 8
@@ -5588,7 +5769,7 @@ def _run_nano_morning_ranking():
                 elif mom10 >= 30:       _mom10_pts = 0
                 elif mom10 < 0:         _mom10_pts = 0
 
-                # 5. Risk penalty (0-30) — subtract from total
+                # 5. Risk penalty (0-30) - subtract from total
                 # Based on patterns from actual losers Jun 17-18
                 _risk_pts = 0
                 _risk_reasons = []
@@ -5673,7 +5854,7 @@ def _run_nano_morning_ranking():
                 try:
                     # Float: Polygon primary (fast, no rate-limit) via shared helper
                     r["_q_float"] = _get_float_shares(r["ticker"]) or None
-                    # Short interest: no Polygon Starter alternative — Yahoo only path
+                    # Short interest: no Polygon Starter alternative - Yahoo only path
                     try:
                         if not _yahoo_breaker.allow():
                             r["_q_short_pct"] = None; r["_q_short_ratio"] = None
@@ -5771,7 +5952,7 @@ def _run_nano_morning_ranking():
         floor = max(25, ucount // 10)
         if len(results) < floor:
             print(f"[nano_morning] only {len(results)}/{ucount} scored (< floor {floor}) "
-                  f"— likely a data-source issue; keeping any prior candidates, not overwriting")
+                  f"- likely a data-source issue; keeping any prior candidates, not overwriting")
             return
 
         snap = _et_today()
@@ -5867,11 +6048,11 @@ def _nano_intraday_confirm(cand):
         elif not above:
             out["verdict"] = "AVOID"; out["reason"] = "below VWAP (sellers in control)"
         elif rvol15 < 0.8:
-            out["verdict"] = "AVOID"; out["reason"] = "no volume — not in play this morning"
+            out["verdict"] = "AVOID"; out["reason"] = "no volume - not in play this morning"
         elif rvol15 >= 1.3 and above and green:
             out["verdict"] = "BUY"; out["reason"] = f"{rvol15:.1f}x vol, holding above VWAP"
         else:
-            out["verdict"] = "WATCH"; out["reason"] = "mixed — volume or trend not confirmed"
+            out["verdict"] = "WATCH"; out["reason"] = "mixed - volume or trend not confirmed"
         return out
     except Exception as _e:
         out["reason"] = f"check failed: {_e}"
@@ -5933,12 +6114,12 @@ def _nano_tr_html(tr):
 
 def _send_nano_watch_email():
     """Stage B (8:30 ET): email the top-ranked low-float nano watchlist with TQL scores.
-    Ready to buy at the open — the 9:45 confirmation is skipped because the 10-minute
+    Ready to buy at the open - the 9:45 confirmation is skipped because the 10-minute
     delay costs 1.6% per trade on average. The 5% stop handles false positives."""
     try:
         from email_alerts import send_email_raw, smtp_configured
         if not smtp_configured():
-            print("[nano_watch] smtp not configured — skip")
+            print("[nano_watch] smtp not configured - skip")
             return
         import psycopg2 as _pg
         snap = _et_today()
@@ -5954,11 +6135,11 @@ def _send_nano_watch_email():
         date_str = snap.strftime("%a %b %-d, %Y")
         if not rows:
             html = f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;color:#cbd5e1;">
-              <div style="font-size:20px;font-weight:800;color:#f1f5f9;">🌅 Nano Watchlist — {date_str}</div>
-              <p style="font-size:13px;color:#94a3b8;margin-top:14px;">No ranked candidates this morning — the pre-market scan found nothing that cleared the accumulation bar. No watchlist today; cash is a position.</p>
+              <div style="font-size:20px;font-weight:800;color:#f1f5f9;">🌅 Nano Watchlist - {date_str}</div>
+              <p style="font-size:13px;color:#94a3b8;margin-top:14px;">No ranked candidates this morning - the pre-market scan found nothing that cleared the accumulation bar. No watchlist today; cash is a position.</p>
             </div>"""
             send_email_raw(_OWNER_EMAIL, f"🌅 Nano Watchlist: nothing qualified · {date_str}", html)
-            print("[nano_watch] no candidates — honest empty email sent")
+            print("[nano_watch] no candidates - honest empty email sent")
             return
         cards = []
         for r in rows:
@@ -5993,17 +6174,17 @@ def _send_nano_watch_email():
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:14px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🌅 Nano Quant Watchlist — Get Ready</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🌅 Nano Quant Watchlist - Get Ready</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Top {len(rows)} low-float nano candidates · ranked by quant z-score · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
-            🧮 <b>Quant Z-Score System.</b> 5-factor cross-sectional ranking: gap momentum (20%), price momentum (30%), quality/steadiness (20%), float turnover (15%), squeeze pressure (15%). Backtested Apr–Jun 2026: 48% WR, +3.0%/capital vs V2's 35% WR, -0.5%. STRONG picks only at the open — 5% stop always.
+            🧮 <b>Quant Z-Score System.</b> 5-factor cross-sectional ranking: gap momentum (20%), price momentum (30%), quality/steadiness (20%), float turnover (15%), squeeze pressure (15%). Backtested Apr–Jun 2026: 48% WR, +3.0%/capital vs V2's 35% WR, -0.5%. STRONG picks only at the open - 5% stop always.
           </div>
           {cards_html}
           <div style="text-align:center;margin:8px 0 4px;">
             <a href="{base_url}/stock-scanner/" style="background:#3b82f6;color:#0a0f1a;padding:11px 26px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Open Scanner →</a>
           </div>
-          <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps are highly volatile — buy at the open, set your 5% stop immediately, and let winners run.</p>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps are highly volatile - buy at the open, set your 5% stop immediately, and let winners run.</p>
         </div>"""
         ok = send_email_raw(_OWNER_EMAIL, f"🌅 Nano Quant Watchlist · {len(rows)} names · {date_str}", html)
         print(f"[nano_watch] sent={ok} → {len(rows)} candidates")
@@ -6012,7 +6193,7 @@ def _send_nano_watch_email():
             _top_meta = top[12] if isinstance(top[12], dict) else (json.loads(top[12]) if top[12] else {})
             _top_qz = _top_meta.get("quant_composite_z", "?")
             _send_ntfy(f"Nano Quant watchlist: {len(rows)} names",
-                       f"#1 {top[0]} (z={_top_qz}). Buy at the open — 5% stop.",
+                       f"#1 {top[0]} (z={_top_qz}). Buy at the open - 5% stop.",
                        priority="high", tags="rocket")
         except Exception:
             pass
@@ -6023,12 +6204,12 @@ def _send_nano_watch_email():
 
 def _send_nano_buy_email():
     """Stage C (8:30 ET): pre-market BUY list from the top Nano-TQL watchlist names.
-    The 9:45 confirmation is skipped — the 10-minute delay costs 1.6% per trade.
+    The 9:45 confirmation is skipped - the 10-minute delay costs 1.6% per trade.
     The 5% stop handles false positives. Persists the picks."""
     try:
         from email_alerts import send_email_raw, smtp_configured
         if not smtp_configured():
-            print("[nano_buy] smtp not configured — skip")
+            print("[nano_buy] smtp not configured - skip")
             return
         import psycopg2 as _pg, json as _json
         snap = _et_today()
@@ -6049,33 +6230,33 @@ def _send_nano_buy_email():
                     No candidates fired the Nano-TQL signal this morning. <b style="color:#22c55e;">Not buying is the right move.</b>
                   </div>
                 </div>""")
-            print("[nano_buy] no candidates — honest empty email sent")
+            print("[nano_buy] no candidates - honest empty email sent")
             return
 
         # Market-regime gate: if IWM (small-cap ETF) is down >1% at open,
-        # nano-caps face broad headwind — suppress the buy list for the day.
+        # nano-caps face broad headwind - suppress the buy list for the day.
         # Backtest Jun 9-13 2026: Jun 11 was -5.1% avg, IWM was down that morning.
         try:
             _iwm_q   = _td_quotes(["IWM"]).get("IWM", {})
             _iwm_chg = float(_iwm_q.get("change_pct") or 0)
             if _iwm_chg <= -1.0:
-                send_email_raw(_OWNER_EMAIL, f"🚫 Nano buys suppressed — IWM down {_iwm_chg:.1f}% · {date_str}",
+                send_email_raw(_OWNER_EMAIL, f"🚫 Nano buys suppressed - IWM down {_iwm_chg:.1f}% · {date_str}",
                     f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
                       <div style="font-size:22px;font-weight:800;color:#ef4444;">🚫 Nano Buys Suppressed</div>
                       <div style="font-size:12px;color:#64748b;margin-top:4px;">{date_str}</div>
                       <div style="background:#0f172a;border:1px solid #ef4444;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13px;color:#cbd5e1;">
-                        IWM is down <b style="color:#ef4444;">{_iwm_chg:.1f}%</b> at the open — broad small-cap headwind.
+                        IWM is down <b style="color:#ef4444;">{_iwm_chg:.1f}%</b> at the open - broad small-cap headwind.
                         Nano signals historically fail on down-IWM days (backtest: 14% win rate vs 57% on up days).
                         <b style="color:#fbbf24;">Sitting out today is the right move.</b>
                       </div>
                     </div>""")
-                print(f"[nano_buy] IWM regime gate triggered ({_iwm_chg:.1f}%) — buy list suppressed")
+                print(f"[nano_buy] IWM regime gate triggered ({_iwm_chg:.1f}%) - buy list suppressed")
                 return
-            print(f"[nano_buy] IWM regime OK ({_iwm_chg:+.1f}%) — proceeding with buys")
+            print(f"[nano_buy] IWM regime OK ({_iwm_chg:+.1f}%) - proceeding with buys")
         except Exception as _iwm_e:
-            print(f"[nano_buy] IWM regime check failed ({_iwm_e}) — proceeding anyway")
+            print(f"[nano_buy] IWM regime check failed ({_iwm_e}) - proceeding anyway")
 
-        # Only STRONG signals are buys — quant z-score STRONG = top 15% composite_z
+        # Only STRONG signals are buys - quant z-score STRONG = top 15% composite_z
         # OR composite_z >= 0.75. Backtested Apr–Jun 2026: 48% WR, +3.0%/capital.
         buys = []
         for r in rows:
@@ -6182,7 +6363,7 @@ def _send_nano_buy_email():
                 <div style="font-size:13px;color:#cbd5e1;">
                   Buy <b style="color:#f1f5f9;">{shares} shares</b> @ <b style="color:#f1f5f9;">${entry:.2f}</b> ≈ <b style="color:#f1f5f9;">${cost:,.0f}</b>
                 </div>
-                <div style="font-size:13px;color:#ef4444;margin-top:3px;">🛑 5% stop: <b>${stop:.2f}</b> — set immediately at the open</div>
+                <div style="font-size:13px;color:#ef4444;margin-top:3px;">🛑 5% stop: <b>${stop:.2f}</b> - set immediately at the open</div>
               </div>""")
         buy_html = "".join(buy_cards)
 
@@ -6193,21 +6374,21 @@ def _send_nano_buy_email():
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{len(buys)} quant STRONG picks · ${_NANO_DOLLARS_PER_BUY:,} each · Buy at the open · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
-            🧮 <b>Quant Z-Score System — 48% WR, +3.0%/capital (Apr–Jun 2026 backtest).</b> These are today's top 15% by composite z-score across 5 factors: gap momentum, price momentum, quality/steadiness, float turnover, squeeze pressure. <b style="color:#ef4444;">Set 5% stop immediately.</b> Est. total deployed: <b style="color:#f1f5f9;">${total_cost:,.0f}</b>.
+            🧮 <b>Quant Z-Score System - 48% WR, +3.0%/capital (Apr–Jun 2026 backtest).</b> These are today's top 15% by composite z-score across 5 factors: gap momentum, price momentum, quality/steadiness, float turnover, squeeze pressure. <b style="color:#ef4444;">Set 5% stop immediately.</b> Est. total deployed: <b style="color:#f1f5f9;">${total_cost:,.0f}</b>.
           </div>
           {buy_html}
           {tr_html}
           <div style="text-align:center;margin:8px 0 4px;">
             <a href="{base_url}/stock-scanner/" style="background:#22c55e;color:#0a0f1a;padding:11px 26px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">Open Scanner →</a>
           </div>
-          <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps can gap through stops — size accordingly.</p>
+          <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice. Nano-caps can gap through stops - size accordingly.</p>
         </div>"""
         ok = send_email_raw(_OWNER_EMAIL, f"🧮 {len(buys)} Nano Quant buys · {date_str}", html)
         print(f"[nano_buy] sent={ok} → {len(buys)} quant STRONG buys")
         try:
             names = ", ".join(b["ticker"] for b in buys[:6])
             _send_ntfy(f"{len(buys)} Nano Quant buys",
-                       f"{names}{'…' if len(buys) > 6 else ''} — Buy at open, 5% stop.",
+                       f"{names}{'…' if len(buys) > 6 else ''} - Buy at open, 5% stop.",
                        priority="high", tags="rocket")
         except Exception:
             pass
@@ -6357,7 +6538,7 @@ def nano_morning_picks_route():
 
 def _admin_ok():
     """Gate for owner-only side-effect POST routes (nano + small-cap morning
-    systems) — they send the owner real financial-action (buy/watch) emails and
+    systems) - they send the owner real financial-action (buy/watch) emails and
     write DB rows, so they must NOT be publicly triggerable on the live site.
     Fail-CLOSED: requires ADMIN_TOKEN to be
     set in the environment AND matched via the X-Admin-Token header or ?token=.
@@ -6407,11 +6588,11 @@ def nano_morning_grade():
 # ════════════════════════════════════════════════════════════════════════════
 # A sibling of the nano-cap morning system, but for TRUE small caps ($300M-$2B)
 # that are OPTIONABLE. Two things the nano system can't have are added here:
-#   (A) an OPTIONS-ACTIVITY score (nano-caps have no listed options) — read from
+#   (A) an OPTIONS-ACTIVITY score (nano-caps have no listed options) - read from
 #       the unusual_calls_microcap_log / call_sweep_log tables (NO live chain fetch
 #       in the morning critical path), so yesterday's unusual call positioning
 #       feeds the pre-market rank.
-#   (B) a "DOUBLE SIGNAL" flag — a morning pick that was ALSO on yesterday's EOD
+#   (B) a "DOUBLE SIGNAL" flag - a morning pick that was ALSO on yesterday's EOD
 #       accumulation list (institutions accumulating into the close AND the name
 #       showing morning strength + options interest = the strongest setup).
 #   Stage A  8:15 ET  rank the optionable small-cap universe → sc_morning_candidates
@@ -6543,7 +6724,7 @@ def _sc_universe():
 def _sc_options_points():
     """Per-ticker options-activity points (0-25) from STORED unusual-call data over
     the last completed sessions (strictly before today, ET). NO live option-chain
-    fetch — at 8:15 ET pre-market the freshest options data is yesterday's session,
+    fetch - at 8:15 ET pre-market the freshest options data is yesterday's session,
     which is exactly the institutional positioning we want to ride. Primary source is
     unusual_calls_microcap_log (broad micro/small scanner); call_sweep_log adds a
     small high-conviction bonus. Returns {TICKER: {"pts", "vol_oi", "prem", "n",
@@ -6586,7 +6767,7 @@ def _sc_options_points():
         print(f"[sc_morning] options-points (micro log) error: {_e}")
     # Bonus: call-sweep alerts (sparse, SMS-grade names). Isolated so a legacy
     # call_sweep_log schema can't wipe the primary micro-log contribution above.
-    # Uses ONLY columns guaranteed across environments (vol_oi_ratio, premium) —
+    # Uses ONLY columns guaranteed across environments (vol_oi_ratio, premium) -
     # NOT conviction, which is absent on older tables.
     try:
         with _pg.connect(os.environ["DATABASE_URL"]) as c2, c2.cursor() as cur2:
@@ -6663,14 +6844,14 @@ def _run_sc_morning_ranking():
     accumulation + options activity + double signal and persist today's ranked list."""
     _lock = getattr(app, "_sc_morning_lock", None)
     if _lock is not None and not _lock.acquire(blocking=False):
-        print("[sc_morning] ranking already running — skip")
+        print("[sc_morning] ranking already running - skip")
         return
     try:
         import psycopg2 as _pg, json as _json, statistics as _st
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
         universe = _sc_universe()
         if not universe:
-            print("[sc_morning] empty universe — abort ranking")
+            print("[sc_morning] empty universe - abort ranking")
             return
         ucount = len(universe)
         opt_map = _sc_options_points()
@@ -6771,11 +6952,11 @@ def _run_sc_morning_ranking():
                 # PreCoil is optimized for: "will this move today?"
                 #
                 # Key insight: the components that predict same-day moves are:
-                # 1. Momentum (mom10) — strongest predictor
-                # 2. Accumulation (accum_pts) — smart money is already in
-                # 3. Options activity (opt_pts) — the catalyst
-                # 4. Near 20-day high — breakout setup
-                # 5. Gap — overnight sentiment
+                # 1. Momentum (mom10) - strongest predictor
+                # 2. Accumulation (accum_pts) - smart money is already in
+                # 3. Options activity (opt_pts) - the catalyst
+                # 4. Near 20-day high - breakout setup
+                # 5. Gap - overnight sentiment
 
                 # Compute precoil components
                 _mom_pts = 0.0
@@ -6913,7 +7094,7 @@ def _run_sc_morning_ranking():
         floor = max(25, ucount // 10)
         if len(results) < floor:
             print(f"[sc_morning] only {len(results)}/{ucount} scored (< floor {floor}) "
-                  f"— likely a data-source issue; keeping any prior candidates, not overwriting")
+                  f"- likely a data-source issue; keeping any prior candidates, not overwriting")
             return
 
         snap = _et_today()
@@ -7014,7 +7195,7 @@ def _send_sc_watch_email():
     try:
         from email_alerts import send_email_raw, smtp_configured
         if not smtp_configured():
-            print("[sc_watch] smtp not configured — skip")
+            print("[sc_watch] smtp not configured - skip")
             return
         import psycopg2 as _pg, json as _json
         snap = _et_today()
@@ -7032,13 +7213,13 @@ def _send_sc_watch_email():
             # Zero rows for today = the 8:15 ranking didn't complete. A successful
             # scan always writes >= floor rows (every name with usable history gets
             # a row regardless of conviction), so zero means the scan didn't run or
-            # the market-data feed was down — NOT "nothing qualified." Say so plainly.
+            # the market-data feed was down - NOT "nothing qualified." Say so plainly.
             html = f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;color:#cbd5e1;">
-              <div style="font-size:20px;font-weight:800;color:#f1f5f9;">⚠️ Small-Cap Watchlist — {date_str}</div>
-              <p style="font-size:13px;color:#94a3b8;margin-top:14px;">This morning's 8:15 pre-market ranking didn't finish, so there's no watchlist yet. A completed scan always ranks the full optionable small-cap universe ($300M-$2B), so zero names means the scan didn't run or the market-data feed was down — <b>not</b> that nothing qualified. Open the scanner if you'd like to trigger the ranking manually.</p>
+              <div style="font-size:20px;font-weight:800;color:#f1f5f9;">WARNING Small-Cap Watchlist - {date_str}</div>
+              <p style="font-size:13px;color:#94a3b8;margin-top:14px;">This morning's 8:15 pre-market ranking didn't finish, so there's no watchlist yet. A completed scan always ranks the full optionable small-cap universe ($300M-$2B), so zero names means the scan didn't run or the market-data feed was down - <b>not</b> that nothing qualified. Open the scanner if you'd like to trigger the ranking manually.</p>
             </div>"""
-            send_email_raw(_OWNER_EMAIL, f"⚠️ Small-Cap Watchlist: scan didn't complete · {date_str}", html)
-            print("[sc_watch] no candidates for today — scan-didn't-complete email sent")
+            send_email_raw(_OWNER_EMAIL, f"WARNING Small-Cap Watchlist: scan didn't complete · {date_str}", html)
+            print("[sc_watch] no candidates for today - scan-didn't-complete email sent")
             return
         cards = []
         for r in rows:
@@ -7066,10 +7247,10 @@ def _send_sc_watch_email():
             elif _grade == "WATCH":
                 badges += '<span style="display:inline-block;background:#3a3a1a;color:#fcd34d;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">👀 WATCH</span>'
             if _risky:
-                badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">⚠️ RISKY</span>'
+                badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">WARNING RISKY</span>'
             ds_line = ""
             if double_signal:
-                ds_line = f'<div style="font-size:11px;color:#c4b5fd;margin-top:4px;">⚡ Also on yesterday\'s EOD accumulation list (EOD score {float(eod_sc or 0):.0f}) — accumulating into the close <b>and</b> showing morning strength.</div>'
+                ds_line = f'<div style="font-size:11px;color:#c4b5fd;margin-top:4px;">⚡ Also on yesterday\'s EOD accumulation list (EOD score {float(eod_sc or 0):.0f}) - accumulating into the close <b>and</b> showing morning strength.</div>'
             stealth_line = ""
             if _meta:
                 _nh = float(_meta.get("near_high_pts", 0) or 0)
@@ -7099,11 +7280,11 @@ def _send_sc_watch_email():
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:14px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">📊 Small-Cap Watchlist — Get Ready</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">📊 Small-Cap Watchlist - Get Ready</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Top {len(rows)} optionable small-cap accumulators · ranked most→least bullish · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#94a3b8;">
-            ⏳ <b>Do not buy yet.</b> These are the strongest setups in the optionable small-cap universe ($300M-$2B) — multi-day accumulation plus <b>unusual call activity</b> from the last session, with a <b style="color:#c4b5fd;">⚡ double signal</b> when a name was also on yesterday's EOD accumulation list. At <b>9:47</b> I'll re-check each against the opening 15 minutes and send the confirmed BUY list.
+            ⏳ <b>Do not buy yet.</b> These are the strongest setups in the optionable small-cap universe ($300M-$2B) - multi-day accumulation plus <b>unusual call activity</b> from the last session, with a <b style="color:#c4b5fd;">⚡ double signal</b> when a name was also on yesterday's EOD accumulation list. At <b>9:47</b> I'll re-check each against the opening 15 minutes and send the confirmed BUY list.
           </div>
           {cards_html}
           <div style="text-align:center;margin:8px 0 4px;">
@@ -7131,7 +7312,7 @@ def _send_sc_buy_email():
     try:
         from email_alerts import send_email_raw, smtp_configured
         if not smtp_configured():
-            print("[sc_buy] smtp not configured — skip")
+            print("[sc_buy] smtp not configured - skip")
             return
         import psycopg2 as _pg, json as _json
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
@@ -7179,16 +7360,16 @@ def _send_sc_buy_email():
             # rather than implying "nothing confirmed."
             tr_html = _sc_tr_html(_sc_morning_track_record())
             html = f"""<div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto;border-radius:12px;">
-              <div style="font-size:22px;font-weight:800;color:#f1f5f9;">⚠️ No Small-Cap Watchlist to Confirm</div>
+              <div style="font-size:22px;font-weight:800;color:#f1f5f9;">WARNING No Small-Cap Watchlist to Confirm</div>
               <div style="font-size:12px;color:#64748b;margin-top:4px;">{date_str}</div>
               <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13px;color:#cbd5e1;">
-                This morning's 8:15 pre-market ranking didn't produce a watchlist, so there's nothing to confirm against the open. This usually means the scan didn't run or the market-data feed was down — <b>not</b> that nothing qualified. No buys today; open the scanner if you want to trigger it manually.
+                This morning's 8:15 pre-market ranking didn't produce a watchlist, so there's nothing to confirm against the open. This usually means the scan didn't run or the market-data feed was down - <b>not</b> that nothing qualified. No buys today; open the scanner if you want to trigger it manually.
               </div>
               {tr_html}
               <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice.</p>
             </div>"""
-            send_email_raw(_OWNER_EMAIL, f"⚠️ No small-cap watchlist to confirm · {date_str}", html)
-            print("[sc_buy] no candidates for today — scan-didn't-complete email sent")
+            send_email_raw(_OWNER_EMAIL, f"WARNING No small-cap watchlist to confirm · {date_str}", html)
+            print("[sc_buy] no candidates for today - scan-didn't-complete email sent")
             return
 
         # 9:47 confirm runs sequentially (1 worker) instead of 8 concurrent so the
@@ -7226,7 +7407,7 @@ def _send_sc_buy_email():
         for dm in data_missing:
             if dm.get("explosive", 0) >= 2000:
                 dm["verdict"] = "BUY?"
-                dm["reason"] = "data fetch failed — explosive potential high"
+                dm["reason"] = "data fetch failed - explosive potential high"
                 dm["intraday_score"] = 50.0
                 dm["blended"] = 0.5 * dm["conviction"] + 0.5 * 50.0
                 buys.append(dm)
@@ -7234,7 +7415,7 @@ def _send_sc_buy_email():
                 break
 
         # Save ALL picks (BUY + BUY?) to the table so we can grade them forward.
-        # The BUY? verdicts are the data-missing high-explosive names — they get a
+        # The BUY? verdicts are the data-missing high-explosive names - they get a
         # yellow flag but still get $1,000 sizing so we can learn from them.
         if buys:
             with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
@@ -7275,13 +7456,13 @@ def _send_sc_buy_email():
               <div style="font-size:22px;font-weight:800;color:#f1f5f9;">🚦 No Small-Cap Buys Today</div>
               <div style="font-size:12px;color:#64748b;margin-top:4px;">Checked {len(cands)} watchlist names against the open · {date_str}</div>
               <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13px;color:#cbd5e1;">
-                None of this morning's watchlist confirmed — no name held above VWAP on real opening volume, or they opened parabolic and faded. <b style="color:#22c55e;">Not buying is the right move.</b> Capital preserved for a cleaner setup.
+                None of this morning's watchlist confirmed - no name held above VWAP on real opening volume, or they opened parabolic and faded. <b style="color:#22c55e;">Not buying is the right move.</b> Capital preserved for a cleaner setup.
               </div>
               {tr_html}
               <p style="font-size:10px;color:#334155;text-align:center;margin:10px 0 0;">StockScanner AI · Not financial advice.</p>
             </div>"""
             send_email_raw(_OWNER_EMAIL, f"🚦 No small-cap buys today · {date_str}", html)
-            print("[sc_buy] no confirmations — honest empty email sent")
+            print("[sc_buy] no confirmations - honest empty email sent")
             try:
                 _send_ntfy("No small-cap buys today", "Nothing confirmed above VWAP. Capital preserved.",
                            priority="default", tags="no_entry")
@@ -7313,7 +7494,7 @@ def _send_sc_buy_email():
             elif _grade_b == "WATCH":
                 badges += '<span style="display:inline-block;background:#3a3a1a;color:#fcd34d;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">👀 WATCH</span>'
             if _risky_b:
-                badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">⚠️ RISKY</span>'
+                badges += '<span style="display:inline-block;background:#3a1a1a;color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-left:6px;">WARNING RISKY</span>'
             stealth_line = ""
             if _stealth_b > 0:
                 _nh_b = float(b.get("near_high_pts", 0) or 0)
@@ -7345,7 +7526,7 @@ def _send_sc_buy_email():
         shown = [a for a in avoids if a.get("reason")][:12]
         if shown:
             arows = "".join(
-                f'<div style="font-size:11px;color:#94a3b8;padding:3px 0;border-bottom:1px solid #1e293b;"><b style="color:#cbd5e1;">{a["ticker"]}</b> — {a.get("reason", "")}</div>'
+                f'<div style="font-size:11px;color:#94a3b8;padding:3px 0;border-bottom:1px solid #1e293b;"><b style="color:#cbd5e1;">{a["ticker"]}</b> - {a.get("reason", "")}</div>'
                 for a in shown)
             avoid_html = f"""
               <div style="margin-top:16px;">
@@ -7377,7 +7558,7 @@ def _send_sc_buy_email():
         try:
             names = ", ".join(b["ticker"] for b in buys[:6])
             _send_ntfy(f"{len(buys)} confirmed small-cap buys",
-                       f"{names}{'…' if len(buys) > 6 else ''} — ${_SC_DOLLARS_PER_BUY:,} each, 5% stop.",
+                       f"{names}{'…' if len(buys) > 6 else ''} - ${_SC_DOLLARS_PER_BUY:,} each, 5% stop.",
                        priority="high", tags="white_check_mark")
         except Exception:
             pass
@@ -7556,10 +7737,10 @@ def sc_morning_grade():
 def _send_morning_inflows_email() -> None:
     """
     Morning email with two sections:
-      1. Last night's EOD picks — how they are opening today (confirmed vs quiet)
-      2. Fresh morning finds — new standouts NOT in last night's EOD list
+      1. Last night's EOD picks - how they are opening today (confirmed vs quiet)
+      2. Fresh morning finds - new standouts NOT in last night's EOD list
     NOTE: ntfy push is now handled directly inside morning_inflows() on every scan.
-          This function only handles email delivery — it no longer gates ntfy.
+          This function only handles email delivery - it no longer gates ntfy.
     """
     try:
         from email_alerts import get_active_subscribers, send_email_raw, smtp_configured
@@ -7695,12 +7876,12 @@ def _send_morning_inflows_email() -> None:
             chg_str    = f"+{chg:.1f}%" if chg > 0 else f"{chg:.1f}%" if chg < 0 else "flat"
             status_dot = '<span style="color:#22c55e;font-weight:900;">●</span>' if conf else '<span style="color:#475569;">○</span>'
             status_lbl = '<span style="font-size:9px;color:#22c55e;">CONFIRMING</span>' if conf else '<span style="font-size:9px;color:#475569;">QUIET</span>'
-            vol_str    = f"{vol:.1f}×" if vol else "—"
-            flow_str   = f"{flow:.1f}:1" if flow else "—"
-            price_str  = f"${price:.2f}" if price else "—"
+            vol_str    = f"{vol:.1f}×" if vol else "-"
+            flow_str   = f"{flow:.1f}:1" if flow else "-"
+            price_str  = f"${price:.2f}" if price else "-"
             name_html  = f'<span style="display:block;font-size:10px;color:#94a3b8;margin-top:1px;">{co_name}</span>' if co_name else ""
 
-            # Premarket badge — prominent warning if gapping down hard
+            # Premarket badge - prominent warning if gapping down hard
             pm_html = ""
             if pm_chg is not None:
                 pm_str = f"{pm_chg:+.1f}%"
@@ -7709,21 +7890,21 @@ def _send_morning_inflows_email() -> None:
                         f'<span style="display:inline-block;margin-top:4px;'
                         f'background:#ef444433;border:1px solid #ef4444;color:#ef4444;'
                         f'font-size:10px;font-weight:800;padding:2px 7px;border-radius:4px;">'
-                        f'⚠️ PREMARKET {pm_str} — SKIP TODAY</span>'
+                        f'WARNING PREMARKET {pm_str} - SKIP TODAY</span>'
                     )
                 elif pm_chg <= -5:
                     pm_html = (
                         f'<span style="display:inline-block;margin-top:4px;'
                         f'background:#f59e0b22;border:1px solid #f59e0b;color:#f59e0b;'
                         f'font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;">'
-                        f'⚠️ PM {pm_str} — wait for open</span>'
+                        f'WARNING PM {pm_str} - wait for open</span>'
                     )
                 elif pm_chg >= 5:
                     pm_html = (
                         f'<span style="display:inline-block;margin-top:4px;'
                         f'background:#22c55e22;border:1px solid #22c55e;color:#22c55e;'
                         f'font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;">'
-                        f'🟢 PM {pm_str} — gapping up</span>'
+                        f'🟢 PM {pm_str} - gapping up</span>'
                     )
                 else:
                     pm_html = (
@@ -7731,7 +7912,7 @@ def _send_morning_inflows_email() -> None:
                         f'font-size:10px;color:#64748b;">PM {pm_str}</span>'
                     )
 
-            # Dim entire row if gapping down hard — visual skip signal
+            # Dim entire row if gapping down hard - visual skip signal
             row_bg = "background:#1a0a0a;" if (pm_chg is not None and pm_chg <= -10) else ""
 
             eod_rows_html += f"""
@@ -7744,7 +7925,7 @@ def _send_morning_inflows_email() -> None:
                 {pm_html}
               </td>
               <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;white-space:nowrap;">
-                <span style="font-weight:700;color:{chg_color};">{chg_str if conf else "—"}</span>
+                <span style="font-weight:700;color:{chg_color};">{chg_str if conf else "-"}</span>
               </td>
               <td style="padding:10px 8px;border-bottom:1px solid #1e293b;text-align:center;">
                 <span style="font-weight:700;color:#a78bfa;">{vol_str}</span>
@@ -7858,12 +8039,12 @@ def _send_morning_inflows_email() -> None:
 
         no_eod_msg = ""
         if not eod_annotated:
-            no_eod_msg = '<p style="color:#64748b;font-size:12px;text-align:center;padding:16px 0;">No EOD picks from last night — market may have been closed.</p>'
+            no_eod_msg = '<p style="color:#64748b;font-size:12px;text-align:center;padding:16px 0;">No EOD picks from last night - market may have been closed.</p>'
 
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:20px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">☀️ Morning Scan · {date_str}</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">☀ Morning Scan · {date_str}</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">
               {confirmed_count} of {len(eod_annotated)} {eod_label} picks confirming
               {f'· {len(fresh)} fresh find{"s" if len(fresh)!=1 else ""}' if fresh else ''}
@@ -7873,7 +8054,7 @@ def _send_morning_inflows_email() -> None:
           {conviction_section_html}
 
           <div style="margin-bottom:8px;">
-            <span style="font-size:16px;font-weight:800;color:#f1f5f9;">📋 {eod_label} EOD Picks — Opening Action</span>
+            <span style="font-size:16px;font-weight:800;color:#f1f5f9;">📋 {eod_label} EOD Picks - Opening Action</span>
             <span style="display:block;font-size:11px;color:#64748b;margin-top:2px;">
               <span style="color:#22c55e;">●</span> Confirming = showing in morning scanner &nbsp;
               <span style="color:#475569;">○</span> Quiet = no signal yet
@@ -7902,14 +8083,14 @@ def _send_morning_inflows_email() -> None:
 
         sent = 0
         subject = (
-            f"☀️ Morning: {confirmed_count}/{len(eod_annotated)} EOD picks confirming"
+            f"☀ Morning: {confirmed_count}/{len(eod_annotated)} EOD picks confirming"
             + (f" · {len(fresh)} fresh find{'s' if len(fresh)!=1 else ''}" if fresh else "")
             + f" · {date_str}"
         )
         for sub in subs:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
-        print(f"[morning_email] sent to {sent}/{len(subs)} — {confirmed_count}/{len(eod_annotated)} EOD confirming, {len(fresh)} fresh finds")
+        print(f"[morning_email] sent to {sent}/{len(subs)} - {confirmed_count}/{len(eod_annotated)} EOD confirming, {len(fresh)} fresh finds")
         _ntfy_lines = []
         if confirmed_count:
             _ntfy_lines.append(f"✅ {confirmed_count} EOD pick{'s' if confirmed_count!=1 else ''} confirming")
@@ -7917,7 +8098,7 @@ def _send_morning_inflows_email() -> None:
             _ntfy_lines.append(f"🌅 {len(fresh)} fresh find{'s' if len(fresh)!=1 else ''}: {', '.join(f['ticker'] for f in fresh[:4])}")
         _ntfy_lines.append("nclexai.org/stock-scanner/")
         _send_ntfy(
-            f"☀️ Morning Alert: {confirmed_count} confirming · {len(fresh)} fresh · {date_str}",
+            f"☀ Morning Alert: {confirmed_count} confirming · {len(fresh)} fresh · {date_str}",
             "\n".join(_ntfy_lines),
             priority="high",
             tags="sunrise,chart_with_upwards_trend",
@@ -7962,10 +8143,10 @@ def _send_ai_trades_email(trades: list) -> None:
             medal      = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
             conv_color = "#22c55e" if "HIGH" in conv else "#f59e0b" if "MED" in conv else "#64748b"
             risk_color = "#ef4444" if "HIGH" in risk else "#f59e0b" if "MED" in risk else "#22c55e"
-            strike_str = f"${strike:.2f}" if strike else "—"
-            target_str = f"${target:.2f}" if target else "—"
-            stop_str   = f"${stop:.2f}"   if stop   else "—"
-            prem_str   = f"${premium:.2f}/sh · ~${premium*100:.0f}/contract" if premium else "—"
+            strike_str = f"${strike:.2f}" if strike else "-"
+            target_str = f"${target:.2f}" if target else "-"
+            stop_str   = f"${stop:.2f}"   if stop   else "-"
+            prem_str   = f"${premium:.2f}/sh · ~${premium*100:.0f}/contract" if premium else "-"
             # Format expiry as human-readable: 2026-07-18 → Jul 18
             expiry_str = expiry
             if expiry:
@@ -8058,7 +8239,7 @@ def _send_ai_trades_email(trades: list) -> None:
         for sub in subs:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
-        print(f"[ai_trades_email] sent to {sent}/{len(subs)} subscribers — {len(trades)} trades")
+        print(f"[ai_trades_email] sent to {sent}/{len(subs)} subscribers - {len(trades)} trades")
     except Exception as _e:
         import traceback
         print(f"[ai_trades_email] error: {_e}\n{traceback.format_exc()}")
@@ -8103,7 +8284,7 @@ def _send_unusual_calls_email() -> None:
                 pass
 
         if not hits:
-            print("[unusual_calls_email] no data — skipping")
+            print("[unusual_calls_email] no data - skipping")
             return
 
         _ETF_SET_LOCAL = {"SPY","QQQ","IWM","DIA","XLF","XLE","XLK","XLV","TQQQ","SQQQ","UVXY","VIX"}
@@ -8122,7 +8303,7 @@ def _send_unusual_calls_email() -> None:
         top5 = scored[:5]
 
         if not top5:
-            print("[unusual_calls_email] no qualifying picks — skipping")
+            print("[unusual_calls_email] no qualifying picks - skipping")
             return
 
         date_str = _dt.now().strftime("%B %d, %Y")
@@ -8199,7 +8380,7 @@ def _send_unusual_calls_email() -> None:
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:20px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🚨 Unusual Calls — Top 5</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🚨 Unusual Calls - Top 5</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">{total} signals found · ranked by conviction · {date_str}</span>
           </div>
           {cards_html}
@@ -8216,7 +8397,7 @@ def _send_unusual_calls_email() -> None:
         for sub in subs:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
-        print(f"[unusual_calls_email] sent to {sent}/{len(subs)} — {len(top5)} picks")
+        print(f"[unusual_calls_email] sent to {sent}/{len(subs)} - {len(top5)} picks")
     except Exception as _e:
         import traceback
         print(f"[unusual_calls_email] error: {_e}\n{traceback.format_exc()}")
@@ -8256,7 +8437,7 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
         cur.close(); con.close()
 
         if not hits:
-            print("[microcap_calls_email] no data — skipping")
+            print("[microcap_calls_email] no data - skipping")
             return
 
         urgency_mult = {"EXPIRING": 2.0, "SHORT": 1.5, "NEAR": 1.2, "MEDIUM": 1.0}
@@ -8272,7 +8453,7 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
         top5 = scored[:5]
 
         if not top5:
-            print("[microcap_calls_email] no qualifying picks — skipping")
+            print("[microcap_calls_email] no qualifying picks - skipping")
             return
 
         date_str = _dt.now().strftime("%B %d, %Y")
@@ -8355,7 +8536,7 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:20px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🎯 Small &amp; Growth Options Flow — Top 5</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🎯 Small &amp; Growth Options Flow - Top 5</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Unusual call activity · tight spreads · ranked by conviction · {date_str}</span>
           </div>
           {cards_html}
@@ -8372,7 +8553,7 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
         for sub in subs:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
-        print(f"[microcap_calls_email] sent to {sent}/{len(subs)} — {len(top5)} picks")
+        print(f"[microcap_calls_email] sent to {sent}/{len(subs)} - {len(top5)} picks")
     except Exception as _e:
         import traceback
         print(f"[microcap_calls_email] error: {_e}\n{traceback.format_exc()}")
@@ -8453,7 +8634,7 @@ def _send_high_conviction_email(owner_only: bool = False) -> None:
             signals.sort(key=lambda x: x["score"], reverse=True)
 
         if not signals:
-            print("[hc_calls_email] no data — skipping")
+            print("[hc_calls_email] no data - skipping")
             return
 
         top5 = signals[:5]
@@ -8533,7 +8714,7 @@ def _send_high_conviction_email(owner_only: bool = False) -> None:
         html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:20px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 High Conviction Calls — Top 5</span>
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🔥 High Conviction Calls - Top 5</span>
             <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Multi-strike sweeps · calls dramatically outpacing puts · {date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px 14px;margin-bottom:16px;">
@@ -8553,8 +8734,8 @@ def _send_high_conviction_email(owner_only: bool = False) -> None:
         for sub in subs:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
-        print(f"[hc_calls_email] sent to {sent}/{len(subs)} — {len(top5)} signals")
-        top_ticker = top5[0]["ticker"] if top5 else "—"
+        print(f"[hc_calls_email] sent to {sent}/{len(subs)} - {len(top5)} signals")
+        top_ticker = top5[0]["ticker"] if top5 else "-"
         _send_ntfy(
             f"🔥 High Conviction Calls: Top 5 · {date_str}",
             f"{top_ticker} leads · {len(top5)} multi-strike sweeps detected\nnclexai.org/stock-scanner/",
@@ -8631,7 +8812,7 @@ def _owner_send_now(kind: str) -> None:
         # send its own email), skip rather than launch a second concurrent scan and
         # worsen yfinance rate limits.
         if not _CONVICTION_SCAN_LOCK.acquire(timeout=90):
-            print("[owner_email] smart_money scan lock busy — skipping (another scan will send)")
+            print("[owner_email] smart_money scan lock busy - skipping (another scan will send)")
             return
         try:
             _send_smart_money_pressure_email(results=None)
@@ -8655,33 +8836,33 @@ def _owner_send_now(kind: str) -> None:
         _send_sc_buy_email()
     elif kind == "smp_morning":
         # 9:05 ET morning cap-split Smart-Money-Pressure idea emails. ONE engine
-        # run, serialized through the conviction scan lock — acquired HERE, never
+        # run, serialized through the conviction scan lock - acquired HERE, never
         # inside the sender (threading.Lock is not reentrant). If a scan already
         # holds the lock, skip rather than stack a second concurrent engine run.
         if not _CONVICTION_SCAN_LOCK.acquire(timeout=90):
-            print("[owner_email] smp_morning scan lock busy — skipping")
+            print("[owner_email] smp_morning scan lock busy - skipping")
             return
         try:
             _send_smp_morning()
         finally:
             _CONVICTION_SCAN_LOCK.release()
     elif kind == "market_brief":
-        # 8:30 ET daily premarket brief — a plain-English market read sent before
+        # 8:30 ET daily premarket brief - a plain-English market read sent before
         # the other owner alerts. Reads each signal via its own GET endpoint (each
         # self-caches / single-flights), so no conviction lock is needed.
         _send_market_brief_email()
     elif kind == "multiday_intraday":
-        # 2:00 PM ET — intraday D1 signal: VWAP hold + top-30%-range + RVOL ≥ 2x.
-        # All 3 cap tiers. BUY NOW signal — enter same day, exit Day 5 close.
+        # 2:00 PM ET - intraday D1 signal: VWAP hold + top-30%-range + RVOL ≥ 2x.
+        # All 3 cap tiers. BUY NOW signal - enter same day, exit Day 5 close.
         _send_multiday_intraday_email()
     elif kind == "multiday_watch":
-        # 4:05 PM ET — EOD Day 1 watch list across all 3 cap tiers.
+        # 4:05 PM ET - EOD Day 1 watch list across all 3 cap tiers.
         _send_multiday_day1_email()
     elif kind == "multiday_confirm":
-        # 2:45 PM ET — Day 2 second-chance entry confirmation.
+        # 2:45 PM ET - Day 2 second-chance entry confirmation.
         _send_multiday_day2_email()
     elif kind == "polygon_rvol":
-        # 8:35 AM ET — Full market RVOL scan via Polygon (11,000+ stocks, 5 API calls).
+        # 8:35 AM ET - Full market RVOL scan via Polygon (11,000+ stocks, 5 API calls).
         _send_polygon_rvol_email()
 
 
@@ -8731,7 +8912,7 @@ def _owner_run_due_emails() -> dict:
 def _news_run_due_scan() -> dict:
     """Wake-up backup for the NEWS CATALYST alerts: run one news-catalyst scan now.
     run_news_catalyst_scan keeps its own per-ticker dedup log, so this only ever
-    emails NEW catalysts — safe to call repeatedly. Serialized so two simultaneous
+    emails NEW catalysts - safe to call repeatedly. Serialized so two simultaneous
     wakes can't run overlapping scans against the news/quote sources."""
     if not _NEWS_CATCHUP_LOCK.acquire(blocking=False):
         return {"status": "busy"}
@@ -8893,7 +9074,7 @@ def _poll_trade_emails() -> None:
                 pos_str = " ".join(parts)
 
                 send_email_raw(user,
-                    f"✅ Position Logged: {ticker} — monitoring for exit signals",
+                    f"✅ Position Logged: {ticker} - monitoring for exit signals",
                     f"""<div style="background:#0a0f1a;font-family:Arial,sans-serif;padding:20px;color:#f1f5f9;border-radius:8px;">
                     <p style="font-size:16px;font-weight:700;color:#22c55e;">✅ Position logged: {pos_str}</p>
                     <p style="color:#94a3b8;font-size:13px;">The scanner is now watching this position and will email you when exit signals converge (score ≥ 3).</p>
@@ -8939,7 +9120,7 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
                         strike: float | None, expiry: str | None) -> tuple[int, list]:
     """
     Returns (score, signal_list). Fire exit alert when score >= 3.
-    Conservative — requires multiple confirming signals for ~90% accuracy.
+    Conservative - requires multiple confirming signals for ~90% accuracy.
     """
     score   = 0
     signals = []
@@ -8968,7 +9149,7 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
                             strike_p = float(row["strike"])
                             signals.append(
                                 f"🔴 PUT flow spike on {ticker}: ${strike_p:.0f} put, "
-                                f"Vol/OI {voi:.1f}×, ${prem/1000:.0f}K premium — smart money hedging/shorting"
+                                f"Vol/OI {voi:.1f}×, ${prem/1000:.0f}K premium - smart money hedging/shorting"
                             )
                             score += 2
                             raise StopIteration
@@ -8992,7 +9173,7 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
             today_cnt, yest_cnt = cur.fetchone()
         if yest_cnt and yest_cnt > 0 and today_cnt == 0:
             signals.append(
-                f"📉 Call flow gone: {ticker} had {yest_cnt} call signal(s) yesterday but 0 today — "
+                f"📉 Call flow gone: {ticker} had {yest_cnt} call signal(s) yesterday but 0 today - "
                 f"institutional interest evaporated"
             )
             score += 2
@@ -9015,14 +9196,14 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
             if len(sig) >= 2:
                 if macd_r[-2] > sig[-2] and macd_r[-1] < sig[-1]:
                     signals.append(
-                        f"⚡ MACD bearish cross on {ticker} (daily) — momentum just flipped down"
+                        f"⚡ MACD bearish cross on {ticker} (daily) - momentum just flipped down"
                     )
                     score += 1
 
             rsi = _rsi14(closes)
             if rsi >= 75:
                 signals.append(
-                    f"📊 RSI overbought: {ticker} RSI={rsi:.0f} — extended, money rotating out"
+                    f"📊 RSI overbought: {ticker} RSI={rsi:.0f} - extended, money rotating out"
                 )
                 score += 1
 
@@ -9033,8 +9214,8 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
                     close_range_pct = (closes[-1] - lows[-1]) / day_range
                     if close_range_pct < 0.25:
                         signals.append(
-                            f"🕯️ Weak close: {ticker} closed in bottom {close_range_pct*100:.0f}% "
-                            f"of yesterday's range — sellers controlled the close (distribution)"
+                            f"🕯 Weak close: {ticker} closed in bottom {close_range_pct*100:.0f}% "
+                            f"of yesterday's range - sellers controlled the close (distribution)"
                         )
                         score += 1
     except Exception:
@@ -9098,8 +9279,8 @@ def _send_exit_alert_email(position: dict, signals: list, score: int) -> None:
       <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
         <p style="font-size:13px;color:#94a3b8;margin:0;">
           <b style="color:#f1f5f9;">Recommended action:</b>
-          {'Consider exiting the full position — multiple strong signals confirming.' if score >= 4
-           else 'Consider tightening your stop or taking partial profits — signals building.'}
+          {'Consider exiting the full position - multiple strong signals confirming.' if score >= 4
+           else 'Consider tightening your stop or taking partial profits - signals building.'}
         </p>
       </div>
       <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
@@ -9107,7 +9288,7 @@ def _send_exit_alert_email(position: dict, signals: list, score: int) -> None:
       </p>
     </div>"""
 
-    send_email_raw(user, f"🚨 Exit Signal: {ticker} — {conviction} (score {score}/7)", html)
+    send_email_raw(user, f"🚨 Exit Signal: {ticker} - {conviction} (score {score}/7)", html)
     print(f"[exit_alert] sent for {ticker} score={score} signals={len(signals)}")
 
 
@@ -9189,7 +9370,7 @@ def _monitor_open_positions() -> None:
                         _above_vwap = _current > _vwap
                         if _above_vwap:
                             _suppress_why.append(
-                                f"price ${_current:.2f} above VWAP ${_vwap:.2f} — trend intact"
+                                f"price ${_current:.2f} above VWAP ${_vwap:.2f} - trend intact"
                             )
                             _suppressed = True
                         else:
@@ -9211,7 +9392,7 @@ def _monitor_open_positions() -> None:
                             _peak_sell_vol = max(_down_candle_vols)
                             _vol_ratio     = _peak_sell_vol / _avg_vol
                             if _vol_ratio < 1.5:
-                                # Selling volume was BELOW 1.5× average — weak hands only
+                                # Selling volume was BELOW 1.5× average - weak hands only
                                 _suppress_why.append(
                                     f"peak sell volume only {_vol_ratio:.1f}× avg "
                                     f"(low-conviction selling = shakeout)"
@@ -9241,7 +9422,7 @@ def _monitor_open_positions() -> None:
 
                         if _suppressed:
                             print(
-                                f"[position_monitor] {ticker} SHAKEOUT — "
+                                f"[position_monitor] {ticker} SHAKEOUT - "
                                 + "; ".join(_suppress_why)
                             )
 
@@ -9259,7 +9440,7 @@ def _monitor_open_positions() -> None:
                         """, ("; ".join(signals[:2]), pos["id"]))
                         conn.commit()
                 else:
-                    print(f"[position_monitor] {ticker} alert suppressed — shakeout filter")
+                    print(f"[position_monitor] {ticker} alert suppressed - shakeout filter")
 
         print(f"[position_monitor] checked {len(positions)} position(s)")
     except Exception as e:
@@ -9271,7 +9452,7 @@ def _fetch_market_movers(count=75):
     """
     Pull today's top % gainers and most-active stocks from Yahoo Finance screener
     plus Barchart micro-cap + small-cap advances.
-    Returns a deduplicated list of tickers, movers first — these get prepended to
+    Returns a deduplicated list of tickers, movers first - these get prepended to
     every unusual-calls scan so big-move stocks are always caught.
     """
     tickers = []
@@ -9359,7 +9540,7 @@ def analyze():
     return jsonify(result)
 
 
-# ── Daily Top-10 — DB-backed cache ───────────────────────────────────────────
+# ── Daily Top-10 - DB-backed cache ───────────────────────────────────────────
 import json as _json
 import psycopg2 as _psycopg2
 
@@ -9469,7 +9650,7 @@ def _compute_daily_top10():
 
     # 2. DB cache (survives server restarts). Serve immediately even when the only
     #    data available is stale (a prior day's) so the web request NEVER blocks on
-    #    a live scan — instead trigger a non-blocking background refresh. This is
+    #    a live scan - instead trigger a non-blocking background refresh. This is
     #    what kept the Overview tab spinning ~35s at market open before today's
     #    snapshot existed.
     db_payload = _load_top10_from_db(today)
@@ -9482,7 +9663,7 @@ def _compute_daily_top10():
         return db_payload
 
     # 3. No cache at all (e.g. cold prod DB on the very first request of the day).
-    #    NEVER run a live scan_tickers() synchronously in the HTTP thread — that is
+    #    NEVER run a live scan_tickers() synchronously in the HTTP thread - that is
     #    the ~35s hang that kept the Overview tab spinning. Kick off the scan in the
     #    background and return a fast, graceful "building" payload. Subsequent
     #    requests pick up the result from memory/DB once the refresh completes.
@@ -9667,7 +9848,7 @@ _init_unusual_calls_log_table()
 def _load_todays_unusual_calls_from_db(etf_set=None):
     """Return every unusual call sweep logged today (ET), sorted by vol_oi desc.
     Called after each scan so the endpoint always serves the full day's
-    accumulated history — not just the latest scan's slice."""
+    accumulated history - not just the latest scan's slice."""
     try:
         with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
             _cur.execute("""
@@ -9692,7 +9873,7 @@ def _load_todays_unusual_calls_from_db(etf_set=None):
                 _d["is_etf"] = _d["ticker"] in etf_set
             _fs = _d.get("first_seen")
             _ls = _d.get("last_seen")
-            # Use last_seen for the label — ongoing sweeps first detected days ago
+            # Use last_seen for the label - ongoing sweeps first detected days ago
             # should show "Today" if they were seen in today's scan, not "Jun 17".
             _d["detected_label"] = _detected_label(_ls if _ls else _fs)
             _d["first_seen"] = _fs.isoformat() if _fs else None
@@ -9860,7 +10041,7 @@ _microcap_alert_lock = _mc_alert_thr.Lock()
 def _push_microcap_ntfy(hits: list) -> None:
     """Push ntfy alerts for NEW qualifying micro/small-cap names, deduped per ET day
     in app._microcap_alerted_tickers so each ticker is pushed only once per day across
-    the 7 scheduled scans + manual/auto triggers. EVERY new name is sent — long lists
+    the 7 scheduled scans + manual/auto triggers. EVERY new name is sent - long lists
     are split across multiple messages, never truncated. A ticker is marked alerted
     only after its message is delivered (2xx), so transient ntfy failures retry on the
     next scan. The lock serializes overlapping scan threads. Never raises."""
@@ -9964,14 +10145,14 @@ _microcap_scan_lock = _mc_scan_thr.Lock()
 def _run_microcap_options_scan() -> list:
     """Serialized entry point for the micro/small-cap unusual-calls scan.
 
-    Only ONE scan may run at a time. Overlapping triggers — the manual POST, the
-    empty-tab auto-scan, and the 4 scheduled jobs + warmers — would otherwise race
+    Only ONE scan may run at a time. Overlapping triggers - the manual POST, the
+    empty-tab auto-scan, and the 4 scheduled jobs + warmers - would otherwise race
     the rotating shard cursor and double-spend the shared, rate-limited Yahoo
     option-chain budget. A non-blocking lock lets duplicate triggers bow out
     cleanly instead of piling on.
     """
     if not _microcap_scan_lock.acquire(blocking=False):
-        print("[microcap_calls] scan already running — skipping duplicate trigger")
+        print("[microcap_calls] scan already running - skipping duplicate trigger")
         return []
     try:
         return _run_microcap_options_scan_impl()
@@ -10003,10 +10184,10 @@ def _run_microcap_options_scan_impl() -> list:
     # ── Rotating shard ─────────────────────────────────────────────────────
     # Yahoo throttles option-chain fetches mid-run (circuit breaker), so no
     # single scan can cover the full ~2,000-name universe. Always scan a priority
-    # HEAD (biggest movers / highest volume — most likely to carry unusual flow),
+    # HEAD (biggest movers / highest volume - most likely to carry unusual flow),
     # then a ROTATING window of the remainder. The cursor is advanced AFTER the
     # scan by the number of tail names actually processed (see end of fn), so the
-    # next scan resumes exactly where this one stopped — contiguous coverage with
+    # next scan resumes exactly where this one stopped - contiguous coverage with
     # no gaps or overlap. Across the day's scheduled scans (10:30 / 3:30 / 4:00 /
     # 4:15 + warmers) the rotation sweeps the whole universe; the tab reads
     # days=1, so distinct coverage compounds in the DB.
@@ -10069,7 +10250,7 @@ def _run_microcap_options_scan_impl() -> list:
             # Premium floor is TIERED by cap size: the same dollar amount means very
             # different things across tiers. What actually moves a thin stock is
             # buying that's large relative to its float/volume (and the dealer gamma
-            # hedging it triggers), not raw premium — so we require genuine "real
+            # hedging it triggers), not raw premium - so we require genuine "real
             # money" single-line conviction, scaled to the company's size:
             #   nano  (<$50M)      → $10K
             #   micro ($50M–$300M) → $25K
@@ -10084,7 +10265,7 @@ def _run_microcap_options_scan_impl() -> list:
             max_exp  = 45
 
             # ── Polygon-first option chain fetch ─────────────────────────────────
-            # _polygon_fetch_calls() uses Polygon's v3/snapshot/options endpoint —
+            # _polygon_fetch_calls() uses Polygon's v3/snapshot/options endpoint -
             # paid API, no Yahoo rate limits, no circuit breaker, much faster.
             # Returns None only if the API key is missing or the request fails;
             # in that case we fall back to yfinance so nothing breaks.
@@ -10230,7 +10411,7 @@ def _run_microcap_options_scan_impl() -> list:
             if "rate" in _msg or "too many" in _msg or "429" in _msg:
                 _cbump("rate_limited")
                 if _cov["rate_limited"] >= 40:
-                    _rl_stop.set()  # session is getting banned — stop gracefully
+                    _rl_stop.set()  # session is getting banned - stop gracefully
             else:
                 _cbump("error")
         if hits:
@@ -10262,7 +10443,7 @@ def _run_microcap_options_scan_impl() -> list:
 
     # Advance the rotating cursor by the number of TAIL names actually processed
     # this scan (everything that got past the circuit-breaker short-circuit, minus
-    # the always-scanned head). Using actual work — not a fixed step — guarantees
+    # the always-scanned head). Using actual work - not a fixed step - guarantees
     # the next scan resumes exactly where this one stopped, so consecutive scans
     # cover fresh names instead of re-scanning an overlapping slice.
     if _shard_tail_len:
@@ -10284,7 +10465,7 @@ _init_microcap_calls_table()
 # ── Gamma Pressure Scanner + Morning Watchlist ────────────────────────────────
 # Float Impact Ratio (FIR) = (call_volume × 100 × avg_delta) / shares_float
 # When FIR > 2%  →  market makers are FORCED to buy >2% of float in shares.
-# This is not a prediction — it is deterministic mechanical buying.
+# This is not a prediction - it is deterministic mechanical buying.
 
 _float_cache: dict         = {}   # ticker → (float_shares, cached_ts)
 _gamma_alerted_today: dict = {}   # date_str → set of tickers already SMS'd
@@ -10370,10 +10551,10 @@ def _init_gamma_pressure_table() -> None:
 
 def _send_morning_gamma_watchlist_sms() -> None:
     """
-    8:45 AM ET Mon-Fri — Two-layer pre-market alert:
-    LAYER 1: OI Accumulation — tickers where OI grew ≥20% over the past day
+    8:45 AM ET Mon-Fri - Two-layer pre-market alert:
+    LAYER 1: OI Accumulation - tickers where OI grew ≥20% over the past day
              (smart money quietly loading positions 1-3 days ahead of the move)
-    LAYER 2: Unusual Call Activity — high Vol/OI + premium from yesterday
+    LAYER 2: Unusual Call Activity - high Vol/OI + premium from yesterday
              (same-day aggressive buying = gamma squeeze setup for today)
     Combined = highest-conviction pre-market watchlist.
     """
@@ -10387,12 +10568,12 @@ def _send_morning_gamma_watchlist_sms() -> None:
         days_bk = 4 if et.weekday() == 0 else 1
         cutoff  = et - _td(days=days_bk)
         day_str = et.strftime("%b %d")
-        lines   = [f"⚡ PRE-MARKET SQUEEZE RADAR — {day_str}", ""]
+        lines   = [f"⚡ PRE-MARKET SQUEEZE RADAR - {day_str}", ""]
 
         # ── LAYER 1: OI Accumulation (multi-day smart money) ──────────────────
         oi_sigs = _get_oi_accumulation_signals(days_back=days_bk)
         if oi_sigs:
-            lines.append("📈 OI BUILDUP — Smart money loading positions:")
+            lines.append("📈 OI BUILDUP - Smart money loading positions:")
             for ticker, price, strike, expiry, oi_t, oi_y, oi_chg, oi_pct, otm, days in oi_sigs[:5]:
                 otm_s = f"+{otm:.0f}%OTM" if otm and otm > 0 else "ATM"
                 lines.append(
@@ -10421,7 +10602,7 @@ def _send_morning_gamma_watchlist_sms() -> None:
             rows = cur.fetchall()
 
         if rows:
-            lines.append("⚡ CALL SURGE — High Vol/OI activity yesterday:")
+            lines.append("⚡ CALL SURGE - High Vol/OI activity yesterday:")
             for ticker, voi, prem, sigs, strike, expiry, otm in rows:
                 pk  = (prem or 0) / 1000
                 ps  = f"${pk:.0f}K" if pk < 1000 else f"${pk/1000:.1f}M"
@@ -10435,7 +10616,7 @@ def _send_morning_gamma_watchlist_sms() -> None:
             lines.append("→ MMs delta hedge at open = forced share buying.")
 
         if not oi_sigs and not rows:
-            print(f"[morning_watchlist] no data — skipping")
+            print(f"[morning_watchlist] no data - skipping")
             return
 
         # ── 7-Layer Conviction Stack (L1-L8) ──────────────────────────────────
@@ -10470,7 +10651,7 @@ def _send_morning_gamma_watchlist_sms() -> None:
         far_sweeps = _get_far_otm_sweeps(days_back=(days_bk + 1))
         if far_sweeps:
             lines.append("")
-            lines.append("🔍 FAR-OTM SWEEPS — Directional conviction bets:")
+            lines.append("🔍 FAR-OTM SWEEPS - Directional conviction bets:")
             for sw in far_sweeps[:3]:
                 prem_s = f"${sw['prem']/1000:.0f}K" if sw['prem'] < 1_000_000 else f"${sw['prem']/1_000_000:.1f}M"
                 lines.append(
@@ -10484,15 +10665,15 @@ def _send_morning_gamma_watchlist_sms() -> None:
         hot_sectors = heat_data.get("hot_sectors", [])
         if hot_sectors:
             lines.append("")
-            lines.append("🔥 SECTOR HEAT — Theme sympathy plays to watch:")
+            lines.append("🔥 SECTOR HEAT - Theme sympathy plays to watch:")
             for hs in hot_sectors[:2]:
                 sector_label = hs["sector"].replace("_", " ").title()
                 leads  = ", ".join(f"${t}" for t in hs["lead_tickers"][:3])
                 symp   = " ".join(f"${t}" for t in hs["sympathy_plays"][:4])
                 lines.append(
-                    f"🌡️ {sector_label}  ({hs['heat_score']} lead{'s' if hs['heat_score']!=1 else ''} fired)\n"
+                    f"🌡 {sector_label}  ({hs['heat_score']} lead{'s' if hs['heat_score']!=1 else ''} fired)\n"
                     f"   Leads: {leads}\n"
-                    f"   Watch: {symp if symp else '—'}"
+                    f"   Watch: {symp if symp else '-'}"
                 )
             lines.append("→ Theme momentum: lead name fires → micro-floats in same sector run next.")
 
@@ -10504,7 +10685,7 @@ def _send_morning_gamma_watchlist_sms() -> None:
         except Exception as _e:
             print(f"[morning_watchlist] email error: {_e}")
 
-        print(f"[morning_watchlist] sent — OI:{len(oi_sigs)} buildup + {len(rows)} call surge + {len(extreme_setups)} conviction setups for {day_str}")
+        print(f"[morning_watchlist] sent - OI:{len(oi_sigs)} buildup + {len(rows)} call surge + {len(extreme_setups)} conviction setups for {day_str}")
     except Exception as e:
         import traceback
         print(f"[morning_watchlist] error: {e}\n{traceback.format_exc()}")
@@ -10512,7 +10693,7 @@ def _send_morning_gamma_watchlist_sms() -> None:
 
 def _run_gamma_pressure_scan() -> list:
     """
-    Intraday Gamma Pressure Scanner — runs every 5 min, 9:35 AM–3:30 PM ET.
+    Intraday Gamma Pressure Scanner - runs every 5 min, 9:35 AM–3:30 PM ET.
 
     For every ticker in the universe (static list + recent microcap signals):
       avg_delta  = volume-weighted delta across near-term OTM call strikes
@@ -10668,7 +10849,7 @@ def _run_gamma_pressure_scan() -> list:
             f"Float: {r['float_m']:.1f}M  Call Vol: {r['call_volume']:,}  Vol/OI: {r['vol_oi']:.1f}x\n"
             f"Avg Delta: {r['avg_delta']:.2f}  Top Strike: {sk_s}\n"
             f"Price: ${r['price']:.2f} (+{r['price_change_pct']:.1f}%) ← already moving\n"
-            f"Score: {r['score']:.1f} — delta cascade in progress. GET IN NOW."
+            f"Score: {r['score']:.1f} - delta cascade in progress. GET IN NOW."
         )
         try:
             send_email_raw("joeldcarlo@gmail.com", f"⚡ GAMMA SQUEEZE ${t}  FIR:{r['fir']:.1f}%", f"<pre>{msg}</pre>")
@@ -10780,7 +10961,7 @@ def _run_oi_snapshot() -> None:
             """)
             priority = [r[0] for r in cur.fetchall()]
             # Always re-scan yesterday's tickers so consecutive snapshots share
-            # ticker overlap — without this, rotating priority pools produce 0 shared
+            # ticker overlap - without this, rotating priority pools produce 0 shared
             # tickers between days and OI accumulation signals always show 0.
             cur.execute("""
                 SELECT DISTINCT ticker FROM oi_daily_snapshot
@@ -10804,7 +10985,7 @@ def _run_oi_snapshot() -> None:
     def _snap_ticker(ticker):
         rows = []
         try:
-            _time.sleep(_random.uniform(1.5, 2.5))  # conservative — avoids YF rate limits
+            _time.sleep(_random.uniform(1.5, 2.5))  # conservative - avoids YF rate limits
             tk    = _TdTicker(ticker)
             price = _sf(getattr(tk.fast_info, "last_price", None))
             if not price or price < 0.10:
@@ -10835,7 +11016,7 @@ def _run_oi_snapshot() -> None:
             pass
         return rows
 
-    # 2 workers max — YF allows ~1 req/sec per IP; 2 workers + 1.5-2.5s sleep ≈ safe
+    # 2 workers max - YF allows ~1 req/sec per IP; 2 workers + 1.5-2.5s sleep ≈ safe
     with ThreadPoolExecutor(max_workers=2) as ex:
         futs = {ex.submit(_snap_ticker, t): t for t in universe}
         for fut in _ascf(futs):
@@ -10869,7 +11050,7 @@ def _get_oi_accumulation_signals(days_back: int = 1) -> tuple:
     """
     Compare OI from the N-th most recent snapshot vs the (N+1)-th most recent.
     Returns (signals_list, day1_str, day2_str).
-    Uses actual DB snapshot dates — NOT calendar arithmetic — so weekends/holidays
+    Uses actual DB snapshot dates - NOT calendar arithmetic - so weekends/holidays
     never produce empty results by looking for dates that don't exist.
     """
     import psycopg2, os as _os
@@ -10918,20 +11099,20 @@ _init_oi_snapshot_table()
 # Combines all deterministic squeeze signals into one unified score per ticker.
 # 8+ points out of 10 → ~90% probability the stock is being positioned for a squeeze.
 #
-# LAYER 1 — OI Accumulation:  multi-day OI growth ≥20%       (0-2 pts)
-# LAYER 2 — Gamma FIR:        intraday float impact ratio     (0-2 pts)
-# LAYER 3 — Charm Cascade:    near-expiry delta-hedge timer   (0-2 pts)
-# LAYER 4 — Short Interest:   SI >15% = squeeze amplifier     (0-2 pts)
-# LAYER 5 — Dark Pool:        high off-exchange = inst. buying (0-2 pts)
+# LAYER 1 - OI Accumulation:  multi-day OI growth ≥20%       (0-2 pts)
+# LAYER 2 - Gamma FIR:        intraday float impact ratio     (0-2 pts)
+# LAYER 3 - Charm Cascade:    near-expiry delta-hedge timer   (0-2 pts)
+# LAYER 4 - Short Interest:   SI >15% = squeeze amplifier     (0-2 pts)
+# LAYER 5 - Dark Pool:        high off-exchange = inst. buying (0-2 pts)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _get_charm_cascade_signals(min_oi: int = 100) -> list:
     """
-    Layer 3 — Charm Cascade.
+    Layer 3 - Charm Cascade.
     Query the most recent OI snapshot for options ≤10 days from expiry
-    and within 20% OTM — the zone where charm (dDelta/dTime) is highest.
+    and within 20% OTM - the zone where charm (dDelta/dTime) is highest.
     As each day passes, the MM's delta hedge obligation AUTOMATICALLY increases
-    even if price doesn't move — a deterministic forced-buying timer.
+    even if price doesn't move - a deterministic forced-buying timer.
     Score = OI × 100 × max(0, 20 - |otm_pct|) / (days_out × 10)
     """
     try:
@@ -10957,7 +11138,7 @@ def _get_charm_cascade_signals(min_oi: int = 100) -> list:
 
 def _get_short_interest(tickers: list) -> dict:
     """
-    Layer 4 — Short Interest Overlay.
+    Layer 4 - Short Interest Overlay.
     Fetch SI% and days-to-cover from yfinance for a list of tickers.
     SI >15% + gamma FIR = multiplicative squeeze (shorts forced to cover as price rises).
     Returns {ticker: {"si_pct": float, "dtc": float}}
@@ -10988,7 +11169,7 @@ def _get_short_interest(tickers: list) -> dict:
 
 def _get_dark_pool_convergence(tickers: list) -> dict:
     """
-    Layer 5 — Dark Pool Convergence.
+    Layer 5 - Dark Pool Convergence.
     Cross-references the OI accumulation tickers with FINRA Reg SHO off-exchange data.
     Off-exchange ratio >50% = institutions are routing orders through dark pools
     on the SAME ticker showing OI buildup = they are buying BOTH shares AND calls.
@@ -11076,14 +11257,14 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
     8.0+ pts ≈ 90% probability setup. Called by API and morning SMS.
     `force_tickers` are scored even with no OI/charm/gamma signal: they're added
     to the heavy-fetch 'active' set and kept in the output regardless of the cap
-    or the 1.0-pt floor — used by the on-demand single-ticker score endpoint.
+    or the 1.0-pt floor - used by the on-demand single-ticker score endpoint.
     """
     import psycopg2, os as _os
     from datetime import date as _date
     _force = set((t or "").upper() for t in (force_tickers or []))
 
     # ── Layer 1: OI Accumulation ──────────────────────────────────────────────
-    # _get_oi_accumulation_signals returns (rows, day1_str, day2_str) — unpack
+    # _get_oi_accumulation_signals returns (rows, day1_str, day2_str) - unpack
     # so oi_sigs is only the list of row-tuples, not the full 3-tuple (which
     # would cause the date string "2026-06-20" to be iterated char-by-char,
     # unpacking '-' into oi_pct and crashing on float('-')).
@@ -11143,14 +11324,14 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
 
     # ── Widen the discovery funnel ────────────────────────────────────────────
     # Beyond OI / charm / gamma, pull candidates from the OTHER deterministic daily
-    # signals we already collect — far-OTM call sweeps and EOD accumulation picks —
+    # signals we already collect - far-OTM call sweeps and EOD accumulation picks -
     # so a stock being pre-positioned via options / dark flow (but NOT yet showing
     # OI build) still gets FULL L4-L8 enrichment instead of only its single sweep or
     # sector point. `seed_priority` decides who gets the bounded heavy-fetch budget
     # first, so the strongest pre-positioned names land in the top slots that L4
     # short-interest (first 50) and L6 float (first 30) actually fetch.
     # `far_sweeps` / `sweep_by_ticker` are initialised here so Layer 7 can reuse
-    # them even if the widening below fails — a seed error must never abort a scan.
+    # them even if the widening below fails - a seed error must never abort a scan.
     seed_priority: dict = {}
     far_sweeps: list = []
     sweep_by_ticker: dict = {}
@@ -11159,7 +11340,7 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
         seed_priority[_t] = 1000.0 + sum(_d["pts"].values())
 
     try:
-        # Far-OTM sweeps — fetched ONCE here and reused as Layer 7 below.
+        # Far-OTM sweeps - fetched ONCE here and reused as Layer 7 below.
         far_sweeps = _get_far_otm_sweeps(days_back=3)
         for _r in far_sweeps:
             _tk = _r["ticker"]
@@ -11172,7 +11353,7 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
             if "sweep" not in scores[_tk]["meta"].setdefault("seed_src", []):
                 scores[_tk]["meta"]["seed_src"].append("sweep")
 
-        # EOD accumulation picks — late-day institutional buying, pre-positioned names.
+        # EOD accumulation picks - late-day institutional buying, pre-positioned names.
         for _tk, _prio in _get_conviction_seed_accum(days_back=3):
             scores.setdefault(_tk, {"price": 0, "pts": {}, "meta": {}})
             seed_priority[_tk] = max(seed_priority.get(_tk, 0.0), _prio)
@@ -11182,7 +11363,7 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
         pass
 
     # Force-scored tickers (on-demand single lookup) must get FULL heavy-layer
-    # coverage, so give them TOP priority — L4 (first 50) and L6 (first 30) only
+    # coverage, so give them TOP priority - L4 (first 50) and L6 (first 30) only
     # read the FRONT of `active`, so a forced ticker appended at the tail could
     # silently miss short-interest / float enrichment once the set is large.
     for _ft in _force:
@@ -11191,7 +11372,7 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
 
     # Heavy fetches run on the highest-priority candidates: forced tickers first,
     # then real OI / charm / gamma signals, then the strongest sweep / accumulation
-    # seeds. Bounded so we never blow the per-ticker rate limits — short-interest
+    # seeds. Bounded so we never blow the per-ticker rate limits - short-interest
     # and float are already internally capped at 50 / 30, so this mainly controls
     # dark-pool coverage.
     _heavy_cap = max(max_tickers * 3, min(240, max_tickers * 4))
@@ -11238,7 +11419,7 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
 
     # ── Layer 7: Far-OTM Sweep Detector ──────────────────────────────────────
     # `far_sweeps` / `sweep_by_ticker` were already built above (reused as a
-    # discovery seed) — score them here without re-querying.
+    # discovery seed) - score them here without re-querying.
     for ticker, sweep in sweep_by_ticker.items():
         if ticker not in scores:
             scores[ticker] = {"price": float(sweep.get("price") or 0), "pts": {}, "meta": {}}
@@ -11299,9 +11480,9 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# L6 — Float-Adjusted Options Demand
-# L7 — Far-OTM Sweep Detector
-# L8 — Sector Theme Correlation
+# L6 - Float-Adjusted Options Demand
+# L7 - Far-OTM Sweep Detector
+# L8 - Sector Theme Correlation
 # ══════════════════════════════════════════════════════════════════════════════
 
 SECTOR_MAP: dict = {
@@ -11327,7 +11508,7 @@ for _sec, _tks in SECTOR_MAP.items():
 
 def _get_float_pressure_signals(tickers: list) -> dict:
     """
-    Layer 6 — Float-Adjusted Options Demand.
+    Layer 6 - Float-Adjusted Options Demand.
     For micro-float stocks, even modest call OI forces MMs to buy a meaningful
     % of the entire float as delta hedge. This creates a self-reinforcing feedback:
     stock moves up → delta rises → MM buys more shares → stock moves more.
@@ -11386,7 +11567,7 @@ def _get_float_pressure_signals(tickers: list) -> dict:
 
 def _get_far_otm_sweeps(days_back: int = 3) -> list:
     """
-    Layer 7 — Far-OTM Sweep Detector.
+    Layer 7 - Far-OTM Sweep Detector.
     Queries BOTH unusual_calls_log (large-cap) and unusual_calls_microcap_log
     for high-conviction directional bets: vol/OI >= 5x, prem >= $500K.
     Deduplicates by (ticker, strike, expiry) keeping highest vol_oi.
@@ -11397,7 +11578,7 @@ def _get_far_otm_sweeps(days_back: int = 3) -> list:
     cutoff = _d7.today() - _td7(days=days_back)
     rows = []
     try:
-        # ETFs / broad indices — excluded from individual stock sweep signals
+        # ETFs / broad indices - excluded from individual stock sweep signals
         _ETF_EXCLUDE = (
             'SPY','QQQ','IWM','DIA','EFA','EEM','TLT','IEF','GLD','SLV',
             'XLK','XLF','XLE','XLV','XLY','XLI','XLB','XLC','XLRE','XLU','XLP',
@@ -11453,7 +11634,7 @@ def _get_far_otm_sweeps(days_back: int = 3) -> list:
     except Exception:
         return []
 
-    # Deduplicate by (ticker, strike, expiry) — keep highest vol_oi
+    # Deduplicate by (ticker, strike, expiry) - keep highest vol_oi
     seen: dict = {}
     for r in rows:
         key = (r["ticker"], r["strike"], r["expiry"])
@@ -11473,7 +11654,7 @@ def _get_far_otm_sweeps(days_back: int = 3) -> list:
 
 def _get_sector_heat(days_back: int = 2) -> dict:
     """
-    Layer 8 — Sector Theme Correlation.
+    Layer 8 - Sector Theme Correlation.
     When a "lead" ticker in a theme fires unusual call activity, ALL smaller-float
     names in the same sector become sympathy plays. Hedge funds monitor sector
     momentum: one quantum stock moves → scan all quantum micro-floats.
@@ -11532,7 +11713,7 @@ def _get_sector_heat(days_back: int = 2) -> dict:
 @app.route("/stock-api/float-pressure")
 def float_pressure_endpoint():
     """
-    L6 — Float-Adjusted Options Demand.
+    L6 - Float-Adjusted Options Demand.
     Returns tickers where MM delta-hedge obligations exceed 2%+ of float.
     These micro-float stocks become self-reinforcing momentum accelerants.
     """
@@ -11573,7 +11754,7 @@ def float_pressure_endpoint():
 @app.route("/stock-api/far-otm-sweeps")
 def far_otm_sweeps_endpoint():
     """
-    L7 — Far-OTM Sweep Detector.
+    L7 - Far-OTM Sweep Detector.
     Returns directional conviction bets (>40% OTM, vol/OI>5×, prem>$200K).
     These are NOT hedges. Someone is paying large premium for big directional bets.
     """
@@ -11605,7 +11786,7 @@ def admin_send_market_brief():
 @app.route("/stock-api/sector-heat")
 def sector_heat_endpoint():
     """
-    L8 — Sector Theme Correlation.
+    L8 - Sector Theme Correlation.
     When lead tickers in a theme fire, ALL micro-float names in that sector
     become sympathy plays. Hedge funds ride the theme.
     """
@@ -11614,7 +11795,7 @@ def sector_heat_endpoint():
     return jsonify(result)
 
 
-# ── My Trades — personal trade journal ───────────────────────────────────────
+# ── My Trades - personal trade journal ───────────────────────────────────────
 
 def _init_my_trades_table():
     sql = """
@@ -11733,7 +11914,7 @@ def delete_my_trade(trade_id):
         return jsonify({"error": str(e)}), 500
 
 
-# ── AI Trade Log — DB-backed track record ────────────────────────────────────
+# ── AI Trade Log - DB-backed track record ────────────────────────────────────
 
 def _init_ai_trade_log_table():
     create_sql = """
@@ -11822,7 +12003,7 @@ def _fetch_options_flow_usd(ticker: str, strike: float, expiry_str: str) -> floa
         oi         = int(row.get("openInterest") or 0)
         qty = volume if volume > 0 else oi
         if qty <= 0 or last_price <= 0:
-            print(f"[options_flow] {ticker} strike={strike} {best}: vol={volume} oi={oi} last={last_price} — no flow", file=sys.stderr)
+            print(f"[options_flow] {ticker} strike={strike} {best}: vol={volume} oi={oi} last={last_price} - no flow", file=sys.stderr)
             return None
         result = round(qty * last_price * 100, 2)
         print(f"[options_flow] {ticker} strike={strike} {best}: vol={volume} oi={oi} last={last_price} → ${result:,.0f}", file=sys.stderr)
@@ -11889,7 +12070,7 @@ def _parse_expiry_date(expiry_str, trade_date):
             return _dt.strptime(s, fmt).date()
         except ValueError:
             pass
-    # "Jan 17" or "January 17" without year — assume nearest future occurrence
+    # "Jan 17" or "January 17" without year - assume nearest future occurrence
     for fmt in ("%b %d", "%B %d"):
         try:
             parsed = _dt.strptime(s, fmt)
@@ -12174,7 +12355,7 @@ def _update_ai_short_call_outcomes():
 
                 exp_date = _parse_expiry_date(expiry_str, trade_date)
 
-                # Expiry outcome — fetch if expiry passed and not yet recorded
+                # Expiry outcome - fetch if expiry passed and not yet recorded
                 if exp_date and exp_date <= today and exp_p is None:
                     close = _fetch_close(ticker, exp_date)
                     if close is not None and p0:
@@ -12185,7 +12366,7 @@ def _update_ai_short_call_outcomes():
                         updates["expiry_win"]   = w
                         exp_w = w  # use for outcome resolution below
 
-                # T+1, T+3, T+5 — fetch each if target date has passed and not yet recorded
+                # T+1, T+3, T+5 - fetch each if target date has passed and not yet recorded
                 for n, col_p, col_pct, col_win, existing in [
                     (1, "t1_price", "t1_pct", "t1_win", t1p),
                     (3, "t3_price", "t3_pct", "t3_win", t3p),
@@ -12253,7 +12434,7 @@ _startup_grade_short_calls()
 # ── AI SHORT CALLS FEEDBACK LOOP ────────────────────────────────────────────
 # Every day at 4:45 PM: compare what AI picked vs ALL stocks that moved 5%+.
 # Store "misses" so next morning the AI sees what patterns it overlooked.
-# This is how the system learns — continuous daily feedback builds the model.
+# This is how the system learns - continuous daily feedback builds the model.
 
 def _init_aisc_misses_table():
     """Table to store stocks AI missed each day (moved 5%+ but not picked)."""
@@ -12282,7 +12463,7 @@ _init_aisc_misses_table()
 def _detect_aisc_misses():
     """
     Run after market close: find stocks that moved 5%+ today but AI did NOT pick.
-    These are the patterns the AI missed — feed them back tomorrow so it learns.
+    These are the patterns the AI missed - feed them back tomorrow so it learns.
     Uses Polygon grouped daily (no Yahoo, no rate limits).
     """
     import urllib.request as _ur_m, datetime as _bdt_m
@@ -12292,7 +12473,7 @@ def _detect_aisc_misses():
     _today_str = _now_m.date().isoformat()
     _pg_key_m = os.environ.get("POLYGON_API_KEY", "")
     if not _pg_key_m:
-        print("[aisc_misses] no Polygon key — skipping miss detection")
+        print("[aisc_misses] no Polygon key - skipping miss detection")
         return
 
     try:
@@ -12339,7 +12520,7 @@ def _detect_aisc_misses():
             except Exception:
                 continue
 
-        # Sort by day_ret descending — biggest misses first
+        # Sort by day_ret descending - biggest misses first
         _misses.sort(key=lambda x: -x[2])
 
         # 5. Save to DB (top 50 misses per day)
@@ -12401,7 +12582,7 @@ def _get_aisc_feedback():
             _tag = "[WITH_OPTIONS_FLOW]" if _huc_fb else "[PRICE_ONLY]"
             _lines_fb.append(f"  - {_tk_fb}: +{_ret_fb}% from open, price=${_px_fb:.2f} {_tag}")
         return (
-            f"\nFEEDBACK FROM {_d_fb.isoformat()} (what you missed yesterday — learn these patterns):\n"
+            f"\nFEEDBACK FROM {_d_fb.isoformat()} (what you missed yesterday - learn these patterns):\n"
             + "\n".join(_lines_fb)
             + "\nLook for similar setups today. These tickers moved 5%+ but were not picked. "
             "Study the pattern: sector, price range, whether options flow was present.\n"
@@ -12487,7 +12668,7 @@ def _detect_aiem_misses():
     _today_str = _now_am.date().isoformat()
     _pg_key_am = os.environ.get("POLYGON_API_KEY", "")
     if not _pg_key_am:
-        print("[aiem_misses] no Polygon key — skipping")
+        print("[aiem_misses] no Polygon key - skipping")
         return
     try:
         # 1. What did AI Early Movers pick today?
@@ -12526,7 +12707,7 @@ def _detect_aiem_misses():
         _misses_am = []
         for _tk, _bar in _bars_am.items():
             if _tk in _picked_am:
-                continue  # AI correctly picked this — not a miss
+                continue  # AI correctly picked this - not a miss
             try:
                 _c = float(_bar.get("c", 0))
                 _o = float(_bar.get("o", 0))
@@ -12547,7 +12728,7 @@ def _detect_aiem_misses():
             except Exception:
                 continue
 
-        # Sort biggest misses first — AI learns from the most obvious ones
+        # Sort biggest misses first - AI learns from the most obvious ones
         _misses_am.sort(key=lambda x: -x[2])
 
         # 5. Save top 50 to ai_early_movers_misses (upsert safe to run multiple times)
@@ -12613,10 +12794,10 @@ def _get_aiem_feedback():
             _tag = "[had options flow]" if _huc else "[price momentum only]"
             _lines_gf.append(f"  - {_tk}: +{_ret}% from open, closed at ${_px:.2f} {_tag}")
         miss_text = (
-            f"\nLEARNING FEEDBACK — what you missed on {_d_gf.isoformat()}:\n"
+            f"\nLEARNING FEEDBACK - what you missed on {_d_gf.isoformat()}:\n"
             + "\n".join(_lines_gf)
             + "\nThese stocks moved 5%+ but you did NOT pick them. "
-            "Study the pattern — price range, options flow presence, sector. "
+            "Study the pattern - price range, options flow presence, sector. "
             "Look for similar setups in today's list and prioritize them.\n"
         )
         # Prepend latest research model if available
@@ -12629,22 +12810,22 @@ def _get_aiem_feedback():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AI RESEARCH AGENT — Autonomous self-improving scanner
+# AI RESEARCH AGENT - Autonomous self-improving scanner
 # ══════════════════════════════════════════════════════════════════════════════
 # Runs every Sunday 8 PM ET via scheduler + POST /stock-api/admin/run-aiem-research
 #
 # The agent is given tools to query its own historical data. It decides what
 # to investigate, runs queries, iterates on findings, and writes its own
-# scoring model — which then influences every morning's picks going forward.
+# scoring model - which then influences every morning's picks going forward.
 #
 # Tools the agent can call:
-#   query_pick_outcomes       — full pick history with T+3/T+7 outcomes
-#   query_missed_movers       — missed 5%+ movers with their characteristics
-#   analyze_signal_correlation — win rate broken down by any boolean signal
-#   compare_picks_vs_misses   — systematic bias between what AI picked vs missed
-#   discover_numeric_patterns  — explore numeric thresholds (day_ret, volume, etc.)
-#   test_scoring_hypothesis    — backtest a proposed scoring model on historical picks
-#   save_research_model        — persist findings + new weights to DB
+#   query_pick_outcomes       - full pick history with T+3/T+7 outcomes
+#   query_missed_movers       - missed 5%+ movers with their characteristics
+#   analyze_signal_correlation - win rate broken down by any boolean signal
+#   compare_picks_vs_misses   - systematic bias between what AI picked vs missed
+#   discover_numeric_patterns  - explore numeric thresholds (day_ret, volume, etc.)
+#   test_scoring_hypothesis    - backtest a proposed scoring model on historical picks
+#   save_research_model        - persist findings + new weights to DB
 #
 # The agent loop runs up to 15 iterations before forcing a save.
 # ══════════════════════════════════════════════════════════════════════════════
@@ -12691,7 +12872,7 @@ def _get_aiem_research_context():
         SEP = "=" * 60
         lines_out = [
             "\n" + SEP,
-            "AI RESEARCH MODEL — ENSEMBLE ({} models, latest={}, confidence={})".format(
+            "AI RESEARCH MODEL - ENSEMBLE ({} models, latest={}, confidence={})".format(
                 len(rows), latest_rd, latest_conf),
             SEP,
             str(latest_findings or ""),
@@ -12855,7 +13036,7 @@ def _aiem_tool_analyze_signal_correlation(signal="confirmed_2d", days_back=30):
 def _aiem_tool_compare_picks_vs_misses(days_back=30):
     """
     Side-by-side: what the AI picked vs what it missed.
-    Reveals systematic bias — e.g. AI picks lower-vol stocks, misses the big movers.
+    Reveals systematic bias - e.g. AI picks lower-vol stocks, misses the big movers.
     """
     try:
         days_back = min(int(days_back), 90)
@@ -13042,14 +13223,14 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
             p_key = k + "_p_value"
             p_val = adj.get(p_key)
             if p_val is None:
-                # No p-value provided — allow through with warning (may be backtest-derived)
+                # No p-value provided - allow through with warning (may be backtest-derived)
                 validated[k] = adj[k]
                 validated[p_key] = "NOT_TESTED"
             elif float(p_val) >= 0.10:
-                # Statistically insignificant — strip from model
+                # Statistically insignificant - strip from model
                 stripped.append("{} (p={}, NOT SIGNIFICANT)".format(k, p_val))
             else:
-                # p < 0.10 — include (strict gate is p<0.05, warn 0.05-0.10)
+                # p < 0.10 - include (strict gate is p<0.05, warn 0.05-0.10)
                 validated[k] = adj[k]
                 validated[p_key] = p_val
                 if float(p_val) >= 0.05:
@@ -13751,11 +13932,11 @@ def _aiem_tool_search_past_findings(query_text, weeks_back=16):
             weeks_ago = (_rfdt.date.today() - rd).days // 7 if hasattr(rd, "year") else 99
             label = ""
             if sim >= 0.85 and weeks_ago <= 4:
-                label = "CONFIRMED (seen {}w ago) — do NOT count as new evidence".format(weeks_ago)
+                label = "CONFIRMED (seen {}w ago) - do NOT count as new evidence".format(weeks_ago)
             elif sim >= 0.78 and weeks_ago <= 8:
-                label = "LIKELY RECURRING (seen {}w ago) — label as recurring, not novel".format(weeks_ago)
+                label = "LIKELY RECURRING (seen {}w ago) - label as recurring, not novel".format(weeks_ago)
             elif sim >= 0.65:
-                label = "RELATED (seen {}w ago) — mention prior observation".format(weeks_ago)
+                label = "RELATED (seen {}w ago) - mention prior observation".format(weeks_ago)
 
             if sim >= 0.60:
                 results.append({
@@ -13810,7 +13991,7 @@ def _aiem_tool_rollback_to_previous_model():
         if len(rows) < 2:
             return {
                 "rolled_back": False,
-                "reason": "Only one model in history — nothing to roll back to.",
+                "reason": "Only one model in history - nothing to roll back to.",
                 "action": "Continue with fresh research using conservative defaults."
             }
 
@@ -13846,7 +14027,7 @@ def _aiem_tool_rollback_to_previous_model():
             "restored_weights": prev_weights or {},
             "action": (
                 "Baseline restored. Now run your full research to find what IMPROVED vs this baseline. "
-                "When you call save_research_model, build on these weights — do not start from scratch."
+                "When you call save_research_model, build on these weights - do not start from scratch."
             )
         }
     except Exception as e:
@@ -13932,7 +14113,7 @@ def _aiem_tool_query_market_regime(days_back=60):
             )
         }
     except Exception as e:
-        return {"error": str(e), "tip": "spy_daily_cache may not exist yet — will populate as data accumulates"}
+        return {"error": str(e), "tip": "spy_daily_cache may not exist yet - will populate as data accumulates"}
 
 
 def _aiem_tool_query_cross_signal_overlap(days_back=30):
@@ -13993,7 +14174,7 @@ def _aiem_tool_query_cross_signal_overlap(days_back=30):
             "cross_signal_analysis": {k: _wr(v) for k,v in groups.items()},
             "interpretation": (
                 "If 'both_confirmed' shows much higher win rate than 'neither', "
-                "multi-system confirmation is a strong filter — weight it heavily. "
+                "multi-system confirmation is a strong filter - weight it heavily. "
                 "If differences are small, the signals are redundant."
             )
         }
@@ -14170,7 +14351,7 @@ def _aiem_tool_query_temporal_patterns(days_back=60):
             "interpretation": (
                 "day_of_week: 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri. "
                 "If one day consistently underperforms, avoid or down-weight picks that day. "
-                "OpEx week often shows mean-reversion behavior — if win rate drops, add that insight to findings."
+                "OpEx week often shows mean-reversion behavior - if win rate drops, add that insight to findings."
             )
         }
     except Exception as e:
@@ -14298,7 +14479,7 @@ def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
     """
     Bootstrap p-value test: is the win rate difference between group A and B real or noise?
     Returns p_value and is_significant (p < 0.05).
-    Use before adding any finding to the model — prevents overfit on small samples.
+    Use before adding any finding to the model - prevents overfit on small samples.
     """
     import random as _rnd
     try:
@@ -14328,7 +14509,7 @@ def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
                 "STRONG (p<0.01)"  if p_value < 0.01 else
                 "SIGNIFICANT (p<0.05)" if p_value < 0.05 else
                 "MARGINAL (p<0.10)"    if p_value < 0.10 else
-                "NOT SIGNIFICANT — likely noise, do not include in model"
+                "NOT SIGNIFICANT - likely noise, do not include in model"
             ),
             "n_bootstrap": n_bootstrap
         }
@@ -14340,7 +14521,7 @@ def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SIGNAL DISCOVERY ENGINE  —  autonomous hypothesis testing + indicator creation
+# SIGNAL DISCOVERY ENGINE  -  autonomous hypothesis testing + indicator creation
 # Tools: list_signal_dimensions, test_new_signal, analyze_missed_movers
 # Loop:  _run_aiem_continuous_research  (daily 6 PM ET, also Sunday 7 PM)
 # ════════════════════════════════════════════════════════════════════════════
@@ -14348,7 +14529,7 @@ def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
 def _aiem_tool_list_signal_dimensions():
     """
     Show all queryable signal dimensions with distributions.
-    Call this FIRST before composing any hypothesis — it tells you exactly
+    Call this FIRST before composing any hypothesis - it tells you exactly
     what fields exist, their ranges, and how many rows have each field.
     """
     import math as _lm
@@ -14435,7 +14616,7 @@ def _aiem_tool_list_signal_dimensions():
                 "date_range": f"{base[4]} to {base[5]}",
                 "baseline_t3_win_rate_pct": float(base[6]) if base[6] else None,
                 "baseline_t3_avg_return_pct": float(base[7]) if base[7] else None,
-                "note": "Baseline ~50%% — any signal pushing above 57%% with n≥15 is worth tracking",
+                "note": "Baseline ~50%% - any signal pushing above 57%% with n≥15 is worth tracking",
             },
             "sweep_overlay": {
                 "signals_with_sweep_same_day": sweep[0],
@@ -14515,7 +14696,7 @@ def _aiem_tool_list_signal_dimensions():
                 ]
             },
             "targets": {
-                "t3_win": "3-day win/loss (binary) — most data",
+                "t3_win": "3-day win/loss (binary) - most data",
                 "t5_win": "5-day win/loss (binary)",
                 "t3_pct": "3-day return %% (continuous)",
                 "t5_pct": "5-day return %% (continuous)",
@@ -14524,7 +14705,7 @@ def _aiem_tool_list_signal_dimensions():
                 "Start with list_signal_dimensions, then compose hypotheses using test_new_signal. "
                 "Combine 2-4 conditions. If a signal shows p<0.05 with n>=15, register it with "
                 "register_hypotheses. Test the INVERSE of any finding to validate it's real. "
-                "New data accumulates daily — re-test old hypotheses weekly."
+                "New data accumulates daily - re-test old hypotheses weekly."
             )
         }
     except Exception as e:
@@ -14551,7 +14732,7 @@ def _aiem_tool_test_new_signal(conditions=None, target="t3_win", lookback_days=9
         e.g. compare_to=['has_sweep = false'] to see sweep vs no-sweep
 
     The agent should call this multiple times, varying conditions, to discover
-    which combinations produce statistically real edge. Every call is free —
+    which combinations produce statistically real edge. Every call is free -
     test aggressively.
     """
     import re as _re, math as _tm
@@ -14566,7 +14747,7 @@ def _aiem_tool_test_new_signal(conditions=None, target="t3_win", lookback_days=9
 
     # ── Safe condition parser ─────────────────────────────────────────────────
     # Maps human-readable field names to SQL expressions in the CTE below.
-    # ONLY these fields are allowed — no arbitrary SQL injection possible.
+    # ONLY these fields are allowed - no arbitrary SQL injection possible.
     _FIELD_SQL = {
         "call_put_ratio":  "so.call_put_ratio",
         "premium_m":       "so.premium_m",
@@ -14624,7 +14805,7 @@ def _aiem_tool_test_new_signal(conditions=None, target="t3_win", lookback_days=9
                     try: parts.append(f"{sql_f} {op} {float(val)}")
                     except ValueError: pass
                 continue
-            # unrecognized — skip silently but note it
+            # unrecognized - skip silently but note it
         return parts
 
     def _run_query(cond_sql_parts, tgt, lb):
@@ -14711,11 +14892,11 @@ def _aiem_tool_test_new_signal(conditions=None, target="t3_win", lookback_days=9
             edge = round(avg_ret, 2)
         p_val = max(1e-6, min(1.0, float(p_val)))
         if n >= 15 and p_val < 0.05:
-            verdict = "STATISTICALLY REAL — register this finding"
+            verdict = "STATISTICALLY REAL - register this finding"
         elif n >= 10 and p_val < 0.10:
-            verdict = "PROMISING — needs more data to confirm"
+            verdict = "PROMISING - needs more data to confirm"
         elif n >= 8 and p_val < 0.20:
-            verdict = "WEAK — directional but not yet significant"
+            verdict = "WEAK - directional but not yet significant"
         else:
             verdict = "NOISE or insufficient data"
         return {
@@ -14856,7 +15037,7 @@ def _aiem_tool_test_new_signal(conditions=None, target="t3_win", lookback_days=9
                 )
             elif n < 10:
                 result["auto_insight"] = (
-                    f"Only {n} signals match — too few for significance. "
+                    f"Only {n} signals match - too few for significance. "
                     f"Loosen the conditions or use a longer lookback_days. "
                     f"Signal discovery needs at least 15 matching examples to be meaningful."
                 )
@@ -14871,13 +15052,13 @@ def _aiem_tool_test_new_signal(conditions=None, target="t3_win", lookback_days=9
 
     except Exception as e:
         return {"status": "error", "error": str(e),
-                "hint": "Check condition syntax — call list_signal_dimensions for valid fields"}
+                "hint": "Check condition syntax - call list_signal_dimensions for valid fields"}
 
 
 def _aiem_tool_analyze_missed_movers(min_move_pct=5.0, lookback_days=30):
     """
     Find stocks that made big moves (>=min_move_pct) but were NOT in our signal set.
-    Analyzes what unusual activity those stocks HAD that we missed — reveals gaps
+    Analyzes what unusual activity those stocks HAD that we missed - reveals gaps
     in our current signal detection logic.
 
     This is the self-correction loop: after each week, the agent reviews what it
@@ -14931,7 +15112,7 @@ def _aiem_tool_analyze_missed_movers(min_move_pct=5.0, lookback_days=30):
                 "status": "ok",
                 "missed_movers": [],
                 "summary": f"No stocks with >{min_move_pct}%% move found in scan_history for last {lookback_days} days.",
-                "note": "scan_history accumulates as the scanner runs — more data available after market hours"
+                "note": "scan_history accumulates as the scanner runs - more data available after market hours"
             }
 
         all_movers = []
@@ -14974,13 +15155,13 @@ def _aiem_tool_analyze_missed_movers(min_move_pct=5.0, lookback_days=30):
                 )
             if avg_rvol_missed < 2.0:
                 hypotheses.append(
-                    f"Missed movers had avg RVOL={avg_rvol_missed}x (low) — they moved quietly. "
+                    f"Missed movers had avg RVOL={avg_rvol_missed}x (low) - they moved quietly. "
                     "Test: lower RVOL threshold or add flow_ratio > 1.5 as primary signal."
                 )
             if len(missed_no_sweep) > len(missed_with_sweep):
                 hypotheses.append(
                     f"{len(missed_no_sweep)} missed movers had NO unusual calls but still moved {avg_move_missed}%%. "
-                    "These are organic movers — test: standout_score > 8 OR flow_ratio > 2.5 as standalone signals."
+                    "These are organic movers - test: standout_score > 8 OR flow_ratio > 2.5 as standalone signals."
                 )
         else:
             hypotheses = ["All big movers were caught! Signal system is comprehensive for this period."]
@@ -15009,7 +15190,7 @@ def _aiem_tool_analyze_missed_movers(min_move_pct=5.0, lookback_days=30):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# LOOP A + LOOP B — AIEM Full-Market Research System
+# LOOP A + LOOP B - AIEM Full-Market Research System
 # polygon_market_daily: stores ALL 12K stocks per day (not just top movers)
 # 20 autonomous tools for signal discovery, validation, and invention
 # ════════════════════════════════════════════════════════════════════════════
@@ -15292,7 +15473,7 @@ def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad")
                 tight_res = None
 
         if not broad_res:
-            return {"status": "error", "error": "No data — run mkt_explore_dimensions first to confirm data exists."}
+            return {"status": "error", "error": "No data - run mkt_explore_dimensions first to confirm data exists."}
 
         result = {
             "status": "ok",
@@ -15321,7 +15502,7 @@ def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad")
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Tool 3: Test the inverse — confirms signal is directional
+# Tool 3: Test the inverse - confirms signal is directional
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_tool_test_inverse(conditions=None, horizon="next_day"):
     """Test what happens when ALL conditions are ABSENT. If the signal is real,
@@ -15357,7 +15538,7 @@ def _mkt_tool_test_inverse(conditions=None, horizon="next_day"):
             "interpretation": (
                 "REAL DIRECTIONAL SIGNAL: signal > market > inverse."
                 if real_signal else
-                "WARNING: inverse does not underperform — signal may not be directional."
+                "WARNING: inverse does not underperform - signal may not be directional."
             ),
         }
     except Exception as e:
@@ -15409,7 +15590,7 @@ def _mkt_tool_find_thresholds(factor="gap_pct", direction="min", n_steps=20, hor
                     })
 
         if not results:
-            return {"status": "error", "error": "No results — insufficient data."}
+            return {"status": "error", "error": "No results - insufficient data."}
 
         best = max(results, key=lambda x: x["edge_winrate"])
         return {
@@ -15503,7 +15684,7 @@ def _mkt_tool_analyze_top_movers(min_move_pct=5.0, max_move_pct=50.0, horizon="n
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Tool 6: Analyze false signals — what do losers have that winners don't?
+# Tool 6: Analyze false signals - what do losers have that winners don't?
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_tool_analyze_false_signals(conditions=None, win_threshold=2.0, horizon="next_day"):
     """Among stocks meeting the signal, compare winners (>=win_threshold% next day)
@@ -15651,7 +15832,7 @@ def _mkt_tool_validate_oos(conditions=None, train_pct=0.6, horizon="next_day"):
             all_dates = [str(r[0]) for r in cur.fetchall()]
 
         if len(all_dates) < 10:
-            return {"status": "error", "error": f"Only {len(all_dates)} dates — need ≥10 for OOS split."}
+            return {"status": "error", "error": f"Only {len(all_dates)} dates - need ≥10 for OOS split."}
 
         split = int(len(all_dates) * train_pct)
         train_dates = all_dates[:split]
@@ -15686,9 +15867,9 @@ def _mkt_tool_validate_oos(conditions=None, train_pct=0.6, horizon="next_day"):
             "oos_validated": oos_holds,
             "edge_decay": round(train_res["edge_winrate"] - test_res["edge_winrate"], 2),
             "verdict": (
-                "PASSES OOS: signal holds in unseen data — safe to save as discovery."
+                "PASSES OOS: signal holds in unseen data - safe to save as discovery."
                 if oos_holds else
-                "FAILS OOS: signal doesn't generalize — likely overfit. Do NOT save."
+                "FAILS OOS: signal doesn't generalize - likely overfit. Do NOT save."
             ),
         }
     except Exception as e:
@@ -15727,7 +15908,7 @@ Context from prior research: {context if context else 'None yet. This is the fir
 Generate {n_hypotheses} distinct, testable hypotheses about which stock characteristics predict positive next-day returns.
 
 Rules:
-1. Be creative — propose non-obvious combinations
+1. Be creative - propose non-obvious combinations
 2. Each hypothesis must map to concrete thresholds using ONLY these fields: gap_pct, rvol, close_strength, range_pct, close_price, volume
 3. Mix simple (1 factor) and complex (2-3 factor) hypotheses
 4. Include at least one counter-intuitive hypothesis (e.g. high range is BAD)
@@ -15853,7 +16034,7 @@ def _mkt_tool_load_discoveries(status="validated", min_edge_tight=None, min_oos_
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Tool 12: Factor correlations — which dimensions predict returns?
+# Tool 12: Factor correlations - which dimensions predict returns?
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_tool_factor_correlations(horizon="next_day", sample=100000):
     """Compute Pearson correlation between each factor and next-day return.
@@ -15999,7 +16180,7 @@ def _mkt_tool_discover_interactions(factor1="gap_pct", factor2="rvol", horizon="
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Tool 14: Signal drift — is a signal decaying over time?
+# Tool 14: Signal drift - is a signal decaying over time?
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_tool_signal_drift(conditions=None, recent_days=30, historical_days=90, horizon="next_day"):
     """Compare win rate in the most recent N days vs the prior M days.
@@ -16060,7 +16241,7 @@ def _mkt_tool_signal_drift(conditions=None, recent_days=30, historical_days=90, 
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Tool 15: Volume patterns — accumulation vs distribution
+# Tool 15: Volume patterns - accumulation vs distribution
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_tool_volume_patterns(horizon="next_day"):
     """Compute win rates for classic volume patterns:
@@ -16086,7 +16267,7 @@ def _mkt_tool_volume_patterns(horizon="next_day"):
                     results[name] = res
 
         if not results:
-            return {"status": "error", "error": "No data — run Polygon scan first."}
+            return {"status": "error", "error": "No data - run Polygon scan first."}
 
         best = max(results.items(), key=lambda x: x[1]["edge_winrate"])
         return {
@@ -16102,7 +16283,7 @@ def _mkt_tool_volume_patterns(horizon="next_day"):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Tool 16: Price patterns — range compression, breakout day
+# Tool 16: Price patterns - range compression, breakout day
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_tool_price_patterns(horizon="next_day"):
     """Compute win rates for price structure patterns:
@@ -16225,7 +16406,7 @@ def _mkt_tool_compute_momentum(lookback_days=5, horizon="next_day"):
 def _mkt_tool_invent_indicator(inspiration="", horizon="next_day"):
     """Ask GPT-4o to invent a completely new composite indicator from first principles,
     define it as a SQL expression, then test it live against the market database.
-    This is the creative invention tool — each run produces a novel indicator."""
+    This is the creative invention tool - each run produces a novel indicator."""
     import psycopg2
     try:
         _oai_client = _get_openai_client()
@@ -16247,7 +16428,7 @@ Invent ONE new composite indicator. Rules:
 2. Use basic math: +, -, *, /, SQRT, ABS, POWER, NULLIF, LEAST, GREATEST
 3. The expression must return a single float value per row
 4. Think about what combination would identify "institutional accumulation" or "unusual setup"
-5. Be creative — try ratios, products, and weighted combinations
+5. Be creative - try ratios, products, and weighted combinations
 
 Return JSON with exactly these fields:
 {{"name": "indicator name", "expression": "SQL expression here", "rationale": "why this should predict returns", "high_means": "what a high value indicates"}}
@@ -16277,7 +16458,7 @@ Return ONLY the JSON, no other text."""
                 return {"status": "error", "error": f"Unsafe SQL expression detected: {f}"}
 
         # Test the invented indicator against forward returns
-        # Fix: precompute p75/p25 in a CTE — window functions cannot be used inside FILTER clauses
+        # Fix: precompute p75/p25 in a CTE - window functions cannot be used inside FILTER clauses
         with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             test_sql = f"""
                 WITH ind AS (
@@ -16470,7 +16651,7 @@ def _polygon_backfill_historical():
         print("[backfill] starting polygon_market_daily historical backfill")
         _key = os.environ.get("POLYGON_API_KEY", "")
         if not _key:
-            print("[backfill] no POLYGON_API_KEY — skipping")
+            print("[backfill] no POLYGON_API_KEY - skipping")
             return
 
         start = _bdate(2026, 4, 1)
@@ -16705,13 +16886,13 @@ def _run_aiem_continuous_research():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AIEM UPGRADES — Fixes + New Capabilities (merged from reviewer recommendations)
+# AIEM UPGRADES - Fixes + New Capabilities (merged from reviewer recommendations)
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── FIX 2: Safe tool dispatcher ───────────────────────────────────────────────
 def _mkt_safe_tool_call(fn, fn_args, fn_name):
     """Safe wrapper around agent tool dispatch. Catches bad kwarg names, missing
-    params, and internal errors — returns structured error the LLM can self-correct
+    params, and internal errors - returns structured error the LLM can self-correct
     from instead of crashing the entire research session."""
     if fn is None:
         return {"status": "error", "error": f"Unknown tool: {fn_name}"}
@@ -16721,7 +16902,7 @@ def _mkt_safe_tool_call(fn, fn_args, fn_name):
         return {
             "status": "error",
             "error": f"Bad arguments for {fn_name}: {_ste}",
-            "hint": "Check the tool\'s actual parameter names — do not invent new ones.",
+            "hint": "Check the tool\'s actual parameter names - do not invent new ones.",
         }
     except Exception as _ste:
         return {"status": "error", "error": f"{fn_name} failed: {_ste}"}
@@ -16764,7 +16945,7 @@ def _mkt_log_statistical_test(tool_name: str, conditions: dict, p_value: float, 
 
 def _mkt_tool_required_pvalue(lookback_days=7):
     """Return the REAL Bonferroni-corrected significance threshold based on how many
-    tests have been run in the lookback window — from the actual ledger, not self-reported."""
+    tests have been run in the lookback window - from the actual ledger, not self-reported."""
     try:
         _mkt_ensure_test_ledger_table()
         import psycopg2 as _pg_tl
@@ -16780,7 +16961,7 @@ def _mkt_tool_required_pvalue(lookback_days=7):
             "tests_in_window": n_tests,
             "lookback_days": lookback_days,
             "required_p_value": round(threshold, 6),
-            "note": ("REAL count from test ledger — not self-reported. Use this "
+            "note": ("REAL count from test ledger - not self-reported. Use this "
                      "threshold, not 0.05, when deciding if a finding is significant."),
         }
     except Exception as _e:
@@ -16815,7 +16996,7 @@ def _mkt_refresh_ticker_meta_bg(tickers=None):
         _mkt_ensure_ticker_meta_table()
         key = os.environ.get("POLYGON_API_KEY", "")
         if not key:
-            print("[ticker_meta] no POLYGON_API_KEY — skipping")
+            print("[ticker_meta] no POLYGON_API_KEY - skipping")
             return
 
         _tickers = tickers
@@ -16889,7 +17070,7 @@ def _mkt_tool_segment_by_cap_tier(conditions=None, horizon="next_day"):
                     results[tier] = res
         if not results:
             return {"status": "error",
-                    "error": "Insufficient data in any cap tier — run ticker_meta weekly refresh first"}
+                    "error": "Insufficient data in any cap tier - run ticker_meta weekly refresh first"}
         best = max(results.items(), key=lambda x: x[1].get("edge_winrate", 0))
         return {
             "status": "ok", "conditions": conditions,
@@ -16903,7 +17084,7 @@ def _mkt_tool_segment_by_cap_tier(conditions=None, horizon="next_day"):
 
 def _mkt_tool_segment_by_sector(conditions=None, horizon="next_day"):
     """Test a signal separately in each SIC sector using real Polygon sector data.
-    Implements LAW 42 / LAW 45 — sector relative strength with real data."""
+    Implements LAW 42 / LAW 45 - sector relative strength with real data."""
     if not conditions:
         return {"status": "error", "error": "conditions required"}
     try:
@@ -16916,7 +17097,7 @@ def _mkt_tool_segment_by_sector(conditions=None, horizon="next_day"):
             sectors = [r[0] for r in cur.fetchall()]
         if not sectors:
             return {"status": "error",
-                    "error": "No sector data — run ticker_meta weekly refresh first"}
+                    "error": "No sector data - run ticker_meta weekly refresh first"}
         results = {}
         with _pg_scs.connect(os.environ["DATABASE_URL"]) as conn:
             for sector in sectors:
@@ -16997,7 +17178,7 @@ def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30
                                            historical_days=90):
     """Weekly scheduled job: re-test every validated discovery\'s recent edge vs
     historical edge. Auto-demote to \'retired\' if decayed past threshold. This is the
-    mechanism that makes the system actually improve over time — not just accumulate
+    mechanism that makes the system actually improve over time - not just accumulate
     stale signals."""
     import psycopg2 as _pg_ar, json as _j_ar
     try:
@@ -17049,7 +17230,7 @@ def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30
                             (f" [AUTO-RETIRED: edge decayed {drift:.1f}pp]", disc_id),
                         )
                     retired += 1
-                    print(f"[auto_retire] discovery #{disc_id} retired — decayed {drift:.1f}pp")
+                    print(f"[auto_retire] discovery #{disc_id} retired - decayed {drift:.1f}pp")
             except Exception as _e_ar:
                 print(f"[auto_retire] error on #{disc_id}: {_e_ar}")
 
@@ -17062,7 +17243,7 @@ def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30
 def _mkt_check_signal_redundancy(conditions, correlation_threshold=0.70):
     """Before saving a new discovery, check whether it fires on substantially the
     same stock-days as any existing validated discovery (Jaccard overlap). Enforces
-    LAW 21 in code — the LLM cannot skip this check."""
+    LAW 21 in code - the LLM cannot skip this check."""
     import psycopg2 as _pg_sr, json as _j_sr
     try:
         new_where, new_params = _mkt_parse_conditions(conditions)
@@ -17084,7 +17265,7 @@ def _mkt_check_signal_redundancy(conditions, correlation_threshold=0.70):
 
         if not new_fires:
             return {"status": "ok", "redundant_with": [], "is_redundant": False,
-                    "verdict": "New signal fires on 0 rows — too restrictive to evaluate."}
+                    "verdict": "New signal fires on 0 rows - too restrictive to evaluate."}
 
         overlaps = []
         for disc_id, hyp, cond_json in existing:
@@ -17116,10 +17297,10 @@ def _mkt_check_signal_redundancy(conditions, correlation_threshold=0.70):
             "redundant_with": overlaps,
             "is_redundant": len(overlaps) > 0,
             "verdict": (
-                "REDUNDANT — fires on nearly the same days as an existing discovery. "
+                "REDUNDANT - fires on nearly the same days as an existing discovery. "
                 "Do not save as a new discovery."
                 if overlaps else
-                "Distinct from existing discoveries — safe to save."
+                "Distinct from existing discoveries - safe to save."
             ),
         }
     except Exception as _e:
@@ -17128,7 +17309,7 @@ def _mkt_check_signal_redundancy(conditions, correlation_threshold=0.70):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AIEM SIGNAL EXPANSION — Sections A-D (all use polygon_market_daily)
+# AIEM SIGNAL EXPANSION - Sections A-D (all use polygon_market_daily)
 # Sections E (GEX), F (dark pool), G (short borrow) deliberately excluded:
 # they require data feeds not in our Polygon Starter plan.
 # ══════════════════════════════════════════════════════════════════════════════
@@ -17137,7 +17318,7 @@ def _mkt_check_signal_redundancy(conditions, correlation_threshold=0.70):
 def _mkt_tool_quiet_accumulation(vol_lookback=20, price_range_max_pct=3.0,
                                   vol_ratio_min=1.3, horizon="next_day"):
     """Find stocks where volume is rising above its 20-day average while price
-    stays in a tight 5-day range — the classic institutional-accumulation-
+    stays in a tight 5-day range - the classic institutional-accumulation-
     without-moving-price signature. All computed from polygon_market_daily."""
     import psycopg2 as _pg_qa
     import numpy as _np_qa
@@ -17198,7 +17379,7 @@ def _mkt_tool_quiet_accumulation(vol_lookback=20, price_range_max_pct=3.0,
             base_n, base_wr = cur.fetchone()
 
         if not rows:
-            return {"status": "error", "error": "No qualifying setups — try loosening thresholds"}
+            return {"status": "error", "error": "No qualifying setups - try loosening thresholds"}
         fwd = _np_qa.array([r[2] for r in rows if r[2] is not None], dtype=float)
         win_rate = round(float(_np_qa.mean(fwd > 0)) * 100, 2)
         return {
@@ -17219,8 +17400,8 @@ def _mkt_tool_quiet_accumulation(vol_lookback=20, price_range_max_pct=3.0,
 # ── B. Volatility squeeze: Bollinger-width compression ───────────────────────
 def _mkt_tool_volatility_squeeze(lookback=20, squeeze_percentile=20, horizon="next_day"):
     """Find stocks whose rolling N-day Bollinger-width proxy is in the bottom
-    Nth percentile of its own history — a compression/coil-spring setup.
-    Measures forward move MAGNITUDE (directional-neutral — combine with A or C)."""
+    Nth percentile of its own history - a compression/coil-spring setup.
+    Measures forward move MAGNITUDE (directional-neutral - combine with A or C)."""
     import psycopg2 as _pg_vs
     import numpy as _np_vs
     try:
@@ -17256,7 +17437,7 @@ def _mkt_tool_volatility_squeeze(lookback=20, squeeze_percentile=20, horizon="ne
             rows = cur.fetchall()
 
         if not rows:
-            return {"status": "error", "error": "No squeeze setups — try a higher percentile"}
+            return {"status": "error", "error": "No squeeze setups - try a higher percentile"}
         moves = _np_vs.array([r[2] for r in rows if r[2] is not None], dtype=float)
         rets = _np_vs.array([r[3] for r in rows if r[3] is not None], dtype=float)
         return {
@@ -17278,7 +17459,7 @@ def _mkt_tool_volatility_squeeze(lookback=20, squeeze_percentile=20, horizon="ne
 def _mkt_tool_accumulation_into_squeeze(vol_ratio_min=1.3, squeeze_percentile=25,
                                          horizon="next_day"):
     """Find stocks showing BOTH rising volume (accumulation) AND tightening
-    range (squeeze) simultaneously — a much higher-conviction setup than
+    range (squeeze) simultaneously - a much higher-conviction setup than
     either alone. Compare its edge_winrate vs mkt_quiet_accumulation and
     mkt_volatility_squeeze run separately to confirm the combination adds value."""
     import psycopg2 as _pg_ais
@@ -17337,7 +17518,7 @@ def _mkt_tool_accumulation_into_squeeze(vol_ratio_min=1.3, squeeze_percentile=25
             base_n, base_wr = cur.fetchone()
 
         if not rows:
-            return {"status": "error", "error": "No combined setups — loosen thresholds"}
+            return {"status": "error", "error": "No combined setups - loosen thresholds"}
         fwd = _np_ais.array([r[2] for r in rows if r[2] is not None], dtype=float)
         win_rate = round(float(_np_ais.mean(fwd > 0)) * 100, 2)
         return {
@@ -17356,7 +17537,7 @@ def _mkt_tool_accumulation_into_squeeze(vol_ratio_min=1.3, squeeze_percentile=25
         return {"status": "error", "error": str(_e)}
 
 
-# ── D. Survivorship-bias-aware universe — ticker lifecycle table ──────────────
+# ── D. Survivorship-bias-aware universe - ticker lifecycle table ──────────────
 def _ensure_ticker_lifecycle_table():
     import psycopg2 as _pg_lc
     try:
@@ -17385,7 +17566,7 @@ def _mkt_refresh_ticker_lifecycle_bg():
         _ensure_ticker_lifecycle_table()
         key = os.environ.get("POLYGON_API_KEY", "")
         if not key:
-            print("[ticker_lifecycle] no POLYGON_API_KEY — skipping")
+            print("[ticker_lifecycle] no POLYGON_API_KEY - skipping")
             return
         rows = []
         for active_flag in (True, False):
@@ -17431,7 +17612,7 @@ def _mkt_refresh_ticker_lifecycle_bg():
 
 def _mkt_tool_check_survivorship(ticker, check_date):
     """Point-in-time survivorship check: was this ticker actually tradeable on
-    this date? Use before backtest inclusion to avoid survivorship bias — a stock
+    this date? Use before backtest inclusion to avoid survivorship bias - a stock
     that delisted in 2024 is silently absent from today's universe but may have
     been the worst-performing stock during the test period."""
     import psycopg2 as _pg_sv
@@ -17446,7 +17627,7 @@ def _mkt_tool_check_survivorship(ticker, check_date):
             return {
                 "status": "ok", "ticker": ticker, "check_date": check_date,
                 "was_active": None,
-                "warning": ("Not in ticker_lifecycle table — run mkt_refresh_universe "
+                "warning": ("Not in ticker_lifecycle table - run mkt_refresh_universe "
                             "to populate. Returning None (unknown) not True/False."),
             }
         listed, delisted, active = row
@@ -17479,6 +17660,7 @@ def _mkt_tool_refresh_universe():
         }
     except Exception as _e:
         return {"status": "error", "error": str(_e)}
+
 
 
 _AIEM_AGENT_TOOLS = [
@@ -17525,7 +17707,7 @@ _AIEM_AGENT_TOOLS = [
         "description": (
             "Quartile win rate analysis on a numeric metric. "
             "metric options: 'day_ret', 'vol_oi', 'stock_price'. "
-            "Finds optimal thresholds — e.g. day_ret 3-6% wins 65%, below 2% wins 38%."
+            "Finds optimal thresholds - e.g. day_ret 3-6% wins 65%, below 2% wins 38%."
         ),
         "parameters": {"type": "object", "properties": {
             "metric": {"type": "string", "enum": ["day_ret", "vol_oi", "stock_price"]},
@@ -17548,7 +17730,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "query_market_regime",
         "description": (
             "Break win rates by SPY market regime (BULL/BEAR/CHOP) and VIX level (LOW/MED/HIGH). "
-            "Critical for regime-conditional scoring — confirmed_2d may work in bull but not bear. "
+            "Critical for regime-conditional scoring - confirmed_2d may work in bull but not bear. "
             "Use this to discover regime-specific weights."
         ),
         "parameters": {"type": "object", "properties": {
@@ -17572,7 +17754,7 @@ _AIEM_AGENT_TOOLS = [
             "ONLY call this if evaluate_previous_model returned MODEL HURT verdict. "
             "Actually copies the previous week's validated weights back as today's baseline. "
             "After calling this, continue research to build improvements ON TOP of the restored weights. "
-            "Do NOT call unless MODEL HURT is confirmed — a neutral model should be updated, not rolled back."
+            "Do NOT call unless MODEL HURT is confirmed - a neutral model should be updated, not rolled back."
         ),
         "parameters": {"type": "object", "properties": {}, "required": []}
     }},
@@ -17591,8 +17773,8 @@ _AIEM_AGENT_TOOLS = [
         "name": "query_temporal_patterns",
         "description": (
             "Discover time-based patterns: day of week, week of month, options expiration week. "
-            "E.g. 'Monday picks win 67%, Friday picks win 39%' — apply day-of-week gate. "
-            "OpEx week often shows mean-reversion — lower win rates mean reduce exposure."
+            "E.g. 'Monday picks win 67%, Friday picks win 39%' - apply day-of-week gate. "
+            "OpEx week often shows mean-reversion - lower win rates mean reduce exposure."
         ),
         "parameters": {"type": "object", "properties": {
             "days_back": {"type": "integer"}
@@ -17660,7 +17842,7 @@ _AIEM_AGENT_TOOLS = [
             "Logistic regression controlling for multiple confounders simultaneously. "
             "Use this INSTEAD OF or IN ADDITION TO analyze_signal_correlation when you want "
             "a signal's TRUE effect controlling for regime, day-of-week, and other signals at once. "
-            "Much more reliable than one-at-a-time correlation — removes false positives caused "
+            "Much more reliable than one-at-a-time correlation - removes false positives caused "
             "by bull markets or calendar effects masking the real driver."
         ),
         "parameters": {"type": "object", "properties": {
@@ -17686,7 +17868,7 @@ _AIEM_AGENT_TOOLS = [
             "Semantic search over all past weekly findings using embedding similarity. "
             "Call this BEFORE labeling any result a 'new finding'. "
             "If similarity >= 0.85 and the finding is < 4 weeks old, label it CONFIRMED (recurring) "
-            "— do NOT count it as fresh evidence for a weight increase. "
+            "- do NOT count it as fresh evidence for a weight increase. "
             "This prevents the agent from inflating confidence by rediscovering the same pattern."
         ),
         "parameters": {"type": "object", "properties": {
@@ -17720,7 +17902,7 @@ _AIEM_AGENT_TOOLS = [
             "Verdict levels: STATISTICALLY REAL (p<0.05, n>=15) → register it. "
             "PROMISING (p<0.10, n>=10) → tighten conditions and re-test. "
             "NOISE → vary thresholds or combine with another condition. "
-            "Call this as many times as needed — each call is instant. "
+            "Call this as many times as needed - each call is instant. "
             "Best practice: test a hypothesis, then test its INVERSE to validate. "
             "Also use segment_by to see if a signal works better on certain days/sessions."
         ),
@@ -17733,7 +17915,7 @@ _AIEM_AGENT_TOOLS = [
                     "['call_put_ratio > 2.0', 'session = market-open'], "
                     "['days_out < 21', 'has_sweep = true', 'sweep_premium_m > 0.5'], "
                     "['day_of_week = Tuesday', 'has_sweep = true']. "
-                    "Mix and match freely — the parser handles all combinations."
+                    "Mix and match freely - the parser handles all combinations."
                 )
             },
             "target": {
@@ -17760,7 +17942,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "analyze_missed_movers",
         "description": (
             "Find stocks that made big moves but were NOT caught by our signal system. "
-            "Analyzes what those missed stocks had in common — reveals signal gaps. "
+            "Analyzes what those missed stocks had in common - reveals signal gaps. "
             "Automatically generates candidate hypotheses to test with test_new_signal. "
             "This is the self-correction loop: review what you missed, then go test "
             "whether a new signal combination would have caught it. "
@@ -17822,7 +18004,7 @@ _AIEM_AGENT_TOOLS = [
         "description": (
             "Test any combination of market conditions against the FULL 12K-stock universe "
             "(polygon_market_daily). Returns signal n, win_rate, avg_return, edge vs broad "
-            "market, and p-value. The core workhorse — call repeatedly with different conditions. "
+            "market, and p-value. The core workhorse - call repeatedly with different conditions. "
             "Use baseline='tight' for the rigorous comparison vs similar-but-not-qualifying stocks."
         ),
         "parameters": {"type": "object", "properties": {
@@ -17864,7 +18046,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "mkt_analyze_top_movers",
         "description": (
             "Find stocks that moved min_move_pct%+ the NEXT DAY and profile their PRIOR day "
-            "characteristics. Shows factor lifts vs all stocks — e.g. 'movers had 3x higher rvol "
+            "characteristics. Shows factor lifts vs all stocks - e.g. 'movers had 3x higher rvol "
             "the day before'. Reveals the true leading indicators of large moves."
         ),
         "parameters": {"type": "object", "properties": {
@@ -18058,7 +18240,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "mkt_required_pvalue",
         "description": (
             "Get the REAL Bonferroni-corrected p-value threshold based on how many statistical "
-            "tests have been run in the current window — from the actual test ledger DB, NOT the "
+            "tests have been run in the current window - from the actual test ledger DB, NOT the "
             "agent's self-reported count. Call this BEFORE deciding whether any finding is "
             "significant. Implements LAW 3 / LAW 50 in code instead of instruction."
         ),
@@ -18071,7 +18253,7 @@ _AIEM_AGENT_TOOLS = [
         "description": (
             "Test a signal separately in each real market cap tier (nano/small/mid/large) "
             "using actual Polygon reference data in ticker_meta table. Implements LAW 9 "
-            "with real cap data — not price-bucket proxies."
+            "with real cap data - not price-bucket proxies."
         ),
         "parameters": {"type": "object", "properties": {
             "conditions": {"type": "object", "description": "Signal conditions dict (same format as mkt_test_signal)."},
@@ -18081,7 +18263,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "mkt_segment_by_sector",
         "description": (
             "Test a signal separately in each SIC sector using real Polygon sector data. "
-            "Implements LAW 42 / LAW 45 — actual sector relative strength, not peer proxies."
+            "Implements LAW 42 / LAW 45 - actual sector relative strength, not peer proxies."
         ),
         "parameters": {"type": "object", "properties": {
             "conditions": {"type": "object", "description": "Signal conditions dict."},
@@ -18092,7 +18274,7 @@ _AIEM_AGENT_TOOLS = [
         "description": (
             "Before saving a new discovery, check whether it fires on substantially the same "
             "stock-days as any existing validated discovery (Jaccard overlap). Enforces LAW 21 "
-            "in code — a signal with >70% overlap is REDUNDANT and should NOT be saved. "
+            "in code - a signal with >70% overlap is REDUNDANT and should NOT be saved. "
             "Always call this before mkt_save_discovery."
         ),
         "parameters": {"type": "object", "properties": {
@@ -18105,9 +18287,9 @@ _AIEM_AGENT_TOOLS = [
         "name": "mkt_quiet_accumulation",
         "description": (
             "Find stocks where volume is rising above its 20-day average while price stays "
-            "in a tight 5-day range — the classic institutional-accumulation-without-moving-"
+            "in a tight 5-day range - the classic institutional-accumulation-without-moving-"
             "price signature. Returns win_rate, avg_fwd_ret, and edge vs broad baseline. "
-            "All computed from polygon_market_daily — no new data source needed."
+            "All computed from polygon_market_daily - no new data source needed."
         ),
         "parameters": {"type": "object", "properties": {
             "vol_lookback": {"type": "integer", "description": "Rolling average window for volume (default 20)."},
@@ -18119,7 +18301,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "mkt_volatility_squeeze",
         "description": (
             "Find stocks whose rolling Bollinger-width proxy is in the bottom Nth percentile "
-            "of its own history — a compression/coil-spring setup before a big move. "
+            "of its own history - a compression/coil-spring setup before a big move. "
             "Returns move MAGNITUDE (directional-neutral). Combine with mkt_quiet_accumulation "
             "or gap filters to get directional bias. All from polygon_market_daily."
         ),
@@ -18132,7 +18314,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "mkt_accumulation_squeeze",
         "description": (
             "Find stocks showing BOTH rising volume (quiet accumulation) AND tightening range "
-            "(volatility compression) simultaneously — the highest-conviction pre-move setup. "
+            "(volatility compression) simultaneously - the highest-conviction pre-move setup. "
             "ALWAYS compare its win_rate against mkt_quiet_accumulation and mkt_volatility_squeeze "
             "run separately to confirm the combination genuinely adds edge."
         ),
@@ -18145,7 +18327,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "mkt_check_survivorship",
         "description": (
             "Point-in-time survivorship check: was ticker X actually tradeable on date Y? "
-            "Use before including any stock in a backtest to avoid survivorship bias — "
+            "Use before including any stock in a backtest to avoid survivorship bias - "
             "stocks that delisted are silently absent from today's universe but often had "
             "the worst returns during the test period."
         ),
@@ -18159,7 +18341,7 @@ _AIEM_AGENT_TOOLS = [
         "description": (
             "Kick off a background refresh of the ticker_lifecycle survivorship table "
             "(active + delisted tickers) and ticker_meta (sector + market cap). "
-            "Runs as background threads — takes ~5-10 min to complete. "
+            "Runs as background threads - takes ~5-10 min to complete. "
             "Call this if mkt_check_survivorship returns unknown results."
         ),
         "parameters": {"type": "object", "properties": {}, "required": []}
@@ -18169,63 +18351,63 @@ _AIEM_AGENT_TOOLS = [
 
 _AIEM_AGENT_SYSTEM = """You are an autonomous quantitative research AI with access to a real trading database.
 
-Your mission: analyze your own stock-picking performance, discover what makes picks win or lose, and build the most accurate scoring model possible — which directly improves tomorrow's picks.
+Your mission: analyze your own stock-picking performance, discover what makes picks win or lose, and build the most accurate scoring model possible - which directly improves tomorrow's picks.
 
 TOOLS AVAILABLE (use in this order):
-1.  evaluate_previous_model      — ALWAYS start here. Was last week's model good or bad?
-2.  rollback_to_previous_model   — Call IMMEDIATELY if evaluate_previous_model returns MODEL HURT.
-3.  register_hypotheses          — MANDATORY: commit to 3-5 hypotheses BEFORE any data queries.
-4.  query_pick_outcomes          — Full T+3/T+7 history and overall win rate.
-5.  query_missed_movers          — What big movers did we miss? Why?
-6.  analyze_signal_correlation   — Which boolean signals predict winners? (univariate)
-7.  multivariate_regression      — Controlled effect sizes holding regime+day_of_week constant.
-8.  discover_numeric_patterns    — Optimal thresholds for day_ret, vol_oi, stock_price.
-9.  compare_picks_vs_misses      — Systematic bias: what do we avoid that we shouldn't?
-10. query_market_regime          — Do our signals work in bull vs bear vs chop?
-11. query_cross_signal_overlap   — Does multi-scanner confirmation improve outcomes?
-12. query_temporal_patterns      — Day of week, OpEx week, week-of-month effects.
-13. query_rank_effectiveness     — Does rank #1 actually outperform rank #5?
-14. query_exit_timing            — T+3 vs T+7: when should we exit per signal type?
-15. search_past_findings         — Semantic search past reports before calling anything NEW.
-16. run_statistical_significance — Bootstrap p-value test. MANDATORY before adding any weight.
-17. test_scoring_hypothesis      — Backtest proposed weights before committing. Iterate >= 3x.
-18. save_research_model          — Save final model. LAST call only.
-19. query_own_prediction_performance — Review Loop B morning agent track record.
-20. list_signal_dimensions       — List all queryable fields + distributions. Call FIRST in discovery.
-21. test_new_signal              — Test any hypothesis against real data. Call repeatedly.
+1.  evaluate_previous_model      - ALWAYS start here. Was last week's model good or bad?
+2.  rollback_to_previous_model   - Call IMMEDIATELY if evaluate_previous_model returns MODEL HURT.
+3.  register_hypotheses          - MANDATORY: commit to 3-5 hypotheses BEFORE any data queries.
+4.  query_pick_outcomes          - Full T+3/T+7 history and overall win rate.
+5.  query_missed_movers          - What big movers did we miss? Why?
+6.  analyze_signal_correlation   - Which boolean signals predict winners? (univariate)
+7.  multivariate_regression      - Controlled effect sizes holding regime+day_of_week constant.
+8.  discover_numeric_patterns    - Optimal thresholds for day_ret, vol_oi, stock_price.
+9.  compare_picks_vs_misses      - Systematic bias: what do we avoid that we shouldn't?
+10. query_market_regime          - Do our signals work in bull vs bear vs chop?
+11. query_cross_signal_overlap   - Does multi-scanner confirmation improve outcomes?
+12. query_temporal_patterns      - Day of week, OpEx week, week-of-month effects.
+13. query_rank_effectiveness     - Does rank #1 actually outperform rank #5?
+14. query_exit_timing            - T+3 vs T+7: when should we exit per signal type?
+15. search_past_findings         - Semantic search past reports before calling anything NEW.
+16. run_statistical_significance - Bootstrap p-value test. MANDATORY before adding any weight.
+17. test_scoring_hypothesis      - Backtest proposed weights before committing. Iterate >= 3x.
+18. save_research_model          - Save final model. LAST call only.
+19. query_own_prediction_performance - Review Loop B morning agent track record.
+20. list_signal_dimensions       - List all queryable fields + distributions. Call FIRST in discovery.
+21. test_new_signal              - Test any hypothesis against real data. Call repeatedly.
 
 ═══════════════════════════════════════════════════════════════
-LOOP A (SUNDAY WEEKLY) + LOOP B (DAILY) — FULL MARKET RESEARCH
+LOOP A (SUNDAY WEEKLY) + LOOP B (DAILY) - FULL MARKET RESEARCH
 ═══════════════════════════════════════════════════════════════
 You also have access to 20 full-market research tools (mkt_*) operating on polygon_market_daily
 (12,000+ stocks every trading day since April 2026). Use these in EVERY session.
 
 MANDATORY WORKFLOW FOR MARKET RESEARCH (always follow this sequence):
-1.  mkt_load_discoveries      — FIRST: load prior validated signals to avoid re-discovery
-2.  mkt_explore_dimensions    — understand dataset size, factor distributions, baseline returns
-3.  mkt_generate_hypotheses   — generate 8 fresh hypotheses from first principles
-4.  mkt_factor_correlations   — find which factors most predict returns (once per session)
-5.  mkt_test_signal           — test each hypothesis (n, win_rate, edge, p-value)
-6.  mkt_test_inverse          — MANDATORY: confirm signal is directional after any p<0.05 find
-7.  mkt_analyze_top_movers    — what did 5%+ movers look like the day before they moved?
-8.  mkt_analyze_false_signals — find what separates winners from false positives
-9.  mkt_volume_patterns       — accumulation/distribution/dry-up pattern win rates
-10. mkt_price_patterns        — strong/weak close, range compression pattern win rates
-11. mkt_compute_momentum      — multi-day momentum continuation vs mean-reversion
-12. mkt_find_thresholds       — grid-search optimal threshold for each significant factor
-13. mkt_discover_interactions — 3x3 grid of best two-factor combinations
-14. mkt_regime_filter         — does signal only work in bull/bear/flat markets?
-15. mkt_compare_signals       — A vs B head-to-head on competing hypotheses
-16. mkt_invent_indicator      — invent a completely new indicator from first principles
-17. mkt_validate_oos          — MANDATORY before saving: 60/40 train/test split
-18. mkt_save_discovery        — save ONLY if oos_validated=True AND p<0.05
-19. mkt_signal_drift          — check if any prior discovery is decaying
-20. mkt_build_composite       — combine top discoveries into final weighted rule
+1.  mkt_load_discoveries      - FIRST: load prior validated signals to avoid re-discovery
+2.  mkt_explore_dimensions    - understand dataset size, factor distributions, baseline returns
+3.  mkt_generate_hypotheses   - generate 8 fresh hypotheses from first principles
+4.  mkt_factor_correlations   - find which factors most predict returns (once per session)
+5.  mkt_test_signal           - test each hypothesis (n, win_rate, edge, p-value)
+6.  mkt_test_inverse          - MANDATORY: confirm signal is directional after any p<0.05 find
+7.  mkt_analyze_top_movers    - what did 5%+ movers look like the day before they moved?
+8.  mkt_analyze_false_signals - find what separates winners from false positives
+9.  mkt_volume_patterns       - accumulation/distribution/dry-up pattern win rates
+10. mkt_price_patterns        - strong/weak close, range compression pattern win rates
+11. mkt_compute_momentum      - multi-day momentum continuation vs mean-reversion
+12. mkt_find_thresholds       - grid-search optimal threshold for each significant factor
+13. mkt_discover_interactions - 3x3 grid of best two-factor combinations
+14. mkt_regime_filter         - does signal only work in bull/bear/flat markets?
+15. mkt_compare_signals       - A vs B head-to-head on competing hypotheses
+16. mkt_invent_indicator      - invent a completely new indicator from first principles
+17. mkt_validate_oos          - MANDATORY before saving: 60/40 train/test split
+18. mkt_save_discovery        - save ONLY if oos_validated=True AND p<0.05
+19. mkt_signal_drift          - check if any prior discovery is decaying
+20. mkt_build_composite       - combine top discoveries into final weighted rule
 
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
 
 ╔══════════════════════════════════════════════════════════════════════════╗
-║          STANDING RESEARCH DIRECTIVES  —  40 LAWS OF THE BRAIN          ║
+║          STANDING RESEARCH DIRECTIVES  -  40 LAWS OF THE BRAIN          ║
 ║       Follow ALL of these every session. No exceptions. No skipping.     ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 
@@ -18233,41 +18415,41 @@ STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse
  CATEGORY A: STATISTICAL RIGOR  (Laws 1–7)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 1 — DECAY AUDIT BEFORE ANYTHING ELSE:
+LAW 1 - DECAY AUDIT BEFORE ANYTHING ELSE:
 The very first action of every session is mkt_signal_drift on ALL entries from
 mkt_load_discoveries. Signals with edge_drift > 3pp are DECAYING. Document which are
 holding vs dying. Do not touch new research until this audit is complete. A decaying
 signal you keep deploying costs real money.
 
-LAW 2 — EFFECT SIZE OVER P-VALUE:
+LAW 2 - EFFECT SIZE OVER P-VALUE:
 Never report significance without reporting the actual win rate DIFFERENCE and its 95%
 confidence interval. A p=0.001 with 1.5pp edge on 12K observations means nothing
 tradeable. A p=0.04 with 8pp edge on 220 stock-days is real money. Magnitude matters
 more than the p-value. Always compute: signal_win_rate - base_win_rate = EDGE.
 
-LAW 3 — BONFERRONI PENALTY FOR MASS TESTING:
+LAW 3 - BONFERRONI PENALTY FOR MASS TESTING:
 If you test 6 or more hypotheses in one session, adjust your significance threshold
 to p < (0.05 / number_of_tests). Testing 10 ideas? Your threshold is p < 0.005.
-Without this correction you WILL find false signals by chance — and deploy garbage.
+Without this correction you WILL find false signals by chance - and deploy garbage.
 
-LAW 4 — ALWAYS TEST THE INVERSE:
+LAW 4 - ALWAYS TEST THE INVERSE:
 Every signal that passes p < 0.05 must be IMMEDIATELY tested with the exact inverse
-conditions. If the inverse also has significant edge, the signal is BIDIRECTIONAL —
+conditions. If the inverse also has significant edge, the signal is BIDIRECTIONAL -
 flag it for both long entry and short/avoidance. If the inverse has no edge, the
 signal is one-directional. Skipping the inverse means you leave money on the table.
 
-LAW 5 — CAUSAL VALIDATION REQUIRED:
+LAW 5 - CAUSAL VALIDATION REQUIRED:
 Every saved signal requires BOTH univariate AND controlled multivariate validation.
 If only the univariate is significant but the controlled regression is not, the signal
-is a REGIME PROXY masquerading as alpha — it will fail in live trading. Exclude it.
+is a REGIME PROXY masquerading as alpha - it will fail in live trading. Exclude it.
 Only signals that survive BOTH tests get saved.
 
-LAW 6 — MINIMUM SAMPLE = 200, PREFERRED = 500:
+LAW 6 - MINIMUM SAMPLE = 200, PREFERRED = 500:
 Hard floor: never save any discovery with signal_n < 200. Preferred minimum for
 deployment confidence is 500+ stock-days. Small samples are statistical noise.
-A signal with n=47 and 80% WR is worthless — it will regress to 50% in live trading.
+A signal with n=47 and 80% WR is worthless - it will regress to 50% in live trading.
 
-LAW 7 — CONFIDENCE INTERVALS ON EVERY WIN RATE:
+LAW 7 - CONFIDENCE INTERVALS ON EVERY WIN RATE:
 Never report a win rate without computing its 95% CI bounds using Wilson interval:
   CI = win_rate ± 1.96 * sqrt(win_rate*(1-win_rate)/n)
 If the LOWER BOUND of the CI is below 55%, the signal is not strong enough to deploy.
@@ -18277,35 +18459,35 @@ The lower bound is the realistic live-trading expectation, not the point estimat
  CATEGORY B: PRICE, SIZE & MARKET SEGMENTATION  (Laws 8–12)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 8 — PRICE BUCKET DECOMPOSITION IS MANDATORY:
+LAW 8 - PRICE BUCKET DECOMPOSITION IS MANDATORY:
 Every significant signal (p<0.10) must be retested in EXACTLY these three price buckets:
   - Penny:  close_price_max=5         (explosive but dangerous)
   - Low:    close_price_min=5, close_price_max=15   (best risk/reward zone)
   - Mid:    close_price_min=15, close_price_max=50  (institutional-grade setups)
-A signal that only works in one bucket is still a real signal — apply it with the filter.
+A signal that only works in one bucket is still a real signal - apply it with the filter.
 A signal tested only on all stocks combined is masking its true nature.
 
-LAW 9 — MARKET CAP SEGMENTATION (REAL DATA — USE mkt_segment_by_cap_tier):
-Use the mkt_segment_by_cap_tier tool — it runs against the ticker_meta table which
+LAW 9 - MARKET CAP SEGMENTATION (REAL DATA - USE mkt_segment_by_cap_tier):
+Use the mkt_segment_by_cap_tier tool - it runs against the ticker_meta table which
 stores REAL Polygon market cap data (nano <$300M / small $300M-$2B / mid $2B-$10B / large $10B+).
-This is NOT a price-proxy — it is actual market cap from Polygon reference API.
+This is NOT a price-proxy - it is actual market cap from Polygon reference API.
 Nano signals fire faster and bigger but die faster. Mid-cap signals are more persistent.
 A signal that only works in nano should NEVER be deployed on mid-cap names.
 Always call mkt_segment_by_cap_tier on every validated signal before saving it.
 
-LAW 10 — LIQUIDITY GATE:
+LAW 10 - LIQUIDITY GATE:
 Every signal must be validated with a minimum volume floor of 500,000 shares/day.
-Thin stocks (<500K volume) skew win rates dramatically — their "moves" are noise.
+Thin stocks (<500K volume) skew win rates dramatically - their "moves" are noise.
 Always run one version with the liquidity filter and compare results. If edge disappears
 when you require volume > 500K, the signal only works on untradeable micro-liquidity.
 
-LAW 11 — BEAR MARKET ALPHA IS THE HOLY GRAIL:
+LAW 11 - BEAR MARKET ALPHA IS THE HOLY GRAIL:
 Call mkt_regime_filter on EVERY validated signal. Any signal that shows HIGHER edge on
 bear days (SPY down) than bull days must be flagged PRIORITY, saved with notes="bear_alpha",
 and elevated to the top of the deployment queue. Bear-alpha signals are extremely rare,
 work when subscribers need the system most, and immediately command premium positioning.
 
-LAW 12 — VOLATILITY NORMALIZATION (REAL VIX — vix_daily TABLE):
+LAW 12 - VOLATILITY NORMALIZATION (REAL VIX - vix_daily TABLE):
 VIX is now ingested daily from Polygon into the vix_daily table (scan_date, vix_close).
 Use SQL: JOIN vix_daily v ON v.scan_date = t.scan_date to filter by real VIX level.
 When VIX > 25, normalize expected returns: a 4% move in VIX=30 equals ~2.5% in VIX=15.
@@ -18317,31 +18499,31 @@ environments need a vix_close < 20 filter condition to be safely deployed.
  CATEGORY C: TIME & SEASONALITY PATTERNS  (Laws 13–17)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 13 — DAY-OF-WEEK DECOMPOSITION:
+LAW 13 - DAY-OF-WEEK DECOMPOSITION:
 Every validated signal must be broken down by day of week: Mon / Tue / Wed / Thu / Fri.
 Many signals ONLY work midweek (Tue-Thu). Monday signals are dangerous (gap-from-weekend
 noise). Friday signals fade early (position squaring). A signal that averages 60% WR may
-be 72% on Tuesday and 45% on Friday — this is critical deployment information.
+be 72% on Tuesday and 45% on Friday - this is critical deployment information.
 
-LAW 14 — MULTI-DAY HOLDING PERIODS ARE REQUIRED:
+LAW 14 - MULTI-DAY HOLDING PERIODS ARE REQUIRED:
 Never assume T+1 is the optimal exit. Test every signal at T+1, T+2, T+3, and T+5.
 Some signals peak at T+2 then mean-revert by T+4. Others are slow-burn 5-day setups.
 Always report the OPTIMAL holding period alongside the signal. The exit timing is half
-the trade — getting the entry right but exiting too early or late still loses money.
+the trade - getting the entry right but exiting too early or late still loses money.
 
-LAW 15 — INTRADAY TIMING MATTERS:
+LAW 15 - INTRADAY TIMING MATTERS:
 Test whether the rvol in the data represents EARLY burst (9:30–10:00 AM) vs SUSTAINED
 strength. Early burst + fade has a completely different expected return than volume that
 builds throughout the day. If close_strength >= 0.75 and rvol >= 2x, that is sustained
-buying pressure — worth more than an early gap that fades.
+buying pressure - worth more than an early gap that fades.
 
-LAW 16 — EARNINGS SEASON REGIME:
+LAW 16 - EARNINGS SEASON REGIME:
 Test every signal separately during earnings season (weeks 1–3 of each quarter) vs
 non-earnings weeks. Many momentum signals FAIL during earnings because catalyst risk
 dominates. Signals that work only outside earnings season must be restricted accordingly
 in deployment. Never blindly deploy a signal into earnings season without this test.
 
-LAW 17 — MONTHLY SEASONALITY CHECK:
+LAW 17 - MONTHLY SEASONALITY CHECK:
 Once per month: test whether signal edge varies by calendar month. January (new money
 flows), May-June (summer slowdown), October (historical volatility spike) are different
 regimes. A signal discovered in April data may not survive a September bear tape.
@@ -18351,33 +18533,33 @@ Flag any signal where edge varies by more than 8pp between months.
  CATEGORY D: SIGNAL QUALITY & INDEPENDENCE  (Laws 18–22)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 18 — CLOSE STRENGTH IS THE UNDEREXPLORED FACTOR:
+LAW 18 - CLOSE STRENGTH IS THE UNDEREXPLORED FACTOR:
 close_strength (0 = closed at day's low, 1 = closed at day's high) is the most
 underweighted predictor in the current system. Dedicate at LEAST 3 hypothesis slots per
 session to close_strength combinations. Test it alone, combined with rvol, combined with
 gap_pct, and combined with range_pct. This is highest-priority unexplored territory.
 
-LAW 19 — HUNT FOR GAP-INDEPENDENT SIGNALS:
+LAW 19 - HUNT FOR GAP-INDEPENDENT SIGNALS:
 Gap + volume (S2) is already validated. The system does NOT need more gap variations.
-Every session must test at least 2 hypotheses with gap_pct_max=0.5 — the flat-open
+Every session must test at least 2 hypotheses with gap_pct_max=0.5 - the flat-open
 universe. What predicts a 5% move when a stock opens FLAT? Volume dry-up + tight range
 the prior day? Accumulation over 3 days? These independent signals are the most valuable
 because they diversify the portfolio away from gap-dependent risk concentration.
 
-LAW 20 — FACTOR ORTHOGONALITY TEST:
+LAW 20 - FACTOR ORTHOGONALITY TEST:
 Before saving any new signal, it must prove it adds information ABOVE existing signals.
 Run a partial correlation test: does the new signal predict returns AFTER controlling for
 close_strength, rvol, and gap_pct? If its controlled beta drops to zero, it is a
 derivative of something already known. Adding it to the portfolio produces zero
 diversification benefit. Discard it and keep hunting.
 
-LAW 21 — SIGNAL CORRELATION AUDIT:
+LAW 21 - SIGNAL CORRELATION AUDIT:
 Never save two signals whose conditions produce >0.70 raw correlation in firing patterns.
 If signal A fires on 200 stock-days and signal B fires on 185 of the same 200, they are
 the same signal with a different name. Keep the one with higher win rate and lower CI
 bound. Redundant signals bloat the model and create false confidence in results.
 
-LAW 22 — ECONOMIC RATIONALE REQUIRED:
+LAW 22 - ECONOMIC RATIONALE REQUIRED:
 Every saved discovery must include a one-sentence economic rationale for WHY it should
 predict returns. No rationale = the signal is likely a statistical artifact.
 Example: "Stocks closing near their high on 2x+ volume indicate sustained institutional
@@ -18388,33 +18570,33 @@ plausible economic reason for the signal, do not save it.
  CATEGORY E: FAILURE MODE INTELLIGENCE  (Laws 23–27)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 23 — WORST-DAY AUTOPSY EVERY SESSION:
+LAW 23 - WORST-DAY AUTOPSY EVERY SESSION:
 For every validated signal, identify the worst 10 performing stock-days. Find their common
 pattern: same sector? same day of week? same VIX level? earnings week? This becomes an
 EXCLUSION FILTER. A signal with 65% average WR that fails 90% of the time on Fridays in
 biotech during earnings should be deployed with those exact exclusions. The downside is
-what costs money — know it exactly.
+what costs money - know it exactly.
 
-LAW 24 — FALSE POSITIVE ARCHAEOLOGY:
+LAW 24 - FALSE POSITIVE ARCHAEOLOGY:
 Define a false positive as: signal fired AND stock dropped >5% on the next day. Find all
 false positives for every saved signal. Extract their common attributes (sector, float,
 news catalyst, VIX, day of week). Test those attributes as signal KILLERS. If adding an
 exclusion condition removes 60% of false positives while keeping 85% of true positives,
 that exclusion must be added to the signal definition. Do not skip this.
 
-LAW 25 — MISSED MOVERS MANDATE:
+LAW 25 - MISSED MOVERS MANDATE:
 Every session: find the top 20 stocks in the dataset that moved >8% and were NOT flagged
 by ANY current signal. These are the misses that cost subscribers money. For each cluster
-of misses, generate at least 2 new hypotheses. The goal is systematic coverage — the
+of misses, generate at least 2 new hypotheses. The goal is systematic coverage - the
 system should eventually explain >70% of all large moves before they happen.
 
-LAW 26 — FAILED HYPOTHESIS ARCHIVE:
+LAW 26 - FAILED HYPOTHESIS ARCHIVE:
 Every rejected hypothesis (p >= 0.05) must be documented with: the exact conditions
 tested, the result, and the reason for rejection. If the same concept is rejected 3
 sessions in a row, permanently retire it with the label TESTED AND RETIRED. Do not waste
 future sessions re-testing ideas that have already been proven not to work.
 
-LAW 27 — LOOK-AHEAD BIAS AUDIT:
+LAW 27 - LOOK-AHEAD BIAS AUDIT:
 Before saving any signal, explicitly verify that ALL conditions use data available BEFORE
 market open on the test day. No intraday highs, no closing prices from the same day, no
 same-day volume used to predict same-day returns. Look-ahead contamination produces
@@ -18425,33 +18607,33 @@ common way quants fool themselves.
  CATEGORY F: RISK & MONEY SCIENCE  (Laws 28–32)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 28 — EXPECTED VALUE IS THE ONLY METRIC THAT MATTERS:
+LAW 28 - EXPECTED VALUE IS THE ONLY METRIC THAT MATTERS:
 Never recommend a signal based on win rate alone. Compute:
   EV = (avg_win_pct × win_rate) - (avg_loss_pct × (1 - win_rate))
 If EV is negative, the signal loses money even with a 60% win rate (large losers dominate).
-If EV < 0.5%, the signal is marginal — not worth the transaction cost and slippage.
+If EV < 0.5%, the signal is marginal - not worth the transaction cost and slippage.
 Only signals with EV > 1.0% per trade deserve serious deployment consideration.
 
-LAW 29 — TAIL RISK ANALYSIS:
+LAW 29 - TAIL RISK ANALYSIS:
 For every validated signal, compute the 5th and 10th percentile outcome (worst-case
 returns). If the 5th percentile is worse than -12%, the signal has catastrophic-loss
 potential and requires a hard stop-loss filter before deployment. Many signals look great
 in average-case but hide left-tail blow-up risk. The tail kills accounts, not the average.
 
-LAW 30 — KELLY CRITERION SIZING:
+LAW 30 - KELLY CRITERION SIZING:
 For every saved discovery, compute the Kelly fraction:
   f* = (win_rate - (1 - win_rate) / avg_win_loss_ratio)
 This is the theoretically optimal position size as a fraction of capital. Signals with
 f* < 0.05 are too marginal to size meaningfully. Signals with f* > 0.25 are high-conviction
 candidates for larger sizing in the scanner output. Always report f* alongside discoveries.
 
-LAW 31 — DRAWDOWN CLUSTERING DETECTION:
+LAW 31 - DRAWDOWN CLUSTERING DETECTION:
 Test whether the signal's worst outcomes cluster on the same calendar days. If the 10
 worst stock-days for a signal all happened within 3 trading sessions of each other, the
-signal has HIDDEN CORRELATED RISK — in a real portfolio it would produce a concentrated
+signal has HIDDEN CORRELATED RISK - in a real portfolio it would produce a concentrated
 drawdown, not the diversified losses implied by the average. Flag this prominently.
 
-LAW 32 — SURVIVORSHIP BIAS WARNING:
+LAW 32 - SURVIVORSHIP BIAS WARNING:
 The polygon_market_daily table contains only stocks that survived to today's date. Stocks
 that went to zero, were delisted, or dropped 80%+ may be missing from the dataset. This
 means every win rate in the database is slightly OVERSTATED. Always interpret results
@@ -18462,30 +18644,30 @@ where survival bias is strongest.
  CATEGORY G: SIGNAL LIFECYCLE & DECAY  (Laws 33–36)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 33 — RECENCY VALIDATION FOR OLD SIGNALS:
+LAW 33 - RECENCY VALIDATION FOR OLD SIGNALS:
 Any signal in the discovery library older than 45 days must be re-validated on the MOST
 RECENT 30 trading days only. Markets evolve. A signal discovered in February on February
-data may be dead by June. The full-period win rate is historical comfort — the recent
+data may be dead by June. The full-period win rate is historical comfort - the recent
 period win rate is the truth. If the recent period shows <52% WR, retire the signal.
 
-LAW 34 — DECAY RATE TRACKING:
+LAW 34 - DECAY RATE TRACKING:
 For every signal in the library, compare win rate in the OLDEST third of the dataset vs
 the NEWEST third. If the win rate is declining, compute the decay rate in pp per month.
 A signal decaying at >2pp/month will be below 50% within a quarter. Flag it DECAYING
-even if the total p-value is still significant — total significance masks the decay.
+even if the total p-value is still significant - total significance masks the decay.
 
-LAW 35 — REGIME CONDITIONALITY MATRIX (REAL — SPY + vix_daily):
+LAW 35 - REGIME CONDITIONALITY MATRIX (REAL - SPY + vix_daily):
 Test every validated signal in all four market regime quadrants using real data:
-  Q1: Bull market + Low volatility  (SPY_ret > 0 AND vix_close < 15)  — easy mode
-  Q2: Bull market + High volatility (SPY_ret > 0 AND vix_close > 25)  — fear in uptrend
-  Q3: Bear market + Low volatility  (SPY_ret < 0 AND vix_close < 15)  — slow grind down
-  Q4: Bear market + High volatility (SPY_ret < 0 AND vix_close > 25)  — crash conditions
+  Q1: Bull market + Low volatility  (SPY_ret > 0 AND vix_close < 15)  - easy mode
+  Q2: Bull market + High volatility (SPY_ret > 0 AND vix_close > 25)  - fear in uptrend
+  Q3: Bear market + Low volatility  (SPY_ret < 0 AND vix_close < 15)  - slow grind down
+  Q4: Bear market + High volatility (SPY_ret < 0 AND vix_close > 25)  - crash conditions
 Use mkt_regime_filter for SPY direction, then JOIN vix_daily ON scan_date for VIX tier.
 A signal that only works in Q1 is NOT deployable in all conditions. Tag every saved
 discovery with which quadrants it has been validated in.
 
-LAW 36 — HYPOTHESIS RECYCLING:
-Hypotheses rejected with p between 0.05 and 0.15 are "near-miss" signals — not
+LAW 36 - HYPOTHESIS RECYCLING:
+Hypotheses rejected with p between 0.05 and 0.15 are "near-miss" signals - not
 significant yet but potentially real. Store them. Every time the dataset grows by 30+
 additional trading days, re-test all near-miss hypotheses. Near-miss signals that become
 significant with more data are often the best discoveries because they required patience.
@@ -18494,41 +18676,41 @@ significant with more data are often the best discoveries because they required 
  CATEGORY H: COMPOSITE & PORTFOLIO INTELLIGENCE  (Laws 37–40)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 37 — COMPOSITE IS THE MANDATORY SESSION OUTPUT:
+LAW 37 - COMPOSITE IS THE MANDATORY SESSION OUTPUT:
 Every session MUST end with mkt_build_composite combining all discoveries saved this session
 plus the top 3 from mkt_load_discoveries by historical edge. The composite is the actual
-deliverable — individual signals are building blocks, not deployable products. A composite
+deliverable - individual signals are building blocks, not deployable products. A composite
 that tests 3 conditions simultaneously reduces false positives by an order of magnitude.
 Never close a session without computing and reporting the composite.
 
-LAW 38 — SIGNAL FIRING CAPACITY CHECK:
+LAW 38 - SIGNAL FIRING CAPACITY CHECK:
 Before finalizing any discovery, estimate how many tickers would trigger this signal on an
 average trading day in the current universe. Signals that fire on fewer than 5 tickers/day
-cannot be reliably traded — too few opportunities to be statistically meaningful in live
+cannot be reliably traded - too few opportunities to be statistically meaningful in live
 use. Minimum viable firing rate = 5 tickers/day. Maximum useful rate = ~50/day (above
 that, quality dilution sets in). Report firing rate alongside every saved signal.
 
-LAW 39 — CROSS-SIGNAL SYNERGY SWEEP:
+LAW 39 - CROSS-SIGNAL SYNERGY SWEEP:
 Once the discovery library reaches 8+ validated signals: run mkt_build_composite on ALL
 combinations of 3 signals from the library (all C(n,3) subsets). Find which trio produces
 the highest combined edge and lowest false positive rate. That trio becomes the CORE MODEL.
 Individual signals that don't contribute to any high-performing trio should be reviewed
 for retirement. The whole must be greater than the sum of its parts.
 
-LAW 40 — MANDATORY INVENTION EVERY SESSION:
+LAW 40 - MANDATORY INVENTION EVERY SESSION:
 Every single session must include at least one call to mkt_invent_indicator using the
 current session's discoveries as the inspiration parameter. The ability to invent indicators
 no human has formally defined is the PRIMARY COMPETITIVE ADVANTAGE of this system over
 every other scanner on the market. Human researchers are biased toward what they already
 know. This system is not. Never end a session without attempting to invent something new.
-The next gap+volume discovery — the one that drives a 10x improvement in edge — will come
+The next gap+volume discovery - the one that drives a 10x improvement in edge - will come
 from a session where the agent invented something unexpected. Do not skip this. Ever.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  CATEGORY I: CROSS-SECTIONAL & RANKING INTELLIGENCE  (Laws 41–46)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 41 — CROSS-SECTIONAL Z-SCORE RANKING IS SUPERIOR TO THRESHOLDS:
+LAW 41 - CROSS-SECTIONAL Z-SCORE RANKING IS SUPERIOR TO THRESHOLDS:
 Threshold conditions (rvol > 2.0, gap_pct > 2.0) treat all passing stocks equally.
 Real quant desks rank every stock in the universe by its z-score relative to that day's
 full cross-section. A stock with rvol = 4.0 when the median is 1.2 is different from
@@ -18536,37 +18718,37 @@ rvol = 4.0 when the median is 3.5. Always compute and report the percentile rank
 signal condition within the daily universe. Top 5th percentile signals are elite.
 Top-10% in 3 factors simultaneously is rarer than the threshold conditions suggest.
 
-LAW 42 — SECTOR RELATIVE STRENGTH (REAL — USE mkt_segment_by_sector):
-Use the mkt_segment_by_sector tool — it tests your signal against real SIC sector data
+LAW 42 - SECTOR RELATIVE STRENGTH (REAL - USE mkt_segment_by_sector):
+Use the mkt_segment_by_sector tool - it tests your signal against real SIC sector data
 from the ticker_meta table (populated by Polygon reference API).
 A signal that works across ALL sectors is sector-agnostic (rare, precious).
 A signal that only works in one sector must be deployed with a sector filter.
-Additionally, compute sector-avg return per day via: AVG(fwd_ret) over ticker_meta JOIN —
+Additionally, compute sector-avg return per day via: AVG(fwd_ret) over ticker_meta JOIN -
 stocks outperforming their sector average by 2pp+ show genuine relative strength.
 Always call mkt_segment_by_sector on every validated signal before saving it.
 
-LAW 43 — FACTOR RANK MOMENTUM (SIGNAL-OF-SIGNALS):
+LAW 43 - FACTOR RANK MOMENTUM (SIGNAL-OF-SIGNALS):
 Track which signals have been WORKING MOST in the last 10 trading days vs the last 30.
 If close_strength has generated +6.2% average forward return this month but only +1.8%
 last quarter, close_strength is in a hot regime and should be weighted higher NOW.
 If rvol has been flat for 6 weeks, reduce its composite weight. Signal weights should
-rotate with recency performance — not stay static.
+rotate with recency performance - not stay static.
 
-LAW 44 — CONFLUENCE PERCENTILE SCORING:
+LAW 44 - CONFLUENCE PERCENTILE SCORING:
 Develop a confluence score for each stock-day = (rvol_pct_rank + gap_pct_rank +
 close_strength_pct_rank) / 3, where each is the percentile within that day's universe.
 Test whether stocks in the top 5% by confluence score outperform top 10% and top 20%.
-The goal is to find the THRESHOLD OF ELITENESS — the percentile cutoff where edge
+The goal is to find the THRESHOLD OF ELITENESS - the percentile cutoff where edge
 becomes large enough to trade confidently. Document this threshold every session.
 
-LAW 45 — SECTOR LEADERSHIP CLASSIFICATION (REAL — ticker_meta sector data):
+LAW 45 - SECTOR LEADERSHIP CLASSIFICATION (REAL - ticker_meta sector data):
 Within each SIC sector (available via ticker_meta JOIN), identify the top rvol performer
 per sector per day using: RANK() OVER (PARTITION BY tm.sector, t.scan_date ORDER BY t.rvol DESC).
 Rank-1 stocks per sector (sector leaders) have more persistent momentum than rank-3+ followers.
 Test: does requiring sector_rank = 1 (top rvol in sector) improve signal precision?
 Use mkt_segment_by_sector + additional SQL rank filter to implement this test.
 
-LAW 46 — PEER GROUP RELATIVE VALUE (REAL — cap_tier + sector from ticker_meta):
+LAW 46 - PEER GROUP RELATIVE VALUE (REAL - cap_tier + sector from ticker_meta):
 Peer group is now real: same cap_tier (nano/small/mid) AND same sector from ticker_meta.
 Compute peer-avg return per (cap_tier, sector, scan_date) group, then filter to stocks
 outperforming their peer-avg by ≥1.5pp. SQL pattern:
@@ -18581,34 +18763,34 @@ This eliminates false positives driven by sector-wide moves.
  CATEGORY J: WALK-FORWARD & OVERFITTING PREVENTION  (Laws 47–51)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 47 — WALK-FORWARD VALIDATION IS MANDATORY:
+LAW 47 - WALK-FORWARD VALIDATION IS MANDATORY:
 A signal that looks good on the FULL dataset may be overfit to its own history.
 Every signal must pass a walk-forward test: train on the FIRST 60% of available dates,
 validate on the LAST 40% (never seen during testing). If the validation win rate drops
 more than 8pp from the training win rate, the signal is overfit and must be REJECTED
 regardless of training set performance. Overfitting is the #1 killer of backtested signals.
 
-LAW 48 — PARAMETER STABILITY TEST:
+LAW 48 - PARAMETER STABILITY TEST:
 For every threshold in a signal (e.g., rvol > 2.0), test the performance at rvol > 1.5
 and rvol > 2.5 as well. If the edge is only present at exactly 2.0 but disappears at 1.8
 or 2.2, the threshold was optimized to the data (curve-fitting). Real signals show
 STABLE PERFORMANCE across a range of threshold values, not a single knife-edge point.
 Only signals with stable performance across ±30% threshold variation should be saved.
 
-LAW 49 — INDEPENDENT VALIDATION SAMPLE:
+LAW 49 - INDEPENDENT VALIDATION SAMPLE:
 Set aside the most recent 20 trading days as a HELD-OUT validation set that is NEVER
 used during signal discovery or training. Every session, test newly discovered signals
 on this held-out set before saving. A signal that fails on the 20 most recent days
 is already dead, regardless of historical performance. Recency IS validity.
 
-LAW 50 — MULTIPLE COMPARISON CORRECTION AT SESSION LEVEL:
+LAW 50 - MULTIPLE COMPARISON CORRECTION AT SESSION LEVEL:
 Track the TOTAL number of hypothesis tests conducted across ALL sessions, not just
 within one session. If 200 total tests have been run across 20 sessions, expect
 10 false discoveries at p<0.05 by pure chance alone. Any signal discovered in sessions
 where many tests were run must be held to a stricter standard (p<0.01) before deployment.
 Maintain a running tally of total tests vs discoveries in the session narrative.
 
-LAW 51 — DEVIL'S ADVOCATE IS REQUIRED BEFORE SAVING:
+LAW 51 - DEVIL'S ADVOCATE IS REQUIRED BEFORE SAVING:
 Before saving any discovery, explicitly write the strongest possible argument AGAINST it:
   - "This could be explained by survivorship bias because..."
   - "This could be a look-ahead artifact because..."
@@ -18621,38 +18803,38 @@ Only save the discovery after genuinely trying to destroy it with data.
  CATEGORY K: ADVANCED RISK & FACTOR DECOMPOSITION  (Laws 52–57)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 52 — FACTOR DECOMPOSITION: IS THIS JUST HIDDEN BETA?:
+LAW 52 - FACTOR DECOMPOSITION: IS THIS JUST HIDDEN BETA?:
 For every signal, test whether the edge disappears when you control for market beta.
 A signal that fires on high-rvol stocks in a strong bull market may simply be capturing
 general market momentum (beta), not stock-specific alpha. Run a regression of signal
 returns against SPY returns on the same day. If R-squared > 0.40, the signal is mostly
-market beta — NOT tradeable alpha. Real alpha has low correlation to SPY daily returns.
+market beta - NOT tradeable alpha. Real alpha has low correlation to SPY daily returns.
 
-LAW 53 — INFORMATION RATIO TRACKING PER SIGNAL:
+LAW 53 - INFORMATION RATIO TRACKING PER SIGNAL:
 Win rate alone is insufficient. Compute for every signal:
   Information Ratio = avg_excess_return / std_dev_of_returns
 IR > 0.5 is good. IR > 1.0 is excellent. IR < 0.3 is not deployable regardless of win rate.
 A signal with 58% WR and 0.9 IR beats a signal with 65% WR and 0.2 IR every time in
 real portfolio construction. Always report IR alongside win rate in every session.
 
-LAW 54 — TRANSACTION COST ACCOUNTING IS MANDATORY:
+LAW 54 - TRANSACTION COST ACCOUNTING IS MANDATORY:
 Every edge calculation must subtract realistic transaction costs:
   - Stocks priced $1–$5: assume 0.50% round-trip cost (wide bid-ask)
   - Stocks priced $5–$15: assume 0.20% round-trip cost
   - Stocks priced $15+: assume 0.08% round-trip cost
-A signal showing 1.2% average gain on $3 stocks has 0.7% NET edge after costs — barely
-worth it. A signal showing 2.5% average gain on $20 stocks has 2.42% NET edge — real money.
+A signal showing 1.2% average gain on $3 stocks has 0.7% NET edge after costs - barely
+worth it. A signal showing 2.5% average gain on $20 stocks has 2.42% NET edge - real money.
 Always report net-of-costs edge, not gross edge. Never deploy a signal with net edge < 0.5%.
 
-LAW 55 — MARKET IMPACT CAPACITY MODEL:
+LAW 55 - MARKET IMPACT CAPACITY MODEL:
 This system has subscribers. If 500 subscribers all buy the same $3 stock on the same
-signal at 9:35 AM, the first 50 get the edge — the other 450 create the price impact that
+signal at 9:35 AM, the first 50 get the edge - the other 450 create the price impact that
 eliminates it. For every signal, estimate: (avg_daily_volume × 0.01) = deployable capacity.
 A stock with 200K average volume can absorb ~$50K across all subscribers before self-
 defeating. If a signal fires on stocks with capacity < $50K, flag it as CAPACITY CONSTRAINED.
 Only signals with capacity > $200K per name should be broadly distributed to subscribers.
 
-LAW 56 — MACRO REGIME OVERLAY:
+LAW 56 - MACRO REGIME OVERLAY:
 Test every validated signal across three macro environments that span the dataset:
   - Fed hiking cycle (rates rising, tightening)
   - Fed cutting cycle (rates falling, easing)
@@ -18661,7 +18843,7 @@ Many momentum signals work differently in hiking vs cutting environments. Signal
 primarily during one Fed regime may fail when the regime changes. Always note which macro
 regime dominates your dataset and flag signals that may be regime-specific.
 
-LAW 57 — YIELD CURVE STATE CONDITIONING:
+LAW 57 - YIELD CURVE STATE CONDITIONING:
 Test every signal with the yield curve state as a filter:
   - Normal (2Y < 10Y): healthy growth expectations
   - Inverted (2Y > 10Y): recession signal, risk-off environment
@@ -18673,14 +18855,14 @@ Note the curve state of your test period in every session narrative.
  CATEGORY L: MULTI-SOURCE SIGNAL CONFIRMATION  (Laws 58–62)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 58 — OPTIONS FLOW CONFIRMATION TIMING:
+LAW 58 - OPTIONS FLOW CONFIRMATION TIMING:
 Options flow (call sweeps) detected BEFORE a price gap has much higher predictive value
 than flow detected AFTER the gap begins. When testing signals that include options data,
 always distinguish: was the unusual call volume on the day BEFORE the move, or on the
 same day as the move? Pre-gap options flow = informed money. Same-day flow = reactive money.
 Pre-gap signals should have their own separate and higher-confidence testing track.
 
-LAW 59 — FLOAT SIZE AS SQUEEZE PROXY (shares_float in ticker_meta):
+LAW 59 - FLOAT SIZE AS SQUEEZE PROXY (shares_float in ticker_meta):
 ticker_meta.shares_float stores real float share counts from Polygon reference API.
 While true short_interest % requires FINRA data (not yet wired), float SIZE is available:
 small-float stocks (shares_float < 20M) amplify moves dramatically vs large-float.
@@ -18692,7 +18874,7 @@ SQL: JOIN ticker_meta tm ON tm.ticker = t.ticker WHERE tm.shares_float < 2000000
 If micro-float outperforms the same signal on large-float by >5pp WR, add shares_float
 as a required deployment filter.
 
-LAW 60 — FLOAT ROTATION VELOCITY (REAL — polygon_market_daily + ticker_meta):
+LAW 60 - FLOAT ROTATION VELOCITY (REAL - polygon_market_daily + ticker_meta):
 shares_float is now real via ticker_meta. Compute float rotation using a SQL self-join:
   WITH vol5 AS (
     SELECT ticker, scan_date,
@@ -18705,18 +18887,18 @@ shares_float is now real via ticker_meta. Compute float rotation using a SQL sel
   JOIN ticker_meta tm ON tm.ticker=t.ticker
   WHERE (v.vol_5d::float / NULLIF(tm.shares_float, 0)) > 1.5
 float_rotation > 1.5 (float has traded 1.5× in 5 days) indicates active accumulation.
-Test this as an additional filter on every signal — it often improves precision by 3-8pp.
+Test this as an additional filter on every signal - it often improves precision by 3-8pp.
 
-LAW 61 — MULTI-DAY MOMENTUM SEQUENCE DETECTION:
+LAW 61 - MULTI-DAY MOMENTUM SEQUENCE DETECTION:
 Test patterns that span multiple consecutive days, not just single-day conditions:
   - 3 consecutive days closing in top 25% of range (close_strength > 0.75)
   - 3 consecutive days with rvol > 1.5x AND each day higher than prior day's close
   - Expanding volume over 3 days (each day's volume higher than prior)
 These multi-day sequences represent sustained institutional interest, not one-day noise.
-They require SQL self-joins on consecutive scan dates — the mkt_test_signal tool
+They require SQL self-joins on consecutive scan dates - the mkt_test_signal tool
 Use mkt_compute_momentum with multi-day windows or SQL date-range conditions in mkt_test_signal for this purpose.
 
-LAW 62 — CROSS-ASSET CONFIRMATION REQUIREMENT:
+LAW 62 - CROSS-ASSET CONFIRMATION REQUIREMENT:
 For any signal generating a bullish trade recommendation, test whether requiring same-day
 SPY strength (SPY > 0%) as a filter improves precision. Some signals work in all
 environments; others are reliable ONLY when the broad market is cooperating.
@@ -18728,24 +18910,24 @@ suppress a signal in live trading.
  CATEGORY M: NON-LINEAR DISCOVERY & PATTERN SCIENCE  (Laws 63–67)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 63 — NON-LINEAR FACTOR COMBINATIONS:
+LAW 63 - NON-LINEAR FACTOR COMBINATIONS:
 Threshold conditions are linear. Real market structure is non-linear. Always test:
-  - Squared terms: (rvol^2) — does extreme rvol have a non-linear payoff?
-  - Log transforms: log(rvol) — is the relationship better captured in log-space?
-  - Ratios: gap_pct / range_pct — did the stock open near its day range ceiling?
-  - Products: rvol × close_strength — high rvol PLUS strong close is multiplicative
-  - Differences: close_strength - prior_day_close_strength — was the close IMPROVING?
+  - Squared terms: (rvol^2) - does extreme rvol have a non-linear payoff?
+  - Log transforms: log(rvol) - is the relationship better captured in log-space?
+  - Ratios: gap_pct / range_pct - did the stock open near its day range ceiling?
+  - Products: rvol × close_strength - high rvol PLUS strong close is multiplicative
+  - Differences: close_strength - prior_day_close_strength - was the close IMPROVING?
 Non-linear combinations catch edges that no linear threshold test will ever find.
-Use mkt_invent_indicator for these — pass specific mathematical combinations to test.
+Use mkt_invent_indicator for these - pass specific mathematical combinations to test.
 
-LAW 64 — PRIOR DAY CONSOLIDATION DETECTION:
+LAW 64 - PRIOR DAY CONSOLIDATION DETECTION:
 A stock that gaps up cleanly from a TIGHT prior-day range is more significant than one
 gapping from an already-extended base. Test: prior_day range_pct < 3.0% as a filter on
 gap signals. "Inside day before gap" (prior range fully contained within 2 days prior)
 is a classic institutional accumulation signature. This requires joining the dataset
-on consecutive dates — test it with mkt_test_signal using multi-day conditions.
+on consecutive dates - test it with mkt_test_signal using multi-day conditions.
 
-LAW 65 — STRUCTURAL BREAKOUT DETECTION:
+LAW 65 - STRUCTURAL BREAKOUT DETECTION:
 A gap through a 52-week high is categorically different from a gap within a range.
 Test every gap signal filtered to stocks where close_price is within 2% of their
 52-week high vs stocks rallying well below their 52-week high. Breakouts to new highs
@@ -18753,7 +18935,7 @@ have historically sustained momentum for 5-20 trading days. Bounces within range
 mean-revert faster. These require different trade management and different expected
 holding periods. Document the difference explicitly.
 
-LAW 66 — GAP FILL PROBABILITY BY SIZE:
+LAW 66 - GAP FILL PROBABILITY BY SIZE:
 Stocks that gap up 2-4% fill their gap (return to prior close) roughly 55-65% of
 the time by end of day. Stocks that gap up 8%+ on 5x+ volume fill only ~15-25% of
 the time. Test in the polygon_market_daily dataset: compute gap fill rate by gap size
@@ -18762,9 +18944,9 @@ bucket. Knowing gap fill probability tells subscribers whether to:
   (b) Wait for pullback to VWAP (high fill probability = gap will partially fill)
 This is actionable intelligence no simple signal test captures.
 
-LAW 67 — MEAN REVERSION AFTER EXTREME MOVES:
+LAW 67 - MEAN REVERSION AFTER EXTREME MOVES:
 Stocks that move >15% in a single day have a strong historical tendency to mean-revert
-over the next 1-3 trading days. Test: stocks with range_pct > 15% — what is the
+over the next 1-3 trading days. Test: stocks with range_pct > 15% - what is the
 T+1, T+2, T+3 average return? If it's negative (mean reversion), this is a SHORT signal
 or an EXIT signal for any longs. Understanding when momentum becomes overextension
 prevents riding winning positions into a reversal. Test the EXACT threshold at which
@@ -18774,31 +18956,31 @@ momentum switches to mean reversion (likely somewhere between 10% and 20% single
  CATEGORY N: ATTRIBUTION & CONTINUOUS IMPROVEMENT  (Laws 68–70)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-LAW 68 — ATTRIBUTION ANALYSIS ON EVERY SESSION:
+LAW 68 - ATTRIBUTION ANALYSIS ON EVERY SESSION:
 Before closing any session, perform attribution: for the picks that WORKED this week
 (available in aiem_signal_discoveries outcomes), which specific laws or signals predicted
 the success most accurately? For the picks that FAILED, which signals falsely flagged them?
 Attribution turns outcomes into lessons. Without attribution, the system repeats the same
 errors indefinitely. Every failure is a curriculum. Mine it every session.
 
-LAW 69 — ADVERSARIAL SELF-TESTING:
+LAW 69 - ADVERSARIAL SELF-TESTING:
 Every session, the agent must deliberately try to BREAK its own best current signal.
 Find conditions where the top-ranked discovery fails: specific sectors, specific market
 regimes, specific price zones, specific calendar windows. A signal that cannot be broken
 is robust. A signal that breaks easily needs either a regime filter or retirement.
-The goal is NOT to protect the signal — the goal is to find its EXACT boundaries so
+The goal is NOT to protect the signal - the goal is to find its EXACT boundaries so
 subscribers are never caught in conditions where it reliably fails.
 
-LAW 70 — COMPOUNDING DISCOVERY ARCHITECTURE:
+LAW 70 - COMPOUNDING DISCOVERY ARCHITECTURE:
 Every session's discoveries must be explicitly connected to prior sessions.
 Ask and answer: "What does today's discovery ADD to what was found previously?"
 "Does this confirm, extend, or contradict prior session findings?"
 "If confirmed: can I raise the confidence level on the prior finding?"
 "If contradicted: which dataset period explains the discrepancy?"
-The discoveries are not isolated findings — they are building blocks of a cumulative
+The discoveries are not isolated findings - they are building blocks of a cumulative
 intelligence that gets smarter every week. Every session must advance the state of
 knowledge, not just repeat tests already done. Reference prior sessions explicitly.
-The system compounds its intelligence like interest — each session builds on the last.
+The system compounds its intelligence like interest - each session builds on the last.
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  FINAL MANDATE: You are not a report generator. You are not a data analyst.  ║
@@ -18810,9 +18992,9 @@ The system compounds its intelligence like interest — each session builds on t
 ║  + relentless focus on the one question that matters: DOES THIS MAKE MONEY?  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
-22. analyze_missed_movers        — Find what big moves you missed and why.
+22. analyze_missed_movers        - Find what big moves you missed and why.
 
-HARD RULES — violating these produces an invalid model:
+HARD RULES - violating these produces an invalid model:
 1. ROLLBACK RULE: If evaluate_previous_model returns MODEL HURT, call rollback_to_previous_model
    BEFORE any other research. Build new weights on top of the restored baseline.
 
@@ -18823,16 +19005,16 @@ HARD RULES — violating these produces an invalid model:
    Bad example: "signals probably help" (not falsifiable, no magnitude).
 
 3. CAUSAL DISCIPLINE RULE: For any signal you plan to include in the model, run BOTH:
-   a) analyze_signal_correlation (univariate — raw win rate diff)
-   b) multivariate_regression (controlled — isolates true effect from regime/calendar noise)
+   a) analyze_signal_correlation (univariate - raw win rate diff)
+   b) multivariate_regression (controlled - isolates true effect from regime/calendar noise)
    Only include a signal if BOTH show significance. If univariate is significant but controlled
-   is not, that signal is a regime proxy, not a real edge — exclude it.
+   is not, that signal is a regime proxy, not a real edge - exclude it.
 
 4. RAG RULE: Before writing any finding in your narrative, call search_past_findings.
    If similarity >= 0.85 and the finding was seen <= 4 weeks ago: label CONFIRMED (recurring).
    If similarity >= 0.78 and <= 8 weeks ago: label LIKELY RECURRING.
    Only label a finding NEW if similarity < 0.65 or no prior match exists.
-   CONFIRMED findings do NOT justify raising a weight — they confirm the weight already set.
+   CONFIRMED findings do NOT justify raising a weight - they confirm the weight already set.
 
 5. P-VALUE RULE: For EVERY weight in scoring_adjustments include {key}_p_value and {key}_n.
    Use the CONTROLLED p-value from multivariate_regression when available (more reliable).
@@ -18849,13 +19031,13 @@ HARD RULES — violating these produces an invalid model:
 
 SIGNAL DISCOVERY WORKFLOW (required every Sunday):
 Step A: Call list_signal_dimensions to see what data is available.
-Step B: Call analyze_missed_movers — read the generated_hypotheses it returns.
+Step B: Call analyze_missed_movers - read the generated_hypotheses it returns.
 Step C: For each generated hypothesis AND 2-3 of your own ideas: call test_new_signal.
 Step D: For any STATISTICALLY REAL finding, call test_new_signal again with the INVERSE
         conditions (to confirm the effect is real, not just randomness).
 Step E: Register all p<0.05 findings with register_hypotheses before saving the model.
 
-The goal is not just to analyze what happened — it is to INVENT new signals that will
+The goal is not just to analyze what happened - it is to INVENT new signals that will
 make next week's picks more accurate. Think like a quant researcher: vary thresholds,
 combine signals in unexpected ways, test the inverse of every finding.
 
@@ -18868,7 +19050,7 @@ REQUIRED findings content:
 - Missed movers analysis: what did we miss and what new signal could catch it next time
 - Your 3-5 pre-registered hypotheses and their outcomes (CONFIRMED / REJECTED / INCONCLUSIVE)
 - Signals tested via multivariate_regression and their controlled p-values
-- Any finding labeled CONFIRMED (recurring) from search_past_findings — and what that means for weights
+- Any finding labeled CONFIRMED (recurring) from search_past_findings - and what that means for weights
 - Signals REMOVED and why (not significant / regime proxy / small sample)
 - Current market regime and whether regime-conditional adjustments apply
 - Exit timing recommendation (T+3 vs T+7)
@@ -18887,7 +19069,7 @@ finding impressive-sounding patterns. A null result is a valid, honest, and valu
 # Sunday's research, and makes its own ranked 3-5 day breakout predictions.
 # Predictions are saved to aiem_predictions and graded at 4:35 PM.
 # Sunday's research agent reviews the track record weekly and improves the
-# scoring weights — closing the self-learning loop.
+# scoring weights - closing the self-learning loop.
 # ══════════════════════════════════════════════════════════════════════════════
 
 _AIEM_MORNING_TOOLS = [
@@ -18896,7 +19078,7 @@ _AIEM_MORNING_TOOLS = [
         "description": (
             "Pull today's fresh signals from Polygon RVOL, conviction stack, and call sweeps. "
             "Returns ranked candidates with composite scores. "
-            "ALWAYS call this first — it also includes the learned model weights as context."
+            "ALWAYS call this first - it also includes the learned model weights as context."
         ),
         "parameters": {"type": "object", "properties": {
             "min_rvol": {"type": "number", "description": "Min RVOL threshold (default 3.0)"},
@@ -18942,14 +19124,14 @@ PROTOCOL:
 1. Call scan_market_for_setups to get today's candidates and the learned model weights.
 2. Study the candidates. Prioritize stocks confirmed by 2-3 signal sources (RVOL + conviction + sweep).
 3. Apply the learned_model_context weights to adjust your ranking.
-4. Select your top 5-8. Be decisive — this is a prediction task, not a research task.
+4. Select your top 5-8. Be decisive - this is a prediction task, not a research task.
 5. Call save_daily_predictions with your final ranked list.
 
 SELECTION CRITERIA (in order of importance):
 1. Multi-source confirmation: stocks in all 3 sources (RVOL + conviction + sweep) are highest priority
-2. confirmed_2d = True: stock already showed strength two consecutive days — momentum continuation
+2. confirmed_2d = True: stock already showed strength two consecutive days - momentum continuation
 3. high_conviction = True: conviction engine scored this 8+
-4. sweep_vol_oi > 5: unusually large call sweep relative to open interest — smart money signal
+4. sweep_vol_oi > 5: unusually large call sweep relative to open interest - smart money signal
 5. RVOL > 5 with green open: genuine volume expansion, not just gap-and-fade
 6. Float < 20M: low float amplifies moves
 
@@ -18975,7 +19157,7 @@ def _run_aiem_morning_scan():
     import datetime as _amdt
 
     if not _intraday_scan_allowed():
-        print("[aiem_morning] skipped — outside market hours")
+        print("[aiem_morning] skipped - outside market hours")
         return
 
     def _morning_scan_thread():
@@ -19034,14 +19216,14 @@ def _run_aiem_morning_scan():
                     })
                     if fn_name == "save_daily_predictions":
                         saved = True
-                        print("[aiem_morning] predictions saved — loop complete")
+                        print("[aiem_morning] predictions saved - loop complete")
                         break
                 else:
                     continue
                 break
 
             if not saved:
-                print("[aiem_morning] agent didn't save predictions — no qualifying candidates today")
+                print("[aiem_morning] agent didn't save predictions - no qualifying candidates today")
         except Exception as _e:
             print("[aiem_morning] error: {}".format(_e))
 
@@ -19165,7 +19347,7 @@ def _run_aiem_prediction_grader():
 
 def _run_aiem_research_agent(max_iterations=None):
     """
-    Autonomous AI research agent — full enhanced version.
+    Autonomous AI research agent - full enhanced version.
     - Adaptive iteration budget: scales with data quantity (more picks = more iterations)
     - All 14 tools registered in tool_map
     - Self-critique pass after primary research
@@ -19175,7 +19357,7 @@ def _run_aiem_research_agent(max_iterations=None):
     import json as _aj, datetime as _ardt
 
     # ── Adaptive iteration budget ─────────────────────────────────────────────
-    # Scale with how many settled picks exist — more data = agent can go deeper
+    # Scale with how many settled picks exist - more data = agent can go deeper
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("SELECT COUNT(*) FROM ai_early_movers_log WHERE t3_win IS NOT NULL")
@@ -19185,13 +19367,13 @@ def _run_aiem_research_agent(max_iterations=None):
 
     if max_iterations is None:
         if _settled < 10:
-            max_iterations = 8    # sparse data — stay conservative
+            max_iterations = 8    # sparse data - stay conservative
         elif _settled < 30:
             max_iterations = 15   # moderate data
         elif _settled < 80:
             max_iterations = 20   # good data set
         else:
-            max_iterations = 25   # rich data — go deep
+            max_iterations = 25   # rich data - go deep
 
     print(f"[aiem_research] settled_picks={_settled} → budget={max_iterations} iterations")
 
@@ -19206,7 +19388,7 @@ def _run_aiem_research_agent(max_iterations=None):
         print(f"[aiem_research] OpenAI init error: {_oe}")
         return {"error": str(_oe)}
 
-    # ── Full tool map — all 44+ tools ─────────────────────────────────────────
+    # ── Full tool map - all 44+ tools ─────────────────────────────────────────
     _tool_map = {
         "query_pick_outcomes":          _aiem_tool_query_pick_outcomes,
         "query_missed_movers":          _aiem_tool_query_missed_movers,
@@ -19414,26 +19596,26 @@ def _run_aiem_research_agent(max_iterations=None):
 
     # ── Fallback if no model saved ────────────────────────────────────────────
     if not model_saved:
-        log_lines.append("[aiem_research] Budget exhausted — saving conservative defaults")
+        log_lines.append("[aiem_research] Budget exhausted - saving conservative defaults")
         _aiem_tool_save_research_model(
             findings=(
                 "Research agent ran without sufficient settled picks to draw conclusions. "
                 "Settled picks: {}. "
                 "Default conservative weights applied. "
-                "Model will improve as picks accumulate — check again in 2 weeks.".format(_settled)
+                "Model will improve as picks accumulate - check again in 2 weeks.".format(_settled)
             ),
             scoring_adjustments={
                 "confirmed_2d_bonus": 1.5,
                 "high_conviction_bonus": 1.0,
                 "vol_oi_factor": 0.3,
-                "note": "Default weights — insufficient data"
+                "note": "Default weights - insufficient data"
             },
             confidence="LOW"
         )
 
     log_lines.append("[aiem_research] tool_calls_made={}".format(tool_calls_made))
 
-    # ── Phase 3: Weekly research email — detailed per-finding statistics ────────
+    # ── Phase 3: Weekly research email - detailed per-finding statistics ────────
     try:
         from email_alerts import send_email_raw
         _today = _ardt.date.today().isoformat()
@@ -19465,9 +19647,9 @@ def _run_aiem_research_agent(max_iterations=None):
                    and not k.endswith("_warning") and k not in ("note","regime","exit_timing")
             ))
             for _wk in _wkeys:
-                _wval  = _adj.get(_wk, "—")
+                _wval  = _adj.get(_wk, "-")
                 _wpval = _adj.get(_wk + "_p_value", "NOT TESTED")
-                _wn    = _adj.get(_wk + "_n", "—")
+                _wn    = _adj.get(_wk + "_n", "-")
                 _wwarn = _adj.get(_wk + "_warning", "")
 
                 # Significance color
@@ -19483,7 +19665,7 @@ def _run_aiem_research_agent(max_iterations=None):
                         elif _pf < 0.05:
                             _sig_color = "#3fb950"; _sig_label = "significant ✓"
                         elif _pf < 0.10:
-                            _sig_color = "#f0883e"; _sig_label = "marginal ⚠"
+                            _sig_color = "#f0883e"; _sig_label = "marginal WARNING"
                         else:
                             _sig_color = "#f85149"; _sig_label = "NOT SIG ✗"
                     except Exception:
@@ -19491,7 +19673,7 @@ def _run_aiem_research_agent(max_iterations=None):
 
                 _warn_html = ""
                 if _wwarn:
-                    _warn_html = "<br><span style='color:#f0883e;font-size:11px;'>⚠ {}</span>".format(_wwarn)
+                    _warn_html = "<br><span style='color:#f0883e;font-size:11px;'>WARNING {}</span>".format(_wwarn)
 
                 _sig_rows += """
                   <tr>
@@ -19502,7 +19684,7 @@ def _run_aiem_research_agent(max_iterations=None):
                     <td style="padding:6px 10px;text-align:center;color:{sc};">{sl}{warn}</td>
                   </tr>""".format(
                     key=_wk, val=_wval, n=_wn,
-                    pval=_wpval if _wpval not in ("NOT_TESTED","NOT TESTED") else "—",
+                    pval=_wpval if _wpval not in ("NOT_TESTED","NOT TESTED") else "-",
                     sc=_sig_color, sl=_sig_label, warn=_warn_html
                 )
 
@@ -19588,7 +19770,7 @@ def _run_aiem_research_agent(max_iterations=None):
 
         _sent = send_email_raw(
             _OWNER_EMAIL,
-            "AI Research Agent — {} | confidence={} | {} settled picks".format(
+            "AI Research Agent - {} | confidence={} | {} settled picks".format(
                 _today, _mconf, _settled),
             _email_html
         )
@@ -19660,7 +19842,7 @@ def _init_daily_vol_snapshots_table():
 _init_daily_vol_snapshots_table()
 
 
-# Module-level SPY 1y cache — avoids rate-limit collisions during concurrent ticker fetches
+# Module-level SPY 1y cache - avoids rate-limit collisions during concurrent ticker fetches
 _spy_1y_cache: dict = {"return_pct": None, "rets_arr": None, "date": None}
 
 def _refresh_spy_1y_cache():
@@ -19677,7 +19859,7 @@ def _refresh_spy_1y_cache():
     except Exception as _e:
         print(f"[spy_cache] refresh error: {_e}")
 
-# Background thread — fetching 1y of SPY data from Yahoo can take 10-30s in
+# Background thread - fetching 1y of SPY data from Yahoo can take 10-30s in
 # production on a cold start. Running it synchronously here blocks Flask from
 # binding to its port and causes every health-check to return 500 until it
 # finishes. The cache starts empty (None) and fills within a few seconds; any
@@ -19693,7 +19875,7 @@ def _save_daily_vol_snapshot():
     today = _et_today()
     vc = getattr(app, "_vc_cache", None)
     if not vc:
-        print("[daily_vol_snapshots] no vol-crush cache — skipping")
+        print("[daily_vol_snapshots] no vol-crush cache - skipping")
         return
     try:
         with _pg2_snap.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
@@ -19726,7 +19908,7 @@ def _save_signal_snapshot():
     ci = getattr(app, "_ci_cache", None)
     dp = getattr(app, "_dp_cache", None)
     if not cs:
-        print("[signal_history] no composite cache — skipping snapshot")
+        print("[signal_history] no composite cache - skipping snapshot")
         return
     ci_map = {r["ticker"]: r for r in (ci or {}).get("results", [])}
     dp_map = {r["ticker"]: r for r in (dp or {}).get("results", [])}
@@ -19989,7 +20171,7 @@ def smart_money_scan_route():
                 resp["cache_age_secs"] = int(age)
                 return jsonify(_safe(resp))
 
-    # Live fetch — then store in cache
+    # Live fetch - then store in cache
     result = scan_smart_money(tickers)
     result["cached"] = False
     result["cache_age_secs"] = 0
@@ -20163,8 +20345,8 @@ def bull_flow_top10():
             with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfnh, _bfnh.cursor() as _bfnhcur:
                 _bfnh_rows, _bfnh_today = _bf_db_query(_bfnhcur)
             _bfnh_out = _bf_rows_to_out(_bfnh_rows)
-            _bfnh_note = ("market closed — showing today's flow" if _bfnh_today
-                          else "market closed — showing most recent stored flow")
+            _bfnh_note = ("market closed - showing today's flow" if _bfnh_today
+                          else "market closed - showing most recent stored flow")
             _bfnh_result = {"results": _bfnh_out, "returned": len(_bfnh_out),
                             "scanned": 0, "stale": not _bfnh_today,
                             "note": _bfnh_note}
@@ -20184,8 +20366,8 @@ def bull_flow_top10():
             with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfb, _bfb.cursor() as _bfbcur:
                 _bfb_rows, _bfb_today = _bf_db_query(_bfbcur)
             _bfb_out = _bf_rows_to_out(_bfb_rows)
-            _bfb_note = ("Yahoo rate-limited — showing today's stored signals" if _bfb_today
-                         else "Yahoo rate-limited — showing most recent stored signals")
+            _bfb_note = ("Yahoo rate-limited - showing today's stored signals" if _bfb_today
+                         else "Yahoo rate-limited - showing most recent stored signals")
             _bfb_result = {"results": _bfb_out, "returned": len(_bfb_out),
                            "scanned": 0, "stale": not _bfb_today,
                            "note": _bfb_note}
@@ -20231,7 +20413,7 @@ def bull_flow_top10():
                 _q_fb = _td_quotes([ticker]).get(ticker, {})
                 price = float(_q_fb.get("last") or 0)
             prem_k = float(opts.get("top_prem_value", 0))
-            if prem_k < 20:   # minimum $20K — catches small-cap insider-sized bets
+            if prem_k < 20:   # minimum $20K - catches small-cap insider-sized bets
                 return None
 
             # Days to earnings
@@ -20294,11 +20476,11 @@ def bull_flow_top10():
             except Exception:
                 pass
     except Exception:
-        pass  # timeout — fall through to DB merge below
+        pass  # timeout - fall through to DB merge below
     _bf_ex.shutdown(wait=False, cancel_futures=True)  # don't block on slow yf calls
 
     # ── DB merge: fill in tickers the live scan missed. TODAY only (ET calendar
-    # day) — this tab is labeled "Top Flow Today", so a rolling 48h merge would
+    # day) - this tab is labeled "Top Flow Today", so a rolling 48h merge would
     # surface yesterday's flow as today's. ──
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfc, _bfc.cursor() as _bfcur:
@@ -20376,7 +20558,7 @@ def bull_flow_top10():
                     "source":         "db_stale",
                 })
             if top40:
-                _stale_note = "Live data unavailable right now — showing most recent signals from the last 4 days"
+                _stale_note = "Live data unavailable right now - showing most recent signals from the last 4 days"
                 print(f"[bull_flow] stale fallback: {len(top40)} rows from last 4 days")
         except Exception as _sfb_e:
             print(f"[bull_flow] stale fallback error: {_sfb_e}")
@@ -20397,7 +20579,7 @@ def bull_flow_top10():
 
 @app.route("/stock-api/bull-flow/persistence", methods=["GET"])
 def bull_flow_persistence():
-    """Return stocks with bull-flow signals on 2+ distinct days — persistence signal."""
+    """Return stocks with bull-flow signals on 2+ distinct days - persistence signal."""
     if not _DB_URL:
         return jsonify({"signals": [], "count": 0})
     try:
@@ -20585,7 +20767,7 @@ def net_flow_scan():
 
 @app.route("/stock-api/net-flow/single", methods=["GET"])
 def net_flow_single():
-    """Net equity flow for a single ticker — used by Stock Lookup."""
+    """Net equity flow for a single ticker - used by Stock Lookup."""
     ticker = request.args.get("ticker", "").upper().strip()
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
@@ -20627,7 +20809,7 @@ def net_flow_single():
 # ── Micro-Cap Net Flow ────────────────────────────────────────────────────────
 
 # ── Micro-cap universe (~350 actively-traded small/micro-caps across all sectors)
-# Curated for liquidity and trading interest — covers NASDAQ, NYSE, AMEX.
+# Curated for liquidity and trading interest - covers NASDAQ, NYSE, AMEX.
 # On small floats even $1-5M net inflow is a strong accumulation signal.
 _MICRO_CAP_UNIVERSE = sorted(set([
     # ── EV / Mobility / Clean Energy ──────────────────────────────────────
@@ -20760,7 +20942,7 @@ def _get_microcap_tickers() -> list:
 
     # ── Yahoo screener IDs (9 screens × 2 pages = 18 requests) ───────────────
     # Large-cap-biased screens (most_actives, undervalued_large_caps,
-    # portfolio_anchors, solid_midcap_growth_funds) were removed — this is the
+    # portfolio_anchors, solid_midcap_growth_funds) were removed - this is the
     # MICRO/SMALL-cap tab, so they only polluted it with mega caps (AVGO, NFLX,
     # SNDK). The $2B ceiling in _scan_one is the hard gate; this just keeps the
     # universe focused on names that can actually qualify.
@@ -20940,7 +21122,7 @@ def _get_microcap_tickers() -> list:
                     dynamic.add(_sym)
                     _pg_added += 1
                     if _sym not in _microcap_meta:
-                        # Market cap unknown from this endpoint — default to "small"
+                        # Market cap unknown from this endpoint - default to "small"
                         # so it passes the <$2B gate in _scan_one and gets option-chain scanned.
                         _microcap_meta[_sym] = {
                             "price":      _price_g,
@@ -20972,7 +21154,7 @@ def _run_microcap_flow_scan() -> dict:
       micro  → $50M–$300M market cap
       small  → $300M–$2B
       mid    → >$2B  (included but shown separately)
-      nano   → <$50M (OTC/illiquid — included but flagged)
+      nano   → <$50M (OTC/illiquid - included but flagged)
       unknown → market cap unavailable
     """
     tickers = _get_microcap_tickers()
@@ -21126,7 +21308,7 @@ def net_flow_microcap():
         "warming": True,
         "micro": [], "small": [], "nano": [], "mid": [], "unknown": [],
         "scanned": 0,
-        "error": "First scan is warming up — checking 470+ stocks takes about a minute. This updates on its own.",
+        "error": "First scan is warming up - checking 470+ stocks takes about a minute. This updates on its own.",
     })
 
 
@@ -21246,7 +21428,7 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
             max_day_pct = round(max_day_pct, 2)
 
             # Consistency: how even is the buying across days?
-            # min/avg ratio — 1.0 = perfectly even, 0.0 = all in one day
+            # min/avg ratio - 1.0 = perfectly even, 0.0 = all in one day
             consistency = round(min_daily_net_m / avg_daily_net_m, 2) if avg_daily_net_m > 0 else 0.0
 
             mktcap_m    = round(market_cap / 1_000_000, 1) if market_cap else None
@@ -21315,7 +21497,7 @@ def net_flow_multiday():
         app._nfmd_lock     = threading.Lock()
         app._nfmd_scanning = False
 
-    _CACHE_TTL = 7200  # 2 hours — daily candles change slowly
+    _CACHE_TTL = 7200  # 2 hours - daily candles change slowly
 
     # ── 1. Hot in-memory cache ────────────────────────────────────────────────
     _cache = getattr(app, "_nfmd_cache", None)
@@ -21339,12 +21521,12 @@ def net_flow_multiday():
         if db:
             resp = dict(db)
             resp["stale"] = True
-            resp["note"]  = "Market closed — showing last scan"
+            resp["note"]  = "Market closed - showing last scan"
             return jsonify(resp)
         return jsonify({"results": [], "scanned": 0, "found": 0,
-                        "stale": True, "note": "No scan data yet — will populate on next market day"})
+                        "stale": True, "note": "No scan data yet - will populate on next market day"})
 
-    # ── 4. Market open — pre-fetch DB cache BEFORE lock (never hold lock during I/O) ──
+    # ── 4. Market open - pre-fetch DB cache BEFORE lock (never hold lock during I/O) ──
     db = _load_scan_cache("net_flow_multiday", days_back=7)
 
     # ── 5. Brief lock: only check/set scanning flag, no I/O inside ───────────
@@ -21362,11 +21544,11 @@ def net_flow_multiday():
     if db:
         resp = dict(db)
         resp["stale"] = True
-        resp["note"]  = "Refreshing in background (2–3 min) — showing last scan"
+        resp["note"]  = "Refreshing in background (2–3 min) - showing last scan"
         return jsonify(resp)
 
     return jsonify({"results": [], "scanned": 0, "found": 0,
-                    "stale": True, "note": "Scan started — check back in 2–3 minutes"})
+                    "stale": True, "note": "Scan started - check back in 2–3 minutes"})
 
 
 # ── AI Signal Analysis ────────────────────────────────────────────────────────
@@ -21381,7 +21563,7 @@ def net_flow_ai_signal():
     rows = body.get("rows", [])
 
     if not rows:
-        return jsonify({"error": "No streak data provided — run the Accumulation Streak scan first."}), 400
+        return jsonify({"error": "No streak data provided - run the Accumulation Streak scan first."}), 400
 
     # Sort by streak desc, then consistency desc; cap at 30
     rows = sorted(rows, key=lambda r: (-r.get("streak", 0), -r.get("consistency", 0)))[:30]
@@ -21414,26 +21596,26 @@ Analyze each stock for signs of sustained institutional accumulation using multi
 Field definitions:
 - streak: consecutive trading days with positive net flow (no breaks)
 - avg_flow: average daily net inflow in $M
-- min_day: weakest single day inflow — if close to avg_flow, buying is EVEN (institutional pattern); near 0 = one big day dominated (retail spike or event)
-- consistency: min_day / avg_day ratio (0-1) — 1.0 = perfectly smooth increments, 0.0 = one giant day did all the work
+- min_day: weakest single day inflow - if close to avg_flow, buying is EVEN (institutional pattern); near 0 = one big day dominated (retail spike or event)
+- consistency: min_day / avg_day ratio (0-1) - 1.0 = perfectly smooth increments, 0.0 = one giant day did all the work
 - pct_mktcap: cumulative inflow as % of market cap over the streak period
 - tier: nano (<$50M mktcap), micro ($50-300M), small ($300M-1B), mid ($1-5B)
 
 Stocks to analyze:
 {stock_block}
 
-Signal classification — assign exactly ONE per stock:
-- CONVICTION: streak ≥ 10d AND consistency ≥ 0.65 — textbook stealth accumulation, likely institutional loading
-- BUILDING: streak 5-9d OR (streak ≥ 10d but consistency 0.40-0.64) — pattern forming, early positioning
-- WATCH: streak 3-4d with consistency ≥ 0.40 — too short to confirm but worth monitoring
-- NOISE: consistency < 0.35 regardless of streak, or streak < 3 — likely event-driven or retail, not sustained
+Signal classification - assign exactly ONE per stock:
+- CONVICTION: streak ≥ 10d AND consistency ≥ 0.65 - textbook stealth accumulation, likely institutional loading
+- BUILDING: streak 5-9d OR (streak ≥ 10d but consistency 0.40-0.64) - pattern forming, early positioning
+- WATCH: streak 3-4d with consistency ≥ 0.40 - too short to confirm but worth monitoring
+- NOISE: consistency < 0.35 regardless of streak, or streak < 3 - likely event-driven or retail, not sustained
 
 Key insight: true institutional accumulation shows SMOOTH increments (high consistency). A 7-day streak where day 1 = $10M and days 2-7 = $0.1M each is a retail spike, not accumulation. True accumulation: $1.0M, $0.9M, $1.1M, $1.0M, $0.95M... every day.
 
-Also: for nano-caps ($20-50M mktcap), even $0.3M/day sustained over 10 days represents meaningful size — harder to hide than mid-cap flow.
+Also: for nano-caps ($20-50M mktcap), even $0.3M/day sustained over 10 days represents meaningful size - harder to hide than mid-cap flow.
 
 Return ONLY valid JSON, zero markdown fences or extra text:
-{{"signals":[{{"ticker":"XXXX","signal":"CONVICTION","thesis":"1-2 punchy sentences specific to the numbers — what this pattern implies for the stock.","confidence":85}}]}}"""
+{{"signals":[{{"ticker":"XXXX","signal":"CONVICTION","thesis":"1-2 punchy sentences specific to the numbers - what this pattern implies for the stock.","confidence":85}}]}}"""
 
     try:
         client = OpenAI(
@@ -21478,7 +21660,7 @@ def market_overview():
         if _cache:
             return jsonify({**_cache, "stale": True})
         return jsonify({"sectors": [], "indices": [], "stale": True,
-                        "note": "feed temporarily paused — try again shortly"})
+                        "note": "feed temporarily paused - try again shortly"})
 
     def _bg_mo():
         if getattr(app, "_mo_scanning", False):
@@ -21506,7 +21688,7 @@ def market_overview():
 
             def get_chg(ticker):
                 if ticker.startswith("^"):
-                    # ^VIX: Tradier has no index feed — keep Yahoo path
+                    # ^VIX: Tradier has no index feed - keep Yahoo path
                     try:
                         if not _yahoo_breaker.allow():
                             return None
@@ -21546,7 +21728,7 @@ def market_overview():
             idx_order = {sym: i for i, (sym, _) in enumerate(INDICES)}
             indices.sort(key=lambda x: idx_order.get(x["ticker"], 99))
 
-            # Advance/Decline — ONE Tradier batch call for all 200 tickers
+            # Advance/Decline - ONE Tradier batch call for all 200 tickers
             ad_up, ad_down, ad_unch = 0, 0, 0
             _ad_universe = DEFAULT_LEADERBOARD[:200]
             _ad_batch = _td_quotes(_ad_universe) if _ad_universe else {}
@@ -21620,7 +21802,7 @@ Data:
 - MACD: {_f(macd, 3) or "N/A"} {"[BULLISH]" if macd and float(macd) > 0 else "[BEARISH]"}
 - Volume Ratio: {_f(vol_ratio, 1) or "N/A"}x {"[ELEVATED]" if vol_ratio and float(vol_ratio) >= 1.5 else ""}
 - SMA 50: ${_f(sma50) or "N/A"} | SMA 200: ${_f(sma200) or "N/A"}
-- Composite Score: {_f(score_val, 1) or "N/A"}/10 — {rating}
+- Composite Score: {_f(score_val, 1) or "N/A"}/10 - {rating}
 
 Write 3–4 sentences covering: (1) technical setup & momentum, (2) risk/reward, (3) swing trade thesis. Be direct and data-driven. Under 90 words."""
 
@@ -21650,11 +21832,11 @@ def ics_thesis():
     if not signals:
         return jsonify({"error": "No signals provided"}), 400
 
-    signal_list = "\n".join(f"• {s.get('label','')}: {s.get('description','')}" for s in signals)
+    signal_list = "\n".join(f"* {s.get('label','')}: {s.get('description','')}" for s in signals)
     prompt = f"""You are a professional options flow analyst at a top hedge fund.
 Analyze the following institutional conviction signals detected for {ticker}.
 
-CONVICTION SCORE: {score}/100 — {label}
+CONVICTION SCORE: {score}/100 - {label}
 
 ACTIVE SIGNALS:
 {signal_list}
@@ -21760,9 +21942,9 @@ def insider_trades_route():
         _it_db = _load_scan_cache("insider-trades", days_back=7)
         if _it_db:
             return jsonify({**_it_db, "stale": True,
-                            "note": "Yahoo throttled — showing last saved insider activity"})
+                            "note": "Yahoo throttled - showing last saved insider activity"})
         return jsonify({"trades": [], "count": 0, "stale": True,
-                        "note": "Yahoo throttled — no cached data yet"})
+                        "note": "Yahoo throttled - no cached data yet"})
     days    = int(request.args.get("days", 30))
     tickers = DEFAULT_LEADERBOARD
     from concurrent.futures import ThreadPoolExecutor as _TPE_it, TimeoutError as _TOE_it
@@ -21775,9 +21957,9 @@ def insider_trades_route():
         _it_db = _load_scan_cache("insider-trades", days_back=7)
         if _it_db:
             return jsonify({**_it_db, "stale": True,
-                            "note": "fetch timeout — showing last saved insider activity"})
+                            "note": "fetch timeout - showing last saved insider activity"})
         return jsonify({"trades": [], "count": 0, "stale": True,
-                        "note": "fetch timeout — serving empty; Yahoo may be throttled"})
+                        "note": "fetch timeout - serving empty; Yahoo may be throttled"})
     _ex_it.shutdown(wait=False)
     _it_out = {"trades": trades, "count": len(trades)}
     if trades:
@@ -21801,34 +21983,34 @@ def ai_thesis():
 
     parts = []
     if cpr >= 8:
-        parts.append(f"An extraordinary {cpr:.1f}x call/put ratio places {ticker} among the highest-conviction institutional signals — fewer than 2% of scanned tickers ever reach this threshold.")
+        parts.append(f"An extraordinary {cpr:.1f}x call/put ratio places {ticker} among the highest-conviction institutional signals - fewer than 2% of scanned tickers ever reach this threshold.")
     elif cpr >= 5:
-        parts.append(f"A {cpr:.1f}x call/put ratio on {ticker} is a rare institutional signal. At this level, the options tape is overwhelmingly positioned for upside — this is not retail speculation.")
+        parts.append(f"A {cpr:.1f}x call/put ratio on {ticker} is a rare institutional signal. At this level, the options tape is overwhelmingly positioned for upside - this is not retail speculation.")
     elif cpr >= 3:
         parts.append(f"A {cpr:.1f}x call/put ratio signals strong institutional bias toward {ticker}. Smart money is leaning aggressively bullish on this name.")
     elif cpr >= 2:
-        parts.append(f"With a {cpr:.1f}x call/put ratio, {ticker}'s options flow is skewing clearly bullish — more than double call volume vs puts signals real directional conviction.")
+        parts.append(f"With a {cpr:.1f}x call/put ratio, {ticker}'s options flow is skewing clearly bullish - more than double call volume vs puts signals real directional conviction.")
     else:
-        parts.append(f"Options flow in {ticker} shows a {cpr:.1f}x call/put ratio — calls are outpacing puts, suggesting a modestly bullish institutional lean.")
+        parts.append(f"Options flow in {ticker} shows a {cpr:.1f}x call/put ratio - calls are outpacing puts, suggesting a modestly bullish institutional lean.")
 
     if premium_m >= 10:
-        parts.append(f"The ${premium_m:.1f}M in call premium is the size of a hedge fund position. Bets of this magnitude are placed deliberately — someone is taking a significant directional view backed by strong conviction.")
+        parts.append(f"The ${premium_m:.1f}M in call premium is the size of a hedge fund position. Bets of this magnitude are placed deliberately - someone is taking a significant directional view backed by strong conviction.")
     elif premium_m >= 5:
-        parts.append(f"${premium_m:.1f}M in call premium signals an institutional-sized position. This is a deliberate, meaningful directional bet — not noise.")
+        parts.append(f"${premium_m:.1f}M in call premium signals an institutional-sized position. This is a deliberate, meaningful directional bet - not noise.")
     elif premium_m >= 1:
         parts.append(f"${premium_m:.1f}M in call premium represents real money behind this thesis. Worth tracking how price responds over the next 1-3 sessions.")
 
     if days_to_earnings is not None:
         dte = int(days_to_earnings)
         if dte <= 5:
-            parts.append(f"⚠️ Earnings in {dte} day{'s' if dte != 1 else ''} — this may be a high-risk earnings directional bet. IV crush post-announcement is a real risk regardless of direction.")
+            parts.append(f"WARNING Earnings in {dte} day{'s' if dte != 1 else ''} - this may be a high-risk earnings directional bet. IV crush post-announcement is a real risk regardless of direction.")
         elif dte <= 21:
             parts.append(f"With earnings {dte} days out, this call position is likely being built ahead of a catalyst. Traders often front-run earnings 2-3 weeks in advance when they have conviction.")
         elif dte <= 45:
-            parts.append(f"Earnings are {dte} days away — a medium-term swing position potentially anticipating a pre-earnings run or a positive catalyst at the event.")
+            parts.append(f"Earnings are {dte} days away - a medium-term swing position potentially anticipating a pre-earnings run or a positive catalyst at the event.")
 
     if short_float_pct and float(short_float_pct) >= 20:
-        parts.append(f"🔥 Critical: {float(short_float_pct):.1f}% of the float is short. Bullish options accumulation on a heavily-shorted stock is a classic squeeze setup — short covering could dramatically amplify any upside move.")
+        parts.append(f"🔥 Critical: {float(short_float_pct):.1f}% of the float is short. Bullish options accumulation on a heavily-shorted stock is a classic squeeze setup - short covering could dramatically amplify any upside move.")
     elif short_float_pct and float(short_float_pct) >= 10:
         parts.append(f"With {float(short_float_pct):.1f}% short float, any positive catalyst could trigger short covering that amplifies gains beyond the initial move.")
 
@@ -22004,7 +22186,7 @@ def breakout_radar():
 
 @app.route("/stock-api/convergence", methods=["GET"])
 def convergence():
-    """Stocks with BOTH unusual volume AND unusual call flow — smart money convergence signal."""
+    """Stocks with BOTH unusual volume AND unusual call flow - smart money convergence signal."""
     from smart_money import fetch_options_data
     from datetime import datetime as _cvdt
 
@@ -22099,7 +22281,7 @@ def convergence():
 
 @app.route("/stock-api/premarket", methods=["GET"])
 def premarket():
-    """Pre-market movers — price change and volume vs average."""
+    """Pre-market movers - price change and volume vs average."""
     from datetime import datetime as _pdt
 
     _cache = getattr(app, "_pm_cache", None)
@@ -22151,7 +22333,7 @@ def premarket():
                 if r:
                     results.append(r)
         except Exception:
-            pass  # timeout — return whatever came back before the deadline
+            pass  # timeout - return whatever came back before the deadline
     finally:
         _pm_ex.shutdown(wait=False, cancel_futures=True)
 
@@ -22168,7 +22350,7 @@ def premarket():
 
 @app.route("/stock-api/darkpool", methods=["GET"])
 def darkpool():
-    """Dark Pool Radar — uses FINRA Reg SHO daily short volume as off-exchange proxy."""
+    """Dark Pool Radar - uses FINRA Reg SHO daily short volume as off-exchange proxy."""
     import requests as _req
     from datetime import datetime, timedelta
 
@@ -22343,7 +22525,7 @@ def darkpool():
 
 @app.route("/stock-api/gamma-wall", methods=["GET"])
 def gamma_wall():
-    """OI by strike for major tickers — shows dealer gamma concentration and flip points."""
+    """OI by strike for major tickers - shows dealer gamma concentration and flip points."""
     import yfinance as yf
     from datetime import datetime as _dt
 
@@ -22418,7 +22600,7 @@ def _enrich_technical_signals(tickers_data):
     """
     Optional enrichment: MACD, Support/Resistance, Volume Profile POC, and VWAP.
     Runs in-process on tickers that already have price data.
-    All failures are silent — if this function crashes, nothing else breaks.
+    All failures are silent - if this function crashes, nothing else breaks.
     """
     import sys
     try:
@@ -22645,7 +22827,7 @@ def _ai_trades_worker():
 
     active_sources = []
 
-    # 1. Composite Score Board — already aggregates many signals
+    # 1. Composite Score Board - already aggregates many signals
     cs = getattr(app, "_cs_cache", None)
     if cs:
         active_sources.append("Composite Score Board")
@@ -22810,7 +22992,7 @@ def _ai_trades_worker():
             existing.append(f"[{ev['type']}] {ev['msg']}")
             tickers_data[t]["live_alerts"] = existing
 
-    # 10. Pre-market movers — inject gap direction per ticker
+    # 10. Pre-market movers - inject gap direction per ticker
     pm = getattr(app, "_pm_cache", None)
     if pm:
         active_sources.append("Pre-market Movers")
@@ -22819,7 +23001,7 @@ def _ai_trades_worker():
             _add(t, "premarket_chg_pct", r.get("change_pct"))
             _add(t, "premarket_vol_ratio", r.get("vol_ratio"))
 
-    # 11. Market overview — sector momentum + index context
+    # 11. Market overview - sector momentum + index context
     mo = getattr(app, "_mo_cache", None)
     sector_context = ""
     index_context = ""
@@ -22849,7 +23031,7 @@ def _ai_trades_worker():
             impl_move = round(float(iv) / 100 * (float(dte) / 252) ** 0.5 * 100, 1)
             _add(t, "implied_move_pct", impl_move)
 
-    # 13. Macro calendar — days to next key market events
+    # 13. Macro calendar - days to next key market events
     def _macro_context():
         from datetime import date as _date
         today = _et_today()
@@ -22885,7 +23067,7 @@ def _ai_trades_worker():
         return " | ".join(parts) if parts else ""
     macro_context = _macro_context()
 
-    # 14. Multi-day signal persistence — query signal_history for 3-day rolling confirmation
+    # 14. Multi-day signal persistence - query signal_history for 3-day rolling confirmation
     try:
         with _psycopg2.connect(_DB_URL) as _ph_conn, _ph_conn.cursor() as _ph_cur:
             _ph_cur.execute("""
@@ -22908,7 +23090,7 @@ def _ai_trades_worker():
     except Exception:
         pass
 
-    # 14b. Sector ETF flow confirmation — institutional call buying confirmed at the sector level
+    # 14b. Sector ETF flow confirmation - institutional call buying confirmed at the sector level
     _sector_etf_bullish: set = set()
     try:
         with _psycopg2.connect(_DB_URL) as _se_conn, _se_conn.cursor() as _se_cur:
@@ -22947,7 +23129,7 @@ def _ai_trades_worker():
             if _etf_match and _etf_match in _sector_etf_bullish:
                 _add(_se_t, "sector_etf_flow", f"CONFIRMED({_etf_match}_bullish)")
 
-    # 14c. Dark pool premium trend (3-day) — is institutional DP activity accelerating or fading?
+    # 14c. Dark pool premium trend (3-day) - is institutional DP activity accelerating or fading?
     try:
         with _psycopg2.connect(_DB_URL) as _dpt_conn, _dpt_conn.cursor() as _dpt_cur:
             _dpt_cur.execute("""
@@ -22980,7 +23162,7 @@ def _ai_trades_worker():
     except Exception:
         pass
 
-    # 14d. Multi-day UC flow streak — same unusual call contract returning on 3+ distinct days
+    # 14d. Multi-day UC flow streak - same unusual call contract returning on 3+ distinct days
     try:
         with _psycopg2.connect(_DB_URL) as _uc_conn, _uc_conn.cursor() as _uc_cur:
             _uc_cur.execute("""
@@ -23002,7 +23184,7 @@ def _ai_trades_worker():
     except Exception:
         pass
 
-    # 15. Market regime detection — VIX level + SPY 5d/20d trend
+    # 15. Market regime detection - VIX level + SPY 5d/20d trend
     market_regime = "UNKNOWN"
     try:
         import yfinance as _yf_mr
@@ -23059,7 +23241,7 @@ def _ai_trades_worker():
     except Exception:
         win_rate_context = ""
 
-    # 16b. Signal combination win rates — which signal tags predict wins from historical trade log
+    # 16b. Signal combination win rates - which signal tags predict wins from historical trade log
     combo_win_context = ""
     try:
         with _psycopg2.connect(_DB_URL) as _cw_conn, _cw_conn.cursor() as _cw_cur:
@@ -23158,7 +23340,7 @@ def _ai_trades_worker():
     except Exception:
         macro_cross_asset = ""
 
-    # 18. Unusual Calls — inject per-ticker best premium entry (highest single-strike premium)
+    # 18. Unusual Calls - inject per-ticker best premium entry (highest single-strike premium)
     uc = getattr(app, "_unusual_calls_cache", None)
     if uc:
         active_sources.append("Unusual Call Flow")
@@ -23179,7 +23361,7 @@ def _ai_trades_worker():
             _add(t, "uc_urgency", hit.get("urgency"))
 
     # Optional technical enrichment: MACD, Support/Resistance, Volume Profile POC, VWAP
-    # Runs silently — any failure leaves existing signals untouched
+    # Runs silently - any failure leaves existing signals untouched
     try:
         _enrich_technical_signals(tickers_data)
     except Exception as _et_err:
@@ -23235,7 +23417,7 @@ def _ai_trades_worker():
         if not already_warming:
             _start_cache_warming()
         import sys
-        print(f"[ai_trades_bg] not enough signals ({len(active_sources)} sources, {len(rich)} tickers) — aborting", file=sys.stderr)
+        print(f"[ai_trades_bg] not enough signals ({len(active_sources)} sources, {len(rich)} tickers) - aborting", file=sys.stderr)
         app._ait_generating = False
         return  # background worker exits; HTTP handler will return loading state
 
@@ -23251,7 +23433,7 @@ def _ai_trades_worker():
     uc_fallback    = [v for v in sorted_tickers if (v.get("uc_prem_m") or 0) < 0.5]
     candidate_pool = uc_qualified + uc_fallback  # AI sees premium tickers first
 
-    # LIVE PRICE REFRESH — always override stale cached prices with today's real market price
+    # LIVE PRICE REFRESH - always override stale cached prices with today's real market price
     # This prevents trades being generated with months-old price data (wrong strikes/targets)
     try:
         _refresh_tickers = [v["ticker"] for v in candidate_pool[:15]]
@@ -23268,7 +23450,7 @@ def _ai_trades_worker():
         import sys as _sys
         print(f"[ai_trades_bg] live price refresh error: {_pr_err}", file=_sys.stderr)
 
-    # Build compact signal block — top 15 tickers, one line each, key fields only
+    # Build compact signal block - top 15 tickers, one line each, key fields only
     sig_lines = []
     for v in candidate_pool[:15]:
         parts = [f"{v['ticker']} ${v.get('price','?')}"]
@@ -23497,12 +23679,12 @@ def _ai_trades_worker():
         "You are an elite institutional options trader operating at hedge-fund quant level. "
         "You receive 50+ data points per ticker across 21 sources including vol surface, dealer gamma, factor scores, macro cross-asset signals, analyst consensus, and earnings intelligence. "
         "CRITICAL RULES:\n"
-        "1. NEVER recommend a setup where opt_spread>12% (ILLIQUID_AVOID) — wide spreads destroy edge.\n"
+        "1. NEVER recommend a setup where opt_spread>12% (ILLIQUID_AVOID) - wide spreads destroy edge.\n"
         "2. In HIGH_FEAR or CORRECTION regimes: avoid LONG CALL; prefer PUT spreads or IRON CONDORs on tickers with iv_rv=RICH_SELL_PREM.\n"
         "3. In BULL_TREND regime: prefer LONG CALL on high-beta (beta≥1.5) names with vol_trend surging and mom12_1>0.\n"
         "4. In RANGING/CHOP regime: prefer IRON CONDOR on IV_rank≥60 + iv_rv=RICH_SELL_PREM tickers; avoid directional plays.\n"
         "5. If YOUR_HISTORICAL_WIN_RATES provided: strongly prefer setup_types with high win rates from your own history.\n"
-        "6. persist=3d+ is your highest-conviction filter — multi-day institutional building is rare and reliable.\n"
+        "6. persist=3d+ is your highest-conviction filter - multi-day institutional building is rare and reliable.\n"
         "7. earn_beat=3/4 or 4/4 gives fundamental tailwind; earn_beat=0/4 is a headwind.\n"
         "8. GEX=LONG_GAMMA(suppressive) → mean-reversion setups; SHORT_GAMMA(amplifying) → directional/momentum setups.\n"
         "9. iv_skew=FEAR_PREMIUM (>8pp) → institutional crash hedging; use PUT spreads or add protection.\n"
@@ -23510,41 +23692,41 @@ def _ai_trades_worker():
         "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities; VIX_TermStructure=BACKWARDATION → event risk priced, vol may spike further.\n"
         "12. sector_corr=IDIOSYNCRATIC (<0.5) → ticker moves on its own; prefer over highly correlated names.\n"
         "13. news=BEARISH_NEWS with BULL_TREND → fade the news; news=BULLISH_NEWS with momentum = confirmation.\n"
-        f"14. EXPIRY RULE: TODAY'S REAL DATE IS {str(_et_today())}. ALL expiry dates you output MUST be in YYYY-MM-DD format AND must fall between {str(_et_today() + _timedelta(days=21))} (earliest) and {str(_et_today() + _timedelta(days=90))} (latest). NEVER output a date from 2024 or any year other than the current year/next year. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry — this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
-        "15. EARNINGS PROXIMITY: If earn_in≤7d (IMMINENT), prefer STRADDLE or avoid entirely unless conviction is extreme. If earn_in=8-30d (SOON), IV is likely elevated — check iv_rv; if RICH, sell spreads; if CHEAP, buy vol. impl_earn_move shows the options market's expected ±% move into earnings — compare to earn_beat history.\n"
+        f"14. EXPIRY RULE: TODAY'S REAL DATE IS {str(_et_today())}. ALL expiry dates you output MUST be in YYYY-MM-DD format AND must fall between {str(_et_today() + _timedelta(days=21))} (earliest) and {str(_et_today() + _timedelta(days=90))} (latest). NEVER output a date from 2024 or any year other than the current year/next year. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry - this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
+        "15. EARNINGS PROXIMITY: If earn_in≤7d (IMMINENT), prefer STRADDLE or avoid entirely unless conviction is extreme. If earn_in=8-30d (SOON), IV is likely elevated - check iv_rv; if RICH, sell spreads; if CHEAP, buy vol. impl_earn_move shows the options market's expected ±% move into earnings - compare to earn_beat history.\n"
         "16. ANALYST CONSENSUS: analyst_tgt=STRONG_BUY_CONSENSUS (>25% upside) combined with institutional accumulation (accum_pct≥60%) = highest fundamental + flow alignment. analyst_tgt=FULLY_VALUED (<0% upside) is a headwind for LONG CALL setups.\n"
         "17. PUT/CALL OI RATIO: pc_oi_ratio>1.5 (HEAVY_PUT_OI) = institutions are hedged/bearish positioned; <0.6 (HEAVY_CALL_OI) = bullish positioning. Use as directional confirmation or contrarian signal in conjunction with other factors.\n"
         "18. 52-WEEK RANGE: 52w_range≥90% (NEAR_52W_HIGH) = breakout zone → momentum continuation setups; ≤10% (NEAR_52W_LOW) = support test → mean-reversion bounce or put-selling setups. NEVER recommend LONG CALL on a stock at 52w low without strong catalyst evidence.\n"
         "19. BORROW COST: borrow=HIGH_BORROW means stock is expensive to short. This means heavy put OI on high-short-interest names may be synthetic short hedges by short sellers, NOT directional bearish bets. Do not read put OI as bearish conviction if borrow=HIGH_BORROW.\n"
-        "20. FLOW PERSISTENCE: flow_persist shows call/put vol-to-OI ratios. calls=STRUCTURAL(multi_week) means call OI has been building over multiple days — institutional conviction. calls=FRESH(one_day) means today's activity only — could be noise or a hedge. Weight STRUCTURAL flow 2x vs FRESH flow in your conviction score.\n"
-        "21. EPS REVISION TREND: eps_trend=RISING means analysts are raising forward earnings estimates — a strong fundamental tailwind. eps_trend=DECLINING means estimates are being cut — a headwind even if flow looks bullish. When eps_trend=DECLINING and call flow is present, reduce conviction; the flow may be a short-term trade against a deteriorating fundamental trend.\n"
+        "20. FLOW PERSISTENCE: flow_persist shows call/put vol-to-OI ratios. calls=STRUCTURAL(multi_week) means call OI has been building over multiple days - institutional conviction. calls=FRESH(one_day) means today's activity only - could be noise or a hedge. Weight STRUCTURAL flow 2x vs FRESH flow in your conviction score.\n"
+        "21. EPS REVISION TREND: eps_trend=RISING means analysts are raising forward earnings estimates - a strong fundamental tailwind. eps_trend=DECLINING means estimates are being cut - a headwind even if flow looks bullish. When eps_trend=DECLINING and call flow is present, reduce conviction; the flow may be a short-term trade against a deteriorating fundamental trend.\n"
         "22. HISTORICAL EARNINGS REACTION: hist_earn_move=±X% is the average absolute price move this stock has made on past earnings days. Use this to calibrate STRADDLE pricing: if impl_earn_move < hist_earn_move, the straddle is cheap (buy vol); if impl_earn_move > hist_earn_move by >50%, the market is overpricing earnings risk (sell premium). This is one of the highest-edge signals for earnings-event trades.\n"
-        "23. SHORT SQUEEZE RISK: squeeze_risk=HIGH or EXTREME means the stock has: high short float (≥15%), hard-to-borrow conditions, rising price momentum (RSI>60), AND volume surging. In this scenario: (a) NEVER recommend LONG PUT or BEAR PUT SPREAD — short squeeze could cause catastrophic loss. (b) Consider LONG CALL as a squeeze-capture setup. (c) For bearish plays, use far OTM puts only with strict stop loss.\n"
-        "24. ANALYST DISPERSION: analyst_dispersion≥30% (HIGH_DISAGREEMENT) means analysts have wildly different price targets — the outcome is binary and uncertain. In this case: prefer STRADDLE over directional setups, even if flow is one-directional. analyst_dispersion<15% (CONSENSUS) means the fundamental story is clear — directional plays are appropriate.\n"
-        "25. PUT/CALL PREMIUM RATIO (DOLLAR-WEIGHTED): pc_prem_ratio measures dollars spent on puts vs calls. CRITICAL INTERPRETATION — high put spend (pc_prem_ratio>1.5) almost always reflects HEDGING by institutions protecting long stock positions, NOT directional bearish bets. Do NOT use pc_prem_ratio to justify a bearish setup. Use it only to gauge overall market fear level: HEAVY_PUT_SPEND = elevated hedging = slightly higher uncertainty for calls. HEAVY_CALL_SPEND(<0.6) = clean risk-on environment = strong confirmation for LONG CALL entries.\n"
-        "26. RELATIVE STRENGTH VS SPY: rs_vs_spy is the stock's 1-year return minus SPY's 1-year return. BEATING_MARKET(>+20%) = institutions are actively accumulating; strong confirmation for LONG CALL. LAGGING_MARKET(<-20%) = the stock is a structural underperformer — a powerful headwind even with bullish call flow; reduce conviction or skip. Use RS to confirm momentum: only go high-conviction LONG CALL on stocks with positive RS alignment.\n"
-        "27. MONEY FLOW RATIO: money_flow is average volume on up-price days divided by average volume on down-price days over the past 30 sessions. ACCUMULATION(>1.3) = institutions consistently buying on strength AND dips — confirms bullish setups. DISTRIBUTION(<0.8) = sellers are dominant even on green days — confirms bearish or reduces bullish conviction. This is a structural signal; it takes weeks to shift, so treat it as a high-weight baseline.\n"
-        "28. INSIDER TRANSACTIONS: insider=BUYING means company officers or directors purchased shares on the open market in the last 30 days — one of the most reliable long-term bullish signals in finance (insiders only buy with their own money when they believe the stock is undervalued). Add +1 conviction tier when insider=BUYING aligns with bullish call flow. insider=SELLING is NEUTRAL — insiders sell for taxes, diversification, estate planning; never use it as a bearish signal alone.\n"
-        "29. DIVIDEND YIELD & EX-DIVIDEND DATE: CRITICAL RULE — if ex_div<=7d, DO NOT recommend LONG CALL — the option holder may exercise early to capture the dividend, creating assignment risk. Skip that ticker and pick the next best signal instead. div_yield>3% acts as a price floor: income buyers support the stock on dips.\n"
-        "30. TAIL RISK PUT CONCENTRATION: tail_risk_puts is the % of total put volume in deep OTM strikes (>15% below spot). CRASH_HEDGING_ACTIVE(>40%) = institutions are paying for disaster protection, not making directional bets — this is a macro risk-off signal. When tail_risk_puts>30%, do NOT sell premium structures (IRON CONDOR, BULL PUT SPREAD) — institutions may know about an upcoming systemic risk event. The signal does NOT mean the stock will definitely fall; it means smart money is buying insurance at scale.\n"
-        "31. IV SKEW PERCENTILE (when available after 30+ days of data): iv_skew_pctl ranks today's IV skew vs the past year for this specific stock. EXTREME_HISTORICAL_FEAR(>=90th percentile) = put premium is at historically extreme levels for this stock — highest edge to SELL PUT SPREADS when bullish, or BUY CALL SPREADS as mean-reversion plays. Below_avg_fear(<=25th percentile) = options are historically cheap — favor LONG options (calls or straddles) over premium selling.\n"
-        "32. SHORT INTEREST TREND (when available after 5+ sessions of data): short_trend shows change in short float vs 5 sessions ago. SHORTS_BUILDING(>+1pp) = new bearish institutional conviction entering the stock — validates bearish setups and contradicts bullish flow. SHORTS_COVERING(<-1pp) = short sellers are exiting — potential squeeze trigger forming; combine with squeeze_risk=HIGH or EXTREME for maximum conviction LONG CALL setup (short covering can accelerate a move by 2-3x).\n"
-        "34. MACD MOMENTUM: macd=BULLISH_CROSS is the strongest technical signal — momentum just flipped bullish; this is the optimal LONG CALL entry timing. BULLISH means momentum is positive but the cross happened days ago (still valid, lower urgency). BEARISH_CROSS is a warning — momentum turning down, reduce conviction on LONG CALL even with bullish flow. BULLISH_DIV = price made a lower low but MACD held a higher low — institutional accumulation on the dip, high-conviction reversal setup even if the stock looks weak on the surface.\n"
-        "35. SUPPORT/RESISTANCE LEVELS: sr=AT_SUPPORT means price is within 2% of a confirmed historical swing low — institutions have defended this exact level before; this is the optimal LONG CALL entry (risk/reward is best here, stop loss is well-defined just below support). ABOVE_SUPPORT(X%_below) shows a cushion below. BELOW_RESISTANCE(X%_above) means a supply zone overhead — if resistance is <3% away, the stock needs to break through first; if >5% away, the trade has room to run before hitting resistance.\n"
-        "36. VOLUME PROFILE / POINT OF CONTROL: poc=AT_POC means price is sitting at the highest-traded-volume level of the past 90 days — this acts as both a support magnet AND a breakout launch pad. ABOVE_POC = buyers have pushed price above where 90% of volume traded, confirming institutional demand at lower levels. BELOW_POC = sellers are in control of the distribution; avoid LONG CALL unless other signals are overwhelming. Prefer ABOVE_POC with MACD=BULLISH for highest technical confirmation.\n"
-        "37. VWAP (20-DAY): vwap=ABOVE_VWAP means buyers have consistently paid above the average cost basis over the past month — structural bullish; strong confirmation for LONG CALL. BELOW_VWAP is a headwind; institutions are underwater on recent buys. AT_VWAP = decision point, watch for directional resolution. Highest conviction entry: price ABOVE_VWAP + MACD=BULLISH + sr=AT_SUPPORT or ABOVE_SUPPORT — this triple-confirmation setup means technical, momentum, and price structure all agree.\n"
-        "38. P/C RATIO MOMENTUM: pc_ratio_mom tracks the 5-day change in the put/call OI ratio. BULLISH_ROTATION (dropping >0.2) means institutions have been steadily closing puts and opening calls over the past week — this is the single most reliable leading indicator that smart money is shifting bullish BEFORE price moves. A single-day low pc_oi_ratio could be noise; a 5-day declining trend is institutional conviction. BEARISH_ROTATION (rising >0.2) means put positioning is building — confirm with other bearish signals before skipping a bullish setup, but treat it as a caution flag. Stable = no rotation in progress.\n"
-        "39. INSTITUTIONAL OWNERSHIP: instit_own is the % of shares held by institutional investors (mutual funds, hedge funds, pension funds) per the latest 13F filings. HIGH_CONVICTION (≥70%) means professional money managers dominate the shareholder base — this stock is well-researched and institutionally validated; they will not sell easily on small dips, providing price support. LOW_INST_OWN (<40%) means retail dominates — higher volatility, less predictable behavior. When instit_own=HIGH_CONVICTION aligns with unusual call buying, the interpretation is: EXISTING INSTITUTIONAL OWNERS are adding to their already-large positions — the highest possible conviction signal for LONG CALL.\n"
-        "40. MULTI-DAY UC STREAK: uc_streak tracks how many days the same unusual call contract (same strike + expiry) has been actively traded. PERSISTENT_WHALE (5d+) means a single institution has deployed capital into the same options position for 5+ consecutive trading days — this is the rarest and highest-conviction signal in the entire system; they are building a large directional position and cannot do it in one day without moving the market. MULTI_DAY_INSTITUTIONAL (3-5d) = strong conviction, institutional accumulation confirmed. RETURNING_BUYER (2-3d) = same buyer returning, early confirmation. A uc_streak of ANY length combined with uc_prem=WHALE is your absolute highest-conviction setup — override other hesitations when these two align.\n"
-        "41. SECTOR ETF FLOW CONFIRMATION: sector_etf_flow=CONFIRMED(XLK_bullish) means the sector ETF itself had $500K+ unusual call buying TODAY — the entire technology sector is seeing institutional inflows, not just this one stock. This is the most powerful confirmation signal in the system: when a sector-level ETF AND an individual stock both show unusual institutional call buying on the same day, the probability that the move is real (not noise or a hedge) is dramatically higher. A stock pick without sector_etf_flow is still valid; a pick WITH sector_etf_flow gets +1 conviction tier automatically. If two picks are otherwise equal, always prefer the one with sector_etf_flow=CONFIRMED.\n"
-        "42. DARK POOL TREND: dp_trend tracks whether dark pool premium is ACCELERATING (today's DP flow is 25%+ above 3-day average — institutional buying is intensifying, fresh capital entering), FADING (DP flow dropped 25%+ — institutions may be taking profits or reducing exposure), or STEADY (consistent ongoing accumulation). ACCELERATING combined with any bullish signal stack is a powerful confirmation — institutions are stepping up their buying pace. FADING on an otherwise bullish stock is a caution flag — the smart money that drove the setup may be lightening up. Treat dp_trend=ACCELERATING as equivalent to a +0.5 conviction boost.\n"
-        "43. SIGNAL COMBINATION WIN RATES: SIGNAL_COMBO_WIN_RATES shows your actual historical win rate when specific signal tags appeared in past winning vs losing trades. This is YOUR OWN PERFORMANCE DATA — the highest-weight signal in the system. When SIGNAL_COMBO_WIN_RATES shows persist3d+:84%(21/25), it means that out of your 25 past trades where signal had 3+ days persistence, 21 won. USE THIS TO OVERRIDE rule-based weights: if your data shows MACD_CROSS wins 75% of the time but ABOVE_POC wins only 52%, weight MACD_CROSS heavier in your conviction scoring for this session. This self-learning feedback loop means the AI gets smarter every day as more outcomes are logged.\n"
-        "33. UNUSUAL CALL PREMIUM GATE (MANDATORY): Every recommended ticker MUST have a uc_prem signal present in its data AND uc_prem ≥ 0.50M ($500K). Tickers without a uc_prem field, or with uc_prem < 0.50M, must be SKIPPED entirely — no exceptions. This ensures every pick has documented institutional unusual call activity backing it. Prefer picks with uc_prem ≥ 1.0M (INSTITUTIONAL) or ≥ 5.0M (WHALE) when available — these represent the highest-conviction smart money flows. If fewer than 5 tickers meet the $500K threshold, fill remaining slots ONLY from the next-highest uc_prem tickers; do NOT recommend tickers with no unusual call flow.\n"
-        "ABSOLUTE MANDATE — ALL 5 SETUPS MUST BE: direction=BULLISH, setup_type=LONG CALL only. No spreads. No puts. No iron condors. No straddles. No neutral. No bearish. Every single output must be a naked long call buy. If you cannot find 5 strong bullish setups, pick the 5 best available bullish signals regardless. Never output anything other than LONG CALL.\n"
+        "23. SHORT SQUEEZE RISK: squeeze_risk=HIGH or EXTREME means the stock has: high short float (≥15%), hard-to-borrow conditions, rising price momentum (RSI>60), AND volume surging. In this scenario: (a) NEVER recommend LONG PUT or BEAR PUT SPREAD - short squeeze could cause catastrophic loss. (b) Consider LONG CALL as a squeeze-capture setup. (c) For bearish plays, use far OTM puts only with strict stop loss.\n"
+        "24. ANALYST DISPERSION: analyst_dispersion≥30% (HIGH_DISAGREEMENT) means analysts have wildly different price targets - the outcome is binary and uncertain. In this case: prefer STRADDLE over directional setups, even if flow is one-directional. analyst_dispersion<15% (CONSENSUS) means the fundamental story is clear - directional plays are appropriate.\n"
+        "25. PUT/CALL PREMIUM RATIO (DOLLAR-WEIGHTED): pc_prem_ratio measures dollars spent on puts vs calls. CRITICAL INTERPRETATION - high put spend (pc_prem_ratio>1.5) almost always reflects HEDGING by institutions protecting long stock positions, NOT directional bearish bets. Do NOT use pc_prem_ratio to justify a bearish setup. Use it only to gauge overall market fear level: HEAVY_PUT_SPEND = elevated hedging = slightly higher uncertainty for calls. HEAVY_CALL_SPEND(<0.6) = clean risk-on environment = strong confirmation for LONG CALL entries.\n"
+        "26. RELATIVE STRENGTH VS SPY: rs_vs_spy is the stock's 1-year return minus SPY's 1-year return. BEATING_MARKET(>+20%) = institutions are actively accumulating; strong confirmation for LONG CALL. LAGGING_MARKET(<-20%) = the stock is a structural underperformer - a powerful headwind even with bullish call flow; reduce conviction or skip. Use RS to confirm momentum: only go high-conviction LONG CALL on stocks with positive RS alignment.\n"
+        "27. MONEY FLOW RATIO: money_flow is average volume on up-price days divided by average volume on down-price days over the past 30 sessions. ACCUMULATION(>1.3) = institutions consistently buying on strength AND dips - confirms bullish setups. DISTRIBUTION(<0.8) = sellers are dominant even on green days - confirms bearish or reduces bullish conviction. This is a structural signal; it takes weeks to shift, so treat it as a high-weight baseline.\n"
+        "28. INSIDER TRANSACTIONS: insider=BUYING means company officers or directors purchased shares on the open market in the last 30 days - one of the most reliable long-term bullish signals in finance (insiders only buy with their own money when they believe the stock is undervalued). Add +1 conviction tier when insider=BUYING aligns with bullish call flow. insider=SELLING is NEUTRAL - insiders sell for taxes, diversification, estate planning; never use it as a bearish signal alone.\n"
+        "29. DIVIDEND YIELD & EX-DIVIDEND DATE: CRITICAL RULE - if ex_div<=7d, DO NOT recommend LONG CALL - the option holder may exercise early to capture the dividend, creating assignment risk. Skip that ticker and pick the next best signal instead. div_yield>3% acts as a price floor: income buyers support the stock on dips.\n"
+        "30. TAIL RISK PUT CONCENTRATION: tail_risk_puts is the % of total put volume in deep OTM strikes (>15% below spot). CRASH_HEDGING_ACTIVE(>40%) = institutions are paying for disaster protection, not making directional bets - this is a macro risk-off signal. When tail_risk_puts>30%, do NOT sell premium structures (IRON CONDOR, BULL PUT SPREAD) - institutions may know about an upcoming systemic risk event. The signal does NOT mean the stock will definitely fall; it means smart money is buying insurance at scale.\n"
+        "31. IV SKEW PERCENTILE (when available after 30+ days of data): iv_skew_pctl ranks today's IV skew vs the past year for this specific stock. EXTREME_HISTORICAL_FEAR(>=90th percentile) = put premium is at historically extreme levels for this stock - highest edge to SELL PUT SPREADS when bullish, or BUY CALL SPREADS as mean-reversion plays. Below_avg_fear(<=25th percentile) = options are historically cheap - favor LONG options (calls or straddles) over premium selling.\n"
+        "32. SHORT INTEREST TREND (when available after 5+ sessions of data): short_trend shows change in short float vs 5 sessions ago. SHORTS_BUILDING(>+1pp) = new bearish institutional conviction entering the stock - validates bearish setups and contradicts bullish flow. SHORTS_COVERING(<-1pp) = short sellers are exiting - potential squeeze trigger forming; combine with squeeze_risk=HIGH or EXTREME for maximum conviction LONG CALL setup (short covering can accelerate a move by 2-3x).\n"
+        "34. MACD MOMENTUM: macd=BULLISH_CROSS is the strongest technical signal - momentum just flipped bullish; this is the optimal LONG CALL entry timing. BULLISH means momentum is positive but the cross happened days ago (still valid, lower urgency). BEARISH_CROSS is a warning - momentum turning down, reduce conviction on LONG CALL even with bullish flow. BULLISH_DIV = price made a lower low but MACD held a higher low - institutional accumulation on the dip, high-conviction reversal setup even if the stock looks weak on the surface.\n"
+        "35. SUPPORT/RESISTANCE LEVELS: sr=AT_SUPPORT means price is within 2% of a confirmed historical swing low - institutions have defended this exact level before; this is the optimal LONG CALL entry (risk/reward is best here, stop loss is well-defined just below support). ABOVE_SUPPORT(X%_below) shows a cushion below. BELOW_RESISTANCE(X%_above) means a supply zone overhead - if resistance is <3% away, the stock needs to break through first; if >5% away, the trade has room to run before hitting resistance.\n"
+        "36. VOLUME PROFILE / POINT OF CONTROL: poc=AT_POC means price is sitting at the highest-traded-volume level of the past 90 days - this acts as both a support magnet AND a breakout launch pad. ABOVE_POC = buyers have pushed price above where 90% of volume traded, confirming institutional demand at lower levels. BELOW_POC = sellers are in control of the distribution; avoid LONG CALL unless other signals are overwhelming. Prefer ABOVE_POC with MACD=BULLISH for highest technical confirmation.\n"
+        "37. VWAP (20-DAY): vwap=ABOVE_VWAP means buyers have consistently paid above the average cost basis over the past month - structural bullish; strong confirmation for LONG CALL. BELOW_VWAP is a headwind; institutions are underwater on recent buys. AT_VWAP = decision point, watch for directional resolution. Highest conviction entry: price ABOVE_VWAP + MACD=BULLISH + sr=AT_SUPPORT or ABOVE_SUPPORT - this triple-confirmation setup means technical, momentum, and price structure all agree.\n"
+        "38. P/C RATIO MOMENTUM: pc_ratio_mom tracks the 5-day change in the put/call OI ratio. BULLISH_ROTATION (dropping >0.2) means institutions have been steadily closing puts and opening calls over the past week - this is the single most reliable leading indicator that smart money is shifting bullish BEFORE price moves. A single-day low pc_oi_ratio could be noise; a 5-day declining trend is institutional conviction. BEARISH_ROTATION (rising >0.2) means put positioning is building - confirm with other bearish signals before skipping a bullish setup, but treat it as a caution flag. Stable = no rotation in progress.\n"
+        "39. INSTITUTIONAL OWNERSHIP: instit_own is the % of shares held by institutional investors (mutual funds, hedge funds, pension funds) per the latest 13F filings. HIGH_CONVICTION (≥70%) means professional money managers dominate the shareholder base - this stock is well-researched and institutionally validated; they will not sell easily on small dips, providing price support. LOW_INST_OWN (<40%) means retail dominates - higher volatility, less predictable behavior. When instit_own=HIGH_CONVICTION aligns with unusual call buying, the interpretation is: EXISTING INSTITUTIONAL OWNERS are adding to their already-large positions - the highest possible conviction signal for LONG CALL.\n"
+        "40. MULTI-DAY UC STREAK: uc_streak tracks how many days the same unusual call contract (same strike + expiry) has been actively traded. PERSISTENT_WHALE (5d+) means a single institution has deployed capital into the same options position for 5+ consecutive trading days - this is the rarest and highest-conviction signal in the entire system; they are building a large directional position and cannot do it in one day without moving the market. MULTI_DAY_INSTITUTIONAL (3-5d) = strong conviction, institutional accumulation confirmed. RETURNING_BUYER (2-3d) = same buyer returning, early confirmation. A uc_streak of ANY length combined with uc_prem=WHALE is your absolute highest-conviction setup - override other hesitations when these two align.\n"
+        "41. SECTOR ETF FLOW CONFIRMATION: sector_etf_flow=CONFIRMED(XLK_bullish) means the sector ETF itself had $500K+ unusual call buying TODAY - the entire technology sector is seeing institutional inflows, not just this one stock. This is the most powerful confirmation signal in the system: when a sector-level ETF AND an individual stock both show unusual institutional call buying on the same day, the probability that the move is real (not noise or a hedge) is dramatically higher. A stock pick without sector_etf_flow is still valid; a pick WITH sector_etf_flow gets +1 conviction tier automatically. If two picks are otherwise equal, always prefer the one with sector_etf_flow=CONFIRMED.\n"
+        "42. DARK POOL TREND: dp_trend tracks whether dark pool premium is ACCELERATING (today's DP flow is 25%+ above 3-day average - institutional buying is intensifying, fresh capital entering), FADING (DP flow dropped 25%+ - institutions may be taking profits or reducing exposure), or STEADY (consistent ongoing accumulation). ACCELERATING combined with any bullish signal stack is a powerful confirmation - institutions are stepping up their buying pace. FADING on an otherwise bullish stock is a caution flag - the smart money that drove the setup may be lightening up. Treat dp_trend=ACCELERATING as equivalent to a +0.5 conviction boost.\n"
+        "43. SIGNAL COMBINATION WIN RATES: SIGNAL_COMBO_WIN_RATES shows your actual historical win rate when specific signal tags appeared in past winning vs losing trades. This is YOUR OWN PERFORMANCE DATA - the highest-weight signal in the system. When SIGNAL_COMBO_WIN_RATES shows persist3d+:84%(21/25), it means that out of your 25 past trades where signal had 3+ days persistence, 21 won. USE THIS TO OVERRIDE rule-based weights: if your data shows MACD_CROSS wins 75% of the time but ABOVE_POC wins only 52%, weight MACD_CROSS heavier in your conviction scoring for this session. This self-learning feedback loop means the AI gets smarter every day as more outcomes are logged.\n"
+        "33. UNUSUAL CALL PREMIUM GATE (MANDATORY): Every recommended ticker MUST have a uc_prem signal present in its data AND uc_prem ≥ 0.50M ($500K). Tickers without a uc_prem field, or with uc_prem < 0.50M, must be SKIPPED entirely - no exceptions. This ensures every pick has documented institutional unusual call activity backing it. Prefer picks with uc_prem ≥ 1.0M (INSTITUTIONAL) or ≥ 5.0M (WHALE) when available - these represent the highest-conviction smart money flows. If fewer than 5 tickers meet the $500K threshold, fill remaining slots ONLY from the next-highest uc_prem tickers; do NOT recommend tickers with no unusual call flow.\n"
+        "ABSOLUTE MANDATE - ALL 5 SETUPS MUST BE: direction=BULLISH, setup_type=LONG CALL only. No spreads. No puts. No iron condors. No straddles. No neutral. No bearish. Every single output must be a naked long call buy. If you cannot find 5 strong bullish setups, pick the 5 best available bullish signals regardless. Never output anything other than LONG CALL.\n"
         "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."
     )
 
-    user_msg = f"""⚠ TODAY IS {str(_et_today())}. All expiry dates in your JSON response MUST be after {str(_et_today())} and formatted as YYYY-MM-DD. Do not use any date from 2024 or earlier.
+    user_msg = f"""WARNING TODAY IS {str(_et_today())}. All expiry dates in your JSON response MUST be after {str(_et_today())} and formatted as YYYY-MM-DD. Do not use any date from 2024 or earlier.
 
 SOURCES ({len(active_sources)}): {', '.join(active_sources)}
 TICKERS SCANNED: {len(rich)}
@@ -23561,9 +23743,9 @@ SIGNAL KEY:
 - beta: 30-day beta to SPY (≥1.5 = amplified SPY moves, ≤0.6 = defensive)
 - SmartVsRetail: institutional vs retail C/P divergence | calls/puts: intent verdict
 - vol/oi: call volume-to-open-interest ratio (>2x = concentrated new institutional position)
-- opt_spread: ATM call bid/ask spread % of mid (<5%=liquid, >12%=ILLIQUID_AVOID — do NOT recommend)
+- opt_spread: ATM call bid/ask spread % of mid (<5%=liquid, >12%=ILLIQUID_AVOID - do NOT recommend)
 - earn_beat: quarters beat vs missed EPS estimate (3/4 or 4/4 = serial earnings beater)
-- uc_prem: unusual call premium in $M — NOTABLE=<$1M, INSTITUTIONAL=$1-5M, WHALE=$5M+ | uc_vol_oi: vol/OI ratio on the unusual strike
+- uc_prem: unusual call premium in $M - NOTABLE=<$1M, INSTITUTIONAL=$1-5M, WHALE=$5M+ | uc_vol_oi: vol/OI ratio on the unusual strike
 - mp: max pain & distance | gwall: gamma wall | dp: dark pool premium
 - earnings: next earnings | post_earnings: days since = IV crush window (sell premium while IV deflates)
 - analysts: net upgrades minus downgrades in last 7 days
@@ -23576,7 +23758,7 @@ SIGNAL KEY:
 - GEX: dealer gamma exposure in $M → LONG_GAMMA=suppresses moves/mean-revert; SHORT_GAMMA=amplifies moves/momentum
 - iv_rv: IV premium over realized vol % → RICH_SELL_PREM>20%=edge selling premium; CHEAP_BUY_VOL<-10%=edge buying vol
 - mom12_1: 12-month minus 1-month price momentum % (Fama-French factor) → >15%=strong; <-15%=weak
-- ROE: return on equity % (quality factor) | fwd_PE: forward P/E (value factor — CHEAP<15x, EXPENSIVE>35x)
+- ROE: return on equity % (quality factor) | fwd_PE: forward P/E (value factor - CHEAP<15x, EXPENSIVE>35x)
 - sector_corr: 30d correlation to sector ETF → IDIOSYNCRATIC<0.5=name-specific catalyst; >0.85=sector-driven
 - news: keyword sentiment score from recent headlines (-=bearish, +=bullish)
 - MACRO_CROSS_ASSET: YieldCurve(10y-3m)=curve shape; DXY=dollar; CreditSpread5d=HYG vs LQD; Crude5d; Gold5d; VIX_TermStructure=VIX minus VIX3M (>+2=BACKWARDATION=crisis risk; <-1=contango=calm)
@@ -23594,30 +23776,30 @@ SIGNAL KEY:
 - squeeze_risk: composite short squeeze risk (HIGH/EXTREME = high short float + hard borrow + rising RSI + surging vol → danger zone for bears, opportunity for LONG CALL)
 - analyst_dispersion: spread of analyst price targets as % of mean (≥30%=HIGH_DISAGREEMENT=prefer straddle; <15%=CONSENSUS=directional ok)
 - pc_prem_ratio: actual dollars spent on puts ÷ call premium today (>1.5=HEAVY_PUT_SPEND=institutional fear; <0.6=HEAVY_CALL_SPEND=risk-on; cross-check vs pc_oi_ratio)
-- rs_vs_spy: stock 1-year return minus SPY 1-year return (>+20%=BEATING_MARKET=institutional accumulation; <-20%=LAGGING_MARKET=headwind — only go high-conviction LONG CALL on positive RS)
-- money_flow: up-day vs down-day avg volume ratio over 30 sessions (>1.3=ACCUMULATION; <0.8=DISTRIBUTION — structural signal, high weight)
-- insider: net insider open-market buys vs sells last 30d (BUYING=high-conviction bullish; SELLING=neutral — only BUYING counts as a signal)
+- rs_vs_spy: stock 1-year return minus SPY 1-year return (>+20%=BEATING_MARKET=institutional accumulation; <-20%=LAGGING_MARKET=headwind - only go high-conviction LONG CALL on positive RS)
+- money_flow: up-day vs down-day avg volume ratio over 30 sessions (>1.3=ACCUMULATION; <0.8=DISTRIBUTION - structural signal, high weight)
+- insider: net insider open-market buys vs sells last 30d (BUYING=high-conviction bullish; SELLING=neutral - only BUYING counts as a signal)
 - div_yield: annual dividend yield % | ex_div: days to ex-dividend (<=7d=IMMINENT_EXDIV → avoid LONG CALL / COVERED CALL, early assign risk; use BULL CALL SPREAD instead)
 - tail_risk_puts: % of put vol in deep OTM strikes >15% below spot (>40%=CRASH_HEDGING_ACTIVE=risk-off; >30% = do NOT sell premium structures)
 - iv_skew_pctl: today's IV skew ranked vs 1-year history for this stock (>=90th=EXTREME_HISTORICAL_FEAR=sell put prem / buy call spreads; <=25th=historically cheap vol=buy options)
-- short_trend: change in short float vs 5 sessions ago in pp (>+1=SHORTS_BUILDING=bear conviction; <-1=SHORTS_COVERING=squeeze trigger — combine with squeeze_risk=HIGH for max conviction LONG CALL)
+- short_trend: change in short float vs 5 sessions ago in pp (>+1=SHORTS_BUILDING=bear conviction; <-1=SHORTS_COVERING=squeeze trigger - combine with squeeze_risk=HIGH for max conviction LONG CALL)
 
 PRIORITY WEIGHTING (use in order):
 1. opt_spread>12% → SKIP (non-negotiable liquidity gate)
 2. MARKET_REGIME + MACRO_CROSS_ASSET → determines valid setup_types for current environment
 3. GEX regime → LONG_GAMMA=mean-revert setups; SHORT_GAMMA=directional/momentum setups
 4. YOUR_HISTORICAL_WIN_RATES → bias toward setup_types that have worked in your own history
-5. persist=3d+ (multi-day confirmation — strongest signal)
+5. persist=3d+ (multi-day confirmation - strongest signal)
 6. Smart vs Retail divergence (institutional vs retail misalignment)
-7. iv_rv + iv_skew (vol surface edge — where premium is rich/cheap + where fear is concentrated)
+7. iv_rv + iv_skew (vol surface edge - where premium is rich/cheap + where fear is concentrated)
 8. score≥75 + vol_trend≥1.5x + beta + mom12_1 (accumulation surge + factor confirmation)
 9. call vol/oi >2x (concentrated unusual new activity)
 10. post_earnings IV crush + earn_beat + ROE + fwd_PE (fundamental quality + vol edge)
 11. sector_corr=IDIOSYNCRATIC (name-specific, not sector noise)
 12. analyst upgrades + premarket gap + news sentiment confirmation
 
-Return a JSON array of exactly 5 objects. ALL 5 must be BULLISH direction, setup_type LONG CALL only — no spreads, no puts, nothing else. Sort by conviction (HIGH first). Each must have ALL fields:
-ticker (string), price (number), setup_type ("LONG CALL"), direction ("BULLISH"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), option_premium (number — estimated option ask price per share based on current IV, strike proximity, and days to expiry; this is the cost to buy 1 share of the option, not per contract), signals_aligned (list of 4-5 short strings naming exact signals used), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
+Return a JSON array of exactly 5 objects. ALL 5 must be BULLISH direction, setup_type LONG CALL only - no spreads, no puts, nothing else. Sort by conviction (HIGH first). Each must have ALL fields:
+ticker (string), price (number), setup_type ("LONG CALL"), direction ("BULLISH"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), option_premium (number - estimated option ask price per share based on current IV, strike proximity, and days to expiry; this is the cost to buy 1 share of the option, not per contract), signals_aligned (list of 4-5 short strings naming exact signals used), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
 
 JSON array only. No markdown. Start immediately with ["""
 
@@ -23665,14 +23847,14 @@ JSON array only. No markdown. Start immediately with ["""
         # Retry once with a pause if empty (rate-limit or transient hiccup)
         if not raw:
             import time as _time, sys
-            print("[ai_trades] empty on first attempt — retrying in 8s", file=sys.stderr, flush=True)
+            print("[ai_trades] empty on first attempt - retrying in 8s", file=sys.stderr, flush=True)
             _time.sleep(8)
             raw, finish = _call_openai_streaming()
             raw = _extract_json(raw)
 
         if not raw:
             import sys
-            print(f"[ai_trades_bg] OpenAI returned no content (finish={finish}) — aborting", file=sys.stderr)
+            print(f"[ai_trades_bg] OpenAI returned no content (finish={finish}) - aborting", file=sys.stderr)
             return  # background worker exits; stale cache stays; user can retry
 
         try:
@@ -23681,7 +23863,7 @@ JSON array only. No markdown. Start immediately with ["""
             from json_repair import repair_json as _rj
             trades = _json.loads(_rj(raw))
 
-        # Validate expiry dates — catch and fix any past dates the AI hallucinated
+        # Validate expiry dates - catch and fix any past dates the AI hallucinated
         import datetime as _dtfix
         _today_fix = _et_today()
         _fallback_exp = str(_today_fix + _dtfix.timedelta(days=45))
@@ -23711,7 +23893,7 @@ JSON array only. No markdown. Start immediately with ["""
                 trades = _filtered
                 print(f"[ai_trades] premium filter: {len(trades)} picks kept (had {len(_uc_prem_map)} uc tickers, {len(_qualified)} ≥$20K)")
             else:
-                print(f"[ai_trades] premium filter skipped — only {len(_filtered)} qualified picks (keeping all {len(trades)})")
+                print(f"[ai_trades] premium filter skipped - only {len(_filtered)} qualified picks (keeping all {len(trades)})")
 
         # Enrich each trade with SMP conviction score
         try:
@@ -23734,7 +23916,7 @@ JSON array only. No markdown. Start immediately with ["""
         app._ait_cache = out
         app._ait_cache_ts = _dt.now()
         import sys
-        print(f"[ai_trades_bg] done — {len(trades)} setups cached", file=sys.stderr, flush=True)
+        print(f"[ai_trades_bg] done - {len(trades)} setups cached", file=sys.stderr, flush=True)
         try:
             from datetime import date as _date_now
             _save_ai_trades_to_log(trades, str(_date_now.today()))
@@ -23775,7 +23957,7 @@ def ai_trades():
         "trades": [],
         "tickers_scanned": 0,
         "signal_sources": [],
-        "error": "AI is analyzing all 40 signals — takes ~30 sec on first load. Tap Regenerate then wait a moment.",
+        "error": "AI is analyzing all 40 signals - takes ~30 sec on first load. Tap Regenerate then wait a moment.",
     })
 
 
@@ -23851,7 +24033,7 @@ def composite_score():
         if _cache:
             return jsonify({**_cache, "stale": True})
         return jsonify({"rows": [], "stale": True,
-                        "note": "feed temporarily paused — try again shortly"})
+                        "note": "feed temporarily paused - try again shortly"})
 
     now = _dt.now()
 
@@ -24064,7 +24246,7 @@ def ai_trade_log():
                     "win_rate_t5": round(sum(1 for v in t5s if v) / len(t5s) * 100, 1) if t5s else None,
                 }
 
-            # By source breakdown — AI_TRADE vs MULTI_SIGNAL vs BOTH
+            # By source breakdown - AI_TRADE vs MULTI_SIGNAL vs BOTH
             by_src = {}
             for s in ["AI_TRADE", "MULTI_SIGNAL", "BOTH"]:
                 sub = [t for t in trades if t.get("source") == s]
@@ -24129,7 +24311,7 @@ def multi_signal_log():
 
 
 def _run_whale_scan_background():
-    """Live whale scan — runs in background thread, populates cache + DB when done."""
+    """Live whale scan - runs in background thread, populates cache + DB when done."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import yfinance as yf
     from datetime import datetime as _dt
@@ -24212,7 +24394,7 @@ def whale_activity():
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
         return jsonify(_cache)
 
-    # Cache is cold — return recent DB blocks immediately, kick off live scan in background
+    # Cache is cold - return recent DB blocks immediately, kick off live scan in background
     db_blocks = []
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -24238,7 +24420,7 @@ def whale_activity():
         out = {"blocks": db_blocks, "total": len(db_blocks), "scanned": len(DEFAULT_LEADERBOARD), "source": "db"}
         return jsonify(out)
 
-    # No DB data either — wait for live scan synchronously (first ever run)
+    # No DB data either - wait for live scan synchronously (first ever run)
     _run_whale_scan_background()
     _cache = getattr(app, "_whale_cache", None)
     if _cache:
@@ -24409,7 +24591,7 @@ def _check_insider_outcomes():
                 except Exception as _oe:
                     print(f"[insider_outcomes] {ticker} error: {_oe}")
             conn.commit()
-            print(f"[insider_outcomes] Done — {len(pending)} resolved")
+            print(f"[insider_outcomes] Done - {len(pending)} resolved")
     except Exception as e:
         print(f"[insider_outcomes] DB error: {e}")
 
@@ -24516,7 +24698,7 @@ def delete_trade_watchlist(trade_id):
 
 @app.route("/stock-api/unusual-calls", methods=["GET"])
 def unusual_calls():
-    """Scan for unusual near-term call activity (1-30 days) with Vol/OI >= 3x — pure bullish bets, not hedges."""
+    """Scan for unusual near-term call activity (1-30 days) with Vol/OI >= 3x - pure bullish bets, not hedges."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import yfinance as yf
     from datetime import datetime as _dt
@@ -24535,7 +24717,7 @@ def unusual_calls():
 
     # Lightweight callers (e.g. the 8:30 premarket brief) pass cache_only=1 to avoid
     # triggering a cold full option-chain scan: serve the in-memory cache if fresh
-    # (handled above), else TODAY's DB rows (ET day), else empty — never scan live.
+    # (handled above), else TODAY's DB rows (ET day), else empty - never scan live.
     if cache_only:
         try:
             with _psycopg2.connect(_DB_URL) as _co_conn, _co_conn.cursor() as _co_cur:
@@ -24566,7 +24748,7 @@ def unusual_calls():
             return jsonify({"hits": [], "total": 0, "scanned": 0, "cache_only": True, "error": str(_e)})
 
     # Outside market hours (weekends/after-hours) there is no live option chain data
-    # to scan — serve from DB directly instead of hanging on Yahoo.
+    # to scan - serve from DB directly instead of hanging on Yahoo.
     # Use a 5-day lookback so Friday's sweeps remain visible all weekend.
     if not _intraday_scan_allowed():
         try:
@@ -24594,7 +24776,7 @@ def unusual_calls():
                 _d["last_seen"]  = _ls.isoformat() if _ls else None
                 _nh_hits.append(_d)
             _nh_out = {"hits": _nh_hits, "total": len(_nh_hits), "scanned": 0,
-                       "stale": True, "note": "market closed — showing last logged sweep data"}
+                       "stale": True, "note": "market closed - showing last logged sweep data"}
             app._unusual_calls_cache    = _nh_out
             app._unusual_calls_cache_ts = _dt.now()
             return jsonify(_nh_out)
@@ -24602,10 +24784,10 @@ def unusual_calls():
             return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
                             "error": str(_nh_e)})
 
-    # Only one scan at a time — concurrent requests block here until the scan
+    # Only one scan at a time - concurrent requests block here until the scan
     # finishes, then the re-check returns the fresh cache instead of re-scanning.
     with app._uc_lock:
-        # Re-check after acquiring lock — another thread may have just finished
+        # Re-check after acquiring lock - another thread may have just finished
         _cache = getattr(app, "_unusual_calls_cache", None)
         _ts    = getattr(app, "_unusual_calls_cache_ts", None)
         if _cache and _ts and (_dt.now() - _ts).total_seconds() < 900:
@@ -24638,7 +24820,7 @@ def unusual_calls():
                     _d["last_seen"]  = _ls.isoformat() if _ls else None
                     _ub_hits.append(_d)
                 return jsonify({"hits": _ub_hits, "total": len(_ub_hits), "scanned": 0,
-                                "note": "stale — Yahoo throttled, serving DB snapshot", "stale": True})
+                                "note": "stale - Yahoo throttled, serving DB snapshot", "stale": True})
             except Exception as _ube:
                 return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
                                 "note": f"breaker open, DB fallback failed: {_ube}"})
@@ -24689,7 +24871,7 @@ def unusual_calls():
                             if strike <= 0 or last <= 0 or vol < 10: continue
                             if strike < price * 0.15: continue
                             pre_otm = (strike - price) / price * 100
-                            if pre_otm < -15: continue   # skip deep ITM — hedges
+                            if pre_otm < -15: continue   # skip deep ITM - hedges
                             if pre_otm > 50: continue    # skip lottery-ticket far OTM
                             vol_oi = round(vol / max(oi, 1), 2)
                             if vol_oi < min_voi: continue
@@ -24721,7 +24903,7 @@ def unusual_calls():
             except Exception: pass
             return hits
 
-        # Check DB for TODAY's data first (ET calendar day) — avoids a slow live
+        # Check DB for TODAY's data first (ET calendar day) - avoids a slow live
         # scan if today already has results. Must be ET-today, NOT a rolling
         # window: a rolling 36h pre-check would serve yesterday's rows as "today's"
         # on this live/current tab (which shows no per-row dates).
@@ -24759,7 +24941,7 @@ def unusual_calls():
         except Exception:
             pass
 
-        # Live scan — movers first so earnings/catalyst stocks are always caught,
+        # Live scan - movers first so earnings/catalyst stocks are always caught,
         # then fill with the core leaderboard. Stocks up 5%+ (like CBRL +24%)
         # appear in day_gainers and get scanned regardless of leaderboard position.
         _movers = _fetch_market_movers()
@@ -24795,8 +24977,8 @@ def unusual_calls():
                     """)
                     _fb_rows = _cur.fetchall()
                     if len(_fb_rows) < 5:
-                        # Today is empty — or only a sparse row or two slipped in
-                        # (the prod blank-tab failure mode) — so show the most recent
+                        # Today is empty - or only a sparse row or two slipped in
+                        # (the prod blank-tab failure mode) - so show the most recent
                         # saved names instead of a near-blank tab. The 7-day query is
                         # ORDER BY last_seen DESC, so any of today's rows still sort to
                         # the top. Flagged stale; never re-saved (would corrupt dates).
@@ -24826,13 +25008,13 @@ def unusual_calls():
                 pass
 
         # Save FIRST so each hit dict is stamped in-place with first_seen /
-        # detected_label, THEN build + cache out — otherwise a concurrent request
+        # detected_label, THEN build + cache out - otherwise a concurrent request
         # could read a cached response before the date badges are attached.
-        # NEVER re-save the stale (older-day) fallback rows — that would re-stamp
+        # NEVER re-save the stale (older-day) fallback rows - that would re-stamp
         # last_seen to today and corrupt the "detected" dates.
         if all_hits and not _stale_fallback:
             _save_unusual_calls_to_db(all_hits)
-            # Serve the full day's accumulated sweeps — earlier scans' results
+            # Serve the full day's accumulated sweeps - earlier scans' results
             # remain visible even after a newer scan runs.
             _today_all = _load_todays_unusual_calls_from_db(_ETF_SET)
             if _today_all:
@@ -24840,7 +25022,7 @@ def unusual_calls():
         out = {"hits": all_hits[:150], "total": len(all_hits),
                "scanned": len(DEFAULT_LEADERBOARD), "stale": _stale_fallback}
         if _stale_fallback:
-            out["note"] = ("No new unusual calls have come through yet today (data feed quiet) — "
+            out["note"] = ("No new unusual calls have come through yet today (data feed quiet) - "
                            "showing the most recent saved activity.")
         app._unusual_calls_cache    = out
         app._unusual_calls_cache_ts = _dt.now()
@@ -24856,7 +25038,7 @@ def unusual_calls():
 @app.route("/stock-api/unusual-calls/microcap", methods=["GET"])
 def unusual_calls_microcap():
     """Return micro/small-cap unusual call options from DB, newest first.
-    "Today" (days=1) is the ET calendar day only — no silent fallback to older
+    "Today" (days=1) is the ET calendar day only - no silent fallback to older
     days. If the window is empty a background scan is kicked off so the next
     load has fresh data.
     On weekends / outside market hours: use a 5-day lookback so Friday's data
@@ -24867,7 +25049,7 @@ def unusual_calls_microcap():
     if not _intraday_scan_allowed() and days_back <= 1:
         days_back = 5
 
-    # "Today" (days=1) means the actual ET calendar day — NOT a rolling 24h
+    # "Today" (days=1) means the actual ET calendar day - NOT a rolling 24h
     # window. A rolling window bleeds yesterday's afternoon/evening signals into
     # "today" (e.g. checking at noon shows data from yesterday at noon onward).
     # Wider windows (3d/7d) stay as rolling look-backs, which is what they say.
@@ -24951,9 +25133,9 @@ def unusual_calls_microcap():
                             if _last_ts:
                                 _last_ts_utc = _last_ts if _last_ts.tzinfo else _last_ts.replace(tzinfo=_dt_mc.timezone.utc)
                                 _ago_h = (_dt_mc.datetime.now(_dt_mc.timezone.utc) - _last_ts_utc).total_seconds() / 3600
-                                _stale_note = f"Showing signals from ~{int(_ago_h)}h ago — live scan in progress"
+                                _stale_note = f"Showing signals from ~{int(_ago_h)}h ago - live scan in progress"
                         except Exception:
-                            _stale_note = "Showing recent signals — live scan in progress"
+                            _stale_note = "Showing recent signals - live scan in progress"
                         for r in rows:
                             if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
                             if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
@@ -25167,7 +25349,7 @@ def conviction_stack_endpoint():
         _stk_thr.Thread(target=_bg_stk, daemon=True).start()
     if _cs_stk_cache:
         return jsonify({**_cs_stk_cache, "stale": True})
-    # No in-memory cache — serve last stored snapshot from DB while live scan runs
+    # No in-memory cache - serve last stored snapshot from DB while live scan runs
     try:
         import psycopg2 as _pg_cs_fb
         with _pg_cs_fb.connect(_DB_URL) as _c_cs_fb, _c_cs_fb.cursor() as _cu_cs_fb:
@@ -25263,7 +25445,7 @@ def conviction_stack_track_record_route():
 
 @app.route("/stock-api/charm-cascade", methods=["GET"])
 def charm_cascade_endpoint():
-    """Layer 3 — Charm Cascade signals from the most recent OI snapshot."""
+    """Layer 3 - Charm Cascade signals from the most recent OI snapshot."""
     try:
         rows = _get_charm_cascade_signals()
         signals = []
@@ -25359,7 +25541,7 @@ def eod_sweeps():
     """
     End-of-day institutional sweep detector.
     Finds aggressive bullish naked calls placed in the last 90 min of trading
-    (3:00–4:30 PM ET = 19:00–20:30 UTC) — signals institutions positioning for next day.
+    (3:00–4:30 PM ET = 19:00–20:30 UTC) - signals institutions positioning for next day.
     """
     import math as _math
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
@@ -25657,7 +25839,7 @@ def admin_test_emails():
         t3 = _thr.Thread(target=_fire, args=("ai_trades", _send_ai_trades_email, trades), daemon=True)
         t3.start(); t3.join(timeout=30)
     else:
-        results["ai_trades"] = "skipped — no cache (run /stock-api/ai-trades?bust=1 first)"
+        results["ai_trades"] = "skipped - no cache (run /stock-api/ai-trades?bust=1 first)"
 
     # Unusual Calls email (cache + DB fallback)
     t4 = _thr.Thread(target=_fire, args=("unusual_calls", _send_unusual_calls_email), daemon=True)
@@ -25682,7 +25864,7 @@ def admin_run_eod_scan():
     and returns immediately so the HTTP request doesn't time out.
 
     Optional: pass ?tickers=QQQ,TSLA,SPY to scan only those specific tickers
-    instead of the full 6,610-name leaderboard — useful when Yahoo is throttling
+    instead of the full 6,610-name leaderboard - useful when Yahoo is throttling
     and you only need a targeted set of liquid names scanned quickly.
     """
     import threading as _thr
@@ -25834,7 +26016,7 @@ def admin_run_eod_scan():
                 if hasattr(app, "_eod_sweeps_cache"):
                     app._eod_sweeps_cache    = None
                     app._eod_sweeps_cache_ts = None
-                print("[admin_run_eod_scan] cache busted — fresh data ready")
+                print("[admin_run_eod_scan] cache busted - fresh data ready")
         except Exception as exc:
             print(f"[admin_run_eod_scan] error: {exc}\n{_tb.format_exc()}")
 
@@ -25899,8 +26081,8 @@ def admin_seed_conviction_data():
 @app.route("/stock-api/admin/reset-breaker", methods=["POST"])
 def admin_reset_breaker():
     """Force-close the Yahoo circuit breaker and optionally kick off a fresh scan.
-    POST ?token=<ADMIN_TOKEN>  — resets breaker state to 'closed'.
-    POST ?token=...&scan=1     — also queues an unusual-calls scan in background.
+    POST ?token=<ADMIN_TOKEN>  - resets breaker state to 'closed'.
+    POST ?token=...&scan=1     - also queues an unusual-calls scan in background.
     """
     token = request.args.get("token") or (request.get_json(silent=True) or {}).get("token", "")
     if not token or token != os.getenv("ADMIN_TOKEN", ""):
@@ -25947,7 +26129,7 @@ def admin_reset_breaker():
         def _bg_microcap():
             try:
                 hits = _run_microcap_options_scan()
-                print(f"[admin_reset_breaker] microcap scan complete — {len(hits) if hits else 0} hits")
+                print(f"[admin_reset_breaker] microcap scan complete - {len(hits) if hits else 0} hits")
             except Exception as _exc:
                 print(f"[admin_reset_breaker] microcap scan error: {_exc}")
         _rthr2.Thread(target=_bg_microcap, daemon=True).start()
@@ -25976,7 +26158,7 @@ def admin_news_catchup():
 @app.route("/stock-api/eod-sweep-track-record", methods=["GET"])
 def eod_sweep_track_record():
     """
-    EOD sweep track record — win rates by session (eod/morning/preclose) and
+    EOD sweep track record - win rates by session (eod/morning/preclose) and
     by grade (EXTREME/HIGH/ELEVATED) at T+1, T+3, T+5 trading days.
     """
     from datetime import datetime as _dt
@@ -26118,8 +26300,8 @@ def conviction_calls():
                   AND strike  >= price * 0.97
                 ORDER BY last_seen DESC, vol_oi DESC
             """
-        # Auto-fallback (default ON): when today has no sweeps yet — e.g. a morning
-        # where the data feed (Yahoo) was throttled and the scan collected nothing —
+        # Auto-fallback (default ON): when today has no sweeps yet - e.g. a morning
+        # where the data feed (Yahoo) was throttled and the scan collected nothing -
         # automatically show the most recent saved names (last 24h, then 7d) so the
         # tab is never blank. Each row keeps its real date label and the response is
         # flagged `stale` so the UI can say "showing recent activity". Pass
@@ -26157,7 +26339,7 @@ def conviction_calls():
             # Distinguish "no scan has run yet today" from "genuinely nothing qualified".
             note = ("No high-conviction call sweeps have come through yet today. "
                     "The first scan runs ~9:45 AM ET (market opens 9:30) and refreshes "
-                    "through the day — check back after the morning scan.")
+                    "through the day - check back after the morning scan.")
             return jsonify({
                 "signals":      [],
                 "generated_at": _dt.now().isoformat(),
@@ -26167,9 +26349,9 @@ def conviction_calls():
                 "can_fallback": not allow_fallback,
             })
 
-        # Group by ticker — multi-strike sweep = strongest institutional signal
+        # Group by ticker - multi-strike sweep = strongest institutional signal
         from collections import defaultdict as _dd
-        # ETFs belong in the dedicated ETF Calls tab — exclude them here
+        # ETFs belong in the dedicated ETF Calls tab - exclude them here
         _CONV_ETF_EXCL = {
             "SPY","QQQ","IWM","DIA","XLF","XLK","XLE","XLV","XLI","XLU",
             "XLP","XLY","XLB","XLC","TQQQ","SQQQ","SPXL","SPXS","UVXY",
@@ -26200,7 +26382,7 @@ def conviction_calls():
             # IV conviction bonus (screaming options → screaming conviction)
             iv_bonus = 1.8 if avg_iv >= 90 else 1.5 if avg_iv >= 70 else 1.2 if avg_iv >= 50 else 1.0
 
-            # Multi-strike sweep multiplier — every extra strike adds more conviction
+            # Multi-strike sweep multiplier - every extra strike adds more conviction
             sweep_mult = 1.0 + 0.4 * (num_strikes - 1)
 
             # Compound conviction score
@@ -26254,7 +26436,7 @@ def conviction_calls():
         }
         if window_label != "today":
             out["note"] = ("No new high-conviction sweeps have come through yet today "
-                           "(data feed quiet) — showing the most recent saved names from the "
+                           "(data feed quiet) - showing the most recent saved names from the "
                            + ("last 24 hours." if window_label == "24h" else "last 7 days."))
         app._conv_calls_cache    = out
         app._conv_calls_cache_ts = _dt.now()
@@ -26410,11 +26592,11 @@ def ai_short_calls():
     if not force and _cache and _ts and (_dt.now() - _ts).total_seconds() < 3600:
         return jsonify(_cache)
 
-    # Yahoo throttled — serve DB picks rather than kicking off a regeneration
+    # Yahoo throttled - serve DB picks rather than kicking off a regeneration
     # that will itself fail trying to fetch live prices
     if not force and _yf_breaker_open():
         if _cache:
-            return jsonify({**_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_cache, "stale": True, "note": "cached - Yahoo rate limited"})
         # try DB
         try:
             _et_floor = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
@@ -26430,14 +26612,14 @@ def ai_short_calls():
                 _pr2 = [dict(zip([d[0] for d in _scc2.description], r)) for r in _scc2.fetchall()]
             if _pr2:
                 return jsonify({"picks": _pr2, "count": len(_pr2), "stale": True,
-                                "note": "cached — Yahoo rate limited"})
+                                "note": "cached - Yahoo rate limited"})
         except Exception:
             pass
         return jsonify({"picks": [], "count": 0, "stale": True,
-                        "note": "Yahoo rate limited — try again shortly"})
+                        "note": "Yahoo rate limited - try again shortly"})
 
     # Load today's AI picks from DB log as an immediate warm fallback so a cold
-    # server restart never returns "Load failed" — show yesterday's/this-morning's
+    # server restart never returns "Load failed" - show yesterday's/this-morning's
     # picks instantly while the background OpenAI regen runs.
     def _load_db_picks():
         try:
@@ -26523,7 +26705,7 @@ def ai_short_calls():
                     print(f"[ai_short_calls] DB fallback error: {_dbe2}", file=_sys.stderr)
 
             if not hits:
-                print("[ai_short_calls] no unusual calls found — skipping", file=_sys.stderr)
+                print("[ai_short_calls] no unusual calls found - skipping", file=_sys.stderr)
                 return
 
             hits = hits[:30]
@@ -26588,7 +26770,7 @@ def ai_short_calls():
                 print(f"[ai_short_calls] momentum filter error: {_mome}", file=_sys.stderr)
 
             if not hits:
-                print("[ai_short_calls] all hits filtered by momentum — skipping", file=_sys.stderr)
+                print("[ai_short_calls] all hits filtered by momentum - skipping", file=_sys.stderr)
                 return
 
             # ── Enrich hits with conviction stack + OI buildup ───────────
@@ -26657,7 +26839,7 @@ def ai_short_calls():
                 print(f"[ai_short_calls] fir lookup error: {_fire}", file=_sys.stderr)
 
             # 4. Multi-signal hit count from in-memory scanner caches (no yfinance, instant)
-            #    Each cache is already populated by background scans — just check membership
+            #    Each cache is already populated by background scans - just check membership
             _ms_count_map = {}
             try:
                 def _cache_tickers(attr, *keys):
@@ -26713,7 +26895,7 @@ def ai_short_calls():
             except Exception as _mse:
                 print(f"[ai_short_calls] multi_signal cache error: {_mse}", file=_sys.stderr)
 
-            # 5. Charm Cascade — calculated using the SAME formula as your scanner:
+            # 5. Charm Cascade - calculated using the SAME formula as your scanner:
             #    charm_score = OI × 100 × max(0, 20 - |otm_pct|) / (days_out × 10)
             #    Higher score = more forced dealer buying per day as expiry approaches.
             #    Only fires for options ≤10 days out within 20% OTM (where charm peaks).
@@ -26833,29 +27015,29 @@ Today's unusual call signals (uptrending stocks only):
 
 SIGNAL KEY:
 - Vol/OI = volume-to-open-interest ratio (how aggressively new positions are being opened today)
-- prem = total premium spent ($) — larger = more conviction from the buyer
+- prem = total premium spent ($) - larger = more conviction from the buyer
 - OTM% = how far out of the money the strike is (near-the-money = directional bet)
 - IV = implied volatility (how much the options market expects the stock to move)
 - urgency = sweep urgency from our scanner (URGENT = crossed the ask, multi-exchange)
 - conviction_stack = institutional accumulation score from our 10-layer system
-- FIR = Float Impact Ratio — high FIR means market makers are forced to buy shares as price rises
+- FIR = Float Impact Ratio - high FIR means market makers are forced to buy shares as price rises
 - oi_buildup = days open interest has been building (pre-positioning by smart money)
 - scanners = how many of our 11 independent scanners flagged this ticker
 - charm = mechanical dealer buying pressure as expiry approaches
 - insider = unusual insider activity score (PRE_POS = pre-positioned before a catalyst)
 
-YOUR JOB — Pick the 5 BEST short-term call trades (next 3–30 days):
+YOUR JOB - Pick the 5 BEST short-term call trades (next 3–30 days):
 1. Highest Vol/OI + large premium + near-the-money strike = strongest signal
 2. URGENT sweep + conviction_stack ≥ 6 = institutional accumulation with options confirmation
 3. FIR > 2% = mechanical buying pressure amplifies the move
 4. oi_buildup ≥ 3d = smart money has been building a position for days
-5. Skip: deep OTM (>20%) with low premium — likely noise or hedging
+5. Skip: deep OTM (>20%) with low premium - likely noise or hedging
 6. Skip: any ticker with UNKNOWN or DOWN momentum trend
 
 For each pick, output a JSON object with ALL these fields:
 - ticker (string)
 - rec_type ("BUY_CALL")
-- strike (number — from the signal)
+- strike (number - from the signal)
 - expiry (string YYYY-MM-DD)
 - days_out (integer)
 - stock_price (number)
@@ -26863,9 +27045,9 @@ For each pick, output a JSON object with ALL these fields:
 - vol_oi (number)
 - prem (integer)
 - conviction ("HIGH" | "MEDIUM")
-- urgency (string — from signal)
-- thesis (string — 2 sentences MAX explaining the options flow thesis)
-- why_it_stands_out (string — 1 sentence: the single most compelling signal)
+- urgency (string - from signal)
+- thesis (string - 2 sentences MAX explaining the options flow thesis)
+- why_it_stands_out (string - 1 sentence: the single most compelling signal)
 
 Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no markdown."""
 
@@ -26907,7 +27089,7 @@ Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no m
             raw, finish = _stream_ai()
             raw = _extract_json(raw)
             if not raw:
-                print("[ai_short_calls] empty on first attempt — retrying in 6s", file=_sys.stderr, flush=True)
+                print("[ai_short_calls] empty on first attempt - retrying in 6s", file=_sys.stderr, flush=True)
                 _time.sleep(6)
                 raw, finish = _stream_ai()
                 raw = _extract_json(raw)
@@ -26955,7 +27137,7 @@ Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no m
         import threading as _aisc_thr
         _aisc_thr.Thread(target=_bg_aisc, daemon=True).start()
 
-    # Return best available data immediately — never block on the AI call.
+    # Return best available data immediately - never block on the AI call.
     # Always include "generating" while the bg thread is live so the frontend
     # keeps polling every 15s until fresh picks land.
     if _cache:
@@ -26967,7 +27149,7 @@ Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no m
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AI EARLY MOVERS — Completely separate experimental system
+# AI EARLY MOVERS - Completely separate experimental system
 # Scans ALL US stocks via Polygon every day. Finds stocks up 2.5%+ on day 1-2
 # of a new move BEFORE they become obvious. Fully isolated from all other tabs.
 # Schedule: 10:20 AM ET daily. Cache: 4h. Table: ai_early_movers_log.
@@ -27105,7 +27287,7 @@ def ai_early_movers():
             _pg_key_em = os.environ.get("POLYGON_API_KEY", "")
 
             if not _pg_key_em:
-                print("[ai_early_movers] no Polygon key — skipping", file=_sys.stderr)
+                print("[ai_early_movers] no Polygon key - skipping", file=_sys.stderr)
                 return
 
             # ── Load unusual calls as optional enrichment ─────────────────
@@ -27202,7 +27384,7 @@ def ai_early_movers():
             print(f"[ai_early_movers] {len(_movers_em)} movers ({sum(1 for m in _movers_em if m['confirmed_2d'])} confirmed)", file=_sys.stderr)
 
             if not _movers_em:
-                print("[ai_early_movers] no movers — skipping", file=_sys.stderr)
+                print("[ai_early_movers] no movers - skipping", file=_sys.stderr)
                 return
 
             # ── Conviction stack enrichment ───────────────────────────────────
@@ -27273,14 +27455,14 @@ def ai_early_movers():
 
             _sig_text_em = "\n".join(_enrich_em(i, m) for i, m in enumerate(_movers_em[:35]))
 
-            _user_msg_em = f"""You are scanning the FULL US stock market (8,000+ stocks) via Polygon every day to find stocks in the VERY EARLY innings of a move — day 1 or day 2 — before the crowd notices. This is an experimental early-detection system.
+            _user_msg_em = f"""You are scanning the FULL US stock market (8,000+ stocks) via Polygon every day to find stocks in the VERY EARLY innings of a move - day 1 or day 2 - before the crowd notices. This is an experimental early-detection system.
 {_fb_em}
-Today's early movers (Polygon full-market scan — {_tdays_em[0]}):
+Today's early movers (Polygon full-market scan - {_tdays_em[0]}):
 
 {_sig_text_em}
 
 SIGNAL KEY:
-- "✅ 2-DAY CONFIRMED" = stock was up yesterday AND moving again today. Strongest signal — two consecutive days of institutional accumulation.
+- "✅ 2-DAY CONFIRMED" = stock was up yesterday AND moving again today. Strongest signal - two consecutive days of institutional accumulation.
 - "📌 1-DAY MOVE" = strong move today only. Needs options flow or conviction score to confirm.
 - CALL_FLOW = unusual options buying detected on this ticker today (smart money confirmation).
 - conviction = how many of our 10 institutional signals align (dark pool + OI + sweeps + short interest).
@@ -27291,24 +27473,24 @@ PRIORITY ORDER:
 1. 2-DAY CONFIRMED + CALL_FLOW = HIGHEST (momentum confirmed + smart money in)  → BUY_CALL
 2. 2-DAY CONFIRMED + conviction ≥ 6 (no options) = Strong institutional trend → BUY_STOCK
 3. 1-DAY MOVE + CALL_FLOW + conviction ≥ 5 = Smart money just entered → BUY_CALL
-4. 1-DAY MOVE alone (no confirmation) = SKIP — too risky
+4. 1-DAY MOVE alone (no confirmation) = SKIP - too risky
 5. NEVER pick stocks up > 15% in one day (parabolic = missed it)
 6. NEVER pick stocks below $5 or above $500
 
 For each pick, output a JSON object with EXACTLY these fields:
 - ticker (string)
 - rec_type ("BUY_CALL" | "BUY_STOCK")
-- strike (number | null — nearest ATM strike if CALL_FLOW present; null for BUY_STOCK)
-- expiry (string YYYY-MM-DD | null — target 14-30 days out; null for BUY_STOCK)
-- days_out (integer | null — null for BUY_STOCK)
-- stock_price (number — current price from signal)
-- day_ret (number — day 1 return percent)
+- strike (number | null - nearest ATM strike if CALL_FLOW present; null for BUY_STOCK)
+- expiry (string YYYY-MM-DD | null - target 14-30 days out; null for BUY_STOCK)
+- days_out (integer | null - null for BUY_STOCK)
+- stock_price (number - current price from signal)
+- day_ret (number - day 1 return percent)
 - confirmed_2d (boolean)
-- vol_oi (number | null — from CALL_FLOW if present)
-- prem (integer | null — from CALL_FLOW if present)
+- vol_oi (number | null - from CALL_FLOW if present)
+- prem (integer | null - from CALL_FLOW if present)
 - conviction ("HIGH" | "MEDIUM")
-- thesis (string — 2 sentences: why this will continue moving for 3-7 more days)
-- why_it_stands_out (string — 1 sentence: the single most compelling signal)
+- thesis (string - 2 sentences: why this will continue moving for 3-7 more days)
+- why_it_stands_out (string - 1 sentence: the single most compelling signal)
 
 Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no markdown."""
 
@@ -27350,7 +27532,7 @@ Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no m
             raw_em, finish_em = _stream_aiem()
             raw_em = _extract_json_em(raw_em)
             if not raw_em:
-                print("[ai_early_movers] empty — retrying in 6s", file=_sys.stderr)
+                print("[ai_early_movers] empty - retrying in 6s", file=_sys.stderr)
                 _time_em.sleep(6)
                 raw_em, finish_em = _stream_aiem()
                 raw_em = _extract_json_em(raw_em)
@@ -27464,6 +27646,40 @@ def ai_short_calls_log():
                         "by_date": {}}), 500
 
 
+
+@app.route("/stock-api/admin/job-health", methods=["GET"])
+def _admin_job_health():
+    """Admin: current heartbeat status of all monitored scheduled jobs."""
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    result = check_job_health(_JOB_STALENESS_HOURS)
+    return jsonify(result)
+
+
+@app.route("/stock-api/admin/job-heartbeats", methods=["GET"])
+def _admin_job_heartbeats():
+    """Admin: raw heartbeat table - every job's last run times."""
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import psycopg2 as _pg_jh
+        with _pg_jh.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT job_name, last_success, last_attempt, consecutive_failures, last_error
+                FROM job_heartbeats ORDER BY job_name
+            """)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        for r in rows:
+            for k, v in r.items():
+                if hasattr(v, 'isoformat'):
+                    r[k] = str(v)
+        return jsonify({"status": "ok", "jobs": rows})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
 @app.route("/stock-api/admin/grade-short-calls", methods=["POST"])
 def admin_grade_short_calls():
     """Admin: manually trigger short-call outcome grading (backfill ungraded picks)."""
@@ -27474,12 +27690,12 @@ def admin_grade_short_calls():
         except Exception as _e:
             print(f"[admin_grade_short_calls] error: {_e}")
     _thr_gsc.Thread(target=_bg, daemon=True).start()
-    return jsonify({"status": "grading started — check logs in ~60s"})
+    return jsonify({"status": "grading started - check logs in ~60s"})
 
 
 @app.route("/stock-api/multi-signal", methods=["GET"])
 def multi_signal_convergence():
-    """Multi-signal convergence scanner — 25 signal conditions including cross-referenced caches."""
+    """Multi-signal convergence scanner - 25 signal conditions including cross-referenced caches."""
     import yfinance as yf
     from datetime import datetime as _ms_dt
 
@@ -27488,17 +27704,17 @@ def multi_signal_convergence():
     if _cache and _ts and (_ms_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
 
-    # Yahoo throttled — fail-fast
+    # Yahoo throttled - fail-fast
     if _yf_breaker_open():
         _ms_db = _load_scan_cache("multi-signal")
         if _ms_db:
-            return jsonify({**_ms_db, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_ms_db, "stale": True, "note": "cached - Yahoo rate limited"})
         if _cache:
-            return jsonify({**_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_cache, "stale": True, "note": "cached - Yahoo rate limited"})
         return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "Yahoo rate limited — try again shortly"})
+                        "note": "Yahoo rate limited - try again shortly"})
 
-    # Market closed — serve last Friday's scan from DB
+    # Market closed - serve last Friday's scan from DB
     if not _intraday_scan_allowed():
         _ms_db = _load_scan_cache("multi-signal")
         if _ms_db:
@@ -27507,18 +27723,18 @@ def multi_signal_convergence():
         if _cache:
             return jsonify({**_cache, "stale": True})
         return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "market closed — no scan data yet for this week"})
+                        "note": "market closed - no scan data yet for this week"})
 
     if _yf_breaker_open():
         _fb = getattr(app, "_ms_cache", None)
         if _fb:
-            return jsonify({**_fb, "stale": True, "note": "feed temporarily paused — try again shortly"})
+            return jsonify({**_fb, "stale": True, "note": "feed temporarily paused - try again shortly"})
         _ms_db = _load_scan_cache("multi-signal")
         if _ms_db:
             app._ms_cache = _ms_db; app._ms_cache_ts = _ms_dt.now()
-            return jsonify({**_ms_db, "stale": True, "note": "feed temporarily paused — try again shortly"})
+            return jsonify({**_ms_db, "stale": True, "note": "feed temporarily paused - try again shortly"})
         return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "feed temporarily paused — try again shortly"})
+                        "note": "feed temporarily paused - try again shortly"})
 
     SIGNAL_DEFS = [
         # ── Quant / price-action signals (computed live) ──────────────────
@@ -27538,35 +27754,35 @@ def multi_signal_convergence():
         ("BULL_FLOW",          "📈 Bull Flow",           "In the bull flow top signals today"),
         ("WHALE_ACTIVITY",     "🐋 Whale Activity",      "Whale block trade detected"),
         ("AI_TRADE_SIGNAL",    "🤖 AI Trade Signal",     "AI Trade tab selected this ticker today"),
-        ("CHEAP_OPTIONS",      "💰 Cheap Options",       "IV rank < 20 — options priced below historical avg"),
+        ("CHEAP_OPTIONS",      "💰 Cheap Options",       "IV rank < 20 - options priced below historical avg"),
         ("HIGH_QUANT_SCORE",   "🏆 High Quant Score",   "Composite quant score in top 20 of universe"),
-        ("GAMMA_WALL",         "🧲 Gamma Wall",          "Near/above gamma wall — dealer buying amplifies move"),
-        ("VOL_CRUSH_SETUP",    "📉 Vol Crush Setup",     "Inflated IV ahead of catalyst — market pricing in big move"),
-        ("MAX_PAIN_PULL",      "⚡ Max Pain Pull",       "Price below max pain — MM pressure targets upside"),
+        ("GAMMA_WALL",         "🧲 Gamma Wall",          "Near/above gamma wall - dealer buying amplifies move"),
+        ("VOL_CRUSH_SETUP",    "📉 Vol Crush Setup",     "Inflated IV ahead of catalyst - market pricing in big move"),
+        ("MAX_PAIN_PULL",      "⚡ Max Pain Pull",       "Price below max pain - MM pressure targets upside"),
         ("CALL_INTENT_HIGH",   "🎯 Call Intent",         "High call OI / unusual call intent detected"),
         # ── High-conviction quant filters ─────────────────────────────────────
-        ("MARKET_REGIME",      "🌍 Market Regime",       "SPY above 50-day MA and VIX < 25 — risk-on macro environment"),
+        ("MARKET_REGIME",      "🌍 Market Regime",       "SPY above 50-day MA and VIX < 25 - risk-on macro environment"),
         ("RELATIVE_STRENGTH",  "🏆 Relative Strength",   "Outperforming S&P 500 by 15%+ over last 3 months (RS top tier)"),
-        ("SHORT_SQUEEZE_FUEL", "💣 Short Squeeze Fuel",  "Short interest > 10% — trapped shorts amplify any upside move"),
-        ("EPS_REVISION_UP",    "📊 EPS Revision Up",     "Earnings growth > 10% — analysts revising estimates higher"),
+        ("SHORT_SQUEEZE_FUEL", "💣 Short Squeeze Fuel",  "Short interest > 10% - trapped shorts amplify any upside move"),
+        ("EPS_REVISION_UP",    "📊 EPS Revision Up",     "Earnings growth > 10% - analysts revising estimates higher"),
         # ── Technical / momentum signals ──────────────────────────────────────
-        ("RSI_SETUP",          "📐 RSI Setup",           "RSI 14-day between 30–62 — not overbought, has room to run"),
-        ("MACD_BULLISH",       "📈 MACD Cross",          "MACD crossed above signal line — momentum turning bullish"),
-        ("BB_SQUEEZE",         "🗜️ BB Squeeze",           "Bollinger Bands at 6-month tightest — major breakout imminent"),
-        ("GOLDEN_CROSS",       "⭐ Golden Cross",         "50-day MA above 200-day MA — institutional trend confirmation"),
+        ("RSI_SETUP",          "📐 RSI Setup",           "RSI 14-day between 30–62 - not overbought, has room to run"),
+        ("MACD_BULLISH",       "📈 MACD Cross",          "MACD crossed above signal line - momentum turning bullish"),
+        ("BB_SQUEEZE",         "🗜 BB Squeeze",           "Bollinger Bands at 6-month tightest - major breakout imminent"),
+        ("GOLDEN_CROSS",       "⭐ Golden Cross",         "50-day MA above 200-day MA - institutional trend confirmation"),
         ("MOMENTUM_12_1",      "🚀 12-1 Momentum",       "Up 15%+ over prior 11 months (Jegadeesh-Titman quant factor)"),
-        ("OBV_DIVERGE",        "🔊 OBV Accumulation",    "On-balance volume rising while price flat — quiet institutional buying"),
+        ("OBV_DIVERGE",        "🔊 OBV Accumulation",    "On-balance volume rising while price flat - quiet institutional buying"),
         # ── Fundamental quality signals ───────────────────────────────────────
-        ("FLOAT_ROTATION",     "🔄 Float Rotation",      "Daily volume > 30% of float — high conviction from active participants"),
-        ("PRICE_TARGET_UP",    "🎯 Analyst Target",      "Analyst consensus target >15% above current price — institutional conviction"),
-        ("HIGH_QUALITY",       "💎 High Quality",        "ROE > 15% with manageable debt — quality factor used by quant funds"),
-        ("ANALYST_UPGRADE",    "⬆️ Analyst Upgrade",     "Buy/Outperform upgrade in last 21 days — institutional re-rating signal"),
-        ("EARNINGS_BEAT",      "✅ Earnings Beater",      "Beat EPS estimates in 75%+ of recent quarters — systematic under-model"),
-        ("REVENUE_ACCEL",      "📈 Revenue Accel",       "QoQ revenue growth rate accelerating — institutional re-rating trigger"),
-        ("MARGIN_EXPAND",      "📊 Margin Expansion",    "Gross margin expanding QoQ — pricing power and operating leverage"),
+        ("FLOAT_ROTATION",     "🔄 Float Rotation",      "Daily volume > 30% of float - high conviction from active participants"),
+        ("PRICE_TARGET_UP",    "🎯 Analyst Target",      "Analyst consensus target >15% above current price - institutional conviction"),
+        ("HIGH_QUALITY",       "💎 High Quality",        "ROE > 15% with manageable debt - quality factor used by quant funds"),
+        ("ANALYST_UPGRADE",    "⬆ Analyst Upgrade",     "Buy/Outperform upgrade in last 21 days - institutional re-rating signal"),
+        ("EARNINGS_BEAT",      "✅ Earnings Beater",      "Beat EPS estimates in 75%+ of recent quarters - systematic under-model"),
+        ("REVENUE_ACCEL",      "📈 Revenue Accel",       "QoQ revenue growth rate accelerating - institutional re-rating trigger"),
+        ("MARGIN_EXPAND",      "📊 Margin Expansion",    "Gross margin expanding QoQ - pricing power and operating leverage"),
         # ── Macro health filters ──────────────────────────────────────────────
-        ("VIX_CONTANGO",       "📉 VIX Contango",        "VIX spot below 3-month VIX — term structure healthy, no fear event priced in"),
-        ("HYG_HEALTHY",        "🔋 Credit Healthy",      "High-yield bonds not diverging from equities — no credit stress signal"),
+        ("VIX_CONTANGO",       "📉 VIX Contango",        "VIX spot below 3-month VIX - term structure healthy, no fear event priced in"),
+        ("HYG_HEALTHY",        "🔋 Credit Healthy",      "High-yield bonds not diverging from equities - no credit stress signal"),
     ]
 
     # ── Build ticker sets from existing caches (read-only, safe) ─────────
@@ -27609,7 +27825,7 @@ def multi_signal_convergence():
         "bottom": {"ticker": bottom_sector["ticker"], "name": bottom_sector["name"], "day_chg": bottom_sector["day_chg"], "flow": bottom_sector["flow"]} if bottom_sector else None,
     }
 
-    # ── Global macro signals — 1-hour cache to avoid re-fetching on every call ──
+    # ── Global macro signals - 1-hour cache to avoid re-fetching on every call ──
     _mc_prev = getattr(app, "_ms_macro_cache", None)
     _mc_ts   = getattr(app, "_ms_macro_ts", None)
     # Read macro from cache instantly; never block the request thread
@@ -27936,7 +28152,7 @@ def multi_signal_ai_thesis():
                 imp_str = f"±{imp}% implied move (ATM straddle)" if imp else "implied move unavailable"
                 eps_str = f"EPS estimate: ${eps:+.2f}" if eps is not None else "EPS estimate: N/A"
                 earnings_ctx = f"""
-⚠️  EARNINGS EVENT: {ticker} reports in {earn['days_until']} day(s) on {earn['earnings_date']}
+WARNING  EARNINGS EVENT: {ticker} reports in {earn['days_until']} day(s) on {earn['earnings_date']}
     Options market pricing {imp_str}
     {eps_str}
 """
@@ -27957,10 +28173,10 @@ Signals firing simultaneously ({len(signals)}/8):
 
 Write a concise, actionable trade thesis with:
 1. SETUP SUMMARY (2-3 sentences on why {len(signals)} converging signals matters)
-2. BULL CASE (price target, catalyst, timeframe){" — factor in the earnings event and implied move" if earnings_ctx else ""}
-3. BEAR CASE / RISK (what could go wrong){" — include earnings binary risk" if earnings_ctx else ""}
+2. BULL CASE (price target, catalyst, timeframe){" - factor in the earnings event and implied move" if earnings_ctx else ""}
+3. BEAR CASE / RISK (what could go wrong){" - include earnings binary risk" if earnings_ctx else ""}
 4. CONVICTION: CRITICAL / HIGH / WATCH / NOISE
-5. SUGGESTED ACTION (buy calls, watch for entry, avoid) — naked long calls only, no spreads
+5. SUGGESTED ACTION (buy calls, watch for entry, avoid) - naked long calls only, no spreads
 
 Be direct, specific, and professional. No disclaimers."""
 
@@ -28139,9 +28355,9 @@ def iv_rank_scan():
     # Circuit breaker: if Yahoo is throttled return cache or empty quickly
     if _yf_breaker_open():
         if _cache:
-            return jsonify({**_cache, "stale": True, "note": "breaker open — cached"})
+            return jsonify({**_cache, "stale": True, "note": "breaker open - cached"})
         return jsonify({"results": [], "total": 0, "stale": True,
-                        "note": "IV scan paused — Yahoo rate limited, retry shortly"})
+                        "note": "IV scan paused - Yahoo rate limited, retry shortly"})
 
     from datetime import datetime, timedelta
 
@@ -28259,12 +28475,12 @@ def iv_rank_scan():
     if _cache:
         return jsonify({**_cache, "stale": True, "note": "refreshing in background"})
     return jsonify({"rows": [], "scanned": 0, "stale": True,
-                    "note": "IV rank scan starting — check back in ~30s"})
+                    "note": "IV rank scan starting - check back in ~30s"})
 
 
 @app.route("/stock-api/52week-breakout", methods=["GET"])
 def breakout_52week():
-    """52-week high breakout scanner — price near/above 52wk high + volume confirmation."""
+    """52-week high breakout scanner - price near/above 52wk high + volume confirmation."""
     import yfinance as yf
     from datetime import datetime as _bk_dt
 
@@ -28277,7 +28493,7 @@ def breakout_52week():
         if _cache:
             return jsonify({**_cache, "stale": True})
         return jsonify({"rows": [], "scanned": 0, "stale": True,
-                        "note": "feed temporarily paused — try again shortly"})
+                        "note": "feed temporarily paused - try again shortly"})
 
     results = []
 
@@ -28369,7 +28585,7 @@ def breakout_52week():
 
 @app.route("/stock-api/sector-rotation", methods=["GET"])
 def sector_rotation():
-    """Sector rotation heatmap — 11 SPDR sector ETFs with flow direction signals."""
+    """Sector rotation heatmap - 11 SPDR sector ETFs with flow direction signals."""
     import yfinance as yf
     from datetime import datetime as _sr_dt
 
@@ -28495,7 +28711,7 @@ def squeeze_setup():
     if _fresh:
         return jsonify(_cache)
 
-    # Market closed — serve last Friday's scan from DB
+    # Market closed - serve last Friday's scan from DB
     if not _intraday_scan_allowed():
         _sq_db = _load_scan_cache("squeeze-setup")
         if _sq_db:
@@ -28504,18 +28720,18 @@ def squeeze_setup():
         if _cache:
             return jsonify({**_cache, "stale": True})
         return jsonify({"setups": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "market closed — no scan data yet for this week"})
+                        "note": "market closed - no scan data yet for this week"})
 
     if _yf_breaker_open():
         _fb = getattr(app, "_sq_cache", None)
         if _fb:
-            return jsonify({**_fb, "stale": True, "note": "feed temporarily paused — try again shortly"})
+            return jsonify({**_fb, "stale": True, "note": "feed temporarily paused - try again shortly"})
         _sq_db = _load_scan_cache("squeeze-setup")
         if _sq_db:
             app._sq_cache = _sq_db; app._sq_cache_ts = _sq_dt.now()
-            return jsonify({**_sq_db, "stale": True, "note": "feed temporarily paused — try again shortly"})
+            return jsonify({**_sq_db, "stale": True, "note": "feed temporarily paused - try again shortly"})
         return jsonify({"setups": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "feed temporarily paused — try again shortly"})
+                        "note": "feed temporarily paused - try again shortly"})
 
     # Return stale cache immediately while background thread refreshes
     def _bg_sq():
@@ -28642,24 +28858,24 @@ def squeeze_ai_signal():
     prompt = f"""You are a short squeeze and low-float breakout specialist.
 
 Signal types:
-- SQUEEZE: high short float (>=15%) + high days-to-cover (>=5d) — forced buying avalanche on any catalyst
-- LOW_FLOAT: tiny float (<=20M shares) + heavy volume (>=8% of float today) — tiny supply, explosive on demand
-- BOTH: both conditions simultaneously — the most dangerous setup possible
+- SQUEEZE: high short float (>=15%) + high days-to-cover (>=5d) - forced buying avalanche on any catalyst
+- LOW_FLOAT: tiny float (<=20M shares) + heavy volume (>=8% of float today) - tiny supply, explosive on demand
+- BOTH: both conditions simultaneously - the most dangerous setup possible
 
 Key metrics:
 - short_float: what % of float is sold short. >25% = extreme. >35% = explosive powder keg
 - days_to_cover: how many trading days shorts need to fully exit at normal volume. >8d = violent squeeze potential
 - float_m: total float in millions. <5M = micro float, any buying pressure moves it 10%+
-- vol_pct_float: today's vol as % of total float. >15% means the float is rotating rapidly — something is happening now
-- rel_vol: today's vol vs 3-month avg. >5x = 5 times normal activity — unusual accumulation
+- vol_pct_float: today's vol as % of total float. >15% means the float is rotating rapidly - something is happening now
+- rel_vol: today's vol vs 3-month avg. >5x = 5 times normal activity - unusual accumulation
 
 Setups to analyze:
 {chr(10).join(lines)}
 
 Conviction levels:
-- CRITICAL: BOTH signal, OR SQUEEZE with short_float>25% + days_to_cover>8 + rel_vol>3 — near-certain violent move on any catalyst
-- HIGH: SQUEEZE with short_float>18% + days_to_cover>5, OR LOW_FLOAT with vol_pct_float>12% + rel_vol>4 — strong setup
-- WATCH: setup present but one or more metrics are borderline — monitor for volume confirmation
+- CRITICAL: BOTH signal, OR SQUEEZE with short_float>25% + days_to_cover>8 + rel_vol>3 - near-certain violent move on any catalyst
+- HIGH: SQUEEZE with short_float>18% + days_to_cover>5, OR LOW_FLOAT with vol_pct_float>12% + rel_vol>4 - strong setup
+- WATCH: setup present but one or more metrics are borderline - monitor for volume confirmation
 - NOISE: metrics look okay on one dimension but the composite picture doesn't confirm explosiveness
 
 Return ONLY valid JSON, no markdown:
@@ -28689,13 +28905,13 @@ Return ONLY valid JSON, no markdown:
                 for sig in critical:
                     row = next((r for r in rows if r["ticker"] == sig["ticker"]), {})
                     msg = (
-                        f"🔥 StockScanner AI — {sig['signal']} SETUP\n"
+                        f"🔥 StockScanner AI - {sig['signal']} SETUP\n"
                         f"{sig['ticker']} ${row.get('price','?')} | {row.get('signal_type','')} signal\n"
                         f"Short: {row.get('short_float_pct',0):.1f}% | {row.get('days_to_cover',0):.1f}d to cover\n"
                         f"Float: {row.get('float_m','?')}M shares | {row.get('rel_vol',0):.1f}x vol\n"
                         f"{sig['thesis'][:160]}"
                     )
-                    _ser("joeldcarlo@gmail.com", f"🔥 {sig['signal']} — {sig['ticker']}", f"<pre>{msg}</pre>")
+                    _ser("joeldcarlo@gmail.com", f"🔥 {sig['signal']} - {sig['ticker']}", f"<pre>{msg}</pre>")
                     sms_sent.append(sig["ticker"])
         except Exception as sms_err:
             print(f"[squeeze_ai] email error: {sms_err}", file=sys.stderr, flush=True)
@@ -28710,7 +28926,7 @@ Return ONLY valid JSON, no markdown:
 
 @app.route("/stock-api/morning-runners", methods=["GET"])
 def morning_runners():
-    """Morning runners — scans all tickers for pre-market volume spikes + gap moves."""
+    """Morning runners - scans all tickers for pre-market volume spikes + gap moves."""
     from datetime import datetime as _mr_dt
 
     _cache = getattr(app, "_mr_cache", None)
@@ -28718,17 +28934,17 @@ def morning_runners():
     if _cache and _ts and (_mr_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
 
-    # Yahoo throttled — fail-fast rather than hang 18s+
+    # Yahoo throttled - fail-fast rather than hang 18s+
     if _yf_breaker_open():
         _mr_db = _load_scan_cache("morning-runners")
         if _mr_db:
-            return jsonify({**_mr_db, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_mr_db, "stale": True, "note": "cached - Yahoo rate limited"})
         if _cache:
-            return jsonify({**_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_cache, "stale": True, "note": "cached - Yahoo rate limited"})
         return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "Yahoo rate limited — try again shortly"})
+                        "note": "Yahoo rate limited - try again shortly"})
 
-    # Market closed — serve last scan from DB rather than an empty live result
+    # Market closed - serve last scan from DB rather than an empty live result
     if not _intraday_scan_allowed():
         _mr_db = _load_scan_cache("morning-runners")
         if _mr_db:
@@ -28737,7 +28953,7 @@ def morning_runners():
         if _cache:
             return jsonify({**_cache, "stale": True})
         return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "market closed — no scan data yet for this week"})
+                        "note": "market closed - no scan data yet for this week"})
 
     results = []
 
@@ -28758,7 +28974,7 @@ def morning_runners():
             if rel_vol < 1.5 and abs(gap_pct) < 4.0:
                 return None
 
-            # score = relative volume * (|gap%| + 1) — big vol + big gap = top of list
+            # score = relative volume * (|gap%| + 1) - big vol + big gap = top of list
             score   = round(rel_vol * (abs(gap_pct) + 1), 2)
             squeeze = bool(mkt_cap_b is not None and mkt_cap_b < 2.0 and rel_vol >= 3.0)
 
@@ -29015,13 +29231,13 @@ def earnings_calendar():
     with _ec_lock:
         if _ec_cache and _ec_cache_ts and (_dt_ec2.datetime.now() - _ec_cache_ts).total_seconds() < _EC_TTL:
             return jsonify(_ec_cache)
-    # Yahoo throttled — serve cached earnings rather than hanging
+    # Yahoo throttled - serve cached earnings rather than hanging
     if _yf_breaker_open():
         with _ec_lock:
             if _ec_cache:
-                return jsonify({**_ec_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+                return jsonify({**_ec_cache, "stale": True, "note": "cached - Yahoo rate limited"})
         return jsonify({"earnings": [], "count": 0, "stale": True,
-                        "note": "Yahoo rate limited — try again shortly"})
+                        "note": "Yahoo rate limited - try again shortly"})
     def _bg_ec():
         if getattr(app, "_ec_scanning", False):
             return
@@ -29064,10 +29280,10 @@ def earnings_calendar():
 @app.route("/stock-api/morning-inflows", methods=["GET"])
 def morning_inflows():
     """
-    Morning Standout Inflows — catches extreme net buying pressure (like a +25% OCC-style move).
+    Morning Standout Inflows - catches extreme net buying pressure (like a +25% OCC-style move).
     Scans Yahoo Finance top-gainers list + all tracked tickers.
     Standout criteria: price ≥+5% intraday · relative volume ≥3× avg · flow ratio ≥2:1 buy:sell.
-    Score = rel_vol × (price_chg_pct/10) × flow_ratio — sorted highest first.
+    Score = rel_vol × (price_chg_pct/10) × flow_ratio - sorted highest first.
     Pre-warmed by scheduler at 9:45 AM and 10:30 AM ET Mon–Fri.
     """
     import yfinance as _yf_mi
@@ -29078,14 +29294,14 @@ def morning_inflows():
     try:
         bust = request.args.get("bust", "0") == "1"
     except RuntimeError:
-        bust = True  # called from scheduler — always fresh
+        bust = True  # called from scheduler - always fresh
 
     _cache    = getattr(app, "_mi_cache", None)
     _cache_ts = getattr(app, "_mi_cache_ts", None)
     if not bust and _cache and _cache_ts and (_dt_mi.datetime.now() - _cache_ts).total_seconds() < 900:
         return jsonify(_cache)
 
-    # ── DB fallback — survive API restarts all day ──────────────────────────
+    # ── DB fallback - survive API restarts all day ──────────────────────────
     # If in-memory cache is cold (restart), load today's best scan from DB.
     # This means the morning results stay visible all day even after a restart.
     if not bust and _DB_URL:
@@ -29136,7 +29352,7 @@ def morning_inflows():
         _eq = _yf_mi.EquityQuery("and", [
             _yf_mi.EquityQuery("gt",  ["percentchange",    4.9]),
             _yf_mi.EquityQuery("eq",  ["region",           "us"]),
-            _yf_mi.EquityQuery("gte", ["intradaymarketcap", 500_000]),  # ≥$500K — catches tiny micro-caps
+            _yf_mi.EquityQuery("gte", ["intradaymarketcap", 500_000]),  # ≥$500K - catches tiny micro-caps
         ])
         _offset = 0
         while True:
@@ -29193,8 +29409,8 @@ def morning_inflows():
         ("most_actives",          100, 50),
         ("aggressive_small_caps", 100,  0),
         ("small_cap_gainers",     100,  0),
-        ("day_gainers",           100,  0),   # top % gainers — catches CRVO-type catalysts
-        ("day_gainers",           100, 50),   # page 2 — large moves can stack up
+        ("day_gainers",           100,  0),   # top % gainers - catches CRVO-type catalysts
+        ("day_gainers",           100, 50),   # page 2 - large moves can stack up
     ]
     _supp_syms = []
     with _TPE_src(max_workers=4) as _src_ex:
@@ -29203,7 +29419,7 @@ def morning_inflows():
 
     # ── PHASE 1c: Our tracked tickers (options signals + morning watchlist) ──
     # morning_watchlist = hand-curated stocks that have shown big intraday moves
-    # even when they open flat/red — ensures they're always in the scan universe
+    # even when they open flat/red - ensures they're always in the scan universe
     # so if they cross 5%+ at the 9:45 or 10:30 AM scan they won't be missed.
     _tracked = []
     try:
@@ -29226,7 +29442,7 @@ def morning_inflows():
 
     # ── PHASE 1d: Finviz micro-cap + small-cap top movers ────────────────────
     # Finviz screener catches small/micro movers with options activity.
-    # (Barchart replaced — their proxies/core-api is IP-blocked on this server)
+    # (Barchart replaced - their proxies/core-api is IP-blocked on this server)
     _barchart_syms = []   # kept as variable name for downstream merge compatibility
     try:
         import re as _re_mi
@@ -29235,15 +29451,15 @@ def morning_inflows():
             "Accept-Language": "en-US,en;q=0.9",
         }
         _fv_screens_mi = [
-            # ── Nano-cap (<$50M) — most explosive catalyst movers, rarely have options ──
+            # ── Nano-cap (<$50M) - most explosive catalyst movers, rarely have options ──
             "cap_nano,ta_change_u10",                 # nano up 10%+ (CRE, CRVO class)
-            "cap_nano,ta_change_u20",                 # nano up 20%+ — extreme moves
-            "cap_nano,ta_change_u50",                 # nano up 50%+ — parabolic movers
-            # ── Micro-cap ($50M–$300M) — no options required ─────────────────────────
+            "cap_nano,ta_change_u20",                 # nano up 20%+ - extreme moves
+            "cap_nano,ta_change_u50",                 # nano up 50%+ - parabolic movers
+            # ── Micro-cap ($50M–$300M) - no options required ─────────────────────────
             "cap_micro,ta_change_u10",                # micro up 10%+ (WBX, VNCE class)
-            "cap_micro,ta_change_u20",                # micro up 20%+ — news/earnings gaps
-            "cap_micro,ta_change_u50",                # micro up 50%+ — extreme catalyst
-            # ── Small-cap ($300M–$2B) — no options required ──────────────────────────
+            "cap_micro,ta_change_u20",                # micro up 20%+ - news/earnings gaps
+            "cap_micro,ta_change_u50",                # micro up 50%+ - extreme catalyst
+            # ── Small-cap ($300M–$2B) - no options required ──────────────────────────
             "cap_small,ta_change_u10",                # small up 10%+
             "cap_small,ta_change_u20",                # small up 20%+
             "cap_small,ta_change_u50",                # small up 50%+
@@ -29290,7 +29506,7 @@ def morning_inflows():
             mkt_cap    = float(getattr(fi, "market_cap", 0) or 0)
             if prev_close <= 0 or avg_vol <= 0: return None
 
-            # Fetch 1-min bars — single network call used for price, volume, AND flow
+            # Fetch 1-min bars - single network call used for price, volume, AND flow
             hist = _td_intraday(ticker, "1min")
             if hist is None or hist.empty or len(hist) < 2: return None
 
@@ -29318,7 +29534,7 @@ def morning_inflows():
 
             # Early-session threshold:  ≥5× projected  (=75× raw for OCC at 9:31)
             # After 30 min threshold rises to standard ≥3× (noise settles after open)
-            # Barchart-sourced stocks already pre-screened as top movers — lower bar
+            # Barchart-sourced stocks already pre-screened as top movers - lower bar
             # if up ≥20% so we don't miss EDHL-type runners with thinner avg volume
             if ticker in _barchart_set and price_chg >= 20.0:
                 min_rel = 1.5
@@ -29331,7 +29547,7 @@ def morning_inflows():
             # ── Micro-pump detection ─────────────────────────────────────────────
             # Data (2026-06-10): LUD $5.06 rel-vol 184× → -20.8%, CHNR $4.52 rel-vol 85× → -16.8%
             # Extremely high volume on a sub-$5 stock = coordinated micro-pump, not organic buying.
-            # Shown with a ⚠️ MICRO-PUMP warning label instead of silently dropped.
+            # Shown with a WARNING MICRO-PUMP warning label instead of silently dropped.
             _is_micro_pump = price < 5.0 and rel_vol > 50
 
             # ── Money flow from 1-min bars ──────────────────────────────────────
@@ -29345,7 +29561,7 @@ def morning_inflows():
 
             flow_ratio = (inflow / outflow) if outflow > 0 else 99.0
             # Lowered from 2.5 → 2.0: catches more legitimate movers in the watchlist.
-            # Micro-pumps skip the flow ratio gate — they're shown with a warning regardless.
+            # Micro-pumps skip the flow ratio gate - they're shown with a warning regardless.
             if not _is_micro_pump and flow_ratio < 2.0: return None
 
             # ── Gap-up multiplier ────────────────────────────────────────────
@@ -29360,7 +29576,7 @@ def morning_inflows():
             # ── First 5-minute bar direction (9:30–9:34 AM) ──────────────────
             # The most direct evidence of supply vs demand at the open.
             # If the first bar closes RED, sellers are overwhelming buyers at the
-            # bell — structural dump into retail buyers who saw the gap and jumped in.
+            # bell - structural dump into retail buyers who saw the gap and jumped in.
             # Validated 2026-06-10:
             #   HCAI: first bar +6.6% 🟢 → day closed +17.4% ✓ (winner)
             #   CHNR: first bar -7.3% 🔴 → day closed -16.8% ✓ (loser)
@@ -29375,28 +29591,28 @@ def morning_inflows():
                 has_first_bar   = True
             else:
                 first_bar_pct   = 0.0
-                first_bar_green = True   # pre-market scan: no bar yet — don't penalise
+                first_bar_green = True   # pre-market scan: no bar yet - don't penalise
                 has_first_bar   = False
 
-            # ── Gap multiplier — data-tuned from 2026-06-10 live results ────
+            # ── Gap multiplier - data-tuned from 2026-06-10 live results ────
             # Sweet spot: 5–15% gap with high rel-vol = highest hit rate (SDOT +96%,
             # LICN +20%, HCAI +17%). Extreme gaps (>100%) fade 100% of the time.
-            if   gap_pct > 100: gap_multiplier = 0.4   # extreme pump — almost always fades
-            elif gap_pct > 30:  gap_multiplier = 0.8   # large gap — structural fade risk
-            elif gap_pct >= 15: gap_multiplier = 1.5   # moderate gap — some risk
-            elif gap_pct >= 5:  gap_multiplier = 2.5   # SWEET SPOT — proven highest hit rate
-            elif gap_pct >= 2:  gap_multiplier = 1.2   # modest gap — some pre-market interest
-            else:               gap_multiplier = 1.0   # no gap — intraday drift, lower confidence
+            if   gap_pct > 100: gap_multiplier = 0.4   # extreme pump - almost always fades
+            elif gap_pct > 30:  gap_multiplier = 0.8   # large gap - structural fade risk
+            elif gap_pct >= 15: gap_multiplier = 1.5   # moderate gap - some risk
+            elif gap_pct >= 5:  gap_multiplier = 2.5   # SWEET SPOT - proven highest hit rate
+            elif gap_pct >= 2:  gap_multiplier = 1.2   # modest gap - some pre-market interest
+            else:               gap_multiplier = 1.0   # no gap - intraday drift, lower confidence
 
             standout_score = round(rel_vol * (price_chg / 10) * min(flow_ratio, 10) * gap_multiplier, 2)
             net_m          = (inflow - outflow) / 1_000_000
 
             # ── Fade Risk assessment ──────────────────────────────────────────
             # Signals used (in priority order):
-            #   1. Gap size + market cap  — extreme pre-market pumps
-            #   2. Pre-market exhaustion  — moderate gap where fuel is already burned
-            #   3. Momentum at open       — price direction the moment the bell rings
-            #   4. Market cap alone       — micro-cap structural risk
+            #   1. Gap size + market cap  - extreme pre-market pumps
+            #   2. Pre-market exhaustion  - moderate gap where fuel is already burned
+            #   3. Momentum at open       - price direction the moment the bell rings
+            #   4. Market cap alone       - micro-cap structural risk
             momentum_open = price_chg - gap_pct        # >0 = still running; <0 = already fading
             mkt_cap_m_val = mkt_cap / 1_000_000 if mkt_cap else 0
 
@@ -29407,33 +29623,33 @@ def morning_inflows():
             # Real-data validation (2026-06-10):
             #   DSY: 94% pre-mkt → faded -24% ✓   SDOT: 74% pre-mkt → ran +96% ✓
             #   VSME: 68% pre-mkt → faded -44% ✓  LICN: small gap → ran +20% ✓
-            # Rule applies only when gap is meaningful (≥15%) — tiny gaps don't matter.
+            # Rule applies only when gap is meaningful (≥15%) - tiny gaps don't matter.
             exhaustion_ratio = (gap_pct / price_chg) if price_chg > 0 else 0.0
 
             # ── First-bar hard rejection (2026-06-11) ────────────────────────
             # If the first 5-min bar closes >2% red, sellers are dumping into buyers at
-            # the bell — do not show this stock at all.
+            # the bell - do not show this stock at all.
             # Validated: CHNR first bar -7.3% → lost -16.8%; LUD -11.3% → lost -20.8%
             if has_first_bar and first_bar_pct < -2.0:
                 return None
 
             # ── Refined fade risk (priority order) ───────────────────────────
-            # Change 1: Extreme gappers (>100%) always HIGH — confirmed faded 100% on 6/10
+            # Change 1: Extreme gappers (>100%) always HIGH - confirmed faded 100% on 6/10
             # Change 2: Momentum threshold tightened: -3 triggers HIGH (was -5), -1 triggers WATCH (was -2)
             if gap_pct > 100:
-                fade_risk = "HIGH"    # extreme pump — DSY/VSME both faded 24-44% confirmed
+                fade_risk = "HIGH"    # extreme pump - DSY/VSME both faded 24-44% confirmed
             elif gap_pct > 30 and mkt_cap_m_val < 100:
-                fade_risk = "HIGH"    # large pump on tiny cap — not enough real buyers
+                fade_risk = "HIGH"    # large pump on tiny cap - not enough real buyers
             elif gap_pct >= 15 and exhaustion_ratio > 0.85:
-                fade_risk = "HIGH"    # moderate gap, 85%+ already happened pre-market — fuel burned
+                fade_risk = "HIGH"    # moderate gap, 85%+ already happened pre-market - fuel burned
             elif momentum_open < -3:
                 fade_risk = "HIGH"    # fading at the bell (tightened from -5 based on live data)
             elif mkt_cap_m_val > 0 and mkt_cap_m_val < 50:
-                fade_risk = "WATCH"   # micro-cap but modest gap — can run, stay alert
+                fade_risk = "WATCH"   # micro-cap but modest gap - can run, stay alert
             elif (mkt_cap_m_val < 500 and gap_pct > 10) or momentum_open < -1:
                 fade_risk = "WATCH"   # mid-cap large gap or slight negative momentum
             elif has_first_bar and first_bar_pct < 0.0:
-                fade_risk = "WATCH"   # slightly red first bar — some selling pressure at open
+                fade_risk = "WATCH"   # slightly red first bar - some selling pressure at open
             else:
                 fade_risk = "HOLD"    # larger cap, sustained buying, positive momentum
 
@@ -29477,8 +29693,8 @@ def morning_inflows():
     results.sort(key=lambda x: -x["standout_score"])
 
     # ── Separate micro-pumps, extreme pumps, and actionable standouts ────────
-    # micro_pumps:    sub-$5 at open + >50× rel vol + WEAK flow (<2.0) → ⚠️ warning
-    # extreme_pumps:  gap >100% — shown with 🔴 warning (100% fade rate confirmed)
+    # micro_pumps:    sub-$5 at open + >50× rel vol + WEAK flow (<2.0) → WARNING warning
+    # extreme_pumps:  gap >100% - shown with 🔴 warning (100% fade rate confirmed)
     # standouts:      everything else, including sub-$5 stocks with STRONG flow (≥2.0)
     #                 so genuine micro-cap movers aren't buried in warnings
     _micro_pumps   = [r for r in results if r.get("micro_pump") and r.get("flow_ratio", 0) < 2.0]
@@ -29497,9 +29713,9 @@ def morning_inflows():
         "criteria":      "price ≥+5% · projected vol ≥5× avg (first 30 min) · flow ratio ≥2:1",
     }
 
-    # ── Persist to DB — always overwrite with the latest scan ───────────────
+    # ── Persist to DB - always overwrite with the latest scan ───────────────
     # Each scan window (9:31, 9:45, 10:00, 10:15, 10:30) is a fresh filter pass.
-    # Fewer results at 9:45 means stocks faded — that IS the correct picture.
+    # Fewer results at 9:45 means stocks faded - that IS the correct picture.
     # Always write the most recent scan so the DB never shows stale winners.
     if results and _DB_URL:
         import json as _json_mi2
@@ -29524,7 +29740,7 @@ def morning_inflows():
                 else:
                     print(f"[morning_inflows] CACHE SAVE FAILED after 3 attempts: {_dbe_mi2}")
 
-    # ── Direct ntfy alert — fires on EVERY scan, independent of email ────────
+    # ── Direct ntfy alert - fires on EVERY scan, independent of email ────────
     # Tracks alerted tickers in app._mi_alerted_tickers so we only push NEW
     # movers discovered since the last scan, not repeats across the 9:31–14:00 runs.
     try:
@@ -29534,7 +29750,7 @@ def morning_inflows():
             app._mi_alerted_tickers  = set()
         _alerted = getattr(app, '_mi_alerted_tickers', set())
 
-        # Only alert tickers not yet pushed today — skip micro-pump junk (FADE/HIGH only if strong)
+        # Only alert tickers not yet pushed today - skip micro-pump junk (FADE/HIGH only if strong)
         _pushable = [
             s for s in _actionable[:20]
             if s.get('ticker') not in _alerted
@@ -29568,7 +29784,7 @@ def morning_inflows():
             )
             print(f"[morning_inflows] ntfy pushed {len(_pushable)} new movers: {[s.get('ticker') for s in _pushable[:10]]}")
         else:
-            print(f"[morning_inflows] ntfy skipped — no new tickers (already alerted: {sorted(_alerted)})")
+            print(f"[morning_inflows] ntfy skipped - no new tickers (already alerted: {sorted(_alerted)})")
     except Exception as _ntfy_mi_e:
         print(f"[morning_inflows] ntfy alert error: {_ntfy_mi_e}")
 
@@ -29621,7 +29837,7 @@ def morning_inflows():
         if _failed_sh:
             print(f"[scan_history] SAVE FAILED for: {', '.join(_failed_sh)}")
     elif bust and not results and _DB_URL:
-        # Bust/refresh after hours — don't replace good morning data with 0 results.
+        # Bust/refresh after hours - don't replace good morning data with 0 results.
         # Fall back to today's DB data (ET), or the most recent scan in the last
         # 5 days, so a forced refresh in the evening never blanks the tab.
         try:
@@ -29643,7 +29859,7 @@ def morning_inflows():
                     _db_mi3 = _cu_mi3.fetchone()
             if _db_mi3 and _db_mi3[0].get("standouts"):
                 out = _db_mi3[0]
-                print(f"[morning_inflows] bust found 0 results (after hours) — serving {len(out['standouts'])} from DB")
+                print(f"[morning_inflows] bust found 0 results (after hours) - serving {len(out['standouts'])} from DB")
         except Exception as _dbe_mi3:
             print(f"[morning_inflows] db bust-fallback error: {_dbe_mi3}")
 
@@ -29664,7 +29880,7 @@ def _get_short_data(ticker):
         _sf_sd  = _fi_sd.get("shortPercentOfFloat")
         _dtc_sd = _fi_sd.get("shortRatio")
 
-        # 60 days of daily OHLCV — enough for MACD(26), OBV(10), BB(20), SMA(20), RSI(14)
+        # 60 days of daily OHLCV - enough for MACD(26), OBV(10), BB(20), SMA(20), RSI(14)
         _h = _td_history(ticker, days=60)
         if _h is None or len(_h) < 5:
             return {"short_float": None, "days_to_cover": None, "avwap_5d": None,
@@ -29745,7 +29961,7 @@ def _get_short_data(ticker):
                 e = float(p) * k + e * (1 - k)
             return e
 
-        # ── MACD (12/26/9) — momentum shift signal ───────────────────────────
+        # ── MACD (12/26/9) - momentum shift signal ───────────────────────────
         # Historically: MACD histogram turning positive after flat/negative base
         # = trend changing hands from sellers to buyers right before the explosion
         _macd_histogram = None
@@ -29766,7 +29982,7 @@ def _get_short_data(ticker):
                     and (_macd_histogram > (_macd_line_series[-2] - _prev_hist))
                 )
 
-        # ── OBV Divergence — silent accumulation pre-squeeze ─────────────────
+        # ── OBV Divergence - silent accumulation pre-squeeze ─────────────────
         # Price going sideways while OBV climbs = big money quietly accumulating
         # while shorts think nothing is happening. Classic pre-GME / pre-AMC signal.
         _obv_divergence  = False
@@ -29780,7 +29996,7 @@ def _get_short_data(ticker):
                 elif _closes[_oi] < _closes[_oi - 1]:
                     _obv -= _vols[_oi]
                 _obv_series.append(_obv)
-            # 10-day OBV change vs price change — divergence = pre-squeeze signal
+            # 10-day OBV change vs price change - divergence = pre-squeeze signal
             _obv_chg10  = (_obv_series[-1] - _obv_series[-11]) / (abs(_obv_series[-11]) + 1)
             _px_chg10   = (_closes[-1] - _closes[-11]) / (_closes[-11] + 1e-9)
             _obv_trend_score = round(float(_obv_chg10 - _px_chg10), 4)
@@ -29813,7 +30029,7 @@ def _get_short_data(ticker):
         # ── Up-day volume dominance ───────────────────────────────────────────
         # Over last 10 sessions: compare total volume on up-days vs down-days.
         # When buyers command >60% of volume for multiple days while price is flat,
-        # shorts are losing the battle — classic pre-squeeze exhaustion signal.
+        # shorts are losing the battle - classic pre-squeeze exhaustion signal.
         _up_vol_ratio = None
         _buyers_dominant = False
         if len(_closes) >= 11:
@@ -29891,29 +30107,29 @@ def _get_short_data(ticker):
 @app.route("/stock-api/eod-accumulation", methods=["GET"])
 def eod_accumulation():
     """
-    EOD Accumulation Scanner — detects late-day pump-group buying patterns.
+    EOD Accumulation Scanner - detects late-day pump-group buying patterns.
 
     What we look for (3:30-4:00 PM ET window):
-      1. EOD volume burst — last-30-min volume vs the stock's typical EOD volume
-      2. Late money flow — inflow:outflow ratio in that window only (not the full day)
-      3. Closing range — stock closes near the day high (>0.7 = top 30% of range)
-      4. Quiet-then-surge — stock was calm all day then suddenly active into close
-      5. Small/micro cap bias — pump groups target low-float stocks
+      1. EOD volume burst - last-30-min volume vs the stock's typical EOD volume
+      2. Late money flow - inflow:outflow ratio in that window only (not the full day)
+      3. Closing range - stock closes near the day high (>0.7 = top 30% of range)
+      4. Quiet-then-surge - stock was calm all day then suddenly active into close
+      5. Small/micro cap bias - pump groups target low-float stocks
 
     If the scanner flags a stock at 3:45 PM you can buy before the close.
     Pump groups blast socials after hours → retail FOMO creates the morning gap.
     You're positioned BEFORE retail sees it at 9:31 AM.
     """
-    # Yahoo throttled — serve DB cache rather than hanging 18s+
+    # Yahoo throttled - serve DB cache rather than hanging 18s+
     if _yf_breaker_open():
         _ea_db = _load_scan_cache("eod-accumulation")
         if _ea_db:
-            return jsonify({**_ea_db, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_ea_db, "stale": True, "note": "cached - Yahoo rate limited"})
         _ea_mem = getattr(app, "_ea_cache", None)
         if _ea_mem:
-            return jsonify({**_ea_mem, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_ea_mem, "stale": True, "note": "cached - Yahoo rate limited"})
         return jsonify({"hits": [], "count": 0, "scanned": 0, "stale": True,
-                        "note": "Yahoo rate limited — try again shortly"})
+                        "note": "Yahoo rate limited - try again shortly"})
     import datetime as _dt_ea
     import yfinance as _yf_ea
     import psycopg2 as _pg_ea
@@ -29927,14 +30143,14 @@ def eod_accumulation():
     _et = _pytz_ea.timezone("America/New_York")
 
     # ── After market close: serve locked-in results from DB, not a fresh live scan ──
-    # Live yfinance intraday data degrades after ~4 PM ET — re-scanning returns fewer
+    # Live yfinance intraday data degrades after ~4 PM ET - re-scanning returns fewer
     # picks because the 3:30-4:00 PM bars become unavailable.  The 3:45 PM scheduled
     # scan already saved the correct results; just return those.
     _now_et_ea = _dt_ea.datetime.now(_et)
     _h_ea = _now_et_ea.hour
     _m_ea = _now_et_ea.minute
     # Market is open 9:30 AM – 4:00 PM ET. Outside that window, serve from DB.
-    # Weekends and holidays are also "after close" — a live intraday scan on a non-trading
+    # Weekends and holidays are also "after close" - a live intraday scan on a non-trading
     # day will hang on yfinance indefinitely. _intraday_scan_allowed() covers weekends,
     # market holidays, pre-9:30 AM, and post-4:30 PM, so it's the single authoritative gate.
     _after_close = (
@@ -29944,13 +30160,13 @@ def eod_accumulation():
         _h_ea < 9 or                       # midnight – 8:59 AM
         (_h_ea == 9 and _m_ea < 30)        # 9:00 – 9:29 AM
     )
-    # After close: 4h stale cache is fine — data doesn't change; avoids DB migration cost.
+    # After close: 4h stale cache is fine - data doesn't change; avoids DB migration cost.
     # During live market: 10min TTL to stay fresh.
     _cache_ttl = 14400 if _after_close else 600
     if not bust and _cache and _cache_ts and (_dt_ea.datetime.now() - _cache_ts).total_seconds() < _cache_ttl:
         return jsonify(_cache)
 
-    if _after_close:  # after market close, DB is authoritative — bust only clears in-memory cache
+    if _after_close:  # after market close, DB is authoritative - bust only clears in-memory cache
         # Migration in its own connection with a 1s lock timeout so a table lock
         # can never block the data SELECT below.
         try:
@@ -29961,7 +30177,7 @@ def eod_accumulation():
                 )
                 _c_mig.commit()
         except Exception:
-            pass  # column already exists or lock held — non-fatal, COALESCE handles it
+            pass  # column already exists or lock held - non-fatal, COALESCE handles it
         try:
             with _pg_ea.connect(_DB_URL, connect_timeout=5) as _c_db, _c_db.cursor() as _cu_db:
                 _cu_db.execute("""
@@ -30019,7 +30235,7 @@ def eod_accumulation():
             return jsonify(_out_db_ea)
 
     # After market close and DB has no data for today (weekend / holiday / cold start):
-    # return empty immediately — a live intraday scan won't find EOD accumulation data anyway.
+    # return empty immediately - a live intraday scan won't find EOD accumulation data anyway.
     if _after_close:
         _empty_eod = {"candidates": [], "squeeze_setups": [], "total_found": 0, "scanned": 0,
                       "generated_at": "No EOD scan today",
@@ -30028,7 +30244,7 @@ def eod_accumulation():
         app._eod_accum_cache_ts = _dt_ea.datetime.now()
         return jsonify(_empty_eod)
 
-    # ── Circuit breaker guard — Yahoo throttled → return last DB scan immediately ──
+    # ── Circuit breaker guard - Yahoo throttled → return last DB scan immediately ──
     if _yf_breaker_open():
         try:
             with _pg_ea.connect(_DB_URL, connect_timeout=5) as _cb_ea, _cb_ea.cursor() as _cub_ea:
@@ -30060,23 +30276,23 @@ def eod_accumulation():
                         "squeeze_setups": [r for r in _brk_picks if r["signal_type"] == "squeeze"][:10],
                         "total_found": len(_brk_picks), "scanned": len(_brk_picks),
                         "generated_at": "Stored (Yahoo throttled)",
-                        "note": "Showing last saved scan — Yahoo temporarily rate-limited"}
+                        "note": "Showing last saved scan - Yahoo temporarily rate-limited"}
             app._eod_accum_cache = _brk_out; app._eod_accum_cache_ts = _dt_ea.datetime.now()
             return jsonify(_brk_out)
         if _cache:
-            return jsonify({**_cache, "note": "Yahoo throttled — cached results"})
+            return jsonify({**_cache, "note": "Yahoo throttled - cached results"})
         return jsonify({"candidates": [], "squeeze_setups": [], "total_found": 0, "scanned": 0,
                         "generated_at": "Yahoo throttled",
-                        "note": "Yahoo rate-limited — data will refresh automatically"})
+                        "note": "Yahoo rate-limited - data will refresh automatically"})
 
-    # Live scan runs in a background thread — Flask thread returns immediately
+    # Live scan runs in a background thread - Flask thread returns immediately
     if getattr(app, "_eod_accum_scanning", False):
         if _cache:
             return jsonify({**_cache, "stale": True,
-                            "note": "Scan in progress — showing last result"})
+                            "note": "Scan in progress - showing last result"})
         return jsonify({"candidates": [], "squeeze_setups": [], "total_found": 0,
                         "scanned": 0, "generated_at": "Scanning…",
-                        "note": "First scan in progress — check back in 60s"})
+                        "note": "First scan in progress - check back in 60s"})
 
     def _run_eod_scan():
         try:
@@ -30373,7 +30589,7 @@ def eod_accumulation():
                         "note": "Refreshing in background…"})
     return jsonify({"candidates": [], "squeeze_setups": [], "total_found": 0,
                     "scanned": 0, "generated_at": "Scanning…",
-                    "note": "Scan started — results in ~60s"})
+                    "note": "Scan started - results in ~60s"})
 
 
 @app.route("/stock-api/eod-accum-track", methods=["GET"])
@@ -30595,7 +30811,7 @@ def short_squeeze_radar():
     if _sq_rad_cache and _sq_rad_ts and (_dt_sq.datetime.now() - _sq_rad_ts).total_seconds() < 3600:
         return jsonify(_sq_rad_cache)
 
-    # Market closed — serve Friday's saved scan from DB instead of running live gates
+    # Market closed - serve Friday's saved scan from DB instead of running live gates
     if not _intraday_scan_allowed():
         _sq_rad_db = _load_scan_cache("squeeze-radar", days_back=5)
         if _sq_rad_db:
@@ -30609,7 +30825,7 @@ def short_squeeze_radar():
         return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
                         "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET"),
                         "stale": True,
-                        "note": "No scan data yet — first run occurs during market hours (Mon–Fri 9:30 AM–4 PM ET)"})
+                        "note": "No scan data yet - first run occurs during market hours (Mon–Fri 9:30 AM–4 PM ET)"})
 
     try:
         _today_sq    = _et_today()
@@ -30631,12 +30847,12 @@ def short_squeeze_radar():
             return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
                             "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET")})
 
-        # Fail-fast when Yahoo throttled — don't hang 15 threads for 15s each
+        # Fail-fast when Yahoo throttled - don't hang 15 threads for 15s each
         if _yf_breaker_open():
             _stale_sq = _sq_rad_cache or {
                 "candidates": [], "total_found": 0, "scanned": len(_tickers_sq),
                 "stale": True, "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET"),
-                "note": "Yahoo temporarily throttled — try again in a few minutes",
+                "note": "Yahoo temporarily throttled - try again in a few minutes",
             }
             return jsonify(_stale_sq)
 
@@ -30646,7 +30862,7 @@ def short_squeeze_radar():
             chg = sd.get("price_chg_pct")
             vol = sd.get("vol_ratio_20d")
 
-            # ── 5 HARD GATES — all must pass or stock is excluded ────────────
+            # ── 5 HARD GATES - all must pass or stock is excluded ────────────
             # Gate 1: meaningful short fuel
             if not sf or sf < 15.0:                return None
             # Gate 2: actually moving up TODAY (not just potential)
@@ -30866,15 +31082,15 @@ def insider_radar():
     if not bust and _cache and _cache_ts and (_dt_ir.datetime.now() - _cache_ts).total_seconds() < 2700:
         return jsonify(_cache)
 
-    # Yahoo throttled — fail-fast
+    # Yahoo throttled - fail-fast
     if _yf_breaker_open():
         _ir_db = _load_scan_cache("insider-radar")
         if _ir_db:
-            return jsonify({**_ir_db, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_ir_db, "stale": True, "note": "cached - Yahoo rate limited"})
         if _cache:
-            return jsonify({**_cache, "stale": True, "note": "cached — Yahoo rate limited"})
+            return jsonify({**_cache, "stale": True, "note": "cached - Yahoo rate limited"})
         return jsonify({"signals": [], "count": 0, "stale": True,
-                        "note": "Yahoo rate limited — try again shortly"})
+                        "note": "Yahoo rate limited - try again shortly"})
 
     # DB fallback: serve last computed result on cold start / after restart
     if not bust and not _cache:
@@ -30965,7 +31181,7 @@ def insider_radar():
             count = ticker_stats.get(s["ticker"], {}).get("count", 1)
             earn  = earnings_map.get(s["ticker"])
             sc    = 0
-            # 1. Ticker rarity — rarely seen = suspicious (0-30)
+            # 1. Ticker rarity - rarely seen = suspicious (0-30)
             if   count == 1:  sc += 30
             elif count <= 2:  sc += 25
             elif count <= 4:  sc += 18
@@ -31006,22 +31222,22 @@ def insider_radar():
             if earn:
                 d = earn["days_until"]
                 if score >= 80:
-                    return f"🚨 SEC PATTERN — {prem_s} call bet on a quiet stock · Earnings in {d}d · Textbook pre-announcement insider positioning"
+                    return f"🚨 SEC PATTERN - {prem_s} call bet on a quiet stock · Earnings in {d}d · Textbook pre-announcement insider positioning"
                 elif score >= 65:
-                    return f"⚠️ SUSPICIOUS — Abnormal call flow with earnings {d}d away · Possible informed trading or tip chain"
+                    return f"WARNING SUSPICIOUS - Abnormal call flow with earnings {d}d away · Possible informed trading or tip chain"
                 elif score >= 50:
-                    return f"👀 WATCH — Options activity on {ticker} · Earnings in {d}d · Monitor for OI accumulation"
+                    return f"👀 WATCH - Options activity on {ticker} · Earnings in {d}d · Monitor for OI accumulation"
                 else:
-                    return f"📡 NOTED — Call activity detected · Earnings approaching in {d}d"
+                    return f"📡 NOTED - Call activity detected · Earnings approaching in {d}d"
             else:
                 if score >= 75:
-                    return f"🔍 UNUSUAL — {ticker} rarely sees activity at this size · Possible quiet positioning"
+                    return f"🔍 UNUSUAL - {ticker} rarely sees activity at this size · Possible quiet positioning"
                 elif score >= 55:
-                    return f"📊 ELEVATED — Above-normal options flow · Track OI over coming days for accumulation"
+                    return f"📊 ELEVATED - Above-normal options flow · Track OI over coming days for accumulation"
                 elif count <= 2:
-                    return f"📡 RARE — {ticker} has appeared only {count}x in 90 days · Worth monitoring"
+                    return f"📡 RARE - {ticker} has appeared only {count}x in 90 days · Worth monitoring"
                 else:
-                    return f"ℹ️ ACTIVE — Elevated flow on a stock with regular options activity"
+                    return f"ℹ ACTIVE - Elevated flow on a stock with regular options activity"
 
         # Assemble
         results = []
@@ -31088,7 +31304,7 @@ def insider_radar():
 
 @app.route("/stock-api/insider-alerts", methods=["GET"])
 def insider_alerts_route():
-    """Return the permanent alert log — all signals (score≥70) ever flagged, newest first."""
+    """Return the permanent alert log - all signals (score≥70) ever flagged, newest first."""
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -31127,7 +31343,7 @@ def insider_alerts_route():
 
 @app.route("/stock-api/insider-outcomes", methods=["GET"])
 def insider_outcomes_route():
-    """Return all resolved outcomes — what actually happened after each flagged bet."""
+    """Return all resolved outcomes - what actually happened after each flagged bet."""
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -31177,14 +31393,14 @@ def _startup_scan_if_needed():
     import time as _startup_time
     from datetime import datetime as _dtc, timedelta as _tdelta
     import pytz as _ptz
-    # Wait 3 minutes before firing — lets all warm-up jobs (options warmer,
+    # Wait 3 minutes before firing - lets all warm-up jobs (options warmer,
     # cache warmer, etc.) finish first so they don't all hit Yahoo simultaneously
     # and trip the circuit breaker for the entire day.
     _startup_time.sleep(180)
     try:
         _et_now = _dtc.now(_ptz.timezone("America/New_York"))
         if _et_now.weekday() >= 5:  # 5=Saturday, 6=Sunday
-            print(f"[startup] weekend ({_et_now.strftime('%A')}) — skipping startup scan, no market data")
+            print(f"[startup] weekend ({_et_now.strftime('%A')}) - skipping startup scan, no market data")
             return
         with _psycopg2.connect(_DB_URL) as _sc, _sc.cursor() as _scur:
             _scur.execute(
@@ -31200,25 +31416,25 @@ def _startup_scan_if_needed():
         _scan_fn = globals().get("_run_unusual_calls_scan")
 
         if _count == 0:
-            print("[startup] unusual_calls_log has 0 rows for today — triggering immediate background scan")
+            print("[startup] unusual_calls_log has 0 rows for today - triggering immediate background scan")
             if _scan_fn:
                 _sthr.Thread(target=lambda: _scan_fn("startup"), daemon=True).start()
             else:
-                print("[startup] _run_unusual_calls_scan not available — skipping auto-scan")
+                print("[startup] _run_unusual_calls_scan not available - skipping auto-scan")
         elif _in_market_hours and _last_seen is not None:
-            # last_seen from DB is a naive UTC datetime — make it timezone-aware
+            # last_seen from DB is a naive UTC datetime - make it timezone-aware
             _last_seen_utc = _last_seen.replace(tzinfo=_ptz.utc) if _last_seen.tzinfo is None else _last_seen
             _hours_since = (_et_now.astimezone(_ptz.utc) - _last_seen_utc).total_seconds() / 3600
             if _hours_since >= 2.0:
-                print(f"[startup] market hours — last scan was {_hours_since:.1f}h ago, triggering catch-up scan")
+                print(f"[startup] market hours - last scan was {_hours_since:.1f}h ago, triggering catch-up scan")
                 if _scan_fn:
                     _sthr.Thread(target=lambda: _scan_fn("startup-catchup"), daemon=True).start()
                 else:
-                    print("[startup] _run_unusual_calls_scan not available — skipping auto-scan")
+                    print("[startup] _run_unusual_calls_scan not available - skipping auto-scan")
             else:
-                print(f"[startup] last scan was {_hours_since:.1f}h ago — no catch-up needed")
+                print(f"[startup] last scan was {_hours_since:.1f}h ago - no catch-up needed")
         else:
-            print(f"[startup] unusual_calls_log has {_count} rows for today, outside market hours — no startup scan needed")
+            print(f"[startup] unusual_calls_log has {_count} rows for today, outside market hours - no startup scan needed")
     except Exception as _se:
         print(f"[startup] scan check error: {_se}")
 
@@ -31260,14 +31476,14 @@ def run_nano_cap_breakout_scan():
     """
     Full-market nano-cap breakout scanner.
     Pulls every US nano-cap stock (<$50M mkt cap, price >$0.50, avg vol >20K)
-    from finviz — currently ~300 tickers — scores each one for breakout
+    from finviz - currently ~300 tickers - scores each one for breakout
     readiness, saves the top 30 to nano_breakout_watchlist, and pushes ntfy.
 
     Breakout score (0-100):
-      30 pts  Volume building  — 5-day avg vol vs 20-day avg vol
-      25 pts  Near highs       — price vs 20-day high
-      25 pts  Momentum         — 5-day price return
-      20 pts  ATR compression  — recent range vs 20-day range (coiling)
+      30 pts  Volume building  - 5-day avg vol vs 20-day avg vol
+      25 pts  Near highs       - price vs 20-day high
+      25 pts  Momentum         - 5-day price return
+      20 pts  ATR compression  - recent range vs 20-day range (coiling)
     """
     import requests as _req_nb
     import re as _re_nb
@@ -31284,7 +31500,7 @@ def run_nano_cap_breakout_scan():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "en-US,en;q=0.9",
     }
-    print(f"[nano_breakout] scan started — {_dt_nb.datetime.now().strftime('%I:%M %p ET')}")
+    print(f"[nano_breakout] scan started - {_dt_nb.datetime.now().strftime('%I:%M %p ET')}")
 
     # ── 1. Pull full nano-cap universe from finviz (paginated) ───────────────
     _universe = []
@@ -31353,7 +31569,7 @@ def run_nano_cap_breakout_scan():
             elif momentum_5d >= 0:  m_pts = 3
             else:                   m_pts = 0
 
-            # ATR compression — recent 3d range vs 20d range (0-20)
+            # ATR compression - recent 3d range vs 20d range (0-20)
             def _atr(h_list, l_list):
                 return sum(h - l for h, l in zip(h_list, l_list)) / len(h_list) if h_list else 0
             atr3  = _atr(highs[-3:],  lows[-3:])
@@ -31391,11 +31607,11 @@ def run_nano_cap_breakout_scan():
         except Exception:
             return None
 
-    # Score every ticker. Keep ALL of them — the full universe gets saved and
+    # Score every ticker. Keep ALL of them - the full universe gets saved and
     # monitored next morning. Tickers that fail scoring (yfinance hiccup) are
     # still saved by symbol so they're never dropped from the morning scan.
     _results = []   # successfully scored (has price/score/notes)
-    _failed  = []   # scoring unavailable — monitor by symbol anyway
+    _failed  = []   # scoring unavailable - monitor by symbol anyway
     with _TPE_nb(max_workers=12) as _ex:
         _futs = {_ex.submit(_score, t): t for t in _universe}
         for _fut in _ac_nb(_futs):
@@ -31413,7 +31629,7 @@ def run_nano_cap_breakout_scan():
     # ── 3. Save the FULL universe to DB ──────────────────────────────────────
     # morning_inflows pulls every row from the last 3 days into its scan
     # universe, so saving all of them means the entire nano-cap market is
-    # monitored live the next morning — not just the EOD standouts.
+    # monitored live the next morning - not just the EOD standouts.
     _saved = 0
     if _DB:
         try:
@@ -31436,15 +31652,15 @@ def run_nano_cap_breakout_scan():
                         INSERT INTO nano_breakout_watchlist (scan_date, ticker, notes)
                         VALUES (%s,%s,%s)
                         ON CONFLICT (scan_date, ticker) DO NOTHING
-                    """, (_today, _tkr, "universe member — scoring unavailable"))
+                    """, (_today, _tkr, "universe member - scoring unavailable"))
                     _saved += 1
                 _c.commit()
             print(f"[nano_breakout] saved {_saved} tickers to DB "
-                  f"({len(_results)} scored + {len(_failed)} unscored) — full universe monitored")
+                  f"({len(_results)} scored + {len(_failed)} unscored) - full universe monitored")
         except Exception as _dbe:
             print(f"[nano_breakout] DB save error: {_dbe}")
 
-    # ── 4. ntfy alert — top setups only (don't spam the whole universe) ──────
+    # ── 4. ntfy alert - top setups only (don't spam the whole universe) ──────
     if _top:
         _lines = []
         for _s in _top[:12]:
@@ -31546,22 +31762,22 @@ def composite_track_record():
 
 # ── Multi-Day Runner email senders ─────────────────────────────────────────
 def _send_multiday_intraday_email():
-    """2:00 PM ET: BUY NOW signal — all 3 cap tiers, intraday D1 confirmed."""
+    """2:00 PM ET: BUY NOW signal - all 3 cap tiers, intraday D1 confirmed."""
     from email_alerts import send_email_raw, smtp_configured
     if not smtp_configured():
-        print("[multiday_runner] SMTP not configured — skip intraday email")
+        print("[multiday_runner] SMTP not configured - skip intraday email")
         return
     try:
         results = run_intraday_d1_scan()
         total = len(results.get("all", []))
         if not total:
-            print("[multiday_runner] intraday email: no signals — skipping")
+            print("[multiday_runner] intraday email: no signals - skipping")
             return
         html = build_intraday_d1_email_html(results)
         lg = len(results.get("large", []))
         md = len(results.get("mid",   []))
         sm = len(results.get("small", []))
-        subject = f"📈 DAY 1 BUY SIGNAL — {total} runners ({lg}L/{md}M/{sm}S) · Enter now, exit D5"
+        subject = f"📈 DAY 1 BUY SIGNAL - {total} runners ({lg}L/{md}M/{sm}S) · Enter now, exit D5"
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[multiday_runner] intraday email sent={ok} → {total} total ({lg}L/{md}M/{sm}S)")
     except Exception as e:
@@ -31569,19 +31785,19 @@ def _send_multiday_intraday_email():
 
 
 def _send_multiday_day1_email():
-    """4:05 PM ET: EOD Day 1 watch list — all 3 cap tiers."""
+    """4:05 PM ET: EOD Day 1 watch list - all 3 cap tiers."""
     from email_alerts import send_email_raw, smtp_configured
     if not smtp_configured():
-        print("[multiday_runner] SMTP not configured — skip day1 email")
+        print("[multiday_runner] SMTP not configured - skip day1 email")
         return
     try:
         rows = run_day1_scan()
         if not rows:
-            print("[multiday_runner] day1 email: no ignitions — skipping")
+            print("[multiday_runner] day1 email: no ignitions - skipping")
             return
         html = build_day1_email_html(rows)
         strong_ct = sum(1 for r in rows if r.get("d1_strong"))
-        subject = f"📋 EOD Watch List — {len(rows)} ignitions across cap tiers ({strong_ct} STRONG)"
+        subject = f"📋 EOD Watch List - {len(rows)} ignitions across cap tiers ({strong_ct} STRONG)"
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[multiday_runner] day1 EOD email sent={ok} → {len(rows)} tickers ({strong_ct} strong)")
     except Exception as e:
@@ -31589,19 +31805,19 @@ def _send_multiday_day1_email():
 
 
 def _send_multiday_day2_email():
-    """2:45 PM ET: Day 2 second-chance BUY entry email — all 3 cap tiers."""
+    """2:45 PM ET: Day 2 second-chance BUY entry email - all 3 cap tiers."""
     from email_alerts import send_email_raw, smtp_configured
     if not smtp_configured():
-        print("[multiday_runner] SMTP not configured — skip day2 email")
+        print("[multiday_runner] SMTP not configured - skip day2 email")
         return
     try:
         confirmed = run_day2_confirm_scan()
         if not confirmed:
-            print("[multiday_runner] day2 email: no confirmations — skipping")
+            print("[multiday_runner] day2 email: no confirmations - skipping")
             return
         html = build_day2_email_html(confirmed)
         strong_ct = sum(1 for r in confirmed if r.get("d1_strong"))
-        subject = f"🟢 D2 BUY SIGNAL — {len(confirmed)} confirmed ({strong_ct} STRONG) · Enter before 3:45 PM"
+        subject = f"🟢 D2 BUY SIGNAL - {len(confirmed)} confirmed ({strong_ct} STRONG) · Enter before 3:45 PM"
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[multiday_runner] day2 email sent={ok} → {len(confirmed)} confirmed entries")
     except Exception as e:
@@ -31610,7 +31826,7 @@ def _send_multiday_day2_email():
 
 # ── Polygon Full-Market RVOL Scanner ─────────────────────────────────────────
 # Scans ALL 11,000+ US stocks every morning using Polygon grouped daily endpoint.
-# 5 API calls total — zero Yahoo Finance dependency.
+# 5 API calls total - zero Yahoo Finance dependency.
 # Catches explosive movers like RTB (+151% 5-day) that never appear in pre-built lists.
 
 def _polygon_recent_trading_days(n: int) -> list:
@@ -31658,7 +31874,7 @@ def _polygon_full_market_scan() -> list:
     Lock prevents concurrent runs from doubling the Polygon request rate.
     """
     if not _POLYGON_RVOL_LOCK.acquire(blocking=False):
-        app.logger.info("[polygon_rvol] scan already running — skipping concurrent call")
+        app.logger.info("[polygon_rvol] scan already running - skipping concurrent call")
         cached = getattr(app, "_polygon_rvol_cache", {})
         return cached.get("movers", [])
 
@@ -31675,7 +31891,7 @@ def _polygon_full_market_scan() -> list:
             _data = _polygon_grouped_daily(_day)
             _t2.sleep(13)  # Polygon Starter = 5 req/min → need ≥12s between calls
             if not _data:
-                app.logger.info(f"[polygon_rvol] {_day}: 0 tickers (holiday/error) — skipping")
+                app.logger.info(f"[polygon_rvol] {_day}: 0 tickers (holiday/error) - skipping")
                 continue
             app.logger.info(f"[polygon_rvol] {_day}: {len(_data)} tickers")
             daily_data.append((_day, _data))
@@ -31829,7 +32045,7 @@ def _polygon_full_market_scan() -> list:
         def _post_scan_loop_b():
             import time as _pst_t
             _pst_t.sleep(60)  # 60s: ensure all DB writes are committed and visible
-            app.logger.info("[post_scan] Loop B triggered by fresh Polygon data — running AIEM research")
+            app.logger.info("[post_scan] Loop B triggered by fresh Polygon data - running AIEM research")
             try:
                 _run_aiem_continuous_research()
                 app.logger.info("[post_scan] Loop B research session complete")
@@ -31840,7 +32056,7 @@ def _polygon_full_market_scan() -> list:
 
         return top
     except Exception as _pfms_e:
-        app.logger.error(f"[polygon_rvol] unhandled scan error — releasing lock: {_pfms_e}")
+        app.logger.error(f"[polygon_rvol] unhandled scan error - releasing lock: {_pfms_e}")
         return []
     finally:
         _POLYGON_RVOL_LOCK.release()
@@ -31878,12 +32094,12 @@ def _send_polygon_rvol_email() -> None:
     """8:35 AM ET: Email owner the top full-market RVOL movers from yesterday."""
     from email_alerts import send_email_raw, smtp_configured
     if not smtp_configured():
-        print("[polygon_rvol] SMTP not configured — skip")
+        print("[polygon_rvol] SMTP not configured - skip")
         return
     try:
         _mv = _polygon_full_market_scan()
         if not _mv:
-            print("[polygon_rvol] no movers found — skipping email")
+            print("[polygon_rvol] no movers found - skipping email")
             return
 
         _scan_date = _mv[0].get("scan_date", "")
@@ -31937,7 +32153,7 @@ def _send_polygon_rvol_email() -> None:
   </div>
 </div>"""
 
-        _subj = f"🔥 Full Market RVOL — {_n} movers ({_scan_date}) · Polygon"
+        _subj = f"🔥 Full Market RVOL - {_n} movers ({_scan_date}) · Polygon"
         _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
         print(f"[polygon_rvol] email sent={_ok} → {_n} movers for {_scan_date}")
     except Exception as _e5:
@@ -31959,7 +32175,7 @@ def full_market_movers_endpoint():
 @app.route("/stock-api/gap-volume-signal", methods=["GET"])
 def gap_volume_signal_endpoint():
     """
-    Gap + Volume Confirmation Signal — validated by June 2026 Polygon backtest.
+    Gap + Volume Confirmation Signal - validated by June 2026 Polygon backtest.
     Finds stocks that gapped up ≥1% on ≥2x normal volume on the most recent
     Polygon scan day.  Edge: +8.7pp vs all stocks OOS (Apr-May 2026, n=3,553,
     p=0.0000); +2.5pp vs tight baseline (other gappers, p=0.0023).
@@ -32014,7 +32230,7 @@ def admin_run_aiem_research():
     Admin: trigger the AI research agent immediately.
     The agent autonomously queries its own pick history, runs signal correlation
     analysis, backtests scoring hypotheses, and saves its conclusions to
-    aiem_research_insights — which flows into tomorrow's pick prompt.
+    aiem_research_insights - which flows into tomorrow's pick prompt.
     Runs in background thread; returns immediately.
     POST /stock-api/admin/run-aiem-research
     Headers: X-Admin-Token: <ADMIN_TOKEN>
