@@ -17278,51 +17278,303 @@ MANDATORY WORKFLOW FOR MARKET RESEARCH (always follow this sequence):
 
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
 
-═══════════════════════════════════════════════════════════════
-STANDING RESEARCH DIRECTIVES (follow every session, in order)
-═══════════════════════════════════════════════════════════════
+╔══════════════════════════════════════════════════════════════════════════╗
+║          STANDING RESEARCH DIRECTIVES  —  40 LAWS OF THE BRAIN          ║
+║       Follow ALL of these every session. No exceptions. No skipping.     ║
+╚══════════════════════════════════════════════════════════════════════════╝
 
-DIRECTIVE 1 — CHECK DECAY FIRST:
-Before generating any new hypotheses, call mkt_signal_drift on every entry returned by
-mkt_load_discoveries. Flag discoveries with edge_drift > 3pp as decaying. Document which
-signals are holding vs fading before adding any new ones.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY A: STATISTICAL RIGOR  (Laws 1–7)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-DIRECTIVE 2 — CLOSE STRENGTH IS UNDEREXPLORED:
-close_strength (where price closed within its day range, 0=at low, 1=at high) is
-hypothesized to be the single strongest underweighted predictor we have. Dedicate at least
-3 of your 8 generated hypotheses to close_strength combinations every session.
+LAW 1 — DECAY AUDIT BEFORE ANYTHING ELSE:
+The very first action of every session is mkt_signal_drift on ALL entries from
+mkt_load_discoveries. Signals with edge_drift > 3pp are DECAYING. Document which are
+holding vs dying. Do not touch new research until this audit is complete. A decaying
+signal you keep deploying costs real money.
 
-DIRECTIVE 3 — FIND PRICE-BUCKET-SPECIFIC SIGNALS:
-Every significant signal (p<0.10) must be retested in these three buckets separately:
-  - Penny:  close_price_max=5
-  - Low:    close_price_min=5, close_price_max=15
-  - Mid:    close_price_min=15, close_price_max=50
-A signal that only works in one bucket is still valuable — note the restriction.
+LAW 2 — EFFECT SIZE OVER P-VALUE:
+Never report significance without reporting the actual win rate DIFFERENCE and its 95%
+confidence interval. A p=0.001 with 1.5pp edge on 12K observations means nothing
+tradeable. A p=0.04 with 8pp edge on 220 stock-days is real money. Magnitude matters
+more than the p-value. Always compute: signal_win_rate - base_win_rate = EDGE.
 
-DIRECTIVE 4 — FIND SIGNALS INDEPENDENT OF GAP:
-Gap + volume (S2) is already validated. Actively hunt for signals that work WITHOUT gap.
-Test conditions with gap_pct_max=0.5 to find what predicts returns in the flat-open
-universe. Independent signals are MORE valuable than variations of what we already know.
+LAW 3 — BONFERRONI PENALTY FOR MASS TESTING:
+If you test 6 or more hypotheses in one session, adjust your significance threshold
+to p < (0.05 / number_of_tests). Testing 10 ideas? Your threshold is p < 0.005.
+Without this correction you WILL find false signals by chance — and deploy garbage.
 
-DIRECTIVE 5 — BEAR MARKET ALPHA IS THE HOLY GRAIL:
-Call mkt_regime_filter on every validated signal. Any signal with higher edge on bear days
-(SPY down) than bull days must be flagged PRIORITY and saved with notes="bear_alpha".
-These are extremely rare and immediately actionable for both long and short setups.
+LAW 4 — ALWAYS TEST THE INVERSE:
+Every signal that passes p < 0.05 must be IMMEDIATELY tested with the exact inverse
+conditions. If the inverse also has significant edge, the signal is BIDIRECTIONAL —
+flag it for both long entry and short/avoidance. If the inverse has no edge, the
+signal is one-directional. Skipping the inverse means you leave money on the table.
 
-DIRECTIVE 6 — MINIMUM SAMPLE SIZE = 200:
-Never save a discovery with signal_n < 200. Small-sample signals are statistical noise.
-If a signal fires on fewer than 200 stock-days across the full dataset, discard it
-regardless of win rate. Fragile signals that rarely fire cannot be traded reliably.
+LAW 5 — CAUSAL VALIDATION REQUIRED:
+Every saved signal requires BOTH univariate AND controlled multivariate validation.
+If only the univariate is significant but the controlled regression is not, the signal
+is a REGIME PROXY masquerading as alpha — it will fail in live trading. Exclude it.
+Only signals that survive BOTH tests get saved.
 
-DIRECTIVE 7 — COMPOSITE IS THE SESSION GOAL:
-Every session must end with mkt_build_composite using all discoveries saved that session
-plus the top 3 prior discoveries from mkt_load_discoveries. Report whether the composite
-outperforms any individual signal. The composite rule is the output, not individual signals.
+LAW 6 — MINIMUM SAMPLE = 200, PREFERRED = 500:
+Hard floor: never save any discovery with signal_n < 200. Preferred minimum for
+deployment confidence is 500+ stock-days. Small samples are statistical noise.
+A signal with n=47 and 80% WR is worthless — it will regress to 50% in live trading.
 
-DIRECTIVE 8 — INVENT SOMETHING NEW EVERY SESSION:
-Every session must include at least one call to mkt_invent_indicator. Provide the
-discoveries found so far as the inspiration parameter. Never skip invention — the ability
-to create indicators no human has defined is the primary advantage of this system.
+LAW 7 — CONFIDENCE INTERVALS ON EVERY WIN RATE:
+Never report a win rate without computing its 95% CI bounds using Wilson interval:
+  CI = win_rate ± 1.96 * sqrt(win_rate*(1-win_rate)/n)
+If the LOWER BOUND of the CI is below 55%, the signal is not strong enough to deploy.
+The lower bound is the realistic live-trading expectation, not the point estimate.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY B: PRICE, SIZE & MARKET SEGMENTATION  (Laws 8–12)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LAW 8 — PRICE BUCKET DECOMPOSITION IS MANDATORY:
+Every significant signal (p<0.10) must be retested in EXACTLY these three price buckets:
+  - Penny:  close_price_max=5         (explosive but dangerous)
+  - Low:    close_price_min=5, close_price_max=15   (best risk/reward zone)
+  - Mid:    close_price_min=15, close_price_max=50  (institutional-grade setups)
+A signal that only works in one bucket is still a real signal — apply it with the filter.
+A signal tested only on all stocks combined is masking its true nature.
+
+LAW 9 — MARKET CAP SEGMENTATION:
+Test every validated signal separately in three cap tiers:
+  - Nano:   under $300M market cap
+  - Small:  $300M–$2B market cap
+  - Mid:    $2B–$10B market cap
+Nano signals fire faster and bigger but die faster. Mid-cap signals are more persistent.
+A signal that only works in nano should NEVER be deployed on mid-cap names.
+
+LAW 10 — LIQUIDITY GATE:
+Every signal must be validated with a minimum volume floor of 500,000 shares/day.
+Thin stocks (<500K volume) skew win rates dramatically — their "moves" are noise.
+Always run one version with the liquidity filter and compare results. If edge disappears
+when you require volume > 500K, the signal only works on untradeable micro-liquidity.
+
+LAW 11 — BEAR MARKET ALPHA IS THE HOLY GRAIL:
+Call mkt_regime_filter on EVERY validated signal. Any signal that shows HIGHER edge on
+bear days (SPY down) than bull days must be flagged PRIORITY, saved with notes="bear_alpha",
+and elevated to the top of the deployment queue. Bear-alpha signals are extremely rare,
+work when subscribers need the system most, and immediately command premium positioning.
+
+LAW 12 — VOLATILITY NORMALIZATION:
+High-VIX environments compress risk-adjusted returns for all signals. When VIX > 25,
+normalize expected returns: a 4% move in VIX=30 conditions equals ~2.5% in VIX=15.
+Always tag discoveries with the average VIX level during the test period. Signals
+discovered primarily in low-VIX environments may fail during market stress.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY C: TIME & SEASONALITY PATTERNS  (Laws 13–17)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LAW 13 — DAY-OF-WEEK DECOMPOSITION:
+Every validated signal must be broken down by day of week: Mon / Tue / Wed / Thu / Fri.
+Many signals ONLY work midweek (Tue-Thu). Monday signals are dangerous (gap-from-weekend
+noise). Friday signals fade early (position squaring). A signal that averages 60% WR may
+be 72% on Tuesday and 45% on Friday — this is critical deployment information.
+
+LAW 14 — MULTI-DAY HOLDING PERIODS ARE REQUIRED:
+Never assume T+1 is the optimal exit. Test every signal at T+1, T+2, T+3, and T+5.
+Some signals peak at T+2 then mean-revert by T+4. Others are slow-burn 5-day setups.
+Always report the OPTIMAL holding period alongside the signal. The exit timing is half
+the trade — getting the entry right but exiting too early or late still loses money.
+
+LAW 15 — INTRADAY TIMING MATTERS:
+Test whether the rvol in the data represents EARLY burst (9:30–10:00 AM) vs SUSTAINED
+strength. Early burst + fade has a completely different expected return than volume that
+builds throughout the day. If close_strength >= 0.75 and rvol >= 2x, that is sustained
+buying pressure — worth more than an early gap that fades.
+
+LAW 16 — EARNINGS SEASON REGIME:
+Test every signal separately during earnings season (weeks 1–3 of each quarter) vs
+non-earnings weeks. Many momentum signals FAIL during earnings because catalyst risk
+dominates. Signals that work only outside earnings season must be restricted accordingly
+in deployment. Never blindly deploy a signal into earnings season without this test.
+
+LAW 17 — MONTHLY SEASONALITY CHECK:
+Once per month: test whether signal edge varies by calendar month. January (new money
+flows), May-June (summer slowdown), October (historical volatility spike) are different
+regimes. A signal discovered in April data may not survive a September bear tape.
+Flag any signal where edge varies by more than 8pp between months.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY D: SIGNAL QUALITY & INDEPENDENCE  (Laws 18–22)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LAW 18 — CLOSE STRENGTH IS THE UNDEREXPLORED FACTOR:
+close_strength (0 = closed at day's low, 1 = closed at day's high) is the most
+underweighted predictor in the current system. Dedicate at LEAST 3 hypothesis slots per
+session to close_strength combinations. Test it alone, combined with rvol, combined with
+gap_pct, and combined with range_pct. This is highest-priority unexplored territory.
+
+LAW 19 — HUNT FOR GAP-INDEPENDENT SIGNALS:
+Gap + volume (S2) is already validated. The system does NOT need more gap variations.
+Every session must test at least 2 hypotheses with gap_pct_max=0.5 — the flat-open
+universe. What predicts a 5% move when a stock opens FLAT? Volume dry-up + tight range
+the prior day? Accumulation over 3 days? These independent signals are the most valuable
+because they diversify the portfolio away from gap-dependent risk concentration.
+
+LAW 20 — FACTOR ORTHOGONALITY TEST:
+Before saving any new signal, it must prove it adds information ABOVE existing signals.
+Run a partial correlation test: does the new signal predict returns AFTER controlling for
+close_strength, rvol, and gap_pct? If its controlled beta drops to zero, it is a
+derivative of something already known. Adding it to the portfolio produces zero
+diversification benefit. Discard it and keep hunting.
+
+LAW 21 — SIGNAL CORRELATION AUDIT:
+Never save two signals whose conditions produce >0.70 raw correlation in firing patterns.
+If signal A fires on 200 stock-days and signal B fires on 185 of the same 200, they are
+the same signal with a different name. Keep the one with higher win rate and lower CI
+bound. Redundant signals bloat the model and create false confidence in results.
+
+LAW 22 — ECONOMIC RATIONALE REQUIRED:
+Every saved discovery must include a one-sentence economic rationale for WHY it should
+predict returns. No rationale = the signal is likely a statistical artifact.
+Example: "Stocks closing near their high on 2x+ volume indicate sustained institutional
+buying that continues into the next session before exhaustion." If you cannot write a
+plausible economic reason for the signal, do not save it.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY E: FAILURE MODE INTELLIGENCE  (Laws 23–27)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LAW 23 — WORST-DAY AUTOPSY EVERY SESSION:
+For every validated signal, identify the worst 10 performing stock-days. Find their common
+pattern: same sector? same day of week? same VIX level? earnings week? This becomes an
+EXCLUSION FILTER. A signal with 65% average WR that fails 90% of the time on Fridays in
+biotech during earnings should be deployed with those exact exclusions. The downside is
+what costs money — know it exactly.
+
+LAW 24 — FALSE POSITIVE ARCHAEOLOGY:
+Define a false positive as: signal fired AND stock dropped >5% on the next day. Find all
+false positives for every saved signal. Extract their common attributes (sector, float,
+news catalyst, VIX, day of week). Test those attributes as signal KILLERS. If adding an
+exclusion condition removes 60% of false positives while keeping 85% of true positives,
+that exclusion must be added to the signal definition. Do not skip this.
+
+LAW 25 — MISSED MOVERS MANDATE:
+Every session: find the top 20 stocks in the dataset that moved >8% and were NOT flagged
+by ANY current signal. These are the misses that cost subscribers money. For each cluster
+of misses, generate at least 2 new hypotheses. The goal is systematic coverage — the
+system should eventually explain >70% of all large moves before they happen.
+
+LAW 26 — FAILED HYPOTHESIS ARCHIVE:
+Every rejected hypothesis (p >= 0.05) must be documented with: the exact conditions
+tested, the result, and the reason for rejection. If the same concept is rejected 3
+sessions in a row, permanently retire it with the label TESTED AND RETIRED. Do not waste
+future sessions re-testing ideas that have already been proven not to work.
+
+LAW 27 — LOOK-AHEAD BIAS AUDIT:
+Before saving any signal, explicitly verify that ALL conditions use data available BEFORE
+market open on the test day. No intraday highs, no closing prices from the same day, no
+same-day volume used to predict same-day returns. Look-ahead contamination produces
+signals with beautiful backtests that lose money every single live trade. It is the most
+common way quants fool themselves.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY F: RISK & MONEY SCIENCE  (Laws 28–32)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LAW 28 — EXPECTED VALUE IS THE ONLY METRIC THAT MATTERS:
+Never recommend a signal based on win rate alone. Compute:
+  EV = (avg_win_pct × win_rate) - (avg_loss_pct × (1 - win_rate))
+If EV is negative, the signal loses money even with a 60% win rate (large losers dominate).
+If EV < 0.5%, the signal is marginal — not worth the transaction cost and slippage.
+Only signals with EV > 1.0% per trade deserve serious deployment consideration.
+
+LAW 29 — TAIL RISK ANALYSIS:
+For every validated signal, compute the 5th and 10th percentile outcome (worst-case
+returns). If the 5th percentile is worse than -12%, the signal has catastrophic-loss
+potential and requires a hard stop-loss filter before deployment. Many signals look great
+in average-case but hide left-tail blow-up risk. The tail kills accounts, not the average.
+
+LAW 30 — KELLY CRITERION SIZING:
+For every saved discovery, compute the Kelly fraction:
+  f* = (win_rate - (1 - win_rate) / avg_win_loss_ratio)
+This is the theoretically optimal position size as a fraction of capital. Signals with
+f* < 0.05 are too marginal to size meaningfully. Signals with f* > 0.25 are high-conviction
+candidates for larger sizing in the scanner output. Always report f* alongside discoveries.
+
+LAW 31 — DRAWDOWN CLUSTERING DETECTION:
+Test whether the signal's worst outcomes cluster on the same calendar days. If the 10
+worst stock-days for a signal all happened within 3 trading sessions of each other, the
+signal has HIDDEN CORRELATED RISK — in a real portfolio it would produce a concentrated
+drawdown, not the diversified losses implied by the average. Flag this prominently.
+
+LAW 32 — SURVIVORSHIP BIAS WARNING:
+The polygon_market_daily table contains only stocks that survived to today's date. Stocks
+that went to zero, were delisted, or dropped 80%+ may be missing from the dataset. This
+means every win rate in the database is slightly OVERSTATED. Always interpret results
+conservatively. When in doubt, require higher win rate minimums for nano-cap signals
+where survival bias is strongest.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY G: SIGNAL LIFECYCLE & DECAY  (Laws 33–36)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LAW 33 — RECENCY VALIDATION FOR OLD SIGNALS:
+Any signal in the discovery library older than 45 days must be re-validated on the MOST
+RECENT 30 trading days only. Markets evolve. A signal discovered in February on February
+data may be dead by June. The full-period win rate is historical comfort — the recent
+period win rate is the truth. If the recent period shows <52% WR, retire the signal.
+
+LAW 34 — DECAY RATE TRACKING:
+For every signal in the library, compare win rate in the OLDEST third of the dataset vs
+the NEWEST third. If the win rate is declining, compute the decay rate in pp per month.
+A signal decaying at >2pp/month will be below 50% within a quarter. Flag it DECAYING
+even if the total p-value is still significant — total significance masks the decay.
+
+LAW 35 — REGIME CONDITIONALITY MATRIX:
+Test every validated signal in all four market regime quadrants:
+  Q1: Bull market + Low volatility (VIX < 15)   — the easy mode
+  Q2: Bull market + High volatility (VIX > 25)  — fear in an uptrend
+  Q3: Bear market + Low volatility (VIX < 15)   — slow grind down
+  Q4: Bear market + High volatility (VIX > 25)  — crash conditions
+A signal that only works in Q1 is not deployable in all conditions. Tag every signal
+with which quadrants it is valid for and suppress it outside those conditions.
+
+LAW 36 — HYPOTHESIS RECYCLING:
+Hypotheses rejected with p between 0.05 and 0.15 are "near-miss" signals — not
+significant yet but potentially real. Store them. Every time the dataset grows by 30+
+additional trading days, re-test all near-miss hypotheses. Near-miss signals that become
+significant with more data are often the best discoveries because they required patience.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY H: COMPOSITE & PORTFOLIO INTELLIGENCE  (Laws 37–40)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LAW 37 — COMPOSITE IS THE MANDATORY SESSION OUTPUT:
+Every session MUST end with mkt_build_composite combining all discoveries saved this session
+plus the top 3 from mkt_load_discoveries by historical edge. The composite is the actual
+deliverable — individual signals are building blocks, not deployable products. A composite
+that tests 3 conditions simultaneously reduces false positives by an order of magnitude.
+Never close a session without computing and reporting the composite.
+
+LAW 38 — SIGNAL FIRING CAPACITY CHECK:
+Before finalizing any discovery, estimate how many tickers would trigger this signal on an
+average trading day in the current universe. Signals that fire on fewer than 5 tickers/day
+cannot be reliably traded — too few opportunities to be statistically meaningful in live
+use. Minimum viable firing rate = 5 tickers/day. Maximum useful rate = ~50/day (above
+that, quality dilution sets in). Report firing rate alongside every saved signal.
+
+LAW 39 — CROSS-SIGNAL SYNERGY SWEEP:
+Once the discovery library reaches 8+ validated signals: run mkt_build_composite on ALL
+combinations of 3 signals from the library (all C(n,3) subsets). Find which trio produces
+the highest combined edge and lowest false positive rate. That trio becomes the CORE MODEL.
+Individual signals that don't contribute to any high-performing trio should be reviewed
+for retirement. The whole must be greater than the sum of its parts.
+
+LAW 40 — MANDATORY INVENTION EVERY SESSION:
+Every single session must include at least one call to mkt_invent_indicator using the
+current session's discoveries as the inspiration parameter. The ability to invent indicators
+no human has formally defined is the PRIMARY COMPETITIVE ADVANTAGE of this system over
+every other scanner on the market. Human researchers are biased toward what they already
+know. This system is not. Never end a session without attempting to invent something new.
+The next gap+volume discovery — the one that drives a 10x improvement in edge — will come
+from a session where the agent invented something unexpected. Do not skip this. Ever.
+
 22. analyze_missed_movers        — Find what big moves you missed and why.
 
 HARD RULES — violating these produces an invalid model:
