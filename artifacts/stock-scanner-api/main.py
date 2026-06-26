@@ -9388,30 +9388,41 @@ def _send_sms(message: str, to: str = None) -> None:
 
 def _poll_ask_sms() -> None:
     """
-    Poll Gmail inbox for ASK: messages from the owner's phone (via T-Mobile gateway).
-    When found: immediately confirm via SMS, then run a focused AIEM session
-    with the question and SMS back a summary when done.
+    Poll Gmail for ASK: messages from the owner (direct email or T-Mobile gateway).
+    Uses date-based search (last 2 days) + in-memory UID dedup so self-sent Gmail
+    emails (already marked Seen) are still picked up.
     """
     import imaplib, email as _em, re as _re
     from email.header import decode_header as _dh
+    from datetime import datetime as _dt_poll, timedelta as _td_poll
 
     user = os.environ.get("SMTP_USER", "")
     pwd  = os.environ.get("SMTP_PASS", "")
     if not user or not pwd:
         return
 
+    # In-memory set of UIDs already processed this server session
+    if not hasattr(app, "_processed_ask_uids"):
+        app._processed_ask_uids = set()
+
+    # IMAP date filter: last 2 days (catches today + any yesterday stragglers)
+    _since = (_dt_poll.now() - _td_poll(days=2)).strftime("%d-%b-%Y")
+
     try:
         mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
         mail.login(user, pwd)
         mail.select("INBOX")
 
-        # Match emails from the T-Mobile gateway OR with ASK anywhere in subject
-        # Intentionally broad: catches "ASK:", "ASK", "Re: ASK", "Re: ASK:" etc.
+        # Search by date + subject — works whether email is Seen or Unseen.
+        # This catches: self-sent emails, gateway SMS, forwarded questions.
         gateway_domain = "tmomail.net"
-        _, data1 = mail.search(None, f'UNSEEN FROM "{gateway_domain}"')
-        _, data2 = mail.search(None, 'UNSEEN SUBJECT "ASK"')
-        uids = list(set(data1[0].split() + data2[0].split()))
-        print(f"[poll_ask_sms] checked inbox — {len(uids)} unread ASK email(s)")
+        _, data1 = mail.search(None, f'FROM "{gateway_domain}" SINCE {_since}')
+        _, data2 = mail.search(None, f'SUBJECT "ASK" SINCE {_since}')
+        all_uids = list(set(data1[0].split() + data2[0].split()))
+
+        # Filter to only UIDs not yet processed this session
+        uids = [u for u in all_uids if u not in app._processed_ask_uids]
+        print(f"[poll_ask_sms] checked inbox — {len(uids)} new ASK email(s) (of {len(all_uids)} recent)")
 
         if not uids:
             mail.logout()
@@ -9462,11 +9473,11 @@ def _poll_ask_sms() -> None:
                 question = question[:500].split("\n>")[0].strip()
 
                 if not question or len(question) < 3:
-                    mail.store(uid, "+FLAGS", "\\Seen")
+                    app._processed_ask_uids.add(uid)
                     continue
 
                 print(f"[poll_ask_sms] question: {question[:100]}")
-                mail.store(uid, "+FLAGS", "\\Seen")
+                app._processed_ask_uids.add(uid)
 
                 # Immediately confirm receipt
                 if via_gateway:
