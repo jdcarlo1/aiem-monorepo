@@ -1,0 +1,436 @@
+# ═══════════════════════════════════════════════════════════════════════
+# AIEM — 4 Analysis Module Tools  (added to main.py)
+# Modules used: signal_correlation.py  |  signal_magnitude_analysis.py
+#               holding_period_optimizer.py  |  position_sizing.py
+# ═══════════════════════════════════════════════════════════════════════
+# HOW TO WIRE INTO main.py:
+#   1. Paste PART 1 functions near the other _aiem_tool_* definitions
+#   2. Paste PART 2 schema entries into the _AIEM_AGENT_TOOLS list
+#   3. Paste PART 3 dispatcher entries into the _tool_map dict
+# ═══════════════════════════════════════════════════════════════════════
+
+
+# ─── PART 1 OF 3: Function definitions ─────────────────────────────────
+
+# main.py lines 15531–15616
+def _aiem_tool_signal_layer_redundancy(days_back=60, threshold=0.70):
+    """
+    Check whether the AIEM's signal layers are providing independent information
+    or are largely echoing each other. Uses Pearson correlation across all boolean
+    and numeric signals in the settled-pick log.
+
+    A high correlation between two layers (e.g. confirmed_2d and high_conviction)
+    means the conviction score is effectively double-counting that factor.
+    Redundant pairs are flagged; the 'effective_independent_signals' count shows
+    how many genuinely distinct signal sources exist.
+    """
+    try:
+        import sys as _sys
+        import os as _os
+        _sys.path.insert(0, _os.path.dirname(__file__))
+        import pandas as _pd
+        from signal_correlation import run_full_correlation_report
+
+        days_back = min(int(days_back), 120)
+        threshold = float(threshold)
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    CASE WHEN confirmed_2d THEN 1 ELSE 0 END        AS confirmed_2d,
+                    CASE WHEN conviction = 'HIGH' THEN 1 ELSE 0 END AS is_high_conviction,
+                    COALESCE(day_ret, 0)::float                     AS gap_pct,
+                    COALESCE(vol_oi, 0)::float                      AS vol_oi,
+                    COALESCE(stock_price, 0)::float                 AS stock_price,
+                    COALESCE(prem, 0)::float / 1000.0               AS prem_k,
+                    COALESCE(otm_pct, 0)::float                     AS otm_pct,
+                    COALESCE(days_out, 0)::float                    AS days_out,
+                    CASE WHEN t3_win THEN 1 ELSE 0 END              AS t3_win
+                FROM ai_short_calls_log
+                WHERE trade_date >= CURRENT_DATE - %s
+                  AND stock_price IS NOT NULL
+                  AND t3_win IS NOT NULL
+            """, (days_back,))
+            rows = _cu.fetchall()
+            cols = [d[0] for d in _cu.description]
+
+        if not rows:
+            return {"status": "no_data", "days_back": days_back}
+
+        df = _pd.DataFrame(rows, columns=cols)
+        signal_cols = ["confirmed_2d", "is_high_conviction",
+                       "gap_pct", "vol_oi", "stock_price",
+                       "prem_k", "otm_pct", "days_out", "t3_win"]
+        report = run_full_correlation_report(df, signal_cols, threshold=threshold)
+
+        corr_dict = report["correlation_matrix"].round(3).to_dict()
+        redundant = report["redundant_pairs"].to_dict(orient="records")
+        cluster   = report["cluster_summary"]
+
+        return {
+            "days_back": days_back,
+            "n_picks_analyzed": len(df),
+            "threshold_used": threshold,
+            "correlation_matrix": corr_dict,
+            "redundant_pairs": redundant,
+            "cluster_summary": {
+                "n_raw_signals": cluster["n_raw_signals"],
+                "n_effective_independent": cluster["n_effective_clusters"],
+                "clusters": cluster["clusters"],
+            },
+            "interpretation": (
+                f"{cluster['n_effective_clusters']} truly independent signal clusters "
+                f"from {cluster['n_raw_signals']} raw signals. "
+                + ("No redundancy found above threshold." if not redundant else
+                   "Redundant pairs: " + ", ".join(
+                       r["signal_a"] + "\u2194" + r["signal_b"] +
+                       " (" + format(r["correlation"], "+.2f") + ")"
+                       for r in redundant[:5]
+                   ))
+            ),
+            "next_step": (
+                "If n_effective_independent < n_raw_signals: weight redundant signals lower "
+                "in test_scoring_hypothesis (they add less marginal information). "
+                "If a cluster has 3+ signals all measuring the same thing, that cluster is "
+                "only worth ~1 vote in the conviction score, not 3."
+            )
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# main.py lines 15617–15686
+def _aiem_tool_signal_magnitude_analysis(days_back=60, n_bins=6):
+    """
+    Check whether win rate scales continuously with signal magnitude or plateaus.
+    Tests gap_pct, vol_oi, and stock_price across equal-frequency bins.
+
+    A monotonically increasing relationship means 'more = better' — supports
+    raising the minimum threshold. A plateau or peak-in-middle means the current
+    binary cutoff may already be near-optimal; extreme values may not add edge.
+    """
+    try:
+        import sys as _sys
+        import os as _os
+        _sys.path.insert(0, _os.path.dirname(__file__))
+        import pandas as _pd
+        from signal_magnitude_analysis import magnitude_report
+
+        days_back = min(int(days_back), 120)
+        n_bins    = max(4, min(int(n_bins), 10))
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    COALESCE(day_ret, 0)::float       AS gap_pct,
+                    COALESCE(vol_oi, 0)::float        AS vol_oi,
+                    COALESCE(stock_price, 0)::float   AS stock_price,
+                    CASE WHEN t3_win THEN 1 ELSE 0 END AS outcome
+                FROM ai_short_calls_log
+                WHERE trade_date >= CURRENT_DATE - %s
+                  AND t3_win IS NOT NULL
+                  AND stock_price > 0
+            """, (days_back,))
+            rows = _cu.fetchall()
+            cols = [d[0] for d in _cu.description]
+
+        if not rows:
+            return {"status": "no_data", "days_back": days_back}
+
+        df = _pd.DataFrame(rows, columns=cols).dropna()
+        report = magnitude_report(df, ["gap_pct", "vol_oi", "stock_price"],
+                                  outcome_col="outcome", n_bins=n_bins)
+
+        output = {"days_back": days_back, "n_settled": len(df), "signals": {}}
+        for col, result in report.items():
+            if result["status"] != "ok":
+                output["signals"][col] = {"status": result["status"]}
+                continue
+            tbl = result["table"]
+            output["signals"][col] = {
+                "shape": result["shape"],
+                "bins": [
+                    {
+                        "range": f"{row['signal_min']:.2f}–{row['signal_max']:.2f}",
+                        "mean_value": round(float(row["signal_mean"]), 2),
+                        "n": int(row["n"]),
+                        "win_rate_pct": round(float(row["win_rate"]) * 100, 1),
+                    }
+                    for _, row in tbl.iterrows()
+                ],
+            }
+        output["next_step"] = (
+            "For signals with 'monotonically_increasing' shape: raising the minimum "
+            "threshold (e.g. vol_oi >= 5 instead of >= 2) should increase win rate. "
+            "For 'peaks_in_middle': current threshold may already be near-optimal — "
+            "do NOT raise it further without retesting. Run test_new_signal to validate."
+        )
+        return output
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# main.py lines 15687–15785
+def _aiem_tool_holding_period_optimize(days_back=60, segment_by="conviction"):
+    """
+    Compare win rate and average return at T+1, T+3, and T+5 exit points,
+    broken down by conviction level or signal type. Determines whether holding
+    longer is systematically worth it — or whether early exits are better.
+
+    Note: data has T+1, T+3, T+5 checkpoints (not every day). The tool
+    identifies the best of these three horizons per segment.
+    """
+    try:
+        import sys as _sys
+        import os as _os
+        _sys.path.insert(0, _os.path.dirname(__file__))
+        import pandas as _pd
+        import numpy as _np
+        from holding_period_optimizer import aggregate_horizon_performance, find_optimal_horizon
+
+        days_back  = min(int(days_back), 120)
+        seg_col    = segment_by if segment_by in ("conviction", "confirmed_2d") else "conviction"
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    id,
+                    conviction,
+                    confirmed_2d,
+                    t1_pct::float  AS t1_pct,
+                    t3_pct::float  AS t3_pct,
+                    t5_pct::float  AS t5_pct,
+                    CASE WHEN t3_win THEN 1 ELSE 0 END AS t3_win
+                FROM ai_short_calls_log
+                WHERE trade_date >= CURRENT_DATE - %s
+                  AND (t1_pct IS NOT NULL OR t3_pct IS NOT NULL OR t5_pct IS NOT NULL)
+            """, (days_back,))
+            rows = _cu.fetchall()
+            cols = [d[0] for d in _cu.description]
+
+        if not rows:
+            return {"status": "no_data", "days_back": days_back}
+
+        df = _pd.DataFrame(rows, columns=cols)
+
+        # Reshape to long format: (pick_id, horizon, return_pct)
+        long_rows = []
+        for _, row in df.iterrows():
+            for horizon, col in [(1, "t1_pct"), (3, "t3_pct"), (5, "t5_pct")]:
+                if _pd.notna(row[col]):
+                    long_rows.append({
+                        "pick_id": row["id"],
+                        "horizon": horizon,
+                        "return_pct": float(row[col]) / 100.0,
+                        seg_col: row[seg_col],
+                    })
+        long_df = _pd.DataFrame(long_rows)
+
+        # Overall best horizon
+        overall_perf = aggregate_horizon_performance(long_df)
+        best_overall = find_optimal_horizon(overall_perf, optimize_for="avg_return_pct")
+
+        # By segment
+        seg_results = {}
+        for seg_val in df[seg_col].dropna().unique():
+            seg_long = long_df[long_df[seg_col] == seg_val]
+            if len(seg_long) < 10:
+                continue
+            perf = aggregate_horizon_performance(seg_long)
+            best = find_optimal_horizon(perf, optimize_for="avg_return_pct")
+            seg_results[str(seg_val)] = {
+                "best_horizon_days": best["best_horizon"],
+                "avg_return_at_best_pct": round(best["metric_value"] * 100, 2),
+                "n_picks": best["n_samples_at_best_horizon"],
+                "horizons": [
+                    {
+                        "days": int(r["horizon"]),
+                        "n": int(r["n"]),
+                        "win_rate_pct": round(float(r["win_rate"]) * 100, 1),
+                        "avg_return_pct": round(float(r["avg_return_pct"]) * 100, 2),
+                    }
+                    for _, r in perf.iterrows()
+                ],
+            }
+
+        return {
+            "days_back": days_back,
+            "n_picks_analyzed": len(df),
+            "segment_by": seg_col,
+            "best_overall_horizon_days": best_overall["best_horizon"],
+            "by_segment": seg_results,
+            "next_step": (
+                "If HIGH conviction picks peak at T+1 but MEDIUM peaks at T+3: "
+                "grade HIGH picks at T+1 and MEDIUM at T+3 in the retrain model. "
+                "Run run_statistical_significance to confirm each difference is real "
+                "before hard-coding the split."
+            )
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# main.py lines 15786–15873
+def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
+                                   segment_by=None):
+    """
+    Compute quarter-Kelly optimal position sizing from settled pick outcomes.
+    Lower multiplier when sample size is small (< 200 picks).
+
+    Returns the recommended fraction of capital per trade — NOT a dollar amount.
+    Segmented by conviction level if segment_by='conviction'.
+
+    IMPORTANT: Only use this AFTER a signal has cleared statistical significance
+    in run_statistical_significance. Sizing around an unvalidated edge amplifies
+    losses, not gains.
+    """
+    try:
+        import sys as _sys
+        import os as _os
+        _sys.path.insert(0, _os.path.dirname(__file__))
+        import pandas as _pd
+        from position_sizing import kelly_from_settled_picks
+
+        days_back  = min(int(days_back), 180)
+        frac_mult  = max(0.1, min(float(fractional_multiplier), 0.5))
+        seg_col    = segment_by if segment_by in ("conviction", "confirmed_2d") else None
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    conviction,
+                    confirmed_2d,
+                    t3_win::int                        AS outcome,
+                    COALESCE(t3_pct, 0)::float / 100.0 AS return_pct
+                FROM ai_short_calls_log
+                WHERE trade_date >= CURRENT_DATE - %s
+                  AND t3_win IS NOT NULL
+                  AND t3_pct IS NOT NULL
+            """, (days_back,))
+            rows = _cu.fetchall()
+            cols = [d[0] for d in _cu.description]
+
+        if not rows:
+            return {"status": "no_data", "days_back": days_back}
+
+        df = _pd.DataFrame(rows, columns=cols)
+
+        def _fmt(kr):
+            return {
+                "win_rate_pct":          round(kr.win_rate * 100, 1),
+                "avg_win_pct":           round(kr.avg_win_pct * 100, 2),
+                "avg_loss_pct":          round(kr.avg_loss_pct * 100, 2),
+                "payoff_ratio":          round(float(kr.payoff_ratio), 2),
+                "full_kelly_fraction":   round(kr.full_kelly_fraction, 4),
+                "recommended_fraction":  round(kr.recommended_fraction, 4),
+                "recommended_pct_capital": round(kr.recommended_fraction * 100, 2),
+                "fractional_multiplier": round(kr.fractional_kelly_multiplier, 4),
+                "warning":               kr.warning,
+            }
+
+        result = {
+            "days_back": days_back,
+            "n_settled_picks": len(df),
+            "fractional_multiplier_requested": frac_mult,
+        }
+
+        result["overall"] = _fmt(kelly_from_settled_picks(df, fractional_multiplier=frac_mult))
+
+        if seg_col:
+            result["by_segment"] = {}
+            for val in df[seg_col].dropna().unique():
+                seg_df = df[df[seg_col] == val]
+                if len(seg_df) < 20:
+                    continue
+                result["by_segment"][str(val)] = {
+                    "n": len(seg_df),
+                    **_fmt(kelly_from_settled_picks(seg_df, fractional_multiplier=frac_mult))
+                }
+
+        result["next_step"] = (
+            "recommended_pct_capital is the quarter-Kelly bet size per trade. "
+            "If win rate < 50% or payoff_ratio < 1.0, full_kelly_fraction will be zero or "
+            "negative — no edge justifies a position. "
+            "Segment by conviction='HIGH' vs 'MEDIUM' to size HIGH picks larger if their "
+            "edge is proven significant."
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+
+# ─── PART 2 OF 3: Schema entries (add into _AIEM_AGENT_TOOLS list) ───
+
+    {"type": "function", "function": {
+        "name": "signal_layer_redundancy",
+        "description": (
+            "Check whether the conviction score's signal layers are actually independent "
+            "or are largely echoing each other (Pearson correlation matrix + redundant-pair "
+            "flagging). If confirmed_2d and high_conviction are 90% correlated, the score "
+            "is double-counting. Returns: correlation matrix, redundant pairs above threshold, "
+            "and effective independent signal count. Call this early in a research session "
+            "before adding a 9th layer — a new signal that overlaps 70%+ with an existing "
+            "one adds almost zero marginal edge."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Days of pick history to analyze (default 60, max 120)."},
+            "threshold": {"type": "number", "description": "Correlation threshold for flagging redundancy (default 0.70)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "signal_magnitude_analysis",
+        "description": (
+            "Test whether win rate scales continuously with signal magnitude or plateaus. "
+            "Bins gap_pct, vol_oi, and stock_price into equal-frequency quantiles and reports "
+            "win rate per bin + relationship shape (monotonically_increasing / peaks_in_middle / "
+            "non_monotonic). Use to find optimal thresholds: if vol_oi win rate is flat above 5x, "
+            "raising the minimum cutoff above 5x adds no edge. If monotonically increasing, "
+            "raising the threshold tightens the filter AND improves win rate."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Days of settled pick history (default 60, max 120)."},
+            "n_bins": {"type": "integer", "description": "Number of quantile bins per signal (default 6, range 4–10)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "holding_period_optimize",
+        "description": (
+            "Compare win rate and average return at T+1, T+3, and T+5 exit points, "
+            "broken down by conviction level (or confirmed_2d). Determines whether holding "
+            "longer systematically pays off — or whether early exits capture more edge. "
+            "Returns best horizon per segment and a ranked comparison table. "
+            "Call before adjusting exit rules or grading windows in the retrain pipeline."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Days of settled pick history (default 60, max 120)."},
+            "segment_by": {"type": "string", "enum": ["conviction", "confirmed_2d"],
+                           "description": "Break down results by this column."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "kelly_position_size",
+        "description": (
+            "Compute quarter-Kelly optimal position sizing from settled pick outcomes. "
+            "Returns recommended fraction of capital per trade, payoff ratio, and a "
+            "confidence-adjusted multiplier (lower when n < 200 picks). "
+            "IMPORTANT: only use AFTER run_statistical_significance confirms the edge is real. "
+            "Can segment by conviction='HIGH'/'MEDIUM' to size HIGH picks larger if their "
+            "separate edge is proven. Returns recommended_pct_capital = Kelly fraction × 100."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Days of settled pick history (default 60, max 180)."},
+            "fractional_multiplier": {"type": "number",
+                "description": "Fraction of full Kelly to recommend (default 0.25, max 0.5)."},
+            "segment_by": {"type": "string", "enum": ["conviction", "confirmed_2d"],
+                           "description": "Optional: break down sizing by segment."},
+        }, "required": []}
+    }},
+
+# ─── PART 3 OF 3: Dispatcher entries (add into _tool_map dict) ─────────
+
+        "signal_layer_redundancy":   _aiem_tool_signal_layer_redundancy,
+        "signal_magnitude_analysis": _aiem_tool_signal_magnitude_analysis,
+        "holding_period_optimize":   _aiem_tool_holding_period_optimize,
+        "kelly_position_size":       _aiem_tool_kelly_position_size,
+        # ── New tools wired in (Enhancement #5-9) ─────────────────────────────
