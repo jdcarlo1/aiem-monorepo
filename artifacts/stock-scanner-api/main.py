@@ -9428,17 +9428,37 @@ def _poll_trade_emails() -> None:
         print(f"[poll_trade_emails] error: {e}\n{traceback.format_exc()}")
 
 
-def _send_sms(message: str) -> None:
-    """Send a short SMS to the owner via T-Mobile email gateway."""
+_OWNER_PHONE = "+14013185787"
+
+def _send_sms(message: str, to: str = None) -> None:
+    """Send SMS to owner via Twilio (primary) or T-Mobile gateway (fallback)."""
+    to = to or _OWNER_PHONE
+    sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    from_num = os.environ.get("TWILIO_PHONE_NUMBER", "")
+
+    if sid and token and from_num:
+        try:
+            from twilio.rest import Client as _TwilioClient
+            _tc = _TwilioClient(sid, token)
+            # Split long messages into chunks (SMS limit ~1600 chars)
+            chunks = [message[i:i+1500] for i in range(0, len(message), 1500)]
+            for chunk in chunks:
+                _tc.messages.create(body=chunk, from_=from_num, to=to)
+            print(f"[sms/twilio] sent to {to}: {message[:60]}…")
+            return
+        except Exception as e:
+            print(f"[sms/twilio] error: {e} — falling back to gateway")
+
+    # Fallback: T-Mobile email gateway
     try:
         from email_alerts import send_email_raw
         gateway = _OWNER_SMS_GATEWAY
         if not gateway:
             return
-        # Trim to ~300 chars so it fits in a couple of SMS segments
         short = message[:300] + ("…" if len(message) > 300 else "")
         send_email_raw(gateway, "StockScanner AI", f"<p>{short}</p>")
-        print(f"[sms] sent to {gateway}: {short[:60]}…")
+        print(f"[sms/gateway] sent to {gateway}: {short[:60]}…")
     except Exception as e:
         print(f"[sms] send error: {e}")
 
@@ -36207,6 +36227,78 @@ def gap_volume_signal_endpoint():
         app.logger.error(f"[gap-volume-signal] {_e}")
         return jsonify({"signals": [], "count": 0, "scan_date": None,
                         "total_scanned": 0, "edge_note": "", "stale": True}), 200
+
+@app.route("/stock-api/sms/incoming", methods=["POST"])
+def sms_incoming_webhook():
+    """
+    Twilio webhook — called instantly when owner texts the Twilio number.
+    Immediately replies 'Got it!' via TwiML, then runs AIEM in background
+    and sends the full answer back via Twilio REST API when done.
+    """
+    import re as _re
+    from flask import request as _req
+    body     = _req.form.get("Body", "").strip()
+    from_num = _req.form.get("From", "").strip()
+
+    # Only respond to owner's number
+    if from_num.replace("+","").replace("-","") not in ["14013185787","4013185787"]:
+        return '<Response></Response>', 200, {"Content-Type": "text/xml"}
+
+    question = _re.sub(r"(?i)^ask:\s*", "", body).strip()
+    if not question:
+        return ('<Response><Message>Hey! Ask me anything — e.g. "why did NVDA move today?"</Message></Response>',
+                200, {"Content-Type": "text/xml"})
+
+    print(f"[sms/incoming] from={from_num} q={question[:80]}")
+
+    # Detect casual messages — reply instantly, no AIEM needed
+    _casual = {"hi","hey","hello","how are you","what's up","whats up",
+               "sup","yo","good morning","good night","thanks","thank you","ok","okay"}
+    if question.lower().strip("!?.") in _casual or len(question) < 8:
+        return (f'<Response><Message>Hey! I\'m live 24/7. Text me any stock question like: '
+                f'"ASK: why did TSLA move today?" and I\'ll research it.</Message></Response>',
+                200, {"Content-Type": "text/xml"})
+
+    # Launch AIEM research in background
+    def _research(q=question, to=from_num):
+        prompt = (
+            f"The owner just texted this question: '{q}'\n\n"
+            f"Research this using your tools. If they mention tickers, use "
+            f"mkt_retrospective_backtest and mkt_find_behavioral_matches. "
+            f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
+            f"If they ask about a signal or pattern, use mkt_test_signal to validate. "
+            f"After researching, write a SHORT reply (under 300 chars) that directly answers "
+            f"their question with the most important finding. Start with the direct answer."
+        )
+        try:
+            _run_aiem_focused_session(
+                session_name=f"sms_{q[:20].replace(' ','_')}",
+                focus_prompt=prompt,
+                max_iterations=8
+            )
+            # Pull latest insight as SMS summary
+            try:
+                import psycopg2 as _pg
+                with _pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+                    _cur.execute("SELECT insight_text FROM aiem_research_insights ORDER BY created_at DESC LIMIT 1")
+                    row = _cur.fetchone()
+                    summary = (row[0][:280] if row and row[0] else
+                               "Research complete — check your email for the full report.")
+            except Exception:
+                summary = "Research complete — check your email for the full report."
+            _send_sms(f"📊 {summary}", to=to)
+        except Exception as _e:
+            print(f"[sms/incoming] research error: {_e}")
+            _send_sms("⚠️ Hit an error researching that. Try again.", to=to)
+
+    import threading as _twt
+    _twt.Thread(target=_research, daemon=True).start()
+
+    # Instant TwiML reply — user sees this in seconds
+    ack = f"Got it! Researching: {question[:60]}{'...' if len(question)>60 else ''} — answer coming in ~5-10 min 🔍"
+    return (f'<Response><Message>{ack}</Message></Response>',
+            200, {"Content-Type": "text/xml"})
+
 
 @app.route("/stock-api/admin/run-aiem-research", methods=["POST"])
 def admin_run_aiem_research():
