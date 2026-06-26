@@ -15785,13 +15785,18 @@ def _aiem_tool_holding_period_optimize(days_back=60, segment_by="conviction"):
 
 
 def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
-                                   segment_by=None):
+                                   segment_by=None, horizon=3):
     """
     Compute quarter-Kelly optimal position sizing from settled pick outcomes.
     Lower multiplier when sample size is small (< 200 picks).
 
     Returns the recommended fraction of capital per trade — NOT a dollar amount.
     Segmented by conviction level if segment_by='conviction'.
+
+    horizon — which exit to use for the return distribution (1, 3, or 5 days).
+    Match this to the optimal exit found by holding_period_optimize: if HIGH
+    conviction picks optimally exit at T+1, pass horizon=1 so Kelly is computed
+    on the correct return distribution for that segment, not on T+3 returns.
 
     IMPORTANT: Only use this AFTER a signal has cleared statistical significance
     in run_statistical_significance. Sizing around an unvalidated edge amplifies
@@ -15812,17 +15817,24 @@ def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
                   f"valid: {_valid_segs} — segmentation skipped")
         seg_col = segment_by if segment_by in _valid_segs else None
 
+        # Map horizon → DB columns
+        _hor = int(horizon) if int(horizon) in (1, 3, 5) else 3
+        if _hor != int(horizon):
+            print(f"[kelly_position_size] unrecognized horizon={horizon!r}; valid: 1/3/5 — using T+3")
+        _win_col = f"t{_hor}_win"
+        _pct_col = f"t{_hor}_pct"
+
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
-            _cu.execute("""
+            _cu.execute(f"""
                 SELECT
                     conviction,
                     confirmed_2d,
-                    t3_win::int                        AS outcome,
-                    COALESCE(t3_pct, 0)::float / 100.0 AS return_pct
+                    {_win_col}::int                        AS outcome,
+                    COALESCE({_pct_col}, 0)::float / 100.0 AS return_pct
                 FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
-                  AND t3_win IS NOT NULL
-                  AND t3_pct IS NOT NULL
+                  AND {_win_col} IS NOT NULL
+                  AND {_pct_col} IS NOT NULL
             """, (days_back,))
             rows = _cu.fetchall()
             cols = [d[0] for d in _cu.description]
@@ -21153,7 +21165,11 @@ _AIEM_AGENT_TOOLS = [
             "confidence-adjusted multiplier (lower when n < 200 picks). "
             "IMPORTANT: only use AFTER run_statistical_significance confirms the edge is real. "
             "Can segment by conviction='HIGH'/'MEDIUM' to size HIGH picks larger if their "
-            "separate edge is proven. Returns recommended_pct_capital = Kelly fraction × 100."
+            "separate edge is proven. Returns recommended_pct_capital = Kelly fraction × 100.\n\n"
+            "CRITICAL — set horizon to match holding_period_optimize output: if HIGH conviction "
+            "picks optimally exit at T+1, pass horizon=1 so Kelly is computed on the T+1 return "
+            "distribution for that segment. Using T+3 returns to size a T+1 exit (or vice versa) "
+            "produces a Kelly fraction calibrated to the wrong distribution."
         ),
         "parameters": {"type": "object", "properties": {
             "days_back": {"type": "integer", "description": "Days of settled pick history (default 60, max 180)."},
@@ -21161,6 +21177,12 @@ _AIEM_AGENT_TOOLS = [
                 "description": "Fraction of full Kelly to recommend (default 0.25, max 0.5)."},
             "segment_by": {"type": "string", "enum": ["conviction", "confirmed_2d"],
                            "description": "Optional: break down sizing by segment."},
+            "horizon": {"type": "integer", "enum": [1, 3, 5],
+                        "description": (
+                            "Which exit horizon's return distribution to use (default 3). "
+                            "Must match the optimal exit found by holding_period_optimize — "
+                            "e.g. if HIGH conviction best exits at T+1, pass horizon=1."
+                        )},
         }, "required": []}
     }},
     # ── New tools: statistical rigor + data depth ──────────────────────────────

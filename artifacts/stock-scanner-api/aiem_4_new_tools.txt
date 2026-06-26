@@ -1,25 +1,13 @@
 # ═══════════════════════════════════════════════════════════════════════
-# AIEM — 4 Analysis Module Tools  (patched after code review)
-# Modules: signal_correlation.py | signal_magnitude_analysis.py
-#          holding_period_optimizer.py | position_sizing.py
+# AIEM — 4 Analysis Module Tools  (all fixes applied)
 # ═══════════════════════════════════════════════════════════════════════
-# Fixes applied (code review 2025-06-26):
-#   FIX 2 — holding_period_optimize: row loop replaced with pd.melt()
-#   FIX 3 — kelly_position_size: logs warning on unrecognized segment_by
-#   FIX 4 — signal_magnitude_analysis: min_bin_samples guard confirmed in
-#            signal_magnitude_analysis.py line 37+54 (already present)
-#   MATH  — Kelly formula f*=p-(1-p)/b verified correct in position_sizing.py
-# ═══════════════════════════════════════════════════════════════════════
-# HOW TO WIRE INTO main.py:
-#   1. Paste PART 1 near the other _aiem_tool_* function definitions
-#   2. Paste PART 2 into _AIEM_AGENT_TOOLS list
-#   3. Paste PART 3 into _tool_map dict
+# Fixes: pd.melt reshape | segment_by warning | horizon param | schema updated
 # ═══════════════════════════════════════════════════════════════════════
 
 
 # ─── PART 1 OF 3: Function definitions ─────────────────────────────────
 
-# main.py lines 15531–15616
+# lines 15531–15616
 def _aiem_tool_signal_layer_redundancy(days_back=60, threshold=0.70):
     """
     Check whether the AIEM's signal layers are providing independent information
@@ -106,7 +94,7 @@ def _aiem_tool_signal_layer_redundancy(days_back=60, threshold=0.70):
         return {"status": "error", "error": str(e)}
 
 
-# main.py lines 15617–15686
+# lines 15617–15686
 def _aiem_tool_signal_magnitude_analysis(days_back=60, n_bins=6):
     """
     Check whether win rate scales continuously with signal magnitude or plateaus.
@@ -177,7 +165,7 @@ def _aiem_tool_signal_magnitude_analysis(days_back=60, n_bins=6):
         return {"status": "error", "error": str(e)}
 
 
-# main.py lines 15687–15786
+# lines 15687–15786
 def _aiem_tool_holding_period_optimize(days_back=60, segment_by="conviction"):
     """
     Compare win rate and average return at T+1, T+3, and T+5 exit points,
@@ -278,15 +266,20 @@ def _aiem_tool_holding_period_optimize(days_back=60, segment_by="conviction"):
         return {"status": "error", "error": str(e)}
 
 
-# main.py lines 15787–15878
+# lines 15787–15890
 def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
-                                   segment_by=None):
+                                   segment_by=None, horizon=3):
     """
     Compute quarter-Kelly optimal position sizing from settled pick outcomes.
     Lower multiplier when sample size is small (< 200 picks).
 
     Returns the recommended fraction of capital per trade — NOT a dollar amount.
     Segmented by conviction level if segment_by='conviction'.
+
+    horizon — which exit to use for the return distribution (1, 3, or 5 days).
+    Match this to the optimal exit found by holding_period_optimize: if HIGH
+    conviction picks optimally exit at T+1, pass horizon=1 so Kelly is computed
+    on the correct return distribution for that segment, not on T+3 returns.
 
     IMPORTANT: Only use this AFTER a signal has cleared statistical significance
     in run_statistical_significance. Sizing around an unvalidated edge amplifies
@@ -307,17 +300,24 @@ def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
                   f"valid: {_valid_segs} — segmentation skipped")
         seg_col = segment_by if segment_by in _valid_segs else None
 
+        # Map horizon → DB columns
+        _hor = int(horizon) if int(horizon) in (1, 3, 5) else 3
+        if _hor != int(horizon):
+            print(f"[kelly_position_size] unrecognized horizon={horizon!r}; valid: 1/3/5 — using T+3")
+        _win_col = f"t{_hor}_win"
+        _pct_col = f"t{_hor}_pct"
+
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
-            _cu.execute("""
+            _cu.execute(f"""
                 SELECT
                     conviction,
                     confirmed_2d,
-                    t3_win::int                        AS outcome,
-                    COALESCE(t3_pct, 0)::float / 100.0 AS return_pct
+                    {_win_col}::int                        AS outcome,
+                    COALESCE({_pct_col}, 0)::float / 100.0 AS return_pct
                 FROM ai_short_calls_log
                 WHERE trade_date >= CURRENT_DATE - %s
-                  AND t3_win IS NOT NULL
-                  AND t3_pct IS NOT NULL
+                  AND {_win_col} IS NOT NULL
+                  AND {_pct_col} IS NOT NULL
             """, (days_back,))
             rows = _cu.fetchall()
             cols = [d[0] for d in _cu.description]
@@ -372,7 +372,7 @@ def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
 
 
 
-# ─── PART 2 OF 3: Schema entries (add into _AIEM_AGENT_TOOLS list) ───
+# ─── PART 2 OF 3: Schema entries ───────────────────────────────────────
 
     {"type": "function", "function": {
         "name": "signal_layer_redundancy",
@@ -428,7 +428,11 @@ def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
             "confidence-adjusted multiplier (lower when n < 200 picks). "
             "IMPORTANT: only use AFTER run_statistical_significance confirms the edge is real. "
             "Can segment by conviction='HIGH'/'MEDIUM' to size HIGH picks larger if their "
-            "separate edge is proven. Returns recommended_pct_capital = Kelly fraction × 100."
+            "separate edge is proven. Returns recommended_pct_capital = Kelly fraction × 100.\n\n"
+            "CRITICAL — set horizon to match holding_period_optimize output: if HIGH conviction "
+            "picks optimally exit at T+1, pass horizon=1 so Kelly is computed on the T+1 return "
+            "distribution for that segment. Using T+3 returns to size a T+1 exit (or vice versa) "
+            "produces a Kelly fraction calibrated to the wrong distribution."
         ),
         "parameters": {"type": "object", "properties": {
             "days_back": {"type": "integer", "description": "Days of settled pick history (default 60, max 180)."},
@@ -436,10 +440,16 @@ def _aiem_tool_kelly_position_size(days_back=60, fractional_multiplier=0.25,
                 "description": "Fraction of full Kelly to recommend (default 0.25, max 0.5)."},
             "segment_by": {"type": "string", "enum": ["conviction", "confirmed_2d"],
                            "description": "Optional: break down sizing by segment."},
+            "horizon": {"type": "integer", "enum": [1, 3, 5],
+                        "description": (
+                            "Which exit horizon's return distribution to use (default 3). "
+                            "Must match the optimal exit found by holding_period_optimize — "
+                            "e.g. if HIGH conviction best exits at T+1, pass horizon=1."
+                        )},
         }, "required": []}
     }},
 
-# ─── PART 3 OF 3: Dispatcher entries (add into _tool_map dict) ─────
+# ─── PART 3 OF 3: Dispatcher entries ──────────────────────────────────
 
         "signal_layer_redundancy":   _aiem_tool_signal_layer_redundancy,
         "signal_magnitude_analysis": _aiem_tool_signal_magnitude_analysis,
