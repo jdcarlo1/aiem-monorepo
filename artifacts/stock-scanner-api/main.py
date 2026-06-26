@@ -6700,13 +6700,15 @@ def _run_nano_morning_outcomes():
 
 
 @app.route("/stock-api/nano-morning/candidates", methods=["GET"])
+@app.route("/stock-api/nano-quant/latest", methods=["GET"])
 def nano_morning_candidates():
     import psycopg2 as _pg
     try:
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
             cur.execute("""
                 SELECT snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
-                       accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days, universe_count
+                       accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days,
+                       meta, universe_count
                 FROM nano_morning_candidates
                 WHERE snap_date = (SELECT MAX(snap_date) FROM nano_morning_candidates)
                 ORDER BY rank ASC
@@ -6716,23 +6718,91 @@ def nano_morning_candidates():
         for r in rows:
             if r.get("snap_date"):
                 r["snap_date"] = r["snap_date"].isoformat()
-            meta = r.get("meta", {}) or {}
+            meta = r.pop("meta", {}) or {}
             if isinstance(meta, str):
                 try:
-                    import json
-                    meta = json.loads(meta)
+                    import json as _j
+                    meta = _j.loads(meta)
                 except Exception:
                     meta = {}
-            r["nano_v2_score"] = meta.get("nano_v2_score", 0) if isinstance(meta, dict) else 0
-            r["nano_v2_pct"] = meta.get("nano_v2_pct", 0) if isinstance(meta, dict) else 0
-            r["nano_v2_grade"] = meta.get("nano_v2_grade", "SKIP") if isinstance(meta, dict) else "SKIP"
-            r["nano_v2_risky"] = meta.get("nano_v2_risky", False) if isinstance(meta, dict) else False
-            r["nano_v2_risk_reasons"] = meta.get("nano_v2_risk_reasons", []) if isinstance(meta, dict) else []
-            r["gap_pct"] = meta.get("gap_pct", 0) if isinstance(meta, dict) else 0
-            r["rvol"] = meta.get("rvol", 0) if isinstance(meta, dict) else 0
-        return jsonify({"count": len(rows), "candidates": rows}), 200
+            if not isinstance(meta, dict):
+                meta = {}
+            r["nano_v2_score"]        = meta.get("nano_v2_score", 0)
+            r["nano_v2_pct"]          = meta.get("nano_v2_pct", 0)
+            r["nano_v2_grade"]        = meta.get("nano_v2_grade", "SKIP")
+            r["nano_v2_risky"]        = meta.get("nano_v2_risky", False)
+            r["nano_v2_risk_reasons"] = meta.get("nano_v2_risk_reasons", [])
+            r["gap_pct"]              = meta.get("gap_pct", 0)
+            r["rvol"]                 = meta.get("rvol", 0)
+            r["quant_composite_z"]    = meta.get("quant_composite_z", -9.0)
+            r["quant_grade"]          = meta.get("quant_grade", "SKIP")
+            r["quant_gap_z"]          = meta.get("quant_gap_z", 0.0)
+            r["quant_mom_z"]          = meta.get("quant_mom_z", 0.0)
+            r["quant_qual_z"]         = meta.get("quant_qual_z", 0.0)
+            r["quant_ft_z"]           = meta.get("quant_ft_z", 0.0)
+            r["quant_sq_z"]           = meta.get("quant_sq_z", 0.0)
+        strong = [r for r in rows if r.get("quant_grade") == "STRONG"]
+        watch  = [r for r in rows if r.get("quant_grade") == "WATCH"]
+        snap   = rows[0]["snap_date"] if rows else None
+        return jsonify({
+            "count": len(rows),
+            "strong_count": len(strong),
+            "watch_count": len(watch),
+            "snap_date": snap,
+            "candidates": rows,
+            "edge_note": "48% WR +3.0%/capital (Apr-Jun 2026 backtest). STRONG = top 15% composite z-score."
+        }), 200
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/flow-streak/latest", methods=["GET"])
+def flow_streak_latest():
+    """
+    Returns tickers currently in a multi-day flow streak, with ignition signal flagged.
+    Ignition = streak day where rvol ≥ 1.5x AND day gain ≥ 3% AND close in top 70%
+    of range (ASTE/AMLX backtest-derived). Served from the net_flow_multiday DB cache;
+    returns stale flag when data is from a prior session.
+    """
+    try:
+        db = _load_scan_cache("net_flow_multiday", days_back=7)
+        if not db:
+            return jsonify({
+                "ignition": [], "all_streaks": [], "count": 0,
+                "ignition_count": 0, "stale": True,
+                "note": "No scan data yet — runs daily at 4:40 PM ET after market close"
+            })
+
+        results = db.get("results", [])
+        if not isinstance(results, list):
+            results = []
+
+        ignition = [r for r in results if r.get("has_ignition")]
+        ignition.sort(key=lambda x: (-x.get("streak", 0), -x.get("max_rvol", 0)))
+
+        all_streaks = sorted(results, key=lambda x: (-x.get("streak", 0),
+                                                      -(x.get("total_pct_mktcap") or 0)))
+
+        scan_date = db.get("scan_date") or db.get("saved_at", "")
+        stale = db.get("stale", False) or not _intraday_scan_allowed()
+
+        return jsonify({
+            "ignition":       ignition,
+            "all_streaks":    all_streaks,
+            "count":          len(results),
+            "ignition_count": len(ignition),
+            "scanned":        db.get("scanned", 0),
+            "scan_date":      str(scan_date)[:10] if scan_date else None,
+            "stale":          stale,
+            "edge_note": (
+                "Ignition = streak day with rvol≥1.5× + gain≥3% + close in top 70% of range. "
+                "Derived from ASTE/AMLX backtest. 71/851 stocks flagged on first live scan."
+            )
+        })
+    except Exception as _e:
+        app.logger.error(f"[flow-streak] {_e}")
+        return jsonify({"ignition": [], "all_streaks": [], "count": 0,
+                        "ignition_count": 0, "stale": True, "error": str(_e)})
 
 
 @app.route("/stock-api/nano-morning/picks", methods=["GET"])
