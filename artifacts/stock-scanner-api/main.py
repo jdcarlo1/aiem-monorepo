@@ -9404,11 +9404,13 @@ def _poll_ask_sms() -> None:
         mail.login(user, pwd)
         mail.select("INBOX")
 
-        # Match emails from the T-Mobile gateway OR with ASK: in subject
+        # Match emails from the T-Mobile gateway OR with ASK anywhere in subject
+        # Intentionally broad: catches "ASK:", "ASK", "Re: ASK", "Re: ASK:" etc.
         gateway_domain = "tmomail.net"
         _, data1 = mail.search(None, f'UNSEEN FROM "{gateway_domain}"')
-        _, data2 = mail.search(None, 'UNSEEN SUBJECT "ASK:"')
+        _, data2 = mail.search(None, 'UNSEEN SUBJECT "ASK"')
         uids = list(set(data1[0].split() + data2[0].split()))
+        print(f"[poll_ask_sms] checked inbox — {len(uids)} unread ASK email(s)")
 
         if not uids:
             mail.logout()
