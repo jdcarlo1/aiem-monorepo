@@ -12576,9 +12576,9 @@ def _get_aiem_feedback():
 
 def _get_aiem_research_context():
     """
-    Reads the most recent research model from aiem_research_insights.
-    Returns a formatted string injected at the top of every morning pick prompt.
-    Returns "" if no research has been run yet.
+    Confidence-weighted ensemble of last 3 research models.
+    Blends findings by confidence: HIGH=3x weight, MEDIUM=2x, LOW=1x.
+    Returns formatted string injected into every morning pick prompt.
     """
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
@@ -12586,27 +12586,53 @@ def _get_aiem_research_context():
                 SELECT research_date, findings, scoring_adjustments, confidence
                 FROM aiem_research_insights
                 ORDER BY research_date DESC
-                LIMIT 1
+                LIMIT 3
             """)
-            row = _cu.fetchone()
-        if not row:
+            rows = _cu.fetchall()
+        if not rows:
             return ""
-        _rd, _findings, _adj, _conf = row
-        _adj_str = ""
-        if _adj:
-            _adj_str = "\nLEARNED SCORING WEIGHTS:\n" + "\n".join(
-                "  {}: {}".format(k, v) for k, v in _adj.items()
-            )
+
+        conf_weight = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+
+        # Build ensemble weights by blending scoring_adjustments
+        import json as _gj
+        ensemble_weights = {}
+        total_w = 0
+        for rd, findings, adj, conf in rows:
+            w = conf_weight.get(conf, 1)
+            total_w += w
+            if adj:
+                for k, v in adj.items():
+                    if isinstance(v, (int, float)):
+                        ensemble_weights[k] = ensemble_weights.get(k, 0) + float(v) * w
+
+        # Normalize by total weight
+        if total_w > 0:
+            ensemble_weights = {k: round(v/total_w, 3) for k, v in ensemble_weights.items()}
+
+        # Latest model provides the primary narrative
+        latest_rd, latest_findings, latest_adj, latest_conf = rows[0]
+
         SEP = "=" * 60
-        return (
-            "\n" + SEP + "\n"
-            "AI RESEARCH MODEL (updated {}, confidence={})\n".format(_rd, _conf)
-            + SEP + "\n"
-            + str(_findings) + "\n"
-            + _adj_str + "\n"
-            + "Apply these weights when scoring today's candidates.\n"
-            + SEP + "\n\n"
-        )
+        lines_out = [
+            "\n" + SEP,
+            "AI RESEARCH MODEL — ENSEMBLE ({} models, latest={}, confidence={})".format(
+                len(rows), latest_rd, latest_conf),
+            SEP,
+            str(latest_findings or ""),
+            "",
+        ]
+        if ensemble_weights:
+            lines_out.append("ENSEMBLE-BLENDED SCORING WEIGHTS (confidence-weighted average of last {} models):".format(len(rows)))
+            for k, v in ensemble_weights.items():
+                if k != "note":
+                    lines_out.append("  {}: {}".format(k, v))
+        lines_out += [
+            "",
+            "Apply these weights when scoring today's candidates.",
+            SEP + "\n",
+        ]
+        return "\n".join(lines_out)
     except Exception as _e:
         print("[aiem_research] context load error: {}".format(_e))
         return ""
@@ -12947,6 +12973,489 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
         return {"error": str(e)}
 
 
+def _aiem_tool_query_market_regime(days_back=60):
+    """
+    Break win rates by market regime at time of pick.
+    Uses SPY daily return and VIX level stored in spy_cache / polygon_rvol_scan.
+    Reveals: does confirmed_2d work in bull markets but fail in bear/chop?
+    """
+    try:
+        days_back = min(int(days_back), 90)
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # Join picks with spy_daily_cache or compute from polygon_rvol_scan
+            _cu.execute("""
+                SELECT
+                    a.trade_date,
+                    a.ticker,
+                    a.t3_win,
+                    a.t7_win,
+                    a.t3_pct,
+                    a.t7_pct,
+                    a.confirmed_2d,
+                    a.conviction,
+                    CASE
+                        WHEN sc.spy_ret >= 0.5  THEN 'BULL'
+                        WHEN sc.spy_ret <= -0.5 THEN 'BEAR'
+                        ELSE 'CHOP'
+                    END AS regime,
+                    CASE
+                        WHEN sc.vix_level IS NOT NULL AND sc.vix_level < 18 THEN 'LOW_VIX'
+                        WHEN sc.vix_level IS NOT NULL AND sc.vix_level < 25 THEN 'MED_VIX'
+                        WHEN sc.vix_level IS NOT NULL THEN 'HIGH_VIX'
+                        ELSE 'UNKNOWN'
+                    END AS vix_regime
+                FROM ai_early_movers_log a
+                LEFT JOIN (
+                    SELECT DISTINCT ON (date)
+                        date,
+                        spy_daily_ret AS spy_ret,
+                        vix_close     AS vix_level
+                    FROM spy_daily_cache
+                    ORDER BY date DESC
+                ) sc ON sc.date = a.trade_date
+                WHERE a.trade_date >= CURRENT_DATE - %s
+                  AND a.t3_win IS NOT NULL
+            """, (days_back,))
+            rows = _cu.fetchall()
+            cols = [d[0] for d in _cu.description]
+        if not rows:
+            return {"error": "No settled picks or no spy_daily_cache data yet", "days_back": days_back}
+
+        from collections import defaultdict
+        regime_stats = defaultdict(lambda: {"n":0,"t3_wins":0,"t7_wins":0,"t7_n":0,"t3_pcts":[]})
+        vix_stats    = defaultdict(lambda: {"n":0,"t3_wins":0,"t3_pcts":[]})
+        for row in rows:
+            d = dict(zip(cols, row))
+            reg = d.get("regime") or "UNKNOWN"
+            vix = d.get("vix_regime") or "UNKNOWN"
+            regime_stats[reg]["n"] += 1
+            if d.get("t3_win"): regime_stats[reg]["t3_wins"] += 1
+            if d.get("t3_pct") is not None: regime_stats[reg]["t3_pcts"].append(float(d["t3_pct"]))
+            vix_stats[vix]["n"] += 1
+            if d.get("t3_win"): vix_stats[vix]["t3_wins"] += 1
+
+        def _summarize(stats):
+            return {k: {
+                "n": v["n"],
+                "t3_win_rate_pct": round(v["t3_wins"]/v["n"]*100,1) if v["n"] else None,
+                "avg_t3_pct": round(sum(v["t3_pcts"])/len(v["t3_pcts"]),2) if v["t3_pcts"] else None,
+            } for k,v in stats.items()}
+
+        return {
+            "days_back": days_back,
+            "by_spy_regime": _summarize(regime_stats),
+            "by_vix_regime": _summarize(vix_stats),
+            "interpretation": (
+                "BULL/BEAR/CHOP = SPY daily return +0.5%/-0.5% threshold. "
+                "LOW/MED/HIGH VIX = <18/<25/25+ thresholds. "
+                "If win rate differs >10pp across regimes, apply regime-conditional weights."
+            )
+        }
+    except Exception as e:
+        return {"error": str(e), "tip": "spy_daily_cache may not exist yet — will populate as data accumulates"}
+
+
+def _aiem_tool_query_cross_signal_overlap(days_back=30):
+    """
+    Check whether picks that ALSO appeared in Conviction Stack or Unusual Calls
+    that same day had higher win rates than solo picks.
+    This reveals whether multi-system confirmation is a strong predictor.
+    """
+    try:
+        days_back = min(int(days_back), 90)
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # Picks with conviction_stack on same day
+            _cu.execute("""
+                SELECT
+                    a.ticker, a.trade_date, a.t3_win, a.t7_win, a.t3_pct,
+                    (EXISTS (
+                        SELECT 1 FROM conviction_stack_watchlist csw
+                        WHERE csw.ticker = a.ticker
+                          AND csw.snapshot_date = a.trade_date
+                    )) AS in_conviction_stack,
+                    (EXISTS (
+                        SELECT 1 FROM unusual_calls_log ucl
+                        WHERE ucl.ticker = a.ticker
+                          AND ucl.scan_date = a.trade_date
+                    )) AS in_unusual_calls
+                FROM ai_early_movers_log a
+                WHERE a.trade_date >= CURRENT_DATE - %s
+                  AND a.t3_win IS NOT NULL
+            """, (days_back,))
+            rows = _cu.fetchall()
+            cols = [d[0] for d in _cu.description]
+
+        if not rows:
+            return {"error": "No settled picks found", "days_back": days_back}
+
+        picks = [dict(zip(cols, r)) for r in rows]
+        groups = {
+            "conviction_stack_YES": [p for p in picks if p["in_conviction_stack"]],
+            "conviction_stack_NO":  [p for p in picks if not p["in_conviction_stack"]],
+            "unusual_calls_YES":    [p for p in picks if p["in_unusual_calls"]],
+            "unusual_calls_NO":     [p for p in picks if not p["in_unusual_calls"]],
+            "both_confirmed":       [p for p in picks if p["in_conviction_stack"] and p["in_unusual_calls"]],
+            "neither":              [p for p in picks if not p["in_conviction_stack"] and not p["in_unusual_calls"]],
+        }
+
+        def _wr(grp):
+            if not grp: return {"n": 0, "t3_win_rate_pct": None, "avg_t3_pct": None}
+            t3s = [p for p in grp if p["t3_win"] is not None]
+            pcts = [float(p["t3_pct"]) for p in grp if p["t3_pct"] is not None]
+            return {
+                "n": len(grp),
+                "t3_win_rate_pct": round(sum(1 for p in t3s if p["t3_win"])/len(t3s)*100,1) if t3s else None,
+                "avg_t3_pct": round(sum(pcts)/len(pcts),2) if pcts else None,
+            }
+
+        return {
+            "days_back": days_back,
+            "cross_signal_analysis": {k: _wr(v) for k,v in groups.items()},
+            "interpretation": (
+                "If 'both_confirmed' shows much higher win rate than 'neither', "
+                "multi-system confirmation is a strong filter — weight it heavily. "
+                "If differences are small, the signals are redundant."
+            )
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_tool_evaluate_previous_model(lookback_weeks=2):
+    """
+    Grade how well the PREVIOUS research model actually performed.
+    Compares T+3 win rate in the week BEFORE vs the week AFTER the last model was saved.
+    If the model helped, you should build on it. If it hurt, you should override it.
+    """
+    try:
+        lookback_weeks = min(int(lookback_weeks), 8)
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # Get last model date
+            _cu.execute("""
+                SELECT research_date, confidence, scoring_adjustments, findings
+                FROM aiem_research_insights
+                ORDER BY research_date DESC
+                LIMIT 2
+            """)
+            models = _cu.fetchall()
+
+        if not models:
+            return {"error": "No previous models to evaluate yet"}
+
+        latest_model_date = models[0][0]
+        prev_model_date   = models[1][0] if len(models) > 1 else None
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # Picks before model
+            _cu.execute("""
+                SELECT COUNT(*) as n,
+                       SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float as wins,
+                       AVG(t3_pct) as avg_ret
+                FROM ai_early_movers_log
+                WHERE trade_date >= %s - INTERVAL '14 days'
+                  AND trade_date <  %s
+                  AND t3_win IS NOT NULL
+            """, (latest_model_date, latest_model_date))
+            before = _cu.fetchone()
+
+            # Picks after model
+            _cu.execute("""
+                SELECT COUNT(*) as n,
+                       SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float as wins,
+                       AVG(t3_pct) as avg_ret
+                FROM ai_early_movers_log
+                WHERE trade_date >= %s
+                  AND t3_win IS NOT NULL
+            """, (latest_model_date,))
+            after = _cu.fetchone()
+
+        def _fmt(row):
+            n, wins, avg_ret = row
+            n = int(n or 0); wins = float(wins or 0)
+            return {
+                "n": n,
+                "t3_win_rate_pct": round(wins/n*100,1) if n else None,
+                "avg_t3_pct": round(float(avg_ret),2) if avg_ret else None,
+            }
+
+        before_stats = _fmt(before)
+        after_stats  = _fmt(after)
+
+        improvement = None
+        if before_stats["t3_win_rate_pct"] and after_stats["t3_win_rate_pct"]:
+            improvement = round(after_stats["t3_win_rate_pct"] - before_stats["t3_win_rate_pct"], 1)
+
+        return {
+            "last_model_date": str(latest_model_date),
+            "last_model_confidence": models[0][1],
+            "before_model": before_stats,
+            "after_model": after_stats,
+            "win_rate_change_pp": improvement,
+            "verdict": (
+                "MODEL HELPED" if improvement and improvement > 3 else
+                "MODEL NEUTRAL" if improvement and abs(improvement) <= 3 else
+                "MODEL HURT"   if improvement and improvement < -3 else
+                "INSUFFICIENT DATA"
+            ),
+            "interpretation": (
+                "Positive win_rate_change_pp = model improved picks. "
+                "Build on it with higher weights. "
+                "Negative = model made things worse. Override aggressively."
+            )
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_tool_query_temporal_patterns(days_back=60):
+    """
+    Discover time-based patterns: day of week, week of month, options expiration week.
+    E.g. 'Monday picks win 65%, Friday picks win 38%' is actionable.
+    E.g. 'OpEx week win rate drops to 41%' means reduce position size that week.
+    """
+    try:
+        days_back = min(int(days_back), 90)
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    EXTRACT(DOW FROM trade_date)::int AS day_of_week,
+                    TO_CHAR(trade_date, 'Dy') AS day_name,
+                    CEIL(EXTRACT(DAY FROM trade_date) / 7.0)::int AS week_of_month,
+                    COUNT(*) AS n,
+                    SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
+                    SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
+                    AVG(t3_pct) AS avg_t3_pct,
+                    AVG(t7_pct) AS avg_t7_pct
+                FROM ai_early_movers_log
+                WHERE trade_date >= CURRENT_DATE - %s
+                GROUP BY 1, 2, 3
+                ORDER BY 1
+            """, (days_back,))
+            dow_rows = _cu.fetchall()
+            dow_cols = [d[0] for d in _cu.description]
+
+            # Options expiration = 3rd Friday of each month
+            # Detect opex week by checking if any Friday in the same week is the 3rd Friday
+            _cu.execute("""
+                SELECT
+                    CASE
+                        WHEN EXTRACT(DOW FROM trade_date) = 5
+                             AND CEIL(EXTRACT(DAY FROM trade_date)/7.0) = 3
+                        THEN TRUE
+                        WHEN EXISTS (
+                            SELECT 1 FROM generate_series(
+                                date_trunc('week', trade_date),
+                                date_trunc('week', trade_date) + 6,
+                                '1 day'::interval
+                            ) gs(d)
+                            WHERE EXTRACT(DOW FROM gs.d) = 5
+                              AND CEIL(EXTRACT(DAY FROM gs.d)/7.0) = 3
+                        ) THEN TRUE
+                        ELSE FALSE
+                    END AS is_opex_week,
+                    COUNT(*) AS n,
+                    SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
+                    SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
+                    AVG(t3_pct) AS avg_t3_pct
+                FROM ai_early_movers_log
+                WHERE trade_date >= CURRENT_DATE - %s
+                GROUP BY 1
+            """, (days_back,))
+            opex_rows = _cu.fetchall()
+
+        dow_results = []
+        for row in dow_rows:
+            d = dict(zip(dow_cols, row))
+            n3 = int(d.get("t3_settled") or 0)
+            d["t3_win_rate_pct"] = round(float(d["t3_wins"])/n3*100,1) if n3 else None
+            d["avg_t3_pct"] = round(float(d["avg_t3_pct"]),2) if d.get("avg_t3_pct") else None
+            d["avg_t7_pct"] = round(float(d["avg_t7_pct"]),2) if d.get("avg_t7_pct") else None
+            d.pop("t3_wins", None)
+            dow_results.append(d)
+
+        opex_results = {}
+        for row in opex_rows:
+            is_opex, n, wins, settled, avg = row
+            key = "opex_week" if is_opex else "normal_week"
+            opex_results[key] = {
+                "n": int(n), "t3_settled": int(settled or 0),
+                "t3_win_rate_pct": round(float(wins)/int(settled)*100,1) if settled else None,
+                "avg_t3_pct": round(float(avg),2) if avg else None,
+            }
+
+        return {
+            "days_back": days_back,
+            "day_of_week_performance": dow_results,
+            "opex_vs_normal_week": opex_results,
+            "interpretation": (
+                "day_of_week: 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri. "
+                "If one day consistently underperforms, avoid or down-weight picks that day. "
+                "OpEx week often shows mean-reversion behavior — if win rate drops, add that insight to findings."
+            )
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+
+
+def _aiem_tool_query_rank_effectiveness(days_back=30):
+    """Does rank #1 actually outperform rank #5? Validates whether our ranking model has signal."""
+    try:
+        days_back = min(int(days_back), 90)
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    rank,
+                    COUNT(*) AS n,
+                    SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float AS t3_wins,
+                    SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END) AS t3_settled,
+                    AVG(t3_pct) AS avg_t3_pct,
+                    AVG(t7_pct) AS avg_t7_pct
+                FROM ai_early_movers_log
+                WHERE trade_date >= CURRENT_DATE - %s
+                  AND rank IS NOT NULL AND rank <= 10
+                GROUP BY rank
+                ORDER BY rank
+            """, (days_back,))
+            rows = _cu.fetchall()
+            cols = [d[0] for d in _cu.description]
+        result = []
+        for row in rows:
+            d = dict(zip(cols, row))
+            n3 = int(d.get("t3_settled") or 0)
+            d["t3_win_rate_pct"] = round(float(d["t3_wins"])/n3*100,1) if n3 else None
+            d["avg_t3_pct"] = round(float(d["avg_t3_pct"]),2) if d.get("avg_t3_pct") else None
+            d["avg_t7_pct"] = round(float(d["avg_t7_pct"]),2) if d.get("avg_t7_pct") else None
+            result.append(d)
+        # Compute rank premium: rank1 vs rank5+ win rate gap
+        rank1 = next((r for r in result if r["rank"]==1), None)
+        rank5plus = [r for r in result if r.get("rank",0) >= 5]
+        if rank1 and rank5plus:
+            r5_wr = sum(r["t3_win_rate_pct"] or 0 for r in rank5plus) / len(rank5plus)
+            premium = round((rank1["t3_win_rate_pct"] or 0) - r5_wr, 1)
+        else:
+            premium = None
+        return {
+            "days_back": days_back,
+            "by_rank": result,
+            "rank1_vs_rank5plus_premium_pp": premium,
+            "verdict": (
+                "RANKING WORKS" if premium and premium > 8 else
+                "RANKING WEAK"  if premium and premium < 3 else
+                "RANKING MARGINAL"
+            ),
+            "interpretation": "If rank premium < 3pp, our ranking model needs restructuring. If > 10pp, top-2 picks only is a valid strategy."
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_tool_query_exit_timing(days_back=30):
+    """
+    T+3 vs T+7 exit optimization.
+    Does holding from T+3 to T+7 add return or give it back?
+    Broken down by conviction level and signal type.
+    """
+    try:
+        days_back = min(int(days_back), 90)
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    conviction,
+                    confirmed_2d,
+                    COUNT(*) FILTER (WHERE t3_win IS NOT NULL) AS n_t3,
+                    AVG(t3_pct) AS avg_t3,
+                    AVG(t7_pct) AS avg_t7,
+                    SUM(CASE WHEN t3_win THEN 1 ELSE 0 END)::float /
+                        NULLIF(SUM(CASE WHEN t3_win IS NOT NULL THEN 1 ELSE 0 END), 0) AS t3_wr,
+                    SUM(CASE WHEN t7_win THEN 1 ELSE 0 END)::float /
+                        NULLIF(SUM(CASE WHEN t7_win IS NOT NULL THEN 1 ELSE 0 END), 0) AS t7_wr
+                FROM ai_early_movers_log
+                WHERE trade_date >= CURRENT_DATE - %s
+                GROUP BY conviction, confirmed_2d
+                ORDER BY conviction, confirmed_2d
+            """, (days_back,))
+            rows = _cu.fetchall()
+            cols = [d[0] for d in _cu.description]
+
+        result = []
+        for row in rows:
+            d = dict(zip(cols, row))
+            t3_wr = float(d["t3_wr"]) if d.get("t3_wr") else None
+            t7_wr = float(d["t7_wr"]) if d.get("t7_wr") else None
+            t3_pct = float(d["avg_t3"]) if d.get("avg_t3") else None
+            t7_pct = float(d["avg_t7"]) if d.get("avg_t7") else None
+            result.append({
+                "conviction": d.get("conviction"),
+                "confirmed_2d": d.get("confirmed_2d"),
+                "n": int(d.get("n_t3") or 0),
+                "t3_win_rate_pct": round(t3_wr*100,1) if t3_wr else None,
+                "t7_win_rate_pct": round(t7_wr*100,1) if t7_wr else None,
+                "avg_t3_pct": round(t3_pct,2) if t3_pct else None,
+                "avg_t7_pct": round(t7_pct,2) if t7_pct else None,
+                "hold_adds_return": (
+                    round((t7_pct or 0) - (t3_pct or 0), 2) if t3_pct and t7_pct else None
+                ),
+                "recommendation": (
+                    "HOLD_TO_T7" if (t7_pct and t3_pct and t7_pct > t3_pct + 0.5) else
+                    "EXIT_AT_T3" if (t7_pct and t3_pct and t3_pct > t7_pct + 0.5) else
+                    "NEUTRAL"
+                )
+            })
+        return {
+            "days_back": days_back,
+            "exit_timing_by_segment": result,
+            "note": "hold_adds_return > 0 = holding to T+7 is profitable on average for this segment"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
+                                             group_b_wins, group_b_n,
+                                             n_bootstrap=2000):
+    """
+    Bootstrap p-value test: is the win rate difference between group A and B real or noise?
+    Returns p_value and is_significant (p < 0.05).
+    Use before adding any finding to the model — prevents overfit on small samples.
+    """
+    import random as _rnd
+    try:
+        a_wins = int(group_a_wins); a_n = int(group_a_n)
+        b_wins = int(group_b_wins); b_n = int(group_b_n)
+        if a_n == 0 or b_n == 0:
+            return {"error": "Both groups must have n > 0"}
+        observed_diff = (a_wins/a_n) - (b_wins/b_n)
+        # Pool under null hypothesis
+        pool_wr = (a_wins + b_wins) / (a_n + b_n)
+        # Bootstrap
+        count_extreme = 0
+        for _ in range(n_bootstrap):
+            sim_a = sum(_rnd.random() < pool_wr for _ in range(a_n))
+            sim_b = sum(_rnd.random() < pool_wr for _ in range(b_n))
+            sim_diff = (sim_a/a_n) - (sim_b/b_n)
+            if abs(sim_diff) >= abs(observed_diff):
+                count_extreme += 1
+        p_value = round(count_extreme / n_bootstrap, 4)
+        return {
+            "group_a": {"wins": a_wins, "n": a_n, "win_rate_pct": round(a_wins/a_n*100,1)},
+            "group_b": {"wins": b_wins, "n": b_n, "win_rate_pct": round(b_wins/b_n*100,1)},
+            "observed_diff_pp": round(observed_diff*100, 1),
+            "p_value": p_value,
+            "is_significant": p_value < 0.05,
+            "confidence_level": (
+                "STRONG (p<0.01)"  if p_value < 0.01 else
+                "SIGNIFICANT (p<0.05)" if p_value < 0.05 else
+                "MARGINAL (p<0.10)"    if p_value < 0.10 else
+                "NOT SIGNIFICANT — likely noise, do not include in model"
+            ),
+            "n_bootstrap": n_bootstrap
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ── The agentic loop ───────────────────────────────────────────────────────────
 
 _AIEM_AGENT_TOOLS = [
@@ -12954,8 +13463,7 @@ _AIEM_AGENT_TOOLS = [
         "name": "query_pick_outcomes",
         "description": (
             "Get all AI Early Movers picks from the last N trading days including "
-            "T+3 and T+7 price outcomes. Use this first to understand overall win rate "
-            "and see what kinds of picks you have been making."
+            "T+3 and T+7 price outcomes. Use this FIRST to understand overall win rate."
         ),
         "parameters": {"type": "object", "properties": {
             "days_back": {"type": "integer", "description": "Days to look back (max 90, default 30)"}
@@ -12964,21 +13472,18 @@ _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "query_missed_movers",
         "description": (
-            "Get stocks that moved 5%+ on days you ran but that you did NOT pick. "
-            "These are your misses. Includes day_ret, volume, price, and whether "
-            "an unusual options call signal existed (has_uc)."
+            "Get stocks that moved 5%+ that you did NOT pick. "
+            "Reveals what you are systematically missing."
         ),
         "parameters": {"type": "object", "properties": {
-            "days_back": {"type": "integer", "description": "Days to look back (max 90, default 30)"}
+            "days_back": {"type": "integer"}
         }, "required": []}
     }},
     {"type": "function", "function": {
         "name": "analyze_signal_correlation",
         "description": (
-            "Measure how strongly a specific boolean signal correlates with winning picks. "
-            "signal options: 'confirmed_2d' (2-day momentum confirmed), "
-            "'high_conviction' (AI rated HIGH), 'buy_stock' (equity vs call recommendation). "
-            "Returns win rates for picks WITH vs WITHOUT the signal."
+            "Win rate for picks WITH vs WITHOUT a specific boolean signal. "
+            "signal options: 'confirmed_2d', 'high_conviction', 'buy_stock'."
         ),
         "parameters": {"type": "object", "properties": {
             "signal": {"type": "string", "enum": ["confirmed_2d", "high_conviction", "buy_stock"]},
@@ -12987,11 +13492,7 @@ _AIEM_AGENT_TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "compare_picks_vs_misses",
-        "description": (
-            "Side-by-side statistical comparison: what characteristics do your picks have "
-            "vs the stocks you missed? Reveals systematic bias — e.g. AI avoids high-vol "
-            "names or ignores options flow signals. Essential for understanding blind spots."
-        ),
+        "description": "Side-by-side: what AI picked vs what AI missed. Reveals systematic bias.",
         "parameters": {"type": "object", "properties": {
             "days_back": {"type": "integer"}
         }, "required": []}
@@ -12999,9 +13500,9 @@ _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "discover_numeric_patterns",
         "description": (
-            "Discover whether a numeric metric predicts winners by analyzing quartile win rates. "
-            "For example: do stocks with higher day_ret at pick time win more at T+3? "
-            "metric options: 'day_ret', 'vol_oi', 'stock_price'."
+            "Quartile win rate analysis on a numeric metric. "
+            "metric options: 'day_ret', 'vol_oi', 'stock_price'. "
+            "Finds optimal thresholds — e.g. day_ret 3-6% wins 65%, below 2% wins 38%."
         ),
         "parameters": {"type": "object", "properties": {
             "metric": {"type": "string", "enum": ["day_ret", "vol_oi", "stock_price"]},
@@ -13011,66 +13512,179 @@ _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "test_scoring_hypothesis",
         "description": (
-            "Backtest a proposed scoring model on historical picks. "
-            "Provide weights as a dict, e.g. {confirmed_2d: 2.0, high_conviction: 1.5, "
-            "buy_stock: 0.5, day_ret_multiplier: 0.2, vol_oi_factor: 0.3}. "
-            "Returns: win rate improvement for top-ranked picks vs baseline. "
-            "Iterate weights until you find the best model, then call save_research_model."
+            "Backtest a proposed scoring model. "
+            "Weights: {confirmed_2d, high_conviction, buy_stock, day_ret_multiplier, vol_oi_factor}. "
+            "Returns top-half vs bottom-half win rate split. Iterate to maximize improvement."
         ),
         "parameters": {"type": "object", "properties": {
-            "weights": {"type": "object", "description": "Weight dict for the scoring model"},
+            "weights": {"type": "object"},
             "days_back": {"type": "integer"}
         }, "required": ["weights"]}
     }},
     {"type": "function", "function": {
+        "name": "query_market_regime",
+        "description": (
+            "Break win rates by SPY market regime (BULL/BEAR/CHOP) and VIX level (LOW/MED/HIGH). "
+            "Critical for regime-conditional scoring — confirmed_2d may work in bull but not bear. "
+            "Use this to discover regime-specific weights."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "query_cross_signal_overlap",
+        "description": (
+            "Check whether picks confirmed by MULTIPLE scanners (Conviction Stack + Unusual Calls) "
+            "win at a higher rate than solo picks. Multi-system confirmation may be your strongest filter. "
+            "Returns: conviction_stack_YES/NO, unusual_calls_YES/NO, both_confirmed, neither."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "evaluate_previous_model",
+        "description": (
+            "Grade last week's scoring model: did picks improve AFTER the model was applied vs BEFORE? "
+            "Returns win rate change in percentage points and a verdict: MODEL HELPED / NEUTRAL / HURT. "
+            "Always call this before writing a new model to understand if you should build on or override the last one."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "lookback_weeks": {"type": "integer"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "query_temporal_patterns",
+        "description": (
+            "Discover time-based patterns: day of week, week of month, options expiration week. "
+            "E.g. 'Monday picks win 67%, Friday picks win 39%' — apply day-of-week gate. "
+            "OpEx week often shows mean-reversion — lower win rates mean reduce exposure."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "query_rank_effectiveness",
+        "description": (
+            "Does rank #1 actually win more than rank #5? "
+            "If top-ranked picks do not outperform lower-ranked, your ranking model is not working. "
+            "Returns win rate and avg return by rank position (1-10)."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "query_exit_timing",
+        "description": (
+            "T+3 vs T+7 exit optimization by signal type. "
+            "For each signal (confirmed_2d, high_conviction), does holding to T+7 add return or give it back? "
+            "Determines optimal exit horizon recommendation."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "run_statistical_significance",
+        "description": (
+            "Bootstrap test: is the observed win rate difference between two groups statistically significant? "
+            "Prevents over-fitting on small samples. "
+            "Provide group_a_wins, group_a_n, group_b_wins, group_b_n. "
+            "Returns p_value and is_significant (p<0.05)."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "group_a_wins": {"type": "number"},
+            "group_a_n": {"type": "number"},
+            "group_b_wins": {"type": "number"},
+            "group_b_n": {"type": "number"},
+            "n_bootstrap": {"type": "integer", "description": "Bootstrap iterations, default 2000"}
+        }, "required": ["group_a_wins", "group_a_n", "group_b_wins", "group_b_n"]}
+    }},
+    {"type": "function", "function": {
         "name": "save_research_model",
         "description": (
-            "Save your final analysis conclusions and scoring model to the database. "
-            "This is your OUTPUT — call this when you have finished investigating and "
-            "have concrete recommendations. The weights you save here will influence "
-            "every morning's picks going forward."
+            "Save final conclusions and scoring model to the database. "
+            "Call LAST after all investigation is complete. "
+            "The weights you save here directly influence tomorrow's picks."
         ),
         "parameters": {"type": "object", "properties": {
             "findings": {"type": "string",
-                "description": "Plain-English summary of what you discovered. What patterns exist? What biases did you find? What should change?"},
+                "description": "Full narrative: what patterns exist, what biases found, what changed vs last week, what regime conditions apply, recommended exit timing."},
             "scoring_adjustments": {"type": "object",
-                "description": "The scoring weights/thresholds you recommend. These will be injected into tomorrow's pick prompt."},
-            "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"],
-                "description": "LOW if <10 settled picks, MEDIUM if 10-30, HIGH if 30+"}
+                "description": "All weights, thresholds, gates, and regime flags you recommend."},
+            "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]}
         }, "required": ["findings", "scoring_adjustments", "confidence"]}
     }},
 ]
 
 
-_AIEM_AGENT_SYSTEM = """You are an autonomous quantitative research AI.
-Your mission: analyze your own historical stock-picking performance and build a data-driven scoring model that improves future picks.
+_AIEM_AGENT_SYSTEM = """You are an autonomous quantitative research AI with access to a real trading database.
 
-You have access to tools that query a real trading database containing:
-- Your past AI Early Movers picks (with T+3 and T+7 outcome data)
-- Stocks you missed (moved 5%+ but you didn't pick)
-- Signal correlation data
-- Numeric threshold analysis
+Your mission: analyze your own stock-picking performance, discover what makes picks win or lose, and build the most accurate scoring model possible — which will directly improve tomorrow's picks.
 
-RESEARCH PROTOCOL:
-1. Start broad: query_pick_outcomes and query_missed_movers to understand the landscape
-2. Investigate: use analyze_signal_correlation and compare_picks_vs_misses to find what differentiates winners from losers
-3. Discover: use discover_numeric_patterns to find optimal thresholds for numeric metrics
-4. Iterate: use test_scoring_hypothesis to backtest proposed weights before committing
-5. Conclude: call save_research_model with your findings and best-performing weights
+TOOLS AVAILABLE (use in this order):
+1. evaluate_previous_model     — ALWAYS start here. Was last week's model good or bad?
+2. query_pick_outcomes         — Full T+3/T+7 history. How are we doing overall?
+3. query_missed_movers         — What big movers did we miss? Why?
+4. analyze_signal_correlation  — Which boolean signals predict winners?
+5. discover_numeric_patterns   — Find optimal numeric thresholds (day_ret, vol_oi, price)
+6. compare_picks_vs_misses     — Systematic bias: what do we avoid that we shouldn't?
+7. query_market_regime         — Do our signals work in bull vs bear vs chop?
+8. query_cross_signal_overlap  — Does multi-scanner confirmation predict better outcomes?
+9. query_temporal_patterns     — Day of week, OpEx week effects
+10. query_rank_effectiveness   — Does rank #1 actually outperform rank #5?
+11. query_exit_timing          — T+3 vs T+7: when should we exit?
+12. test_scoring_hypothesis    — Backtest proposed weights before committing. ITERATE.
+13. run_statistical_significance — Verify findings are not noise before including them.
+14. save_research_model        — Save final model. LAST call only.
 
-Be rigorous. If sample size is small, say so in findings and set confidence=LOW.
-If you find a strong signal (e.g. confirmed_2d picks win 70% vs 40% without), that should drive high weight.
-Your goal is to maximize T+3 win rate for top-ranked picks."""
+RESEARCH DISCIPLINE:
+- Evaluate the previous model BEFORE building a new one.
+- Run statistical_significance on any finding before including it in the model.
+- Test at least 3 different weight combinations with test_scoring_hypothesis.
+- Check regime (query_market_regime) before finalizing weights — regime-blind models overfit.
+- If sample size < 20 settled picks, set confidence=LOW and use conservative default weights.
+- findings must include: what changed vs last week, what regime conditions apply, exit timing recommendation, and any signals you are DOWN-WEIGHTING and why.
+
+Your goal is to maximize T+3 win rate for top-ranked picks while avoiding overfit on small samples."""
 
 
-def _run_aiem_research_agent(max_iterations=15):
+def _run_aiem_research_agent(max_iterations=None):
     """
-    The autonomous AI research agent.
-    Runs a function-calling loop — the AI decides what to query, gets results,
-    iterates, and eventually saves its own scoring model to aiem_research_insights.
-    Called weekly by scheduler and via POST /stock-api/admin/run-aiem-research.
+    Autonomous AI research agent — full enhanced version.
+    - Adaptive iteration budget: scales with data quantity (more picks = more iterations)
+    - All 14 tools registered in tool_map
+    - Self-critique pass after primary research
+    - Weekly research email to owner
+    Runs as daemon thread. Called Sunday 8PM ET + POST /stock-api/admin/run-aiem-research.
     """
-    import json as _aj
+    import json as _aj, datetime as _ardt
+
+    # ── Adaptive iteration budget ─────────────────────────────────────────────
+    # Scale with how many settled picks exist — more data = agent can go deeper
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("SELECT COUNT(*) FROM ai_early_movers_log WHERE t3_win IS NOT NULL")
+            _settled = _cu.fetchone()[0] or 0
+    except Exception:
+        _settled = 0
+
+    if max_iterations is None:
+        if _settled < 10:
+            max_iterations = 8    # sparse data — stay conservative
+        elif _settled < 30:
+            max_iterations = 15   # moderate data
+        elif _settled < 80:
+            max_iterations = 20   # good data set
+        else:
+            max_iterations = 25   # rich data — go deep
+
+    print(f"[aiem_research] settled_picks={_settled} → budget={max_iterations} iterations")
+
+    # ── OpenAI client ─────────────────────────────────────────────────────────
     try:
         from openai import OpenAI as _OAIR
         _oai = _OAIR(
@@ -13081,30 +13695,46 @@ def _run_aiem_research_agent(max_iterations=15):
         print(f"[aiem_research] OpenAI init error: {_oe}")
         return {"error": str(_oe)}
 
+    # ── Full tool map — all 14 tools ──────────────────────────────────────────
     _tool_map = {
-        "query_pick_outcomes":       _aiem_tool_query_pick_outcomes,
-        "query_missed_movers":       _aiem_tool_query_missed_movers,
-        "analyze_signal_correlation": _aiem_tool_analyze_signal_correlation,
-        "compare_picks_vs_misses":   _aiem_tool_compare_picks_vs_misses,
-        "discover_numeric_patterns": _aiem_tool_discover_numeric_patterns,
-        "test_scoring_hypothesis":   _aiem_tool_test_scoring_hypothesis,
-        "save_research_model":       _aiem_tool_save_research_model,
+        "query_pick_outcomes":         _aiem_tool_query_pick_outcomes,
+        "query_missed_movers":         _aiem_tool_query_missed_movers,
+        "analyze_signal_correlation":  _aiem_tool_analyze_signal_correlation,
+        "compare_picks_vs_misses":     _aiem_tool_compare_picks_vs_misses,
+        "discover_numeric_patterns":   _aiem_tool_discover_numeric_patterns,
+        "test_scoring_hypothesis":     _aiem_tool_test_scoring_hypothesis,
+        "query_market_regime":         _aiem_tool_query_market_regime,
+        "query_cross_signal_overlap":  _aiem_tool_query_cross_signal_overlap,
+        "evaluate_previous_model":     _aiem_tool_evaluate_previous_model,
+        "query_temporal_patterns":     _aiem_tool_query_temporal_patterns,
+        "query_rank_effectiveness":    _aiem_tool_query_rank_effectiveness,
+        "query_exit_timing":           _aiem_tool_query_exit_timing,
+        "run_statistical_significance": _aiem_tool_run_statistical_significance,
+        "save_research_model":         _aiem_tool_save_research_model,
     }
 
+    # ── Phase 1: Primary research loop ───────────────────────────────────────
     messages = [
         {"role": "system", "content": _AIEM_AGENT_SYSTEM},
         {"role": "user", "content": (
-            "Begin your research. Analyze my AI Early Movers performance over the last 30 days. "
-            "Discover what signals predict winners, what I'm systematically missing, "
-            "and build the best scoring model you can from the data. "
-            "Use as many tool calls as needed. Save your model when done."
-        )}
+            "Begin autonomous research. You have {} settled picks to analyze. "
+            "Start with evaluate_previous_model, then query_pick_outcomes. "
+            "Use all available tools to discover patterns. "
+            "Run statistical_significance on any finding before including it. "
+            "Test multiple weight combinations. Save your model when done."
+        ).format(_settled)}
     ]
 
     tool_calls_made = 0
     model_saved = False
     save_result = None
-    log_lines = [f"[aiem_research] Agent started — max {max_iterations} iterations"]
+    saved_findings = None
+    saved_weights = None
+    saved_confidence = None
+    log_lines = [
+        "[aiem_research] ═══ RESEARCH SESSION STARTED ═══",
+        "[aiem_research] settled_picks={}, budget={} iterations".format(_settled, max_iterations),
+    ]
 
     for iteration in range(max_iterations):
         try:
@@ -13113,20 +13743,22 @@ def _run_aiem_research_agent(max_iterations=15):
                 messages=messages,
                 tools=_AIEM_AGENT_TOOLS,
                 tool_choice="auto",
-                temperature=0.2,
+                temperature=0.15,
                 max_tokens=4096,
             )
         except Exception as _ce:
-            log_lines.append(f"  iter {iteration}: API error: {_ce}")
+            log_lines.append("  iter {}: API error: {}".format(iteration, _ce))
             break
 
         msg = resp.choices[0].message
-        messages.append({"role": "assistant", "content": msg.content,
-                         "tool_calls": [tc.model_dump() for tc in (msg.tool_calls or [])]})
+        messages.append({
+            "role": "assistant",
+            "content": msg.content,
+            "tool_calls": [tc.model_dump() for tc in (msg.tool_calls or [])]
+        })
 
         if not msg.tool_calls:
-            # Agent finished without calling save — force it
-            log_lines.append(f"  iter {iteration}: Agent finished reasoning without save")
+            log_lines.append("  iter {}: Agent finished reasoning (no tool call)".format(iteration))
             break
 
         for tc in msg.tool_calls:
@@ -13136,20 +13768,16 @@ def _run_aiem_research_agent(max_iterations=15):
             except Exception:
                 fn_args = {}
 
-            log_lines.append(f"  iter {iteration}: → {fn_name}({_aj.dumps(fn_args)[:120]})")
+            log_lines.append("  iter {}: → {}({})".format(
+                iteration, fn_name, _aj.dumps(fn_args)[:100]))
 
             fn = _tool_map.get(fn_name)
-            if fn:
-                result = fn(**fn_args)
-            else:
-                result = {"error": f"Unknown tool: {fn_name}"}
-
+            result = fn(**fn_args) if fn else {"error": "Unknown tool: {}".format(fn_name)}
             tool_calls_made += 1
 
-            # Truncate result to avoid token overflow (keep first 4000 chars)
             result_str = _aj.dumps(result, default=str)
             if len(result_str) > 6000:
-                result_str = result_str[:6000] + '... [truncated for context]"}'
+                result_str = result_str[:6000] + '..."}'
 
             messages.append({
                 "role": "tool",
@@ -13160,24 +13788,158 @@ def _run_aiem_research_agent(max_iterations=15):
             if fn_name == "save_research_model":
                 model_saved = True
                 save_result = result
-                log_lines.append(f"  → Model saved (confidence={fn_args.get('confidence')})")
+                saved_findings   = fn_args.get("findings", "")
+                saved_weights    = fn_args.get("scoring_adjustments", {})
+                saved_confidence = fn_args.get("confidence", "LOW")
+                log_lines.append("  → PRIMARY MODEL SAVED (confidence={})".format(saved_confidence))
 
         if model_saved:
             break
 
-    # If agent ran out of iterations without saving, force-save with whatever it found
+    # ── Phase 2: Self-critique pass ───────────────────────────────────────────
+    # Only run if we have enough data and a model was saved
+    if model_saved and _settled >= 15:
+        log_lines.append("[aiem_research] Starting self-critique pass...")
+        critique_messages = [
+            {"role": "system", "content": _AIEM_AGENT_SYSTEM},
+            {"role": "user", "content": (
+                "You just saved this research model:\n\n"
+                "FINDINGS: {}\n\n"
+                "WEIGHTS: {}\n\n"
+                "CONFIDENCE: {}\n\n"
+                "Now CRITIQUE it. What could be wrong? What did you NOT test? "
+                "What confounds might explain the patterns (e.g. sample bias, survivorship bias, "
+                "look-ahead bias)? What regime conditions could break this model? "
+                "Then: if your critique reveals a significant flaw, call save_research_model again "
+                "to update the findings with the caveat. If the model is solid, call save_research_model "
+                "to append 'SELF-CRITIQUE PASSED' to the findings."
+            ).format(saved_findings, _aj.dumps(saved_weights), saved_confidence)}
+        ]
+        try:
+            for _ci in range(5):  # max 5 critique iterations
+                _cr = _oai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=critique_messages,
+                    tools=_AIEM_AGENT_TOOLS,
+                    tool_choice="auto",
+                    temperature=0.3,
+                    max_tokens=2048,
+                )
+                _cmsg = _cr.choices[0].message
+                critique_messages.append({
+                    "role": "assistant",
+                    "content": _cmsg.content,
+                    "tool_calls": [tc.model_dump() for tc in (_cmsg.tool_calls or [])]
+                })
+                if not _cmsg.tool_calls:
+                    break
+                for _ctc in _cmsg.tool_calls:
+                    _cfn = _ctc.function.name
+                    try:
+                        _cargs = _aj.loads(_ctc.function.arguments or "{}")
+                    except Exception:
+                        _cargs = {}
+                    _cfunc = _tool_map.get(_cfn)
+                    _cresult = _cfunc(**_cargs) if _cfunc else {"error": "Unknown tool"}
+                    tool_calls_made += 1
+                    _cresult_str = _aj.dumps(_cresult, default=str)
+                    if len(_cresult_str) > 4000:
+                        _cresult_str = _cresult_str[:4000] + '..."}'
+                    critique_messages.append({
+                        "role": "tool",
+                        "tool_call_id": _ctc.id,
+                        "content": _cresult_str,
+                    })
+                    if _cfn == "save_research_model":
+                        save_result = _cresult
+                        log_lines.append("  → CRITIQUE MODEL SAVED")
+                        break
+                else:
+                    continue
+                break
+        except Exception as _cre:
+            log_lines.append("  critique error: {}".format(_cre))
+
+    # ── Fallback if no model saved ────────────────────────────────────────────
     if not model_saved:
-        log_lines.append("  Agent exhausted iterations — auto-saving best guess")
+        log_lines.append("[aiem_research] Budget exhausted — saving conservative defaults")
         _aiem_tool_save_research_model(
             findings=(
-                "Research agent ran out of iteration budget. "
-                "Insufficient data to draw strong conclusions yet. "
-                "Continue accumulating picks — model will improve as sample grows."
+                "Research agent ran without sufficient settled picks to draw conclusions. "
+                "Settled picks: {}. "
+                "Default conservative weights applied. "
+                "Model will improve as picks accumulate — check again in 2 weeks.".format(_settled)
             ),
-            scoring_adjustments={"confirmed_2d_bonus": 1.5, "high_conviction_bonus": 1.0,
-                                  "note": "Default weights — no strong signal found yet"},
+            scoring_adjustments={
+                "confirmed_2d_bonus": 1.5,
+                "high_conviction_bonus": 1.0,
+                "vol_oi_factor": 0.3,
+                "note": "Default weights — insufficient data"
+            },
             confidence="LOW"
         )
+
+    log_lines.append("[aiem_research] tool_calls_made={}".format(tool_calls_made))
+
+    # ── Phase 3: Weekly research email to owner ───────────────────────────────
+    try:
+        from email_alerts import send_email_raw
+        _today = _ardt.date.today().isoformat()
+
+        # Read back the final saved model
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT findings, scoring_adjustments, confidence
+                FROM aiem_research_insights
+                WHERE research_date = CURRENT_DATE
+                ORDER BY created_at DESC LIMIT 1
+            """)
+            _mrow = _cu.fetchone()
+
+        _mfindings = _mrow[0] if _mrow else "No model saved"
+        _mweights  = _mrow[1] if _mrow else {}
+        _mconf     = _mrow[2] if _mrow else "LOW"
+
+        _weights_html = ""
+        if _mweights:
+            _weights_html = "<ul>" + "".join(
+                "<li><b>{}</b>: {}</li>".format(k, v)
+                for k, v in _mweights.items()
+            ) + "</ul>"
+
+        _email_html = """
+        <div style="font-family:monospace;max-width:700px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:24px;border-radius:8px;">
+          <h2 style="color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:12px;">
+            🤖 AI Research Agent — Weekly Report {date}
+          </h2>
+          <div style="background:#161b22;padding:16px;border-radius:6px;margin:16px 0;">
+            <b style="color:#3fb950;">Confidence:</b> <span style="color:#f0883e;">{conf}</span><br>
+            <b style="color:#3fb950;">Tool calls made:</b> {calls}<br>
+            <b style="color:#3fb950;">Settled picks analyzed:</b> {settled}
+          </div>
+          <h3 style="color:#58a6ff;">Findings</h3>
+          <div style="background:#161b22;padding:16px;border-radius:6px;white-space:pre-wrap;">{findings}</div>
+          <h3 style="color:#58a6ff;">Learned Scoring Weights</h3>
+          <div style="background:#161b22;padding:16px;border-radius:6px;">{weights}</div>
+          <div style="margin-top:24px;color:#8b949e;font-size:12px;">
+            These weights are now active in tomorrow's AI Early Movers picks.<br>
+            View full history: GET /stock-api/aiem-research-status
+          </div>
+        </div>
+        """.format(
+            date=_today, conf=_mconf, calls=tool_calls_made,
+            settled=_settled, findings=str(_mfindings)[:2000],
+            weights=_weights_html or "None"
+        )
+
+        _sent = send_email_raw(
+            _OWNER_EMAIL,
+            "🤖 AI Research Agent Report — {} (confidence={})".format(_today, _mconf),
+            _email_html
+        )
+        log_lines.append("[aiem_research] Owner email sent={}".format(_sent))
+    except Exception as _ee:
+        log_lines.append("[aiem_research] Email error: {}".format(_ee))
 
     _log_str = "\n".join(log_lines)
     print(_log_str)
@@ -13185,7 +13947,8 @@ def _run_aiem_research_agent(max_iterations=15):
         "tool_calls_made": tool_calls_made,
         "model_saved": model_saved,
         "save_result": save_result,
-        "iterations": min(iteration + 1, max_iterations),
+        "settled_picks_analyzed": _settled,
+        "iterations_budget": max_iterations,
         "log": log_lines,
     }
 

@@ -9,16 +9,23 @@ description: Autonomous AI agent that queries its own pick/miss history, discove
 - Agent autonomously decides what to investigate; no hardcoded analysis path
 - Runs as daemon thread (never blocks HTTP); triggered Sunday 8 PM ET + manual admin endpoint
 
-# 7 Tools the agent can call
+# 14 Tools the agent can call
 
 | Tool | Purpose |
 |------|---------|
+| `evaluate_previous_model` | Grade last week's model before writing new one |
 | `query_pick_outcomes` | Full T+3/T+7 history from `ai_early_movers_log` |
 | `query_missed_movers` | Missed 5%+ movers from `ai_early_movers_misses` |
 | `analyze_signal_correlation` | Win rate for picks WITH vs WITHOUT a signal |
 | `compare_picks_vs_misses` | Side-by-side bias analysis |
 | `discover_numeric_patterns` | Quartile analysis on day_ret/vol_oi/price |
 | `test_scoring_hypothesis` | Backtest proposed weights on settled picks |
+| `query_market_regime` | Win rates by BULL/BEAR/CHOP and VIX bucket |
+| `query_cross_signal_overlap` | Multi-scanner confirmation (conviction+unusual calls) |
+| `query_temporal_patterns` | Day-of-week, OpEx week, week-of-month patterns |
+| `query_rank_effectiveness` | Does rank #1 actually beat rank #5? |
+| `query_exit_timing` | T+3 vs T+7 exit optimization by segment |
+| `run_statistical_significance` | Bootstrap p-value — prevents overfit on small samples |
 | `save_research_model` | Persist findings → `aiem_research_insights` |
 
 # Persistence
