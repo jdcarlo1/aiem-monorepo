@@ -15004,7 +15004,7 @@ def _run_aiem_continuous_research():
         ("Sweep + large premium", ["has_sweep = true", "sweep_premium_m > 0.5"], "t3_win"),
         ("High call/put ratio + sweep", ["call_put_ratio > 2.0", "has_sweep = true"], "t3_win"),
         ("Very high call/put ratio", ["call_put_ratio > 3.0"], "t3_win"),
-        ("Market-open session + sweep", ["session = market-open", "has_sweep = true"], "t3_win"),
+        ("Short-dated + near-ATM sweep", ["has_sweep = true", "days_out < 21", "otm_pct > -10"], "t3_win"),
         ("Short-dated sweep (< 21 days)", ["has_sweep = true", "days_out < 21"], "t3_win"),
         ("Near-ATM sweep", ["has_sweep = true", "otm_pct > -10"], "t3_win"),
         ("High IV sweep", ["has_sweep = true", "sweep_iv > 0.8"], "t3_win"),
@@ -15050,11 +15050,10 @@ def _run_aiem_continuous_research():
                 for f in significant:
                     _cus.execute("""
                         INSERT INTO aiem_research_insights
-                            (week_start, findings, model_weights, embedding)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT DO NOTHING
+                            (research_date, findings, confidence)
+                        VALUES (%s, %s, %s)
                     """, (
-                        _crd.date.today().isoformat(),
+                        _crd.date.today(),
                         _crj.dumps({
                             "type": "continuous_research_finding",
                             "description": f["description"],
@@ -15066,7 +15065,7 @@ def _run_aiem_continuous_research():
                             "edge_vs_baseline_pct": f["edge_vs_baseline_pct"],
                             "found_at": _crd.datetime.now().isoformat(),
                         }),
-                        _crj.dumps({}), None
+                        "HIGH" if f["p_value"] < 0.01 else "MEDIUM",
                     ))
                 _cs.commit()
             print(f"[aiem_continuous] saved {len(significant)} significant finding(s) to DB")
