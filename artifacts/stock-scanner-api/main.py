@@ -964,6 +964,7 @@ CONVICTION_STACK_MAX = 60
 # Owner inbox for personal (non-customer) intraday alert copies. Matches the
 # ALERT_EMAIL used by sms_alerts so every owner-targeted email lands in one place.
 _OWNER_EMAIL = os.getenv("ALERT_EMAIL", "joeldcarlo@gmail.com")
+_OWNER_SMS_GATEWAY = os.getenv("OWNER_PHONE_GATEWAY", "4013185787@tmomail.net")
 
 # Guard so overlapping triggers never run two heavy L1-L8 conviction scans at
 # once and trip yfinance rate limits.
@@ -2778,6 +2779,22 @@ try:
         )
     print("[scheduler] 24/7 AIEM research schedule active — "
           "behavioral scan every 30 min + 14 focused sessions per week + overnight runs")
+
+    # ASK: SMS poller — check for owner texts every 5 min, 24/7
+    def _run_poll_ask_sms():
+        try:
+            import threading as _thr_sms
+            _thr_sms.Thread(target=_poll_ask_sms, daemon=True).start()
+        except Exception as e:
+            print(f"[scheduler] poll_ask_sms error: {e}")
+    for _ask_h in range(6, 24):
+        for _ask_m in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]:
+            _scheduler.add_job(
+                _run_poll_ask_sms,
+                CronTrigger(hour=_ask_h, minute=_ask_m, timezone=_ET),
+                id=f"poll_ask_sms_{_ask_h}_{_ask_m}",
+                replace_existing=True,
+            )
 
     # Position monitor: poll Gmail for TRADE: emails every 15 min (market hours)
     def _run_poll_trade_emails():
@@ -9410,6 +9427,150 @@ def _poll_trade_emails() -> None:
     except Exception as e:
         import traceback
         print(f"[poll_trade_emails] error: {e}\n{traceback.format_exc()}")
+
+
+def _send_sms(message: str) -> None:
+    """Send a short SMS to the owner via T-Mobile email gateway."""
+    try:
+        from email_alerts import send_email_raw
+        gateway = _OWNER_SMS_GATEWAY
+        if not gateway:
+            return
+        # Trim to ~300 chars so it fits in a couple of SMS segments
+        short = message[:300] + ("…" if len(message) > 300 else "")
+        send_email_raw(gateway, "StockScanner AI", f"<p>{short}</p>")
+        print(f"[sms] sent to {gateway}: {short[:60]}…")
+    except Exception as e:
+        print(f"[sms] send error: {e}")
+
+
+def _poll_ask_sms() -> None:
+    """
+    Poll Gmail inbox for ASK: messages from the owner's phone (via T-Mobile gateway).
+    When found: immediately confirm via SMS, then run a focused AIEM session
+    with the question and SMS back a summary when done.
+    """
+    import imaplib, email as _em, re as _re
+    from email.header import decode_header as _dh
+
+    user = os.environ.get("SMTP_USER", "")
+    pwd  = os.environ.get("SMTP_PASS", "")
+    if not user or not pwd:
+        return
+
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        mail.login(user, pwd)
+        mail.select("INBOX")
+
+        # Match emails from the T-Mobile gateway OR with ASK: in subject
+        gateway_domain = "tmomail.net"
+        _, data1 = mail.search(None, f'UNSEEN FROM "{gateway_domain}"')
+        _, data2 = mail.search(None, 'UNSEEN SUBJECT "ASK:"')
+        uids = list(set(data1[0].split() + data2[0].split()))
+
+        if not uids:
+            mail.logout()
+            return
+
+        for uid in uids:
+            try:
+                _, msg_data = mail.fetch(uid, "(RFC822)")
+                msg = _em.message_from_bytes(msg_data[0][1])
+
+                # Decode subject
+                raw_subj = msg.get("Subject", "")
+                subj_parts = _dh(raw_subj)
+                subject = "".join(
+                    p.decode(enc or "utf-8") if isinstance(p, bytes) else p
+                    for p, enc in subj_parts
+                )
+
+                # Extract body text
+                body_text = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            try:
+                                body_text = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                break
+                            except Exception:
+                                pass
+                else:
+                    try:
+                        body_text = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                    except Exception:
+                        pass
+
+                # Build the user's question from subject + body
+                combined = f"{subject} {body_text}".strip()
+
+                # Strip "ASK:" prefix if present
+                question = _re.sub(r"(?i)^ask:\s*", "", combined).strip()
+                # Remove any email signature / reply chains (keep first 500 chars)
+                question = question[:500].split("\n>")[0].strip()
+
+                if not question or len(question) < 3:
+                    mail.store(uid, "+FLAGS", "\\Seen")
+                    continue
+
+                print(f"[poll_ask_sms] question: {question[:100]}")
+                mail.store(uid, "+FLAGS", "\\Seen")
+
+                # Immediately confirm receipt
+                _send_sms(f"Got it! Researching: {question[:80]}... reply in ~5-10 min 🔍")
+
+                # Build focused AIEM prompt
+                prompt = (
+                    f"The owner just texted you this question from their phone: '{question}'\n\n"
+                    f"Research this thoroughly using your tools. If they mention specific tickers, "
+                    f"use mkt_retrospective_backtest and mkt_find_behavioral_matches for those tickers. "
+                    f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
+                    f"If they ask about a pattern or signal, use mkt_test_signal to validate it. "
+                    f"After your research, write a BRIEF SMS REPLY (under 280 chars) that directly answers "
+                    f"their question with the most important finding. Start with the direct answer, "
+                    f"then 1-2 supporting facts. No fluff."
+                )
+
+                def _run_and_reply(q=question, p=prompt):
+                    try:
+                        # Capture the last assistant message by monkey-patching print
+                        # Run the session — it will use all tools
+                        import io as _io, threading as _thr_sms
+                        _run_aiem_focused_session(
+                            session_name=f"sms_ask_{q[:20].replace(' ','_')}",
+                            focus_prompt=p,
+                            max_iterations=8
+                        )
+                        # After session, pull the most recent research insight as SMS summary
+                        try:
+                            import psycopg2 as _pg_sms
+                            with _pg_sms.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+                                _cur.execute("""
+                                    SELECT insight_text FROM aiem_research_insights
+                                    ORDER BY created_at DESC LIMIT 1
+                                """)
+                                row = _cur.fetchone()
+                                if row and row[0]:
+                                    summary = row[0][:280]
+                                    _send_sms(f"📊 {summary}")
+                                else:
+                                    _send_sms("✅ Research done — check your email for the full report.")
+                        except Exception as _e:
+                            _send_sms("✅ Research done — check your email for the full report.")
+                    except Exception as _e:
+                        print(f"[poll_ask_sms] session error: {_e}")
+                        _send_sms("⚠️ Research hit an error. Try again or check the dashboard.")
+
+                import threading as _thr_ask
+                _thr_ask.Thread(target=_run_and_reply, daemon=True).start()
+
+            except Exception as _e:
+                print(f"[poll_ask_sms] uid {uid} error: {_e}")
+
+        mail.logout()
+    except Exception as e:
+        print(f"[poll_ask_sms] error: {e}")
 
 
 def _ema_list(values: list, period: int) -> list:
