@@ -2790,7 +2790,7 @@ try:
     from apscheduler.triggers.interval import IntervalTrigger as _IntTrig
     _scheduler.add_job(
         _run_poll_ask_sms,
-        _IntTrig(minutes=1),
+        _IntTrig(seconds=30),
         id="poll_ask_sms",
         replace_existing=True,
     )
