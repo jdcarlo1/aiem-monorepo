@@ -144,3 +144,9 @@ id = "hqc9gTC1InTHIJv0KuS4Q"
 uri = "file://stockscanner_code.pdf"
 type = "pdf"
 title = "StockScanner AI — Full Source Code (195 pages)"
+
+[[outputs]]
+id = "5AovkF-7YfwzASw2NvZO-"
+uri = "file://stockscanner_code.txt"
+type = "text"
+title = "StockScanner AI — Full Source Code (154 files, 91,830 lines)"
