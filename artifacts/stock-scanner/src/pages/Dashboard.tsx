@@ -69,6 +69,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ReferenceLine, Legend, Cell,
 } from "recharts";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const DEFAULT_SCAN = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "AMZN", "META", "JPM", "V", "SPY"];
 const DEFAULT_ANALYTICS = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "AMZN", "META", "JPM"];
@@ -11835,220 +11837,241 @@ function OverviewTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
 
 // ---- Quant Agent Chat Tab ------------------------------------------------
 
+const POLL_INTERVAL_MS = 3000;
+const MAX_WAIT_MS = 6 * 60 * 1000;
+const ACTIVE_JOB_KEY = "quantAgent.activeJobId";
+
+const EXAMPLE_QUESTIONS = [
+  "Is quiet accumulation a real predictive signal or noise?",
+  "Compare MRVL and CRDO unusual call sweep activity this month",
+  "Backtest a 2.5x relative volume + gap-up filter over the last 90 days",
+  "What's driving the recent dark pool activity in semiconductor names?",
+  "Validate the squeeze fuel signal out-of-sample",
+];
+
+type SessionStatus = "pending" | "running" | "done" | "error";
+
+interface ToolTraceStep {
+  iteration: number;
+  tool: string;
+  ok: boolean;
+}
+
+interface QASession {
+  job_id: string;
+  question: string;
+  status: SessionStatus;
+  answer?: string | null;
+  error?: string | null;
+  current_tool?: string | null;
+  tool_trace?: ToolTraceStep[] | null;
+  created_at?: string;
+}
+
+function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: number }) {
+  const [showTrace, setShowTrace] = useState(false);
+  return (
+    <div style={{ background: "#0d1726", border: "1px solid #1c3350", borderRadius: 10, padding: 14 }}>
+      <div style={{ color: "#7fb3ff", fontSize: 13, marginBottom: 8 }}>{session.question}</div>
+      {(session.status === "pending" || session.status === "running") && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#5ea0ff" }}>
+          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#5ea0ff", animation: "pulse 1.2s infinite" }} />
+          <span style={{ fontSize: 13 }}>
+            {session.current_tool ? `Calling ${session.current_tool}…` : "Researching…"}
+            {typeof elapsed === "number" && ` (${elapsed}s)`}
+          </span>
+        </div>
+      )}
+      {session.status === "done" && session.answer && (
+        <div style={{ fontSize: 14, lineHeight: 1.6, color: "#d6e2f0" }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answer}</ReactMarkdown>
+        </div>
+      )}
+      {session.status === "error" && (
+        <div style={{ color: "#ff6b6b", fontSize: 13 }}>
+          Something went wrong: {session.error || "unknown error"}
+        </div>
+      )}
+      {session.tool_trace && session.tool_trace.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <button
+            onClick={() => setShowTrace(v => !v)}
+            style={{ background: "none", border: "none", color: "#5ea0ff", fontSize: 11, cursor: "pointer", padding: 0 }}
+          >
+            {showTrace ? "Hide" : "Show"} tool trace ({session.tool_trace.length} calls)
+          </button>
+          {showTrace && (
+            <ul style={{ marginTop: 6, fontSize: 11, color: "#8fa3bf", paddingLeft: 16 }}>
+              {session.tool_trace.map((t, i) => (
+                <li key={i}>{t.tool} {t.ok ? "" : "⚠️ failed"}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QuantAgentTab() {
-  const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-  type Msg = { role: "user" | "agent"; text: string; ts: Date; jobId?: string; status?: string };
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [input, setInput]       = useState("");
-  const [loading, setLoading]   = useState(false);
-  const [elapsed, setElapsed]   = useState(0);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const pollRef   = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const API_BASE_QA = import.meta.env.BASE_URL;
+  const [history, setHistory] = useState<QASession[]>([]);
+  const [input, setInput]     = useState("");
+  const [activeJob, setActiveJob] = useState<QASession | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
 
-  const SUGGESTIONS = [
-    "Backtest the BigCatDay signal — 5%+ move, tight inside day, gap up next morning",
-    "Which stocks had the highest % move yesterday and what patterns did they share?",
-    "What's the win rate when unusual call sweeps happen within 3 days of OI buildup?",
-    "Backtest gap-down reversals: sold off 3%+, next day opens flat, hold 5 days",
-    "What's the best holding period for high-conviction sweep signals?",
-  ];
+  const pollTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef        = useRef<AbortController | null>(null);
+  const startTimeRef    = useRef<number>(0);
+  const mountedRef      = useRef(true);
 
-  // Load history on mount
   useEffect(() => {
-    fetch(`${BASE}/stock-api/aiem/chat/history`)
-      .then(r => r.json())
-      .then((rows: any[]) => {
-        if (!rows || rows.length === 0) return;
-        const hist: Msg[] = [];
-        rows.slice().reverse().forEach(r => {
-          hist.push({ role: "user", text: r.question, ts: new Date(r.created_at) });
-          if (r.status === "done" && r.answer)
-            hist.push({ role: "agent", text: r.answer, ts: new Date(r.created_at), status: "done" });
-          else if (r.status === "error")
-            hist.push({ role: "agent", text: "Research hit an error. Try rephrasing.", ts: new Date(r.created_at), status: "error" });
-        });
-        setMessages(hist);
-      })
-      .catch(() => {});
+    mountedRef.current = true;
+    loadHistory();
+    const savedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
+    if (savedJobId) startPolling(savedJobId);
+    return () => {
+      mountedRef.current = false;
+      clearTimers();
+      abortRef.current?.abort();
+    };
   }, []);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  function clearTimers() {
+    if (pollTimerRef.current)    clearInterval(pollTimerRef.current);
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    pollTimerRef.current = null;
+    elapsedTimerRef.current = null;
+  }
 
-  const stopPolling = () => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    setElapsed(0);
-  };
-
-  const submit = async () => {
-    const q = input.trim();
-    if (!q || loading) return;
-    setInput("");
-    setLoading(true);
-    setElapsed(0);
-    const userMsg: Msg = { role: "user", text: q, ts: new Date() };
-    setMessages(prev => [...prev, userMsg]);
-
-    let jobId = "";
+  async function loadHistory() {
     try {
-      const res = await fetch(`${BASE}/stock-api/aiem/chat`, {
+      const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat/history`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (mountedRef.current) setHistory(data);
+    } catch { /* non-fatal */ }
+  }
+
+  const startPolling = useCallback((jobId: string) => {
+    clearTimers();
+    startTimeRef.current = Date.now();
+    setElapsed(0);
+    setActiveJob(prev => prev?.job_id === jobId ? prev : { job_id: jobId, question: prev?.question ?? "", status: "pending" });
+    localStorage.setItem(ACTIVE_JOB_KEY, jobId);
+
+    elapsedTimerRef.current = setInterval(() => {
+      if (!mountedRef.current) return;
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
+
+    const poll = async () => {
+      if (Date.now() - startTimeRef.current > MAX_WAIT_MS) {
+        clearTimers();
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+        if (mountedRef.current)
+          setActiveJob(prev => prev ? { ...prev, status: "error", error: "Timed out — session may still finish. Check History in a moment." } : prev);
+        return;
+      }
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat/${jobId}`, { signal: controller.signal });
+        if (!mountedRef.current) return;
+        if (res.status === 404) {
+          clearTimers();
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+          setActiveJob(prev => prev ? { ...prev, status: "error", error: "Session not found." } : prev);
+          return;
+        }
+        const data: QASession = await res.json();
+        setActiveJob(data);
+        if (data.status === "done" || data.status === "error") {
+          clearTimers();
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+          loadHistory();
+        }
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+      }
+    };
+
+    poll();
+    pollTimerRef.current = setInterval(poll, POLL_INTERVAL_MS);
+  }, []);
+
+  async function handleSubmit(question: string) {
+    const q = question.trim();
+    if (!q || submitting) return;
+    setSubmitting(true);
+    setInput("");
+    try {
+      const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: q }),
       });
+      if (res.status === 429) {
+        const data = await res.json();
+        setActiveJob({ job_id: "", question: q, status: "error", error: data.error || "A session is already running — please wait for it to finish." });
+        return;
+      }
       const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || "Failed to start");
-      jobId = data.job_id;
-    } catch (e: any) {
-      setMessages(prev => [...prev, { role: "agent", text: `Error: ${e.message}`, ts: new Date(), status: "error" }]);
-      setLoading(false);
-      return;
+      if (data.job_id) {
+        startPolling(data.job_id);
+        setActiveJob(prev => prev ? { ...prev, question: q } : { job_id: data.job_id, question: q, status: "pending" });
+      }
+    } catch {
+      setActiveJob({ job_id: "", question: q, status: "error", error: "Failed to start session — check your connection." });
+    } finally {
+      setSubmitting(false);
     }
+  }
 
-    // Add placeholder
-    const placeholder: Msg = { role: "agent", text: "", ts: new Date(), jobId, status: "running" };
-    setMessages(prev => [...prev, placeholder]);
-
-    // Elapsed timer
-    timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
-
-    // Poll every 3s
-    pollRef.current = setInterval(async () => {
-      try {
-        const r = await fetch(`${BASE}/stock-api/aiem/chat/${jobId}`);
-        const d = await r.json();
-        if (d.status === "done" || d.status === "error") {
-          stopPolling();
-          setLoading(false);
-          setMessages(prev => prev.map(m =>
-            m.jobId === jobId
-              ? { ...m, text: d.answer || d.error || "No response.", status: d.status }
-              : m
-          ));
-        }
-      } catch { /* keep polling */ }
-    }, 3000);
-  };
-
-  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const isBusy = activeJob?.status === "pending" || activeJob?.status === "running";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#060c14", fontFamily: "Inter, sans-serif" }}>
-      {/* Header */}
-      <div style={{ padding: "18px 20px 12px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
-        <div style={{ color: "#f1f5f9", fontWeight: 900, fontSize: 20, letterSpacing: "-0.02em" }}>🤖 Quant Agent</div>
-        <div style={{ color: "#475569", fontSize: 12, marginTop: 3 }}>
-          Ask any question — AIEM researches it using your full database of 12,000+ stocks · 495 days of data · 88 research tools
-        </div>
-      </div>
-
-      {/* Suggestions (only if no history) */}
-      {messages.length === 0 && (
-        <div style={{ padding: "14px 20px 0", flexShrink: 0 }}>
-          <div style={{ color: "#64748b", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 8 }}>EXAMPLE QUESTIONS</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {SUGGESTIONS.map((s, i) => (
-              <button key={i} onClick={() => setInput(s)}
-                style={{ background: "rgba(30,41,59,0.6)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "8px 12px", color: "#94a3b8", fontSize: 12, textAlign: "left", cursor: "pointer", transition: "all 0.15s" }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(74,222,128,0.4)")}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)")}
-              >
-                {s}
+    <div style={{ background: "#060c14", color: "#d6e2f0", minHeight: "100%", padding: "16px" }}>
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
+      {history.length === 0 && !activeJob && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ opacity: 0.7, marginBottom: 8, fontSize: 13 }}>Try asking:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {EXAMPLE_QUESTIONS.map((q) => (
+              <button key={q} onClick={() => handleSubmit(q)}
+                style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#7fb3ff", borderRadius: 16, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>
+                {q}
               </button>
             ))}
           </div>
         </div>
       )}
-
-      {/* Messages */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ display: "flex", flexDirection: m.role === "user" ? "row-reverse" : "row", gap: 10, alignItems: "flex-start" }}>
-            {/* Avatar */}
-            <div style={{
-              width: 32, height: 32, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900,
-              background: m.role === "user" ? "linear-gradient(135deg,#16a34a,#22c55e)" : "linear-gradient(135deg,#1e3a5f,#2563eb)",
-              boxShadow: m.role === "user" ? "0 0 12px rgba(34,197,94,0.3)" : "0 0 12px rgba(37,99,235,0.3)",
-            }}>
-              {m.role === "user" ? "Y" : "🤖"}
-            </div>
-            {/* Bubble */}
-            <div style={{ maxWidth: "80%", minWidth: 80 }}>
-              {m.status === "running" ? (
-                <div style={{ background: "rgba(15,30,60,0.9)", border: "1px solid rgba(37,99,235,0.3)", borderRadius: 12, padding: "14px 16px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      {[0,1,2].map(d => (
-                        <div key={d} style={{
-                          width: 7, height: 7, borderRadius: "50%", background: "#3b82f6",
-                          animation: `bounce 1.2s ease-in-out ${d * 0.2}s infinite`,
-                        }} />
-                      ))}
-                    </div>
-                    <span style={{ color: "#60a5fa", fontSize: 13, fontWeight: 600 }}>
-                      Researching… {elapsed > 0 ? fmt(elapsed) : ""}
-                    </span>
-                  </div>
-                  <div style={{ color: "#475569", fontSize: 11, marginTop: 6 }}>
-                    Running AIEM session with 88 research tools · typically 2–4 minutes
-                  </div>
-                </div>
-              ) : (
-                <div style={{
-                  background: m.role === "user" ? "rgba(22,163,74,0.15)" : "rgba(15,25,50,0.9)",
-                  border: `1px solid ${m.role === "user" ? "rgba(34,197,94,0.25)" : m.status === "error" ? "rgba(239,68,68,0.3)" : "rgba(37,99,235,0.2)"}`,
-                  borderRadius: 12, padding: "12px 16px",
-                }}>
-                  <div style={{ color: m.status === "error" ? "#f87171" : m.role === "user" ? "#d1fae5" : "#e2e8f0", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                    {m.text}
-                  </div>
-                  <div style={{ color: "#334155", fontSize: 10, marginTop: 6 }}>
-                    {m.ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {history.filter(s => s.job_id !== activeJob?.job_id).slice().reverse().map(s => (
+          <SessionBubble key={s.job_id} session={s} />
         ))}
-        <div ref={bottomRef} />
+        {activeJob && <SessionBubble session={activeJob} elapsed={isBusy ? elapsed : undefined} />}
       </div>
-
-      {/* Input */}
-      <div style={{ padding: "12px 20px 16px", borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
-        <style>{`@keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }`}</style>
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-          <textarea
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
-            placeholder="Ask anything — backtests, pattern analysis, ticker research…"
-            rows={2}
-            disabled={loading}
-            style={{
-              flex: 1, background: "rgba(15,25,50,0.8)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12,
-              padding: "10px 14px", color: "#f1f5f9", fontSize: 13, resize: "none", outline: "none",
-              fontFamily: "Inter, sans-serif", lineHeight: 1.5,
-            }}
-          />
-          <button
-            onClick={submit}
-            disabled={loading || !input.trim()}
-            style={{
-              background: loading ? "rgba(37,99,235,0.3)" : "linear-gradient(135deg,#2563eb,#1d4ed8)",
-              border: "1px solid rgba(37,99,235,0.4)", borderRadius: 12, padding: "10px 18px",
-              color: "#fff", fontWeight: 700, fontSize: 13, cursor: loading ? "not-allowed" : "pointer",
-              flexShrink: 0, height: 60, transition: "all 0.15s",
-            }}
-          >
-            {loading ? "…" : "Send"}
-          </button>
-        </div>
-        <div style={{ color: "#334155", fontSize: 10, marginTop: 6, textAlign: "center" }}>
-          Enter to send · Shift+Enter for new line · Responses take 2–4 minutes while AIEM researches
-        </div>
+      <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+        <textarea
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(input); } }}
+          placeholder="Ask the Quant Agent…"
+          rows={2}
+          disabled={isBusy || submitting}
+          style={{ flex: 1, background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 8, padding: 10, resize: "none" }}
+        />
+        <button
+          onClick={() => handleSubmit(input)}
+          disabled={isBusy || submitting || !input.trim()}
+          style={{ background: isBusy || submitting ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 8, padding: "0 18px", cursor: isBusy || submitting ? "not-allowed" : "pointer" }}
+        >
+          Send
+        </button>
       </div>
     </div>
   );

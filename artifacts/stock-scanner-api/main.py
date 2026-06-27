@@ -2704,7 +2704,7 @@ try:
          "Be honest in the reasoning — state what you know and what you do not know."),
 
         # 4. Market open — 9:31 AM (first full minute confirmed)
-        ("mon-fri", 9, 31, "market_open_9h31", 8,
+        ("mon-fri", 9, 55, "market_open_9h31", 8,
          "MARKET OPEN — 9:31 AM ET. First minute of trading is complete. "
          "Step 1: Check mkt_analyze_top_movers for stocks gapping and moving "
          "with real volume in the first minute. "
@@ -2719,7 +2719,7 @@ try:
          "still being up from premarket."),
 
         # 5. Early momentum check — 9:35 AM
-        ("mon-fri", 9, 35, "early_momentum_9h35", 8,
+        ("mon-fri", 10, 0, "early_momentum_9h35", 8,
          "EARLY MOMENTUM — 9:35 AM ET, 5 minutes into the session. "
          "The first 5 minutes separate the real movers from the open-spike faders. "
          "Step 1: Look for stocks that are GRINDING higher — not spiking and dumping, "
@@ -2735,7 +2735,7 @@ try:
          "Grinds are what we want — they tend to continue. Spikes tend to fade."),
 
         # 6. Follow-through confirmation — 9:40 AM
-        ("mon-fri", 9, 40, "followthrough_9h40", 8,
+        ("mon-fri", 10, 5, "followthrough_9h40", 8,
          "FOLLOW-THROUGH — 9:40 AM ET, 10 minutes into the session. "
          "10 minutes is enough to see who is real. "
          "Step 1: Which stocks appeared in BOTH an earlier morning session "
@@ -3666,6 +3666,7 @@ try:
     except Exception as _aiem_sched_e:
         print(f"[scheduler] AIEM enhancement jobs error: {_aiem_sched_e}")
     _scheduler.start()
+    reconcile_orphaned_sessions()
     print("[scheduler] APScheduler started - "
           "scans (hourly): 9:36/10:05/11:05 AM, 12:05/1:05/2:05/3:05/4:00 PM ET | "
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
@@ -3674,6 +3675,7 @@ try:
           "sc (stealth): 8:15 AM ranking, 9:37 watch, 9:47 buy | "
           "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
           "morning inflows: 9:42 + 13:01 (email) / 9:53 + 13:00 (scan) | "
+          "AIEM market-open: 9:55/10:00/10:05 AM (was 9:31/9:35/9:40 — burst staggered) | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 90 min - Mon–Fri ET")
 
     # ── Startup catch-up scan ──────────────────────────────────────────────
@@ -41584,19 +41586,69 @@ def admin_backfill_iv():
 
 
 # ── Quant Agent Chat ──────────────────────────────────────────────────────────
+# Single-flight lock: only one AIEM chat session may run at a time (Claude fix).
+_aiem_chat_lock    = __import__("threading").Lock()
+_aiem_chat_busy    = False   # True while a worker thread is running
+
+
+def _qa_db_update(job_id: str, status: str, answer=None, error=None, current_tool=None, tool_trace=None):
+    """Thread-safe DB update for a quant_agent_sessions row."""
+    import psycopg2 as _qpg, json as _qj
+    try:
+        with _qpg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                """UPDATE quant_agent_sessions
+                   SET status=%s, answer=%s, error=%s,
+                       current_tool=%s, tool_trace=%s, updated_at=NOW()
+                   WHERE job_id=%s""",
+                (status, answer, error,
+                 current_tool,
+                 _qj.dumps(tool_trace) if tool_trace is not None else None,
+                 job_id)
+            )
+            _c.commit()
+    except Exception as _e:
+        print(f"[quant_agent] DB update error: {_e}")
+
+
+def reconcile_orphaned_sessions():
+    """On startup, mark any sessions that got stuck as 'pending'/'running' → 'error'."""
+    import psycopg2 as _rqpg
+    try:
+        with _rqpg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                """UPDATE quant_agent_sessions
+                   SET status='error', error='Server restarted while session was running.',
+                       updated_at=NOW()
+                   WHERE status IN ('pending','running')"""
+            )
+            affected = _cu.rowcount
+            _c.commit()
+        if affected:
+            print(f"[quant_agent] reconciled {affected} orphaned session(s) on startup")
+    except Exception as _e:
+        print(f"[quant_agent] reconcile error (non-fatal): {_e}")
+
+
 @app.route("/stock-api/aiem/chat", methods=["POST"])
 def aiem_chat_start():
-    """Start an AIEM research session from the Quant Agent tab."""
-    import uuid as _uuid, threading as _qa_thr, datetime as _qa_dt, psycopg2 as _qa_pg
+    """Start an AIEM research session from the Quant Agent tab (single-flight)."""
+    global _aiem_chat_busy
+    import uuid as _uuid, threading as _qa_thr
 
     data     = request.get_json(silent=True) or {}
     question = (data.get("question") or "").strip()[:800]
     if not question:
         return jsonify({"error": "question is required"}), 400
 
-    job_id = str(_uuid.uuid4())
+    with _aiem_chat_lock:
+        if _aiem_chat_busy:
+            return jsonify({"error": "A research session is already running. Please wait for it to finish."}), 429
+        _aiem_chat_busy = True
 
+    job_id = str(_uuid.uuid4())
     try:
+        import psycopg2 as _qa_pg
         with _qa_pg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
                 "INSERT INTO quant_agent_sessions (job_id, question, status) VALUES (%s,%s,'pending')",
@@ -41604,8 +41656,11 @@ def aiem_chat_start():
             )
             _c.commit()
     except Exception as _e:
+        with _aiem_chat_lock:
+            _aiem_chat_busy = False
         return jsonify({"error": f"DB error: {_e}"}), 500
 
+    max_iters = _classify_question_complexity(question)
     prompt = (
         f"The user asks: '{question}'\n\n"
         f"Research this thoroughly using your tools. "
@@ -41618,57 +41673,67 @@ def aiem_chat_start():
     )
 
     def _worker():
-        import psycopg2 as _wpg
-        def _db_update(status, answer=None, error=None):
-            try:
-                with _wpg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
-                    _cu.execute(
-                        "UPDATE quant_agent_sessions SET status=%s, answer=%s, error=%s, updated_at=NOW() WHERE job_id=%s",
-                        (status, answer, error, job_id)
-                    )
-                    _c.commit()
-            except Exception as _e:
-                print(f"[quant_agent] DB update error: {_e}")
-
-        _db_update("running")
+        global _aiem_chat_busy
         try:
-            result = _run_aiem_focused_session(
+            _qa_db_update(job_id, "running")
+
+            def _on_step(step):
+                _qa_db_update(job_id, "running", current_tool=step.get("tool"))
+
+            answer_text, trace, err = _run_aiem_focused_session(
                 session_name=f"quant_chat_{job_id[:8]}",
                 focus_prompt=prompt,
-                max_iterations=3,
+                max_iterations=max_iters,
+                on_step=_on_step,
             )
-            answer = (result or "").strip()
-            if not answer or len(answer) < 20:
-                answer = "The research session completed but returned no findings. Try rephrasing your question with a specific ticker or signal name."
-            _db_update("done", answer=answer)
+
+            if err and not answer_text:
+                _qa_db_update(job_id, "error", error=err[:400], tool_trace=trace)
+            else:
+                answer = (answer_text or "").strip()
+                if not answer or len(answer) < 20:
+                    answer = "The research session completed but returned no findings. Try rephrasing your question with a specific ticker or signal name."
+                _qa_db_update(job_id, "done", answer=answer, current_tool=None, tool_trace=trace)
         except Exception as _e:
             print(f"[quant_agent] session error: {_e}")
-            _db_update("error", error=str(_e)[:400])
+            _qa_db_update(job_id, "error", error=str(_e)[:400])
+        finally:
+            with _aiem_chat_lock:
+                _aiem_chat_busy = False
 
-    _qa_thr.Thread(target=_worker, daemon=True).start()
+    _qa_thr.Thread(target=_worker, daemon=True, name=f"quant_chat_{job_id[:8]}").start()
     return jsonify({"job_id": job_id, "status": "pending"})
 
 
 @app.route("/stock-api/aiem/chat/<job_id>", methods=["GET"])
 def aiem_chat_poll(job_id):
     """Poll for a Quant Agent research result."""
-    import psycopg2 as _pp
+    import psycopg2 as _pp, json as _ppj
     try:
         with _pp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
-                "SELECT status, answer, error, created_at FROM quant_agent_sessions WHERE job_id=%s",
+                """SELECT status, answer, error, current_tool, tool_trace, created_at
+                   FROM quant_agent_sessions WHERE job_id=%s""",
                 (job_id,)
             )
             row = _cu.fetchone()
             if not row:
                 return jsonify({"error": "job not found"}), 404
-            status, answer, error, created_at = row
+            status, answer, error, current_tool, tool_trace_raw, created_at = row
+            tool_trace = None
+            if tool_trace_raw:
+                try:
+                    tool_trace = _ppj.loads(tool_trace_raw) if isinstance(tool_trace_raw, str) else tool_trace_raw
+                except Exception:
+                    tool_trace = None
             return jsonify({
-                "job_id": job_id,
-                "status": status,
-                "answer": answer,
-                "error":  error,
-                "created_at": created_at.isoformat() if created_at else None,
+                "job_id":       job_id,
+                "status":       status,
+                "answer":       answer,
+                "error":        error,
+                "current_tool": current_tool,
+                "tool_trace":   tool_trace,
+                "created_at":   created_at.isoformat() if created_at else None,
             })
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
@@ -41676,19 +41741,36 @@ def aiem_chat_poll(job_id):
 
 @app.route("/stock-api/aiem/chat/history", methods=["GET"])
 def aiem_chat_history():
-    """Return the last 20 Quant Agent sessions."""
-    import psycopg2 as _ph
+    """Return the last 20 Quant Agent sessions (newest first)."""
+    import psycopg2 as _ph, json as _phj
     try:
         with _ph.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
-                "SELECT job_id, question, status, answer, created_at "
-                "FROM quant_agent_sessions ORDER BY created_at DESC LIMIT 20"
+                """SELECT job_id, question, status, answer, error,
+                          current_tool, tool_trace, created_at
+                   FROM quant_agent_sessions
+                   ORDER BY created_at DESC LIMIT 20"""
             )
             rows = _cu.fetchall()
-            return jsonify([{
-                "job_id": r[0], "question": r[1], "status": r[2],
-                "answer": r[3], "created_at": r[4].isoformat() if r[4] else None,
-            } for r in rows])
+            out = []
+            for r in rows:
+                tt = None
+                if r[6]:
+                    try:
+                        tt = _phj.loads(r[6]) if isinstance(r[6], str) else r[6]
+                    except Exception:
+                        tt = None
+                out.append({
+                    "job_id":       r[0],
+                    "question":     r[1],
+                    "status":       r[2],
+                    "answer":       r[3],
+                    "error":        r[4],
+                    "current_tool": r[5],
+                    "tool_trace":   tt,
+                    "created_at":   r[7].isoformat() if r[7] else None,
+                })
+            return jsonify(out)
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
