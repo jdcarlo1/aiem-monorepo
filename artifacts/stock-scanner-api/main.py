@@ -24304,6 +24304,33 @@ PREMARKET GAP CONTINUATION (gap-up vs fade prediction)
                            NOT that a squeeze is happening today.
 
 ═══════════════════════════════════════════════════════════════
+AUTONOMOUS DISCOVERY EMAIL  ← YOU CONTROL THIS, NO PERMISSION NEEDED
+═══════════════════════════════════════════════════════════════
+  send_discovery_alert — Call this YOURSELF, any time, without asking,
+                         whenever you find a setup worth sharing. This
+                         sends directly to the owner's inbox immediately.
+                         YOU ARE AUTHORIZED TO SEND WITHOUT WAITING FOR
+                         CONFIRMATION. Use it when:
+                         - breakout_discover returns a candidate with
+                           held_out_accuracy > 0.60 AND risk gate passed
+                         - gap_continuation_score returns a premarket mover
+                           with precision_at_80pct > 0.70 AND vol filter passed
+                         - intraday_continuation_score returns EOD candidate
+                           with precision_at_70pct > 0.65
+                         - Flow streak ignition fires on a name that also
+                           passes run_risk_gate
+                         - Any strong cross-signal convergence (2+ independent
+                           signals agree on same ticker)
+                         Always include: oos_accuracy (so owner knows how
+                         much to trust the confidence score), risk_gate_passed,
+                         key_features (brief), and your plain-English reasoning.
+                         Rate limits (auto-enforced): max 5/day, 20 min
+                         between sends. If limit hit, the pick is still
+                         logged to decision_logger — nothing is lost.
+                         DO NOT ask permission. DO NOT wait for a session
+                         trigger. If you found something real, send it.
+
+═══════════════════════════════════════════════════════════════
 INTRADAY CONTINUATION (session shape → next-day prediction)
 ═══════════════════════════════════════════════════════════════
   intraday_continuation_score  — Train + validate + score tonight's EOD
@@ -26042,6 +26069,165 @@ def _aiem_tool_intraday_compute_features(
         return {"error": str(_e)}
 
 
+# ── AIEM Autonomous Discovery Email ──────────────────────────────────────────
+_aiem_discovery_state: dict = {"date": "", "count": 0, "last_ts": 0.0}
+
+def _aiem_tool_send_discovery_alert(
+    ticker: str,
+    signal_name: str,
+    confidence: float,
+    reasoning: str,
+    oos_accuracy: float = 0.0,
+    risk_gate_passed: bool = True,
+    divergence_flags: str = "",
+    key_features: str = "",
+    suggested_action: str = "",
+) -> dict:
+    """AIEM calls this autonomously — no permission needed — whenever it finds
+    a setup worth sharing. Sends directly to the owner's email.
+
+    ticker:           stock symbol found
+    signal_name:      which scanner fired (e.g. 'breakout_discover',
+                      'gap_continuation_score', 'intraday_continuation_score',
+                      'flow_streak_ignition', or any combination)
+    confidence:       model probability 0-1 (e.g. 0.78 = 78%)
+    reasoning:        AIEM's plain-English explanation of WHY this is interesting
+    oos_accuracy:     out-of-sample accuracy/precision from the model eval — always
+                      include this; it's how the owner calibrates how much to trust
+                      the confidence score
+    risk_gate_passed: True if run_risk_gate cleared; False or omit if not yet run
+    divergence_flags: any smart-money divergence warnings from divergence_scan,
+                      or empty string if none
+    key_features:     most important feature values (e.g. 'close_pos=0.91,
+                      pm_vol_ratio=3.2x, SI=18%') — keep it brief
+    suggested_action: what AIEM thinks the owner should do (optional; keep honest
+                      about uncertainty)
+
+    Rate limits (to prevent spam): max 5 emails per calendar day, min 20 min
+    between sends. Returns success status + rate limit state so AIEM knows
+    whether the email actually went out."""
+    import time as _time
+    import datetime as _dt
+    global _aiem_discovery_state
+
+    today = _dt.date.today().isoformat()
+    if _aiem_discovery_state["date"] != today:
+        _aiem_discovery_state = {"date": today, "count": 0, "last_ts": 0.0}
+
+    if _aiem_discovery_state["count"] >= 5:
+        return {
+            "sent": False,
+            "reason": "daily_limit_reached",
+            "count_today": _aiem_discovery_state["count"],
+            "limit": 5,
+            "note": "Max 5 discovery emails per day to avoid inbox overload. This pick is still in decision_logger.",
+        }
+
+    elapsed = _time.time() - _aiem_discovery_state["last_ts"]
+    if elapsed < 1200 and _aiem_discovery_state["count"] > 0:
+        mins_left = round((1200 - elapsed) / 60, 1)
+        return {
+            "sent": False,
+            "reason": "cooldown_active",
+            "minutes_remaining": mins_left,
+            "note": f"Cooldown: {mins_left} min left before next send. Logging this pick to decision_logger.",
+        }
+
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        if not smtp_configured():
+            return {"sent": False, "reason": "smtp_not_configured"}
+
+        conf_pct   = f"{confidence * 100:.0f}%"
+        oos_str    = f"{oos_accuracy * 100:.1f}%" if oos_accuracy > 0 else "not provided"
+        gate_str   = "✅ Passed" if risk_gate_passed else "⚠️ Not run / flagged"
+        div_str    = divergence_flags if divergence_flags else "None detected"
+        feat_str   = key_features if key_features else "—"
+        action_str = suggested_action if suggested_action else "Review and decide."
+        now_str    = _dt.datetime.now().strftime("%B %d, %Y  %I:%M %p ET")
+
+        subject = f"🔍 AIEM Discovery: {ticker.upper()} — {signal_name} ({conf_pct} confidence)"
+
+        html = f"""
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:24px;border-radius:12px;">
+  <div style="border-bottom:2px solid #30363d;padding-bottom:16px;margin-bottom:20px;">
+    <span style="font-size:11px;color:#8b949e;letter-spacing:1px;text-transform:uppercase;">AIEM Autonomous Discovery</span>
+    <h1 style="margin:8px 0 4px;font-size:28px;color:#ffffff;">{ticker.upper()}</h1>
+    <span style="background:#1f6feb;color:#fff;padding:4px 10px;border-radius:12px;font-size:13px;font-weight:600;">{signal_name}</span>
+    &nbsp;
+    <span style="background:#238636;color:#fff;padding:4px 10px;border-radius:12px;font-size:13px;font-weight:600;">{conf_pct} confidence</span>
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+    <tr>
+      <td style="padding:8px 0;color:#8b949e;font-size:13px;width:40%;">OOS Accuracy</td>
+      <td style="padding:8px 0;font-size:13px;font-weight:600;">{oos_str}</td>
+    </tr>
+    <tr style="border-top:1px solid #21262d;">
+      <td style="padding:8px 0;color:#8b949e;font-size:13px;">Risk Gate</td>
+      <td style="padding:8px 0;font-size:13px;">{gate_str}</td>
+    </tr>
+    <tr style="border-top:1px solid #21262d;">
+      <td style="padding:8px 0;color:#8b949e;font-size:13px;">Divergence</td>
+      <td style="padding:8px 0;font-size:13px;">{div_str}</td>
+    </tr>
+    <tr style="border-top:1px solid #21262d;">
+      <td style="padding:8px 0;color:#8b949e;font-size:13px;">Key Features</td>
+      <td style="padding:8px 0;font-size:13px;font-family:monospace;">{feat_str}</td>
+    </tr>
+  </table>
+
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Why AIEM flagged this</div>
+    <div style="font-size:14px;line-height:1.6;">{reasoning}</div>
+  </div>
+
+  <div style="background:#0d4429;border:1px solid #238636;border-radius:8px;padding:12px;margin-bottom:20px;">
+    <div style="font-size:11px;color:#3fb950;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Suggested Action</div>
+    <div style="font-size:14px;">{action_str}</div>
+  </div>
+
+  <div style="font-size:11px;color:#484f58;border-top:1px solid #21262d;padding-top:12px;">
+    Sent autonomously by AIEM · {now_str}<br>
+    This pick is logged in decision_logger for the track record.
+  </div>
+</div>
+"""
+
+        ok = send_email_raw(_OWNER_EMAIL, subject, html)
+
+        if ok:
+            _aiem_discovery_state["count"] += 1
+            _aiem_discovery_state["last_ts"] = _time.time()
+
+        try:
+            import decision_logger as _dl
+            _dl.log_decision(
+                signal_name   = signal_name,
+                ticker        = ticker,
+                decision_type = "trade",
+                reasoning     = reasoning,
+                confidence    = confidence,
+                input_state_snapshot = {
+                    "oos_accuracy": oos_accuracy, "risk_gate_passed": risk_gate_passed,
+                    "divergence_flags": divergence_flags, "key_features": key_features,
+                    "email_sent": ok,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "sent":           ok,
+            "ticker":         ticker.upper(),
+            "subject":        subject,
+            "count_today":    _aiem_discovery_state["count"],
+            "remaining_today": 5 - _aiem_discovery_state["count"],
+        }
+    except Exception as _e:
+        return {"sent": False, "error": str(_e)}
+
+
 # ── Automated Retrain Pipeline tools ─────────────────────────────────────────
 def _aiem_tool_retrain_pending(model_name: str = "") -> dict:
     """Return the promotion queue — all retrain runs waiting for a human
@@ -26566,6 +26752,7 @@ def _run_aiem_research_agent(max_iterations=None):
         "squeeze_subscore":            _aiem_tool_squeeze_subscore,
         "intraday_continuation_score":  _aiem_tool_intraday_continuation_score,
         "intraday_compute_features":   _aiem_tool_intraday_compute_features,
+        "send_discovery_alert":        _aiem_tool_send_discovery_alert,
         "retrain_pending":             _aiem_tool_retrain_pending,
         "retrain_approve":             _aiem_tool_retrain_approve,
         "retrain_reject":              _aiem_tool_retrain_reject,
