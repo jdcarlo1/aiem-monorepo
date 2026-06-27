@@ -1,0 +1,241 @@
+"""
+online_learning.py
+--------------------
+Continual/online model updates as new data streams in, instead of retraining
+on a fixed schedule.
+
+THE CORE PROBLEM with online learning: the model trading today is never
+quite the model you backtested, by definition. If it drifts somewhere bad,
+you may not notice until real money has been at risk for a while, and you
+can't easily go back and ask "what exactly was the model doing on March 3rd."
+
+This module's entire design is built around making that auditable and
+reversible, not around making the learning fancier:
+
+  1. EVERY model update produces a new, immutable, version-stamped snapshot.
+     Nothing is overwritten in place — you can always roll back to any
+     prior version.
+  2. Each update is gated by a performance check against a small held-out
+     buffer BEFORE being accepted — if the new version performs worse than
+     the currently-live version on recent data, the update is REJECTED
+     automatically and the live version stays unchanged.
+  3. A hard "max drift per update" guard prevents one bad batch of data from
+     swinging the model's weights dramatically in a single step.
+  4. All of this defaults to DRY-RUN: updates are computed and logged but
+     NOT promoted to "live" unless promote=True is explicitly passed, so
+     you can watch how it behaves before trusting it to self-update.
+
+REQUIRES: AIEM_DATABASE_URL, numpy, scikit-learn (for the example linear
+model — swap in whatever model class your signals already use, the
+versioning/rollback/gating logic is model-agnostic).
+"""
+
+import os
+import json
+import pickle
+import hashlib
+import datetime as dt
+from typing import Optional, Dict, Any, Tuple
+
+import numpy as np
+import psycopg2
+import psycopg2.extras
+
+
+DDL = """
+CREATE TABLE IF NOT EXISTS model_versions (
+    id SERIAL PRIMARY KEY,
+    model_name TEXT NOT NULL,
+    version INT NOT NULL,
+    weights_blob BYTEA NOT NULL,
+    weights_hash TEXT NOT NULL,
+    trained_on_n_samples INT NOT NULL,
+    held_out_score NUMERIC,
+    is_live BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notes TEXT,
+    UNIQUE (model_name, version)
+);
+"""
+
+
+def _connect():
+    url = os.environ.get("AIEM_DATABASE_URL")
+    if not url:
+        raise RuntimeError("AIEM_DATABASE_URL is not set.")
+    return psycopg2.connect(url)
+
+
+def init_schema():
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL)
+        conn.commit()
+
+
+def _next_version(model_name: str) -> int:
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM model_versions WHERE model_name = %s",
+                (model_name,),
+            )
+            return cur.fetchone()[0] + 1
+
+
+def get_live_model(model_name: str) -> Optional[Dict[str, Any]]:
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM model_versions WHERE model_name = %s AND is_live = TRUE",
+                (model_name,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def _score_model(weights: np.ndarray, X: np.ndarray, y: np.ndarray) -> float:
+    """Simple held-out score: negative mean squared error for a linear
+    model (weights as coefficients). Swap this for whatever scoring
+    matches your actual model type — the gating logic below doesn't care
+    what the metric is, only that higher is better."""
+    preds = X @ weights
+    mse = float(np.mean((preds - y) ** 2))
+    return -mse
+
+
+def propose_update(
+    model_name: str,
+    current_weights: np.ndarray,
+    new_batch_X: np.ndarray,
+    new_batch_y: np.ndarray,
+    held_out_X: np.ndarray,
+    held_out_y: np.ndarray,
+    learning_rate: float = 0.01,
+    max_weight_drift: float = 0.15,
+    promote: bool = False,
+    notes: str = "",
+) -> Dict[str, Any]:
+    """Computes ONE incremental update step (simple gradient step on new
+    data), then gates whether it's accepted:
+
+      - Reject if held-out score with NEW weights is worse than with
+        CURRENT (live) weights — the update made things worse, don't keep it.
+      - Reject if any single weight moved by more than `max_weight_drift`
+        in relative terms — guards against one noisy batch causing a huge
+        swing.
+
+    Even if accepted, the new version is only marked `is_live` if
+    `promote=True` is explicitly passed. Otherwise it's saved for inspection
+    but the currently-live version keeps serving traffic.
+    """
+    preds = new_batch_X @ current_weights
+    grad = new_batch_X.T @ (preds - new_batch_y) / len(new_batch_y)
+    new_weights = current_weights - learning_rate * grad
+
+    drift = np.abs((new_weights - current_weights) / (np.abs(current_weights) + 1e-9))
+    max_drift_observed = float(np.max(drift))
+    drift_ok = max_drift_observed <= max_weight_drift
+
+    current_score = _score_model(current_weights, held_out_X, held_out_y)
+    new_score = _score_model(new_weights, held_out_X, held_out_y)
+    performance_improved_or_equal = new_score >= current_score
+
+    accepted = drift_ok and performance_improved_or_equal
+
+    result = {
+        "model_name": model_name,
+        "accepted": accepted,
+        "promoted_to_live": False,
+        "max_drift_observed": round(max_drift_observed, 4),
+        "drift_limit": max_weight_drift,
+        "drift_ok": drift_ok,
+        "current_held_out_score": round(current_score, 6),
+        "new_held_out_score": round(new_score, 6),
+        "performance_improved_or_equal": performance_improved_or_equal,
+    }
+
+    if not accepted:
+        result["reason_rejected"] = (
+            "Weight drift exceeded limit" if not drift_ok else
+            "Held-out performance did not improve or held steady"
+        )
+        return result
+
+    weights_blob = pickle.dumps(new_weights)
+    weights_hash = hashlib.sha256(weights_blob).hexdigest()[:16]
+    version = _next_version(model_name)
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            if promote:
+                cur.execute(
+                    "UPDATE model_versions SET is_live = FALSE WHERE model_name = %s",
+                    (model_name,),
+                )
+            cur.execute(
+                """
+                INSERT INTO model_versions
+                    (model_name, version, weights_blob, weights_hash,
+                     trained_on_n_samples, held_out_score, is_live, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    model_name, version, weights_blob, weights_hash,
+                    len(new_batch_y), new_score, promote, notes,
+                ),
+            )
+        conn.commit()
+
+    result["version_saved"] = version
+    result["weights_hash"] = weights_hash
+    result["promoted_to_live"] = promote
+    return result
+
+
+def rollback_to_version(model_name: str, version: int) -> Dict[str, Any]:
+    """Immediately makes a prior version live again. Use this the moment
+    a 'promoted' update turns out to misbehave in ways the held-out check
+    didn't catch (e.g. a regime shift the held-out buffer was too small to
+    reflect)."""
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM model_versions WHERE model_name = %s AND version = %s",
+                (model_name, version),
+            )
+            row = cur.fetchone()
+            if not row:
+                return {"error": f"No version {version} found for model {model_name}"}
+
+            cur.execute(
+                "UPDATE model_versions SET is_live = FALSE WHERE model_name = %s",
+                (model_name,),
+            )
+            cur.execute(
+                "UPDATE model_versions SET is_live = TRUE WHERE id = %s",
+                (row[0],),
+            )
+        conn.commit()
+    return {"model_name": model_name, "now_live_version": version}
+
+
+def version_history(model_name: str) -> list:
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, version, weights_hash, trained_on_n_samples,
+                       held_out_score, is_live, created_at, notes
+                FROM model_versions WHERE model_name = %s ORDER BY version ASC
+                """,
+                (model_name,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+if __name__ == "__main__":
+    init_schema()
+    print("online_learning schema ready.")
+    print("Default behavior: propose_update() computes and gates updates but")
+    print("does NOT go live unless promote=True is explicitly passed.")
