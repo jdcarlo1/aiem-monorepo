@@ -1,0 +1,243 @@
+"""
+AIEM PROBABILITY MODEL — WIRING SPEC
+=====================================
+PURPOSE: Get aiem_ml_predictions.predicted_prob actually populated with a
+real, calibrated probability, instead of NULL (current state: 6 rows total,
+predicted_prob NULL for all 6).
+
+IMPORTANT FOR REPLIT: This is a REFERENCE implementation. Table names,
+column names, and the feature list below are based on what's visible in
+screenshots (ai_short_calls_log, eod_sweep_log, aiem_ml_predictions) but
+may not match your exact schema. Before running this:
+  1. Confirm the actual column names in ai_short_calls_log / eod_sweep_log
+  2. Confirm what "resolved outcome" means in your schema (a win/loss flag?
+     a return percentage with a >0 threshold? something else?)
+  3. Adjust FEATURE_COLUMNS below to match real columns
+  4. Adjust the outcome label definition in `label_outcome()` below
+
+DO NOT just run this against production without checking those four things
+first — wrong column names will either crash loudly (fine) or silently
+train on the wrong data (not fine, and won't show an error).
+"""
+
+import pandas as pd
+import numpy as np
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import brier_score_loss, roc_auc_score
+import psycopg2
+import os
+from datetime import datetime
+
+DB_URL = os.environ.get("DATABASE_URL")
+
+# -----------------------------------------------------------------------
+# STEP 1: PULL TRAINING DATA
+# -----------------------------------------------------------------------
+# Replit: adjust table/column names to match real schema.
+# Must join the pick log to whatever table stores resolved outcomes.
+
+TRAINING_QUERY = """
+SELECT
+    s.id,
+    s.conviction,            -- e.g. 'HIGH' / 'MEDIUM'
+    s.urgency_days,          -- days to expiry at time of pick — confirm real column name
+    s.vol_oi_ratio,          -- the 'score' field — confirm real column name
+    s.gamma_score,           -- confirm these signal-layer columns exist / adjust names
+    s.dark_pool_score,
+    s.squeeze_score,
+    s.sector_heat_score,
+    o.outcome_return_pct,    -- confirm: actual realized return on the pick
+    o.resolved_at
+FROM ai_short_calls_log s
+JOIN outcomes_table o ON o.pick_id = s.id   -- confirm actual join table/key
+WHERE o.resolved_at IS NOT NULL;
+"""
+
+def pull_training_data():
+    conn = psycopg2.connect(DB_URL)
+    df = pd.read_sql(TRAINING_QUERY, conn)
+    conn.close()
+    return df
+
+# -----------------------------------------------------------------------
+# STEP 2: DEFINE THE LABEL (what counts as a "win")
+# -----------------------------------------------------------------------
+# Replit: confirm this threshold matches how wins/losses are actually
+# defined elsewhere in the system. Don't invent a new definition here —
+# match whatever the calibration-bucket check (Part 1, your last test)
+# used to compute "actual win rate."
+
+WIN_THRESHOLD_PCT = 0.0   # e.g. return > 0% = win. ADJUST if system uses
+                          # a different bar (e.g. >5%, or hit-target-price)
+
+def label_outcome(df):
+    df["label"] = (df["outcome_return_pct"] > WIN_THRESHOLD_PCT).astype(int)
+    return df
+
+# -----------------------------------------------------------------------
+# STEP 3: FEATURE ENCODING
+# -----------------------------------------------------------------------
+
+FEATURE_COLUMNS = [
+    "urgency_days",
+    "vol_oi_ratio",
+    "gamma_score",
+    "dark_pool_score",
+    "squeeze_score",
+    "sector_heat_score",
+    "conviction_high",   # one-hot encoded below
+    "conviction_medium",
+]
+
+def build_features(df):
+    df["conviction_high"] = (df["conviction"] == "HIGH").astype(int)
+    df["conviction_medium"] = (df["conviction"] == "MEDIUM").astype(int)
+    return df
+
+# -----------------------------------------------------------------------
+# STEP 4: TRAIN + CALIBRATE
+# -----------------------------------------------------------------------
+# Raw XGBoost output is NOT automatically a calibrated probability.
+# This wraps it in CalibratedClassifierCV (isotonic regression) so that
+# "70% predicted" actually means ~70% historical win rate — this is the
+# exact gap the last stress test exposed.
+
+def train_model(df, min_rows=50):
+    if len(df) < min_rows:
+        raise ValueError(
+            f"Only {len(df)} resolved rows available. Need at least "
+            f"{min_rows} before training a model that means anything. "
+            f"Training on fewer rows than this will produce a model that "
+            f"LOOKS like it works but is really just memorizing noise — "
+            f"do not skip this check."
+        )
+
+    X = df[FEATURE_COLUMNS]
+    y = df["label"]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.25, random_state=42, stratify=y
+    )
+
+    base_model = xgb.XGBClassifier(
+        n_estimators=100,
+        max_depth=3,          # shallow on purpose — small data, avoid overfitting
+        learning_rate=0.05,
+        eval_metric="logloss",
+    )
+
+    # Calibration is the part that makes the probability MEAN something.
+    # cv="prefit" alternative exists but cross-val calibration is safer
+    # with small data.
+    calibrated_model = CalibratedClassifierCV(base_model, method="isotonic", cv=3)
+    calibrated_model.fit(X_train, y_train)
+
+    # Honest reporting of how good this actually is — print this,
+    # don't hide it, and don't deploy if these numbers are bad.
+    probs = calibrated_model.predict_proba(X_test)[:, 1]
+    brier = brier_score_loss(y_test, probs)
+    try:
+        auc = roc_auc_score(y_test, probs)
+    except ValueError:
+        auc = None  # happens if test set has only one class — flag this
+
+    print(f"Training rows: {len(X_train)}, Test rows: {len(X_test)}")
+    print(f"Brier score (lower=better, 0.25=random guessing): {brier:.4f}")
+    print(f"AUC (0.5=random, 1.0=perfect): {auc}")
+
+    return calibrated_model, {"brier": brier, "auc": auc, "n_train": len(X_train), "n_test": len(X_test)}
+
+# -----------------------------------------------------------------------
+# STEP 5: SCORE NEW / UNRESOLVED PICKS AND WRITE predicted_prob BACK
+# -----------------------------------------------------------------------
+
+def score_and_write_predictions(model, conn):
+    """
+    Pull picks that don't have a predicted_prob yet, score them,
+    write the result back to aiem_ml_predictions.
+    """
+    cur = conn.cursor()
+
+    pending_query = """
+    SELECT id, urgency_days, vol_oi_ratio, gamma_score,
+           dark_pool_score, squeeze_score, sector_heat_score, conviction
+    FROM ai_short_calls_log
+    WHERE id NOT IN (
+        SELECT pick_id FROM aiem_ml_predictions WHERE predicted_prob IS NOT NULL
+    );
+    """
+    pending = pd.read_sql(pending_query, conn)
+
+    if len(pending) == 0:
+        print("No pending picks to score.")
+        return
+
+    pending = build_features(pending)
+    probs = model.predict_proba(pending[FEATURE_COLUMNS])[:, 1]
+
+    for pick_id, prob in zip(pending["id"], probs):
+        cur.execute(
+            """
+            INSERT INTO aiem_ml_predictions (pick_id, predicted_prob, model, scored_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (pick_id) DO UPDATE
+            SET predicted_prob = EXCLUDED.predicted_prob,
+                model = EXCLUDED.model,
+                scored_at = EXCLUDED.scored_at;
+            """,
+            (int(pick_id), float(prob), "xgboost_calibrated_v1", datetime.utcnow()),
+        )
+    conn.commit()
+    print(f"Wrote predicted_prob for {len(pending)} picks.")
+
+# -----------------------------------------------------------------------
+# STEP 6: MAIN — run this end to end
+# -----------------------------------------------------------------------
+
+def main():
+    df = pull_training_data()
+    print(f"Pulled {len(df)} resolved rows.")
+
+    df = label_outcome(df)
+    df = build_features(df)
+
+    model, metrics = train_model(df)
+
+    print("\n--- HONEST METRICS — do not skip reading these ---")
+    print(metrics)
+    print(
+        "If Brier score is close to 0.25 and AUC is close to 0.5, "
+        "the model has NOT learned a real signal yet — that's expected "
+        "with small data, and predicted_prob should be treated as "
+        "low-confidence until more resolved outcomes accumulate."
+    )
+
+    conn = psycopg2.connect(DB_URL)
+    score_and_write_predictions(model, conn)
+    conn.close()
+
+
+if __name__ == "__main__":
+    main()
+
+
+"""
+WHAT TO ASK REPLIT TO DO WITH THIS:
+1. Fix the table/column names in TRAINING_QUERY and score_and_write_predictions
+   to match the real schema (ai_short_calls_log, eod_sweep_log, whatever the
+   real outcomes table is called).
+2. Confirm WIN_THRESHOLD_PCT matches the existing win/loss definition used
+   in the calibration-bucket check from the prior test — don't let this
+   silently diverge into a second, different definition of "win."
+3. Run it, and paste back the ACTUAL printed metrics (Brier score, AUC,
+   n_train, n_test) — not just "it ran successfully."
+4. With only ~27 resolved rows currently, min_rows=50 will likely block
+   training right now — that's intentional, not a bug. It should stay
+   blocked until there's enough data, and Replit should tell you the
+   real row count rather than lowering the threshold to force a result.
+5. Once it trains, ask for the same predicted-vs-actual calibration
+   table as before, but this time with real non-null predicted_prob
+   values feeding the buckets.
+"""
