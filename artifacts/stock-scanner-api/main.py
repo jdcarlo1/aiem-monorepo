@@ -22084,6 +22084,32 @@ def _init_behavioral_tables():
 
 _init_behavioral_tables()
 
+# ── AIEM Research Integrity modules: set env + init DB schemas ────────────────
+# AIEM_DATABASE_URL keeps research tables isolated from production writes.
+# setdefault maps it to DATABASE_URL (same Postgres, isolated by table names)
+# until a dedicated AIEM schema is provisioned — then just set the var.
+try:
+    import os as _aiem_os_init, sys as _aiem_sys_init
+    _aiem_os_init.environ.setdefault(
+        "AIEM_DATABASE_URL", _aiem_os_init.environ.get("DATABASE_URL", "")
+    )
+    _aiem_dir_init = _aiem_os_init.path.dirname(_aiem_os_init.path.abspath(__file__))
+    if _aiem_dir_init not in _aiem_sys_init.path:
+        _aiem_sys_init.path.insert(0, _aiem_dir_init)
+    import hypothesis_registry as _hr_mod
+    import shadow_ledger      as _sl_mod
+    import regime_monitor     as _rm_mod
+    import online_learning    as _ol_mod
+    import literature_scanner as _ls_mod
+    _hr_mod.init_schema()
+    _sl_mod.init_schema()
+    _rm_mod.init_schema()
+    _ol_mod.init_schema()
+    _ls_mod.init_schema()
+    print("[aiem_integrity] hypothesis_registry / shadow_ledger / regime_monitor / online_learning / literature_scanner schemas ready")
+except Exception as _e_aiem_init:
+    print(f"[aiem_integrity] schema init error: {_e_aiem_init}")
+
 
 def _compute_fingerprint(rows):
     """
@@ -24017,6 +24043,41 @@ MANDATORY WORKFLOW FOR MARKET RESEARCH (always follow this sequence):
 17. mkt_validate_oos          - MANDATORY before saving: 60/40 train/test split
 18. mkt_save_discovery        - save ONLY if oos_validated=True AND p<0.05
 19. mkt_signal_drift          - check if any prior discovery is decaying
+
+═══════════════════════════════════════════════════════════════
+RESEARCH INTEGRITY TOOLS — USE THESE TO PREVENT SELF-DECEPTION
+═══════════════════════════════════════════════════════════════
+These enforce statistical discipline BEFORE any signal goes live:
+
+  register_hypothesis    — MANDATORY first step: pre-register name, parameters, and train/test
+                           split BEFORE running any test. Returns a hypothesis_id + current
+                           Bonferroni-adjusted alpha (accounts for ALL prior tests ever run).
+  adversarial_review     — After you get a result you like, call this. It actively tries to
+                           BREAK the finding: sample size check, significance vs 50% baseline,
+                           look-ahead scan, survivorship bias scan, + LLM adversarial critique.
+                           verdict: likely_real | likely_overfit | inconclusive.
+  list_hypotheses        — See all prior hypotheses + running Bonferroni alpha correction.
+  start_shadow_window    — Start a paper-trade shadow window (default 5 weeks, 20 trades min)
+                           for a signal that passed adversarial_review. No real money, no alerts.
+  open_shadow_trade      — Record a shadow entry. Call when the signal would fire live.
+  close_shadow_trade     — Record shadow exit. Needs position_id from open_shadow_trade.
+  shadow_stats           — Win-rate and avg-return for all closed shadow trades.
+  check_shadow_promotion — Read-only: has shadow window completed with enough trades?
+                           Does NOT promote — promotion requires explicit human sign-off.
+  get_regime_flags       — Check if any open warnings about regime shift (vol spike, trend flip,
+                           correlation decay) for any signal. Review before updating weights.
+  get_literature_briefs  — Get unreviewed quant research briefs (auto-scanned weekly).
+  run_granger_test       — Granger-precedence test: does a ticker's signal score predict its
+                           forward return beyond what past returns alone explain?
+  model_version_history  — Show all online-learning model versions and which is live.
+
+INTEGRITY PROTOCOL (mandatory when you discover a new signal):
+  1. register_hypothesis → get hypothesis_id and adjusted alpha
+  2. test it (mkt_test_signal / mkt_validate_oos)
+  3. adversarial_review → must return overall_verdict != "likely_overfit"
+  4. If passes: start_shadow_window → track with open/close_shadow_trade
+  5. After window: check_shadow_promotion → report to owner for human decision
+  NEVER skip step 1 or 3. NEVER mark a finding "confirmed" without adversarial_review.
 20. mkt_build_composite       - combine top discoveries into final weighted rule
 
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
@@ -24960,6 +25021,177 @@ def _run_aiem_prediction_grader():
     except Exception as e:
         print("[aiem_grader] error: {}".format(e))
 
+# ── AIEM Research Integrity Tool Wrappers ─────────────────────────────────────
+# Thin module-level wrappers so every tool can be added to _tool_map.
+# Each does a lazy import so startup import errors don't crash the agent.
+
+def _aiem_tool_register_hypothesis(name, description, parameters,
+                                   train_start, train_end,
+                                   test_start, test_end):
+    """Pre-register a hypothesis BEFORE running any test. Returns hypothesis_id
+    and the current Bonferroni-adjusted alpha (multiple-comparisons correction)."""
+    try:
+        from hypothesis_registry import Hypothesis, register_hypothesis
+        from hypothesis_registry import bonferroni_adjusted_alpha, get_total_registered
+        h = Hypothesis(name=name, description=description, parameters=parameters,
+                       train_start=train_start, train_end=train_end,
+                       test_start=test_start, test_end=test_end)
+        hyp_id    = register_hypothesis(h)
+        adj_alpha = bonferroni_adjusted_alpha()
+        total     = get_total_registered()
+        return {"hypothesis_id": hyp_id, "bonferroni_adjusted_alpha": round(adj_alpha, 6),
+                "total_hypotheses_ever_registered": total,
+                "reminder": "Record result via adversarial_review before any shadow promotion."}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_list_hypotheses(limit=30):
+    """List recent hypotheses (locked and pending). Shows Bonferroni alpha."""
+    try:
+        from hypothesis_registry import list_all_hypotheses, bonferroni_adjusted_alpha, get_total_registered
+        rows = list_all_hypotheses(limit=limit)
+        return {"hypotheses": rows, "total_registered": get_total_registered(),
+                "bonferroni_alpha": round(bonferroni_adjusted_alpha(), 6)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_adversarial_review(hypothesis_name, parameters, n_trades,
+                                  win_rate, test_window, universe_description):
+    """Run adversarial critique on a backtest result (rule-based + LLM).
+    Returns verdict: likely_real | likely_overfit | inconclusive."""
+    try:
+        from adversarial_critique import adversarial_review
+        return adversarial_review(
+            hypothesis_name=hypothesis_name, parameters=parameters,
+            n_trades=int(n_trades), win_rate=float(win_rate),
+            test_window=test_window, universe_description=universe_description)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_open_shadow_trade(signal_name, ticker, direction, entry_price,
+                                  hypothesis_id=None, notes=None):
+    """Open a paper-trade shadow position (no real money, no alerts)."""
+    try:
+        from shadow_ledger import open_shadow_position
+        pos_id = open_shadow_position(
+            signal_name=signal_name, ticker=ticker, direction=direction,
+            entry_price=float(entry_price), hypothesis_id=hypothesis_id, notes=notes)
+        return {"position_id": pos_id, "status": "open",
+                "reminder": "Close with close_shadow_trade when signal exit fires."}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_close_shadow_trade(position_id, exit_price):
+    """Close a shadow position and record the exit price."""
+    try:
+        from shadow_ledger import close_shadow_position
+        close_shadow_position(position_id=int(position_id), exit_price=float(exit_price))
+        return {"position_id": position_id, "status": "closed", "exit_price": exit_price}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_shadow_stats(signal_name):
+    """Win-rate and avg-return stats for all closed shadow trades of a signal."""
+    try:
+        from shadow_ledger import shadow_performance, list_open_positions
+        perf = shadow_performance(signal_name)
+        open_pos = list_open_positions(signal_name)
+        perf["open_positions"] = len(open_pos)
+        return perf
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_check_shadow_promotion(window_id):
+    """Read-only check: has the shadow window completed with enough trades?
+    Does NOT promote — promotion requires explicit human decision."""
+    try:
+        from shadow_ledger import check_promotion_eligibility
+        return check_promotion_eligibility(int(window_id))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_start_shadow_window(signal_name, weeks=5, min_trades_required=20):
+    """Start a shadow trading window for a newly validated signal."""
+    try:
+        from shadow_ledger import start_shadow_window
+        wid = start_shadow_window(signal_name, weeks=int(weeks),
+                                  min_trades_required=int(min_trades_required))
+        return {"window_id": wid, "signal_name": signal_name, "weeks": weeks,
+                "min_trades_required": min_trades_required}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_get_regime_flags(signal_name=None):
+    """Return open (unacknowledged) regime flags. Pass signal_name to filter."""
+    try:
+        from regime_monitor import get_open_flags
+        flags = get_open_flags(signal_name)
+        return {"open_flags": flags, "count": len(flags)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_get_literature_briefs():
+    """Return unreviewed research briefs from the literature scanner."""
+    try:
+        from literature_scanner import get_unreviewed_briefs
+        briefs = get_unreviewed_briefs()
+        return {"briefs": briefs, "count": len(briefs)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_run_granger_test(ticker, forward_days=3, days_back=180):
+    """Granger-precedence test: does this ticker's options flow score predict
+    its forward return better than past returns alone? Pulls from DB."""
+    try:
+        import psycopg2, psycopg2.extras, pandas as _pd
+        from causal_inference import granger_precedence_test
+        with psycopg2.connect(_DB_URL) as _c:
+            with _c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as _cu:
+                _cu.execute("""
+                    SELECT scan_date AS date,
+                           standout_score AS signal_score,
+                           price_chg_pct  AS forward_return
+                    FROM scan_history
+                    WHERE ticker = %s
+                      AND scan_date >= CURRENT_DATE - %s
+                    ORDER BY scan_date
+                """, (ticker.upper(), days_back))
+                rows = [dict(r) for r in _cu.fetchall()]
+        if len(rows) < 30:
+            return {"error": "insufficient_data", "ticker": ticker, "n": len(rows)}
+        df = _pd.DataFrame(rows)
+        result = granger_precedence_test(
+            df["signal_score"].astype(float),
+            df["forward_return"].astype(float))
+        result["ticker"] = ticker
+        result["n_observations"] = len(df)
+        return result
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_model_version_history(model_name):
+    """Show all saved versions of an online-learning model and which is live."""
+    try:
+        from online_learning import version_history, get_live_model
+        hist = version_history(model_name)
+        live = get_live_model(model_name)
+        return {"model_name": model_name, "versions": hist,
+                "live_version": live.get("version") if live else None}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _run_aiem_research_agent(max_iterations=None):
     """
     Autonomous AI research agent - full enhanced version.
@@ -25081,6 +25313,19 @@ def _run_aiem_research_agent(max_iterations=None):
         "mkt_compute_indicators":      _mkt_compute_indicators,
         "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
         "mkt_historical_study":        _mkt_historical_study,
+        # ── AIEM Research Integrity Tools ─────────────────────────────────────
+        "register_hypothesis":         _aiem_tool_register_hypothesis,
+        "list_hypotheses":             _aiem_tool_list_hypotheses,
+        "adversarial_review":          _aiem_tool_adversarial_review,
+        "open_shadow_trade":           _aiem_tool_open_shadow_trade,
+        "close_shadow_trade":          _aiem_tool_close_shadow_trade,
+        "shadow_stats":                _aiem_tool_shadow_stats,
+        "check_shadow_promotion":      _aiem_tool_check_shadow_promotion,
+        "start_shadow_window":         _aiem_tool_start_shadow_window,
+        "get_regime_flags":            _aiem_tool_get_regime_flags,
+        "get_literature_briefs":       _aiem_tool_get_literature_briefs,
+        "run_granger_test":            _aiem_tool_run_granger_test,
+        "model_version_history":       _aiem_tool_model_version_history,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
