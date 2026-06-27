@@ -1,0 +1,246 @@
+"""
+self_coding_orchestrator.py
+------------------------------
+Lets AIEM write its OWN backtest code and execute it, while keeping every
+guardrail we've discussed actually enforced in code rather than just
+documented:
+
+  1. Hypothesis must be pre-registered (hypothesis_registry) BEFORE the
+     agent is allowed to generate or run any test code against it.
+  2. Self-written code is executed in a restricted subprocess: no network
+     access, no filesystem writes outside a scratch directory, no imports
+     beyond an explicit allowlist.
+  3. A result can only be recorded through hypothesis_registry.record_result,
+     which locks the row — the agent cannot quietly retry until it likes
+     the number.
+  4. Every result automatically goes through adversarial_critique before
+     it's considered eligible for shadow_ledger promotion.
+  5. Nothing in this file ever touches production credentials — it reads
+     ONLY from AIEM_DATABASE_URL, never DATABASE_URL.
+
+This is the "glue" module — the actual code-generation call to your LLM is
+your existing Agent Lab / Replit agent infrastructure. This module defines
+the CONTRACT that self-written code must satisfy to be accepted at all.
+
+REQUIRES: hypothesis_registry.py, adversarial_critique.py, shadow_ledger.py
+in the same package. Python 3.10+.
+"""
+
+import os
+import sys
+import json
+import resource
+import subprocess
+import tempfile
+import textwrap
+import datetime as dt
+from typing import Dict, Any, Optional
+
+from . import hypothesis_registry as hr
+from . import adversarial_critique as ac
+
+
+# ---------------------------------------------------------------------------
+# Allowlist: self-written backtest code may ONLY import these. Anything else
+# in the generated script will fail at the import-scan stage, before it's
+# ever executed.
+# ---------------------------------------------------------------------------
+ALLOWED_IMPORTS = {
+    "pandas", "numpy", "math", "statistics", "json", "datetime",
+    "itertools", "collections", "scipy", "sklearn",
+}
+
+FORBIDDEN_TOKENS = [
+    "socket", "requests", "urllib", "http.client", "subprocess",
+    "os.system", "os.remove", "os.unlink", "shutil", "open(",
+    "__import__", "eval(", "exec(", "DATABASE_URL", "STRIPE",
+    "smtplib", "ftplib",
+]
+
+
+def static_scan(code: str) -> Optional[str]:
+    """Reject self-written code that contains anything outside the
+    allowlist or any forbidden token, BEFORE execution. This is a coarse
+    filter, not a sandbox by itself — the subprocess restrictions below are
+    the real enforcement layer. Defense in depth."""
+    for token in FORBIDDEN_TOKENS:
+        if token in code:
+            return f"Forbidden token found in generated code: '{token}'"
+
+    for line in code.splitlines():
+        line = line.strip()
+        if line.startswith("import ") or line.startswith("from "):
+            # crude but effective for catching disallowed top-level imports
+            parts = line.replace("from ", "").replace("import ", "").split()
+            module = parts[0].split(".")[0]
+            if module not in ALLOWED_IMPORTS:
+                return f"Disallowed import: '{module}' (line: '{line}')"
+    return None
+
+
+def _limit_resources():
+    """Applied in the child process via preexec_fn: caps CPU time and memory
+    so a runaway or malicious self-written script can't consume the host."""
+    resource.setrlimit(resource.RLIMIT_CPU, (30, 30))  # 30 CPU-seconds
+    resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))  # 1GB
+
+
+def run_self_written_backtest(
+    code: str,
+    input_data_path: str,
+    timeout_seconds: int = 45,
+) -> Dict[str, Any]:
+    """Executes AIEM's self-written backtest code in a restricted subprocess.
+
+    Contract for the self-written script:
+      - Receives one CLI arg: path to a CSV of historical data (read-only).
+      - Must print a SINGLE JSON object to stdout as its final line, with at
+        minimum: {"n_trades": int, "win_rate": float, "avg_return": float}
+      - No network access (enforced by network namespace / firewall at the
+        infra level — see deployment notes below; this function only
+        enforces import/token restrictions and resource limits, since
+        Python alone can't fully sandbox network access).
+      - No filesystem writes (the static scan blocks open(); combine with
+        running in a container/user with no write permissions outside /tmp
+        for full enforcement).
+
+    Returns the parsed result dict, or an error dict if anything failed.
+    """
+    scan_result = static_scan(code)
+    if scan_result:
+        return {"error": "static_scan_failed", "detail": scan_result}
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        script_path = os.path.join(tmp_dir, "self_backtest.py")
+        with open(script_path, "w") as f:
+            f.write(code)
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, script_path, input_data_path],
+                cwd=tmp_dir,
+                timeout=timeout_seconds,
+                capture_output=True,
+                text=True,
+                preexec_fn=_limit_resources if os.name == "posix" else None,
+                env={
+                    # Deliberately minimal env — no DB creds, no API keys,
+                    # no STRIPE/email vars get passed through to the child.
+                    "PATH": os.environ.get("PATH", ""),
+                },
+            )
+        except subprocess.TimeoutExpired:
+            return {"error": "timeout", "detail": f"Exceeded {timeout_seconds}s"}
+        except Exception as e:
+            return {"error": "execution_failed", "detail": str(e)}
+
+        if proc.returncode != 0:
+            return {"error": "nonzero_exit", "detail": proc.stderr[-2000:]}
+
+        last_line = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+        try:
+            result = json.loads(last_line)
+        except json.JSONDecodeError:
+            return {"error": "unparseable_output", "detail": proc.stdout[-2000:]}
+
+        required_keys = {"n_trades", "win_rate", "avg_return"}
+        if not required_keys.issubset(result.keys()):
+            return {"error": "missing_required_fields", "detail": result}
+
+        return result
+
+
+def execute_registered_hypothesis(
+    hypothesis_id: int,
+    self_written_code: str,
+    input_data_path: str,
+    universe_description: str,
+) -> Dict[str, Any]:
+    """Full pipeline for one hypothesis:
+      1. Confirm it's registered and not already locked.
+      2. Run the self-written backtest in the sandbox.
+      3. Record the result (locks the hypothesis row permanently).
+      4. Run adversarial critique on the result.
+      5. Return everything for human / verification-agent review.
+
+    This function deliberately does NOT touch shadow_ledger — promotion to
+    shadow trading is a separate, explicit step you trigger after reviewing
+    the adversarial critique, not something that happens automatically here.
+    """
+    results = hr.list_locked_results()
+    if any(r["id"] == hypothesis_id for r in results):
+        return {"error": "already_locked", "detail": f"Hypothesis {hypothesis_id} already has a recorded result."}
+
+    backtest_result = run_self_written_backtest(self_written_code, input_data_path)
+    if "error" in backtest_result:
+        return {"stage": "backtest_execution", **backtest_result}
+
+    hr.record_result(hypothesis_id, backtest_result)
+
+    # Pull the hypothesis back to get its name/parameters for the critique
+    all_locked = hr.list_locked_results()
+    this_hyp = next((r for r in all_locked if r["id"] == hypothesis_id), None)
+    if this_hyp is None:
+        return {"error": "post_record_lookup_failed"}
+
+    critique = ac.adversarial_review(
+        hypothesis_name=this_hyp["name"],
+        parameters=this_hyp["parameters"],
+        n_trades=backtest_result["n_trades"],
+        win_rate=backtest_result["win_rate"],
+        test_window=f"{this_hyp['test_start']} to {this_hyp['test_end']}",
+        universe_description=universe_description,
+    )
+
+    adjusted_alpha = hr.bonferroni_adjusted_alpha()
+
+    return {
+        "hypothesis_id": hypothesis_id,
+        "backtest_result": backtest_result,
+        "adversarial_critique": critique,
+        "multiple_comparisons_adjusted_alpha": adjusted_alpha,
+        "total_hypotheses_ever_tested": hr.get_total_registered(),
+        "next_step": (
+            "Send this full payload to your separate verification agent "
+            "before considering any shadow_ledger promotion."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Example self-written backtest script template — show this pattern to your
+# code-generation agent so its output matches the required contract.
+# ---------------------------------------------------------------------------
+EXAMPLE_TEMPLATE = textwrap.dedent("""
+    import sys
+    import json
+    import pandas as pd
+
+    def main():
+        data_path = sys.argv[1]
+        df = pd.read_csv(data_path)
+
+        # ... signal logic here, using ONLY df ...
+        # must not read any other file, must not import requests/socket/etc.
+
+        n_trades = 0
+        wins = 0
+        returns = []
+
+        # ... populate n_trades, wins, returns from your backtest loop ...
+
+        result = {
+            "n_trades": n_trades,
+            "win_rate": (wins / n_trades) if n_trades else 0.0,
+            "avg_return": (sum(returns) / len(returns)) if returns else 0.0,
+        }
+        print(json.dumps(result))
+
+    if __name__ == "__main__":
+        main()
+""").strip()
+
+
+if __name__ == "__main__":
+    print("Self-coding orchestrator contract template:\n")
+    print(EXAMPLE_TEMPLATE)
