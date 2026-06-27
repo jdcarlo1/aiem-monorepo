@@ -9680,12 +9680,14 @@ def _poll_ask_sms() -> None:
     if not hasattr(app, "_aiem_qa_lock"):
         app._aiem_qa_lock = _thr_ask.Semaphore(1)
 
-    # Persist processed UIDs to disk so restarts don't reprocess old emails
-    _uid_file = "/tmp/ask_processed_uids.txt"
+    # Persist processed UIDs in the DB so restarts never reprocess old emails.
+    # /tmp is wiped on every restart which caused duplicate "Got it!" confirmations.
     if not hasattr(app, "_processed_ask_uids"):
         try:
-            with open(_uid_file) as _f:
-                app._processed_ask_uids = set(_f.read().split())
+            import psycopg2 as _pg_uid
+            with _pg_uid.connect(_DB_URL, connect_timeout=3) as _uc, _uc.cursor() as _ucu:
+                _ucu.execute("SELECT uid FROM ask_email_processed_uids")
+                app._processed_ask_uids = set(r[0] for r in _ucu.fetchall())
         except Exception:
             app._processed_ask_uids = set()
 
@@ -9715,12 +9717,17 @@ def _poll_ask_sms() -> None:
 
         for uid in uids:
             uid_str = uid.decode()
-            # Persist to disk immediately — survives restarts
+            # Persist to DB immediately — survives restarts (no more /tmp wipe dupes)
             app._processed_ask_uids.add(uid_str)
             try:
-                with open(_uid_file, "a") as _f:
-                    _f.write(uid_str + "\n")
-            except Exception: pass
+                import psycopg2 as _pg_uid2
+                with _pg_uid2.connect(_DB_URL, connect_timeout=3) as _uc2, _uc2.cursor() as _ucu2:
+                    _ucu2.execute(
+                        "INSERT INTO ask_email_processed_uids (uid) VALUES (%s) ON CONFLICT DO NOTHING",
+                        (uid_str,)
+                    )
+                    _uc2.commit()
+            except Exception as _dbe: print(f"[poll_ask_sms] DB uid save error: {_dbe}")
 
             try:
                 _, msg_data = mail.fetch(uid, "(RFC822)")
@@ -9809,16 +9816,14 @@ def _poll_ask_sms() -> None:
                     f"Be concise but complete — 2-4 paragraphs max."
                 )
 
-                def _run_and_reply(q=question, p=prompt, _vg=via_gateway):
+                def _run_and_reply(q=question, p=prompt, _vg=via_gateway, _uid=uid_str):
                     # Only 1 AIEM Q&A session at a time
                     if not app._aiem_qa_lock.acquire(blocking=False):
-                        print(f"[poll_ask_sms] AIEM busy — queued question will retry next poll")
-                        # Remove from processed set so it retries next poll
-                        app._processed_ask_uids.discard(uid_str)
-                        try:
-                            with open(_uid_file, "w") as _f:
-                                _f.write("\n".join(app._processed_ask_uids))
-                        except Exception: pass
+                        # UID stays in processed set — confirmation was already sent.
+                        # Next poll will NOT re-send "Got it!" (UID is persisted in DB).
+                        # The answer will be retried on the next poll cycle automatically
+                        # because answer_sent=FALSE in the DB.
+                        print(f"[poll_ask_sms] AIEM busy — will retry answer next poll (no duplicate confirmation)")
                         return
                     try:
                         answer_text = _run_aiem_focused_session(
@@ -9848,6 +9853,15 @@ def _poll_ask_sms() -> None:
                                     f"send a new email with ASK in the subject.</p></div>"
                                 )
                                 _ser_rep(_OWNER_EMAIL, f"AIEM Answer: {clean_q}", _html)
+                                try:
+                                    import psycopg2 as _pg_ans
+                                    with _pg_ans.connect(_DB_URL, connect_timeout=3) as _ac, _ac.cursor() as _acu:
+                                        _acu.execute(
+                                            "UPDATE ask_email_processed_uids SET answer_sent=TRUE WHERE uid=%s",
+                                            (_uid,)
+                                        )
+                                        _ac.commit()
+                                except Exception: pass
                             except Exception as _e2:
                                 print(f"[poll_ask_sms] email send error: {_e2}")
                     except Exception as _e:
@@ -9858,7 +9872,9 @@ def _poll_ask_sms() -> None:
                             try:
                                 from email_alerts import send_email_raw as _ser_err
                                 _ser_err(_OWNER_EMAIL, "AIEM: Research error",
-                                         f"<p>Hit an error researching: <b>{q[:100]}</b>. Please try again.</p>")
+                                         f"<p>Hit an error researching: <b>{q[:100]}</b>. "
+                                         f"Error: {str(_e)[:200]}</p>"
+                                         f"<p>Reply with another ASK email to try again.</p>")
                             except Exception: pass
                     finally:
                         app._aiem_qa_lock.release()
