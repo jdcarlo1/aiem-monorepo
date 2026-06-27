@@ -11833,6 +11833,227 @@ function OverviewTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   );
 }
 
+// ---- Quant Agent Chat Tab ------------------------------------------------
+
+function QuantAgentTab() {
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+  type Msg = { role: "user" | "agent"; text: string; ts: Date; jobId?: string; status?: string };
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [input, setInput]       = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [elapsed, setElapsed]   = useState(0);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const pollRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const SUGGESTIONS = [
+    "Backtest the BigCatDay signal — 5%+ move, tight inside day, gap up next morning",
+    "Which stocks had the highest % move yesterday and what patterns did they share?",
+    "What's the win rate when unusual call sweeps happen within 3 days of OI buildup?",
+    "Backtest gap-down reversals: sold off 3%+, next day opens flat, hold 5 days",
+    "What's the best holding period for high-conviction sweep signals?",
+  ];
+
+  // Load history on mount
+  useEffect(() => {
+    fetch(`${BASE}/stock-api/aiem/chat/history`)
+      .then(r => r.json())
+      .then((rows: any[]) => {
+        if (!rows || rows.length === 0) return;
+        const hist: Msg[] = [];
+        rows.slice().reverse().forEach(r => {
+          hist.push({ role: "user", text: r.question, ts: new Date(r.created_at) });
+          if (r.status === "done" && r.answer)
+            hist.push({ role: "agent", text: r.answer, ts: new Date(r.created_at), status: "done" });
+          else if (r.status === "error")
+            hist.push({ role: "agent", text: "Research hit an error. Try rephrasing.", ts: new Date(r.created_at), status: "error" });
+        });
+        setMessages(hist);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const stopPolling = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    setElapsed(0);
+  };
+
+  const submit = async () => {
+    const q = input.trim();
+    if (!q || loading) return;
+    setInput("");
+    setLoading(true);
+    setElapsed(0);
+    const userMsg: Msg = { role: "user", text: q, ts: new Date() };
+    setMessages(prev => [...prev, userMsg]);
+
+    let jobId = "";
+    try {
+      const res = await fetch(`${BASE}/stock-api/aiem/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "Failed to start");
+      jobId = data.job_id;
+    } catch (e: any) {
+      setMessages(prev => [...prev, { role: "agent", text: `Error: ${e.message}`, ts: new Date(), status: "error" }]);
+      setLoading(false);
+      return;
+    }
+
+    // Add placeholder
+    const placeholder: Msg = { role: "agent", text: "", ts: new Date(), jobId, status: "running" };
+    setMessages(prev => [...prev, placeholder]);
+
+    // Elapsed timer
+    timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+
+    // Poll every 3s
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`${BASE}/stock-api/aiem/chat/${jobId}`);
+        const d = await r.json();
+        if (d.status === "done" || d.status === "error") {
+          stopPolling();
+          setLoading(false);
+          setMessages(prev => prev.map(m =>
+            m.jobId === jobId
+              ? { ...m, text: d.answer || d.error || "No response.", status: d.status }
+              : m
+          ));
+        }
+      } catch { /* keep polling */ }
+    }, 3000);
+  };
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#060c14", fontFamily: "Inter, sans-serif" }}>
+      {/* Header */}
+      <div style={{ padding: "18px 20px 12px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
+        <div style={{ color: "#f1f5f9", fontWeight: 900, fontSize: 20, letterSpacing: "-0.02em" }}>🤖 Quant Agent</div>
+        <div style={{ color: "#475569", fontSize: 12, marginTop: 3 }}>
+          Ask any question — AIEM researches it using your full database of 12,000+ stocks · 495 days of data · 88 research tools
+        </div>
+      </div>
+
+      {/* Suggestions (only if no history) */}
+      {messages.length === 0 && (
+        <div style={{ padding: "14px 20px 0", flexShrink: 0 }}>
+          <div style={{ color: "#64748b", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 8 }}>EXAMPLE QUESTIONS</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {SUGGESTIONS.map((s, i) => (
+              <button key={i} onClick={() => setInput(s)}
+                style={{ background: "rgba(30,41,59,0.6)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "8px 12px", color: "#94a3b8", fontSize: 12, textAlign: "left", cursor: "pointer", transition: "all 0.15s" }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(74,222,128,0.4)")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)")}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+        {messages.map((m, i) => (
+          <div key={i} style={{ display: "flex", flexDirection: m.role === "user" ? "row-reverse" : "row", gap: 10, alignItems: "flex-start" }}>
+            {/* Avatar */}
+            <div style={{
+              width: 32, height: 32, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900,
+              background: m.role === "user" ? "linear-gradient(135deg,#16a34a,#22c55e)" : "linear-gradient(135deg,#1e3a5f,#2563eb)",
+              boxShadow: m.role === "user" ? "0 0 12px rgba(34,197,94,0.3)" : "0 0 12px rgba(37,99,235,0.3)",
+            }}>
+              {m.role === "user" ? "Y" : "🤖"}
+            </div>
+            {/* Bubble */}
+            <div style={{ maxWidth: "80%", minWidth: 80 }}>
+              {m.status === "running" ? (
+                <div style={{ background: "rgba(15,30,60,0.9)", border: "1px solid rgba(37,99,235,0.3)", borderRadius: 12, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {[0,1,2].map(d => (
+                        <div key={d} style={{
+                          width: 7, height: 7, borderRadius: "50%", background: "#3b82f6",
+                          animation: `bounce 1.2s ease-in-out ${d * 0.2}s infinite`,
+                        }} />
+                      ))}
+                    </div>
+                    <span style={{ color: "#60a5fa", fontSize: 13, fontWeight: 600 }}>
+                      Researching… {elapsed > 0 ? fmt(elapsed) : ""}
+                    </span>
+                  </div>
+                  <div style={{ color: "#475569", fontSize: 11, marginTop: 6 }}>
+                    Running AIEM session with 88 research tools · typically 2–4 minutes
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  background: m.role === "user" ? "rgba(22,163,74,0.15)" : "rgba(15,25,50,0.9)",
+                  border: `1px solid ${m.role === "user" ? "rgba(34,197,94,0.25)" : m.status === "error" ? "rgba(239,68,68,0.3)" : "rgba(37,99,235,0.2)"}`,
+                  borderRadius: 12, padding: "12px 16px",
+                }}>
+                  <div style={{ color: m.status === "error" ? "#f87171" : m.role === "user" ? "#d1fae5" : "#e2e8f0", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {m.text}
+                  </div>
+                  <div style={{ color: "#334155", fontSize: 10, marginTop: 6 }}>
+                    {m.ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: "12px 20px 16px", borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
+        <style>{`@keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }`}</style>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+          <textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+            placeholder="Ask anything — backtests, pattern analysis, ticker research…"
+            rows={2}
+            disabled={loading}
+            style={{
+              flex: 1, background: "rgba(15,25,50,0.8)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12,
+              padding: "10px 14px", color: "#f1f5f9", fontSize: 13, resize: "none", outline: "none",
+              fontFamily: "Inter, sans-serif", lineHeight: 1.5,
+            }}
+          />
+          <button
+            onClick={submit}
+            disabled={loading || !input.trim()}
+            style={{
+              background: loading ? "rgba(37,99,235,0.3)" : "linear-gradient(135deg,#2563eb,#1d4ed8)",
+              border: "1px solid rgba(37,99,235,0.4)", borderRadius: 12, padding: "10px 18px",
+              color: "#fff", fontWeight: 700, fontSize: 13, cursor: loading ? "not-allowed" : "pointer",
+              flexShrink: 0, height: 60, transition: "all 0.15s",
+            }}
+          >
+            {loading ? "…" : "Send"}
+          </button>
+        </div>
+        <div style={{ color: "#334155", fontSize: 10, marginTop: 6, textAlign: "center" }}>
+          Enter to send · Shift+Enter for new line · Responses take 2–4 minutes while AIEM researches
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---- Net Flow Tab --------------------------------------------------------
 
 function NetFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
@@ -14041,7 +14262,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -14202,6 +14423,7 @@ export default function Dashboard() {
     { id: "runneroutcomes", label: "📊 RUNNER OUTCOMES" },
     { id: "steadygrinder",  label: "🔄 STEADY GRINDERS" },
     { id: "gapvolume",      label: "⚡ GAP+VOL SIGNAL" },
+    { id: "quantagent",     label: "🤖 QUANT AGENT" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -15716,6 +15938,8 @@ export default function Dashboard() {
           }
           return <GapVolumeTab onSelectTicker={selectTicker} />;
         })()}
+
+        {tab === "quantagent" && <QuantAgentTab />}
 
       </div>
       </main>

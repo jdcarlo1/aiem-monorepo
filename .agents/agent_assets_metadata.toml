@@ -156,3 +156,9 @@ id = "UiHoZGvMuWeEffiQutZCz"
 uri = "file://nclex_code.txt"
 type = "text"
 title = "NCLEX Prep AI — Full Source Code (81 files, 12,759 lines)"
+
+[[outputs]]
+id = "lNYYPQ8AvBQZVy5a28P6I"
+uri = "file://MODULES.md"
+type = "text"
+title = "MODULES.md — Full codebase inventory for Claude"

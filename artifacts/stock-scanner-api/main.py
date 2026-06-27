@@ -41513,5 +41513,115 @@ def admin_backfill_iv():
     })
 
 
+# ── Quant Agent Chat ──────────────────────────────────────────────────────────
+@app.route("/stock-api/aiem/chat", methods=["POST"])
+def aiem_chat_start():
+    """Start an AIEM research session from the Quant Agent tab."""
+    import uuid as _uuid, threading as _qa_thr, datetime as _qa_dt, psycopg2 as _qa_pg
+
+    data     = request.get_json(silent=True) or {}
+    question = (data.get("question") or "").strip()[:800]
+    if not question:
+        return jsonify({"error": "question is required"}), 400
+
+    job_id = str(_uuid.uuid4())
+
+    try:
+        with _qa_pg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                "INSERT INTO quant_agent_sessions (job_id, question, status) VALUES (%s,%s,'pending')",
+                (job_id, question)
+            )
+            _c.commit()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+
+    prompt = (
+        f"The user asks: '{question}'\n\n"
+        f"Research this thoroughly using your tools. "
+        f"If they mention specific tickers, use mkt_retrospective_backtest and mkt_find_behavioral_matches. "
+        f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
+        f"If they ask about a pattern or signal, use mkt_test_signal to validate it with real data. "
+        f"If they ask for a backtest, run it and report win rate, sample size, average return, and edge. "
+        f"End with a clear, direct answer. Be concise but complete — 3-5 paragraphs max. "
+        f"Use bullet points for lists of findings."
+    )
+
+    def _worker():
+        import psycopg2 as _wpg
+        def _db_update(status, answer=None, error=None):
+            try:
+                with _wpg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+                    _cu.execute(
+                        "UPDATE quant_agent_sessions SET status=%s, answer=%s, error=%s, updated_at=NOW() WHERE job_id=%s",
+                        (status, answer, error, job_id)
+                    )
+                    _c.commit()
+            except Exception as _e:
+                print(f"[quant_agent] DB update error: {_e}")
+
+        _db_update("running")
+        try:
+            result = _run_aiem_focused_session(
+                session_name=f"quant_chat_{job_id[:8]}",
+                focus_prompt=prompt,
+                max_iterations=3,
+            )
+            answer = (result or "").strip()
+            if not answer or len(answer) < 20:
+                answer = "The research session completed but returned no findings. Try rephrasing your question with a specific ticker or signal name."
+            _db_update("done", answer=answer)
+        except Exception as _e:
+            print(f"[quant_agent] session error: {_e}")
+            _db_update("error", error=str(_e)[:400])
+
+    _qa_thr.Thread(target=_worker, daemon=True).start()
+    return jsonify({"job_id": job_id, "status": "pending"})
+
+
+@app.route("/stock-api/aiem/chat/<job_id>", methods=["GET"])
+def aiem_chat_poll(job_id):
+    """Poll for a Quant Agent research result."""
+    import psycopg2 as _pp
+    try:
+        with _pp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                "SELECT status, answer, error, created_at FROM quant_agent_sessions WHERE job_id=%s",
+                (job_id,)
+            )
+            row = _cu.fetchone()
+            if not row:
+                return jsonify({"error": "job not found"}), 404
+            status, answer, error, created_at = row
+            return jsonify({
+                "job_id": job_id,
+                "status": status,
+                "answer": answer,
+                "error":  error,
+                "created_at": created_at.isoformat() if created_at else None,
+            })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem/chat/history", methods=["GET"])
+def aiem_chat_history():
+    """Return the last 20 Quant Agent sessions."""
+    import psycopg2 as _ph
+    try:
+        with _ph.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                "SELECT job_id, question, status, answer, created_at "
+                "FROM quant_agent_sessions ORDER BY created_at DESC LIMIT 20"
+            )
+            rows = _cu.fetchall()
+            return jsonify([{
+                "job_id": r[0], "question": r[1], "status": r[2],
+                "answer": r[3], "created_at": r[4].isoformat() if r[4] else None,
+            } for r in rows])
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
