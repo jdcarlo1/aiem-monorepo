@@ -693,11 +693,12 @@ def print_report(stored: dict):
             continue
         entry = stored[lbl]
         v2t, qtt = entry[0], entry[1]
-        qt_map = {t["ticker"]: t for t in qtt}
+        qt_map = {(t["ticker"], t.get("bt_date", "")): t for t in qtt}
         for t in sorted(v2t, key=lambda x: x.get("score", 0), reverse=True):
-            if t["ticker"] not in qt_map:
+            _key = (t["ticker"], t.get("bt_date", ""))
+            if _key not in qt_map:
                 continue
-            qt  = qt_map[t["ticker"]]
+            qt  = qt_map[_key]
             nr  = t["next_ret"]
             fla = "✓" if nr > 0 else "✗"
             print(f"  {t['ticker']:<7} {lbl:<12} {t.get('score',0):>5} "
