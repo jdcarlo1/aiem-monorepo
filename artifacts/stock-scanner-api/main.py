@@ -9826,7 +9826,7 @@ def _poll_ask_sms() -> None:
                         print(f"[poll_ask_sms] AIEM busy — will retry answer next poll (no duplicate confirmation)")
                         return
                     try:
-                        answer_text = _run_aiem_focused_session(
+                        answer_text, _qa_trace, _qa_err = _run_aiem_focused_session(
                             session_name=f"sms_ask_{q[:20].replace(' ','_')}",
                             focus_prompt=p,
                             max_iterations=3
@@ -22941,28 +22941,22 @@ def _mkt_net_flow_db(days_back: int = 5, min_rvol: float = 1.5,
         return {'status': 'error', 'error': str(e)}
 
 
-def _run_aiem_focused_session(session_name: str, focus_prompt: str,
-                               max_iterations: int = 12):
-    """
-    Parameterized research session. Called by 24/7 scheduler with different
-    prompts and iteration budgets for each time slot. The agent uses all its
-    tools but starts with a specific focus question for that session.
-    """
-    import json as _fsj, datetime as _fsd
-    print(f"[aiem_24h] starting session: {session_name}")
-    _last_text = ""
-    try:
-        from openai import OpenAI as _OAIFS
-        _oai = _OAIFS(
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
-        )
-    except Exception as _oe:
-        print(f"[aiem_24h:{session_name}] OpenAI init error: {_oe}")
-        return
+def _classify_question_complexity(question: str) -> int:
+    """Dynamic max_iterations based on question type (Claude fix #2)."""
+    q = question.lower()
+    deep = ["backtest", "validate", "significan", "out-of-sample", "oos",
+            "is it real", "does it work", "prove", "p-value"]
+    compare = ["compare", "vs", "versus", "better than", "which of"]
+    simple = ["what is", "define", "explain", "how does"]
+    if any(s in q for s in deep):   return 10
+    if any(s in q for s in compare): return 7
+    if any(s in q for s in simple) and len(q) < 80: return 4
+    return 6
 
-    # Full tool map — every tool available
-    _fs_tool_map = {
+
+def _build_aiem_tool_map():
+    """Build full 88-tool map once — extracted from hot path (Claude fix)."""
+    return {
         "mkt_behavioral_templates":    _mkt_behavioral_templates,
         "mkt_find_behavioral_matches": _mkt_find_behavioral_matches,
         "mkt_retrospective_backtest":  _mkt_retrospective_backtest,
@@ -22972,11 +22966,6 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "mkt_options_flow_scan":       _mkt_options_flow_scan,
         "mkt_options_predicts_price":  _mkt_options_predicts_price,
         "mkt_cross_confirm_options":   _mkt_cross_confirm_options_price,
-        "mkt_behavioral_templates":    _mkt_behavioral_templates,
-        "mkt_find_behavioral_matches": _mkt_find_behavioral_matches,
-        "mkt_retrospective_backtest":  _mkt_retrospective_backtest,
-        "mkt_ticker_deep_compare":     _mkt_ticker_deep_compare,
-        "mkt_net_flow_db":             _mkt_net_flow_db,
         "mkt_explore_dimensions":      _mkt_tool_explore_dimensions,
         "mkt_test_signal":             _mkt_tool_test_signal,
         "mkt_analyze_top_movers":      _mkt_tool_analyze_top_movers,
@@ -23007,7 +22996,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "run_statistical_significance": _aiem_tool_run_statistical_significance,
         "save_research_model":         _aiem_tool_save_research_model,
         "search_past_findings":        _aiem_tool_search_past_findings,
-        # ── Scanner + email tools (morning market-open sessions) ──────────
+        "list_signal_dimensions":      _aiem_tool_list_signal_dimensions,
         "send_discovery_alert":        _aiem_tool_send_discovery_alert,
         "breakout_discover":           _aiem_tool_breakout_discover,
         "breakout_extract_features":   _aiem_tool_breakout_extract_features,
@@ -23025,11 +23014,9 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "retrain_approve":             _aiem_tool_retrain_approve,
         "retrain_reject":              _aiem_tool_retrain_reject,
         "retrain_history":             _aiem_tool_retrain_history,
-        # ── VWAP indicator tools ──────────────────────────────────────────
         "vwap_compute_features":       _aiem_tool_vwap_compute_features,
         "vwap_price_vs":               _aiem_tool_vwap_price_vs,
         "vwap_reclaim_detect":         _aiem_tool_vwap_reclaim_detect,
-        # ── Meta-learning signal trust tools ─────────────────────────────
         "trust_classify_context":      _aiem_tool_trust_classify_context,
         "trust_update":                _aiem_tool_trust_update,
         "trust_get_weights":           _aiem_tool_trust_get_weights,
@@ -23037,7 +23024,35 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "trust_apply_to_candidates":   _aiem_tool_trust_apply_to_candidates,
     }
 
-    _fs_schema = _AIEM_AGENT_TOOLS  # reuse existing schema
+
+def _run_aiem_focused_session(session_name: str, focus_prompt: str,
+                               max_iterations: int = 12, on_step=None):
+    """
+    Parameterized research session. Returns (final_text, trace, error_str).
+
+    Claude fixes applied:
+    1. SDK message -> plain dict before appending (prevents round-trip serialization bugs)
+    2. Per-tool try/except: a tool crash no longer kills the whole session
+    3. try/except around json.loads(arguments) — model occasionally emits bad JSON
+    4. Retry/backoff on OpenAI call (rate limits, transient errors)
+    5. trace list for tool-call visibility (persisted to DB)
+    6. Context budget cap: stops feeding full output once 60K chars accumulated
+    on_step: optional callback(step_dict) for live progress updates
+    """
+    import json as _fsj, time as _fst
+    print(f"[aiem_24h] starting session: {session_name}")
+
+    try:
+        from openai import OpenAI as _OAIFS
+        _oai = _OAIFS(
+            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
+            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
+        )
+    except Exception as _oe:
+        return "", [], f"OpenAI init error: {_oe}"
+
+    _fs_tool_map = _build_aiem_tool_map()
+    _fs_schema   = _AIEM_AGENT_TOOLS
 
     session_system = (
         _AIEM_AGENT_SYSTEM +
@@ -23045,48 +23060,103 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "Start immediately with the most relevant tools for this session's focus. "
         "Be systematic. Every finding should be tested statistically before saving."
     )
-
     messages = [
         {"role": "system", "content": session_system},
-        {"role": "user", "content": focus_prompt}
+        {"role": "user",   "content": focus_prompt},
     ]
 
+    _last_text      = ""
+    trace           = []
+    _context_budget = 60_000
+    _context_used   = 0
+
     for _i in range(max_iterations):
-        try:
-            resp = _oai.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                tools=_fs_schema,
-                tool_choice="auto",
-                max_tokens=2000,
-                temperature=0.3,
-            )
-            msg = resp.choices[0].message
-            messages.append(msg)
-            if msg.content:
-                _last_text = msg.content
-            if not msg.tool_calls:
+        # Fix #4: retry with backoff on transient OpenAI errors
+        resp = None
+        for _attempt in range(3):
+            try:
+                resp = _oai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    tools=_fs_schema,
+                    tool_choice="auto",
+                    max_tokens=2000,
+                    temperature=0.3,
+                )
                 break
-            for tc in msg.tool_calls:
-                fn = tc.function.name
-                try:
-                    args = _fsj.loads(tc.function.arguments)
-                except Exception:
-                    args = {}
-                if fn in _fs_tool_map:
-                    result = _fs_tool_map[fn](**args)
-                else:
-                    result = {"error": f"unknown tool: {fn}"}
-                messages.append({
-                    "role": "tool", "tool_call_id": tc.id,
-                    "content": _fsj.dumps(result, default=str)[:6000]
-                })
-        except Exception as _e:
-            print(f"[aiem_24h:{session_name}] iteration {_i} error: {_e}")
+            except Exception as _oe2:
+                if _attempt == 2:
+                    print(f"[aiem_24h:{session_name}] OpenAI failed after retries: {_oe2}")
+                    return _last_text, trace, f"OpenAI call failed: {_oe2}"
+                _fst.sleep(1.5 * (_attempt + 1))
+
+        msg = resp.choices[0].message
+        if msg.content:
+            _last_text = msg.content
+
+        # Fix #1: convert SDK object -> plain dict before appending
+        msg_dict = {"role": "assistant", "content": msg.content or None}
+        if msg.tool_calls:
+            msg_dict["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+        messages.append(msg_dict)
+
+        if not msg.tool_calls:
             break
 
-    print(f"[aiem_24h:{session_name}] complete ({_i+1} iterations)")
-    return _last_text
+        for tc in msg.tool_calls:
+            fn = tc.function.name
+
+            # Fix #3: safe args parse
+            try:
+                args = _fsj.loads(tc.function.arguments or "{}")
+            except Exception as _je:
+                result = {"error": f"malformed arguments from model: {_je}"}
+                args   = None
+
+            if args is not None:
+                if fn not in _fs_tool_map:
+                    result = {"error": f"unknown tool: {fn}"}
+                else:
+                    # Fix #2: per-tool exception isolation
+                    try:
+                        result = _fs_tool_map[fn](**args)
+                    except Exception as _te:
+                        result = {"error": f"{fn} raised {type(_te).__name__}: {_te}"}
+
+            result_str = _fsj.dumps(result, default=str)
+            if len(result_str) > 6000:
+                result_str = result_str[:6000] + "...[truncated]"
+
+            # Fix #6: context budget
+            _context_used += len(result_str)
+            if _context_used > _context_budget:
+                result_str = _fsj.dumps({"note": "result omitted, context budget reached"})
+
+            step = {"iteration": _i, "tool": fn, "args": args,
+                    "ok": "error" not in (result if isinstance(result, dict) else {})}
+            trace.append(step)
+
+            # Fix #5: live progress callback
+            if on_step:
+                try:
+                    on_step(step)
+                except Exception:
+                    pass
+
+            messages.append({
+                "role": "tool", "tool_call_id": tc.id,
+                "content": result_str,
+            })
+
+    print(f"[aiem_24h:{session_name}] complete ({_i+1} iters, {len(trace)} tool calls)")
+    return _last_text, trace, None
 
 
 _AIEM_AGENT_TOOLS = [

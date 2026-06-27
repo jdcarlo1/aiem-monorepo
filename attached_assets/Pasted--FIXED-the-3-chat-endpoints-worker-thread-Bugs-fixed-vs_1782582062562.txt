@@ -1,0 +1,255 @@
+"""
+FIXED: the 3 chat endpoints + worker thread.
+
+Bugs fixed vs. your original:
+
+1. NO try/except in `_worker`. If `_run_aiem_focused_session` raises (which
+   it shouldn't anymore after the session-runner fix, but defense in depth
+   matters here) or if a DB write fails, the thread dies silently and the
+   row sits at status='running' forever. The frontend then polls forever.
+   Fixed with try/except/finally that ALWAYS writes a terminal status.
+
+2. Shared DB connection across threads. You mentioned in your own build
+   notes that you've already had to fix 150+ raw psycopg2 call sites for
+   connection pooling — this is the same class of bug. Each daemon thread
+   MUST get its own connection (or a connection from a pool), never reuse
+   a connection/cursor created on the main request thread. Using a shared
+   connection across threads with psycopg2 will eventually corrupt state
+   or throw "another command is already in progress."
+
+3. No concurrency limit (your improvement-area #5). Each session = real
+   GPT-4o spend with up to 10 tool-calling round trips. Without a limit,
+   nothing stops a user (or a buggy frontend that double-fires on click)
+   from queuing 10 sessions in a row. Added a single-flight check.
+
+4. No 404 on unknown job_id in the poll endpoint.
+
+5. No auth/ownership check shown anywhere. If this dashboard has any
+   multi-user concept at all, add a user_id column and filter by it —
+   otherwise anyone with the URL can read anyone else's research sessions
+   and, more importantly, spend your OpenAI budget. Flagged inline below;
+   you'll need to wire in whatever session/auth mechanism the rest of
+   main.py already uses.
+
+6. No persistence of the tool-call trace (your improvement-area #6) — now
+   stored as a JSONB column and returned in both poll and history.
+"""
+import json
+import threading
+import time
+import uuid
+
+from flask import jsonify, request
+
+from backend_aiem_session_runner import _run_aiem_focused_session, classify_question_complexity
+
+# ---------------------------------------------------------------------------
+# Concurrency guard — single in-flight AIEM session at a time.
+# A simple in-process lock is fine for a single Flask worker process. If
+# you ever run this behind gunicorn with >1 worker process, swap this for
+# a DB-backed lock (e.g. a row in a `locks` table with SELECT ... FOR UPDATE,
+# or a Redis SETNX) since an in-memory lock won't be shared across processes.
+# ---------------------------------------------------------------------------
+_aiem_session_lock = threading.Lock()
+_aiem_session_busy = False
+
+
+def _get_thread_db_conn():
+    """
+    Replace this with whatever connection-pool accessor the rest of your
+    app already uses (you mentioned you've been retrofitting one). The
+    critical requirement is just: NEW connection per thread, not reused
+    from the request thread.
+    """
+    import psycopg2
+    import os
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+
+@app.route("/stock-api/aiem/chat", methods=["POST"])
+def aiem_chat_start():
+    global _aiem_session_busy
+
+    data = request.get_json(silent=True) or {}
+    question = (data.get("question") or "").strip()[:800]
+    if not question:
+        return jsonify({"error": "question is required"}), 400
+
+    # --- single-flight guard ---
+    with _aiem_session_lock:
+        if _aiem_session_busy:
+            return jsonify({
+                "error": "Another research session is already running. "
+                         "Please wait for it to finish before starting a new one.",
+            }), 429
+        _aiem_session_busy = True
+
+    job_id = str(uuid.uuid4())
+
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO quant_agent_sessions (job_id, question, status)
+                   VALUES (%s, %s, 'pending')""",
+                (job_id, question),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    max_iter = classify_question_complexity(question)
+
+    prompt = (
+        f"The user asks: '{question}'\n\n"
+        f"Research this thoroughly using your tools. "
+        f"If they mention specific tickers, use mkt_retrospective_backtest. "
+        f"If they ask about a pattern or signal, use mkt_test_signal to validate with real data. "
+        f"End with a clear, direct answer. Be concise but complete — 3-5 paragraphs max."
+    )
+
+    def _worker():
+        global _aiem_session_busy
+        worker_conn = _get_thread_db_conn()
+        try:
+            with worker_conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE quant_agent_sessions SET status='running', updated_at=NOW() WHERE job_id=%s",
+                    (job_id,),
+                )
+            worker_conn.commit()
+
+            def _on_step(step):
+                # live progress update so the frontend can show
+                # "Calling mkt_test_signal..." instead of a generic spinner
+                try:
+                    with worker_conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE quant_agent_sessions SET current_tool=%s, updated_at=NOW() WHERE job_id=%s",
+                            (step.get("tool"), job_id),
+                        )
+                    worker_conn.commit()
+                except Exception:
+                    pass  # progress updates are best-effort, never fatal
+
+            answer, trace, err = _run_aiem_focused_session(
+                session_name=f"quant_chat_{job_id[:8]}",
+                focus_prompt=prompt,
+                max_iterations=max_iter,
+                on_step=_on_step,
+            )
+
+            with worker_conn.cursor() as cur:
+                if err:
+                    cur.execute(
+                        """UPDATE quant_agent_sessions
+                           SET status='error', error=%s, tool_trace=%s, updated_at=NOW()
+                           WHERE job_id=%s""",
+                        (err, json.dumps(trace), job_id),
+                    )
+                else:
+                    cur.execute(
+                        """UPDATE quant_agent_sessions
+                           SET status='done', answer=%s, tool_trace=%s, updated_at=NOW()
+                           WHERE job_id=%s""",
+                        (answer, json.dumps(trace), job_id),
+                    )
+            worker_conn.commit()
+
+        except Exception as e:
+            # THE KEY FIX: no matter what blows up above, the job always
+            # gets a terminal status. Nothing is allowed to leave it stuck
+            # at 'running' forever.
+            try:
+                with worker_conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE quant_agent_sessions SET status='error', error=%s, updated_at=NOW() WHERE job_id=%s",
+                        (f"worker crashed: {type(e).__name__}: {e}", job_id),
+                    )
+                worker_conn.commit()
+            except Exception:
+                pass  # if even this fails, there's nothing more we can do
+        finally:
+            worker_conn.close()
+            with _aiem_session_lock:
+                _aiem_session_busy = False
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return jsonify({"job_id": job_id, "status": "pending"})
+
+
+@app.route("/stock-api/aiem/chat/<job_id>", methods=["GET"])
+def aiem_chat_poll(job_id):
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT status, answer, error, current_tool, tool_trace, created_at
+                   FROM quant_agent_sessions WHERE job_id=%s""",
+                (job_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return jsonify({"error": "job not found"}), 404
+
+    status, answer, error, current_tool, tool_trace, created_at = row
+    return jsonify({
+        "job_id": job_id,
+        "status": status,
+        "answer": answer,
+        "error": error,
+        "current_tool": current_tool,
+        "tool_trace": tool_trace,
+        "created_at": created_at.isoformat() if created_at else None,
+    })
+
+
+@app.route("/stock-api/aiem/chat/history", methods=["GET"])
+def aiem_chat_history():
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT job_id, question, status, answer, tool_trace, created_at
+                   FROM quant_agent_sessions ORDER BY created_at DESC LIMIT 20"""
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify([
+        {
+            "job_id": r[0],
+            "question": r[1],
+            "status": r[2],
+            "answer": r[3],
+            "tool_trace": r[4],
+            "created_at": r[5].isoformat() if r[5] else None,
+        }
+        for r in rows
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Optional: orphan recovery. If your Flask process ever restarts/redeploys
+# while a session is mid-flight (autoscale cycle, crash, manual redeploy),
+# the row is stuck at status='running' with no thread left alive to finish
+# it — and the single-flight lock above resets to False on restart, so new
+# sessions CAN start, but that orphaned row will poll forever on the
+# frontend. Run this once at app startup.
+# ---------------------------------------------------------------------------
+def reconcile_orphaned_sessions():
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE quant_agent_sessions
+                   SET status='error', error='orphaned: server restarted mid-session'
+                   WHERE status='running' AND updated_at < NOW() - INTERVAL '10 minutes'"""
+            )
+        conn.commit()
+    finally:
+        conn.close()
