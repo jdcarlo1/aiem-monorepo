@@ -41421,5 +41421,81 @@ def grinder_scan_endpoint():
             return jsonify({"error": str(e), "results": [], "count": 0, "stale": True}), 200
 
 
+@app.route("/stock-api/admin/backfill-iv", methods=["POST"])
+def admin_backfill_iv():
+    """Admin: backfill iv=0 rows in unusual_calls_log using Tradier greeks.
+    Fetches real implied_volatility for each ticker with iv=0 records and
+    updates them in-place. Safe to call multiple times (idempotent).
+    POST with X-Admin-Token header. Returns immediately; work runs in background."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+
+    days_back = int(request.args.get("days", 7))
+
+    def _do_backfill():
+        import psycopg2 as _bfpg
+        try:
+            with _bfpg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cu:
+                _cu.execute("""
+                    SELECT DISTINCT ticker
+                    FROM unusual_calls_log
+                    WHERE iv = 0
+                      AND last_seen >= NOW() - INTERVAL '%s days'
+                    ORDER BY ticker
+                """ % days_back)
+                tickers = [r[0] for r in _cu.fetchall()]
+            print(f"[backfill-iv] {len(tickers)} tickers with iv=0 to fix: {tickers[:20]}")
+
+            total_updated = 0
+            for ticker in tickers:
+                try:
+                    _price, rows = _tradier_fetch_calls(ticker, max_exp_days=60)
+                    if not rows:
+                        print(f"[backfill-iv] {ticker}: no Tradier data")
+                        continue
+                    ticker_updated = 0
+                    with _bfpg.connect(os.environ["DATABASE_URL"]) as _c2, _c2.cursor() as _cu2:
+                        for row in rows:
+                            iv_val = float(row.get("impliedVolatility") or 0)
+                            if iv_val <= 0:
+                                continue
+                            iv_pct = round(iv_val * 100, 1) if iv_val < 5 else round(iv_val, 1)
+                            _cu2.execute("""
+                                UPDATE unusual_calls_log
+                                SET iv = %s
+                                WHERE ticker = %s
+                                  AND expiry = %s
+                                  AND ABS(strike - %s) < 0.01
+                                  AND iv = 0
+                            """, (iv_pct, ticker, row["expiry"], float(row["strike"])))
+                            ticker_updated += _cu2.rowcount
+                        _c2.commit()
+                    total_updated += ticker_updated
+                    print(f"[backfill-iv] {ticker}: updated {ticker_updated} rows")
+                except Exception as _te:
+                    print(f"[backfill-iv] {ticker} error: {_te}")
+
+            print(f"[backfill-iv] done — {total_updated} rows updated across {len(tickers)} tickers")
+            # Clear in-memory caches so next request re-reads from DB
+            for _attr in ("_unusual_calls_cache", "_unusual_calls_cache_ts",
+                          "_conv_calls_cache", "_conv_calls_cache_ts",
+                          "_eod_sweeps_cache", "_eod_sweeps_cache_ts"):
+                try:
+                    setattr(app, _attr, None)
+                except Exception:
+                    pass
+        except Exception as _e:
+            print(f"[backfill-iv] fatal error: {_e}")
+
+    import threading as _bft
+    _bft.Thread(target=_do_backfill, daemon=True).start()
+    return jsonify({
+        "status": "started",
+        "message": f"Backfilling iv=0 rows from last {days_back} days using Tradier. Watch [backfill-iv] in server logs.",
+        "note": "Caches will be cleared when complete — tabs will refresh automatically on next load."
+    })
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
