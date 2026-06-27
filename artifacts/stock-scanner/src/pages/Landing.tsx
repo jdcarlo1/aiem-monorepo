@@ -228,7 +228,7 @@ export default function Landing() {
           <br />
           <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold mb-10" style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80" }}>
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-            Right now, 8 signals are firing on the same ticker. You're not seeing all of them.
+            Right now, 9 signals are firing on the same ticker. You're not seeing all of them.
           </div>
 
           <h1 className="font-black leading-none mb-8" style={{ fontSize: "clamp(3.2rem,9vw,7.5rem)", letterSpacing: "-0.055em", lineHeight: 0.92 }}>
