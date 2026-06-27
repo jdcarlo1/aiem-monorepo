@@ -1,0 +1,243 @@
+"""
+regime_monitor.py
+-------------------
+Detects when the market regime a signal was trained on has likely shifted,
+and flags signals whose edge may be decaying — rather than silently keeping
+a stale signal at full conviction weight.
+
+This module is intentionally conservative: it raises FLAGS for human review.
+It never automatically disables a signal or changes its conviction weight —
+that's a deliberate decision left to you (or a clearly-separate, explicitly
+authorized "auto-derate" function you'd opt into later).
+
+Detection approach (simple, transparent, explainable — not a black box):
+  1. Rolling volatility regime change (realized vol vs. its own history)
+  2. Rolling correlation breakdown (signal's predictive correlation decaying)
+  3. Sector/market trend regime change (e.g. via a simple HMM-style 2-state
+     split on returns, consistent with what you're already using elsewhere
+     in StockScanner's quant layer)
+
+REQUIRES: AIEM_DATABASE_URL env var, plus a pandas-readable price history
+source (you likely already have OHLCV in your DB from Polygon/Tradier/etc.
+— this module expects a DataFrame with ['date','close'] columns, fetch
+however fits your existing pipeline).
+"""
+
+import os
+import json
+import datetime as dt
+from typing import Dict, Any, List, Optional
+
+import numpy as np
+import pandas as pd
+import psycopg2
+import psycopg2.extras
+
+
+DDL = """
+CREATE TABLE IF NOT EXISTS regime_flags (
+    id SERIAL PRIMARY KEY,
+    signal_name TEXT NOT NULL,
+    flagged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    flag_type TEXT NOT NULL,           -- 'volatility_regime', 'correlation_decay', 'trend_regime'
+    severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+    details JSONB,
+    acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+    acknowledged_at TIMESTAMPTZ,
+    acknowledged_by TEXT
+);
+"""
+
+
+def _connect():
+    url = os.environ.get("AIEM_DATABASE_URL")
+    if not url:
+        raise RuntimeError("AIEM_DATABASE_URL is not set.")
+    return psycopg2.connect(url)
+
+
+def init_schema():
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL)
+        conn.commit()
+
+
+def _log_flag(signal_name: str, flag_type: str, severity: str, details: Dict[str, Any]):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO regime_flags (signal_name, flag_type, severity, details)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (signal_name, flag_type, severity, json.dumps(details)),
+            )
+        conn.commit()
+
+
+def check_volatility_regime(
+    signal_name: str,
+    price_history: pd.DataFrame,
+    lookback_days: int = 252,
+    recent_days: int = 20,
+    z_threshold: float = 2.0,
+) -> Optional[Dict[str, Any]]:
+    """Flags if recent realized volatility is a statistical outlier relative
+    to the trailing lookback window (e.g. the training period's vol regime)."""
+    df = price_history.sort_values("date").copy()
+    df["log_ret"] = np.log(df["close"] / df["close"].shift(1))
+
+    hist = df["log_ret"].iloc[-(lookback_days + recent_days):-recent_days]
+    recent = df["log_ret"].iloc[-recent_days:]
+
+    if len(hist) < 30 or len(recent) < 5:
+        return None  # not enough data to judge
+
+    hist_vol = hist.std() * np.sqrt(252)
+    recent_vol = recent.std() * np.sqrt(252)
+    vol_of_vol = hist.rolling(recent_days).std().std() * np.sqrt(252)
+
+    if vol_of_vol == 0 or np.isnan(vol_of_vol):
+        return None
+
+    z = (recent_vol - hist_vol) / vol_of_vol
+
+    if abs(z) >= z_threshold:
+        severity = "critical" if abs(z) >= 3 else "warning"
+        details = {
+            "historical_annualized_vol": round(float(hist_vol), 4),
+            "recent_annualized_vol": round(float(recent_vol), 4),
+            "z_score": round(float(z), 2),
+            "interpretation": (
+                "Recent volatility is unusually high vs. training regime — signal "
+                "may be over- or under-firing relative to what it was calibrated on."
+                if z > 0 else
+                "Recent volatility is unusually low vs. training regime — signal's "
+                "edge may be muted (less noise for the pattern to stand out against)."
+            ),
+        }
+        _log_flag(signal_name, "volatility_regime", severity, details)
+        return details
+    return None
+
+
+def check_correlation_decay(
+    signal_name: str,
+    signal_scores: pd.Series,
+    forward_returns: pd.Series,
+    window: int = 60,
+    min_periods: int = 20,
+    decay_threshold: float = 0.5,
+) -> Optional[Dict[str, Any]]:
+    """Flags if the rolling correlation between a signal's score and its
+    forward returns has decayed substantially vs. the correlation observed
+    during the original backtest/training period.
+
+    `signal_scores` and `forward_returns` should be aligned, indexed by date.
+    Pass in the FULL history so we can compare early-period correlation
+    (proxy for 'what the backtest saw') against the most recent window.
+    """
+    df = pd.DataFrame({"score": signal_scores, "fwd_ret": forward_returns}).dropna()
+    if len(df) < (window + min_periods):
+        return None
+
+    baseline_corr = df["score"].iloc[:window].corr(df["fwd_ret"].iloc[:window])
+    recent_corr = df["score"].iloc[-window:].corr(df["fwd_ret"].iloc[-window:])
+
+    if baseline_corr is None or np.isnan(baseline_corr) or abs(baseline_corr) < 1e-6:
+        return None
+
+    decay_ratio = 1 - (recent_corr / baseline_corr) if baseline_corr != 0 else None
+    if decay_ratio is not None and decay_ratio >= decay_threshold:
+        severity = "critical" if decay_ratio >= 0.8 else "warning"
+        details = {
+            "baseline_correlation": round(float(baseline_corr), 4),
+            "recent_correlation": round(float(recent_corr), 4),
+            "decay_ratio": round(float(decay_ratio), 4),
+            "interpretation": (
+                "Signal's predictive correlation with forward returns has decayed "
+                f"by {round(decay_ratio*100,1)}% vs. its baseline period. Consider "
+                "reducing conviction weight pending review."
+            ),
+        }
+        _log_flag(signal_name, "correlation_decay", severity, details)
+        return details
+    return None
+
+
+def check_trend_regime(
+    signal_name: str,
+    price_history: pd.DataFrame,
+    short_window: int = 20,
+    long_window: int = 100,
+) -> Optional[Dict[str, Any]]:
+    """Simple, explainable trend-regime check: has the relationship between
+    short and long moving averages flipped sign recently relative to the
+    trailing period? A crude but transparent proxy for 'the market is now
+    behaving differently than when this signal was trained.'
+
+    For something more sophisticated, your existing HMM regime detection
+    layer in StockScanner can feed its regime label directly into this
+    module instead of this MA-crossover proxy — swap in a regime_label
+    series and check for label changes instead.
+    """
+    df = price_history.sort_values("date").copy()
+    df["sma_short"] = df["close"].rolling(short_window).mean()
+    df["sma_long"] = df["close"].rolling(long_window).mean()
+    df["spread"] = df["sma_short"] - df["sma_long"]
+    df = df.dropna()
+
+    if len(df) < long_window + 10:
+        return None
+
+    recent_sign = np.sign(df["spread"].iloc[-1])
+    baseline_sign = np.sign(df["spread"].iloc[-(long_window + 10):-long_window].mean())
+
+    if recent_sign != 0 and baseline_sign != 0 and recent_sign != baseline_sign:
+        details = {
+            "baseline_trend": "up" if baseline_sign > 0 else "down",
+            "recent_trend": "up" if recent_sign > 0 else "down",
+            "interpretation": (
+                "Trend direction has flipped relative to the signal's likely "
+                "training period. Signals trained in one trend regime often "
+                "underperform after a flip — flagged for review, not auto-disabled."
+            ),
+        }
+        _log_flag(signal_name, "trend_regime", "warning", details)
+        return details
+    return None
+
+
+def get_open_flags(signal_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if signal_name:
+                cur.execute(
+                    "SELECT * FROM regime_flags WHERE signal_name = %s AND acknowledged = FALSE ORDER BY flagged_at DESC",
+                    (signal_name,),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM regime_flags WHERE acknowledged = FALSE ORDER BY flagged_at DESC"
+                )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def acknowledge_flag(flag_id: int, acknowledged_by: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE regime_flags
+                SET acknowledged = TRUE, acknowledged_at = now(), acknowledged_by = %s
+                WHERE id = %s
+                """,
+                (acknowledged_by, flag_id),
+            )
+        conn.commit()
+
+
+if __name__ == "__main__":
+    init_schema()
+    print("regime_monitor schema ready.")
