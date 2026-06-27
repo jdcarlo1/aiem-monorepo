@@ -1,0 +1,407 @@
+"""
+LAYER 9: STATISTICAL EDGE
+===========================
+Aggregates the advanced quant indicators (from advanced_quant_indicators.py)
+into a single 0-100 sub-score per ticker, matching the scale convention of
+your existing 8 layers (OI Build, Gamma, Charm, Squeeze Fuel, Dark Pool,
+Float OD, Sweep, Sector Heat).
+
+ARCHITECTURE
+------------
+Two entry points, run on different cadences:
+
+1. compute_ticker_statistical_score(...)
+   Per-ticker. Run this in your normal per-ticker scan loop, alongside
+   your other 8 layers. Needs only that ticker's price/volume/OHLC history
+   (+ options chain/IV if you want the options-derived sub-components).
+
+2. compute_universe_context(...)
+   Run ONCE per scan cycle across your full universe (like your Sector
+   Heat layer probably already does). Produces absorption ratio +
+   cross-sectional momentum z-scores, which get merged into each ticker's
+   final score as a "regime context" multiplier.
+
+INTEGRATION CHECKLIST FOR THE AGENT:
+- Do NOT alter the math in advanced_quant_indicators.py or in this file.
+  Only wire data I/O and the DB write function to match the actual schema.
+- Swap DB_TABLE_NAME / DB_COLUMNS / write_to_db() internals to match the
+  real Postgres connection object and table structure.
+- Confirm the column names in get_price_history() and get_options_chain()
+  match whatever your existing data layer already returns -- these are
+  written generically and may need renaming, not logic changes.
+"""
+
+import numpy as np
+import pandas as pd
+from datetime import datetime, timezone
+
+from advanced_quant_indicators import (
+    hurst_exponent,
+    vpin,
+    roll_spread_estimator,
+    corwin_schultz_spread,
+    amihud_illiquidity,
+    realized_skew_kurtosis,
+    jump_detection_bipower,
+    shannon_entropy,
+    pca_factor_decomposition,
+    cross_sectional_momentum_zscore,
+    absorption_ratio,
+    variance_risk_premium,
+    skew_velocity,
+)
+
+
+# =====================================================================
+# CONFIG -- weights sum to 1.0. Tune these against your backtests the
+# same way you tuned weights across your existing 8 layers.
+# =====================================================================
+
+PER_TICKER_WEIGHTS = {
+    "hurst_regime_fit": 0.15,    # is the stock in a regime where signals are reliable
+    "vpin_toxicity": 0.20,       # informed-flow detection
+    "jump_risk": 0.10,           # discontinuous price-jump flag (risk-off contributor)
+    "tail_risk": 0.15,           # realized skew/kurtosis -- crash/fat-tail risk
+    "entropy_clarity": 0.10,     # low entropy = clean/predictable pattern
+    "illiquidity_penalty": 0.10, # Amihud + Corwin-Schultz -- thin-stock discount
+    "vrp_signal": 0.10,          # options vol risk premium mean-reversion (if chain available)
+    "skew_velocity_signal": 0.10,  # options skew momentum (if chain available)
+}
+
+UNIVERSE_CONTEXT_WEIGHT = 0.15  # how much absorption ratio / cross-sec z nudges final score
+
+
+# =====================================================================
+# PER-TICKER LAYER
+# =====================================================================
+
+def compute_ticker_statistical_score(
+    ticker: str,
+    price_history: pd.Series,
+    volume_history: pd.Series,
+    high_history: pd.Series = None,
+    low_history: pd.Series = None,
+    realized_vol: pd.Series = None,
+    implied_vol: pd.Series = None,
+    put_skew_25d: pd.Series = None,
+    lookback: int = 60,
+) -> dict:
+    """
+    Computes the Statistical Edge sub-score (0-100) for a single ticker.
+
+    Args:
+        ticker: ticker symbol, for logging/DB write.
+        price_history: pandas Series of close prices, chronological,
+                        indexed by datetime. Minimum ~60 bars recommended.
+        volume_history: pandas Series of volume, same index as price.
+        high_history / low_history: optional, needed for Corwin-Schultz
+                        spread estimate. If None, that sub-component is
+                        skipped and its weight is redistributed.
+        realized_vol / implied_vol: optional pandas Series, needed for
+                        the variance risk premium sub-component. Skip if
+                        you don't have options data for this ticker.
+        put_skew_25d: optional pandas Series of 25-delta put skew, needed
+                        for skew velocity sub-component.
+        lookback: window used for the rolling indicator calcs (default 60
+                  bars).
+
+    Returns:
+        dict:
+          'ticker': str
+          'statistical_score': float, 0-100 final sub-score
+          'components': dict of each sub-component's raw + normalized value
+          'flags': dict of boolean risk flags (e.g. jump_detected)
+          'timestamp': UTC ISO timestamp of computation
+    """
+    returns = price_history.pct_change()
+    components = {}
+    flags = {}
+    active_weights = dict(PER_TICKER_WEIGHTS)  # copy, may redistribute below
+
+    # --- Hurst regime fit ---
+    h = hurst_exponent(price_history.tail(lookback * 2))
+    # Distance from 0.5 (random walk) in EITHER direction = a usable regime
+    # (strongly trending OR strongly mean-reverting are both "tradeable";
+    # sitting at 0.5 means no edge either way).
+    hurst_score = min(100, abs(h - 0.5) * 200)
+    components["hurst_regime_fit"] = {"raw": h, "score": hurst_score}
+
+    # --- VPIN toxicity ---
+    try:
+        vpin_series = vpin(volume_history.tail(lookback * 5), price_history.tail(lookback * 5))
+        vpin_latest = vpin_series.dropna().iloc[-1] if not vpin_series.dropna().empty else 0.5
+    except Exception:
+        vpin_latest = 0.5
+    vpin_score = min(100, vpin_latest * 150)  # VPIN typically 0-0.6 in practice
+    components["vpin_toxicity"] = {"raw": vpin_latest, "score": vpin_score}
+
+    # --- Jump risk ---
+    try:
+        jump_flags = jump_detection_bipower(returns.tail(lookback))
+        jump_detected = bool(jump_flags.tail(3).any())  # jump in last 3 bars
+    except Exception:
+        jump_detected = False
+    flags["jump_detected"] = jump_detected
+    jump_score = 100.0 if jump_detected else 30.0  # presence of jump = high-attention signal
+    components["jump_risk"] = {"raw": jump_detected, "score": jump_score}
+
+    # --- Tail risk (skew/kurtosis) ---
+    sk = realized_skew_kurtosis(returns.tail(lookback))
+    latest_skew = sk["skew"].dropna().iloc[-1] if not sk["skew"].dropna().empty else 0
+    latest_kurt = sk["kurtosis"].dropna().iloc[-1] if not sk["kurtosis"].dropna().empty else 0
+    # More negative skew + higher kurtosis = more tail risk = higher score
+    tail_score = min(100, max(0, (-latest_skew * 30) + (latest_kurt * 10) + 50))
+    components["tail_risk"] = {"raw_skew": latest_skew, "raw_kurtosis": latest_kurt,
+                                "score": tail_score}
+
+    # --- Entropy clarity ---
+    ent = shannon_entropy(returns.tail(lookback))
+    latest_ent = ent.dropna().iloc[-1] if not ent.dropna().empty else np.log2(10)
+    max_ent = np.log2(10)  # matches default n_bins=10 in shannon_entropy
+    entropy_score = min(100, max(0, (1 - latest_ent / max_ent) * 100))
+    components["entropy_clarity"] = {"raw": latest_ent, "score": entropy_score}
+
+    # --- Illiquidity penalty ---
+    dollar_vol = volume_history * price_history
+    amihud = amihud_illiquidity(returns.tail(lookback), dollar_vol.tail(lookback))
+    latest_amihud = amihud.dropna().iloc[-1] if not amihud.dropna().empty else 0
+
+    if high_history is not None and low_history is not None:
+        cs_spread = corwin_schultz_spread(high_history.tail(lookback), low_history.tail(lookback))
+        latest_spread = cs_spread.dropna().iloc[-1] if not cs_spread.dropna().empty else 0
+    else:
+        latest_spread = None
+
+    # Higher illiquidity = higher "penalty" score (lower conviction contribution
+    # downstream -- handle the sign flip when you merge into your composite score)
+    illiq_score = min(100, latest_amihud * 1e9)  # scale factor depends on your universe; TUNE THIS
+    components["illiquidity_penalty"] = {"raw_amihud": latest_amihud,
+                                          "raw_cs_spread": latest_spread,
+                                          "score": illiq_score}
+
+    # --- VRP signal (options-dependent, optional) ---
+    if realized_vol is not None and implied_vol is not None:
+        vrp = variance_risk_premium(realized_vol.tail(lookback), implied_vol.tail(lookback))
+        latest_vrp = vrp.dropna().iloc[-1] if not vrp.dropna().empty else 0
+        vrp_score = min(100, max(0, 50 + latest_vrp * 1000))  # TUNE scale factor against your data
+        components["vrp_signal"] = {"raw": latest_vrp, "score": vrp_score}
+    else:
+        active_weights.pop("vrp_signal", None)
+
+    # --- Skew velocity (options-dependent, optional) ---
+    if put_skew_25d is not None:
+        sv = skew_velocity(put_skew_25d.tail(lookback))
+        latest_sv = sv.dropna().iloc[-1] if not sv.dropna().empty else 0
+        sv_score = min(100, max(0, 50 + latest_sv * 500))  # TUNE scale factor against your data
+        components["skew_velocity_signal"] = {"raw": latest_sv, "score": sv_score}
+    else:
+        active_weights.pop("skew_velocity_signal", None)
+
+    # --- Renormalize weights if optional components were skipped ---
+    weight_sum = sum(active_weights.values())
+    normalized_weights = {k: v / weight_sum for k, v in active_weights.items()}
+
+    final_score = sum(
+        components[k]["score"] * normalized_weights[k]
+        for k in normalized_weights
+        if k in components
+    )
+
+    return {
+        "ticker": ticker,
+        "statistical_score": round(float(final_score), 2),
+        "components": components,
+        "flags": flags,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# =====================================================================
+# UNIVERSE-LEVEL CONTEXT (run once per scan cycle, not per ticker)
+# =====================================================================
+
+def compute_universe_context(returns_matrix: pd.DataFrame, lookback: int = 21) -> dict:
+    """
+    Computes universe-wide regime context: absorption ratio + per-ticker
+    cross-sectional momentum z-scores. Run ONCE per scan cycle (same
+    cadence as your Sector Heat layer), then merge into each ticker's
+    per-ticker score downstream.
+
+    Args:
+        returns_matrix: pandas DataFrame, rows = time, columns = your full
+                         scanned ticker universe, values = period returns.
+        lookback: lookback window for the momentum z-score calc.
+
+    Returns:
+        dict:
+          'absorption_ratio': float, 0-1, current systemic-risk level
+          'absorption_ratio_regime': str, 'fragile' if high / 'idiosyncratic' if low
+          'momentum_zscores': pandas Series, latest cross-sectional z-score
+                               per ticker (use this to nudge each ticker's
+                               per-ticker score up/down)
+          'timestamp': UTC ISO timestamp
+    """
+    ar = absorption_ratio(returns_matrix.tail(lookback * 3), n_factors=5)
+    regime = "fragile_correlated" if ar > 0.6 else (
+        "idiosyncratic_stockpickers" if ar < 0.35 else "transitional"
+    )
+
+    z_matrix = cross_sectional_momentum_zscore(returns_matrix, lookback=lookback)
+    latest_z = z_matrix.iloc[-1] if not z_matrix.empty else pd.Series(dtype=float)
+
+    return {
+        "absorption_ratio": round(float(ar), 4),
+        "absorption_ratio_regime": regime,
+        "momentum_zscores": latest_z,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def merge_universe_context(ticker_result: dict, universe_context: dict) -> dict:
+    """
+    Merges universe-level context into a single ticker's statistical
+    score, producing the FINAL Layer 9 score to feed into your overall
+    8-layer (now 9-layer) conviction formula.
+
+    Args:
+        ticker_result: output dict from compute_ticker_statistical_score().
+        universe_context: output dict from compute_universe_context().
+
+    Returns:
+        dict: same shape as ticker_result, with 'statistical_score'
+              updated to the final blended value, plus a new
+              'universe_context' key showing what was merged in.
+    """
+    ticker = ticker_result["ticker"]
+    base_score = ticker_result["statistical_score"]
+
+    z = universe_context["momentum_zscores"].get(ticker, 0.0)
+    # Cross-sectional momentum z-score of +/-3 is a strong outlier; clip
+    # and rescale to a 0-100 contribution, centered at 50 (neutral).
+    z_contribution = min(100, max(0, 50 + (z * 15)))
+
+    # Absorption ratio regime nudges differently depending on context:
+    # in a "fragile_correlated" regime, idiosyncratic statistical signals
+    # are LESS reliable (everything moves together regardless of stats),
+    # so we slightly DISCOUNT the per-ticker score in that regime.
+    regime = universe_context["absorption_ratio_regime"]
+    regime_multiplier = {
+        "fragile_correlated": 0.85,
+        "transitional": 1.0,
+        "idiosyncratic_stockpickers": 1.10,
+    }.get(regime, 1.0)
+
+    blended = (
+        base_score * (1 - UNIVERSE_CONTEXT_WEIGHT)
+        + z_contribution * UNIVERSE_CONTEXT_WEIGHT
+    ) * regime_multiplier
+    blended = min(100, max(0, blended))
+
+    ticker_result["statistical_score"] = round(float(blended), 2)
+    ticker_result["universe_context"] = {
+        "momentum_zscore": round(float(z), 3),
+        "absorption_ratio": universe_context["absorption_ratio"],
+        "regime": regime,
+        "regime_multiplier": regime_multiplier,
+    }
+    return ticker_result
+
+
+# =====================================================================
+# DB WRITE STUB -- REPLACE INTERNALS TO MATCH YOUR ACTUAL SCHEMA
+# =====================================================================
+
+DB_TABLE_NAME = "statistical_layer_scores"  # CHANGE to match your actual table
+
+
+def write_to_db(result: dict, db_connection=None) -> bool:
+    """
+    Writes a single ticker's Layer 9 result to the database.
+
+    *** STUB FUNCTION -- the agent must wire this to your actual DB
+    connection object and table schema. Logic/shape below is a
+    reasonable default matching your other 8 layers' likely pattern,
+    but column names WILL need to be adjusted. ***
+
+    Args:
+        result: dict from merge_universe_context() (or
+                compute_ticker_statistical_score() if running ticker-only
+                without universe context).
+        db_connection: your existing DB connection/session object
+                       (e.g. SQLAlchemy session, psycopg2 connection --
+                       reuse whatever your other 8 layers already use,
+                       do not create a second connection pattern).
+
+    Returns:
+        bool, True if write succeeded.
+    """
+    if db_connection is None:
+        raise ValueError(
+            "Pass your existing DB connection/session object -- "
+            "reuse the same one your other 8 layers use, don't open a new one."
+        )
+
+    # EXAMPLE shape only -- replace with your actual ORM model / raw SQL,
+    # matching column names from your other layer-write functions:
+    #
+    # db_connection.execute(
+    #     f"""INSERT INTO {DB_TABLE_NAME}
+    #         (ticker, statistical_score, components_json, flags_json,
+    #          universe_regime, computed_at)
+    #         VALUES (%s, %s, %s, %s, %s, %s)""",
+    #     (
+    #         result["ticker"],
+    #         result["statistical_score"],
+    #         json.dumps(result["components"]),
+    #         json.dumps(result["flags"]),
+    #         result.get("universe_context", {}).get("regime"),
+    #         result["timestamp"],
+    #     ),
+    # )
+    # db_connection.commit()
+
+    raise NotImplementedError(
+        "Wire this to your actual DB connection + schema. "
+        "See the commented example above for the expected shape."
+    )
+
+
+# =====================================================================
+# SELF-TEST
+# =====================================================================
+
+if __name__ == "__main__":
+    np.random.seed(7)
+    n = 200
+    dates = pd.date_range("2025-06-01", periods=n, freq="D")
+    price = pd.Series(150 + np.cumsum(np.random.randn(n) * 0.8), index=dates)
+    volume = pd.Series(np.random.randint(500_000, 5_000_000, n), index=dates)
+    high = price * 1.015
+    low = price * 0.985
+
+    result = compute_ticker_statistical_score(
+        ticker="MU",
+        price_history=price,
+        volume_history=volume,
+        high_history=high,
+        low_history=low,
+    )
+    print("Per-ticker result:")
+    print(f"  Statistical Score: {result['statistical_score']}/100")
+    for k, v in result["components"].items():
+        print(f"  - {k}: score={v['score']:.1f}")
+
+    # Universe context test
+    universe = pd.DataFrame(
+        {f"TICK{i}": np.random.randn(n) * 0.02 for i in range(15)}, index=dates
+    )
+    universe["MU"] = price.pct_change().fillna(0)
+    ctx = compute_universe_context(universe)
+    print(f"\nUniverse context: absorption_ratio={ctx['absorption_ratio']}, "
+          f"regime={ctx['absorption_ratio_regime']}")
+
+    final = merge_universe_context(result, ctx)
+    print(f"\nFinal blended score for MU: {final['statistical_score']}/100")
+    print(f"Universe context applied: {final['universe_context']}")
+
+    print("\nSelf-test completed without errors.")

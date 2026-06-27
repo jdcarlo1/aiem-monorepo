@@ -18998,7 +18998,6 @@ def _polygon_backfill_historical():
 
     def _run():
         global _BACKFILL_RUNNING
-        _BACKFILL_RUNNING = True
         try:
             _bt.sleep(30)  # Let server fully start first
             print("[backfill] starting polygon_market_daily historical backfill")
@@ -19012,117 +19011,118 @@ def _polygon_backfill_historical():
             _two_years_back = today - _btd(days=720)
             start = max(_bdate(2024, 7, 1), _two_years_back)
 
-            have_dates: set = set()
             try:
                 with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
-                cur.execute("SELECT DISTINCT scan_date FROM polygon_market_daily")
-                have_dates = {str(r[0]) for r in cur.fetchall()}
-        except Exception as e:
-            print(f"[backfill] DB check error: {e}")
-            return
-
-        # Build candidate trading days
-        candidates = []
-        d = start
-        while d < today:
-            if d.weekday() < 5:  # Mon-Fri
-                ds = d.strftime("%Y-%m-%d")
-                if ds not in have_dates:
-                    candidates.append(ds)
-            d += _btd(days=1)
-
-        if not candidates:
-            print("[backfill] polygon_market_daily already up to date")
-            return
-
-        print(f"[backfill] fetching {len(candidates)} missing dates...")
-        saved_total = 0
-
-        for date_str in candidates:
-            try:
-                url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
-                       f"?adjusted=true&apiKey={_key}")
-                with _bur.urlopen(url, timeout=25) as r:
-                    data = _bj.load(r)
-                status = data.get("status", "")
-                if status not in ("OK", "DELAYED"):
-                    print(f"[backfill] {date_str}: skip (status={status})")
-                    _bt.sleep(13)
-                    continue
-                results = data.get("results", [])
-                if not results:
-                    print(f"[backfill] {date_str}: 0 results (holiday?)")
-                    _bt.sleep(13)
-                    continue
-
-                # Build lookup dict
-                today_data = {x["T"]: x for x in results}
-                rows = []
-                for ticker, r in today_data.items():
-                    close = r.get("c") or 0
-                    open_ = r.get("o") or 0
-                    high  = r.get("h") or 0
-                    low   = r.get("l") or 0
-                    vwap  = r.get("vw") or 0
-                    vol   = r.get("v") or 0
-                    if close < 0.50 or vol < 30000 or close == 0:
-                        continue
-                    cs = ((close - low) / (high - low)) if high > low else None
-                    rng = ((high - low) / low * 100) if low > 0 else None
-                    rows.append((date_str, ticker, close, open_ or None, high or None,
-                                 low or None, vwap or None, int(vol),
-                                 None, None, None, cs, rng))
-
-                if not rows:
-                    print(f"[backfill] {date_str}: no rows after filter")
-                    _bt.sleep(13)
-                    continue
-
-                with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
-                    cur.executemany("""
-                        INSERT INTO polygon_market_daily
-                            (scan_date, ticker, close_price, open_price, high_price, low_price,
-                             vwap, volume, prev_close, gap_pct, rvol, close_strength, range_pct)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (scan_date, ticker) DO NOTHING
-                    """, rows)
-                    conn.commit()
-
-                saved_total += len(rows)
-                print(f"[backfill] {date_str}: saved {len(rows)} stocks (total so far: {saved_total})")
-                _bt.sleep(13)  # 5 req/min Polygon rate limit
-
+                    cur.execute("SELECT DISTINCT scan_date FROM polygon_market_daily")
+                    have_dates = {str(r[0]) for r in cur.fetchall()}
             except Exception as e:
-                err_str = str(e)
-                if "403" in err_str or "Forbidden" in err_str:
-                    # 403 = outside Polygon plan's historical window; skip, don't retry
-                    print(f"[backfill] {date_str} SKIP (403 - outside plan window)")
-                    _bt.sleep(13)
-                else:
-                    print(f"[backfill] {date_str} error: {e}")
-                    _bt.sleep(20)
+                print(f"[backfill] DB check error: {e}")
+                return
 
-        # Now compute gap_pct for consecutive dates where prev_close available
-        try:
-            with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE polygon_market_daily t
-                    SET prev_close = prev.close_price,
-                        gap_pct = (t.close_price - prev.close_price) / NULLIF(prev.close_price,0) * 100
-                    FROM polygon_market_daily prev
-                    WHERE prev.ticker = t.ticker
-                      AND prev.scan_date = (
-                            SELECT MAX(x.scan_date) FROM polygon_market_daily x
-                            WHERE x.ticker = t.ticker AND x.scan_date < t.scan_date
-                          )
-                      AND t.prev_close IS NULL
-                """)
-                conn.commit()
-                print("[backfill] gap_pct backfill complete")
-        except Exception as e:
-            print(f"[backfill] gap_pct update error: {e}")
+            # Build candidate trading days
+            candidates = []
+            d = start
+            while d < today:
+                if d.weekday() < 5:  # Mon-Fri
+                    ds = d.strftime("%Y-%m-%d")
+                    if ds not in have_dates:
+                        candidates.append(ds)
+                d += _btd(days=1)
 
-        print(f"[backfill] DONE. Total rows saved: {saved_total}")
+            if not candidates:
+                print("[backfill] polygon_market_daily already up to date")
+                return
+
+            print(f"[backfill] fetching {len(candidates)} missing dates...")
+            saved_total = 0
+
+            for date_str in candidates:
+                try:
+                    url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
+                           f"?adjusted=true&apiKey={_key}")
+                    with _bur.urlopen(url, timeout=25) as r:
+                        data = _bj.load(r)
+                    status = data.get("status", "")
+                    if status not in ("OK", "DELAYED"):
+                        print(f"[backfill] {date_str}: skip (status={status})")
+                        _bt.sleep(13)
+                        continue
+                    results = data.get("results", [])
+                    if not results:
+                        print(f"[backfill] {date_str}: 0 results (holiday?)")
+                        _bt.sleep(13)
+                        continue
+
+                    today_data = {x["T"]: x for x in results}
+                    rows = []
+                    for ticker, r in today_data.items():
+                        close = r.get("c") or 0
+                        open_ = r.get("o") or 0
+                        high  = r.get("h") or 0
+                        low   = r.get("l") or 0
+                        vwap  = r.get("vw") or 0
+                        vol   = r.get("v") or 0
+                        if close < 0.50 or vol < 30000 or close == 0:
+                            continue
+                        cs  = ((close - low) / (high - low)) if high > low else None
+                        rng = ((high - low) / low * 100) if low > 0 else None
+                        rows.append((date_str, ticker, close, open_ or None, high or None,
+                                     low or None, vwap or None, int(vol),
+                                     None, None, None, cs, rng))
+
+                    if not rows:
+                        print(f"[backfill] {date_str}: no rows after filter")
+                        _bt.sleep(13)
+                        continue
+
+                    with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                        cur.executemany("""
+                            INSERT INTO polygon_market_daily
+                                (scan_date, ticker, close_price, open_price, high_price, low_price,
+                                 vwap, volume, prev_close, gap_pct, rvol, close_strength, range_pct)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (scan_date, ticker) DO NOTHING
+                        """, rows)
+                        conn.commit()
+
+                    saved_total += len(rows)
+                    print(f"[backfill] {date_str}: saved {len(rows)} stocks (total so far: {saved_total})")
+                    _bt.sleep(13)  # 5 req/min Polygon rate limit
+
+                except Exception as e:
+                    err_str = str(e)
+                    if "403" in err_str or "Forbidden" in err_str:
+                        print(f"[backfill] {date_str} SKIP (403 - outside plan window)")
+                        _bt.sleep(13)
+                    else:
+                        print(f"[backfill] {date_str} error: {e}")
+                        _bt.sleep(20)
+
+            # Compute gap_pct for newly-inserted rows
+            try:
+                with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE polygon_market_daily t
+                        SET prev_close = prev.close_price,
+                            gap_pct = (t.close_price - prev.close_price)
+                                      / NULLIF(prev.close_price, 0) * 100
+                        FROM polygon_market_daily prev
+                        WHERE prev.ticker = t.ticker
+                          AND prev.scan_date = (
+                                SELECT MAX(x.scan_date) FROM polygon_market_daily x
+                                WHERE x.ticker = t.ticker AND x.scan_date < t.scan_date
+                              )
+                          AND t.prev_close IS NULL
+                    """)
+                    conn.commit()
+                    print("[backfill] gap_pct backfill complete")
+            except Exception as e:
+                print(f"[backfill] gap_pct update error: {e}")
+
+            print(f"[backfill] DONE. Total rows saved: {saved_total}")
+
+        finally:
+            _BACKFILL_RUNNING = False
 
     # Launch as self-contained background thread (imports are local to _run)
     _bth.Thread(target=_run, daemon=True, name="polygon-backfill").start()
