@@ -3422,10 +3422,10 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>
-            🎯 7-Layer Conviction Stack
+            🎯 8-Layer Conviction Stack
           </h2>
           <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0, maxWidth: 680 }}>
-            Combines all seven deterministic squeeze signals into one score per ticker.
+            Combines all eight deterministic squeeze signals into one score per ticker.
             <span style={{ color: "#facc15" }}> 8+ / 10 pts = ~90% probability</span> the stock is being pre-positioned for a squeeze.
             L6 (Float Demand) + L7 (Far-OTM Sweep) + L8 (Sector Heat) added over the original 5.
           </p>
@@ -9059,7 +9059,7 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>Strikes: <span style={{ color: sig.num_strikes >= 2 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.num_strikes} sweeping</span></span>
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>EOD prem: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{fmtPrem(sig.total_prem_m)}</span></span>
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>Max Vol/OI: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{sig.max_vol_oi.toFixed(0)}x</span></span>
-                <span style={{ color: BB_LABEL, fontSize: 9 }}>Avg IV: <span style={{ color: sig.avg_iv >= 80 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.avg_iv.toFixed(0)}%</span></span>
+                {sig.avg_iv > 0 && <span style={{ color: BB_LABEL, fontSize: 9 }}>Avg IV: <span style={{ color: sig.avg_iv >= 80 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.avg_iv.toFixed(0)}%</span></span>}
                 <span style={{ color: "#64748b", fontSize: 9 }}>Detected {fmtTime(sig.latest_at)}</span>
               </div>
             </div>
@@ -9640,7 +9640,7 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>Strikes: <span style={{ color: sig.num_strikes >= 3 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.num_strikes} sweeping</span></span>
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>Total prem: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{fmtPrem(sig.total_prem_m)}</span></span>
                 <span style={{ color: BB_LABEL, fontSize: 9 }}>Max Vol/OI: <span style={{ color: BB_WHITE, fontWeight: 700 }}>{sig.max_vol_oi.toFixed(0)}x</span></span>
-                <span style={{ color: BB_LABEL, fontSize: 9 }}>Avg IV: <span style={{ color: sig.avg_iv >= 80 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.avg_iv.toFixed(0)}%</span></span>
+                {sig.avg_iv > 0 && <span style={{ color: BB_LABEL, fontSize: 9 }}>Avg IV: <span style={{ color: sig.avg_iv >= 80 ? "#ff4444" : BB_GREEN, fontWeight: 700 }}>{sig.avg_iv.toFixed(0)}%</span></span>}
               </div>
             </div>
 
@@ -13978,7 +13978,7 @@ export default function Dashboard() {
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
     { id: "smpressure",       label: "🔥 SMART MONEY PRESSURE" },
-    { id: "convictionstack", label: "🎯 7-LAYER CONVICTION" },
+    { id: "convictionstack", label: "🎯 8-LAYER CONVICTION" },
     { id: "sweepradar",      label: "🔍 SWEEP RADAR" },
     { id: "sectorheat",      label: "🌡️ SECTOR HEAT" },
     { id: "gammapressure",   label: "⚡ GAMMA SQUEEZE" },

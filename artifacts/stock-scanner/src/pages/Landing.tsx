@@ -1197,7 +1197,7 @@ export default function Landing() {
               🔥 Pro Plan — Everything Included
             </div>
             <div className="flex items-end justify-center gap-3 mb-1">
-              <div className="font-black" style={{ fontSize: "5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$397</div>
+              <div className="font-black" style={{ fontSize: "5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$150</div>
             </div>
             <div className="text-slate-400 text-lg mb-1">per month · cancel anytime</div>
             <p className="text-slate-600 text-base">Cancel anytime · Instant access · No contracts</p>

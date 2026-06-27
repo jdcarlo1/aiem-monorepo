@@ -30938,6 +30938,7 @@ def etf_calls():
                 FROM unusual_calls_log
                 WHERE ticker IN ({placeholders})
                   AND prem >= 50000
+                  AND expiry::date >= CURRENT_DATE
                   {date_filter}
                 ORDER BY prem DESC, vol_oi DESC
                 LIMIT 300
