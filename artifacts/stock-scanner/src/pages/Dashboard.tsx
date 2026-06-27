@@ -3738,6 +3738,157 @@ function OiAccumulationTab({ onSelectTicker }: { onSelectTicker: (t: string) => 
 }
 
 
+function GammaWallTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F  = "JetBrains Mono, monospace";
+  const [data, setData]       = useState<{ results: GammaWallRow[]; stale?: boolean } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = () => {
+    setLoading(true);
+    fetchGammaWall()
+      .then(r => setData(r))
+      .catch(() => setData({ results: [], stale: true }))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const rows = data?.results ?? [];
+  const stale = data?.stale ?? false;
+
+  const distColor = (d: number) =>
+    Math.abs(d) < 1 ? "#f87171" : Math.abs(d) < 3 ? "#fbbf24" : "#38bdf8";
+
+  const MiniChart = ({ strikes, wall, price }: { strikes: GammaStrike[]; wall: number; price: number }) => {
+    const lo = price * 0.93, hi = price * 1.07;
+    const visible = strikes.filter(s => s.strike >= lo && s.strike <= hi);
+    if (!visible.length) return null;
+    const maxOI = Math.max(...visible.map(s => s.total_oi), 1);
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div style={{ color: "#334155", fontSize: 7, marginBottom: 3, fontFamily: BB_F }}>STRIKE OI  (±7% from price)</div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: 36 }}>
+          {visible.map(s => {
+            const h = Math.round((s.total_oi / maxOI) * 36);
+            const isWall = s.strike === wall;
+            const callPct = s.total_oi > 0 ? s.call_oi / s.total_oi : 0;
+            return (
+              <div key={s.strike} title={`$${s.strike} | C:${s.call_oi.toLocaleString()} P:${s.put_oi.toLocaleString()}`}
+                style={{ flex: 1, height: h, minHeight: 2, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                <div style={{ height: Math.round(h * callPct), background: isWall ? "#f59e0b" : "#22c55e44", minHeight: 1 }} />
+                <div style={{ height: Math.round(h * (1 - callPct)), background: isWall ? "#f59e0b88" : "#ef444433", minHeight: 1 }} />
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", color: "#1e3a5f", fontSize: 6, marginTop: 1 }}>
+          <span>${visible[0]?.strike}</span>
+          <span style={{ color: "#f59e0b", fontSize: 6 }}>▲ WALL</span>
+          <span>${visible[visible.length - 1]?.strike}</span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>
+            🧲 Gamma Wall
+          </h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11, margin: 0, maxWidth: 580 }}>
+            Max open interest strike per expiry acts as a magnet — dealers hedge by buying shares as price rises toward it.
+            Flip point = where net gamma changes sign (above = bullish pin, below = dealer selling).
+            {stale && <span style={{ color: "#f59e0b" }}> · Using cached data (live feed throttled)</span>}
+          </p>
+        </div>
+        <button onClick={load} disabled={loading}
+          style={{ fontFamily: BB_F, fontSize: 11, fontWeight: 700, padding: "6px 14px", borderRadius: 8,
+            cursor: loading ? "default" : "pointer", background: "rgba(56,189,248,0.12)",
+            border: "1px solid rgba(56,189,248,0.4)", color: "#38bdf8", opacity: loading ? 0.5 : 1 }}>
+          {loading ? "LOADING…" : "REFRESH"}
+        </button>
+      </div>
+
+      {loading && (
+        <div style={{ color: "#4a7fa5", fontFamily: BB_F, fontSize: 11, textAlign: "center", padding: 40 }}>
+          Fetching OI chain data for SPY / QQQ / IWM + mega-caps…
+        </div>
+      )}
+
+      {!loading && rows.length === 0 && (
+        <div style={{ background: "#0b1320", border: "1px solid #1e3a5f", borderRadius: 10, padding: 32, textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>📊</div>
+          <div style={{ color: "#fbbf24", fontFamily: BB_F, fontSize: 11, fontWeight: 700, marginBottom: 8 }}>
+            GAMMA DATA UNAVAILABLE
+          </div>
+          <div style={{ color: "#4a7fa5", fontFamily: BB_F, fontSize: 10, lineHeight: 1.8 }}>
+            Yahoo Finance is rate-limited right now — OI chain data requires live option quotes.<br />
+            Data will auto-refresh when the circuit breaker resets. Try again in a few minutes.
+          </div>
+        </div>
+      )}
+
+      {!loading && rows.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+          {rows.map(r => (
+            <div key={r.ticker}
+              style={{ background: "#0b1320", border: "1px solid #1e3a5f", borderRadius: 10, padding: 14, cursor: "pointer" }}
+              onClick={() => onSelectTicker(r.ticker)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <div>
+                  <div style={{ color: "#fff", fontFamily: BB_F, fontWeight: 900, fontSize: 16 }}>{r.ticker}</div>
+                  <div style={{ color: "#4a7fa5", fontFamily: BB_F, fontSize: 10 }}>${r.price.toFixed(2)}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: distColor(r.wall_distance_pct), fontFamily: BB_F, fontWeight: 700, fontSize: 13 }}>
+                    ${r.wall_strike.toFixed(0)}
+                  </div>
+                  <div style={{ color: distColor(r.wall_distance_pct), fontFamily: BB_F, fontSize: 9 }}>
+                    {r.wall_distance_pct > 0 ? "+" : ""}{r.wall_distance_pct.toFixed(1)}% to wall
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <div style={{ flex: 1, background: "#060c14", border: "1px solid #1e3a5f", borderRadius: 6, padding: "5px 8px" }}>
+                  <div style={{ color: "#4a7fa5", fontFamily: BB_F, fontSize: 7, marginBottom: 2 }}>GAMMA WALL</div>
+                  <div style={{ color: "#fbbf24", fontFamily: BB_F, fontWeight: 700, fontSize: 13 }}>
+                    ${r.wall_strike.toFixed(0)}
+                  </div>
+                  <div style={{ color: "#4a7fa5", fontFamily: BB_F, fontSize: 7 }}>exp {r.expiry}</div>
+                </div>
+                <div style={{ flex: 1, background: "#060c14", border: "1px solid #1e3a5f", borderRadius: 6, padding: "5px 8px" }}>
+                  <div style={{ color: "#4a7fa5", fontFamily: BB_F, fontSize: 7, marginBottom: 2 }}>FLIP POINT</div>
+                  {r.flip_strike != null ? (
+                    <>
+                      <div style={{ color: r.price >= r.flip_strike ? "#22c55e" : "#ef4444", fontFamily: BB_F, fontWeight: 700, fontSize: 13 }}>
+                        ${r.flip_strike.toFixed(0)}
+                      </div>
+                      <div style={{ color: r.price >= r.flip_strike ? "#22c55e" : "#ef4444", fontFamily: BB_F, fontSize: 7 }}>
+                        {r.price >= r.flip_strike ? "▲ ABOVE (bullish)" : "▼ BELOW (bearish)"}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ color: "#334155", fontFamily: BB_F, fontSize: 10 }}>—</div>
+                  )}
+                </div>
+              </div>
+
+              <MiniChart strikes={r.strikes} wall={r.wall_strike} price={r.price} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop: 16, color: "#1e3a5f", fontFamily: BB_F, fontSize: 9 }}>
+        🟡 WALL = max OI strike (orange bars) · 🟢 green = call OI · 🔴 red = put OI · Data: nearest expiry option chain
+      </div>
+    </div>
+  );
+}
+
+
 function ETFCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const BB_F = "JetBrains Mono, monospace";
   const [data, setData]       = useState<EtfCallsResult | null>(null);
@@ -8643,12 +8794,15 @@ function EodSweepTrackTab() {
                 <div key={s.session} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <div style={{ width: 170, flexShrink: 0 }}>
                     <div style={{ color: "#e2e8f0", fontSize: 9 }}>{sessionLabel(s.session)}</div>
-                    <div style={{ color: BB_LABEL, fontSize: 7 }}>{s.total} signals</div>
+                    <div style={{ color: BB_LABEL, fontSize: 7 }}>{s.total} signals logged</div>
                   </div>
                   {[s.t1, s.t3, s.t5].map((stat, i) => (
                     <div key={i} style={{ flex: 1, textAlign: "center" }}>
-                      {stat.win_rate == null ? (
-                        <span style={{ color: "#334155", fontSize: 8 }}>—</span>
+                      {stat.n === 0 ? (
+                        <div>
+                          <div style={{ color: "#334155", fontSize: 11, fontFamily: "IBM Plex Mono, monospace" }}>—</div>
+                          <div style={{ color: "#1e3a5f", fontSize: 6, marginTop: 1 }}>0 resolved</div>
+                        </div>
                       ) : (
                         <>
                           <div style={{ color: winColor(stat.win_rate), fontSize: 13, fontWeight: 700, fontFamily: "IBM Plex Mono, monospace" }}>{stat.win_rate}%</div>
@@ -8657,6 +8811,7 @@ function EodSweepTrackTab() {
                               {stat.avg_return > 0 ? "+" : ""}{stat.avg_return}%
                             </div>
                           )}
+                          <div style={{ color: "#334155", fontSize: 6, marginTop: 1 }}>n={stat.n}</div>
                         </>
                       )}
                     </div>

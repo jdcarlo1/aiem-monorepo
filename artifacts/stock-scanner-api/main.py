@@ -31105,8 +31105,13 @@ def eod_sweeps():
 
     except Exception as e:
         import traceback
-        print(f"[eod_sweeps] error: {e}\n{traceback.format_exc()}", file=__import__("sys").stderr)
-        return jsonify({"error": str(e), "signals": []}), 500
+        print(f"[eod_sweeps] error: {e}\n{traceback.format_exc()}")
+        _cache = getattr(app, "_eod_sweeps_cache", None)
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"signals": [], "total": 0, "stale": True,
+                        "note": "Data temporarily unavailable — DB busy. Retry shortly.",
+                        "generated_at": _dt.now().isoformat()})
 
 
 
@@ -31687,7 +31692,10 @@ def eod_sweep_track_record():
     except Exception as e:
         import traceback
         print(f"[eod_sweep_track_record] error: {e}\n{traceback.format_exc()}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"total_signals": 0, "overall": {"t1": {"n": 0, "win_rate": None, "avg_return": None},
+            "t3": {"n": 0, "win_rate": None, "avg_return": None}, "t5": {"n": 0, "win_rate": None, "avg_return": None}},
+            "by_session": [], "by_grade": [], "recent": [], "stale": True,
+            "generated_at": _dt.now().isoformat()})
 
 
 @app.route("/stock-api/conviction-calls", methods=["GET"])
