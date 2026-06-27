@@ -23301,12 +23301,17 @@ def _build_aiem_tool_map():
     }
 
 
-def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM"):
+def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM",
+                                         intentional_exclusions=None):
     """Call once at startup. Prints a loud mismatch report if the tool schema
     and tool map have drifted apart — the exact bug class that caused 34/83
     tools to silently fail on the chat path (schema-advertised but not in map
-    → model gets 'unknown tool' every time). Also reports the reverse: tools
-    in the map but not in the schema (model doesn't know it can call them).
+    → model gets 'unknown tool' every time).
+
+    intentional_exclusions: set of tool names that are in the map but
+    intentionally NOT in the schema (e.g. side-effect tools that should only
+    be callable by the overnight loop, not the conversational agent).
+    These do NOT trigger the mismatch warning.
     """
     schema_names = {
         entry["function"]["name"]
@@ -23314,9 +23319,10 @@ def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM"):
         if entry.get("type") == "function"
     }
     map_names = set(tool_map.keys())
+    exclusions = set(intentional_exclusions or [])
 
     missing_from_map    = schema_names - map_names
-    missing_from_schema = map_names - schema_names
+    missing_from_schema = (map_names - schema_names) - exclusions  # ignore intentional
 
     if missing_from_map or missing_from_schema:
         print(f"[{label} TOOL REGISTRY MISMATCH] ⚠️ ⚠️ ⚠️")
@@ -23338,7 +23344,13 @@ def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM"):
             "missing_from_schema": sorted(missing_from_schema),
         }
 
-    print(f"[{label} TOOL REGISTRY] ✅ {len(schema_names)} tools — schema and map fully consistent.")
+    print(f"[{label} TOOL REGISTRY] ✅ {len(schema_names)} tools wired and consistent.")
+    if exclusions:
+        print(
+            f"[{label}] {len(exclusions)} tools intentionally schema-excluded "
+            f"(side-effect / human-gate required — callable by overnight loop only): "
+            f"{sorted(exclusions)}"
+        )
     return {"ok": True, "tool_count": len(schema_names)}
 
 
@@ -26000,13 +26012,35 @@ ON DATA FRESHNESS:
 - Markets are closed outside 9:30am-4:00pm ET on trading days. If asked for "right now" data outside those hours, say the market is closed and the data reflects the last close."""
 
 
+# These tools exist in the tool map for the overnight research loop (which has
+# human-reviewed gates) but are intentionally NOT exposed to the conversational
+# agent schema — they have real side effects (clear safety halts, promote models
+# to live, fire email/SMS alerts to subscribers, write to the decision audit log).
+_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS = {
+    "clear_kill_switch_halt",       # clears a safety halt
+    "close_shadow_trade",           # modifies shadow-trade state
+    "log_decision",                 # writes to decision audit trail
+    "open_shadow_trade",            # opens paper position
+    "record_decision_outcome",      # writes to audit trail
+    "record_human_eval_decision",   # writes to audit trail
+    "retrain_approve",              # promotes a model to live
+    "retrain_reject",               # rejects a model retrain
+    "run_risk_gate",                # can trigger send_discovery_alert
+    "send_discovery_alert",         # fires email/SMS to subscribers
+}
+
+
 def _startup_validate_tool_registry():
     """Deferred startup check — runs 10s after boot once all module-level
-    definitions are complete. Prints a loud mismatch report if the AIEM tool
-    schema and the focused-session tool map have drifted apart."""
+    definitions are complete. Prints tool count + mismatch report if the AIEM
+    tool schema and the focused-session tool map have drifted apart."""
     try:
+        _m = _build_aiem_tool_map()
+        # Check 1 from the reviewer's standalone verification file:
+        print(f"[tool map check] {len(_m)} tools wired (should be 137)")
         _validate_tool_registry_consistency(
-            _AIEM_AGENT_TOOLS, _build_aiem_tool_map(), label="AIEM"
+            _AIEM_AGENT_TOOLS, _m, label="AIEM",
+            intentional_exclusions=_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS,
         )
     except Exception as _vtr_e:
         print(f"[tool_registry] startup validation error: {_vtr_e}")
