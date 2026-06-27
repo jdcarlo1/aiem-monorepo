@@ -1,0 +1,1462 @@
+"""
+main.py patches — apply each section in order. Find/replace instructions
+in the comment above each block. Section numbers match REPLIT_FIX_PACKAGE.md.
+"""
+
+# ============================================================================
+# SECTION 1 — Replace _fs_tool_map inside _run_aiem_focused_session()
+# (~line 22954-23027 in the reviewed export)
+#
+# FIND the dict literal that starts:
+#     _fs_tool_map = {
+#         "mkt_behavioral_templates":    _mkt_behavioral_templates,
+#         ...
+#     }
+# REPLACE the whole dict body with this merged version (135 entries —
+# union of the old _fs_tool_map and the complete _tool_map used by
+# _run_aiem_research_agent, deduped, no conflicting function refs found).
+# ============================================================================
+
+_fs_tool_map = {
+        "adversarial_review": _aiem_tool_adversarial_review,
+        "analyze_missed_movers": _aiem_tool_analyze_missed_movers,
+        "analyze_signal_correlation": _aiem_tool_analyze_signal_correlation,
+        "benchmark_vs_baselines": _aiem_tool_benchmark_vs_baselines,
+        "breakout_discover": _aiem_tool_breakout_discover,
+        "breakout_extract_features": _aiem_tool_breakout_extract_features,
+        "causal_discover": _aiem_tool_causal_discover,
+        "check_kill_switch": _aiem_tool_check_kill_switch,
+        "check_price_bullish": _aiem_tool_check_price_bullish,
+        "check_shadow_promotion": _aiem_tool_check_shadow_promotion,
+        "clear_kill_switch_halt": _aiem_tool_clear_kill_switch_halt,
+        "close_eval_window": _aiem_tool_close_eval_window,
+        "close_shadow_trade": _aiem_tool_close_shadow_trade,
+        "compare_picks_vs_misses": _aiem_tool_compare_picks_vs_misses,
+        "decision_quality_summary": _aiem_tool_decision_quality_summary,
+        "deep_rl_get_paper_action": _aiem_tool_deep_rl_get_paper_action,
+        "deep_rl_probe": _aiem_tool_deep_rl_probe,
+        "discover_numeric_patterns": _aiem_tool_discover_numeric_patterns,
+        "divergence_scan": _aiem_tool_divergence_scan,
+        "ensemble_combine_signals": _aiem_tool_ensemble_combine_signals,
+        "eval_window_history": _aiem_tool_eval_window_history,
+        "evaluate_previous_model": _aiem_tool_evaluate_previous_model,
+        "execution_realistic_cost": _aiem_tool_execution_realistic_cost,
+        "gap_continuation_score": _aiem_tool_gap_continuation_score,
+        "gate_history": _aiem_tool_gate_history,
+        "get_decisions": _aiem_tool_get_decisions,
+        "get_literature_briefs": _aiem_tool_get_literature_briefs,
+        "get_regime_flags": _aiem_tool_get_regime_flags,
+        "holding_period_optimize": _aiem_tool_holding_period_optimize,
+        "intraday_compute_features": _aiem_tool_intraday_compute_features,
+        "intraday_continuation_score": _aiem_tool_intraday_continuation_score,
+        "is_eval_window_active": _aiem_tool_is_eval_window_active,
+        "kelly_position_size": _aiem_tool_kelly_position_size,
+        "kill_switch_events": _aiem_tool_kill_switch_events,
+        "list_hypotheses": _aiem_tool_list_hypotheses,
+        "list_signal_dimensions": _aiem_tool_list_signal_dimensions,
+        "log_decision": _aiem_tool_log_decision,
+        "mkt_52week_momentum": _mkt_52week_high_momentum,
+        "mkt_accumulation_squeeze": _mkt_tool_accumulation_into_squeeze,
+        "mkt_analyze_false_signals": _mkt_tool_analyze_false_signals,
+        "mkt_analyze_top_movers": _mkt_tool_analyze_top_movers,
+        "mkt_behavioral_templates": _mkt_behavioral_templates,
+        "mkt_build_composite": _mkt_tool_build_composite,
+        "mkt_capitulation_detector": _detect_capitulation_signature,
+        "mkt_check_redundancy": _mkt_check_signal_redundancy,
+        "mkt_check_survivorship": _mkt_tool_check_survivorship,
+        "mkt_compare_signals": _mkt_tool_compare_signals,
+        "mkt_compute_indicators": _mkt_compute_indicators,
+        "mkt_compute_momentum": _mkt_tool_compute_momentum,
+        "mkt_cross_confirm_options": _mkt_cross_confirm_options_price,
+        "mkt_discover_interactions": _mkt_tool_discover_interactions,
+        "mkt_explore_dimensions": _mkt_tool_explore_dimensions,
+        "mkt_extreme_move_reversion": _mkt_extreme_move_reversion,
+        "mkt_factor_correlations": _mkt_tool_factor_correlations,
+        "mkt_find_behavioral_matches": _mkt_find_behavioral_matches,
+        "mkt_find_thresholds": _mkt_tool_find_thresholds,
+        "mkt_gap_fill_probability": _mkt_gap_fill_probability,
+        "mkt_generate_hypotheses": _mkt_tool_generate_hypotheses,
+        "mkt_get_stock_history": _mkt_get_stock_history,
+        "mkt_historical_study": _mkt_historical_study,
+        "mkt_invent_indicator": _mkt_tool_invent_indicator,
+        "mkt_layer9_score": _mkt_layer9_score,
+        "mkt_load_discoveries": _mkt_tool_load_discoveries,
+        "mkt_net_flow_db": _mkt_net_flow_db,
+        "mkt_options_flow_scan": _mkt_options_flow_scan,
+        "mkt_options_predicts_price": _mkt_options_predicts_price,
+        "mkt_pre_squeeze_warning": _mkt_tool_pre_squeeze_warning,
+        "mkt_price_patterns": _mkt_tool_price_patterns,
+        "mkt_quiet_accumulation": _mkt_tool_quiet_accumulation,
+        "mkt_refresh_universe": _mkt_tool_refresh_universe,
+        "mkt_regime_filter": _mkt_tool_regime_filter,
+        "mkt_required_pvalue": _mkt_tool_required_pvalue,
+        "mkt_retrospective_backtest": _mkt_retrospective_backtest,
+        "mkt_save_discovery": _mkt_tool_save_discovery,
+        "mkt_screen_by_indicator": _mkt_screen_by_indicator,
+        "mkt_screen_period": _mkt_screen_period,
+        "mkt_segment_by_cap_tier": _mkt_tool_segment_by_cap_tier,
+        "mkt_segment_by_sector": _mkt_tool_segment_by_sector,
+        "mkt_signal_drift": _mkt_tool_signal_drift,
+        "mkt_test_inverse": _mkt_tool_test_inverse,
+        "mkt_test_signal": _mkt_tool_test_signal,
+        "mkt_ticker_deep_compare": _mkt_ticker_deep_compare,
+        "mkt_ticker_options_history": _mkt_ticker_options_history,
+        "mkt_validate_oos": _mkt_tool_validate_oos,
+        "mkt_volatility_squeeze": _mkt_tool_volatility_squeeze,
+        "mkt_volume_patterns": _mkt_tool_volume_patterns,
+        "model_version_history": _aiem_tool_model_version_history,
+        "multivariate_regression": _aiem_tool_multivariate_regression,
+        "open_shadow_trade": _aiem_tool_open_shadow_trade,
+        "portfolio_allocate": _aiem_tool_portfolio_allocate,
+        "query_cross_signal_overlap": _aiem_tool_query_cross_signal_overlap,
+        "query_exit_timing": _aiem_tool_query_exit_timing,
+        "query_market_regime": _aiem_tool_query_market_regime,
+        "query_missed_movers": _aiem_tool_query_missed_movers,
+        "query_own_prediction_performance": _aiem_tool_query_own_prediction_performance,
+        "query_pick_outcomes": _aiem_tool_query_pick_outcomes,
+        "query_rank_effectiveness": _aiem_tool_query_rank_effectiveness,
+        "query_temporal_patterns": _aiem_tool_query_temporal_patterns,
+        "record_decision_outcome": _aiem_tool_record_decision_outcome,
+        "record_human_eval_decision": _aiem_tool_record_human_eval_decision,
+        "regime_overlay_check": _aiem_tool_regime_overlay_check,
+        "regime_overlay_manual": _aiem_tool_regime_overlay_manual,
+        "register_hypotheses": _aiem_tool_register_hypotheses,
+        "register_hypothesis": _aiem_tool_register_hypothesis,
+        "retrain_approve": _aiem_tool_retrain_approve,
+        "retrain_history": _aiem_tool_retrain_history,
+        "retrain_pending": _aiem_tool_retrain_pending,
+        "retrain_reject": _aiem_tool_retrain_reject,
+        "rl_get_paper_action": _aiem_tool_rl_get_paper_action,
+        "rl_readable_policy": _aiem_tool_rl_readable_policy,
+        "rollback_to_previous_model": _aiem_tool_rollback_to_previous_model,
+        "run_granger_test": _aiem_tool_run_granger_test,
+        "run_risk_gate": _aiem_tool_run_risk_gate,
+        "run_statistical_significance": _aiem_tool_run_statistical_significance,
+        "save_research_model": _aiem_tool_save_research_model,
+        "search_past_findings": _aiem_tool_search_past_findings,
+        "send_discovery_alert": _aiem_tool_send_discovery_alert,
+        "shadow_stats": _aiem_tool_shadow_stats,
+        "signal_layer_redundancy": _aiem_tool_signal_layer_redundancy,
+        "signal_magnitude_analysis": _aiem_tool_signal_magnitude_analysis,
+        "simulation_audit_trail": _aiem_tool_simulation_audit_trail,
+        "simulation_lock_check": _aiem_tool_simulation_lock_check,
+        "squeeze_subscore": _aiem_tool_squeeze_subscore,
+        "start_eval_window": _aiem_tool_start_eval_window,
+        "start_shadow_window": _aiem_tool_start_shadow_window,
+        "test_new_signal": _aiem_tool_test_new_signal,
+        "test_scoring_hypothesis": _aiem_tool_test_scoring_hypothesis,
+        "trust_apply_to_candidates": _aiem_tool_trust_apply_to_candidates,
+        "trust_classify_context": _aiem_tool_trust_classify_context,
+        "trust_get_history": _aiem_tool_trust_get_history,
+        "trust_get_weights": _aiem_tool_trust_get_weights,
+        "trust_update": _aiem_tool_trust_update,
+        "vwap_compute_features": _aiem_tool_vwap_compute_features,
+        "vwap_price_vs": _aiem_tool_vwap_price_vs,
+        "vwap_reclaim_detect": _aiem_tool_vwap_reclaim_detect,
+}
+
+
+# ============================================================================
+# SECTION 2 — Fix raw SDK message object appended to `messages`
+# (~line 23053-23054 in the reviewed export)
+#
+# FIND:
+#     msg = resp.choices[0].message
+#     messages.append(msg)
+#     if msg.content:
+#         _last_text = msg.content
+#     if not msg.tool_calls:
+#         break
+#
+# REPLACE with:
+# ============================================================================
+
+msg = resp.choices[0].message
+
+msg_dict = {"role": "assistant", "content": msg.content or None}
+if msg.tool_calls:
+    msg_dict["tool_calls"] = [
+        {
+            "id": tc.id,
+            "type": "function",
+            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+        }
+        for tc in msg.tool_calls
+    ]
+messages.append(msg_dict)
+
+if msg.content:
+    _last_text = msg.content
+if not msg.tool_calls:
+    break
+
+
+# ============================================================================
+# SECTION 3 — SMS webhook: acquire the existing concurrency lock + tag
+# the insight row so the readback can't cross-talk with another session
+# (~line 40873-40906 in the reviewed export, function nested inside the
+# /sms/incoming route)
+#
+# FIND:
+#     def _research(q=question, to=from_num):
+#         prompt = ( ... )
+#         try:
+#             _run_aiem_focused_session(
+#                 session_name=f"sms_{q[:20].replace(' ','_')}",
+#                 focus_prompt=prompt,
+#                 max_iterations=8
+#             )
+#             # Pull latest insight as SMS summary
+#             try:
+#                 import psycopg2 as _pg
+#                 with _pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+#                     _cur.execute("SELECT insight_text FROM aiem_research_insights ORDER BY created_at DESC LIMIT 1")
+#                     row = _cur.fetchone()
+#                     summary = (row[0][:280] if row and row[0] else
+#                                "Research complete — check your email for the full report.")
+#             except Exception:
+#                 summary = "Research complete — check your email for the full report."
+#             _send_sms(f"📊 {summary}", to=to)
+#         except Exception as _e:
+#             print(f"[sms/incoming] research error: {_e}")
+#             _send_sms("⚠️ Hit an error researching that. Try again.", to=to)
+#
+# REPLACE with:
+# ============================================================================
+
+def _research(q=question, to=from_num):
+    session_name = f"sms_{q[:20].replace(' ','_')}_{uuid.uuid4().hex[:6]}"
+    prompt = (
+        f"The owner just texted this question: '{q}'\n\n"
+        f"Research this using your tools. If they mention tickers, use "
+        f"mkt_retrospective_backtest and mkt_find_behavioral_matches. "
+        f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
+        f"If they ask about a signal or pattern, use mkt_test_signal to validate. "
+        f"After researching, write a SHORT reply (under 300 chars) that directly answers "
+        f"their question with the most important finding. Start with the direct answer."
+    )
+
+    # Reuse the SAME lock the email "ask AIEM" path uses, so SMS, email,
+    # web chat, and scheduled cron sessions can never run concurrently
+    # against each other and step on shared resources / cost budget.
+    if not app._aiem_qa_lock.acquire(blocking=False):
+        _send_sms("⏳ Already researching another question — I'll get to this one next. Try again in a few minutes.", to=to)
+        return
+
+    try:
+        _run_aiem_focused_session(
+            session_name=session_name,
+            focus_prompt=prompt,
+            max_iterations=8
+        )
+        # Pull THIS session's insight specifically, not just "the latest one" —
+        # prevents reading back a different concurrent session's answer.
+        try:
+            import psycopg2 as _pg
+            with _pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+                _cur.execute(
+                    """SELECT insight_text FROM aiem_research_insights
+                       WHERE session_name=%s ORDER BY created_at DESC LIMIT 1""",
+                    (session_name,),
+                )
+                row = _cur.fetchone()
+                if not row:
+                    # fall back to latest overall only if nothing tagged to this session
+                    _cur.execute("SELECT insight_text FROM aiem_research_insights ORDER BY created_at DESC LIMIT 1")
+                    row = _cur.fetchone()
+                summary = (row[0][:280] if row and row[0] else
+                           "Research complete — check your email for the full report.")
+        except Exception:
+            summary = "Research complete — check your email for the full report."
+        _send_sms(f"📊 {summary}", to=to)
+    except Exception as _e:
+        print(f"[sms/incoming] research error: {_e}")
+        _send_sms("⚠️ Hit an error researching that. Try again.", to=to)
+    finally:
+        app._aiem_qa_lock.release()
+
+
+# NOTE: this requires aiem_research_insights to have a session_name column.
+# If it doesn't yet, add: ALTER TABLE aiem_research_insights ADD COLUMN IF NOT EXISTS session_name TEXT;
+# and have whatever code writes to that table also write session_name.
+# (Included in db_migration.sql.txt)
+
+
+# ============================================================================
+# SECTION 4 — New chat endpoints (these don't exist yet anywhere in main.py)
+# Add this as a new block, anywhere routes are defined.
+# Requires: db_migration.sql.txt applied first.
+# ============================================================================
+
+import json
+import threading
+import uuid as _uuid_mod
+from flask import jsonify, request
+
+
+def _aiem_classify_question_complexity(question: str) -> int:
+    """Dynamic iteration budget instead of a flat number — complex
+    multi-step questions get more room before the model has to answer."""
+    q = question.lower()
+    deep_signals = ["backtest", "validate", "significan", "out-of-sample",
+                     "oos", "is it real", "does it work", "prove", "p-value"]
+    compare_signals = ["compare", "vs", "versus", "better than", "which of"]
+    simple_signals = ["what is", "define", "explain", "how does"]
+    if any(s in q for s in deep_signals):
+        return 10
+    if any(s in q for s in compare_signals):
+        return 7
+    if any(s in q for s in simple_signals) and len(q) < 80:
+        return 4
+    return 6
+
+
+def _get_thread_db_conn():
+    """New connection per thread — never reuse a connection across threads.
+    Swap this for your existing pool accessor if you have one."""
+    import psycopg2
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+
+@app.route("/stock-api/aiem/chat", methods=["POST"])
+def aiem_chat_start():
+    data = request.get_json(silent=True) or {}
+    question = (data.get("question") or "").strip()[:800]
+    if not question:
+        return jsonify({"error": "question is required"}), 400
+
+    # Single-flight check against the SAME lock used by SMS/email, so the
+    # web chat tab can't run a session concurrently with those either.
+    if not app._aiem_qa_lock.acquire(blocking=False):
+        return jsonify({
+            "error": "Another research session is already running (SMS, email, "
+                      "or chat). Please wait for it to finish before starting a new one.",
+        }), 429
+    app._aiem_qa_lock.release()  # release immediately — the worker thread re-acquires
+                                   # it itself so the HTTP request doesn't hold the lock
+
+    job_id = str(_uuid_mod.uuid4())
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO quant_agent_sessions (job_id, question, status)
+                   VALUES (%s, %s, 'pending')""",
+                (job_id, question),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    max_iter = _aiem_classify_question_complexity(question)
+    prompt = (
+        f"The user asks: '{question}'\n\n"
+        f"Research this thoroughly using your tools. "
+        f"If they mention specific tickers, use mkt_retrospective_backtest. "
+        f"If they ask about a pattern or signal, use mkt_test_signal to validate with real data. "
+        f"End with a clear, direct answer. Be concise but complete — 3-5 paragraphs max."
+    )
+
+    def _worker():
+        if not app._aiem_qa_lock.acquire(blocking=False):
+            wconn = _get_thread_db_conn()
+            try:
+                with wconn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE quant_agent_sessions SET status='error', error=%s WHERE job_id=%s",
+                        ("Another session started first — please retry.", job_id),
+                    )
+                wconn.commit()
+            finally:
+                wconn.close()
+            return
+
+        worker_conn = _get_thread_db_conn()
+        try:
+            with worker_conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE quant_agent_sessions SET status='running', updated_at=NOW() WHERE job_id=%s",
+                    (job_id,),
+                )
+            worker_conn.commit()
+
+            def _on_step(step):
+                try:
+                    with worker_conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE quant_agent_sessions SET current_tool=%s, updated_at=NOW() WHERE job_id=%s",
+                            (step.get("tool"), job_id),
+                        )
+                    worker_conn.commit()
+                except Exception:
+                    pass
+
+            answer, trace, err = _run_aiem_focused_session_v2(
+                session_name=f"quant_chat_{job_id[:8]}",
+                focus_prompt=prompt,
+                max_iterations=max_iter,
+                on_step=_on_step,
+            )
+
+            with worker_conn.cursor() as cur:
+                if err:
+                    cur.execute(
+                        """UPDATE quant_agent_sessions
+                           SET status='error', error=%s, tool_trace=%s, updated_at=NOW()
+                           WHERE job_id=%s""",
+                        (err, json.dumps(trace), job_id),
+                    )
+                else:
+                    cur.execute(
+                        """UPDATE quant_agent_sessions
+                           SET status='done', answer=%s, tool_trace=%s, updated_at=NOW()
+                           WHERE job_id=%s""",
+                        (answer, json.dumps(trace), job_id),
+                    )
+            worker_conn.commit()
+
+        except Exception as e:
+            try:
+                with worker_conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE quant_agent_sessions SET status='error', error=%s, updated_at=NOW() WHERE job_id=%s",
+                        (f"worker crashed: {type(e).__name__}: {e}", job_id),
+                    )
+                worker_conn.commit()
+            except Exception:
+                pass
+        finally:
+            worker_conn.close()
+            app._aiem_qa_lock.release()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return jsonify({"job_id": job_id, "status": "pending"})
+
+
+@app.route("/stock-api/aiem/chat/<job_id>", methods=["GET"])
+def aiem_chat_poll(job_id):
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT status, answer, error, current_tool, tool_trace, created_at
+                   FROM quant_agent_sessions WHERE job_id=%s""",
+                (job_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return jsonify({"error": "job not found"}), 404
+
+    status, answer, error, current_tool, tool_trace, created_at = row
+    return jsonify({
+        "job_id": job_id, "status": status, "answer": answer, "error": error,
+        "current_tool": current_tool, "tool_trace": tool_trace,
+        "created_at": created_at.isoformat() if created_at else None,
+    })
+
+
+@app.route("/stock-api/aiem/chat/history", methods=["GET"])
+def aiem_chat_history():
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT job_id, question, status, answer, tool_trace, created_at
+                   FROM quant_agent_sessions ORDER BY created_at DESC LIMIT 20"""
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify([
+        {"job_id": r[0], "question": r[1], "status": r[2], "answer": r[3],
+         "tool_trace": r[4], "created_at": r[5].isoformat() if r[5] else None}
+        for r in rows
+    ])
+
+
+def reconcile_orphaned_chat_sessions():
+    """Call once at app startup — recovers jobs stuck at 'running' if the
+    process restarted mid-session (redeploy, crash, autoscale cycle)."""
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE quant_agent_sessions
+                   SET status='error', error='orphaned: server restarted mid-session'
+                   WHERE status='running' AND updated_at < NOW() - INTERVAL '10 minutes'"""
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# SECTION 5 — Fixed session runner used by the new chat endpoints above.
+# This is _run_aiem_focused_session with Section 1 (tool map) and Section 2
+# (message serialization) fixes already applied, plus per-tool error
+# isolation and a trace callback. Add this as a NEW function — don't
+# replace your original _run_aiem_focused_session, since SMS/email/cron
+# still call it directly. Once you've verified this version works, you can
+# migrate those callers over to it and delete the old one.
+# ============================================================================
+
+import time as _time_mod
+
+
+def _run_aiem_focused_session_v2(session_name: str, focus_prompt: str,
+                                  max_iterations: int = 12, on_step=None):
+    from openai import OpenAI as _OAIFS
+
+    _oai = _OAIFS(
+        base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
+        api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
+    )
+
+    _fs_schema = _AIEM_AGENT_TOOLS  # the existing shared schema, unchanged
+
+    session_system = (
+        _AIEM_AGENT_SYSTEM +
+        f"\n\nSESSION FOCUS ({session_name}): {focus_prompt}\n"
+        "Start immediately with the most relevant tools for this session's focus."
+    )
+    messages = [
+        {"role": "system", "content": session_system},
+        {"role": "user", "content": focus_prompt},
+    ]
+
+    trace = []
+    _last_text = ""
+    _context_budget = 60_000
+    _context_used = 0
+
+    for _i in range(max_iterations):
+        resp = None
+        for attempt in range(3):
+            try:
+                resp = _oai.chat.completions.create(
+                    model="gpt-4o", messages=messages, tools=_fs_schema,
+                    tool_choice="auto", max_tokens=2000, temperature=0.3,
+                )
+                break
+            except Exception as e:
+                if attempt == 2:
+                    return _last_text, trace, f"OpenAI call failed after retries: {e}"
+                _time_mod.sleep(1.5 * (attempt + 1))
+
+        msg = resp.choices[0].message
+        msg_dict = {"role": "assistant", "content": msg.content or None}
+        if msg.tool_calls:
+            msg_dict["tool_calls"] = [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls
+            ]
+        messages.append(msg_dict)
+
+        if msg.content:
+            _last_text = msg.content
+        if not msg.tool_calls:
+            break
+
+        for tc in msg.tool_calls:
+            fn = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError as e:
+                args = None
+                result = {"error": f"malformed arguments from model: {e}"}
+
+            if args is not None:
+                if fn not in _fs_tool_map:
+                    result = {"error": f"unknown tool: {fn}"}
+                else:
+                    try:
+                        result = _fs_tool_map[fn](**args)
+                    except Exception as e:
+                        result = {"error": f"{fn} raised: {type(e).__name__}: {e}"}
+
+            result_str = json.dumps(result, default=str)
+            if len(result_str) > 6000:
+                result_str = result_str[:6000] + "...[truncated]"
+            _context_used += len(result_str)
+            if _context_used > _context_budget:
+                result_str = json.dumps({"note": "result omitted, context budget reached"})
+
+            step = {"iteration": _i, "tool": fn, "args": args,
+                    "ok": "error" not in (result if isinstance(result, dict) else {})}
+            trace.append(step)
+            if on_step:
+                try:
+                    on_step(step)
+                except Exception:
+                    pass
+
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_str})
+
+    return _last_text, trace, None
+
+
+# ============================================================================
+# SECTION 6 — NEW TOOL: aiem_tool_get_daily_candidates
+#
+# Answers exactly: "give me N stocks today that look ready to move, based
+# on current indicators and historically similar setups."
+#
+# This does NOT invent new signals or new alpha. It's a read-only join of
+# two things you already built and already run on a schedule:
+#   - conviction_stack_watchlist (8-layer conviction score, snapshotted daily)
+#   - behavioral_pattern_matches (mkt_find_behavioral_matches' underlying
+#     table — current setup vs. historical pre-move fingerprints)
+#
+# Without this, the chat agent has to correctly chain 2-3 separate tool
+# calls itself every time someone asks this very common question, and rank/
+# dedupe the results coherently on its own. That's exactly the kind of
+# multi-step task where tool-selection luck causes inconsistent answers.
+# This tool makes the combination deterministic and always includes the
+# statistical backing (sample size, similarity score, what the historical
+# analog actually did) rather than letting the model improvise the framing.
+#
+# Add the function below anywhere your other _aiem_tool_* functions live.
+# ============================================================================
+
+def _aiem_tool_get_daily_candidates(limit: int = 10, min_conviction_pct: int = 60,
+                                     min_similarity: float = 0.75) -> dict:
+    """Get today's top N candidates ranked by conviction score, cross-referenced
+    against historical behavioral pattern matches. This is the tool to use
+    whenever someone asks for 'stocks today that look ready to move', 'picks
+    for today', or similar — it combines the daily conviction stack snapshot
+    with the behavioral pre-move matcher and returns ranked candidates with
+    their historical analog (what similar setups did historically), not a
+    prediction. Always present results as pattern-match probability with
+    sample size, never as a guarantee.
+    """
+    import psycopg2
+
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Today's conviction stack snapshot, ranked
+            cur.execute(
+                """SELECT ticker, total_pts, conviction_pct, label, price, layers, rank
+                   FROM conviction_stack_watchlist
+                   WHERE snap_date = CURRENT_DATE AND conviction_pct >= %s
+                   ORDER BY conviction_pct DESC, total_pts DESC
+                   LIMIT %s""",
+                (min_conviction_pct, limit * 3),  # over-fetch; behavioral match filters some out
+            )
+            conviction_rows = cur.fetchall()
+
+            if not conviction_rows:
+                return {
+                    "status": "ok", "candidates": [], "n": 0,
+                    "note": (
+                        f"No tickers in conviction_stack_watchlist for today met the "
+                        f"conviction_pct >= {min_conviction_pct} bar. Either today's "
+                        f"snapshot hasn't run yet, or nothing currently clears the bar — "
+                        f"lower min_conviction_pct to see weaker candidates, or report "
+                        f"honestly that nothing strong qualifies today rather than "
+                        f"lowering the bar just to produce a list."
+                    ),
+                }
+
+            tickers = [r[0] for r in conviction_rows]
+
+            # Behavioral matches for those same tickers, most recent scan
+            cur.execute(
+                """SELECT DISTINCT ON (ticker) ticker, similarity, matched_ticker,
+                          matched_date, matched_move, days_before_move, verdict, scan_time
+                   FROM behavioral_pattern_matches
+                   WHERE ticker = ANY(%s) AND scan_time >= NOW() - INTERVAL '2 hours'
+                   ORDER BY ticker, similarity DESC""",
+                (tickers,),
+            )
+            match_rows = {r[0]: r for r in cur.fetchall()}
+
+        candidates = []
+        for ticker, total_pts, conviction_pct, label, price, layers, rank in conviction_rows:
+            match = match_rows.get(ticker)
+            entry = {
+                "ticker": ticker,
+                "conviction_pct": conviction_pct,
+                "conviction_label": label,
+                "price": float(price) if price is not None else None,
+                "layer_breakdown": layers,
+                "behavioral_match": None,
+            }
+            if match:
+                _, similarity, matched_ticker, matched_date, matched_move, days_before, verdict, scan_time = match
+                if float(similarity) >= min_similarity:
+                    entry["behavioral_match"] = {
+                        "similarity": float(similarity),
+                        "historical_analog_ticker": matched_ticker,
+                        "historical_analog_date": str(matched_date),
+                        "historical_analog_move_pct": float(matched_move or 0),
+                        "days_before_that_move": days_before,
+                        "verdict": verdict,
+                    }
+            candidates.append(entry)
+
+        # Prioritize candidates that have BOTH high conviction AND a behavioral
+        # match — that's the strongest combined signal, not either alone.
+        candidates.sort(
+            key=lambda c: (c["behavioral_match"] is not None, c["conviction_pct"]),
+            reverse=True,
+        )
+        candidates = candidates[:limit]
+
+        n_with_match = sum(1 for c in candidates if c["behavioral_match"])
+
+        return {
+            "status": "ok",
+            "candidates": candidates,
+            "n": len(candidates),
+            "n_with_historical_match": n_with_match,
+            "framing_required": (
+                "When presenting this to a user: state these are pattern-similarity "
+                "matches against historical pre-move setups, not predictions. Always "
+                "include the similarity score and what the historical analog actually "
+                "did. If fewer than the requested number of candidates clear the bar, "
+                "say so explicitly rather than padding the list with weaker names."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# Schema entry — add to _AIEM_AGENT_TOOLS list:
+_AIEM_TOOL_SCHEMA_ADDITION = {
+    "type": "function",
+    "function": {
+        "name": "get_daily_candidates",
+        "description": (
+            "Get today's top N stock candidates ranked by conviction score, "
+            "cross-referenced against historical behavioral pattern matches. "
+            "USE THIS as the first tool whenever a user asks for 'stocks today', "
+            "'picks for today', 'what looks ready to move', or any variant of "
+            "wanting a ranked list of current candidates. Returns conviction "
+            "score breakdown plus, where available, the historical analog "
+            "setup and what it actually did — always present as pattern "
+            "similarity with sample backing, never as a guarantee of future "
+            "performance."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max candidates to return (default 10)"},
+                "min_conviction_pct": {"type": "integer", "description": "Minimum conviction score 0-100 (default 60)"},
+                "min_similarity": {"type": "number", "description": "Minimum behavioral match similarity 0-1 (default 0.75)"},
+            },
+        },
+    },
+}
+
+# Add to the merged _fs_tool_map (Section 1) and to _tool_map:
+#     "get_daily_candidates": _aiem_tool_get_daily_candidates,
+
+
+# ============================================================================
+# SECTION 7 — System prompt addition: explicit routing for "picks today"
+# questions so the model doesn't have to guess which tools to chain.
+# Append this to _AIEM_AGENT_SYSTEM.
+# ============================================================================
+
+_AIEM_SYSTEM_PROMPT_ADDITION = """
+
+WHEN A USER ASKS FOR TODAY'S PICKS OR CANDIDATES (e.g. "give me N stocks
+today that look ready to move", "what looks good today", "picks for
+today"):
+1. Call get_daily_candidates first. Do not hand-roll this from
+   mkt_find_behavioral_matches and the conviction stack separately — the
+   combined tool already ranks and cross-references them correctly.
+2. If get_daily_candidates returns fewer candidates than requested, say so
+   explicitly. Do not lower your own bar or pad the list with weak names to
+   hit the requested count — an honest "only 6 names clear the bar today"
+   is more useful and more honest than a padded list of 10.
+3. For every candidate presented, state the conviction score AND, if
+   present, the historical analog (ticker, date, what it did, similarity
+   score). Never state or imply a prediction of future performance — frame
+   everything as "this setup is statistically similar to historical setups
+   that did X" with the sample size attached.
+4. If a user pushes for a guarantee or asks "will this definitely go up",
+   decline to give one and restate the pattern-similarity framing.
+"""
+
+
+# ============================================================================
+# SECTION 8 — NEW TOOL: get_live_snapshot — true intraday data, fetched at
+# the moment the question is asked, not from a once-daily or 30-min-cadence
+# cached table.
+#
+# IMPORTANT CAVEAT: whether this is real-time or delayed depends on your
+# Polygon subscription tier. Polygon's free/basic tiers deliver 15-minute
+# delayed data on this endpoint; real-time requires their paid Stocks
+# Starter/Developer plan or above. Check what plan POLYGON_API_KEY is
+# tied to before assuming this is truly live.
+#
+# Uses the same urllib + POLYGON_API_KEY pattern already used for the
+# gainers scan (~line 28783) — no new auth/dependency, just a different
+# endpoint, called on-demand instead of on a schedule.
+# ============================================================================
+
+def _aiem_tool_get_live_snapshot(tickers) -> dict:
+    """Get live (or near-live, depending on your Polygon plan) intraday data
+    for specific tickers RIGHT NOW — current price, today's volume so far,
+    the most recent minute bar, and change % from previous close. Use this
+    whenever a question asks about 'right now', 'currently', 'this minute',
+    or otherwise needs fresher data than the daily conviction snapshot or
+    the 30-min behavioral scan can provide. Pass a list of ticker symbols
+    (max 50 per call to keep the response size sane).
+    """
+    import os as _os_ls, urllib.request as _ureq_ls, urllib.parse as _uparse_ls, json as _json_ls
+
+    if isinstance(tickers, str):
+        tickers = [tickers]
+    tickers = [t.upper().strip() for t in tickers if t][:50]
+    if not tickers:
+        return {"status": "error", "error": "no tickers provided"}
+
+    key = _os_ls.environ.get("POLYGON_API_KEY", "")
+    if not key:
+        return {"status": "error", "error": "POLYGON_API_KEY not configured"}
+
+    ticker_param = _uparse_ls.quote(",".join(tickers))
+    url = (
+        f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+        f"?tickers={ticker_param}&apiKey={key}"
+    )
+
+    try:
+        with _ureq_ls.urlopen(url, timeout=8) as resp:
+            data = _json_ls.load(resp)
+    except Exception as e:
+        return {"status": "error", "error": f"Polygon snapshot fetch failed: {e}"}
+
+    if data.get("status") not in ("OK", "DELAYED"):
+        return {"status": "error", "error": f"Polygon returned status={data.get('status')}"}
+
+    results = []
+    for t in (data.get("tickers") or []):
+        day = t.get("day") or {}
+        min_bar = t.get("min") or {}
+        prev = t.get("prevDay") or {}
+        last_trade = t.get("lastTrade") or {}
+        results.append({
+            "ticker": t.get("ticker"),
+            "last_price": last_trade.get("p") or day.get("c"),
+            "change_pct_today": t.get("todaysChangePerc"),
+            "day_open": day.get("o"),
+            "day_high": day.get("h"),
+            "day_low": day.get("l"),
+            "day_volume_so_far": day.get("v"),
+            "most_recent_minute_bar": {
+                "open": min_bar.get("o"), "high": min_bar.get("h"),
+                "low": min_bar.get("l"), "close": min_bar.get("c"),
+                "volume": min_bar.get("v"),
+                "bar_timestamp": min_bar.get("t"),
+            } if min_bar else None,
+            "prev_close": prev.get("c"),
+            "snapshot_updated_at": t.get("updated"),
+        })
+
+    return {
+        "status": "ok",
+        "data_status": data.get("status"),  # "OK" (real-time, your plan dependent) or "DELAYED"
+        "snapshots": results,
+        "n": len(results),
+        "note": (
+            "If data_status is DELAYED, this is NOT real-time — it reflects "
+            "Polygon's delayed-data tier. Say so explicitly if asked for "
+            "real-time data and this comes back delayed, rather than "
+            "presenting delayed data as current."
+        ),
+    }
+
+
+# Schema entry — add to _AIEM_AGENT_TOOLS list:
+_AIEM_TOOL_SCHEMA_ADDITION_LIVE = {
+    "type": "function",
+    "function": {
+        "name": "get_live_snapshot",
+        "description": (
+            "Get live intraday data for specific tickers AT THE MOMENT the "
+            "question is asked — current price, today's volume so far, the "
+            "most recent minute bar, and change % from previous close. Use "
+            "this whenever a question mentions 'right now', 'currently', "
+            "'this minute', 'today so far', or needs fresher data than the "
+            "daily conviction snapshot can provide. Always check data_status "
+            "in the response — DELAYED means this is NOT truly real-time and "
+            "you must say so if presenting it as current."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tickers": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "Ticker symbols to get live data for (max 50)",
+                },
+            },
+            "required": ["tickers"],
+        },
+    },
+}
+
+# Add to the merged _fs_tool_map (Section 1) and to _tool_map:
+#     "get_live_snapshot": _aiem_tool_get_live_snapshot,
+
+
+# ============================================================================
+# SECTION 9 — Enrich get_daily_candidates with live data automatically, so
+# "give me stocks today" answers reflect THIS MINUTE's price/volume, not
+# whatever conviction_stack_watchlist looked like when it last snapshotted.
+#
+# FIND the candidates.sort(...) / candidates = candidates[:limit] block near
+# the end of _aiem_tool_get_daily_candidates (Section 6) and ADD this right
+# after it, before the return statement:
+# ============================================================================
+
+# --- live enrichment: pull current intraday data for the final shortlist ---
+if candidates:
+    try:
+        _live = _aiem_tool_get_live_snapshot([c["ticker"] for c in candidates])
+        if _live.get("status") == "ok":
+            _live_by_ticker = {s["ticker"]: s for s in _live["snapshots"]}
+            for c in candidates:
+                c["live_snapshot"] = _live_by_ticker.get(c["ticker"])
+            _data_status = _live.get("data_status")
+        else:
+            _data_status = "unavailable"
+    except Exception:
+        _data_status = "unavailable"
+else:
+    _data_status = "no_candidates"
+
+# (then include `"live_data_status": _data_status,` in the returned dict,
+# alongside the existing "framing_required" note, so the model — and you —
+# always know whether what it just said is live, delayed, or stale.)
+
+
+# ============================================================================
+# SECTION 10 — System prompt addition: tell the agent to check freshness
+# explicitly. Append to _AIEM_AGENT_SYSTEM alongside Section 7's addition.
+# ============================================================================
+
+_AIEM_SYSTEM_PROMPT_ADDITION_LIVE = """
+
+ON DATA FRESHNESS:
+- get_daily_candidates now includes a live_snapshot per candidate and a
+  top-level live_data_status field. Always check this before answering.
+- If a user's question includes words like "right now", "currently",
+  "this minute", "today so far" — make sure your answer is grounded in the
+  live_snapshot data, not just the once-daily conviction score. If
+  live_data_status is "DELAYED", say explicitly that the data has some lag
+  rather than presenting it as up-to-the-minute.
+- If live_data_status is "unavailable" (snapshot fetch failed), say so and
+  fall back to the conviction score + behavioral match data with a caveat
+  that you don't have a live price check for this answer.
+- Markets are closed outside 9:30am-4:00pm ET on trading days. If asked for
+  "right now" data outside those hours, say the market is closed and the
+  data reflects the last close, not live trading.
+"""
+
+
+# ============================================================================
+# SECTION 11 — Tool registry consistency check (the structural fix)
+#
+# WHY THIS APPROACH, NOT A FULL DECORATOR REWRITE:
+# A "proper" registry pattern would redefine all 135 tool functions with a
+# decorator that registers name+schema+function together in one place. That
+# touches every single tool definition by hand across a 92,700-line file I
+# can't run or test — high risk for a marginal gain over the fix below.
+#
+# What actually causes the bug you hit (schema and tool map drifting apart
+# silently) is the ABSENCE of any check that they match. This adds that
+# check, once, at startup. If anyone — you, Replit's agent, a future
+# contractor — ever adds a tool to the schema and forgets the map (or vice
+# versa), the app logs a loud, specific error immediately on boot instead
+# of someone discovering it months later via "unknown tool" errors buried
+# in a chat transcript.
+#
+# Add this function anywhere after _AIEM_AGENT_TOOLS and the merged
+# _fs_tool_map (Section 1) are both defined, then CALL it once at app
+# startup (e.g. right after _init_conviction_stack_watchlist() or wherever
+# your other one-time startup calls live).
+# ============================================================================
+
+def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM"):
+    """Call once at startup. Raises loudly (prints + returns the mismatch
+    report) if the tool schema and tool map have drifted apart — the exact
+    bug class that caused 34/83 tools to silently fail on the chat path."""
+    schema_names = {
+        entry["function"]["name"]
+        for entry in schema_list
+        if entry.get("type") == "function"
+    }
+    map_names = set(tool_map.keys())
+
+    missing_from_map = schema_names - map_names
+    missing_from_schema = map_names - schema_names
+
+    if missing_from_map or missing_from_schema:
+        print(f"[{label} TOOL REGISTRY MISMATCH] ⚠️ ⚠️ ⚠️")
+        if missing_from_map:
+            print(
+                f"[{label}] {len(missing_from_map)} tools in schema but NOT in "
+                f"tool_map (model will get 'unknown tool' every time it calls "
+                f"these): {sorted(missing_from_map)}"
+            )
+        if missing_from_schema:
+            print(
+                f"[{label}] {len(missing_from_schema)} tools in tool_map but NOT "
+                f"in schema (model doesn't know it can call these): "
+                f"{sorted(missing_from_schema)}"
+            )
+        return {
+            "ok": False,
+            "missing_from_map": sorted(missing_from_map),
+            "missing_from_schema": sorted(missing_from_schema),
+        }
+
+    print(f"[{label} TOOL REGISTRY] ✅ {len(schema_names)} tools, schema and map fully consistent.")
+    return {"ok": True, "tool_count": len(schema_names)}
+
+
+# Call at startup, after _AIEM_AGENT_TOOLS and _fs_tool_map are defined:
+#     _validate_tool_registry_consistency(_AIEM_AGENT_TOOLS, _fs_tool_map, label="focused_session")
+#     _validate_tool_registry_consistency(_AIEM_AGENT_TOOLS, _tool_map, label="research_agent")
+#
+# Run it for BOTH maps separately (focused_session's and research_agent's) —
+# they should each be checked against the schema independently, since
+# they're still two separate maps even after the Section 1 merge fixed
+# today's specific gap. This is what catches it if they drift apart again.
+
+
+# ============================================================================
+# SECTION 12 — Schema stubs for the 52 tools that exist as working functions
+# but have never had a schema entry, so the model has never been able to
+# call them at all. Generated from each function's REAL signature (not
+# guessed) — but descriptions marked "no docstring found" should be reviewed
+# by you before relying on them, since I'm inferring intent from the
+# function name alone in those cases.
+#
+# A few of these look like internal safety/ops tooling (kill switches, retrain
+# approval queue, shadow-trade tracking) rather than something you'd want a
+# subscriber-facing chat agent calling on its own. Recommend reviewing the
+# list and removing any you don't want the model invoking before merging
+# this into your live schema — exposing a tool to the model means the model
+# can decide to call it, including ones with side effects like
+# clear_kill_switch_halt or retrain_approve.
+#
+# Append these entries to _AIEM_AGENT_TOOLS, and add the corresponding
+# entries to your tool map (they already have a working function — just
+# add "name": funcref to _fs_tool_map and _tool_map using the names below).
+# ============================================================================
+
+# AUTO-GENERATED from existing function signatures — review descriptions
+# before trusting them blindly, especially the ones marked 'no docstring found'.
+_AUTO_GENERATED_TOOL_SCHEMAS = [
+    {"type": "function", "function": {
+        "name": "adversarial_review",
+        "description": '(no docstring found — verify behavior before exposing to the agent: _aiem_tool_adversarial_review)',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "benchmark_vs_baselines",
+        "description": '(no docstring found — verify behavior before exposing to the agent: _aiem_tool_benchmark_vs_baselines)',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "breakout_discover",
+        "description": 'Discover breakout precursor patterns from labeled price history.',
+        "parameters": {"type": "object", "properties": {
+            "price_histories_json": {"type": "string"},
+            "train_end_date": {"type": "string"},
+            "lookback_days_before_breakout": {"type": "integer"},
+        }, "required": ['price_histories_json', 'train_end_date']}
+    }},
+    {"type": "function", "function": {
+        "name": "breakout_extract_features",
+        "description": 'Extract breakout-relevant features from a price history.',
+        "parameters": {"type": "object", "properties": {
+            "price_history_json": {"type": "string"},
+            "ticker": {"type": "string"},
+        }, "required": ['price_history_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "causal_discover",
+        "description": 'Causal discovery across provided variables over a lookback window.',
+        "parameters": {"type": "object", "properties": {
+            "variables_json": {"type": "string"},
+            "lookback_days": {"type": "integer"},
+        }, "required": ['variables_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "check_kill_switch",
+        "description": '(no docstring found — verify behavior before exposing to the agent: _aiem_tool_check_kill_switch)',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "check_price_bullish",
+        "description": 'Quick helper: is price currently bullish over the given lookback window?',
+        "parameters": {"type": "object", "properties": {
+            "price_history_json": {"type": "string"},
+            "lookback": {"type": "integer"},
+        }, "required": ['price_history_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "check_shadow_promotion",
+        "description": 'Read-only check: has the shadow window completed with enough trades?',
+        "parameters": {"type": "object", "properties": {
+            "window_id": {"type": "string"},
+        }, "required": ['window_id']}
+    }},
+    {"type": "function", "function": {
+        "name": "clear_kill_switch_halt",
+        "description": 'Owner-only: clear a kill-switch halt after reviewing the cause.',
+        "parameters": {"type": "object", "properties": {
+            "cleared_by": {"type": "string"},
+            "note": {"type": "string"},
+        }, "required": ['cleared_by']}
+    }},
+    {"type": "function", "function": {
+        "name": "close_eval_window",
+        "description": '(no docstring found — verify behavior before exposing to the agent: _aiem_tool_close_eval_window)',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "close_shadow_trade",
+        "description": 'Close a shadow position and record the exit price.',
+        "parameters": {"type": "object", "properties": {
+            "position_id, exit_price": {"type": "string"},
+        }, "required": ['position_id, exit_price']}
+    }},
+    {"type": "function", "function": {
+        "name": "decision_quality_summary",
+        "description": 'Win-rate and avg-confidence breakdown by decision type for a signal.',
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string"},
+        }, "required": ['signal_name']}
+    }},
+    {"type": "function", "function": {
+        "name": "deep_rl_get_paper_action",
+        "description": 'Get a paper-trading action from a deep RL policy.',
+        "parameters": {"type": "object", "properties": {
+            "policy_name": {"type": "string"},
+            "signal_name": {"type": "string"},
+            "state_json": {"type": "string"},
+        }, "required": ['policy_name', 'signal_name', 'state_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "deep_rl_probe",
+        "description": "Probe a deep RL policy's current live state.",
+        "parameters": {"type": "object", "properties": {
+            "policy_name": {"type": "string"},
+        }, "required": ['policy_name']}
+    }},
+    {"type": "function", "function": {
+        "name": "divergence_scan",
+        "description": 'Scan for price/VIX-term-structure divergence.',
+        "parameters": {"type": "object", "properties": {
+            "price_history_json": {"type": "string"},
+            "vix_front_month_json": {"type": "string"},
+            "vix_back_month_json": {"type": "string"},
+        }, "required": ['price_history_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "ensemble_combine_signals",
+        "description": 'Combine multiple signal scores into an ensemble score weighted by win rate.',
+        "parameters": {"type": "object", "properties": {
+            "signal_scores_json": {"type": "string"},
+            "signal_win_rates_json": {"type": "string"},
+        }, "required": ['signal_scores_json', 'signal_win_rates_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "eval_window_history",
+        "description": 'All evaluation windows for a signal — this is the cumulative track record.',
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string"},
+        }, "required": ['signal_name']}
+    }},
+    {"type": "function", "function": {
+        "name": "execution_realistic_cost",
+        "description": 'Estimate realistic execution cost (slippage + spread) for a trade.',
+        "parameters": {"type": "object", "properties": {
+            "mid_entry": {"type": "number"},
+            "mid_exit": {"type": "number"},
+            "direction": {"type": "string"},
+            "order_shares": {"type": "number"},
+            "avg_daily_vol": {"type": "number"},
+        }, "required": ['mid_entry', 'mid_exit']}
+    }},
+    {"type": "function", "function": {
+        "name": "gap_continuation_score",
+        "description": 'Score likelihood a premarket gap continues, trained on labeled historical gaps.',
+        "parameters": {"type": "object", "properties": {
+            "labeled_data_json": {"type": "string"},
+            "train_end_date": {"type": "string"},
+            "current_premarket_json": {"type": "string"},
+        }, "required": ['labeled_data_json', 'train_end_date', 'current_premarket_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "gate_history",
+        "description": 'Pull recent gate decisions — check whether BLOCKED/APPROVED_WITH_CAUTION actually appears.',
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer"},
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "get_decisions",
+        "description": '(no docstring found — verify behavior before exposing to the agent: _aiem_tool_get_decisions)',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "get_literature_briefs",
+        "description": 'Return unreviewed research briefs from the literature scanner.',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "get_regime_flags",
+        "description": 'Return open (unacknowledged) regime flags. Pass signal_name to filter.',
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string"},
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "intraday_compute_features",
+        "description": 'Compute intraday feature set from minute bars for continuation scoring.',
+        "parameters": {"type": "object", "properties": {
+            "intraday_bars_json": {"type": "string"},
+            "prev_close": {"type": "string"},
+        }, "required": ['intraday_bars_json', 'prev_close']}
+    }},
+    {"type": "function", "function": {
+        "name": "intraday_continuation_score",
+        "description": 'Score likelihood an intraday move continues, trained on labeled historical moves.',
+        "parameters": {"type": "object", "properties": {
+            "labeled_data_json": {"type": "string"},
+            "train_end_date": {"type": "string"},
+            "today_features_json": {"type": "string"},
+        }, "required": ['labeled_data_json', 'train_end_date', 'today_features_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "is_eval_window_active",
+        "description": 'Check if evaluation window is still open. If active=False, stop the loop.',
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string"},
+        }, "required": ['signal_name']}
+    }},
+    {"type": "function", "function": {
+        "name": "kill_switch_events",
+        "description": 'Read halt/clear event history.',
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "string"},
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "list_hypotheses",
+        "description": 'List recent hypotheses (locked and pending). Shows Bonferroni alpha.',
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "string"},
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "log_decision",
+        "description": '(no docstring found — verify behavior before exposing to the agent: _aiem_tool_log_decision)',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "model_version_history",
+        "description": 'Show all saved versions of an online-learning model and which is live.',
+        "parameters": {"type": "object", "properties": {
+            "model_name": {"type": "string"},
+        }, "required": ['model_name']}
+    }},
+    {"type": "function", "function": {
+        "name": "open_shadow_trade",
+        "description": '(no docstring found — verify behavior before exposing to the agent: _aiem_tool_open_shadow_trade)',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "portfolio_allocate",
+        "description": 'Allocate paper capital across signals based on their stats.',
+        "parameters": {"type": "object", "properties": {
+            "signal_stats_json": {"type": "string"},
+            "total_paper_capital": {"type": "number"},
+        }, "required": ['signal_stats_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "record_decision_outcome",
+        "description": 'Fill in actual return once a paper position is closed.',
+        "parameters": {"type": "object", "properties": {
+            "decision_id, outcome_return": {"type": "string"},
+            "notes": {"type": "string"},
+        }, "required": ['decision_id, outcome_return']}
+    }},
+    {"type": "function", "function": {
+        "name": "record_human_eval_decision",
+        "description": 'Owner logs what they decided after reading the checkpoint report.',
+        "parameters": {"type": "object", "properties": {
+            "window_id, decision_note": {"type": "string"},
+        }, "required": ['window_id, decision_note']}
+    }},
+    {"type": "function", "function": {
+        "name": "regime_overlay_check",
+        "description": 'Run the full 6-indicator regime check against live DB data and log the result.',
+        "parameters": {"type": "object", "properties": {
+            "lookback_days": {"type": "integer"},
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "regime_overlay_manual",
+        "description": 'Run the regime check with manually-supplied indicator values.',
+        "parameters": {"type": "object", "properties": {
+            "vix_current": {"type": "string"},
+            "spy_close": {"type": "string"},
+            "put_call_ratio": {"type": "number"},
+        }, "required": ['vix_current', 'spy_close']}
+    }},
+    {"type": "function", "function": {
+        "name": "register_hypothesis",
+        "description": '(no docstring found — verify behavior before exposing to the agent: _aiem_tool_register_hypothesis)',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "retrain_approve",
+        "description": 'Approve a pending model retrain run for promotion to live.',
+        "parameters": {"type": "object", "properties": {
+            "run_id": {"type": "integer"},
+            "decided_by": {"type": "string"},
+            "notes": {"type": "string"},
+        }, "required": ['run_id', 'decided_by']}
+    }},
+    {"type": "function", "function": {
+        "name": "retrain_history",
+        "description": 'Full history of retrain attempts for a model, including rejected ones.',
+        "parameters": {"type": "object", "properties": {
+            "model_name": {"type": "string"},
+            "limit": {"type": "integer"},
+        }, "required": ['model_name']}
+    }},
+    {"type": "function", "function": {
+        "name": "retrain_pending",
+        "description": 'Return the promotion queue — retrain runs waiting for a human decision.',
+        "parameters": {"type": "object", "properties": {
+            "model_name": {"type": "string"},
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "retrain_reject",
+        "description": 'Reject a pending model retrain run.',
+        "parameters": {"type": "object", "properties": {
+            "run_id": {"type": "integer"},
+            "decided_by": {"type": "string"},
+            "notes": {"type": "string"},
+        }, "required": ['run_id', 'decided_by']}
+    }},
+    {"type": "function", "function": {
+        "name": "rl_get_paper_action",
+        "description": 'Get a paper-trading position-sizing action from an RL policy.',
+        "parameters": {"type": "object", "properties": {
+            "policy_name": {"type": "string"},
+            "signal_name": {"type": "string"},
+            "conviction_score": {"type": "number"},
+            "unrealized_pnl_pct": {"type": "number"},
+            "days_held": {"type": "integer"},
+        }, "required": ['policy_name', 'signal_name', 'conviction_score', 'unrealized_pnl_pct', 'days_held']}
+    }},
+    {"type": "function", "function": {
+        "name": "rl_readable_policy",
+        "description": "Get a human-readable description of an RL policy's current behavior.",
+        "parameters": {"type": "object", "properties": {
+            "policy_name": {"type": "string"},
+        }, "required": ['policy_name']}
+    }},
+    {"type": "function", "function": {
+        "name": "run_granger_test",
+        "description": "Granger-precedence test: does this ticker's options flow score predict",
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string"},
+            "forward_days": {"type": "string"},
+            "days_back": {"type": "string"},
+        }, "required": ['ticker']}
+    }},
+    {"type": "function", "function": {
+        "name": "run_risk_gate",
+        "description": 'The last checkpoint before a pick reaches the email — runs adversarial review.',
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string"},
+            "signal_name": {"type": "string"},
+            "reasoning": {"type": "string"},
+            "conviction_score": {"type": "number"},
+            "n_trades": {"type": "integer"},
+            "win_rate": {"type": "number"},
+            "hypothesis_params_json": {"type": "string"},
+            "universe_description": {"type": "string"},
+        }, "required": ['ticker', 'signal_name', 'reasoning', 'conviction_score', 'n_trades', 'win_rate', 'hypothesis_params_json', 'universe_description']}
+    }},
+    {"type": "function", "function": {
+        "name": "send_discovery_alert",
+        "description": 'Send an email/SMS alert for a discovery that passed the risk gate.',
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string"},
+            "signal_name": {"type": "string"},
+            "confidence": {"type": "number"},
+        }, "required": ['ticker', 'signal_name', 'confidence']}
+    }},
+    {"type": "function", "function": {
+        "name": "shadow_stats",
+        "description": 'Win-rate and avg-return stats for all closed shadow trades of a signal.',
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string"},
+        }, "required": ['signal_name']}
+    }},
+    {"type": "function", "function": {
+        "name": "simulation_audit_trail",
+        "description": 'Read back the simulation-lock audit log to see every check point.',
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "string"},
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "simulation_lock_check",
+        "description": 'Confirm the process is in simulation (paper) mode. Call this FIRST',
+        "parameters": {"type": "object", "properties": {
+        }}
+    }},
+    {"type": "function", "function": {
+        "name": "squeeze_subscore",
+        "description": 'Standalone rule-based short squeeze ingredients check (no ML needed).',
+        "parameters": {"type": "object", "properties": {
+            "features_json": {"type": "string"},
+            "ticker": {"type": "string"},
+        }, "required": ['features_json']}
+    }},
+    {"type": "function", "function": {
+        "name": "start_eval_window",
+        "description": 'Start a fixed evaluation window. Refuses if one already exists for this signal.',
+        "parameters": {"type": "object", "properties": {
+            "signal_name, starting_paper_equity": {"type": "string"},
+            "weeks": {"type": "string"},
+        }, "required": ['signal_name, starting_paper_equity']}
+    }},
+    {"type": "function", "function": {
+        "name": "start_shadow_window",
+        "description": 'Start a shadow trading window for a newly validated signal.',
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string"},
+            "weeks": {"type": "string"},
+            "min_trades_required": {"type": "string"},
+        }, "required": ['signal_name']}
+    }},
+]

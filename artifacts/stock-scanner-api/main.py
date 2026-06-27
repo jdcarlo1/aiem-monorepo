@@ -23301,6 +23301,47 @@ def _build_aiem_tool_map():
     }
 
 
+def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM"):
+    """Call once at startup. Prints a loud mismatch report if the tool schema
+    and tool map have drifted apart — the exact bug class that caused 34/83
+    tools to silently fail on the chat path (schema-advertised but not in map
+    → model gets 'unknown tool' every time). Also reports the reverse: tools
+    in the map but not in the schema (model doesn't know it can call them).
+    """
+    schema_names = {
+        entry["function"]["name"]
+        for entry in schema_list
+        if entry.get("type") == "function"
+    }
+    map_names = set(tool_map.keys())
+
+    missing_from_map    = schema_names - map_names
+    missing_from_schema = map_names - schema_names
+
+    if missing_from_map or missing_from_schema:
+        print(f"[{label} TOOL REGISTRY MISMATCH] ⚠️ ⚠️ ⚠️")
+        if missing_from_map:
+            print(
+                f"[{label}] {len(missing_from_map)} tools in schema but NOT in "
+                f"tool_map (model will get 'unknown tool' on these): "
+                f"{sorted(missing_from_map)}"
+            )
+        if missing_from_schema:
+            print(
+                f"[{label}] {len(missing_from_schema)} tools in tool_map but NOT "
+                f"in schema (model doesn't know it can call these): "
+                f"{sorted(missing_from_schema)}"
+            )
+        return {
+            "ok": False,
+            "missing_from_map":    sorted(missing_from_map),
+            "missing_from_schema": sorted(missing_from_schema),
+        }
+
+    print(f"[{label} TOOL REGISTRY] ✅ {len(schema_names)} tools — schema and map fully consistent.")
+    return {"ok": True, "tool_count": len(schema_names)}
+
+
 def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                                max_iterations: int = 12, on_step=None):
     """
@@ -25636,6 +25677,19 @@ ON DATA FRESHNESS:
 - If live_data_status is "unavailable", fall back to the conviction score + behavioral match data with a caveat that you don't have a live price check for this answer.
 - Markets are closed outside 9:30am-4:00pm ET on trading days. If asked for "right now" data outside those hours, say the market is closed and the data reflects the last close."""
 
+
+def _startup_validate_tool_registry():
+    """Deferred startup check — runs 10s after boot once all module-level
+    definitions are complete. Prints a loud mismatch report if the AIEM tool
+    schema and the focused-session tool map have drifted apart."""
+    try:
+        _validate_tool_registry_consistency(
+            _AIEM_AGENT_TOOLS, _build_aiem_tool_map(), label="AIEM"
+        )
+    except Exception as _vtr_e:
+        print(f"[tool_registry] startup validation error: {_vtr_e}")
+
+threading.Timer(10.0, _startup_validate_tool_registry).start()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
