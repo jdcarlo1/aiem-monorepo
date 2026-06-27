@@ -1,0 +1,31 @@
+# Diagnostic Request: Conviction Stack Race Condition
+
+## What we already know
+- `startup_preload` runs as a background thread (line ~3990).
+- Inside it, there's a hardcoded `time.sleep(5)` before it reads from the database (line ~3766).
+- Any request that hits the server within that 5-second window after a process starts gets back an EMPTY conviction stack, because the background thread hasn't read anything from the DB yet.
+- This explains both symptoms: port 21411 showing 0 items (hit during the window), and stocks "disappearing" on the live site (happens every time the process restarts/redeploys — autoscaling spin-up, crash, or new deploy).
+
+## What I need to see to confirm the fix
+
+**1. Where the conviction stack variable is declared and how it's written to.**
+Please share the code around wherever the conviction stack (the list/dict of 29 items) is defined as a variable, and the exact lines inside `startup_preload` that populate it after the sleep — specifically:
+- Is it a plain global variable/list?
+- Does the background thread build it incrementally (appending item by item) or build a separate complete list first and then assign it all at once?
+
+**2. The read endpoint that serves the conviction stack to the frontend.**
+Please share the route/endpoint function that returns the stack data — specifically:
+- What does it return if the stack is empty (empty array with 200 OK, or something else)?
+- Does it check any "ready" flag before responding, or does it just return whatever is currently in the variable?
+
+**3. Confirm what's running on port 80 vs port 21411.**
+Are these two separate deployments, or one app where 21411 is a preview/dev port hitting the same in-memory state?
+
+## The fix we're expecting to recommend (pending the above)
+Replace the fixed `sleep(5)` with an explicit readiness flag:
+- Build the full stack in a local variable first.
+- Only assign it to the global/shared variable once it's completely built (atomic swap, not incremental writes visible mid-build).
+- Add an explicit `is_ready` boolean that starts `False` and flips to `True` only after that swap.
+- Update the read endpoint to check `is_ready` — if `False`, return a "still loading" response (e.g. 503 or a clear status field) instead of an empty 200 OK that looks like "no stocks found."
+
+This removes the race condition entirely regardless of how long the DB read actually takes, instead of guessing at a "safe enough" sleep duration.

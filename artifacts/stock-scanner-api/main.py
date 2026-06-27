@@ -3761,7 +3761,6 @@ try:
     # this cache with a fresh scan once it completes.
     def _startup_preload():
         import time as _t_pl, datetime as _dt_pl
-        _t_pl.sleep(5)
         _pl_loaded = []
 
         # ── 1. Unusual Calls (existing logic) ────────────────────────────────
@@ -33153,6 +33152,47 @@ def conviction_stack_endpoint():
     _cs_stk_ts    = getattr(app, "_cs_stk_ts",    None)
     if _cs_stk_cache and _cs_stk_ts and (_stk_dt.now() - _cs_stk_ts).total_seconds() < 600:
         return jsonify(_cs_stk_cache)
+
+    # ── Inline DB fallback ───────────────────────────────────────────────────
+    # Runs SYNCHRONOUSLY when cache is empty (e.g. just after a restart).
+    # Guarantees users always see data on first hit — no waiting for background thread.
+    if not _cs_stk_cache:
+        try:
+            import psycopg2 as _pg_imm
+            with _pg_imm.connect(_DB_URL, connect_timeout=2,
+                                 options="-c statement_timeout=3000 -c lock_timeout=1000") as _c_imm, \
+                 _c_imm.cursor() as _cu_imm:
+                _cu_imm.execute(
+                    "SELECT ticker, total_pts, conviction_pct, label, price,"
+                    " layers, meta, rank, universe_count, source, snap_date"
+                    " FROM conviction_stack_watchlist"
+                    " ORDER BY snap_date DESC, rank ASC LIMIT 150"
+                )
+                _cols_imm = [d[0] for d in _cu_imm.description]
+                _rows_imm = _cu_imm.fetchall()
+            if _rows_imm:
+                _db_imm = []
+                for _rr in _rows_imm:
+                    _dd = dict(zip(_cols_imm, _rr))
+                    _db_imm.append({
+                        "ticker":         _dd["ticker"],
+                        "total_pts":      float(_dd["total_pts"] or 0),
+                        "conviction_pct": int(_dd["conviction_pct"] or 0),
+                        "label":          _dd["label"] or "",
+                        "price":          float(_dd["price"] or 0),
+                        "layers":         _dd["layers"] if isinstance(_dd["layers"], dict) else {},
+                        "meta":           _dd["meta"] if isinstance(_dd["meta"], dict) else {},
+                        "rank":           int(_dd["rank"] or 0),
+                        "source":         "db_inline",
+                        "snap_date":      str(_dd["snap_date"]) if _dd["snap_date"] else None,
+                    })
+                app._cs_stk_cache = {"results": _db_imm, "count": len(_db_imm),
+                                     "stale": True, "source": "db_inline"}
+                app._cs_stk_ts    = _stk_dt.now()
+                _cs_stk_cache     = app._cs_stk_cache
+        except Exception:
+            pass
+    # ── end inline fallback ──────────────────────────────────────────────────
 
     def _bg_stk():
         if getattr(app, "_stk_scanning", False):
