@@ -138,3 +138,9 @@ id = "GoK-pyH0vJODV63hPiwNG"
 uri = "file://stockscanner_code.zip"
 type = "unspecified"
 title = "StockScanner AI — Full Source Code"
+
+[[outputs]]
+id = "hqc9gTC1InTHIJv0KuS4Q"
+uri = "file://stockscanner_code.pdf"
+type = "pdf"
+title = "StockScanner AI — Full Source Code (195 pages)"
