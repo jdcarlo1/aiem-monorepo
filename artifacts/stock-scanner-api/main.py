@@ -2266,8 +2266,15 @@ try:
     )
     # Mid-Day Breakout scan: every 5 min 10:30 AM – 3:30 PM ET
     # Confirmed trend + above VWAP + 15-min momentum - lower risk than morning entry
+    # Time-window guard prevents this from firing in the 9:30-10:30 morning burst window.
     def _run_midday_breakout_scan():
         if not _intraday_scan_allowed():
+            return
+        import datetime as _dtmb
+        _h_mb = _dtmb.datetime.now(_ET).hour
+        _m_mb = _dtmb.datetime.now(_ET).minute
+        # Only fire 10:30 AM – 3:30 PM ET
+        if _h_mb < 10 or (_h_mb == 10 and _m_mb < 30) or _h_mb >= 15 or (_h_mb == 15 and _m_mb >= 30):
             return
         try:
             import threading as _thr_md
@@ -2284,8 +2291,15 @@ try:
     )
     # Gap Recovery scan: every 5 min 10:30 AM – 1:00 PM ET
     # Big gapper (20%+) that sold off then reclaimed VWAP with momentum
+    # Time-window guard prevents this from firing in the 9:30-10:30 morning burst window.
     def _run_gap_recovery_scan():
         if not _intraday_scan_allowed():
+            return
+        import datetime as _dtgr
+        _h_gr = _dtgr.datetime.now(_ET).hour
+        _m_gr = _dtgr.datetime.now(_ET).minute
+        # Only fire 10:30 AM – 1:00 PM ET
+        if _h_gr < 10 or (_h_gr == 10 and _m_gr < 30) or _h_gr >= 13:
             return
         try:
             import threading as _thr_gr
@@ -2304,8 +2318,15 @@ try:
     # Large/mid-cap institutional accumulation stocks (FRO/AMKR type)
     # Low RVOL (1-3x) but sustained uptrend confirmed by dual 45-min trend check
     # avg vol ≥ 1M, above VWAP, within 2% of HOD, has options
+    # Time-window guard prevents this from firing before 11:00 AM.
     def _run_steady_grinder_scan():
         if not _intraday_scan_allowed():
+            return
+        import datetime as _dtsg
+        _h_sg = _dtsg.datetime.now(_ET).hour
+        _m_sg = _dtsg.datetime.now(_ET).minute
+        # Only fire 11:00 AM – 1:30 PM ET
+        if _h_sg < 11 or _h_sg >= 13 or (_h_sg == 13 and _m_sg >= 30):
             return
         try:
             import threading as _thr_sg
@@ -3986,6 +4007,69 @@ try:
                     _pl_loaded.append(f"microcap-calls({len(_rows_mc2)})")
         except Exception as _e_mc2:
             print(f"[startup_preload] microcap-calls error: {_e_mc2}")
+
+        # ── Morning Runners from scan_result_cache ────────────────────────────
+        # Pre-warms _mr_cache so the morning-runners tab responds instantly after
+        # a cold restart (avoids the 5s DB connect during the first user click).
+        try:
+            _mr_cached = _load_scan_cache("morning-runners")
+            if _mr_cached:
+                import datetime as _dt_mr_pl
+                app._mr_cache    = _mr_cached
+                app._mr_cache_ts = _dt_mr_pl.datetime.now()
+                _pl_loaded.append(f"morning-runners({len(_mr_cached.get('runners', []))})")
+        except Exception as _e_mr_pl:
+            print(f"[startup_preload] morning-runners error: {_e_mr_pl}")
+
+        # ── EOD Accumulation from eod_accum_picks ────────────────────────────
+        # Pre-warms _eod_accum_cache so the EOD tab responds instantly after restart.
+        try:
+            import psycopg2 as _pg_ea_pl, datetime as _dt_ea_pl
+            with _pg_ea_pl.connect(_DB_URL, connect_timeout=3,
+                                    options="-c statement_timeout=3000") as _c_ea_pl, \
+                 _c_ea_pl.cursor() as _cu_ea_pl:
+                _cu_ea_pl.execute("""
+                    SELECT ticker, close_price, accum_score, eod_rel_vol, late_flow,
+                           closing_range, price_chg_pct, mkt_cap_m, news_type, news_headline,
+                           COALESCE(signal_type, 'accum') AS signal_type, scanned_at
+                    FROM eod_accum_picks
+                    WHERE scan_date >= (now() AT TIME ZONE 'America/New_York')::date - 1
+                    ORDER BY scan_date DESC, accum_score DESC
+                    LIMIT 30
+                """)
+                _ea_rows_pl = _cu_ea_pl.fetchall()
+                _ea_cols_pl = [d[0] for d in _cu_ea_pl.description]
+            if _ea_rows_pl:
+                _ea_picks_pl = []
+                for _r_ea_pl in _ea_rows_pl:
+                    _d_ea_pl = dict(zip(_ea_cols_pl, _r_ea_pl))
+                    _ea_picks_pl.append({
+                        "ticker": _d_ea_pl["ticker"],
+                        "close": float(_d_ea_pl["close_price"] or 0),
+                        "prev_close": None, "day_high": None, "day_low": None,
+                        "accum_score": float(_d_ea_pl["accum_score"] or 0),
+                        "eod_rel_vol": float(_d_ea_pl["eod_rel_vol"] or 0),
+                        "late_flow": float(_d_ea_pl["late_flow"] or 0),
+                        "closing_range": float(_d_ea_pl["closing_range"] or 0),
+                        "price_chg_pct": float(_d_ea_pl["price_chg_pct"] or 0),
+                        "mkt_cap_m": float(_d_ea_pl.get("mkt_cap_m") or 0),
+                        "news_type": _d_ea_pl.get("news_type", "none"),
+                        "news_headline": _d_ea_pl.get("news_headline"),
+                        "signal_type": _d_ea_pl.get("signal_type", "accum"),
+                        "pre_ignition_count": 0,
+                    })
+                _ea_accum_pl   = [r for r in _ea_picks_pl if r["signal_type"] != "squeeze"]
+                _ea_squeeze_pl = [r for r in _ea_picks_pl if r["signal_type"] == "squeeze"]
+                _ea_out_pl = {
+                    "candidates": _ea_accum_pl[:15], "squeeze_setups": _ea_squeeze_pl[:10],
+                    "total_found": len(_ea_picks_pl), "scanned": len(_ea_picks_pl),
+                    "generated_at": "Stored (boot preload)",
+                }
+                app._eod_accum_cache    = _ea_out_pl
+                app._eod_accum_cache_ts = _dt_ea_pl.datetime.now()
+                _pl_loaded.append(f"eod-accum({len(_ea_picks_pl)})")
+        except Exception as _e_ea_pl:
+            print(f"[startup_preload] eod-accum error: {_e_ea_pl}")
 
         # ── Summary ───────────────────────────────────────────────────────────
         if _pl_loaded:
@@ -26039,7 +26123,7 @@ def _startup_validate_tool_registry():
         # Check 1 from the reviewer's standalone verification file:
         print(f"[tool map check] {len(_m)} tools wired (should be 137)")
         _validate_tool_registry_consistency(
-            _AIEM_AGENT_TOOLS, _m, label="AIEM",
+            _AIEM_AGENT_TOOLS, _m, label="focused_session",
             intentional_exclusions=_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS,
         )
     except Exception as _vtr_e:
@@ -39583,19 +39667,24 @@ def eod_accumulation():
         return jsonify(_cache)
 
     if _after_close:  # after market close, DB is authoritative - bust only clears in-memory cache
-        # Migration in its own connection with a 1s lock timeout so a table lock
-        # can never block the data SELECT below.
+        # Single connection handles both the once-per-process migration and the data SELECT.
+        # Avoids two sequential TCP-level connection round-trips (was causing 6s+ timeout on
+        # cold restarts when both connect_timeout=5 calls happened close together under load).
         try:
-            with _pg_ea.connect(_DB_URL, connect_timeout=5) as _c_mig, _c_mig.cursor() as _cu_mig:
-                _cu_mig.execute("SET LOCAL lock_timeout = '1s'")
-                _cu_mig.execute(
-                    "ALTER TABLE eod_accum_picks ADD COLUMN IF NOT EXISTS signal_type TEXT DEFAULT 'accum'"
-                )
-                _c_mig.commit()
-        except Exception:
-            pass  # column already exists or lock held - non-fatal, COALESCE handles it
-        try:
-            with _pg_ea.connect(_DB_URL, connect_timeout=5) as _c_db, _c_db.cursor() as _cu_db:
+            with _pg_ea.connect(_DB_URL, connect_timeout=5,
+                                 options="-c statement_timeout=4000") as _c_db, \
+                 _c_db.cursor() as _cu_db:
+                # Run migration once per process lifetime; idempotent due to IF NOT EXISTS.
+                if not getattr(_eod_accumulation, "_migration_done", False):
+                    try:
+                        _cu_db.execute("SET LOCAL lock_timeout = '500ms'")
+                        _cu_db.execute(
+                            "ALTER TABLE eod_accum_picks ADD COLUMN IF NOT EXISTS signal_type TEXT DEFAULT 'accum'"
+                        )
+                        _c_db.commit()
+                        _eod_accumulation._migration_done = True
+                    except Exception:
+                        pass  # column already exists or lock held - non-fatal
                 _cu_db.execute("""
                     SELECT ticker, close_price, accum_score, eod_rel_vol, late_flow,
                            closing_range, price_chg_pct, mkt_cap_m, news_type, news_headline,

@@ -81,3 +81,5 @@
 - [Dashboard tab type union](dashboard-tab-union.md) — every new tab ID must be added to useState type AND tab list; missing entry causes TS2367 on every render → black screen; TabErrorBoundary now wraps content
 - [Tradier greeks=false IV bug](tradier-iv-fix.md) — greeks:"false" → Tradier returns null IV → iv=0 stored; backfill-iv admin endpoint fixes existing rows; only effective during market hours
 - [AIEM tool map canonical source](aiem-tool-map.md) — _build_aiem_tool_map() must stay in sync with research agent map + schema; startup reconcile needs 3s deferred timer; all sessions share app._aiem_qa_lock
+- [Interval job time-window burst](interval-job-burst.md) — midday-breakout/gap-recovery/steady-grinder must have ET hour/minute guards or they fire in 9:30-10:30 morning burst and saturate yfinance
+- [Startup preload pattern](startup-preload-all-tabs.md) — already exists; add new tabs to _startup_preload() + _load_scan_cache; cold-boot latency is one-time, warm cache is <25ms
