@@ -15230,31 +15230,110 @@ export default function Dashboard() {
               refetchInterval: 5 * 60_000,
             });
             const results: GrinderResult[] = data?.results ?? [];
-            const scanDate = data?.scan_date;
-            const stale    = data?.stale;
-            const dpColor  = (sig: string) => {
-              if (sig === "EXTREME")  return "#f59e0b";
-              if (sig === "HIGH")     return "#10b981";
-              if (sig === "ELEVATED") return "#38bdf8";
-              if (sig === "NOTABLE")  return "#a78bfa";
-              return "#475569";
+            const confirmed  = results.filter(r => r.sweep_confirmed);
+            const watchList  = results.filter(r => !r.sweep_confirmed);
+            const stale      = data?.stale;
+
+            const patternLabel = (p: string) => {
+              if (p === "SHAKEOUT_REENTRY")   return { label: "🎯 SHAKEOUT→REENTRY", color: "#fbbf24" };
+              if (p === "STEADY_LOAD")         return { label: "📈 STEADY LOAD",      color: "#22c55e" };
+              if (p === "EARLY_ACCUMULATION")  return { label: "🔎 EARLY ACCUM",      color: "#38bdf8" };
+              return                                  { label: "👁 WATCH",             color: "#64748b" };
             };
-            const fmtVol = (v: number | null | undefined) => {
-              if (v == null) return "—";
-              return v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`;
+
+            const CsBar = ({ pct }: { pct: number }) => (
+              <div className="flex items-center gap-1.5">
+                <div className="bg-slate-800 rounded-sm h-1.5 w-12 flex-shrink-0">
+                  <div className="bg-emerald-500 rounded-sm h-1.5" style={{ width: `${Math.min(pct, 100)}%` }} />
+                </div>
+                <span className="text-slate-500 text-[10px]">{pct.toFixed(0)}%</span>
+              </div>
+            );
+
+            const GrinderRow = ({ r, highlight }: { r: GrinderResult; highlight: boolean }) => {
+              const pl = patternLabel(r.pattern);
+              const volArrow = r.vol_building ? "↑" : "→";
+              return (
+                <div
+                  className="grid px-4 py-3 border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors items-center"
+                  style={{
+                    gridTemplateColumns: "1fr 1fr 1fr 1fr 80px",
+                    background: highlight ? "rgba(21,128,61,0.06)" : undefined,
+                  }}
+                >
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        onClick={() => { setTicker(r.ticker); setTab("lookup"); }}
+                        className="font-bold text-white text-sm hover:text-emerald-400 transition-colors"
+                      >
+                        {r.ticker}
+                      </button>
+                      {r.sweep_confirmed && (
+                        <span className="bg-amber-400 text-slate-900 text-[9px] font-black px-1.5 py-0.5 rounded">⚡ SWEEP</span>
+                      )}
+                    </div>
+                    <div className="text-slate-500 text-xs">${r.price?.toFixed(2) ?? "—"}</div>
+                    <div className="text-[10px] font-semibold mt-0.5" style={{ color: pl.color }}>{pl.label}</div>
+                  </div>
+                  <div>
+                    <div className="text-emerald-400 text-xs font-bold">{r.high_cs_days}/{r.days_seen} high-CS days</div>
+                    <CsBar pct={r.avg_cs} />
+                    <div className="text-slate-600 text-[10px] mt-0.5">yesterday {r.cs_yesterday.toFixed(0)}%</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-300 text-xs">{r.avg_rvol.toFixed(1)}x RVOL {volArrow}</div>
+                    <div className="text-slate-600 text-[10px]">recent {r.rvol_recent.toFixed(1)}x / prior {r.rvol_older.toFixed(1)}x</div>
+                    <div className="text-slate-600 text-[10px]">{r.avg_range.toFixed(1)}% avg range</div>
+                  </div>
+                  <div>
+                    {r.shakeout && (
+                      <div className="text-amber-400 text-[10px] font-semibold">shakeout mid: {r.cs_min_mid.toFixed(0)}%</div>
+                    )}
+                    <div className="text-slate-500 text-[10px]">re-entry: {r.cs_best_recent.toFixed(0)}%</div>
+                    <div className="text-slate-600 text-[10px]">{r.pos_gap_days}d positive gap</div>
+                  </div>
+                  <div className="flex justify-end">
+                    <span
+                      className="text-sm font-black px-2 py-1 rounded-lg"
+                      style={{
+                        background: r.score >= 80 ? "rgba(251,191,36,0.15)" : r.score >= 65 ? "rgba(16,185,129,0.15)" : "rgba(71,85,105,0.25)",
+                        color:      r.score >= 80 ? "#fbbf24"                : r.score >= 65 ? "#10b981"                : "#94a3b8",
+                      }}
+                    >
+                      {r.score.toFixed(0)}
+                    </span>
+                  </div>
+                </div>
+              );
             };
+
+            const TableHeader = () => (
+              <div
+                className="grid px-4 py-2 bg-slate-800/50 text-[10px] text-slate-500 font-semibold uppercase tracking-wider"
+                style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 80px" }}
+              >
+                <div>Ticker</div>
+                <div>Close Strength</div>
+                <div>RVOL Trend</div>
+                <div>Shakeout Pattern</div>
+                <div className="text-right">Score</div>
+              </div>
+            );
+
             return (
               <div className="space-y-4">
+                {/* Header */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                      <div className="text-emerald-400 text-sm font-bold tracking-wider">🔄 STEADY GRINDERS</div>
-                      <div className="text-slate-400 text-xs mt-0.5">2-day institutional grind · higher low · VWAP-proxy close · dark pool confirmed</div>
+                      <div className="text-emerald-400 text-sm font-bold tracking-wider">📈 ACCUMULATION LEADERS</div>
+                      <div className="text-slate-400 text-xs mt-0.5">
+                        Institutional shakeout → reentry · ⚡ Sweep confirms the run · 12K stock universe
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {stale && (
-                        <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">⏳ Next scan: 8:30 AM ET</span>
-                      )}
+                      {stale && <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">⏳ Stale</span>}
                       <span className="text-slate-600 text-xs">{data?.as_of}</span>
                       <button
                         onClick={() => refetch()}
@@ -15265,100 +15344,59 @@ export default function Dashboard() {
                       </button>
                     </div>
                   </div>
-                  {scanDate && (
-                    <div className="text-xs text-slate-600 mt-2">
-                      Scan date: {new Date(scanDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                      {" · "}{results.length} stocks passed all 4 filters
-                    </div>
-                  )}
                 </div>
 
-                {isLoading && (
-                  <div className="text-center text-slate-500 py-16">Loading grinder scan…</div>
-                )}
+                {/* Backtest callout */}
+                <div className="bg-slate-900 border border-emerald-900/40 rounded-xl p-4 text-xs text-slate-400 leading-relaxed">
+                  <span className="text-amber-400 font-bold">Backtest (30d, 12K stocks): </span>
+                  Pattern alone = 49% WR (no edge).{"  "}
+                  Pattern + ⚡ options sweep = <span className="text-emerald-400 font-bold">76% WR · +2.19% avg 5d return</span> · avg win +4.3%, avg loss -4.6%.
+                  {"  "}Trade the ⚡ <span className="text-white font-semibold">SWEEP CONFIRMED</span> names. Watch the rest — enter when a sweep fires.
+                </div>
+
+                {isLoading && <div className="text-center text-slate-500 py-16">Loading accumulation scan…</div>}
 
                 {!isLoading && results.length === 0 && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 text-center">
                     <div className="text-slate-400 text-sm">No results yet</div>
-                    <div className="text-slate-600 text-xs mt-1">
-                      {data?.note ?? "Scan runs 8:30 AM ET weekdays · uses Polygon + FINRA data only"}
-                    </div>
+                    <div className="text-slate-600 text-xs mt-1">{data?.note ?? "Scan runs via scheduler · uses Polygon 12K stock DB"}</div>
                   </div>
                 )}
 
-                {results.length > 0 && (
+                {/* Sweep confirmed section */}
+                {confirmed.length > 0 && (
+                  <div className="bg-slate-900 border border-emerald-800/50 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 bg-emerald-950/60 border-b border-emerald-800/40 flex items-center gap-2">
+                      <span className="text-emerald-400 text-xs font-bold">⚡ HIGH CONVICTION — SWEEP CONFIRMED</span>
+                      <span className="bg-emerald-400/20 text-emerald-400 text-[10px] px-1.5 py-0.5 rounded font-bold">{confirmed.length} stocks</span>
+                      <span className="text-slate-500 text-[10px] ml-auto">76% win rate · +2.19% avg 5d</span>
+                    </div>
+                    <TableHeader />
+                    {confirmed.map(r => <GrinderRow key={r.ticker} r={r} highlight />)}
+                  </div>
+                )}
+
+                {/* Watch list section */}
+                {watchList.length > 0 && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                    <div className="grid grid-cols-5 px-4 py-2 bg-slate-800/50 text-xs text-slate-500 font-semibold uppercase tracking-wider">
-                      <div>Ticker</div>
-                      <div className="text-center">Day 1</div>
-                      <div className="text-center">Day 2</div>
-                      <div className="text-center">Dark Pool</div>
-                      <div className="text-right">Score</div>
+                    <div className="px-4 py-2.5 bg-slate-800/40 border-b border-slate-700/50 flex items-center gap-2">
+                      <span className="text-slate-400 text-xs font-semibold">👁 WATCH LIST — Pattern confirmed, no sweep yet</span>
+                      <span className="bg-slate-700 text-slate-400 text-[10px] px-1.5 py-0.5 rounded font-bold">{watchList.length} stocks</span>
+                      <span className="text-slate-600 text-[10px] ml-auto">Enter when ⚡ sweep fires on these names</span>
                     </div>
-                    {results.map((r) => (
-                      <div
-                        key={r.ticker}
-                        className="grid grid-cols-5 px-4 py-3 border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors items-center"
-                      >
-                        <div>
-                          <button
-                            onClick={() => { setTicker(r.ticker); setTab("lookup"); }}
-                            className="font-bold text-white text-sm hover:text-emerald-400 transition-colors block text-left"
-                          >
-                            {r.ticker}
-                          </button>
-                          <div className="text-slate-500 text-xs">${r.price?.toFixed(2) ?? "—"}</div>
-                          {r.higher_low && (
-                            <div className="text-emerald-500 text-[10px] font-semibold">↑ Higher Low</div>
-                          )}
-                        </div>
-                        <div className="text-center">
-                          <div className="text-emerald-400 font-bold text-sm">+{r.d1_pct?.toFixed(1) ?? "—"}%</div>
-                          <div className="text-slate-600 text-[10px]">close {r.d1_close_pos?.toFixed(0) ?? "—"}%ile</div>
-                          <div className="text-slate-600 text-[10px]">{fmtVol(r.d1_volume)} vol</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-emerald-400 font-bold text-sm">+{r.d2_pct?.toFixed(1) ?? "—"}%</div>
-                          <div className="text-slate-600 text-[10px]">close {r.d2_close_pos?.toFixed(0) ?? "—"}%ile</div>
-                          <div className="text-slate-600 text-[10px]">{fmtVol(r.d2_volume)} vol</div>
-                        </div>
-                        <div className="text-center">
-                          {r.dark_pool_pct != null ? (
-                            <>
-                              <div className="font-bold text-sm" style={{ color: dpColor(r.dark_pool_signal) }}>
-                                {r.dark_pool_pct.toFixed(1)}%
-                              </div>
-                              <div className="text-[10px] font-semibold" style={{ color: dpColor(r.dark_pool_signal) }}>
-                                {r.dark_pool_signal}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="text-slate-600 text-xs">—</div>
-                          )}
-                        </div>
-                        <div className="flex justify-end">
-                          <span
-                            className="text-sm font-black px-2.5 py-1 rounded-lg"
-                            style={{
-                              background: r.score >= 3.5 ? "rgba(16,185,129,0.15)" : r.score >= 2.5 ? "rgba(56,189,248,0.12)" : "rgba(71,85,105,0.3)",
-                              color:      r.score >= 3.5 ? "#10b981"               : r.score >= 2.5 ? "#38bdf8"               : "#94a3b8",
-                            }}
-                          >
-                            {r.score?.toFixed(2) ?? "—"}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                    <TableHeader />
+                    {watchList.map(r => <GrinderRow key={r.ticker} r={r} highlight={false} />)}
                   </div>
                 )}
 
+                {/* Legend */}
                 <div className="bg-slate-900/50 border border-slate-800/60 rounded-xl p-4 text-xs text-slate-500 space-y-1.5">
-                  <div className="text-slate-400 font-semibold mb-1">How scores work</div>
-                  <div>• <span className="text-slate-300">4 required filters:</span> two-day slow grind (0.4–4% each day) · D2 low &gt; D1 low · both days closed in top half of range · FINRA off-exchange ≥ 48%</div>
-                  <div>• <span className="text-slate-300">Score</span> = avg daily gain × higher-low bonus (1.4×) × close-position bonus × dark pool bonus (1.2–1.5×)</div>
-                  <div>• <span className="text-slate-300">Dark pool signals:</span> EXTREME ≥ 65% · HIGH ≥ 58% · ELEVATED ≥ 52% · NOTABLE ≥ 48%</div>
-                  <div>• <span className="text-slate-300">Timing:</span> Scans at 8:30 AM ET using prior 2 days' complete Polygon bars — watchlist is ready before the bell so you can enter Day 2 during the session</div>
-                  <div>• <span className="text-slate-300">Data:</span> Polygon grouped daily + FINRA Reg SHO — no Yahoo/yfinance, never causes throttling on other tabs</div>
+                  <div className="text-slate-400 font-semibold mb-1">How to read this</div>
+                  <div>• <span className="text-amber-400 font-semibold">⚡ SWEEP CONFIRMED</span> — unusual call sweep (≥$50K premium) fired within ±3 days of the accumulation pattern = smart money done loading, now betting on the run. <span className="text-emerald-400">Trade these.</span></div>
+                  <div>• <span className="text-slate-300">SHAKEOUT→REENTRY</span> — stock closed near highs 3+ days, then had a weak mid-period day (shakeout), then re-ignited. Classic institutional shake of weak hands before a run.</div>
+                  <div>• <span className="text-slate-300">Close Strength (CS)</span> — where the stock closed within its day range. 100% = at the high. 0% = at the low. ≥60% = institutional accumulation signature.</div>
+                  <div>• <span className="text-slate-300">RVOL Trend ↑</span> — recent 2-day volume above prior days = volume is building into the setup.</div>
+                  <div>• <span className="text-slate-300">Trade plan:</span> Enter at open. Target +8-15% over 5 days. Stop -3% from entry.</div>
                 </div>
               </div>
             );

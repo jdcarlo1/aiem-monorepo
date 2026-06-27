@@ -2207,26 +2207,32 @@ export function fetchRunnerOutcomes() {
 
 export interface GrinderResult {
   ticker: string;
-  scan_date: string;
-  price: number;
-  d1_date: string;
-  d1_pct: number;
-  d1_close_pos: number;
-  d1_volume: number;
-  d2_date: string;
-  d2_pct: number;
-  d2_close_pos: number;
-  d2_volume: number;
-  higher_low: boolean;
-  dark_pool_pct: number | null;
-  dark_pool_signal: string;
   score: number;
+  pattern: "SHAKEOUT_REENTRY" | "STEADY_LOAD" | "EARLY_ACCUMULATION" | "WATCH";
+  sweep_confirmed: boolean;
+  high_cs_days: number;
+  days_seen: number;
+  avg_cs: number;
+  avg_rvol: number;
+  rvol_recent: number;
+  rvol_older: number;
+  avg_range: number;
+  pos_gap_days: number;
+  price: number;
+  last_seen: string | null;
+  cs_yesterday: number;
+  cs_best_recent: number;
+  cs_min_mid: number;
+  vol_yesterday: number;
+  avg_vol_7d: number;
+  vol_building: boolean;
+  shakeout: boolean;
 }
 
 export interface GrinderScanData {
   results: GrinderResult[];
   count: number;
-  scan_date: string | null;
+  sweep_confirmed_count: number;
   stale: boolean;
   as_of: string;
   note?: string;
