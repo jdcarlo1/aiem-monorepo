@@ -1,0 +1,259 @@
+"""
+FIXED: _run_aiem_focused_session
+
+Bugs fixed vs. your original:
+1. `messages.append(msg)` appended the raw OpenAI SDK message object. This
+   sometimes round-trips fine, but tool_calls on that object are SDK types,
+   not plain dicts — on some openai-python versions this throws on the NEXT
+   request when it gets re-serialized, or silently drops fields. Always
+   convert to a plain dict before appending to `messages`.
+2. No try/except around tool execution. If ANY of your 88 tools throws
+   (bad ticker, DB timeout, None from a missing row, etc.) the whole
+   session dies, the exception propagates up through the daemon thread,
+   and Flask never gets a chance to mark the job 'error'. The job sits at
+   'running' forever and the frontend polls it forever. Fixed by catching
+   per-tool-call and feeding the error back to the model as a tool result
+   (the model can usually recover and try a different tool).
+3. No try/except around json.loads(tc.function.arguments) — gpt-4o
+   occasionally emits malformed JSON for complex args. Same failure mode
+   as #2.
+4. No retry/backoff on the OpenAI call itself (rate limits, transient
+   network errors). Added a small retry loop.
+5. No visibility into which tools were called — added a `trace` list that
+   the caller can persist to the DB (answers your improvement-area #6).
+6. No cap on total tool-result bytes fed back into context across
+   iterations — 12 iterations * 6000 chars per tool result can still add
+   up. Added a running budget so a long session doesn't blow context.
+"""
+import os
+import json
+import time
+
+
+def _run_aiem_focused_session(session_name: str, focus_prompt: str,
+                               max_iterations: int = 12,
+                               on_step=None):
+    """
+    Parameterized research session. The agent uses all its tools but starts
+    with a specific focus question. Returns (final_text, trace, error).
+
+    on_step: optional callback(step_dict) called after each tool call,
+             so the Flask worker can persist live progress to the DB for
+             the frontend to show ("Calling mkt_test_signal...") instead of
+             just a generic spinner.
+    """
+    from openai import OpenAI as _OAIFS
+
+    _oai = _OAIFS(
+        base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
+        api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
+    )
+
+    _fs_tool_map = _BUILD_TOOL_MAP()  # see note at bottom — pull this out of
+                                       # the function so it's built once at
+                                       # import time, not on every chat msg
+    _fs_schema = _AIEM_AGENT_TOOLS
+
+    session_system = (
+        _AIEM_AGENT_SYSTEM +
+        f"\n\nSESSION FOCUS ({session_name}): {focus_prompt}\n"
+        "Start immediately with the most relevant tools for this session's focus."
+    )
+
+    messages = [
+        {"role": "system", "content": session_system},
+        {"role": "user", "content": focus_prompt},
+    ]
+
+    trace = []
+    _last_text = ""
+    _context_budget = 60_000  # rough char budget for accumulated tool output
+    _context_used = 0
+
+    for _i in range(max_iterations):
+        # --- retry wrapper around the model call ---
+        resp = None
+        for attempt in range(3):
+            try:
+                resp = _oai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    tools=_fs_schema,
+                    tool_choice="auto",
+                    max_tokens=2000,
+                    temperature=0.3,
+                )
+                break
+            except Exception as e:
+                if attempt == 2:
+                    return _last_text, trace, f"OpenAI call failed after retries: {e}"
+                time.sleep(1.5 * (attempt + 1))
+
+        msg = resp.choices[0].message
+
+        # Convert SDK message -> plain dict before storing. This is the
+        # actual fix for bug #1.
+        msg_dict = {"role": "assistant", "content": msg.content or None}
+        if msg.tool_calls:
+            msg_dict["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+        messages.append(msg_dict)
+
+        if msg.content:
+            _last_text = msg.content
+
+        if not msg.tool_calls:
+            break  # model gave a final answer with no further tool use
+
+        for tc in msg.tool_calls:
+            fn = tc.function.name
+
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError as e:
+                result = {"error": f"malformed arguments from model: {e}"}
+                args = None
+
+            if args is not None:
+                if fn not in _fs_tool_map:
+                    result = {"error": f"unknown tool: {fn}"}
+                else:
+                    try:
+                        result = _fs_tool_map[fn](**args)
+                    except Exception as e:
+                        # THE KEY FIX: a tool blowing up no longer kills the
+                        # whole session. The model sees the error and can
+                        # adapt (try different args, a different tool, etc).
+                        result = {"error": f"{fn} raised: {type(e).__name__}: {e}"}
+
+            result_str = json.dumps(result, default=str)
+            if len(result_str) > 6000:
+                result_str = result_str[:6000] + "...[truncated]"
+
+            _context_used += len(result_str)
+            if _context_used > _context_budget:
+                # Stop feeding full tool output once we're past budget;
+                # keep going but tell the model output is being summarized.
+                result_str = json.dumps({"note": "result omitted, context budget reached"})
+
+            step = {
+                "iteration": _i,
+                "tool": fn,
+                "args": args,
+                "ok": "error" not in (result if isinstance(result, dict) else {}),
+            }
+            trace.append(step)
+            if on_step:
+                try:
+                    on_step(step)
+                except Exception:
+                    pass  # never let a progress-callback failure kill the session
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result_str,
+            })
+
+    return _last_text, trace, None
+
+
+def _BUILD_TOOL_MAP():
+    """
+    Pulled out of the hot path. Build this dict ONCE at module import time
+    and reuse it — rebuilding an 88-entry dict of function references on
+    every single chat message is wasted work (cheap individually, but it's
+    also a good place to accidentally typo a reference and not notice until
+    runtime). Keep your existing entries, just move them here.
+    """
+    return {
+        "mkt_behavioral_templates":    _mkt_behavioral_templates,
+        "mkt_find_behavioral_matches": _mkt_find_behavioral_matches,
+        "mkt_retrospective_backtest":  _mkt_retrospective_backtest,
+        "mkt_ticker_deep_compare":     _mkt_ticker_deep_compare,
+        "mkt_net_flow_db":             _mkt_net_flow_db,
+        "mkt_ticker_options_history":  _mkt_ticker_options_history,
+        "mkt_options_flow_scan":       _mkt_options_flow_scan,
+        "mkt_options_predicts_price":  _mkt_options_predicts_price,
+        "mkt_cross_confirm_options":   _mkt_cross_confirm_options_price,
+        "mkt_explore_dimensions":      _mkt_tool_explore_dimensions,
+        "mkt_test_signal":             _mkt_tool_test_signal,
+        "mkt_analyze_top_movers":      _mkt_tool_analyze_top_movers,
+        "mkt_find_thresholds":         _mkt_tool_find_thresholds,
+        "mkt_validate_oos":            _mkt_tool_validate_oos,
+        "mkt_save_discovery":          _mkt_tool_save_discovery,
+        "mkt_load_discoveries":        _mkt_tool_load_discoveries,
+        "mkt_factor_correlations":     _mkt_tool_factor_correlations,
+        "mkt_quiet_accumulation":      _mkt_tool_quiet_accumulation,
+        "mkt_pre_squeeze_warning":     _mkt_tool_pre_squeeze_warning,
+        "mkt_52week_momentum":         _mkt_52week_high_momentum,
+        "mkt_compute_indicators":      _mkt_compute_indicators,
+        "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
+        "mkt_layer9_score":            _mkt_layer9_score,
+        "mkt_get_stock_history":       _mkt_get_stock_history,
+        "mkt_screen_period":           _mkt_screen_period,
+        "mkt_historical_study":        _mkt_historical_study,
+        "mkt_compute_momentum":        _mkt_tool_compute_momentum,
+        "mkt_build_composite":         _mkt_tool_build_composite,
+        "mkt_segment_by_cap_tier":     _mkt_tool_segment_by_cap_tier,
+        "mkt_regime_filter":           _mkt_tool_regime_filter,
+        "mkt_volume_patterns":         _mkt_tool_volume_patterns,
+        "mkt_price_patterns":          _mkt_tool_price_patterns,
+        "mkt_capitulation_detector":   _detect_capitulation_signature,
+        "analyze_missed_movers":       _aiem_tool_analyze_missed_movers,
+        "query_pick_outcomes":         _aiem_tool_query_pick_outcomes,
+        "test_new_signal":             _aiem_tool_test_new_signal,
+        "run_statistical_significance": _aiem_tool_run_statistical_significance,
+        "save_research_model":         _aiem_tool_save_research_model,
+        "search_past_findings":        _aiem_tool_search_past_findings,
+        "list_signal_dimensions":      _aiem_tool_list_signal_dimensions,
+        "send_discovery_alert":        _aiem_tool_send_discovery_alert,
+        "breakout_discover":           _aiem_tool_breakout_discover,
+        "gap_continuation_score":      _aiem_tool_gap_continuation_score,
+        "squeeze_subscore":            _aiem_tool_squeeze_subscore,
+        "run_risk_gate":               _aiem_tool_run_risk_gate,
+        "divergence_scan":             _aiem_tool_divergence_scan,
+        "check_price_bullish":         _aiem_tool_check_price_bullish,
+        "regime_overlay_check":        _aiem_tool_regime_overlay_check,
+        "vwap_compute_features":       _aiem_tool_vwap_compute_features,
+        "vwap_price_vs":               _aiem_tool_vwap_price_vs,
+        "vwap_reclaim_detect":         _aiem_tool_vwap_reclaim_detect,
+        "trust_classify_context":      _aiem_tool_trust_classify_context,
+        "trust_update":                _aiem_tool_trust_update,
+        "trust_get_weights":           _aiem_tool_trust_get_weights,
+        "trust_apply_to_candidates":   _aiem_tool_trust_apply_to_candidates,
+        # ... keep the rest of your 88 here, unchanged
+    }
+
+
+def classify_question_complexity(question: str) -> int:
+    """
+    Answers improvement-area #2: dynamic max_iterations instead of a flat 3.
+
+    Flat 3 iterations is too low for anything that needs the agent to
+    gather data AND validate it (e.g. "is quiet accumulation real?" needs
+    mkt_quiet_accumulation -> mkt_test_signal -> mkt_validate_oos, which is
+    already 3 tool calls before it's written a word of answer). Bump the
+    budget based on cheap keyword heuristics; this doesn't need to be exact,
+    it just needs to stop starving multi-step questions.
+    """
+    q = question.lower()
+
+    deep_signals = ["backtest", "validate", "significan", "out-of-sample",
+                     "oos", "is it real", "does it work", "prove", "p-value"]
+    compare_signals = ["compare", "vs", "versus", "better than", "which of"]
+    simple_signals = ["what is", "define", "explain", "how does"]
+
+    if any(s in q for s in deep_signals):
+        return 10
+    if any(s in q for s in compare_signals):
+        return 7
+    if any(s in q for s in simple_signals) and len(q) < 80:
+        return 4
+    return 6  # default: more breathing room than your old flat 3
