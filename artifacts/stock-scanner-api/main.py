@@ -3666,7 +3666,10 @@ try:
     except Exception as _aiem_sched_e:
         print(f"[scheduler] AIEM enhancement jobs error: {_aiem_sched_e}")
     _scheduler.start()
-    reconcile_orphaned_sessions()
+    # reconcile_orphaned_sessions is defined later in the file; defer so the
+    # full module finishes loading before the function is looked up.
+    import threading as _rt_sched
+    _rt_sched.Timer(3.0, lambda: globals().get("reconcile_orphaned_sessions", lambda: None)()).start()
     print("[scheduler] APScheduler started - "
           "scans (hourly): 9:36/10:05/11:05 AM, 12:05/1:05/2:05/3:05/4:00 PM ET | "
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
@@ -22957,73 +22960,160 @@ def _classify_question_complexity(question: str) -> int:
 
 
 def _build_aiem_tool_map():
-    """Build full 88-tool map once — extracted from hot path (Claude fix)."""
+    """Build full merged tool map — all tools available to both focused sessions and chat tab.
+    Merged from _run_aiem_research_agent._tool_map (135 entries) plus focused-session-specific tools.
+    Fixes Severity-1 bug: prior version only had ~64 entries, causing 'unknown tool' on complex questions.
+    """
     return {
-        "mkt_behavioral_templates":    _mkt_behavioral_templates,
-        "mkt_find_behavioral_matches": _mkt_find_behavioral_matches,
-        "mkt_retrospective_backtest":  _mkt_retrospective_backtest,
-        "mkt_ticker_deep_compare":     _mkt_ticker_deep_compare,
-        "mkt_net_flow_db":             _mkt_net_flow_db,
-        "mkt_ticker_options_history":  _mkt_ticker_options_history,
-        "mkt_options_flow_scan":       _mkt_options_flow_scan,
-        "mkt_options_predicts_price":  _mkt_options_predicts_price,
-        "mkt_cross_confirm_options":   _mkt_cross_confirm_options_price,
-        "mkt_explore_dimensions":      _mkt_tool_explore_dimensions,
-        "mkt_test_signal":             _mkt_tool_test_signal,
-        "mkt_analyze_top_movers":      _mkt_tool_analyze_top_movers,
-        "mkt_find_thresholds":         _mkt_tool_find_thresholds,
-        "mkt_validate_oos":            _mkt_tool_validate_oos,
-        "mkt_save_discovery":          _mkt_tool_save_discovery,
-        "mkt_load_discoveries":        _mkt_tool_load_discoveries,
-        "mkt_factor_correlations":     _mkt_tool_factor_correlations,
-        "mkt_quiet_accumulation":      _mkt_tool_quiet_accumulation,
-        "mkt_pre_squeeze_warning":     _mkt_tool_pre_squeeze_warning,
-        "mkt_52week_momentum":         _mkt_52week_high_momentum,
-        "mkt_capitulation_detector":   _detect_capitulation_signature,
-        "mkt_segment_by_cap_tier":     _mkt_tool_segment_by_cap_tier,
-        "mkt_regime_filter":           _mkt_tool_regime_filter,
-        "mkt_volume_patterns":         _mkt_tool_volume_patterns,
-        "mkt_price_patterns":          _mkt_tool_price_patterns,
-        "mkt_compute_momentum":        _mkt_tool_compute_momentum,
-        "mkt_build_composite":         _mkt_tool_build_composite,
-        "mkt_get_stock_history":       _mkt_get_stock_history,
-        "mkt_screen_period":           _mkt_screen_period,
-        "mkt_layer9_score":            _mkt_layer9_score,
-        "mkt_compute_indicators":      _mkt_compute_indicators,
-        "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
-        "mkt_historical_study":        _mkt_historical_study,
-        "analyze_missed_movers":       _aiem_tool_analyze_missed_movers,
-        "query_pick_outcomes":         _aiem_tool_query_pick_outcomes,
-        "test_new_signal":             _aiem_tool_test_new_signal,
-        "run_statistical_significance": _aiem_tool_run_statistical_significance,
-        "save_research_model":         _aiem_tool_save_research_model,
-        "search_past_findings":        _aiem_tool_search_past_findings,
-        "list_signal_dimensions":      _aiem_tool_list_signal_dimensions,
-        "send_discovery_alert":        _aiem_tool_send_discovery_alert,
+        # ── Focused-session + behavioral tools (not in research agent) ────────
+        "mkt_behavioral_templates":     _mkt_behavioral_templates,
+        "mkt_find_behavioral_matches":  _mkt_find_behavioral_matches,
+        "mkt_retrospective_backtest":   _mkt_retrospective_backtest,
+        "mkt_ticker_deep_compare":      _mkt_ticker_deep_compare,
+        "mkt_net_flow_db":              _mkt_net_flow_db,
+        # ── Pick-outcome / scoring research tools ─────────────────────────────
+        "query_pick_outcomes":               _aiem_tool_query_pick_outcomes,
+        "query_missed_movers":               _aiem_tool_query_missed_movers,
+        "analyze_signal_correlation":        _aiem_tool_analyze_signal_correlation,
+        "compare_picks_vs_misses":           _aiem_tool_compare_picks_vs_misses,
+        "discover_numeric_patterns":         _aiem_tool_discover_numeric_patterns,
+        "test_scoring_hypothesis":           _aiem_tool_test_scoring_hypothesis,
+        "query_market_regime":               _aiem_tool_query_market_regime,
+        "query_cross_signal_overlap":        _aiem_tool_query_cross_signal_overlap,
+        "evaluate_previous_model":           _aiem_tool_evaluate_previous_model,
+        "rollback_to_previous_model":        _aiem_tool_rollback_to_previous_model,
+        "query_temporal_patterns":           _aiem_tool_query_temporal_patterns,
+        "query_rank_effectiveness":          _aiem_tool_query_rank_effectiveness,
+        "query_exit_timing":                 _aiem_tool_query_exit_timing,
+        "run_statistical_significance":      _aiem_tool_run_statistical_significance,
+        "save_research_model":               _aiem_tool_save_research_model,
+        "register_hypotheses":               _aiem_tool_register_hypotheses,
+        "multivariate_regression":           _aiem_tool_multivariate_regression,
+        "search_past_findings":              _aiem_tool_search_past_findings,
+        "query_own_prediction_performance":  _aiem_tool_query_own_prediction_performance,
+        "list_signal_dimensions":            _aiem_tool_list_signal_dimensions,
+        "test_new_signal":                   _aiem_tool_test_new_signal,
+        "analyze_missed_movers":             _aiem_tool_analyze_missed_movers,
+        "signal_layer_redundancy":           _aiem_tool_signal_layer_redundancy,
+        "signal_magnitude_analysis":         _aiem_tool_signal_magnitude_analysis,
+        "holding_period_optimize":           _aiem_tool_holding_period_optimize,
+        "kelly_position_size":               _aiem_tool_kelly_position_size,
+        # ── Market research / exploration tools ──────────────────────────────
+        "mkt_explore_dimensions":    _mkt_tool_explore_dimensions,
+        "mkt_test_signal":           _mkt_tool_test_signal,
+        "mkt_test_inverse":          _mkt_tool_test_inverse,
+        "mkt_find_thresholds":       _mkt_tool_find_thresholds,
+        "mkt_analyze_top_movers":    _mkt_tool_analyze_top_movers,
+        "mkt_analyze_false_signals": _mkt_tool_analyze_false_signals,
+        "mkt_regime_filter":         _mkt_tool_regime_filter,
+        "mkt_validate_oos":          _mkt_tool_validate_oos,
+        "mkt_generate_hypotheses":   _mkt_tool_generate_hypotheses,
+        "mkt_save_discovery":        _mkt_tool_save_discovery,
+        "mkt_load_discoveries":      _mkt_tool_load_discoveries,
+        "mkt_factor_correlations":   _mkt_tool_factor_correlations,
+        "mkt_discover_interactions": _mkt_tool_discover_interactions,
+        "mkt_signal_drift":          _mkt_tool_signal_drift,
+        "mkt_volume_patterns":       _mkt_tool_volume_patterns,
+        "mkt_price_patterns":        _mkt_tool_price_patterns,
+        "mkt_compute_momentum":      _mkt_tool_compute_momentum,
+        "mkt_invent_indicator":      _mkt_tool_invent_indicator,
+        "mkt_compare_signals":       _mkt_tool_compare_signals,
+        "mkt_build_composite":       _mkt_tool_build_composite,
+        "mkt_required_pvalue":       _mkt_tool_required_pvalue,
+        "mkt_segment_by_cap_tier":   _mkt_tool_segment_by_cap_tier,
+        "mkt_segment_by_sector":     _mkt_tool_segment_by_sector,
+        "mkt_check_redundancy":      _mkt_check_signal_redundancy,
+        # ── Signal expansion tools ────────────────────────────────────────────
+        "mkt_quiet_accumulation":     _mkt_tool_quiet_accumulation,
+        "mkt_pre_squeeze_warning":    _mkt_tool_pre_squeeze_warning,
+        "mkt_volatility_squeeze":     _mkt_tool_volatility_squeeze,
+        "mkt_accumulation_squeeze":   _mkt_tool_accumulation_into_squeeze,
+        "mkt_check_survivorship":     _mkt_tool_check_survivorship,
+        "mkt_refresh_universe":       _mkt_tool_refresh_universe,
+        "mkt_extreme_move_reversion": _mkt_extreme_move_reversion,
+        "mkt_gap_fill_probability":   _mkt_gap_fill_probability,
+        "mkt_capitulation_detector":  _detect_capitulation_signature,
+        "mkt_52week_momentum":        _mkt_52week_high_momentum,
+        # ── Options flow tools ────────────────────────────────────────────────
+        "mkt_ticker_options_history": _mkt_ticker_options_history,
+        "mkt_options_flow_scan":      _mkt_options_flow_scan,
+        "mkt_options_predicts_price": _mkt_options_predicts_price,
+        "mkt_cross_confirm_options":  _mkt_cross_confirm_options_price,
+        # ── Historical / indicator tools ──────────────────────────────────────
+        "mkt_get_stock_history":  _mkt_get_stock_history,
+        "mkt_screen_period":      _mkt_screen_period,
+        "mkt_layer9_score":       _mkt_layer9_score,
+        "mkt_compute_indicators": _mkt_compute_indicators,
+        "mkt_screen_by_indicator": _mkt_screen_by_indicator,
+        "mkt_historical_study":   _mkt_historical_study,
+        # ── AIEM Research Integrity / hypothesis tracking ─────────────────────
+        "register_hypothesis":    _aiem_tool_register_hypothesis,
+        "list_hypotheses":        _aiem_tool_list_hypotheses,
+        "adversarial_review":     _aiem_tool_adversarial_review,
+        "open_shadow_trade":      _aiem_tool_open_shadow_trade,
+        "close_shadow_trade":     _aiem_tool_close_shadow_trade,
+        "shadow_stats":           _aiem_tool_shadow_stats,
+        "check_shadow_promotion": _aiem_tool_check_shadow_promotion,
+        "start_shadow_window":    _aiem_tool_start_shadow_window,
+        "get_regime_flags":       _aiem_tool_get_regime_flags,
+        "get_literature_briefs":  _aiem_tool_get_literature_briefs,
+        "run_granger_test":       _aiem_tool_run_granger_test,
+        "model_version_history":  _aiem_tool_model_version_history,
+        "send_discovery_alert":   _aiem_tool_send_discovery_alert,
+        # ── Autonomous safety stack ───────────────────────────────────────────
+        "simulation_lock_check":    _aiem_tool_simulation_lock_check,
+        "simulation_audit_trail":   _aiem_tool_simulation_audit_trail,
+        "check_kill_switch":        _aiem_tool_check_kill_switch,
+        "clear_kill_switch_halt":   _aiem_tool_clear_kill_switch_halt,
+        "kill_switch_events":       _aiem_tool_kill_switch_events,
+        "log_decision":             _aiem_tool_log_decision,
+        "record_decision_outcome":  _aiem_tool_record_decision_outcome,
+        "get_decisions":            _aiem_tool_get_decisions,
+        "decision_quality_summary": _aiem_tool_decision_quality_summary,
+        "benchmark_vs_baselines":   _aiem_tool_benchmark_vs_baselines,
+        "start_eval_window":        _aiem_tool_start_eval_window,
+        "is_eval_window_active":    _aiem_tool_is_eval_window_active,
+        "close_eval_window":        _aiem_tool_close_eval_window,
+        "eval_window_history":      _aiem_tool_eval_window_history,
+        "record_human_eval_decision": _aiem_tool_record_human_eval_decision,
+        # ── RL / Deep RL / Portfolio / Causal / Ensemble / Execution ─────────
+        "rl_get_paper_action":      _aiem_tool_rl_get_paper_action,
+        "rl_readable_policy":       _aiem_tool_rl_readable_policy,
+        "deep_rl_get_paper_action": _aiem_tool_deep_rl_get_paper_action,
+        "deep_rl_probe":            _aiem_tool_deep_rl_probe,
+        "portfolio_allocate":       _aiem_tool_portfolio_allocate,
+        "causal_discover":          _aiem_tool_causal_discover,
+        "ensemble_combine_signals": _aiem_tool_ensemble_combine_signals,
+        "execution_realistic_cost": _aiem_tool_execution_realistic_cost,
+        # ── Scoring / prediction pipeline tools ──────────────────────────────
+        "regime_overlay_check":  _aiem_tool_regime_overlay_check,
+        "regime_overlay_manual": _aiem_tool_regime_overlay_manual,
+        "run_risk_gate":         _aiem_tool_run_risk_gate,
+        "gate_history":          _aiem_tool_gate_history,
+        "divergence_scan":       _aiem_tool_divergence_scan,
+        "check_price_bullish":   _aiem_tool_check_price_bullish,
+        # ── ML retraining pipeline ────────────────────────────────────────────
+        "retrain_pending":  _aiem_tool_retrain_pending,
+        "retrain_approve":  _aiem_tool_retrain_approve,
+        "retrain_reject":   _aiem_tool_retrain_reject,
+        "retrain_history":  _aiem_tool_retrain_history,
+        # ── Breakout / continuation scoring ──────────────────────────────────
         "breakout_discover":           _aiem_tool_breakout_discover,
         "breakout_extract_features":   _aiem_tool_breakout_extract_features,
         "gap_continuation_score":      _aiem_tool_gap_continuation_score,
         "squeeze_subscore":            _aiem_tool_squeeze_subscore,
         "intraday_continuation_score": _aiem_tool_intraday_continuation_score,
         "intraday_compute_features":   _aiem_tool_intraday_compute_features,
-        "run_risk_gate":               _aiem_tool_run_risk_gate,
-        "gate_history":                _aiem_tool_gate_history,
-        "divergence_scan":             _aiem_tool_divergence_scan,
-        "check_price_bullish":         _aiem_tool_check_price_bullish,
-        "regime_overlay_check":        _aiem_tool_regime_overlay_check,
-        "regime_overlay_manual":       _aiem_tool_regime_overlay_manual,
-        "retrain_pending":             _aiem_tool_retrain_pending,
-        "retrain_approve":             _aiem_tool_retrain_approve,
-        "retrain_reject":              _aiem_tool_retrain_reject,
-        "retrain_history":             _aiem_tool_retrain_history,
-        "vwap_compute_features":       _aiem_tool_vwap_compute_features,
-        "vwap_price_vs":               _aiem_tool_vwap_price_vs,
-        "vwap_reclaim_detect":         _aiem_tool_vwap_reclaim_detect,
-        "trust_classify_context":      _aiem_tool_trust_classify_context,
-        "trust_update":                _aiem_tool_trust_update,
-        "trust_get_weights":           _aiem_tool_trust_get_weights,
-        "trust_get_history":           _aiem_tool_trust_get_history,
-        "trust_apply_to_candidates":   _aiem_tool_trust_apply_to_candidates,
+        # ── VWAP indicator tools ──────────────────────────────────────────────
+        "vwap_compute_features": _aiem_tool_vwap_compute_features,
+        "vwap_price_vs":         _aiem_tool_vwap_price_vs,
+        "vwap_reclaim_detect":   _aiem_tool_vwap_reclaim_detect,
+        # ── Meta-learning signal trust tools ──────────────────────────────────
+        "trust_classify_context":    _aiem_tool_trust_classify_context,
+        "trust_update":              _aiem_tool_trust_update,
+        "trust_get_weights":         _aiem_tool_trust_get_weights,
+        "trust_get_history":         _aiem_tool_trust_get_history,
+        "trust_apply_to_candidates": _aiem_tool_trust_apply_to_candidates,
     }
 
 
@@ -40955,6 +41045,13 @@ def sms_incoming_webhook():
 
     # Launch AIEM research in background
     def _research(q=question, to=from_num):
+        # Severity-3 fix: acquire the shared AIEM lock so this SMS session cannot
+        # run concurrently with a cron/email/chat session that's already in progress.
+        if not app._aiem_qa_lock.acquire(blocking=False):
+            _send_sms("⏳ Already researching another question — try again in a few minutes.", to=to)
+            return
+
+        _sms_session_name = f"sms_{q[:20].replace(' ','_')}"
         prompt = (
             f"The owner just texted this question: '{q}'\n\n"
             f"Research this using your tools. If they mention tickers, use "
@@ -40966,16 +41063,23 @@ def sms_incoming_webhook():
         )
         try:
             _run_aiem_focused_session(
-                session_name=f"sms_{q[:20].replace(' ','_')}",
+                session_name=_sms_session_name,
                 focus_prompt=prompt,
                 max_iterations=8
             )
-            # Pull latest insight as SMS summary
+            # Pull THIS session's insight specifically (session_name column added by migration).
+            # Falls back to latest overall if the INSERT didn't tag session_name yet.
             try:
                 import psycopg2 as _pg
                 with _pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
-                    _cur.execute("SELECT insight_text FROM aiem_research_insights ORDER BY created_at DESC LIMIT 1")
+                    _cur.execute(
+                        "SELECT insight_text FROM aiem_research_insights WHERE session_name=%s ORDER BY created_at DESC LIMIT 1",
+                        (_sms_session_name,),
+                    )
                     row = _cur.fetchone()
+                    if not row:
+                        _cur.execute("SELECT insight_text FROM aiem_research_insights ORDER BY created_at DESC LIMIT 1")
+                        row = _cur.fetchone()
                     summary = (row[0][:280] if row and row[0] else
                                "Research complete — check your email for the full report.")
             except Exception:
@@ -40984,6 +41088,8 @@ def sms_incoming_webhook():
         except Exception as _e:
             print(f"[sms/incoming] research error: {_e}")
             _send_sms("⚠️ Hit an error researching that. Try again.", to=to)
+        finally:
+            app._aiem_qa_lock.release()
 
     import threading as _twt
     _twt.Thread(target=_research, daemon=True).start()
@@ -41586,9 +41692,8 @@ def admin_backfill_iv():
 
 
 # ── Quant Agent Chat ──────────────────────────────────────────────────────────
-# Single-flight lock: only one AIEM chat session may run at a time (Claude fix).
-_aiem_chat_lock    = __import__("threading").Lock()
-_aiem_chat_busy    = False   # True while a worker thread is running
+# Uses the shared app._aiem_qa_lock (same Semaphore as SMS/email/cron sessions)
+# so all AIEM session sources are mutually exclusive — no concurrent budget burn.
 
 
 def _qa_db_update(job_id: str, status: str, answer=None, error=None, current_tool=None, tool_trace=None):
@@ -41632,8 +41737,10 @@ def reconcile_orphaned_sessions():
 
 @app.route("/stock-api/aiem/chat", methods=["POST"])
 def aiem_chat_start():
-    """Start an AIEM research session from the Quant Agent tab (single-flight)."""
-    global _aiem_chat_busy
+    """Start an AIEM research session from the Quant Agent tab.
+    Uses the shared app._aiem_qa_lock so chat, SMS, and email sessions are
+    fully mutually exclusive — one AIEM session at a time across all sources.
+    """
     import uuid as _uuid, threading as _qa_thr
 
     data     = request.get_json(silent=True) or {}
@@ -41641,10 +41748,13 @@ def aiem_chat_start():
     if not question:
         return jsonify({"error": "question is required"}), 400
 
-    with _aiem_chat_lock:
-        if _aiem_chat_busy:
-            return jsonify({"error": "A research session is already running. Please wait for it to finish."}), 429
-        _aiem_chat_busy = True
+    # Fast-check: if a session is already running (SMS, email, cron, or prior chat),
+    # reject immediately. The worker re-acquires the lock itself so we release here.
+    if not app._aiem_qa_lock.acquire(blocking=False):
+        return jsonify({
+            "error": "Another AIEM session is already running (SMS, email, or chat). Please wait for it to finish."
+        }), 429
+    app._aiem_qa_lock.release()
 
     job_id = str(_uuid.uuid4())
     try:
@@ -41656,8 +41766,6 @@ def aiem_chat_start():
             )
             _c.commit()
     except Exception as _e:
-        with _aiem_chat_lock:
-            _aiem_chat_busy = False
         return jsonify({"error": f"DB error: {_e}"}), 500
 
     max_iters = _classify_question_complexity(question)
@@ -41673,7 +41781,12 @@ def aiem_chat_start():
     )
 
     def _worker():
-        global _aiem_chat_busy
+        # Re-acquire the shared lock — if another session slipped in between the
+        # check above and this thread starting, we bail gracefully.
+        if not app._aiem_qa_lock.acquire(blocking=False):
+            _qa_db_update(job_id, "error",
+                          error="Another session started between submit and worker start — please retry.")
+            return
         try:
             _qa_db_update(job_id, "running")
 
@@ -41698,8 +41811,7 @@ def aiem_chat_start():
             print(f"[quant_agent] session error: {_e}")
             _qa_db_update(job_id, "error", error=str(_e)[:400])
         finally:
-            with _aiem_chat_lock:
-                _aiem_chat_busy = False
+            app._aiem_qa_lock.release()
 
     _qa_thr.Thread(target=_worker, daemon=True, name=f"quant_chat_{job_id[:8]}").start()
     return jsonify({"job_id": job_id, "status": "pending"})

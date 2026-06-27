@@ -80,3 +80,4 @@
 - [AIEM full module stack](aiem-full-module-stack.md) — all 7 user modules wired + 53 tools total; VWAP is analytical (not execution); meta_learning trust weights per signal+context bucket
 - [Dashboard tab type union](dashboard-tab-union.md) — every new tab ID must be added to useState type AND tab list; missing entry causes TS2367 on every render → black screen; TabErrorBoundary now wraps content
 - [Tradier greeks=false IV bug](tradier-iv-fix.md) — greeks:"false" → Tradier returns null IV → iv=0 stored; backfill-iv admin endpoint fixes existing rows; only effective during market hours
+- [AIEM tool map canonical source](aiem-tool-map.md) — _build_aiem_tool_map() must stay in sync with research agent map + schema; startup reconcile needs 3s deferred timer; all sessions share app._aiem_qa_lock
