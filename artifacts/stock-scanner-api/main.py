@@ -24234,6 +24234,36 @@ SMART-MONEY DIVERGENCE (run on any bullish setup before sizing)
                         to a genuinely bullish setup (divergence only matters
                         when price IS bullish).
 
+═══════════════════════════════════════════════════════════════
+BREAKOUT SIGNATURE DISCOVERY (pre-breakout pattern learning)
+═══════════════════════════════════════════════════════════════
+  breakout_discover        — Full ML pipeline in one call: (1) finds
+                             historical 5-10+ day grinding uptrends across
+                             your ticker universe (excludes single-day gap
+                             spikes — a grind and a gap have different causes);
+                             (2) extracts 7-feature vectors from the period
+                             BEFORE each breakout (RSI, vol contraction,
+                             distance from high, momentum, volume trend, MA
+                             positioning) — never forward-looking; (3) trains
+                             a RandomForest on pre-train_end_date events;
+                             (4) validates on post-train_end_date events (OOS)
+                             — THIS is the number that answers 'is this real
+                             or did I just overfit my training data'; (5) scans
+                             today's data and returns ranked candidates with
+                             held_out_accuracy always attached. Supply
+                             price_histories_json as {ticker: [{date, close,
+                             volume},...]} from polygon_market_daily or
+                             mkt_get_historical. THEN: register in
+                             hypothesis_registry → run each candidate through
+                             run_risk_gate → divergence_scan before the email.
+  breakout_extract_features — Extracts the current 7-feature vector for ONE
+                              ticker (what the classifier sees today). Use
+                              this to sanity-check a high breakout_probability
+                              score: do the feature values make intuitive
+                              sense? (vol contracting, near highs, rising
+                              volume, above SMAs?) If the model fires but the
+                              features look wrong, investigate before acting.
+
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
 
 ╔══════════════════════════════════════════════════════════════════════════╗
@@ -25699,6 +25729,100 @@ def _aiem_tool_execution_realistic_cost(mid_entry: float, mid_exit: float,
         return {"error": str(_e)}
 
 # ── Market Regime Overlay tools ───────────────────────────────────────────────
+# ── Breakout Signature Discovery tools ───────────────────────────────────────
+def _aiem_tool_breakout_discover(
+    price_histories_json: str,
+    train_end_date: str,
+    lookback_days_before_breakout: int = 7,
+    min_streak_days: int = 5,
+    min_total_gain_pct: float = 8.0,
+    probability_threshold: float = 0.6,
+) -> dict:
+    """Full discovery + validation + morning scan in one call.
+    price_histories_json: JSON object mapping ticker → list of {date, close, volume} rows.
+    train_end_date: 'YYYY-MM-DD' cutoff — model trains on events BEFORE this date,
+    validates on events AFTER it (out-of-sample). Returns feature importances,
+    held-out accuracy/precision/recall, and today's scored candidates ranked by
+    breakout_probability. Always carries held_out_accuracy next to every score."""
+    try:
+        import breakout_signature_discovery as _bsd
+        import pandas as _pd, json as _j
+        raw = _j.loads(price_histories_json)
+        price_histories = {}
+        for ticker, rows in raw.items():
+            df = _pd.DataFrame(rows)
+            df["date"] = _pd.to_datetime(df["date"])
+            price_histories[ticker] = df
+
+        result = _bsd.run_full_discovery_pipeline(
+            price_histories                = price_histories,
+            train_end_date                 = train_end_date,
+            lookback_days_before_breakout  = int(lookback_days_before_breakout),
+        )
+        if "error" in result:
+            return result
+
+        held_out = result.get("held_out_evaluation", {})
+        oos_acc  = held_out.get("accuracy", 0.0) if isinstance(held_out, dict) else 0.0
+
+        candidates = _bsd.scan_for_candidates(
+            model                    = result["model"],
+            current_price_histories  = price_histories,
+            held_out_accuracy        = oos_acc,
+            probability_threshold    = float(probability_threshold),
+        )
+
+        model_obj = result.pop("model", None)
+        result["current_candidates"]    = candidates
+        result["n_candidates_above_threshold"] = len(candidates)
+        result["probability_threshold"] = float(probability_threshold)
+        result["reminder"] = (
+            "Register this in hypothesis_registry before using daily, then run "
+            "every candidate through pre_decision_risk_gate + divergence_scan "
+            "before it enters the weekly email."
+        )
+        return result
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_breakout_extract_features(
+    price_history_json: str,
+    ticker: str = "",
+) -> dict:
+    """Extract the current feature vector for a single ticker (what the
+    breakout classifier would see if you scored it today). Useful for
+    understanding what the model 'sees' on a name you're already watching,
+    or for manually checking whether the feature values make intuitive sense
+    before trusting a high breakout_probability score."""
+    try:
+        import breakout_signature_discovery as _bsd
+        import pandas as _pd, json as _j
+        rows = _j.loads(price_history_json)
+        df   = _pd.DataFrame(rows)
+        df["date"] = _pd.to_datetime(df["date"])
+        df   = df.sort_values("date").reset_index(drop=True)
+        features = _bsd.extract_features_at_index(df, len(df) - 1)
+        if features is None:
+            return {"error": "need at least 30 rows of price history to compute features",
+                    "ticker": ticker, "n_rows": len(df)}
+        return {
+            "ticker":         ticker or "unknown",
+            "as_of_date":     str(df["date"].iloc[-1]),
+            "features":       features,
+            "feature_guide": {
+                "rsi":                    "14-day RSI; < 40 = weak, > 60 = strong",
+                "vol_contraction_ratio":  "< 1 = recent vol < prior vol (coiling); < 0.7 is notable",
+                "distance_from_high_pct": "0 = AT the 30d high; -5 = 5% below it (consolidating near top)",
+                "momentum_pct":           "5-day price change %; small positive = steady creep",
+                "volume_trend":           "slope of 10-day volume / mean vol; > 0 = rising participation",
+                "price_vs_sma10_pct":     "% above/below 10d SMA; near 0 = tight to trend",
+                "sma10_vs_sma20_pct":     "% SMA10 above SMA20; > 0 = upward structure",
+            },
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 # ── Smart Money Divergence tools ──────────────────────────────────────────────
 def _aiem_tool_divergence_scan(
     price_history_json: str,
@@ -26022,6 +26146,8 @@ def _run_aiem_research_agent(max_iterations=None):
         "gate_history":                _aiem_tool_gate_history,
         "divergence_scan":             _aiem_tool_divergence_scan,
         "check_price_bullish":         _aiem_tool_check_price_bullish,
+        "breakout_discover":           _aiem_tool_breakout_discover,
+        "breakout_extract_features":   _aiem_tool_breakout_extract_features,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
