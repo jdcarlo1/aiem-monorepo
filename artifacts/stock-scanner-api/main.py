@@ -1643,7 +1643,7 @@ try:
             rows = []
             for _exp in valid_exps:
                 _rc = _td_req.get(f"{_base}/options/chains",
-                                  params={"symbol": ticker, "expiration": _exp, "greeks": "false"},
+                                  params={"symbol": ticker, "expiration": _exp, "greeks": "true"},
                                   headers=_hdr, timeout=5)
                 if _rc.status_code != 200:
                     continue
@@ -1661,7 +1661,7 @@ try:
                         "expiry":            _exp,
                         "volume":            int(_o.get("volume") or 0),
                         "openInterest":      int(_o.get("open_interest") or 0),
-                        "impliedVolatility": float(_o.get("implied_volatility") or 0),
+                        "impliedVolatility": float(((_o.get("greeks") or {}).get("mid_iv")) or _o.get("implied_volatility") or 0),
                         "lastPrice":         _mid,
                         "underlying_price":  price,
                     })
