@@ -162,3 +162,9 @@ id = "lNYYPQ8AvBQZVy5a28P6I"
 uri = "file://MODULES.md"
 type = "text"
 title = "MODULES.md — Full codebase inventory for Claude"
+
+[[outputs]]
+id = "rhQ5-TegXqtMDq7uKpQzQ"
+uri = "file://FOR_CLAUDE.md"
+type = "text"
+title = "FOR_CLAUDE.md — Send this to Claude"
