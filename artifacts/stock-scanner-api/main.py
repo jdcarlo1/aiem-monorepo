@@ -22107,6 +22107,13 @@ try:
     _ol_mod.init_schema()
     _ls_mod.init_schema()
     print("[aiem_integrity] hypothesis_registry / shadow_ledger / regime_monitor / online_learning / literature_scanner schemas ready")
+    import kill_switch       as _ks_mod
+    import decision_logger   as _dl_mod
+    import evaluation_windows as _ew_mod
+    _ks_mod.init_schema()
+    _dl_mod.init_schema()
+    _ew_mod.init_schema()
+    print("[aiem_integrity] kill_switch / decision_logger / evaluation_windows schemas ready")
 except Exception as _e_aiem_init:
     print(f"[aiem_integrity] schema init error: {_e_aiem_init}")
 
@@ -24078,6 +24085,58 @@ INTEGRITY PROTOCOL (mandatory when you discover a new signal):
   4. If passes: start_shadow_window → track with open/close_shadow_trade
   5. After window: check_shadow_promotion → report to owner for human decision
   NEVER skip step 1 or 3. NEVER mark a finding "confirmed" without adversarial_review.
+
+═══════════════════════════════════════════════════════════════
+AUTONOMOUS SAFETY STACK — MANDATORY FOR EVERY PAPER TRADE
+═══════════════════════════════════════════════════════════════
+These five modules form a hard wall between paper trading and real money.
+You MUST use them in every session where you record a trading decision.
+
+  simulation_lock_check   — Call FIRST before any order logic. Confirms the
+                            env var lock is in simulation mode. Logs the check.
+                            If this ever returns live=True, stop immediately.
+  simulation_audit_trail  — Read back the lock's audit log.
+
+  check_kill_switch       — Call BEFORE every new paper trade. If halted=True,
+                            do NOT place the trade — log a 'no_trade' decision
+                            explaining why you were stopped, then halt the loop.
+                            You CANNOT un-halt yourself. The owner clears it.
+  clear_kill_switch_halt  — Owner-only: clear a halt after reviewing the cause.
+  kill_switch_events      — Read halt/clear event history.
+
+  log_decision            — Log EVERY decision including no_trade and hold.
+                            reasoning field is REQUIRED and non-empty. An agent
+                            that only logs winning trades has a useless track
+                            record. Logs all four types: trade/no_trade/hold/exit.
+  record_decision_outcome — Fill in actual return once a paper position closes.
+  get_decisions           — Read back decision log (filter by signal/type/date).
+  decision_quality_summary — Win-rate + avg confidence breakdown by decision type.
+
+  benchmark_vs_baselines  — After any evaluation period, compare agent return to:
+                            (1) buy-and-hold SPY, (2) 20/50 SMA crossover,
+                            (3) Monte Carlo 1000-run coin-flip distribution.
+                            Beat the 95th percentile of (3) = first real signal.
+
+  start_eval_window       — Start a fixed evaluation window (default 4 weeks).
+                            Refuses if an active window already exists for the signal.
+  is_eval_window_active   — Check BEFORE each run-loop iteration. If active=False,
+                            stop the loop — the window expired. Owner must start
+                            the next one after reading the checkpoint report.
+  close_eval_window       — Close window + generate checkpoint report (includes
+                            decision_quality_summary + benchmark comparison).
+  eval_window_history     — All windows for a signal — this IS the track record.
+  record_human_eval_decision — Owner logs their decision after reading the report.
+
+SAFETY ORDER OF OPERATIONS (every paper-trading session):
+  1. simulation_lock_check        → confirm paper mode
+  2. is_eval_window_active        → confirm window open, else stop
+  3. check_kill_switch            → confirm not halted, else stop
+  4. log_decision (trade/no_trade/hold/exit) with non-empty reasoning
+  5. open_shadow_trade            → record paper entry
+  6. [time passes]
+  7. close_shadow_trade + record_decision_outcome → record exit + return
+  8. When window expires: close_eval_window + benchmark_vs_baselines → report
+
 20. mkt_build_composite       - combine top discoveries into final weighted rule
 
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
@@ -25192,6 +25251,240 @@ def _aiem_tool_model_version_history(model_name):
         return {"error": str(_e)}
 
 
+# ── Autonomous Safety Stack Tool Wrappers ─────────────────────────────────────
+
+def _aiem_tool_simulation_lock_check():
+    """Confirm the process is in simulation (paper) mode. Call this FIRST
+    in any session that might record a paper trade. Returns live_enabled=False
+    in safe state, True = emergency stop everything."""
+    try:
+        from simulation_lock import is_live_trading_enabled, assert_simulation_mode
+        live = is_live_trading_enabled()
+        try:
+            assert_simulation_mode(caller_name="aiem_tool_simulation_lock_check")
+            blocked = False
+        except Exception as _e:
+            blocked = True
+        return {
+            "live_trading_enabled": live,
+            "simulation_mode_confirmed": not live,
+            "assert_would_block": blocked,
+            "instruction": ("STOP — live trading flags set. Do not proceed." if live
+                            else "Safe: paper mode confirmed. Proceed with paper trades only."),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_simulation_audit_trail(limit=50):
+    """Read back the simulation-lock audit log to see every check point."""
+    try:
+        from simulation_lock import get_audit_trail
+        return {"entries": get_audit_trail(limit=limit)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_check_kill_switch(signal_name, current_equity, peak_equity,
+                                  trades_today, consecutive_losses,
+                                  total_trades_this_window,
+                                  max_drawdown_pct=10.0, max_trades_per_day=25,
+                                  max_consecutive_losses=6):
+    """Check kill-switch BEFORE every paper trade. If halted=True, log a
+    no_trade decision and stop the loop — you cannot clear the halt yourself."""
+    try:
+        from kill_switch import check_kill_switch, KillSwitchLimits
+        limits = KillSwitchLimits(
+            max_drawdown_pct=float(max_drawdown_pct),
+            max_trades_per_day=int(max_trades_per_day),
+            max_consecutive_losses=int(max_consecutive_losses),
+        )
+        return check_kill_switch(
+            signal_name=signal_name,
+            current_equity=float(current_equity),
+            peak_equity=float(peak_equity),
+            trades_today=int(trades_today),
+            consecutive_losses=int(consecutive_losses),
+            total_trades_this_window=int(total_trades_this_window),
+            limits=limits,
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_clear_kill_switch_halt(cleared_by, note=""):
+    """Owner-only: clear a kill-switch halt after reviewing the cause.
+    The agent should NEVER call this on its own behalf."""
+    try:
+        from kill_switch import clear_halt
+        clear_halt(cleared_by=str(cleared_by), note=str(note))
+        return {"status": "cleared", "cleared_by": cleared_by}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_kill_switch_events(limit=50):
+    """Read halt/clear event history."""
+    try:
+        from kill_switch import get_event_history
+        rows = get_event_history(limit=limit)
+        for r in rows:
+            for k, v in r.items():
+                if hasattr(v, "isoformat"):
+                    r[k] = v.isoformat()
+        return {"events": rows}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_log_decision(signal_name, decision_type, reasoning,
+                             ticker=None, direction=None, confidence=None,
+                             input_state_snapshot=None):
+    """Log a decision point. decision_type must be one of: trade, no_trade, hold, exit.
+    reasoning MUST be non-empty — every decision needs to explain itself.
+    Log no_trade and hold decisions too, not just trades."""
+    try:
+        from decision_logger import log_decision
+        decision_id = log_decision(
+            signal_name=signal_name,
+            decision_type=decision_type,
+            reasoning=reasoning,
+            ticker=ticker,
+            direction=direction,
+            confidence=float(confidence) if confidence is not None else None,
+            input_state_snapshot=input_state_snapshot or {},
+        )
+        return {"decision_id": decision_id, "logged": True, "decision_type": decision_type}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_record_decision_outcome(decision_id, outcome_return, notes=""):
+    """Fill in actual return once a paper position is closed."""
+    try:
+        from decision_logger import record_outcome
+        record_outcome(int(decision_id), float(outcome_return), str(notes))
+        return {"decision_id": decision_id, "outcome_recorded": True,
+                "outcome_return": outcome_return}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_get_decisions(signal_name=None, decision_type=None,
+                              days_back=30, limit=100):
+    """Read back decision log. Filter by signal, decision_type, or recency."""
+    try:
+        from decision_logger import get_decisions
+        import datetime as _dt_gd
+        since = (_dt_gd.datetime.now(_dt_gd.timezone.utc)
+                 - _dt_gd.timedelta(days=int(days_back))) if days_back else None
+        rows = get_decisions(signal_name=signal_name, decision_type=decision_type,
+                             since=since, limit=int(limit))
+        return {"decisions": rows, "count": len(rows)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_decision_quality_summary(signal_name):
+    """Win-rate and avg-confidence breakdown by decision type for a signal."""
+    try:
+        from decision_logger import decision_quality_summary
+        return decision_quality_summary(signal_name)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_benchmark_vs_baselines(agent_return_pct, start_date, end_date,
+                                       benchmark_ticker="SPY"):
+    """Compare agent's paper return to buy-and-hold, SMA crossover, and Monte Carlo.
+    Pulls benchmark price history from polygon_market_daily."""
+    try:
+        import pandas as _pd_bm
+        import psycopg2
+        with psycopg2.connect(_DB_URL) as _c:
+            with _c.cursor() as _cu:
+                _cu.execute("""
+                    SELECT trade_date::text AS date, close
+                    FROM polygon_market_daily
+                    WHERE ticker = %s
+                      AND trade_date BETWEEN %s AND %s
+                    ORDER BY trade_date
+                """, (benchmark_ticker.upper(), start_date, end_date))
+                rows = _cu.fetchall()
+        if not rows:
+            return {"error": f"No price data for {benchmark_ticker} in that window"}
+        df = _pd_bm.DataFrame(rows, columns=["date", "close"])
+        df["close"] = df["close"].astype(float)
+        from benchmark_comparison import compare_agent_to_baselines
+        return compare_agent_to_baselines(
+            agent_return_pct=float(agent_return_pct),
+            price_history=df,
+            start_date=start_date,
+            end_date=end_date,
+            benchmark_ticker=benchmark_ticker,
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_start_eval_window(signal_name, starting_paper_equity, weeks=4):
+    """Start a fixed evaluation window. Refuses if one already exists for this signal.
+    Agent must call is_eval_window_active before every session."""
+    try:
+        from evaluation_windows import start_window
+        wid = start_window(signal_name=signal_name,
+                           starting_paper_equity=float(starting_paper_equity),
+                           weeks=int(weeks))
+        return {"window_id": wid, "signal_name": signal_name,
+                "weeks": weeks, "starting_equity": starting_paper_equity,
+                "reminder": "Call is_eval_window_active before each run-loop iteration."}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_is_eval_window_active(signal_name):
+    """Check if evaluation window is still open. If active=False, stop the loop.
+    The owner must explicitly start the next window after reading the checkpoint."""
+    try:
+        from evaluation_windows import is_window_active
+        return is_window_active(signal_name)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_close_eval_window(window_id, ending_paper_equity,
+                                  benchmark_report=None):
+    """Close window and generate checkpoint report. Pulls decision_quality_summary
+    automatically. Pass benchmark_report from benchmark_vs_baselines if available."""
+    try:
+        from evaluation_windows import close_window
+        report = close_window(int(window_id), float(ending_paper_equity),
+                              benchmark_report=benchmark_report)
+        return report
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_eval_window_history(signal_name):
+    """All evaluation windows for a signal — this is the cumulative track record."""
+    try:
+        from evaluation_windows import get_window_history
+        return {"windows": get_window_history(signal_name)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_record_human_eval_decision(window_id, decision_note):
+    """Owner logs what they decided after reading the checkpoint report.
+    (e.g. 'starting another 4-week window' or 'pausing — two big trades explain all gain')"""
+    try:
+        from evaluation_windows import record_human_decision
+        record_human_decision(int(window_id), str(decision_note))
+        return {"window_id": window_id, "recorded": True}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _run_aiem_research_agent(max_iterations=None):
     """
     Autonomous AI research agent - full enhanced version.
@@ -25326,6 +25619,22 @@ def _run_aiem_research_agent(max_iterations=None):
         "get_literature_briefs":       _aiem_tool_get_literature_briefs,
         "run_granger_test":            _aiem_tool_run_granger_test,
         "model_version_history":       _aiem_tool_model_version_history,
+        # ── Autonomous Safety Stack ────────────────────────────────────────────
+        "simulation_lock_check":       _aiem_tool_simulation_lock_check,
+        "simulation_audit_trail":      _aiem_tool_simulation_audit_trail,
+        "check_kill_switch":           _aiem_tool_check_kill_switch,
+        "clear_kill_switch_halt":      _aiem_tool_clear_kill_switch_halt,
+        "kill_switch_events":          _aiem_tool_kill_switch_events,
+        "log_decision":                _aiem_tool_log_decision,
+        "record_decision_outcome":     _aiem_tool_record_decision_outcome,
+        "get_decisions":               _aiem_tool_get_decisions,
+        "decision_quality_summary":    _aiem_tool_decision_quality_summary,
+        "benchmark_vs_baselines":      _aiem_tool_benchmark_vs_baselines,
+        "start_eval_window":           _aiem_tool_start_eval_window,
+        "is_eval_window_active":       _aiem_tool_is_eval_window_active,
+        "close_eval_window":           _aiem_tool_close_eval_window,
+        "eval_window_history":         _aiem_tool_eval_window_history,
+        "record_human_eval_decision":  _aiem_tool_record_human_eval_decision,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────

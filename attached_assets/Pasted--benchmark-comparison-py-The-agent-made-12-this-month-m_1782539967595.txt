@@ -1,0 +1,155 @@
+"""
+benchmark_comparison.py
+--------------------------
+"The agent made 12% this month" means nothing on its own. This module runs
+dumb, well-understood baselines in parallel against the same paper capital
+and time period, so every result the agent produces has something honest to
+be compared against immediately.
+
+Baselines included:
+  1. Buy-and-hold SPY (or any ticker you specify) — the "did it even beat
+     just holding the market" test.
+  2. Simple moving-average crossover — the "did it beat a trivial mechanical
+     rule a beginner could code in an afternoon" test.
+  3. Random/coin-flip baseline — the "is this distinguishable from chance"
+     test, run as a Monte Carlo distribution rather than a single random
+     path, so you get a sense of the RANGE pure luck could produce.
+
+REQUIRES: pandas, numpy. Pass in your own price history DataFrame (you
+already have this from Polygon/Tradier/etc.) — this module doesn't fetch
+data itself, it only computes comparisons.
+"""
+
+import numpy as np
+import pandas as pd
+from typing import Dict, Any, List, Optional
+
+
+def buy_and_hold_return(price_history: pd.DataFrame, start_date: str, end_date: str) -> Dict[str, Any]:
+    df = price_history[(price_history["date"] >= start_date) & (price_history["date"] <= end_date)].sort_values("date")
+    if len(df) < 2:
+        return {"error": "insufficient_data"}
+    start_price = df["close"].iloc[0]
+    end_price = df["close"].iloc[-1]
+    ret = (end_price - start_price) / start_price
+    return {
+        "strategy": "buy_and_hold",
+        "return_pct": round(float(ret) * 100, 2),
+        "start_price": float(start_price),
+        "end_price": float(end_price),
+    }
+
+
+def sma_crossover_return(
+    price_history: pd.DataFrame,
+    start_date: str,
+    end_date: str,
+    short_window: int = 20,
+    long_window: int = 50,
+) -> Dict[str, Any]:
+    """Simple long-when-short-SMA-above-long-SMA, flat otherwise. The
+    classic 'beginner's first mechanical strategy' — a meaningful bar to
+    clear since plenty of backtests that look impressive in isolation
+    actually underperform this."""
+    df = price_history.sort_values("date").copy()
+    df["sma_short"] = df["close"].rolling(short_window).mean()
+    df["sma_long"] = df["close"].rolling(long_window).mean()
+    df["position"] = np.where(df["sma_short"] > df["sma_long"], 1, 0)
+    df["daily_ret"] = df["close"].pct_change()
+    df["strategy_ret"] = df["position"].shift(1) * df["daily_ret"]
+
+    window = df[(df["date"] >= start_date) & (df["date"] <= end_date)]
+    if len(window) < 2:
+        return {"error": "insufficient_data"}
+
+    cumulative = (1 + window["strategy_ret"].fillna(0)).prod() - 1
+    return {
+        "strategy": f"sma_crossover_{short_window}_{long_window}",
+        "return_pct": round(float(cumulative) * 100, 2),
+        "n_days": len(window),
+    }
+
+
+def monte_carlo_random_baseline(
+    price_history: pd.DataFrame,
+    start_date: str,
+    end_date: str,
+    n_simulations: int = 1000,
+    trades_per_period: int = 20,
+    seed: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Simulates n_simulations random long/short coin-flip 'strategies'
+    over the same period and same approximate number of trades, to build a
+    distribution of what pure luck could produce. If the agent's actual
+    return falls comfortably outside this distribution (e.g. above the
+    95th percentile), that's meaningfully more convincing than just beating
+    buy-and-hold once.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    df = price_history[(price_history["date"] >= start_date) & (price_history["date"] <= end_date)].sort_values("date").copy()
+    df["daily_ret"] = df["close"].pct_change().fillna(0)
+    daily_rets = df["daily_ret"].values
+
+    if len(daily_rets) < trades_per_period:
+        return {"error": "insufficient_data"}
+
+    simulated_returns = []
+    for _ in range(n_simulations):
+        chosen_days = np.random.choice(len(daily_rets), size=trades_per_period, replace=False)
+        directions = np.random.choice([1, -1], size=trades_per_period)
+        sim_ret = np.prod(1 + directions * daily_rets[chosen_days]) - 1
+        simulated_returns.append(sim_ret)
+
+    simulated_returns = np.array(simulated_returns)
+    return {
+        "strategy": "monte_carlo_random_baseline",
+        "n_simulations": n_simulations,
+        "mean_return_pct": round(float(np.mean(simulated_returns)) * 100, 2),
+        "median_return_pct": round(float(np.median(simulated_returns)) * 100, 2),
+        "p5_return_pct": round(float(np.percentile(simulated_returns, 5)) * 100, 2),
+        "p95_return_pct": round(float(np.percentile(simulated_returns, 95)) * 100, 2),
+        "raw_distribution_sample": [round(float(x) * 100, 2) for x in simulated_returns[:50]],
+    }
+
+
+def compare_agent_to_baselines(
+    agent_return_pct: float,
+    price_history: pd.DataFrame,
+    start_date: str,
+    end_date: str,
+    benchmark_ticker: str = "SPY",
+) -> Dict[str, Any]:
+    """Convenience wrapper: pass in the agent's actual paper return for a
+    period, get back a full comparison report against all three baselines."""
+    bh = buy_and_hold_return(price_history, start_date, end_date)
+    sma = sma_crossover_return(price_history, start_date, end_date)
+    mc = monte_carlo_random_baseline(price_history, start_date, end_date)
+
+    beat_buy_hold = agent_return_pct > bh.get("return_pct", float("-inf"))
+    beat_sma = agent_return_pct > sma.get("return_pct", float("-inf"))
+    beat_p95_random = agent_return_pct > mc.get("p95_return_pct", float("inf"))
+
+    return {
+        "agent_return_pct": agent_return_pct,
+        "benchmark_ticker": benchmark_ticker,
+        "buy_and_hold": bh,
+        "sma_crossover": sma,
+        "monte_carlo_random": mc,
+        "beat_buy_and_hold": beat_buy_hold,
+        "beat_sma_crossover": beat_sma,
+        "beat_95th_percentile_random": beat_p95_random,
+        "honest_take": (
+            "Beating buy-and-hold and a simple SMA crossover is a low bar — "
+            "necessary but not impressive on its own. Beating the 95th "
+            "percentile of the random Monte Carlo distribution is the bar "
+            "that actually starts to suggest something beyond luck, and even "
+            "that should hold up across MULTIPLE non-overlapping evaluation "
+            "windows before it means much — see evaluation_windows.py."
+        ),
+    }
+
+
+if __name__ == "__main__":
+    print("benchmark_comparison: pass agent_return_pct + price history to compare_agent_to_baselines()")
