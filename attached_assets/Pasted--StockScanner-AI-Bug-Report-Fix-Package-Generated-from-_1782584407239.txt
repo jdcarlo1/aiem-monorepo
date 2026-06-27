@@ -1,0 +1,245 @@
+# StockScanner AI — Bug Report & Fix Package
+Generated from review of `stockscanner_code.txt` (your actual main.py, ~92.7k lines as exported)
+
+Give this whole file to the Replit agent along with the 3 code files in this
+package: `main_py_patches.py`, `db_migration.sql.txt`, `QuantAgentTab.tsx.txt`
+
+---
+
+## SEVERITY 1 — Tool map mismatch (this is your real "complicated questions"
+## problem — not a shortage of tools)
+
+**Location:** `_run_aiem_focused_session()`, the `_fs_tool_map` dict
+(~line 22954–23027 in the reviewed export).
+
+**What's wrong:** This function is what currently answers SMS/email "ask
+AIEM" questions, and would power a future chat tab. It uses `_fs_tool_map`,
+a 64-entry dict. But the tool *schema* you hand to gpt-4o
+(`_AIEM_AGENT_TOOLS`, shared across your whole app) advertises 83 tools.
+
+**34 of those 83 advertised tools have NO entry in `_fs_tool_map`.** Every
+time the model reaches for one of these on a complex question, it gets
+`{"error": "unknown tool: X"}` back and burns an iteration for nothing:
+
+```
+mkt_generate_hypotheses, mkt_discover_interactions, mkt_test_inverse,
+mkt_check_survivorship, mkt_required_pvalue, mkt_segment_by_sector,
+mkt_volatility_squeeze, mkt_accumulation_squeeze, mkt_extreme_move_reversion,
+mkt_gap_fill_probability, mkt_refresh_universe, mkt_signal_drift,
+mkt_invent_indicator, mkt_compare_signals, mkt_check_redundancy,
+mkt_analyze_false_signals, query_market_regime, query_missed_movers,
+query_temporal_patterns, query_rank_effectiveness, query_exit_timing,
+query_own_prediction_performance, query_cross_signal_overlap,
+analyze_signal_correlation, compare_picks_vs_misses,
+discover_numeric_patterns, evaluate_previous_model,
+rollback_to_previous_model, holding_period_optimize, kelly_position_size,
+list_signal_dimensions, multivariate_regression, register_hypotheses,
+signal_layer_redundancy, signal_magnitude_analysis, test_scoring_hypothesis
+```
+
+These are exactly the deep statistical/research tools a *complicated*
+question needs — so complex questions are disproportionately the ones that
+hit this bug.
+
+There's a smaller reverse problem too: 17 tools are wired into
+`_fs_tool_map` but missing from the schema, so the model never knows it
+can call them (`send_discovery_alert`, `run_risk_gate`, `breakout_discover`,
+`divergence_scan`, `check_price_bullish`, `regime_overlay_check`,
+`regime_overlay_manual`, `retrain_pending/approve/reject/history`,
+`gate_history`, `squeeze_subscore`, `gap_continuation_score`,
+`intraday_continuation_score`, `intraday_compute_features`,
+`breakout_extract_features`).
+
+**Why this matters:** your *other* agent loop, `_run_aiem_research_agent`
+(the main 24/7 overnight loop, ~line 26915), already has a correct, far more
+complete map called `_tool_map` (~line 26959–27101, 130+ entries) wired to
+the exact same `_AIEM_AGENT_TOOLS` schema. The fix isn't building new
+tools — it's pointing `_fs_tool_map` at the same map `_tool_map` already
+uses. I merged the two maps (deduped, no conflicting function references
+found between them) — see `main_py_patches.py`, section 1.
+
+**Fix:** Replace the `_fs_tool_map` dict in `_run_aiem_focused_session`
+with the merged map in `main_py_patches.py` section 1.
+
+---
+
+## SEVERITY 2 — Raw OpenAI message object appended to `messages` list
+
+**Location:** `_run_aiem_focused_session()`, line ~23054: `messages.append(msg)`
+
+**What's wrong:** `msg` is the SDK's message object, not a plain dict. On
+some openai-python versions re-serializing this on the next API call either
+throws or silently drops `tool_calls` fields. Your existing per-iteration
+try/except (line 23073) catches the resulting crash and just `break`s, so
+the session ends early and silently returns whatever partial text it has —
+which looks like a complete answer but isn't. This is very likely
+contributing to "thin" answers on multi-step questions, separately from the
+tool map bug above.
+
+**Fix:** Convert to a plain dict before appending. See
+`main_py_patches.py` section 2.
+
+---
+
+## SEVERITY 3 — SMS webhook bypasses your own concurrency lock
+
+**Location:** `/sms/incoming` Twilio webhook handler, ~line 40874–40906.
+
+**What's wrong:** Your email-based "ask AIEM" path (~line 9817-9833)
+correctly acquires `app._aiem_qa_lock` (a `Semaphore(1)`, initialized at
+line 9686) before starting a session, so only one Q&A session runs at a
+time. The SMS webhook handler starts a session the same way but **never
+acquires that lock** — so a text message can launch an AIEM session
+concurrently with a scheduled cron session, an email-triggered session, or
+another text. Beyond wasted GPT-4o spend, this is a real correctness bug:
+the SMS handler then does
+
+```sql
+SELECT insight_text FROM aiem_research_insights ORDER BY created_at DESC LIMIT 1
+```
+
+to fetch "the" answer — if two sessions finish close together, the SMS
+reply can read back a different session's answer than the one it asked for.
+
+**Fix:** Acquire the same `app._aiem_qa_lock` in the SMS handler, and tag
+the insight row with the session_name so the read-back can't cross-talk.
+See `main_py_patches.py` section 3.
+
+---
+
+## SEVERITY 4 (informational, not necessarily wrong) — 52 tools exist that
+## the model can never call
+
+The complete `_tool_map` has ~135 working entries, but the schema
+(`_AIEM_AGENT_TOOLS`) only describes 83 tools to gpt-4o. The other ~52
+(kill-switch controls, shadow-trade tooling, decision-quality auditing,
+etc.) may be intentionally infra-only and not meant for conversational use
+— flagging this so you can decide, not asserting it's a bug. If any of
+those should be agent-callable, they need schema entries added.
+
+---
+
+## MISSING ENTIRELY — the chat tab itself doesn't exist yet
+
+There are no `/aiem/chat` routes and no `quant_agent_sessions` table
+anywhere in the reviewed export. The `FOR_CLAUDE.md` you originally sent
+described this as "already coded" — it isn't, at least not in this file.
+Full implementation (3 Flask endpoints + DB table + React tab) is included
+in this package, built on top of the FIXED session runner (Severity 1 & 2
+fixes applied) and reusing `app._aiem_qa_lock` so the web chat tab can't
+run concurrently with the SMS/email/cron paths either.
+
+Files:
+- `main_py_patches.py` — sections 4–5: the chat endpoints + worker
+- `db_migration.sql.txt` — creates `quant_agent_sessions` (doesn't exist
+  yet) with the columns needed for live progress + tool trace
+- `QuantAgentTab.tsx.txt` — the React tab component
+
+---
+
+## SEVERITY 5 (new feature, not a bug) — "give me N stocks today" has no
+## single tool, so the model has to improvise the combination every time
+
+You already have everything needed to answer "give me 10 stocks today that
+look ready to move, based on historically similar setups" — `conviction_stack_watchlist`
+(8-layer conviction score, snapshotted daily) and `behavioral_pattern_matches`
+(the table behind `mkt_find_behavioral_matches`, updated every 30 min). But
+nothing combines them into one ranked answer, so the model has to chain 2-3
+tools itself and re-derive the ranking logic on the fly every single time —
+which is exactly the kind of multi-step task where answer quality varies
+run to run.
+
+Added `get_daily_candidates` (section 6) — a read-only join of those two
+tables, ranked by conviction score with behavioral-match priority, always
+returning the historical analog and similarity score alongside each pick
+so it's framed as pattern-similarity, not a prediction. Added a system
+prompt addition (section 7) so the model reaches for this tool specifically
+instead of improvising when asked this question.
+
+This doesn't generate new signals or new alpha — it's the same data you
+already compute on a schedule, just assembled into one coherent answer
+instead of requiring the model to guess the right combination.
+
+---
+
+## SEVERITY 6 (new feature, not a bug) — no on-demand intraday data; only
+## once-daily snapshots and a 30-min-cadence scan
+
+`conviction_stack_watchlist` snapshots once per day. `behavioral_pattern_matches`
+refreshes every 30 minutes. Neither reflects "what is this stock doing
+right now, this minute" when a subscriber asks mid-session.
+
+Added `get_live_snapshot` (section 8) — calls Polygon's live snapshot
+endpoint on demand at question-time (same auth pattern your gainers scan
+already uses), returning current price, today's volume so far, the most
+recent minute bar, and change %. Wired it into `get_daily_candidates`
+automatically (section 9) so every "picks today" answer is enriched with
+live intraday data, not just yesterday's conviction snapshot. Added prompt
+guidance (section 10) so the agent explicitly flags when data is delayed
+or stale rather than presenting it as current.
+
+**Important caveat I can't verify from code alone:** whether this is truly
+real-time depends on your Polygon subscription tier. Their free/basic
+tiers return 15-minute-delayed data on this endpoint; real-time requires
+their paid Stocks plan. The tool checks Polygon's own `status` field
+(`OK` vs `DELAYED`) and will say so honestly either way — but confirm your
+plan tier so you know which one to expect.
+
+---
+
+## ENGINEERING FIX — tool registry consistency check (prevents recurrence)
+
+The 34-tool gap (Severity 1) is already fixed in Section 1's merged map.
+But nothing currently *checks* that the schema and tool map stay in sync —
+which is how they drifted apart in the first place, silently, probably
+over weeks of incremental changes. Added `_validate_tool_registry_consistency`
+(section 11): call it once at startup against both `_fs_tool_map` and
+`_tool_map`. If anyone ever adds a tool to one without the other again, the
+app prints a loud, specific mismatch report on boot instead of it being
+discovered months later through silent "unknown tool" failures.
+
+I deliberately did NOT rewrite all 135 tool definitions into a decorator-
+based registry pattern — that's the textbook version of this fix, but it
+means touching every tool function by hand across a 92,700-line file with
+no way for me to test the result. The consistency check gets you the same
+protection (drift gets caught immediately) for a fraction of the risk.
+
+**Cleanup:** the duplicate dict entries I noticed in the original
+`_fs_tool_map` (several keys appeared twice, ~line 22964-22968) are already
+gone in the Section 1 merged map — Python dict construction drops
+duplicate keys automatically, so no separate fix was needed there. I did
+not do a full dead-code sweep of the 92,700-line file — that's a much
+larger, separate undertaking and I want to be honest that today's review
+was targeted at the tool-wiring issue, not a general audit.
+
+**The other 34→0 direction:** 52 tools exist as working functions but have
+never had a schema entry, so the model has never been able to call them at
+all (section 12 — schemas generated from each function's real signature).
+
+**⚠️ Review before exposing these to the model.** Several have real side
+effects and probably shouldn't be callable by an autonomous chat agent
+without a human approving first:
+- `clear_kill_switch_halt` — clears a safety halt
+- `retrain_approve` / `retrain_reject` — promotes/rejects a model to live
+- `open_shadow_trade` / `close_shadow_trade` — opens/closes paper positions
+- `send_discovery_alert` — fires an email/SMS alert to you or subscribers
+- `log_decision` / `record_decision_outcome` / `record_human_eval_decision` — writes to your decision audit trail
+
+Recommend deciding case-by-case which of the 52 are safe for the
+conversational agent to call autonomously vs. which should stay restricted
+to your overnight research loop (which already has human-reviewed gates
+around the consequential ones, per what I saw in `save_discovery`).
+
+---
+
+## Apply in this order
+1. `main_py_patches.py` section 1 (tool map) — highest impact, lowest risk
+2. `main_py_patches.py` section 2 (message serialization)
+3. `main_py_patches.py` section 3 (SMS lock fix)
+4. `db_migration.sql.txt` (run against your DB)
+5. `main_py_patches.py` sections 4–5 (new chat endpoints)
+6. `main_py_patches.py` sections 6–7 ("give me picks today" tool + prompt routing)
+7. `main_py_patches.py` sections 8–10 (live intraday data + freshness guidance)
+8. `main_py_patches.py` section 11 (registry consistency check — add the startup call)
+9. `main_py_patches.py` section 12 (review the 52 stub schemas, remove side-effect ones, merge the rest)
+10. `QuantAgentTab.tsx.txt` (wire into Dashboard.tsx's tab list)

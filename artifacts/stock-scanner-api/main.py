@@ -3182,7 +3182,7 @@ try:
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
 
-    for _mi_h, _mi_m in [(9, 53), (13, 0)]:  # trimmed: dropped 10:15 (redundant — only 22 min after 9:53 first wave)
+    for _mi_h, _mi_m in [(10, 15), (13, 0)]:  # moved from 9:53 → 10:15: morning_scan runs 9:45-10:10; overlapping scan caused Yahoo saturation
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -3677,7 +3677,7 @@ try:
           "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
           "sc (stealth): 8:15 AM ranking, 9:37 watch, 9:47 buy | "
           "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
-          "morning inflows: 9:42 + 13:01 (email) / 9:53 + 13:00 (scan) | "
+          "morning inflows: 9:42 + 13:01 (email) / 10:15 + 13:00 (scan — moved from 9:53 to clear 9:45 burst) | "
           "AIEM market-open: 9:55/10:00/10:05 AM (was 9:31/9:35/9:40 — burst staggered) | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 90 min - Mon–Fri ET")
 
@@ -22959,6 +22959,187 @@ def _classify_question_complexity(question: str) -> int:
     return 6
 
 
+def _aiem_tool_get_live_snapshot(tickers) -> dict:
+    """Get live intraday data for specific tickers RIGHT NOW from Polygon snapshot endpoint.
+    Returns current price, today's volume, most recent minute bar, and change %.
+    data_status will be 'OK' (real-time) or 'DELAYED' (15-min lag) depending on Polygon tier.
+    Use when a question mentions 'right now', 'currently', 'this minute', or 'today so far'.
+    """
+    import urllib.request as _ureq_ls, urllib.parse as _uparse_ls, json as _json_ls
+
+    if isinstance(tickers, str):
+        tickers = [tickers]
+    tickers = [t.upper().strip() for t in tickers if t][:50]
+    if not tickers:
+        return {"status": "error", "error": "no tickers provided"}
+
+    key = os.environ.get("POLYGON_API_KEY", "")
+    if not key:
+        return {"status": "error", "error": "POLYGON_API_KEY not configured"}
+
+    ticker_param = _uparse_ls.quote(",".join(tickers))
+    url = (
+        f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
+        f"?tickers={ticker_param}&apiKey={key}"
+    )
+    try:
+        with _ureq_ls.urlopen(url, timeout=8) as resp:
+            data = _json_ls.load(resp)
+    except Exception as e:
+        return {"status": "error", "error": f"Polygon snapshot fetch failed: {e}"}
+
+    if data.get("status") not in ("OK", "DELAYED"):
+        return {"status": "error", "error": f"Polygon returned status={data.get('status')}"}
+
+    results = []
+    for t in (data.get("tickers") or []):
+        day      = t.get("day") or {}
+        min_bar  = t.get("min") or {}
+        prev     = t.get("prevDay") or {}
+        last_tr  = t.get("lastTrade") or {}
+        results.append({
+            "ticker":               t.get("ticker"),
+            "last_price":           last_tr.get("p") or day.get("c"),
+            "change_pct_today":     t.get("todaysChangePerc"),
+            "day_open":             day.get("o"),
+            "day_high":             day.get("h"),
+            "day_low":              day.get("l"),
+            "day_volume_so_far":    day.get("v"),
+            "most_recent_minute_bar": {
+                "open": min_bar.get("o"), "high": min_bar.get("h"),
+                "low":  min_bar.get("l"), "close": min_bar.get("c"),
+                "volume": min_bar.get("v"), "bar_timestamp": min_bar.get("t"),
+            } if min_bar else None,
+            "prev_close":           prev.get("c"),
+            "snapshot_updated_at":  t.get("updated"),
+        })
+
+    return {
+        "status":      "ok",
+        "data_status": data.get("status"),
+        "snapshots":   results,
+        "n":           len(results),
+        "note": (
+            "If data_status is DELAYED, this is NOT real-time — it reflects "
+            "Polygon's delayed-data tier. Say so explicitly rather than "
+            "presenting delayed data as current."
+        ),
+    }
+
+
+def _aiem_tool_get_daily_candidates(limit: int = 10, min_conviction_pct: int = 60,
+                                     min_similarity: float = 0.75) -> dict:
+    """Get today's top N stock candidates ranked by conviction score, cross-referenced
+    against historical behavioral pattern matches. USE THIS as the first tool whenever
+    someone asks for 'stocks today', 'picks for today', 'what looks ready to move',
+    or any variant of wanting a ranked list of current candidates.
+    Returns conviction score breakdown plus, where available, the historical analog
+    setup and what it actually did. Always present as pattern similarity with sample
+    backing — never as a guarantee of future performance.
+    """
+    import psycopg2 as _gdc_pg, json as _gdc_j
+
+    try:
+        with _gdc_pg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Today's conviction stack snapshot, ranked by conviction score
+            cur.execute(
+                """SELECT ticker, total_pts, conviction_pct, label, price, layers, rank
+                   FROM conviction_stack_watchlist
+                   WHERE snap_date = CURRENT_DATE AND conviction_pct >= %s
+                   ORDER BY conviction_pct DESC, total_pts DESC
+                   LIMIT %s""",
+                (min_conviction_pct, limit * 3),
+            )
+            conviction_rows = cur.fetchall()
+
+            if not conviction_rows:
+                return {
+                    "status": "ok", "candidates": [], "n": 0,
+                    "note": (
+                        f"No tickers in conviction_stack_watchlist for today met the "
+                        f"conviction_pct >= {min_conviction_pct} bar. Either today's "
+                        f"snapshot hasn't run yet, or nothing currently clears the bar — "
+                        f"lower min_conviction_pct to see weaker candidates, or report "
+                        f"honestly that nothing strong qualifies today."
+                    ),
+                }
+
+            tickers = [r[0] for r in conviction_rows]
+
+            # Most recent behavioral pattern matches for those tickers (last 2h scan)
+            cur.execute(
+                """SELECT DISTINCT ON (ticker) ticker, similarity, matched_ticker,
+                          matched_date, matched_move, days_before_move, verdict, scan_time
+                   FROM behavioral_pattern_matches
+                   WHERE ticker = ANY(%s) AND scan_time >= NOW() - INTERVAL '2 hours'
+                   ORDER BY ticker, similarity DESC""",
+                (tickers,),
+            )
+            match_rows = {r[0]: r for r in cur.fetchall()}
+
+        candidates = []
+        for ticker, total_pts, conviction_pct, label, price, layers, rank in conviction_rows:
+            match = match_rows.get(ticker)
+            entry = {
+                "ticker":            ticker,
+                "conviction_pct":    conviction_pct,
+                "conviction_label":  label,
+                "price":             float(price) if price is not None else None,
+                "layer_breakdown":   layers,
+                "behavioral_match":  None,
+            }
+            if match:
+                _, similarity, matched_ticker, matched_date, matched_move, days_before, verdict, _ = match
+                if float(similarity) >= min_similarity:
+                    entry["behavioral_match"] = {
+                        "similarity":                   float(similarity),
+                        "historical_analog_ticker":     matched_ticker,
+                        "historical_analog_date":       str(matched_date),
+                        "historical_analog_move_pct":   float(matched_move or 0),
+                        "days_before_that_move":        days_before,
+                        "verdict":                      verdict,
+                    }
+            candidates.append(entry)
+
+        # Prioritize candidates with BOTH high conviction AND a behavioral match
+        candidates.sort(
+            key=lambda c: (c["behavioral_match"] is not None, c["conviction_pct"]),
+            reverse=True,
+        )
+        candidates = candidates[:limit]
+
+        # Section 9: Enrich with live Polygon snapshot at question-time
+        _data_status = "unavailable"
+        if candidates:
+            try:
+                _live = _aiem_tool_get_live_snapshot([c["ticker"] for c in candidates])
+                if _live.get("status") == "ok":
+                    _live_by_ticker = {s["ticker"]: s for s in _live["snapshots"]}
+                    for c in candidates:
+                        c["live_snapshot"] = _live_by_ticker.get(c["ticker"])
+                    _data_status = _live.get("data_status", "unavailable")
+            except Exception:
+                pass
+
+        return {
+            "status":               "ok",
+            "candidates":           candidates,
+            "n":                    len(candidates),
+            "n_with_historical_match": sum(1 for c in candidates if c["behavioral_match"]),
+            "live_data_status":     _data_status,
+            "framing_required": (
+                "When presenting this to a user: state these are pattern-similarity "
+                "matches against historical pre-move setups, not predictions. Always "
+                "include the similarity score and what the historical analog actually "
+                "did. If fewer than the requested number of candidates clear the bar, "
+                "say so explicitly rather than padding the list with weaker names. "
+                "If live_data_status is DELAYED, note that prices have some lag."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 def _build_aiem_tool_map():
     """Build full merged tool map — all tools available to both focused sessions and chat tab.
     Merged from _run_aiem_research_agent._tool_map (135 entries) plus focused-session-specific tools.
@@ -23114,6 +23295,9 @@ def _build_aiem_tool_map():
         "trust_get_weights":         _aiem_tool_trust_get_weights,
         "trust_get_history":         _aiem_tool_trust_get_history,
         "trust_apply_to_candidates": _aiem_tool_trust_apply_to_candidates,
+        # ── New tools: daily picks + live intraday data ───────────────────────
+        "get_daily_candidates": _aiem_tool_get_daily_candidates,
+        "get_live_snapshot":    _aiem_tool_get_live_snapshot,
     }
 
 
@@ -24355,6 +24539,42 @@ _AIEM_AGENT_TOOLS = [
             "min_outcomes_to_trust": {"type": "integer", "description": "Min resolved outcomes before adjusting trust (default 15)"},
         }, "required": ["candidates_json", "context_bucket"]}
     }},
+    {"type": "function", "function": {
+        "name": "get_daily_candidates",
+        "description": (
+            "Get today's top N stock candidates ranked by conviction score, "
+            "cross-referenced against historical behavioral pattern matches. "
+            "USE THIS as the first tool whenever a user asks for 'stocks today', "
+            "'picks for today', 'what looks ready to move', or any variant of "
+            "wanting a ranked list of current candidates. Returns conviction "
+            "score breakdown plus, where available, the historical analog "
+            "setup and what it actually did — always present as pattern "
+            "similarity with sample backing, never as a guarantee of future "
+            "performance. Includes live intraday Polygon data automatically."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "limit":             {"type": "integer", "description": "Max candidates to return (default 10)"},
+            "min_conviction_pct":{"type": "integer", "description": "Minimum conviction score 0-100 (default 60)"},
+            "min_similarity":    {"type": "number",  "description": "Minimum behavioral match similarity 0-1 (default 0.75)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_live_snapshot",
+        "description": (
+            "Get live intraday data for specific tickers AT THE MOMENT the "
+            "question is asked — current price, today's volume so far, the "
+            "most recent minute bar, and change % from previous close. Use "
+            "this whenever a question mentions 'right now', 'currently', "
+            "'this minute', 'today so far', or needs fresher data than the "
+            "daily conviction snapshot can provide. Always check data_status "
+            "in the response — DELAYED means this is NOT truly real-time and "
+            "you must say so if presenting it as current."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "tickers": {"type": "array", "items": {"type": "string"},
+                        "description": "Ticker symbols to get live data for (max 50)"},
+        }, "required": ["tickers"]},
+    }},
 ]
 
 
@@ -25402,7 +25622,19 @@ REQUIRED findings content:
 - One open question to test next week
 
 Your goal: maximize T+3 win rate for top-ranked picks. Rigorous statistical discipline beats
-finding impressive-sounding patterns. A null result is a valid, honest, and valuable output."""
+finding impressive-sounding patterns. A null result is a valid, honest, and valuable output.
+
+WHEN A USER ASKS FOR TODAY'S PICKS OR CANDIDATES (e.g. "give me N stocks today that look ready to move", "what looks good today", "picks for today"):
+1. Call get_daily_candidates first. Do not hand-roll this from mkt_find_behavioral_matches and the conviction stack separately — the combined tool already ranks and cross-references them correctly.
+2. If get_daily_candidates returns fewer candidates than requested, say so explicitly. Do not lower your own bar or pad the list with weak names — an honest "only 6 names clear the bar today" is more useful than a padded list of 10.
+3. For every candidate presented, state the conviction score AND, if present, the historical analog (ticker, date, what it did, similarity score). Never state or imply a prediction of future performance — frame everything as pattern-similarity with sample backing.
+4. If a user pushes for a guarantee, decline and restate the pattern-similarity framing.
+
+ON DATA FRESHNESS:
+- get_daily_candidates includes a live_snapshot per candidate and a live_data_status field. Always check this before answering.
+- If a user's question includes "right now", "currently", "this minute", "today so far" — ground your answer in the live_snapshot data. If live_data_status is "DELAYED", say explicitly that the data has some lag.
+- If live_data_status is "unavailable", fall back to the conviction score + behavioral match data with a caveat that you don't have a live price check for this answer.
+- Markets are closed outside 9:30am-4:00pm ET on trading days. If asked for "right now" data outside those hours, say the market is closed and the data reflects the last close."""
 
 
 
