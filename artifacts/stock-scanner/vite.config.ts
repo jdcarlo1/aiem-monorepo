@@ -50,6 +50,7 @@ export default defineConfig({
       strict: true,
     },
     proxy: {
+      "/stock-api": { target: "http://localhost:5050", changeOrigin: true },
       "/api/stock": { target: "http://localhost:5050", changeOrigin: true },
       "/api/portfolio": { target: "http://localhost:5050", changeOrigin: true },
       "/api/healthz": { target: "http://localhost:5050", changeOrigin: true },
