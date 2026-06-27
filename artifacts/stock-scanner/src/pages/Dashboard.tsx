@@ -14007,11 +14007,41 @@ function SectorHeatTab({ onSelectTicker }: { onSelectTicker: (t: string) => void
   );
 }
 
+// ── Error boundary: catches any tab component crash so the whole page
+// doesn't go black. key={tab} resets it when you switch tabs.
+class TabErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: string | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(e: Error) {
+    return { error: e.message ?? "Unknown error" };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, color: "#f1f5f9", fontFamily: "Inter, sans-serif", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>⚠️</div>
+          <div style={{ color: "#fbbf24", fontWeight: 700, fontSize: 13, marginBottom: 8 }}>TAB FAILED TO LOAD</div>
+          <div style={{ color: "#94a3b8", fontSize: 10, marginBottom: 16 }}>Switch to another tab or refresh the page.</div>
+          <div style={{ color: "#475569", fontSize: 9, fontFamily: "monospace", background: "#0b1320", padding: "8px 16px", display: "inline-block", borderRadius: 4 }}>
+            {this.state.error}
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -14266,6 +14296,7 @@ export default function Dashboard() {
       {tab === "overview" ? (
         <OverviewTab onSelectTicker={selectTicker} />
       ) : (
+      <TabErrorBoundary key={tab}>
       <main style={{ flex: 1, overflowY: "auto", background: "#060c14" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
 
@@ -15688,6 +15719,7 @@ export default function Dashboard() {
 
       </div>
       </main>
+      </TabErrorBoundary>
       )}
 
       {/* ── BOTTOM TICKER ── */}
