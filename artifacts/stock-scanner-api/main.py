@@ -17831,10 +17831,10 @@ def _mkt_tool_discover_interactions(factor1="gap_pct", factor2="rvol", horizon="
             for tier1, lo1, hi1 in [("low",  None, p33_1), ("mid", p33_1, p67_1), ("high", p67_1, None)]:
                 for tier2, lo2, hi2 in [("low",  None, p33_2), ("mid", p33_2, p67_2), ("high", p67_2, None)]:
                     parts = []
-                    if lo1 is not None: parts.append(f"{col1} >= {lo1}")
-                    if hi1 is not None: parts.append(f"{col1} < {hi1}")
-                    if lo2 is not None: parts.append(f"{col2} >= {lo2}")
-                    if hi2 is not None: parts.append(f"{col2} < {hi2}")
+                    if lo1 is not None: parts.append(f"t.{col1} >= {lo1}")
+                    if hi1 is not None: parts.append(f"t.{col1} < {hi1}")
+                    if lo2 is not None: parts.append(f"t.{col2} >= {lo2}")
+                    if hi2 is not None: parts.append(f"t.{col2} < {hi2}")
                     where = " AND ".join(parts) if parts else "1=1"
                     cur.execute(f"""
                         SELECT COUNT(*),
