@@ -1,0 +1,280 @@
+"""
+deep_rl_policy.py
+--------------------
+Upgrade from rl_position_sizer.py's tabular Q-learning to function
+approximation (a small neural network standing in for the Q-table), so the
+agent can use a richer, continuous state representation (actual conviction
+scores, actual P&L percentages, actual technical indicator values) instead
+of the coarse discretized buckets tabular Q-learning required.
+
+WHY THIS IS A REAL TRADE-OFF, NOT A FREE UPGRADE: tabular Q-learning's
+biggest advantage was that you could print the ENTIRE policy and read every
+state->action mapping. A neural network's weights are not directly
+human-readable in that way — you lose direct inspectability in exchange for
+handling richer state. This module tries to claw back some of that
+inspectability through:
+
+  1. A deliberately small, shallow network (one hidden layer, capped width)
+     — not because bigger wouldn't technically work, but because a small
+     network is more likely to learn something resembling generalizable
+     structure rather than memorizing noise, AND its behavior is easier to
+     probe exhaustively (see probe_policy_behavior below).
+  2. probe_policy_behavior(): systematically queries the network across a
+     grid of representative states and reports what it would do — giving
+     you a 'read-out' similar in spirit to the tabular Q-table, even though
+     the underlying model isn't a literal table.
+  3. The exact same offline-train / held-out-evaluate / explicit-promote
+     gating pattern as everything else — a deep model gets MORE scrutiny
+     before going live, not less, given the reduced inspectability.
+
+Uses scikit-learn's MLPRegressor (no heavyweight deep learning framework
+needed for a network this small) — one regressor per action, predicting
+expected Q-value for that action given the continuous state.
+
+REQUIRES: AIEM_DATABASE_URL, numpy, scikit-learn.
+"""
+
+import os
+import json
+import pickle
+import datetime as dt
+from typing import Dict, Any, List, Optional, Tuple
+
+import numpy as np
+import psycopg2
+import psycopg2.extras
+from sklearn.neural_network import MLPRegressor
+
+import simulation_lock as sl
+import decision_logger as dl
+
+
+DDL = """
+CREATE TABLE IF NOT EXISTS deep_rl_policy_versions (
+    id SERIAL PRIMARY KEY,
+    policy_name TEXT NOT NULL,
+    version INT NOT NULL,
+    models_blob BYTEA NOT NULL,
+    feature_names JSONB NOT NULL,
+    trained_on_n_samples INT NOT NULL,
+    held_out_avg_reward NUMERIC,
+    is_live BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    probe_report JSONB,
+    UNIQUE (policy_name, version)
+);
+"""
+
+ACTIONS = ["no_position", "size_25pct", "size_50pct", "size_100pct", "exit"]
+
+
+def _connect():
+    url = os.environ.get("AIEM_DATABASE_URL")
+    if not url:
+        raise RuntimeError("AIEM_DATABASE_URL is not set.")
+    return psycopg2.connect(url)
+
+
+def init_schema():
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL)
+        conn.commit()
+    print("[deep_rl_policy] schema ready")
+
+
+class DeepQPolicy:
+    """One small MLPRegressor per action, each predicting that action's
+    expected Q-value given the continuous feature vector. Capped at one
+    hidden layer of width <= 16 — see module docstring for why."""
+
+    def __init__(self, feature_names: List[str], hidden_layer_size: int = 12, random_state: int = 42):
+        self.feature_names = feature_names
+        self.models: Dict[str, MLPRegressor] = {
+            a: MLPRegressor(
+                hidden_layer_sizes=(hidden_layer_size,),
+                max_iter=500,
+                random_state=random_state,
+            )
+            for a in ACTIONS
+        }
+        self.is_fitted = {a: False for a in ACTIONS}
+
+    def _vectorize(self, state: Dict[str, float]) -> np.ndarray:
+        return np.array([[state.get(f, 0.0) for f in self.feature_names]])
+
+    def predict_q_values(self, state: Dict[str, float]) -> Dict[str, float]:
+        x = self._vectorize(state)
+        return {
+            a: float(self.models[a].predict(x)[0]) if self.is_fitted[a] else 0.0
+            for a in ACTIONS
+        }
+
+    def choose_action(self, state: Dict[str, float], epsilon: float = 0.0) -> str:
+        if epsilon > 0 and np.random.random() < epsilon:
+            return np.random.choice(ACTIONS)
+        q_values = self.predict_q_values(state)
+        return max(q_values, key=q_values.get)
+
+    def fit_from_episodes(self, episodes: List[Dict[str, Any]],
+                          discount: float = 0.95, n_iterations: int = 3):
+        """Fitted-Q-iteration over offline episode buffer. Each episode must have:
+            {"state": {feature: value, ...}, "action": str,
+             "reward": float, "next_state": {...}}
+        """
+        for action in ACTIONS:
+            action_episodes = [e for e in episodes if e["action"] == action]
+            if len(action_episodes) < 20:
+                continue
+
+            X = np.array([
+                [e["state"].get(f, 0.0) for f in self.feature_names]
+                for e in action_episodes
+            ])
+
+            for iteration in range(n_iterations):
+                targets = []
+                for e in action_episodes:
+                    next_q = max(self.predict_q_values(e["next_state"]).values()) if self.is_fitted[action] else 0.0
+                    targets.append(e["reward"] + discount * next_q)
+                self.models[action].fit(X, np.array(targets))
+                self.is_fitted[action] = True
+
+    def serialize(self) -> bytes:
+        return pickle.dumps({
+            "models":       self.models,
+            "is_fitted":    self.is_fitted,
+            "feature_names": self.feature_names,
+        })
+
+    @classmethod
+    def deserialize(cls, blob: bytes) -> "DeepQPolicy":
+        data   = pickle.loads(blob)
+        policy = cls(feature_names=data["feature_names"])
+        policy.models    = data["models"]
+        policy.is_fitted = data["is_fitted"]
+        return policy
+
+
+def probe_policy_behavior(policy: DeepQPolicy,
+                          probe_grid: List[Dict[str, float]]) -> List[Dict[str, Any]]:
+    """Systematically queries the policy across a representative grid of
+    states. READ THIS OUTPUT before promoting any deep policy to live paper
+    trading. If the chosen actions don't make intuitive sense (e.g. 'exit'
+    at high conviction + winning), that's a sign the network learned
+    something spurious from limited data."""
+    results = []
+    for state in probe_grid:
+        q_values    = policy.predict_q_values(state)
+        best_action = max(q_values, key=q_values.get)
+        results.append({
+            "state":         state,
+            "chosen_action": best_action,
+            "q_values":      {a: round(v, 3) for a, v in q_values.items()},
+        })
+    return results
+
+
+def evaluate_held_out(policy: DeepQPolicy,
+                      held_out_episodes: List[Dict[str, Any]]) -> float:
+    """Average reward on episodes the policy never trained on."""
+    total   = 0.0
+    matched = 0
+    for e in held_out_episodes:
+        chosen = policy.choose_action(e["state"], epsilon=0.0)
+        if chosen == e["action"]:
+            total   += e["reward"]
+            matched += 1
+    return total / matched if matched else 0.0
+
+
+def save_policy_version(
+    policy_name: str,
+    policy: DeepQPolicy,
+    n_samples: int,
+    held_out_score: float,
+    probe_report: List[Dict[str, Any]],
+    promote: bool = False,
+) -> int:
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(MAX(version), 0) + 1 FROM deep_rl_policy_versions WHERE policy_name = %s",
+                (policy_name,),
+            )
+            version = cur.fetchone()[0]
+
+            if promote:
+                cur.execute(
+                    "UPDATE deep_rl_policy_versions SET is_live = FALSE WHERE policy_name = %s",
+                    (policy_name,),
+                )
+
+            cur.execute(
+                """
+                INSERT INTO deep_rl_policy_versions
+                    (policy_name, version, models_blob, feature_names,
+                     trained_on_n_samples, held_out_avg_reward, is_live, probe_report)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    policy_name, version, policy.serialize(),
+                    json.dumps(policy.feature_names),
+                    n_samples, held_out_score, promote,
+                    json.dumps(probe_report),
+                ),
+            )
+            policy_id = cur.fetchone()[0]
+        conn.commit()
+    return policy_id
+
+
+def get_live_policy(policy_name: str) -> Optional[DeepQPolicy]:
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT models_blob FROM deep_rl_policy_versions WHERE policy_name = %s AND is_live = TRUE",
+                (policy_name,),
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    return DeepQPolicy.deserialize(row["models_blob"])
+
+
+def get_paper_action(policy_name: str, signal_name: str,
+                     state: Dict[str, float]) -> Dict[str, Any]:
+    """Call site for the paper-trading loop. Same simulation_lock gate and
+    decision_logger pattern as rl_position_sizer — deep RL gets the same
+    protections, not fewer."""
+    sl.assert_simulation_mode(caller_name="deep_rl_policy.get_paper_action")
+
+    policy = get_live_policy(policy_name)
+    if policy is None:
+        action    = "no_position"
+        reasoning = f"No trained live deep policy found for '{policy_name}' — defaulting to no_position."
+        q_values  = {}
+    else:
+        action    = policy.choose_action(state, epsilon=0.0)
+        q_values  = policy.predict_q_values(state)
+        reasoning = (
+            f"Deep RL policy state={json.dumps(state)} -> action={action}. "
+            f"Q-values: {json.dumps({k: round(v,3) for k,v in q_values.items()})}"
+        )
+
+    dl.log_decision(
+        signal_name=signal_name,
+        decision_type="trade" if action != "no_position" else "no_trade",
+        reasoning=reasoning,
+        input_state_snapshot={**state, "policy_name": policy_name, "policy_type": "deep_rl"},
+    )
+
+    return {"action": action, "reasoning": reasoning, "q_values": q_values}
+
+
+if __name__ == "__main__":
+    init_schema()
+    print("deep_rl_policy schema ready.")
+    print("ALWAYS call probe_policy_behavior() across a representative state grid")
+    print("and read the output before promoting any deep policy to live paper trading.")

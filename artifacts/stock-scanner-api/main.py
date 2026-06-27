@@ -22114,6 +22114,11 @@ try:
     _dl_mod.init_schema()
     _ew_mod.init_schema()
     print("[aiem_integrity] kill_switch / decision_logger / evaluation_windows schemas ready")
+    import rl_position_sizer as _rl_mod
+    import deep_rl_policy    as _drl_mod
+    _rl_mod.init_schema()
+    _drl_mod.init_schema()
+    print("[aiem_integrity] rl_position_sizer / deep_rl_policy schemas ready")
 except Exception as _e_aiem_init:
     print(f"[aiem_integrity] schema init error: {_e_aiem_init}")
 
@@ -24137,6 +24142,36 @@ SAFETY ORDER OF OPERATIONS (every paper-trading session):
   7. close_shadow_trade + record_decision_outcome → record exit + return
   8. When window expires: close_eval_window + benchmark_vs_baselines → report
 
+═══════════════════════════════════════════════════════════════
+EXECUTION / PORTFOLIO / LEARNING STACK (paper-only)
+═══════════════════════════════════════════════════════════════
+  rl_get_paper_action      — Tabular Q-policy sizing recommendation (no_position /
+                             size_25pct / size_50pct / size_100pct / exit). Requires
+                             a promoted live policy; returns no_position if none exists.
+  rl_readable_policy       — Print the ENTIRE tabular Q-table for a policy. Read
+                             this periodically — counterintuitive state→action
+                             mappings are red flags before trusting the policy.
+  deep_rl_get_paper_action — Neural-net Q-policy sizing (same action space as tabular,
+                             richer continuous state). Always gated by simulation_lock.
+  deep_rl_probe            — Probe the neural policy across a 27-state grid (low/med/high
+                             conviction × losing/flat/winning × new/short/long). Read
+                             the report before promoting any deep policy.
+  portfolio_allocate       — Risk-parity + fractional-Kelly allocation of paper capital
+                             across multiple signals. Pass signal_stats_json with each
+                             signal's win_rate/avg_win_pct/avg_loss_pct/volatility.
+                             Recompute weekly — large week-to-week swings = stats not
+                             stable enough to allocate confidently yet.
+  causal_discover          — PC algorithm causal graph over scan_history variables.
+                             Any directed edge INTO a signal you trade should be
+                             cross-checked with causal_inference before trusting.
+  ensemble_combine_signals — Win-rate-weighted average of multiple signal scores.
+                             Always use this as your sanity-check baseline before
+                             trying the stacking meta-learner.
+  execution_realistic_cost — Apply spread + square-root market-impact to a shadow
+                             entry/exit pair. Subtract total_cost_pct from reported
+                             win rates before trusting them. A signal that barely
+                             beats execution cost is not a real edge.
+
 20. mkt_build_composite       - combine top discoveries into final weighted rule
 
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
@@ -25485,6 +25520,125 @@ def _aiem_tool_record_human_eval_decision(window_id, decision_note):
         return {"error": str(_e)}
 
 
+# ── RL Position Sizer tools ──────────────────────────────────────────────────
+def _aiem_tool_rl_get_paper_action(policy_name: str, signal_name: str,
+                                   conviction_score: float, unrealized_pnl_pct: float,
+                                   days_held: int) -> dict:
+    try:
+        import rl_position_sizer as _rl
+        return _rl.get_paper_action(policy_name, signal_name,
+                                    float(conviction_score), float(unrealized_pnl_pct),
+                                    int(days_held))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_rl_readable_policy(policy_name: str) -> dict:
+    try:
+        import rl_position_sizer as _rl
+        policy = _rl.get_live_policy(policy_name)
+        if policy is None:
+            return {"policy_name": policy_name, "status": "no_live_policy",
+                    "table": [], "note": "Train offline with train_offline() then save_policy_version(promote=True)."}
+        return {"policy_name": policy_name, "status": "live",
+                "table": policy.to_readable_table(), "actions": _rl.ACTIONS,
+                "note": "Read 'best_action' for each (conviction, pnl, days_held) state. Anything counterintuitive is a red flag."}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── Deep RL Policy tools ──────────────────────────────────────────────────────
+def _aiem_tool_deep_rl_get_paper_action(policy_name: str, signal_name: str,
+                                        state_json: str) -> dict:
+    try:
+        import deep_rl_policy as _drl, json as _j
+        state = _j.loads(state_json) if isinstance(state_json, str) else state_json
+        return _drl.get_paper_action(policy_name, signal_name, state)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_deep_rl_probe(policy_name: str) -> dict:
+    try:
+        import deep_rl_policy as _drl
+        policy = _drl.get_live_policy(policy_name)
+        if policy is None:
+            return {"policy_name": policy_name, "status": "no_live_policy",
+                    "note": "Fit with fit_from_episodes() then save_policy_version(promote=True)."}
+        probe_grid = [
+            {"conviction_score": c, "unrealized_pnl_pct": p, "days_held": float(d)}
+            for c in [0.2, 0.5, 0.8] for p in [-2.0, 0.0, 3.0] for d in [1, 3, 7]
+        ]
+        report = _drl.probe_policy_behavior(policy, probe_grid)
+        return {"policy_name": policy_name, "status": "live",
+                "probe_report": report,
+                "note": "Read chosen_action for each state. Counterintuitive actions = suspect policy."}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── Portfolio Allocator tools ─────────────────────────────────────────────────
+def _aiem_tool_portfolio_allocate(signal_stats_json: str,
+                                  total_paper_capital: float = 10000.0) -> dict:
+    try:
+        import portfolio_allocator as _pa, json as _j
+        import pandas as _pd
+        stats = _j.loads(signal_stats_json) if isinstance(signal_stats_json, str) else signal_stats_json
+        empty_returns = _pd.DataFrame()
+        return _pa.allocate_portfolio(stats, empty_returns, float(total_paper_capital))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── Causal Discovery tools ────────────────────────────────────────────────────
+def _aiem_tool_causal_discover(variables_json: str, lookback_days: int = 90) -> dict:
+    try:
+        import causal_discovery as _cd, json as _j, psycopg2 as _pg
+        import pandas as _pd, os as _os
+        variables = _j.loads(variables_json) if isinstance(variables_json, str) else variables_json
+        with _pg.connect(_os.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
+            _cur.execute("""
+                SELECT scan_date, ticker,
+                       price_chg_pct, rel_vol, flow_ratio, standout_score
+                FROM scan_history
+                WHERE scan_date >= CURRENT_DATE - %s
+                ORDER BY scan_date
+            """, (int(lookback_days),))
+            rows = _cur.fetchall()
+        if not rows:
+            return {"error": "no_data", "note": "No scan_history rows in lookback window."}
+        df = _pd.DataFrame(rows, columns=["scan_date","ticker","price_chg_pct","rel_vol","flow_ratio","standout_score"])
+        df = df.select_dtypes(include="number").dropna()
+        available = [v for v in variables if v in df.columns]
+        if len(available) < 2:
+            return {"error": "insufficient_variables", "available": list(df.columns),
+                    "requested": variables}
+        return _cd.discover_causal_structure(df, available)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── Ensemble Combiner tools ───────────────────────────────────────────────────
+def _aiem_tool_ensemble_combine_signals(signal_scores_json: str,
+                                        signal_win_rates_json: str) -> dict:
+    try:
+        import ensemble_combiner as _ec, json as _j
+        scores    = _j.loads(signal_scores_json)    if isinstance(signal_scores_json,    str) else signal_scores_json
+        win_rates = _j.loads(signal_win_rates_json) if isinstance(signal_win_rates_json, str) else signal_win_rates_json
+        return _ec.simple_weighted_average(scores, win_rates)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── Execution Simulator tools ─────────────────────────────────────────────────
+def _aiem_tool_execution_realistic_cost(mid_entry: float, mid_exit: float,
+                                        direction: str = "long",
+                                        order_shares: float = 100.0,
+                                        avg_daily_vol: float = 1000000.0,
+                                        daily_vol_pct: float = 2.0) -> dict:
+    try:
+        import execution_simulator as _es
+        return _es.apply_execution_realism_to_shadow_trade(
+            float(mid_entry), float(mid_exit), direction,
+            float(order_shares), float(avg_daily_vol), float(daily_vol_pct),
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _run_aiem_research_agent(max_iterations=None):
     """
     Autonomous AI research agent - full enhanced version.
@@ -25635,6 +25789,15 @@ def _run_aiem_research_agent(max_iterations=None):
         "close_eval_window":           _aiem_tool_close_eval_window,
         "eval_window_history":         _aiem_tool_eval_window_history,
         "record_human_eval_decision":  _aiem_tool_record_human_eval_decision,
+        # ── RL / Deep RL / Portfolio / Causal / Ensemble / Execution ────────
+        "rl_get_paper_action":         _aiem_tool_rl_get_paper_action,
+        "rl_readable_policy":          _aiem_tool_rl_readable_policy,
+        "deep_rl_get_paper_action":    _aiem_tool_deep_rl_get_paper_action,
+        "deep_rl_probe":               _aiem_tool_deep_rl_probe,
+        "portfolio_allocate":          _aiem_tool_portfolio_allocate,
+        "causal_discover":             _aiem_tool_causal_discover,
+        "ensemble_combine_signals":    _aiem_tool_ensemble_combine_signals,
+        "execution_realistic_cost":    _aiem_tool_execution_realistic_cost,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
