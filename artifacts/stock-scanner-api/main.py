@@ -22119,6 +22119,9 @@ try:
     _rl_mod.init_schema()
     _drl_mod.init_schema()
     print("[aiem_integrity] rl_position_sizer / deep_rl_policy schemas ready")
+    import pre_decision_risk_gate as _prg_mod
+    _prg_mod.init_schema()
+    print("[aiem_integrity] pre_decision_risk_gate schema ready")
 except Exception as _e_aiem_init:
     print(f"[aiem_integrity] schema init error: {_e_aiem_init}")
 
@@ -24174,6 +24177,63 @@ EXECUTION / PORTFOLIO / LEARNING STACK (paper-only)
 
 20. mkt_build_composite       - combine top discoveries into final weighted rule
 
+  regime_overlay_check   — Run the full 6-indicator market regime check (VIX,
+                           trend structure, drawdown, breadth, P/C ratio,
+                           regime_monitor flags) and log the result. Returns
+                           sit_out / reduce_exposure / normal_exposure /
+                           full_exposure with a plain-English summary of which
+                           indicators drove the call. Run this BEFORE logging
+                           any batch of call recommendations for the week — a
+                           "sit out" week IS a decision that belongs in the
+                           track record, not a gap in it.
+  regime_overlay_manual  — Same check but with manually supplied values
+                           (vix_current, spy_close, spy_sma20, spy_sma50,
+                           spy_60d_high, optional put_call_ratio) when you
+                           have fresh live data to pass in directly.
+
+═══════════════════════════════════════════════════════════════
+FINAL GATE — MANDATORY BEFORE ANY WEEKLY EMAIL RECOMMENDATION
+═══════════════════════════════════════════════════════════════
+  run_risk_gate    — The last checkpoint before a pick reaches the email.
+                     Runs 5 layers in order: (1) kill_switch halt check —
+                     hard block, no exceptions; (2) market_regime_overlay
+                     sit-out/reduce check; (3) adversarial_critique rule
+                     flags on the specific hypothesis; (4) devil's advocate
+                     LLM pass arguing specifically why THIS pick could be
+                     wrong; (5) cross-signal agreement count. Returns
+                     APPROVED / APPROVED_WITH_CAUTION / BLOCKED. Every
+                     decision is logged to risk_gate_decisions and to
+                     decision_logger. You MUST call this on every candidate
+                     before including it in the weekly email. BLOCKED means
+                     the pick does not go out. Period.
+  gate_history     — Read recent gate decisions. If BLOCKED + CAUTION count
+                     is near zero across 50 decisions, the gate is rubber-
+                     stamping everything — escalate this to the owner.
+
+═══════════════════════════════════════════════════════════════
+SMART-MONEY DIVERGENCE (run on any bullish setup before sizing)
+═══════════════════════════════════════════════════════════════
+  divergence_scan    — Four checks comparing price action against
+                       institutional-flavor indicators: (1) VIX term
+                       structure contango vs backwardation; (2) implied
+                       vol / realized vol spread; (3) put skew steepening;
+                       (4) price-volume conviction (highs on declining vol).
+                       Skips any check for which you don't pass data — degrades
+                       gracefully. Returns overall_assessment: no_divergence /
+                       minor_divergence_noted / caution_despite_bullish_price
+                       plus per-check fired/severity/reason. Call this on any
+                       bullish pick before finalizing the recommendation —
+                       it asks "does the price tell a DIFFERENT story than
+                       what institutions are actually doing with options/vol?"
+                       A pick that passes run_risk_gate AND shows no divergence
+                       is meaningfully higher confidence than one that passes
+                       run_risk_gate alone. Logs through decision_logger.
+  check_price_bullish — Quick helper: is price currently trending up over a
+                        given lookback? Returns bullish bool + change_pct.
+                        Use to confirm the divergence scan is being applied
+                        to a genuinely bullish setup (divergence only matters
+                        when price IS bullish).
+
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
 
 ╔══════════════════════════════════════════════════════════════════════════╗
@@ -25638,6 +25698,164 @@ def _aiem_tool_execution_realistic_cost(mid_entry: float, mid_exit: float,
     except Exception as _e:
         return {"error": str(_e)}
 
+# ── Market Regime Overlay tools ───────────────────────────────────────────────
+# ── Smart Money Divergence tools ──────────────────────────────────────────────
+def _aiem_tool_divergence_scan(
+    price_history_json: str,
+    vix_front_month_json: str = "null",
+    vix_back_month_json: str = "null",
+    implied_vol: float = None,
+    otm_put_iv: float = None,
+    atm_iv: float = None,
+    skew_history_json: str = "null",
+    volume_history_json: str = "null",
+    signal_name: str = "smart_money_divergence",
+) -> dict:
+    """Run all smart-money divergence checks (VIX term structure, IV/RV spread,
+    put skew steepening, price-volume conviction). Skips any check for which
+    you don't have data. Call this on bullish setups to see if institutional
+    indicators secretly disagree with the price action."""
+    try:
+        import smart_money_divergence_detector as _smd
+        import pandas as _pd, json as _j
+        price_df = _pd.DataFrame(_j.loads(price_history_json))
+        front    = _pd.Series(_j.loads(vix_front_month_json))  if vix_front_month_json != "null" else None
+        back     = _pd.Series(_j.loads(vix_back_month_json))   if vix_back_month_json  != "null" else None
+        skew_s   = _pd.Series(_j.loads(skew_history_json))     if skew_history_json    != "null" else None
+        vol_df   = _pd.DataFrame(_j.loads(volume_history_json)) if volume_history_json  != "null" else None
+        return _smd.run_divergence_scan(
+            price_history    = price_df,
+            vix_front_month  = front,
+            vix_back_month   = back,
+            implied_vol      = float(implied_vol) if implied_vol is not None else None,
+            otm_put_iv       = float(otm_put_iv)  if otm_put_iv  is not None else None,
+            atm_iv           = float(atm_iv)       if atm_iv      is not None else None,
+            skew_history     = skew_s,
+            volume_history   = vol_df,
+            signal_name      = signal_name,
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_check_price_bullish(price_history_json: str, lookback: int = 10) -> dict:
+    """Quick helper: is price currently bullish over the given lookback window?
+    Returns {bullish: bool, close_start, close_end, change_pct}."""
+    try:
+        import smart_money_divergence_detector as _smd
+        import pandas as _pd, json as _j
+        price_df = _pd.DataFrame(_j.loads(price_history_json))
+        price_df = price_df.sort_values("date").tail(int(lookback))
+        bullish  = _smd.price_is_bullish(price_df, int(lookback))
+        c0 = float(price_df["close"].iloc[0])
+        c1 = float(price_df["close"].iloc[-1])
+        return {
+            "bullish":      bullish,
+            "close_start":  round(c0, 2),
+            "close_end":    round(c1, 2),
+            "change_pct":   round((c1 - c0) / c0 * 100, 2) if c0 else None,
+            "lookback_days": int(lookback),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+# ── Pre-Decision Risk Gate tools ──────────────────────────────────────────────
+def _aiem_tool_run_risk_gate(ticker: str, signal_name: str, reasoning: str,
+                              conviction_score: float, n_trades: int,
+                              win_rate: float, hypothesis_params_json: str,
+                              universe_description: str,
+                              signal_votes_json: str = "{}",
+                              market_regime_result_json: str = "null") -> dict:
+    """Run the full 5-layer risk gate on a candidate pick. Call this on EVERY
+    recommendation before it enters the weekly email."""
+    try:
+        import pre_decision_risk_gate as _prg, json as _j
+        hyp_params     = _j.loads(hypothesis_params_json)    if isinstance(hypothesis_params_json,    str) else hypothesis_params_json
+        signal_votes   = _j.loads(signal_votes_json)         if isinstance(signal_votes_json,         str) else signal_votes_json
+        regime_result  = _j.loads(market_regime_result_json) if isinstance(market_regime_result_json, str) else market_regime_result_json
+        return _prg.run_risk_gate(
+            ticker=ticker, signal_name=signal_name, reasoning=reasoning,
+            conviction_score=float(conviction_score),
+            n_trades_in_backtest=int(n_trades), win_rate_in_backtest=float(win_rate),
+            hypothesis_parameters=hyp_params, universe_description=universe_description,
+            signal_votes=signal_votes or None,
+            market_regime_result=regime_result,
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_gate_history(limit: int = 50) -> dict:
+    """Pull recent gate decisions — check whether BLOCKED/APPROVED_WITH_CAUTION
+    actually appears. If it almost never does, the gate isn't doing real work."""
+    try:
+        import pre_decision_risk_gate as _prg
+        rows    = _prg.get_recent_gate_decisions(int(limit))
+        blocked = sum(1 for r in rows if r.get("gate_decision") == "BLOCKED")
+        caution = sum(1 for r in rows if r.get("gate_decision") == "APPROVED_WITH_CAUTION")
+        return {
+            "decisions":          rows,
+            "total":              len(rows),
+            "blocked_count":      blocked,
+            "caution_count":      caution,
+            "clean_pass_count":   len(rows) - blocked - caution,
+            "note": (
+                "If blocked_count + caution_count is near zero, the gate is rubber-stamping everything "
+                "and its thresholds need tightening."
+            ),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_regime_overlay_check(lookback_days: int = 60) -> dict:
+    """Run the full 6-indicator regime check against live DB data and log the result."""
+    try:
+        import market_regime_overlay as _mro
+        import psycopg2 as _pg, pandas as _pd, os as _os
+        with _pg.connect(_os.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
+            _cur.execute("""
+                SELECT scan_date AS date, AVG(price_chg_pct) AS close
+                FROM scan_history
+                WHERE scan_date >= CURRENT_DATE - %s
+                GROUP BY scan_date ORDER BY scan_date
+            """, (int(lookback_days),))
+            rows = _cur.fetchall()
+        if not rows:
+            return {"error": "no price history in scan_history for regime check"}
+        price_df = _pd.DataFrame(rows, columns=["date", "close"])
+        price_df["date"] = _pd.to_datetime(price_df["date"])
+        vix_series = _pd.Series([15.0] * len(price_df))
+        return _mro.get_weekly_regime_check(
+            vix_history=vix_series,
+            price_history=price_df,
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_regime_overlay_manual(vix_current: float, vix_20d_avg: float,
+                                     spy_close: float, spy_sma20: float,
+                                     spy_sma50: float, spy_60d_high: float,
+                                     put_call_ratio: float = None) -> dict:
+    """Run regime check with manually supplied indicator values (use when you have
+    fresh VIX/SPY/P-C data from the DB or a live fetch)."""
+    try:
+        import market_regime_overlay as _mro
+        import pandas as _pd, numpy as _np
+        n = 25
+        vix_hist = _pd.Series(
+            [vix_20d_avg] * (n - 1) + [float(vix_current)]
+        )
+        dates  = _pd.date_range(end=_pd.Timestamp.today(), periods=60, freq="B")
+        closes = _np.linspace(float(spy_sma50) * 0.98, float(spy_close), 60)
+        price_df = _pd.DataFrame({"date": dates, "close": closes})
+        return _mro.get_weekly_regime_check(
+            vix_history=vix_hist,
+            price_history=price_df,
+            put_call_ratio=float(put_call_ratio) if put_call_ratio is not None else None,
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
 
 def _run_aiem_research_agent(max_iterations=None):
     """
@@ -25798,6 +26016,12 @@ def _run_aiem_research_agent(max_iterations=None):
         "causal_discover":             _aiem_tool_causal_discover,
         "ensemble_combine_signals":    _aiem_tool_ensemble_combine_signals,
         "execution_realistic_cost":    _aiem_tool_execution_realistic_cost,
+        "regime_overlay_check":        _aiem_tool_regime_overlay_check,
+        "regime_overlay_manual":       _aiem_tool_regime_overlay_manual,
+        "run_risk_gate":               _aiem_tool_run_risk_gate,
+        "gate_history":                _aiem_tool_gate_history,
+        "divergence_scan":             _aiem_tool_divergence_scan,
+        "check_price_bullish":         _aiem_tool_check_price_bullish,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────

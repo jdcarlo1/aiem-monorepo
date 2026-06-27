@@ -1,0 +1,281 @@
+"""
+smart_money_divergence_detector.py
+-------------------------------------
+market_regime_overlay.py asks "is the overall backdrop good or bad."
+This module asks a narrower, sharper question: "price looks bullish right
+now — but do the indicators institutions actually watch (VIX term
+structure, options skew, credit spreads, volume conviction) AGREE with
+that, or are they quietly telling a different story?"
+
+This is the classic "smart money divergence" pattern: price keeps grinding
+up while the indicators that tend to lead price (because they reflect
+hedging/positioning by larger, faster-moving capital) start disagreeing.
+It doesn't always mean an imminent reversal — but when multiple of these
+fire together WHILE price is still going up, it's historically been worth
+paying attention to before adding new bullish risk.
+
+Four divergence checks, each comparing "what price is doing" against "what
+a specific institutional-flavor indicator is doing":
+
+  1. VIX term structure (contango vs backwardation) — when near-term VIX
+     futures trade ABOVE longer-dated futures (backwardation), it signals
+     near-term fear/hedging demand even if spot price is calm. Normal
+     markets are in contango (near-term cheaper than far-term); backwardation
+     is the anomaly worth flagging.
+
+  2. Implied vs realized volatility spread — if implied vol (what options
+     are pricing in) is running well ABOVE realized vol (what's actually
+     happening), the options market is pricing more fear than recent price
+     action justifies — a classic "something's off" signal.
+
+  3. Put skew steepening — downside puts getting relatively more expensive
+     vs at-the-money options, even while price rises, suggests real money
+     is paying up for downside protection despite the rally.
+
+  4. Price-volume conviction — price making new highs on DECLINING volume
+     is a classic weak-conviction rally pattern; the move isn't backed by
+     real participation.
+
+Each fires only on DIVERGENCE specifically — price up + indicator
+disagreeing — not on the indicator being bad in isolation. That's the
+whole point of this module versus market_regime_overlay: it's about
+contradictions, not absolute readings.
+
+REQUIRES: pandas, numpy.
+"""
+
+import json
+from typing import Dict, Any, List, Optional
+
+import numpy as np
+import pandas as pd
+
+from . import decision_logger as dl
+
+
+def price_is_bullish(price_history: pd.DataFrame, lookback: int = 10) -> bool:
+    df = price_history.sort_values("date").tail(lookback)
+    if len(df) < 3:
+        return False
+    return float(df["close"].iloc[-1]) > float(df["close"].iloc[0])
+
+
+def vix_term_structure_divergence(
+    vix_front_month: pd.Series,
+    vix_back_month: pd.Series,
+    price_history: pd.DataFrame,
+) -> Dict[str, Any]:
+    """Backwardation (front month VIX > back month) while price is rallying
+    is the single most-watched 'smart money is hedging despite the rally'
+    signal in vol markets."""
+    if len(vix_front_month) < 1 or len(vix_back_month) < 1:
+        return {"fired": False, "reason": "insufficient VIX futures data"}
+
+    front = vix_front_month.iloc[-1]
+    back = vix_back_month.iloc[-1]
+    is_backwardation = front > back
+    bullish_price = price_is_bullish(price_history)
+
+    if is_backwardation and bullish_price:
+        spread = front - back
+        return {
+            "fired": True,
+            "indicator": "vix_term_structure",
+            "severity": "high" if spread > 2 else "moderate",
+            "reason": (
+                f"Price is rallying, but VIX futures are in BACKWARDATION "
+                f"(front month {front:.1f} > back month {back:.1f}, spread {spread:.1f}). "
+                f"This means hedgers are paying MORE for near-term protection than "
+                f"longer-term protection — a classic signal that larger capital is "
+                f"positioning for near-term turbulence despite the current rally."
+            ),
+        }
+    return {"fired": False, "indicator": "vix_term_structure", "reason": "No divergence — term structure consistent with price action"}
+
+
+def implied_vs_realized_vol_divergence(
+    implied_vol: float,
+    price_history: pd.DataFrame,
+    realized_vol_window: int = 20,
+    divergence_threshold: float = 1.3,
+) -> Dict[str, Any]:
+    """If implied vol is running meaningfully above realized vol while price
+    is bullish, options markets are pricing in more risk than recent actual
+    price behavior justifies."""
+    df = price_history.sort_values("date").tail(realized_vol_window + 1).copy()
+    if len(df) < realized_vol_window:
+        return {"fired": False, "reason": "insufficient price history for realized vol"}
+
+    df["log_ret"] = np.log(df["close"] / df["close"].shift(1))
+    realized_vol = float(df["log_ret"].std() * np.sqrt(252) * 100)
+
+    if realized_vol <= 0:
+        return {"fired": False, "reason": "realized vol calculation invalid"}
+
+    iv_rv_ratio = implied_vol / realized_vol
+    bullish_price = price_is_bullish(price_history)
+
+    if iv_rv_ratio > divergence_threshold and bullish_price:
+        return {
+            "fired": True,
+            "indicator": "iv_rv_spread",
+            "severity": "high" if iv_rv_ratio > 1.6 else "moderate",
+            "reason": (
+                f"Price is bullish, but implied vol ({implied_vol:.1f}) is running "
+                f"{iv_rv_ratio:.2f}x realized vol ({realized_vol:.1f}). Options markets "
+                f"are pricing more uncertainty than recent actual price movement "
+                f"justifies — worth asking why, before adding new bullish risk."
+            ),
+        }
+    return {"fired": False, "indicator": "iv_rv_spread", "reason": f"IV/RV ratio {iv_rv_ratio:.2f} — no meaningful divergence"}
+
+
+def put_skew_divergence(
+    otm_put_iv: float,
+    atm_iv: float,
+    price_history: pd.DataFrame,
+    skew_history: Optional[pd.Series] = None,
+    steepening_threshold_pct: float = 15.0,
+) -> Dict[str, Any]:
+    """Compares current put skew (OTM put IV relative to ATM IV) against
+    its own recent history. A skew that's STEEPENING (downside puts getting
+    relatively more expensive) while price rises suggests real money is
+    increasing downside hedges into strength, not reducing them."""
+    if atm_iv <= 0:
+        return {"fired": False, "reason": "invalid ATM IV"}
+
+    current_skew = (otm_put_iv - atm_iv) / atm_iv * 100
+    bullish_price = price_is_bullish(price_history)
+
+    if skew_history is not None and len(skew_history) >= 10:
+        baseline_skew = float(skew_history.iloc[-10:-1].mean())
+        skew_change_pct = (current_skew - baseline_skew) / abs(baseline_skew) * 100 if baseline_skew != 0 else 0
+
+        if skew_change_pct > steepening_threshold_pct and bullish_price:
+            return {
+                "fired": True,
+                "indicator": "put_skew",
+                "severity": "moderate",
+                "reason": (
+                    f"Price rallying, but put skew has STEEPENED {skew_change_pct:.1f}% "
+                    f"vs its recent average (current skew {current_skew:.1f}%, baseline "
+                    f"{baseline_skew:.1f}%) — downside protection is getting relatively "
+                    f"more expensive even as price climbs, suggesting hedging demand "
+                    f"into strength rather than complacency."
+                ),
+            }
+    return {"fired": False, "indicator": "put_skew", "reason": "No meaningful skew steepening detected"}
+
+
+def price_volume_conviction_divergence(
+    price_history: pd.DataFrame,
+    volume_history: pd.DataFrame,
+    lookback: int = 15,
+) -> Dict[str, Any]:
+    """Classic technical divergence: price making new highs while volume
+    trends DOWN suggests the move isn't backed by broad participation —
+    a 'few buyers pushing it up' pattern rather than genuine demand."""
+    p = price_history.sort_values("date").tail(lookback)
+    v = volume_history.sort_values("date").tail(lookback)
+
+    if len(p) < lookback or len(v) < lookback:
+        return {"fired": False, "reason": "insufficient price/volume history"}
+
+    price_making_new_highs = p["close"].iloc[-1] >= p["close"].max() * 0.99
+    volume_trend = np.polyfit(range(len(v)), v["volume"].values, 1)[0]  # slope of linear fit
+
+    if price_making_new_highs and volume_trend < 0:
+        avg_volume = v["volume"].mean()
+        decline_pct = abs(volume_trend * lookback) / avg_volume * 100 if avg_volume > 0 else 0
+        return {
+            "fired": True,
+            "indicator": "price_volume_conviction",
+            "severity": "moderate" if decline_pct < 25 else "high",
+            "reason": (
+                f"Price is near {lookback}-day highs, but volume has been declining "
+                f"(~{decline_pct:.0f}% drop in trend over the window) — the rally "
+                f"looks like it's losing broad participation even as price holds up."
+            ),
+        }
+    return {"fired": False, "indicator": "price_volume_conviction", "reason": "Volume supports price action — no divergence"}
+
+
+def run_divergence_scan(
+    price_history: pd.DataFrame,
+    vix_front_month: Optional[pd.Series] = None,
+    vix_back_month: Optional[pd.Series] = None,
+    implied_vol: Optional[float] = None,
+    otm_put_iv: Optional[float] = None,
+    atm_iv: Optional[float] = None,
+    skew_history: Optional[pd.Series] = None,
+    volume_history: Optional[pd.DataFrame] = None,
+    signal_name: str = "smart_money_divergence",
+) -> Dict[str, Any]:
+    """Runs all available divergence checks (skips any you don't have data
+    for — degrades gracefully) and combines into one overall read.
+    Logs through decision_logger so 'I'm picking up something off beneath
+    a bullish tape' moments are part of your reviewable history."""
+    checks = []
+
+    if vix_front_month is not None and vix_back_month is not None:
+        checks.append(vix_term_structure_divergence(vix_front_month, vix_back_month, price_history))
+
+    if implied_vol is not None:
+        checks.append(implied_vs_realized_vol_divergence(implied_vol, price_history))
+
+    if otm_put_iv is not None and atm_iv is not None:
+        checks.append(put_skew_divergence(otm_put_iv, atm_iv, price_history, skew_history))
+
+    if volume_history is not None:
+        checks.append(price_volume_conviction_divergence(price_history, volume_history))
+
+    fired_checks = [c for c in checks if c.get("fired")]
+    high_severity_count = sum(1 for c in fired_checks if c.get("severity") == "high")
+
+    if len(fired_checks) >= 2 or high_severity_count >= 1:
+        overall = "caution_despite_bullish_price"
+    elif len(fired_checks) == 1:
+        overall = "minor_divergence_noted"
+    else:
+        overall = "no_divergence"
+
+    summary = _build_divergence_summary(overall, fired_checks)
+
+    result = {
+        "overall_assessment": overall,
+        "n_checks_run": len(checks),
+        "n_divergences_fired": len(fired_checks),
+        "fired_checks": fired_checks,
+        "plain_language_summary": summary,
+    }
+
+    dl.log_decision(
+        signal_name=signal_name,
+        decision_type="hold" if overall != "no_divergence" else "no_trade",
+        reasoning=summary,
+        confidence=None,
+        input_state_snapshot=result,
+    )
+
+    return result
+
+
+def _build_divergence_summary(overall: str, fired_checks: List[Dict[str, Any]]) -> str:
+    if overall == "no_divergence":
+        return "Price action and underlying indicators (vol term structure, IV/RV, skew, volume) are consistent with each other — no smart-money divergence detected right now."
+
+    reasons = [c["reason"] for c in fired_checks]
+    if overall == "caution_despite_bullish_price":
+        return (
+            "The market looks bullish on price alone, but I'm picking up real "
+            "disagreement underneath it: " + " ".join(reasons) + " "
+            "This doesn't mean don't trade at all — it means treat new bullish "
+            "risk here with extra caution, and this is exactly the kind of "
+            "signal worth weighing alongside (not instead of) your other signals."
+        )
+    return "Minor divergence noted, not yet a strong signal on its own: " + " ".join(reasons)
+
+
+if __name__ == "__main__":
+    print("smart_money_divergence_detector: catches price-vs-institutional-indicator disagreement.")
+    print("Call run_divergence_scan() before finalizing bullish picks for the weekly email.")
