@@ -41659,7 +41659,7 @@ def sms_incoming_webhook():
             _send_sms("⏳ Already researching another question — try again in a few minutes.", to=to)
             return
 
-        _sms_session_name = f"sms_{q[:20].replace(' ','_')}"
+        _sms_session_name = f"sms_{q[:20].replace(' ','_')}_{uuid.uuid4().hex[:6]}"
         prompt = (
             f"The owner just texted this question: '{q}'\n\n"
             f"Research this using your tools. If they mention tickers, use "
