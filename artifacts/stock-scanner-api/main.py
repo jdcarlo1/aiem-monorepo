@@ -3674,6 +3674,9 @@ try:
     def _startup_preload():
         import time as _t_pl, datetime as _dt_pl
         _t_pl.sleep(5)
+        _pl_loaded = []
+
+        # ── 1. Unusual Calls (existing logic) ────────────────────────────────
         try:
             with _psycopg2.connect(_DB_URL) as _c_pl, _c_pl.cursor() as _cur_pl:
                 _cur_pl.execute("""
@@ -3690,7 +3693,6 @@ try:
                 _rows_pl = _cur_pl.fetchall()
                 _is_stale_pl = False
                 if not _rows_pl:
-                    # No today data yet - load most recent stored signals as stale fallback
                     _cur_pl.execute("""
                         SELECT ticker, price::float, strike::float, expiry::text, days_out,
                                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
@@ -3709,12 +3711,106 @@ try:
                 app._unusual_calls_cache    = {"hits": _hits_pl, "total": len(_hits_pl),
                                                "stale": _is_stale_pl, "source": "boot_preload"}
                 app._unusual_calls_cache_ts = _dt_pl.datetime.now()
-                _lbl = "stale fallback" if _is_stale_pl else "today"
-                print(f"[startup_preload] ✅ {len(_hits_pl)} {_lbl} signals loaded into cache immediately")
-            else:
-                print("[startup_preload] DB empty - nothing to preload yet")
+                _pl_loaded.append(f"unusual-calls({len(_hits_pl)})")
         except Exception as _e_pl:
-            print(f"[startup_preload] error: {_e_pl}")
+            print(f"[startup_preload] unusual-calls error: {_e_pl}")
+
+        # ── 2. EOD Sweeps (tonight's late options from unusual_calls_log) ────
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c_es, _c_es.cursor() as _cur_es:
+                _cur_es.execute("""
+                    SELECT ticker, price::float, strike::float, expiry::text, days_out,
+                           volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                           iv::float, urgency, first_seen, last_seen
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL '5 days'
+                      AND EXTRACT(HOUR FROM last_seen AT TIME ZONE 'UTC') BETWEEN 18 AND 23
+                      AND days_out BETWEEN 1 AND 15
+                      AND vol_oi >= 5 AND prem >= 300000
+                    ORDER BY last_seen DESC, vol_oi DESC LIMIT 50
+                """)
+                _rows_es = _cur_es.fetchall()
+            if _rows_es:
+                _cols_es = ["ticker","price","strike","expiry","days_out","volume","oi",
+                            "vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
+                _hits_es = [dict(zip(_cols_es, _r)) for _r in _rows_es]
+                app._eod_sweeps_cache    = {"signals": _hits_es, "total": len(_hits_es),
+                                            "stale": True, "source": "boot_preload"}
+                app._eod_sweeps_cache_ts = _dt_pl.datetime.now()
+                _pl_loaded.append(f"eod-sweeps({len(_hits_es)})")
+        except Exception as _e_es:
+            print(f"[startup_preload] eod-sweeps error: {_e_es}")
+
+        # ── 3. Conviction Stack from DB ───────────────────────────────────────
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c_cs, _c_cs.cursor() as _cur_cs:
+                _cur_cs.execute("""
+                    SELECT ticker, total_pts, conviction_pct, label, price,
+                           layers, meta, snap_date
+                    FROM conviction_stack_watchlist
+                    WHERE snap_date >= CURRENT_DATE - INTERVAL '7 days'
+                    ORDER BY snap_date DESC, total_pts DESC LIMIT 50
+                """)
+                _rows_cs = _cur_cs.fetchall()
+            if _rows_cs:
+                _cols_cs = ["ticker","total_pts","conviction_pct","label","price",
+                            "layers","meta","snap_date"]
+                _db_cs = []
+                for _r_cs in _rows_cs:
+                    _d_cs = dict(zip(_cols_cs, _r_cs))
+                    _db_cs.append({
+                        "ticker":         _d_cs["ticker"],
+                        "total_pts":      float(_d_cs["total_pts"] or 0),
+                        "conviction_pct": int(_d_cs["conviction_pct"] or 0),
+                        "label":          _d_cs["label"] or "",
+                        "price":          float(_d_cs["price"] or 0),
+                        "layers":         _d_cs["layers"] if isinstance(_d_cs["layers"], dict) else {},
+                        "meta":           _d_cs["meta"] if isinstance(_d_cs["meta"], dict) else {},
+                        "rank":           0,
+                        "source":         "db",
+                        "snap_date":      str(_d_cs["snap_date"]) if _d_cs["snap_date"] else None,
+                    })
+                if not getattr(app, "_cs_stk_cache", None):
+                    app._cs_stk_cache = {"results": _db_cs, "count": len(_db_cs),
+                                         "stale": True, "source": "boot_preload"}
+                    app._cs_stk_ts    = _dt_pl.datetime.now()
+                    _pl_loaded.append(f"conviction-stack({len(_db_cs)})")
+        except Exception as _e_cs:
+            print(f"[startup_preload] conviction-stack error: {_e_cs}")
+
+        # ── 4-10. scan_result_cache-backed tabs (all use direct connections) ──
+        _scan_tabs = [
+            ("multi-signal",     "_ms_cache",        "_ms_cache_ts"),
+            ("morning-runners",  "_mr_cache",         "_mr_cache_ts"),
+            ("squeeze-setup",    "_sq_cache",         "_sq_cache_ts"),
+            ("eod-accumulation", "_eod_accum_cache",  "_eod_accum_cache_ts"),
+            ("net_flow_multiday","_nfmd_cache",        "_nfmd_cache_ts"),
+            ("squeeze-radar",    "_sq_rad_cache",     "_sq_rad_cache_ts"),
+            ("net-flow-microcap","_nfmc_cache",        "_nfmc_cache_ts"),
+            ("convergence",      "_conv_calls_cache", "_conv_calls_cache_ts"),
+            ("composite-score",  "_comp_cache",       "_comp_cache_ts"),
+            ("insider-trades",   "_insider_trades_cache", "_insider_trades_cache_ts"),
+        ]
+        for _tab_key, _cache_attr, _ts_attr in _scan_tabs:
+            try:
+                if getattr(app, _cache_attr, None):
+                    continue
+                _cached = _load_scan_cache(_tab_key, days_back=7)
+                if _cached:
+                    setattr(app, _cache_attr, {**_cached, "stale": True, "source": "boot_preload"})
+                    setattr(app, _ts_attr, _dt_pl.datetime.now())
+                    _hits_count = (len(_cached.get("hits", _cached.get("results",
+                                       _cached.get("runners", _cached.get("candidates",
+                                       _cached.get("picks", [])))))))
+                    _pl_loaded.append(f"{_tab_key}({_hits_count})")
+            except Exception as _e_tab:
+                print(f"[startup_preload] {_tab_key} error: {_e_tab}")
+
+        # ── Summary ───────────────────────────────────────────────────────────
+        if _pl_loaded:
+            print(f"[startup_preload] ✅ Restored {len(_pl_loaded)} tabs from DB: {', '.join(_pl_loaded)}")
+        else:
+            print("[startup_preload] DB empty or fresh install — tabs will populate on first scan")
 
     _thr_su.Thread(target=_startup_preload, daemon=True).start()
 
@@ -19027,7 +19123,7 @@ def _polygon_backfill_historical():
     def _run():
         global _BACKFILL_RUNNING
         try:
-            _bt.sleep(30)  # Let server fully start first
+            _bt.sleep(300)  # Let server fully stabilize before backfill (5 min)
             print("[backfill] starting polygon_market_daily historical backfill")
             _key = os.environ.get("POLYGON_API_KEY", "")
             if not _key:

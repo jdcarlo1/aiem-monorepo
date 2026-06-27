@@ -70,3 +70,4 @@
 - [AIEM ML Pipeline](aiem-ml-pipeline.md) — XGBoost retrain on Sunday 8pm; 6 files in stock-scanner-api/; predict on pick save, resolve on settle; rollback safety via AUC+Brier comparison gate
 - [Flask tab hang root causes](flask-tab-hang-root-causes.md) — 3 layered causes: import lock (openai preload fixes), pool lock no-timeout (acquire with timeout fixes), bg thread storm (startup delay fixes)
 - [Layer 9 Statistical Edge](layer9-statistical-edge.md) — two new isolated modules (advanced_quant_indicators.py + layer9_statistical_edge.py); wired ONLY into _ai_trades_worker + _bg_aisc (AI short calls) + AIEM mkt_layer9_score tool; zero tab side-effects
+- [Comprehensive startup preload](startup-preload-all-tabs.md) — all key tab caches restored from DB in 5s on boot; direct psycopg2 (not pool); backfill delay=300s; conviction_stack_watchlist NOT conviction_snapshot
