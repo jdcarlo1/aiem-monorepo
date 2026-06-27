@@ -3805,9 +3805,11 @@ try:
             ("net_flow_multiday","_nfmd_cache",        "_nfmd_cache_ts"),
             ("squeeze-radar",    "_sq_rad_cache",     "_sq_rad_cache_ts"),
             ("net-flow-microcap","_nfmc_cache",        "_nfmc_cache_ts"),
-            ("convergence",      "_conv_calls_cache", "_conv_calls_cache_ts"),
-            ("composite-score",  "_comp_cache",       "_comp_cache_ts"),
+            ("convergence",      "_conv_cache",        "_conv_cache_ts"),
+            ("composite-score",  "_cs_cache",          "_cs_cache_ts"),
             ("insider-trades",   "_insider_trades_cache", "_insider_trades_cache_ts"),
+            ("insider-radar",    "_insider_radar_cache",  "_insider_radar_cache_ts"),
+            ("darkpool",         "_dp_cache",          "_dp_cache_ts"),
         ]
         for _tab_key, _cache_attr, _ts_attr in _scan_tabs:
             try:
@@ -3823,6 +3825,37 @@ try:
                     _pl_loaded.append(f"{_tab_key}({_hits_count})")
             except Exception as _e_tab:
                 print(f"[startup_preload] {_tab_key} error: {_e_tab}")
+
+        # ── AI Short Calls (own table, not scan_result_cache) ────────────────
+        try:
+            if not getattr(app, "_aisc_cache", None):
+                with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c_aisc, _c_aisc.cursor() as _cur_aisc:
+                    _cur_aisc.execute("""
+                        SELECT ticker, strike, expiry, days_out, vol_oi, prem,
+                               stock_price, otm_pct, breakeven, conviction, urgency,
+                               thesis, why_it_stands_out, created_at
+                        FROM ai_short_calls_log
+                        WHERE created_at >= NOW() - INTERVAL '7 days'
+                        ORDER BY rank ASC NULLS LAST, created_at DESC
+                        LIMIT 25
+                    """)
+                    _rows_aisc = _cur_aisc.fetchall()
+                if _rows_aisc:
+                    _cols_aisc = ["ticker","strike","expiry","days_out","vol_oi","prem",
+                                  "stock_price","otm_pct","breakeven","conviction","urgency",
+                                  "thesis","why_it_stands_out","created_at"]
+                    _picks_aisc = []
+                    for _r_aisc in _rows_aisc:
+                        _p_aisc = dict(zip(_cols_aisc, _r_aisc))
+                        _p_aisc["created_at"] = _p_aisc["created_at"].isoformat() if _p_aisc.get("created_at") else None
+                        _p_aisc["smp_score"] = 0.0; _p_aisc["smp_label"] = ""; _p_aisc["smp_layers"] = []
+                        _picks_aisc.append(_p_aisc)
+                    app._aisc_cache    = {"picks": _picks_aisc, "count": len(_picks_aisc),
+                                          "stale": True, "source": "boot_preload"}
+                    app._aisc_cache_ts = _dt_pl.datetime.now()
+                    _pl_loaded.append(f"ai-short-calls({len(_picks_aisc)})")
+        except Exception as _e_aisc:
+            print(f"[startup_preload] ai-short-calls error: {_e_aisc}")
 
         # ── Summary ───────────────────────────────────────────────────────────
         if _pl_loaded:
@@ -28108,6 +28141,7 @@ def darkpool():
                     "total_in_db": len(_raw), "total_candidates": len(_cands)}
             app._dp_cache = _out
             app._dp_cache_ts = datetime.now()
+            _save_scan_cache("darkpool", _out)
         except Exception as _e:
             print(f"[darkpool] bg error: {_e}", file=_sys.stderr)
         finally:
