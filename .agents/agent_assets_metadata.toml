@@ -132,3 +132,9 @@ id = "bL_QKb04c4SQgAV6R1iGh"
 uri = "file://artifacts/stock-scanner-api/dl_position_sizing.txt"
 type = "text"
 title = "4. position_sizing.py"
+
+[[outputs]]
+id = "GoK-pyH0vJODV63hPiwNG"
+uri = "file://stockscanner_code.zip"
+type = "unspecified"
+title = "StockScanner AI — Full Source Code"
