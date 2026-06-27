@@ -947,7 +947,7 @@ export default function Landing() {
                 <div className="font-black text-emerald-300 text-base">StockScanner AI ⭐</div>
                 <div className="text-xs text-emerald-600 mt-0.5">All six. Plus options flow, dark pool, and more.</div>
               </div>
-              <span className="text-center text-emerald-400 font-black text-base">$397</span>
+              <span className="text-center text-emerald-400 font-black text-base">$150</span>
               {[0,1,2,3,4,5].map(i => (
                 <span key={i} className="text-center text-emerald-400 font-black text-xl">✓</span>
               ))}
