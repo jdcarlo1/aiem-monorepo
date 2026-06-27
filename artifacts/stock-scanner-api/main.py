@@ -2941,36 +2941,21 @@ try:
         id="oi_snapshot_premarket",
         replace_existing=True,
     )
-    # OI Buildup + Shakeout Setup Watch: 8:45 AM ET - after OI snapshot premarket
-    # runs and DB is written. Lists pre-positioned names that closed weak yesterday.
-    # Silent when no candidates. 75% WR, +8.20% EV backtest signal.
-    def _run_oi_shakeout_premarket():
-        try:
-            import threading as _thr_oispm
-            _thr_oispm.Thread(target=_send_oi_shakeout_premarket_email, daemon=True).start()
-        except Exception as _e_oispm:
-            print(f"[scheduler] oi_shakeout premarket error: {_e_oispm}")
-    _scheduler.add_job(
-        _run_oi_shakeout_premarket,
-        CronTrigger(day_of_week="mon-fri", hour=8, minute=45, timezone=_ET),
-        id="oi_shakeout_premarket",
-        replace_existing=True,
-    )
-    # OI Buildup + Shakeout Reentry Check: 9:52 AM ET - 22 min after market open,
-    # after options data settles. Checks if any 8:45 AM setup candidates have
-    # reclaimed their prior close (the entry confirmation). Silent if none trigger.
-    def _run_oi_shakeout_reentry():
+    # S7c★ BigCatDay+InsideDay+Gap — 9:45 AM ET Mon-Fri
+    # Fires when: 2 days ago ≥5% catalyst + strong close, yesterday inside day
+    # (range ≤ 1.5%), today gaps up ≥ 3% at open. 72.9% WR / +2.19% EV (n=199).
+    def _run_bigcat_gap_alert():
         if not _intraday_scan_allowed():
             return
         try:
-            import threading as _thr_oisre
-            _thr_oisre.Thread(target=_send_oi_shakeout_reentry_email, daemon=True).start()
-        except Exception as _e_oisre:
-            print(f"[scheduler] oi_shakeout reentry error: {_e_oisre}")
+            import threading as _thr_bcg
+            _thr_bcg.Thread(target=_send_bigcat_gap_email, daemon=True).start()
+        except Exception as _e_bcg:
+            print(f"[scheduler] bigcat_gap error: {_e_bcg}")
     _scheduler.add_job(
-        _run_oi_shakeout_reentry,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=52, timezone=_ET),
-        id="oi_shakeout_reentry",
+        _run_bigcat_gap_alert,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        id="bigcat_gap_alert",
         replace_existing=True,
     )
     # Whale + High Conviction crossover alert - every 30 min, 10 AM–3:30 PM ET
@@ -11819,315 +11804,204 @@ def _get_oi_accumulation_signals(days_back: int = 1) -> tuple:
 _init_oi_snapshot_table()
 
 
-# ── OI Buildup + Shakeout → Reentry Signal ────────────────────────────────────
-# Backtest result: 75% WR, +8.20% EV/trade (n=28) — strongest signal found.
-# Pattern: smart money loads OI for 2+ consecutive days with no price appreciation
-# (stealth accumulation). Then a fake breakdown shakes out weak retail holders.
-# OI stays elevated → institutions bought the dip. Entry = price reclaims prior
-# close after the shakeout.
+# ── S7c★ BigCatDay + InsideDay + Gap Signal ──────────────────────────────────
+# Backtest: 72.9% WR / +2.19% EV/trade (n=199, 495 days Jul 2024–Jun 2026)
+# Quarterly consistency: 7 of 8 quarters above 54% WR (one weak Q1-2025, n=7).
 #
-# 8:30 AM: pre-market "Setup Watch" email (which names are pre-positioned)
-# 9:52 AM: live "ENTRY SIGNAL" email (fires only when a setup name bounces)
+# Pattern:
+#   Day 1 (catalyst): Stock moves ≥5%, closes in top 30% of its range (CS ≥ 0.70)
+#   Day 2 (inside):   Tight consolidation — range_pct ≤ 1.5%
+#   Day 3 (entry):    Gaps up ≥ 3% at open → ENTRY at today's open, hold 3 days
+#
+# 9:45 AM ET: checks live Tradier quotes for confirmed gap-up on inside-day candidates
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_oi_buildup_shakeout_candidates() -> list:
+def _get_bigcat_gap_candidates() -> list:
     """
-    Query oi_daily_snapshot for tickers with 2+ consecutive days of rising OI
-    where the most recent snapshot price closed weaker than the prior day's
-    (the shakeout). Returns list of dicts sorted by total OI buildup %.
+    Scan polygon_market_daily for BigCatDay+InsideDay pattern from last 2 trading
+    sessions. Returns tickers where:
+      - 2 days ago: move ≥ 5%, close_strength ≥ 0.70
+      - Yesterday:  range_pct ≤ 1.5% (inside/tight day)
+    Caller confirms today's gap live via Tradier.
     """
-    import psycopg2 as _pg_ois2, os as _os_ois2
+    import psycopg2 as _pg_bc, os as _os_bc
     try:
-        with _pg_ois2.connect(_os_ois2.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
+        with _pg_bc.connect(_os_bc.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
             _cur.execute("""
-                WITH snap_dates AS (
-                    SELECT DISTINCT snapshot_date
-                    FROM oi_daily_snapshot
-                    ORDER BY snapshot_date DESC LIMIT 3
+                WITH recent_dates AS (
+                    SELECT DISTINCT scan_date
+                    FROM polygon_market_daily
+                    ORDER BY scan_date DESC LIMIT 3
                 ),
                 dates AS (
                     SELECT
-                        (SELECT snapshot_date FROM snap_dates ORDER BY snapshot_date DESC LIMIT 1 OFFSET 0) AS d1,
-                        (SELECT snapshot_date FROM snap_dates ORDER BY snapshot_date DESC LIMIT 1 OFFSET 1) AS d2,
-                        (SELECT snapshot_date FROM snap_dates ORDER BY snapshot_date DESC LIMIT 1 OFFSET 2) AS d3
-                ),
-                ticker_oi AS (
-                    SELECT ticker, snapshot_date,
-                           SUM(oi)  AS total_oi,
-                           MAX(price) AS price
-                    FROM oi_daily_snapshot
-                    GROUP BY ticker, snapshot_date
-                ),
-                three_day AS (
-                    SELECT
-                        t1.ticker,
-                        t1.total_oi   AS oi_d1,
-                        t2.total_oi   AS oi_d2,
-                        t3.total_oi   AS oi_d3,
-                        t1.price      AS price_d1,
-                        t2.price      AS price_d2,
-                        t3.price      AS price_d3
-                    FROM ticker_oi t1
-                    JOIN ticker_oi t2 ON t1.ticker = t2.ticker
-                    JOIN ticker_oi t3 ON t1.ticker = t3.ticker
-                    CROSS JOIN dates
-                    WHERE t1.snapshot_date = dates.d1
-                      AND t2.snapshot_date = dates.d2
-                      AND t3.snapshot_date = dates.d3
-                      AND t2.total_oi > t3.total_oi
-                      AND t1.total_oi > t2.total_oi
-                      AND t1.total_oi >= t3.total_oi * 1.30
-                      AND t3.total_oi > 200
-                      AND t1.price < t2.price * 0.995
-                ),
-                top_strike AS (
-                    SELECT DISTINCT ON (s.ticker)
-                        s.ticker, s.strike
-                    FROM oi_daily_snapshot s
-                    CROSS JOIN dates
-                    WHERE s.snapshot_date = dates.d1
-                    ORDER BY s.ticker, s.oi DESC
+                        (SELECT scan_date FROM recent_dates ORDER BY scan_date DESC LIMIT 1 OFFSET 1) AS d_yest,
+                        (SELECT scan_date FROM recent_dates ORDER BY scan_date DESC LIMIT 1 OFFSET 2) AS d_prev
                 )
                 SELECT
-                    td.ticker,
-                    td.price_d1,
-                    td.price_d2,
-                    td.price_d3,
-                    td.oi_d1,
-                    td.oi_d2,
-                    td.oi_d3,
-                    ROUND(((td.oi_d1 - td.oi_d3)::FLOAT / NULLIF(td.oi_d3,0) * 100)::NUMERIC, 1) AS oi_pct_2day,
-                    ROUND(((td.price_d1 - td.price_d2)::FLOAT / NULLIF(td.price_d2,0) * 100)::NUMERIC, 2) AS shakeout_pct,
-                    ts.strike AS top_strike
-                FROM three_day td
-                LEFT JOIN top_strike ts ON ts.ticker = td.ticker
-                ORDER BY oi_pct_2day DESC
-                LIMIT 8
+                    inside.ticker,
+                    ROUND(((cat.close_price - cat.prev_close)/NULLIF(cat.prev_close,0)*100)::NUMERIC, 1)
+                        AS cat_move_pct,
+                    ROUND(cat.close_strength::NUMERIC, 2)   AS cat_cs,
+                    ROUND(inside.range_pct::NUMERIC, 2)     AS inside_range,
+                    ROUND(inside.close_price::NUMERIC, 2)   AS yest_close,
+                    inside.volume                           AS yest_vol
+                FROM polygon_market_daily cat
+                JOIN polygon_market_daily inside
+                     ON cat.ticker = inside.ticker
+                CROSS JOIN dates
+                WHERE cat.scan_date   = dates.d_prev
+                  AND inside.scan_date = dates.d_yest
+                  AND (cat.close_price - cat.prev_close)/NULLIF(cat.prev_close,0)*100 >= 5.0
+                  AND cat.close_strength  >= 0.70
+                  AND cat.close_price     BETWEEN 3 AND 150
+                  AND cat.volume          > 50000
+                  AND inside.range_pct   <= 1.5
+                ORDER BY cat_move_pct DESC
+                LIMIT 25
             """)
             _rows = _cur.fetchall()
         results = []
         for _r in _rows:
-            _t, _p1, _p2, _p3, _oi1, _oi2, _oi3, _oip, _shk, _sk = _r
+            _t, _move, _cs, _range, _yclose, _yvol = _r
             results.append({
                 "ticker":       _t,
-                "price":        round(float(_p1 or 0), 2),
-                "price_d2":     round(float(_p2 or 0), 2),
-                "price_d3":     round(float(_p3 or 0), 2),
-                "oi_d1":        int(_oi1 or 0),
-                "oi_d2":        int(_oi2 or 0),
-                "oi_d3":        int(_oi3 or 0),
-                "oi_pct_2day":  float(_oip or 0),
-                "shakeout_pct": float(_shk or 0),
-                "top_strike":   float(_sk or 0),
+                "cat_move_pct": float(_move or 0),
+                "cat_cs":       float(_cs or 0),
+                "inside_range": float(_range or 0),
+                "yest_close":   float(_yclose or 0),
+                "yest_vol":     int(_yvol or 0),
             })
         return results
-    except Exception as _e_oisq:
-        print(f"[oi_shakeout] query error: {_e_oisq}")
+    except Exception as _e_bc:
+        print(f"[bigcat_gap] query error: {_e_bc}")
         return []
 
 
-def _send_oi_shakeout_premarket_email() -> None:
+def _send_bigcat_gap_email() -> None:
     """
-    8:30 AM Mon-Fri: 'OI Buildup + Shakeout Setup Watch' email.
-    Lists names pre-positioned for 2+ days that closed weak yesterday.
-    Silent when nothing qualifies. Caches candidates for the 9:52 AM
-    live reentry check.
+    9:45 AM Mon-Fri: S7c★ BigCatDay+InsideDay+Gap alert email.
+    Confirms today's gap live via Tradier quotes, then emails only tickers
+    that are gapping up ≥ 3% from yesterday's close. Silent when nothing fires.
+    72.9% WR / EV +2.19% per trade (hold 3 days). Backtested 495 days.
     """
     try:
         from email_alerts import send_email_raw, smtp_configured
-        from datetime import datetime as _dt_ois
+        from datetime import datetime as _dt_bc
         if not smtp_configured():
             return
 
         _today_iso = _et_today_iso()
 
         # Dedup: only send once per day
-        if getattr(app, "_oi_shakeout_premarket_sent", None) == _today_iso:
-            print("[oi_shakeout] pre-market email already sent today - skipping")
+        if getattr(app, "_bigcat_gap_sent", None) == _today_iso:
+            print("[bigcat_gap] already sent today — skipping")
             return
 
-        candidates = _get_oi_buildup_shakeout_candidates()
+        # Step 1: get inside-day candidates from DB
+        candidates = _get_bigcat_gap_candidates()
         if not candidates:
-            print("[oi_shakeout] no setup candidates today - skipping pre-market email")
+            print("[bigcat_gap] no inside-day candidates found today")
             return
 
-        # Cache for the 9:52 AM reentry check
-        app._oi_shakeout_candidates  = candidates
-        app._oi_shakeout_date        = _today_iso
-
-        _date_str = _dt_ois.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
-        _cards = ""
-        for _i, _c in enumerate(candidates):
-            _tk   = _c["ticker"]
-            _pr   = _c["price"]
-            _shk  = _c["shakeout_pct"]
-            _oip  = _c["oi_pct_2day"]
-            _sk   = _c["top_strike"]
-            _oi1  = _c["oi_d1"]
-            _oi3  = _c["oi_d3"]
-            _gain = _oi1 - _oi3
-            _med  = {0: "🥇", 1: "🥈", 2: "🥉"}.get(_i, f"#{_i+1}")
-            _cards += f"""
-            <div style="background:#0f172a;border:1px solid #22c55e44;border-left:3px solid #22c55e;border-radius:10px;margin-bottom:14px;padding:14px 16px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{_med} ${_tk}</span>
-                <span style="font-size:11px;font-weight:800;color:#22c55e;background:#22c55e22;padding:3px 10px;border-radius:4px;">2-DAY OI BUILDUP</span>
-              </div>
-              <div style="font-size:20px;font-weight:900;color:#22c55e;margin-bottom:6px;">+{_oip:.0f}% OI over 2 days</div>
-              <div style="font-size:12px;color:#cbd5e1;margin-bottom:10px;">
-                OI grew from <b>{_oi3:,}</b> → <b>{_oi1:,}</b> contracts (+{_gain:,}) while price stayed flat — stealth institutional loading.
-              </div>
-              <div style="background:#1e293b;border-radius:6px;padding:8px 12px;margin-bottom:8px;">
-                <span style="font-size:12px;color:#f59e0b;font-weight:700;">⚡ Yesterday's shakeout: {_shk:+.1f}%</span>
-                <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Price dipped while OI held — institutions bought the weakness, not sold it.</div>
-              </div>
-              <div style="font-size:11px;color:#94a3b8;">
-                📍 Last price: <b style="color:#f1f5f9;">${_pr:.2f}</b> &nbsp;·&nbsp;
-                Biggest OI strike: <b style="color:#f1f5f9;">${_sk:.0f}</b> call &nbsp;·&nbsp;
-                <b style="color:#22c55e;">Watch for green open + VWAP reclaim → entry signal fires at 9:52 AM.</b>
-              </div>
-            </div>"""
-
-        _html = f"""
-        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
-          <div style="margin-bottom:18px;">
-            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🎯 OI Buildup + Shakeout — Setup Watch</span>
-            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">75% Win Rate · +8.20% EV/trade · {_date_str}</span>
-          </div>
-          <div style="background:#0f172a;border:1px solid #22c55e33;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
-            Smart money has been quietly loading call OI on these names for 2+ days without pushing price up — then yesterday faked a breakdown (shakeout). Institutions bought that dip. <b style="color:#f1f5f9;">If any of these reclaim their prior close at market open, you'll get a second email at 9:52 AM with the entry signal.</b>
-          </div>
-          {_cards}
-          <div style="text-align:center;margin-top:18px;font-size:11px;color:#374151;">StockScanner AI · OI Buildup + Shakeout Signal · 75% WR (n=28 backtest)</div>
-        </div>"""
-
-        _subj = f"🎯 OI Setup Watch: {len(candidates)} name{'s' if len(candidates)>1 else ''} pre-positioned [{_date_str.split('·')[0].strip()}]"
-        _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
-        if _ok:
-            app._oi_shakeout_premarket_sent = _today_iso
-        print(f"[oi_shakeout] pre-market email sent={_ok} ({len(candidates)} candidates: {[c['ticker'] for c in candidates]})")
-    except Exception as _e_oispm:
-        import traceback as _tb_oispm
-        print(f"[oi_shakeout] pre-market email error: {_e_oispm}\n{_tb_oispm.format_exc()}")
-
-
-def _send_oi_shakeout_reentry_email() -> None:
-    """
-    9:52 AM Mon-Fri: checks if any pre-market OI shakeout candidates have bounced
-    above their prior close (the reentry confirmation). Sends 'ENTRY SIGNAL' email
-    only for those that qualify. Silent when nothing triggers. Uses Tradier quotes
-    — no Yahoo throttle risk.
-    """
-    try:
-        from email_alerts import send_email_raw, smtp_configured
-        from datetime import datetime as _dt_oisre
-        if not smtp_configured():
-            return
-
-        _today_iso = _et_today_iso()
-
-        # Dedup: only fire the entry email once per day per ticker
-        _already_sent = getattr(app, "_oi_shakeout_entry_sent_tickers", set())
-        if getattr(app, "_oi_shakeout_entry_sent_date", None) != _today_iso:
-            _already_sent = set()
-            app._oi_shakeout_entry_sent_tickers = _already_sent
-            app._oi_shakeout_entry_sent_date     = _today_iso
-
-        # Load today's candidates (set at 8:30 AM, re-fetch if cache is stale)
-        _candidates = getattr(app, "_oi_shakeout_candidates", None)
-        _cache_date = getattr(app, "_oi_shakeout_date", None)
-        if not _candidates or _cache_date != _today_iso:
-            _candidates = _get_oi_buildup_shakeout_candidates()
-            if not _candidates:
-                print("[oi_shakeout] 9:52 check: no candidates")
-                return
-            app._oi_shakeout_candidates = _candidates
-            app._oi_shakeout_date       = _today_iso
-
-        # Remove tickers already alerted today
-        _candidates = [c for c in _candidates if c["ticker"] not in _already_sent]
-        if not _candidates:
-            print("[oi_shakeout] 9:52 check: all candidates already alerted today")
-            return
-
-        # Live price check via Tradier (fast, no Yahoo throttle)
-        _tickers = [c["ticker"] for c in _candidates]
+        # Step 2: confirm gap ≥ 3% via live Tradier quotes
+        _tickers = [c["ticker"] for c in candidates]
         try:
             _quotes = _td_quotes(_tickers) or {}
-        except Exception:
+        except Exception as _qe:
+            print(f"[bigcat_gap] Tradier quote error: {_qe}")
             _quotes = {}
 
         _triggers = []
-        for _c in _candidates:
-            _tk    = _c["ticker"]
-            _prior = _c["price"]   # yesterday's 4:30 PM snapshot price = prior close
-            _q     = _quotes.get(_tk, {})
-            if not _q:
+        for _c in candidates:
+            _tk     = _c["ticker"]
+            _yclose = _c["yest_close"]
+            _q      = _quotes.get(_tk, {})
+            if not _q or _yclose <= 0:
                 continue
-            _curr = float(_q.get("last") or _q.get("bid") or 0)
-            if _curr <= 0 or _prior <= 0:
+            _live = float(_q.get("last") or _q.get("bid") or 0)
+            if _live <= 0:
                 continue
-            _chg = (_curr - _prior) / _prior * 100
-            if _chg >= 0.5:   # at least +0.5% above prior close = confirmed reentry
-                _triggers.append({**_c, "current_price": _curr, "chg_pct": round(_chg, 2)})
+            _gap = (_live - _yclose) / _yclose * 100
+            if _gap >= 3.0:
+                _triggers.append({**_c, "live_price": _live, "gap_pct": round(_gap, 1)})
 
         if not _triggers:
-            print(f"[oi_shakeout] 9:52 check: {len(_candidates)} candidates, none triggered reentry yet")
+            print(f"[bigcat_gap] {len(candidates)} candidates, none gapping ≥3% yet")
             return
 
-        _date_str = _dt_oisre.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
+        _date_str = _dt_bc.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
         _cards = ""
-        for _c in _triggers:
+        for _i, _c in enumerate(_triggers):
             _tk   = _c["ticker"]
-            _curr = _c["current_price"]
-            _chg  = _c["chg_pct"]
-            _oip  = _c["oi_pct_2day"]
-            _sk   = _c["top_strike"]
-            _shk  = _c["shakeout_pct"]
-            _oi1  = _c["oi_d1"]
+            _live = _c["live_price"]
+            _gap  = _c["gap_pct"]
+            _move = _c["cat_move_pct"]
+            _cs   = _c["cat_cs"]
+            _rng  = _c["inside_range"]
+            _yc   = _c["yest_close"]
+            _med  = {0: "🥇", 1: "🥈", 2: "🥉"}.get(_i, f"#{_i+1}")
+            _cs_pct = int(_cs * 100)
             _cards += f"""
             <div style="background:#0f172a;border:2px solid #22c55e;border-radius:10px;margin-bottom:14px;overflow:hidden;">
               <div style="background:#14532d;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:20px;font-weight:900;color:#f0fdf4;">🚀 ${_tk} — ENTRY SIGNAL</span>
-                <span style="font-size:15px;font-weight:800;color:#86efac;">+{_chg:.1f}% ↑</span>
+                <span style="font-size:20px;font-weight:900;color:#f0fdf4;">{_med} ${_tk} — ENTRY NOW</span>
+                <span style="font-size:16px;font-weight:800;color:#86efac;">GAP +{_gap:.1f}% ↑</span>
               </div>
               <div style="padding:14px 16px;">
-                <div style="font-size:13px;color:#cbd5e1;margin-bottom:12px;">
-                  Price has reclaimed above yesterday's close after the shakeout — <b style="color:#22c55e;">the OI buildup is playing out as expected</b>.
-                </div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;margin-bottom:12px;">
-                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">💰 Now: <b style="color:#22c55e;">${_curr:.2f}</b></div>
-                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">📈 2-day OI: <b style="color:#f1f5f9;">+{_oip:.0f}%</b></div>
-                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">⚡ Shakeout: <b style="color:#f59e0b;">{_shk:+.1f}%</b></div>
-                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">🎯 Strike: <b style="color:#f1f5f9;">${_sk:.0f}</b> call</div>
-                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">📊 OI now: <b style="color:#f1f5f9;">{_oi1:,}</b></div>
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">
+                    💥 2-Day Catalyst: <b style="color:#22c55e;">+{_move:.1f}%</b>
+                  </div>
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">
+                    🎯 Close Strength: <b style="color:#f1f5f9;">{_cs_pct}%</b>
+                  </div>
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">
+                    📦 Inside Range: <b style="color:#f59e0b;">{_rng:.1f}%</b>
+                  </div>
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">
+                    💰 Now: <b style="color:#22c55e;">${_live:.2f}</b> vs ${_yc:.2f} prev close
+                  </div>
+                </div>
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">
+                  <b style="color:#f1f5f9;">Pattern:</b> Catalyst day (+{_move:.1f}%, closed in top {_cs_pct}% of range)
+                  → inside day (tight {_rng:.1f}% range) → today gapping +{_gap:.1f}% = continuation confirmed.
                 </div>
                 <div style="font-size:12px;color:#f59e0b;background:#451a0322;border:1px solid #f59e0b55;border-radius:6px;padding:8px 12px;">
-                  ⚠️ <b>Entry now.</b> Pattern resolves in 1-3 days per backtest. Size 1-2% portfolio. Stop loss: below today's open.
+                  ⚡ <b>Buy near the open. Hold 3 days.</b>
+                  Backtest: 72.9% Win Rate · +2.19% EV/trade · n=199 over 495 days.
+                  Stop: below today's open. Size: 1–2% portfolio per name.
                 </div>
               </div>
             </div>"""
-            _already_sent.add(_tk)
 
         _html = f"""
         <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
           <div style="margin-bottom:18px;">
-            <span style="font-size:24px;font-weight:800;color:#22c55e;">🎯 ENTRY SIGNAL — OI Buildup Reentry</span>
-            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Shakeout confirmed + price reclaimed · 75% WR pattern · {_date_str}</span>
+            <span style="font-size:22px;font-weight:800;color:#22c55e;">⚡ S7c★ BigCatDay → Gap Signal</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">72.9% Win Rate · +2.19% EV/trade · 3-day hold · {_date_str}</span>
           </div>
           <div style="background:#0f172a;border:1px solid #22c55e33;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
-            These were on the 8:30 AM pre-positioned watch list. Price is now above yesterday's close — the shakeout has reversed. Institutions who loaded OI for 2 days bought the dip; you're entering with them on the recovery.
+            <b style="color:#f1f5f9;">The Setup:</b> A catalyst day (≥5% move on strong close) compresses into a tight inside day —
+            then today gaps up ≥3%. This is institutional demand confirming the move.
+            Backtested 495 days: 72.9% WR, +2.19% avg return in 3 days.
           </div>
           {_cards}
-          <div style="text-align:center;margin-top:18px;font-size:11px;color:#374151;">StockScanner AI · OI Buildup + Shakeout → Reentry · 75% WR (n=28 backtest)</div>
+          <div style="text-align:center;margin-top:18px;font-size:11px;color:#374151;">
+            StockScanner AI · BigCatDay+InsideDay+Gap · 72.9% WR (n=199, 495-day backtest)
+          </div>
         </div>"""
 
-        _subj = f"🚀 ENTRY SIGNAL: {', '.join(t['ticker'] for t in _triggers)} — OI shakeout reentry [{_date_str.split('·')[0].strip()}]"
+        _cnt = len(_triggers)
+        _subj = (f"⚡ S7c★ ENTRY: {', '.join(t['ticker'] for t in _triggers[:3])}"
+                 f"{'...' if _cnt > 3 else ''} — BigCatDay+Gap [{_date_str.split('·')[0].strip()}]")
         _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
-        print(f"[oi_shakeout] ENTRY SIGNAL sent={_ok} triggers={[t['ticker'] for t in _triggers]}")
-    except Exception as _e_oisre:
-        import traceback as _tb_oisre
-        print(f"[oi_shakeout] reentry email error: {_e_oisre}\n{_tb_oisre.format_exc()}")
+        if _ok:
+            app._bigcat_gap_sent = _today_iso
+        print(f"[bigcat_gap] email sent={_ok} triggers={[t['ticker'] for t in _triggers]}")
+    except Exception as _e_bcm:
+        import traceback as _tb_bcm
+        print(f"[bigcat_gap] email error: {_e_bcm}\n{_tb_bcm.format_exc()}")
 
 
 # ── 5-Layer Conviction System ──────────────────────────────────────────────────
