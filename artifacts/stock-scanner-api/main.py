@@ -18235,6 +18235,34 @@ def _mkt_screen_period(conditions=None, start_date=None, end_date=None,
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# mkt_layer9_score — Layer 9 Statistical Edge: per-ticker quant score
+# Uses Hurst exponent, VPIN, entropy, tail risk, and illiquidity penalty.
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_layer9_score(ticker, days=120):
+    """Compute Layer 9 Statistical Edge score (0-100) for one ticker.
+    Returns statistical_score, regime (trending/mean_reverting/random_walk),
+    VPIN toxicity, jump detection, entropy clarity, and tail risk breakdown."""
+    try:
+        ticker = ticker.strip().upper()
+        df = _td_history(ticker, days=int(days))
+        if df is None or df.empty or len(df) < 30:
+            return {"error": "insufficient_history", "ticker": ticker}
+        from layer9_statistical_edge import compute_layer9_score
+        result = compute_layer9_score(ticker, df)
+        # Flatten components for agent readability
+        comps = result.pop("components", {})
+        result["hurst_raw"]        = comps.get("hurst_regime",       {}).get("raw")
+        result["vpin_raw"]         = comps.get("vpin_toxicity",      {}).get("raw")
+        result["tail_skew"]        = comps.get("tail_risk",          {}).get("raw_skew")
+        result["tail_kurtosis"]    = comps.get("tail_risk",          {}).get("raw_kurtosis")
+        result["entropy_raw"]      = comps.get("entropy_clarity",    {}).get("raw")
+        result["illiquidity_score"]= comps.get("illiquidity_penalty",{}).get("score")
+        result["component_scores"] = {k: v.get("score") for k, v in comps.items()}
+        return result
+    except Exception as e:
+        return {"error": str(e), "ticker": ticker}
+
+
 # mkt_compute_indicators — Full Barchart-parity technical indicator suite
 # Covers every indicator a junior quant analyst needs from raw OHLCV data:
 # MAs (SMA/EMA all periods), RSI, Stochastic, Williams %R, CCI, ADX/DMI,
@@ -22423,6 +22451,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "mkt_build_composite":         _mkt_tool_build_composite,
         "mkt_get_stock_history":       _mkt_get_stock_history,
         "mkt_screen_period":           _mkt_screen_period,
+        "mkt_layer9_score":            _mkt_layer9_score,
         "mkt_compute_indicators":      _mkt_compute_indicators,
         "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
         "mkt_historical_study":        _mkt_historical_study,
@@ -23145,6 +23174,25 @@ _AIEM_AGENT_TOOLS = [
             "ticker":     {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
             "start_date": {"type": "string", "description": "Optional start 'YYYY-MM-DD'."},
             "end_date":   {"type": "string", "description": "Optional end 'YYYY-MM-DD'."},
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_layer9_score",
+        "description": (
+            "Compute the Layer 9 Statistical Edge score (0-100) for any single ticker. "
+            "Uses 5 institutional-grade quant indicators: Hurst exponent (regime detection: "
+            "trending vs mean-reverting vs random-walk), VPIN (Volume-synchronized Probability "
+            "of Informed Trading — detects informed/institutional flow), Shannon entropy "
+            "(pattern clarity: low entropy = clean directional setup), realized skew/kurtosis "
+            "(tail risk: left skew + high kurtosis = crash risk), and Amihud illiquidity "
+            "(thin-stock penalty). Returns a 0-100 composite score, regime classification, "
+            "all component scores, and a jump-detection flag. "
+            "Use to validate AI picks statistically, screen for low-noise setups, or study "
+            "whether the stat9 score predicts your pick outcomes better than existing layers."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol, e.g. 'NVDA'."},
+            "days":   {"type": "integer", "description": "Days of price history to use (default 120, min 60)."},
         }, "required": ["ticker"]}
     }},
     {"type": "function", "function": {
@@ -24625,6 +24673,7 @@ def _run_aiem_research_agent(max_iterations=None):
         # ── Historical date-range tools ───────────────────────────────────────
         "mkt_get_stock_history":       _mkt_get_stock_history,
         "mkt_screen_period":           _mkt_screen_period,
+        "mkt_layer9_score":            _mkt_layer9_score,
         "mkt_compute_indicators":      _mkt_compute_indicators,
         "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
         "mkt_historical_study":        _mkt_historical_study,
@@ -28003,6 +28052,58 @@ def _enrich_technical_signals(tickers_data):
     print("[enrich_tech] done", file=sys.stderr, flush=True)
 
 
+def _enrich_layer9_signals(tickers_data: dict) -> None:
+    """
+    Layer 9 Statistical Edge enrichment — AI-signal path only.
+    Adds 'stat9_score', 'stat9_regime', 'stat9_vpin', 'stat9_jump',
+    'stat9_entropy', 'stat9_tail' to each ticker dict in tickers_data.
+    All exceptions caught silently; missing data leaves fields absent.
+    Does NOT touch any scanner tab, cache, or DB.
+    """
+    import sys as _l9sys
+    try:
+        from layer9_statistical_edge import batch_layer9_scores, format_layer9_signal
+    except ImportError:
+        print("[layer9] module not available — skipping", file=_l9sys.stderr)
+        return
+
+    tickers = list(tickers_data.keys())
+    if not tickers:
+        return
+
+    # Fetch price histories for all tickers (reuse _td_history, already Tradier-backed)
+    histories = {}
+    for t in tickers:
+        try:
+            df = _td_history(t, days=120)
+            if df is not None and not df.empty and len(df) >= 30:
+                histories[t] = df
+        except Exception:
+            pass
+
+    if not histories:
+        print("[layer9] no valid histories fetched — skipping", file=_l9sys.stderr)
+        return
+
+    scores = batch_layer9_scores(histories, timeout_per=4.0)
+
+    for t, res in scores.items():
+        if t not in tickers_data:
+            continue
+        v = tickers_data[t]
+        v["stat9_score"]   = res.get("statistical_score", 50.0)
+        v["stat9_regime"]  = res.get("regime", "")
+        v["stat9_signal"]  = format_layer9_signal(res)
+        comps = res.get("components", {})
+        flags = res.get("flags", {})
+        v["stat9_vpin"]    = round(float(comps.get("vpin_toxicity",   {}).get("raw", 0)), 3)
+        v["stat9_jump"]    = bool(flags.get("jump_detected", False))
+        v["stat9_entropy"] = round(float(comps.get("entropy_clarity", {}).get("score", 50)), 1)
+        v["stat9_tail"]    = round(float(comps.get("tail_risk",       {}).get("score", 50)), 1)
+
+    print(f"[layer9] enriched {len(scores)}/{len(tickers)} tickers", file=_l9sys.stderr)
+
+
 def _get_smp_scores_batch(tickers: list) -> dict:
     """Run the 8-layer SMP conviction scan and return scores for the given tickers.
     Returns {ticker: {"smp_score": float, "smp_label": str, "smp_layers": list}}
@@ -28602,6 +28703,13 @@ def _ai_trades_worker():
         import sys as _sys
         print(f"[ai_trades_bg] tech enrichment skipped: {_et_err}", file=_sys.stderr)
 
+    # Layer 9: Statistical Edge enrichment — AI signal path only, no tab side-effects
+    try:
+        _enrich_layer9_signals(tickers_data)
+    except Exception as _l9_err:
+        import sys as _sys
+        print(f"[ai_trades_bg] layer9 enrichment skipped: {_l9_err}", file=_sys.stderr)
+
     # Only use tickers where we have enough signal depth (3+ fields beyond ticker key)
     rich = {t: v for t, v in tickers_data.items() if len(v) >= 3}
 
@@ -28892,6 +29000,8 @@ def _ai_trades_worker():
             parts.append(f"vwap={vd:+.1f}%({vwap_label})")
         if v.get("live_alerts"):
             parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
+        if v.get("stat9_signal"):
+            parts.append(v["stat9_signal"])
         sig_lines.append(" | ".join(parts))
 
     sig_text = "\n".join(sig_lines)
@@ -29013,6 +29123,7 @@ SIGNAL KEY:
 - tail_risk_puts: % of put vol in deep OTM strikes >15% below spot (>40%=CRASH_HEDGING_ACTIVE=risk-off; >30% = do NOT sell premium structures)
 - iv_skew_pctl: today's IV skew ranked vs 1-year history for this stock (>=90th=EXTREME_HISTORICAL_FEAR=sell put prem / buy call spreads; <=25th=historically cheap vol=buy options)
 - short_trend: change in short float vs 5 sessions ago in pp (>+1=SHORTS_BUILDING=bear conviction; <-1=SHORTS_COVERING=squeeze trigger - combine with squeeze_risk=HIGH for max conviction LONG CALL)
+- stat9: Layer 9 Statistical Edge score 0-100 (Hurst+VPIN+entropy+tail_risk+illiquidity). stat9≥70=strong statistical alignment; regime=trending=momentum edge; regime=mean_reverting=mean-reversion edge; vpin≥0.45=high informed-flow toxicity=smart money actively positioning; jump=True=recent price discontinuity (gap/shock); entropy=high=clean predictable pattern=lower noise; tail_risk=high=fat-tail/crash risk present. stat9<40=statistical edge unclear=reduce conviction. Use stat9 as confirmation: a LONG CALL with score≥75 + stat9≥70 + regime=trending is the highest statistical-edge setup.
 
 PRIORITY WEIGHTING (use in order):
 1. opt_spread>12% → SKIP (non-negotiable liquidity gate)
@@ -29136,8 +29247,62 @@ JSON array only. No markdown. Start immediately with ["""
         except Exception:
             pass
 
+        # Stock picks: 3 pure equity buys ranked by stat9 + composite score
+        # Isolated second LLM call — does not alter the call_picks output above
+        stock_picks = []
+        try:
+            _sp_candidates = sorted(
+                [v for v in rich.values() if v.get("stat9_score", 0) >= 45],
+                key=lambda x: (x.get("stat9_score", 0) * 0.4 + x.get("composite_score", 0) * 0.6),
+                reverse=True,
+            )[:10]
+            if _sp_candidates:
+                _sp_lines = []
+                for _spv in _sp_candidates:
+                    _sp_line = (
+                        f"{_spv['ticker']} ${_spv.get('price','?')} "
+                        f"score={_spv.get('composite_score','?')} "
+                        f"stat9={_spv.get('stat9_score','?')} "
+                        f"regime={_spv.get('stat9_regime','?')} "
+                        f"vpin={_spv.get('stat9_vpin','?')} "
+                        f"jump={_spv.get('stat9_jump','?')} "
+                        f"rsi={_spv.get('rsi','?')} "
+                        f"rs_spy={_spv.get('rs_vs_spy','?')} "
+                        f"vol_trend={_spv.get('vol_trend_5d','?')}"
+                    )
+                    _sp_lines.append(_sp_line)
+                _sp_prompt = (
+                    f"You are a quant portfolio manager. Today is {str(_et_today())}. "
+                    "Select EXACTLY 3 stock BUY recommendations (shares, not options) from this "
+                    "candidate list ranked by Layer 9 Statistical Edge + composite conviction. "
+                    "Each pick must have: stat9>=45, positive momentum, and clear thesis. "
+                    "Output a JSON array of 3 objects. Each object must have: "
+                    "ticker (string), entry_price (number), target_price (number), "
+                    "stop_loss (number), holding_days (integer 3-21), "
+                    "stat9_score (number), regime (string), "
+                    "thesis (string, 1-2 sentences max). "
+                    "JSON array only, no markdown.\n\nCANDIDATES:\n" + "\n".join(_sp_lines)
+                )
+                _sp_resp = oai.chat.completions.create(
+                    model="gpt-4o-mini",
+                    max_completion_tokens=600,
+                    messages=[{"role": "user", "content": _sp_prompt}],
+                )
+                _sp_raw = (_sp_resp.choices[0].message.content or "").strip()
+                if "[" in _sp_raw:
+                    _sp_raw = _sp_raw[_sp_raw.find("["):_sp_raw.rfind("]") + 1]
+                try:
+                    stock_picks = _json.loads(_sp_raw)
+                except Exception:
+                    from json_repair import repair_json as _rj2
+                    stock_picks = _json.loads(_rj2(_sp_raw))
+        except Exception as _spe:
+            import sys
+            print(f"[ai_trades_bg] stock picks error: {_spe}", file=sys.stderr)
+
         out = {
             "trades": trades,
+            "stock_picks": stock_picks,
             "generated_at": _dt.now().isoformat(),
             "tickers_scanned": len(rich),
             "signal_sources": active_sources,
@@ -32371,6 +32536,23 @@ Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no m
                     p["smp_layers"] = smp.get("smp_layers", [])
             except Exception:
                 pass
+
+            # Layer 9: enrich each short-call pick with statistical edge score
+            try:
+                from layer9_statistical_edge import compute_layer9_score, format_layer9_signal
+                for _p in picks:
+                    _pt = _p.get("ticker", "")
+                    if not _pt:
+                        continue
+                    _pdf = _td_history(_pt, days=120)
+                    if _pdf is not None and not _pdf.empty and len(_pdf) >= 30:
+                        _pr = compute_layer9_score(_pt, _pdf)
+                        _p["stat9_score"]  = _pr.get("statistical_score", 50.0)
+                        _p["stat9_regime"] = _pr.get("regime", "")
+                        _p["stat9_signal"] = format_layer9_signal(_pr)
+                        _p["stat9_jump"]   = bool(_pr.get("flags", {}).get("jump_detected", False))
+            except Exception as _l9sc_err:
+                print(f"[ai_short_calls] layer9 enrich error: {_l9sc_err}", file=_sys.stderr)
 
             out = {"picks": picks, "generated_at": _dt.now().isoformat(), "signals_evaluated": len(hits)}
             app._aisc_cache    = out

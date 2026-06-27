@@ -69,3 +69,4 @@
 - [Gap+Volume Signal Tab](gap-volume-signal-tab.md) — S2 (gap≥1%+rvol≥2x) survived OOS tight-baseline test (+2.5pp p=0.002); S1 (rvol+range) FAILED; endpoint is pure DB query on polygon_rvol_scan
 - [AIEM ML Pipeline](aiem-ml-pipeline.md) — XGBoost retrain on Sunday 8pm; 6 files in stock-scanner-api/; predict on pick save, resolve on settle; rollback safety via AUC+Brier comparison gate
 - [Flask tab hang root causes](flask-tab-hang-root-causes.md) — 3 layered causes: import lock (openai preload fixes), pool lock no-timeout (acquire with timeout fixes), bg thread storm (startup delay fixes)
+- [Layer 9 Statistical Edge](layer9-statistical-edge.md) — two new isolated modules (advanced_quant_indicators.py + layer9_statistical_edge.py); wired ONLY into _ai_trades_worker + _bg_aisc (AI short calls) + AIEM mkt_layer9_score tool; zero tab side-effects
