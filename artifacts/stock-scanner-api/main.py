@@ -22202,6 +22202,13 @@ try:
 except Exception as _e:
     print(f"[automated_retrain_pipeline] schema init error: {_e}")
 
+try:
+    import meta_learning_signal_trust as _mlst_init
+    _mlst_init.init_schema()
+    print("[signal_trust] schema ready")
+except Exception as _e:
+    print(f"[signal_trust] schema init error: {_e}")
+
 
 def _compute_fingerprint(rows):
     """
@@ -23001,6 +23008,16 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "retrain_approve":             _aiem_tool_retrain_approve,
         "retrain_reject":              _aiem_tool_retrain_reject,
         "retrain_history":             _aiem_tool_retrain_history,
+        # ── VWAP indicator tools ──────────────────────────────────────────
+        "vwap_compute_features":       _aiem_tool_vwap_compute_features,
+        "vwap_price_vs":               _aiem_tool_vwap_price_vs,
+        "vwap_reclaim_detect":         _aiem_tool_vwap_reclaim_detect,
+        # ── Meta-learning signal trust tools ─────────────────────────────
+        "trust_classify_context":      _aiem_tool_trust_classify_context,
+        "trust_update":                _aiem_tool_trust_update,
+        "trust_get_weights":           _aiem_tool_trust_get_weights,
+        "trust_get_history":           _aiem_tool_trust_get_history,
+        "trust_apply_to_candidates":   _aiem_tool_trust_apply_to_candidates,
     }
 
     _fs_schema = _AIEM_AGENT_TOOLS  # reuse existing schema
@@ -24088,6 +24105,76 @@ _AIEM_AGENT_TOOLS = [
             "min_rvol": {"type": "number", "description": "Minimum RVOL to include (default 1.5)"},
             "limit": {"type": "integer", "description": "Max results (default 30)"},
         }, "required": []}
+    }},
+    # ── VWAP Indicator tools ──────────────────────────────────────────────────
+    {"type": "function", "function": {
+        "name": "vwap_compute_features",
+        "description": "Compute all 3 VWAP-based scanner features: price_vs_premarket_vwap_pct, price_vs_intraday_vwap_pct, vwap_reclaim_signal. Use VWAP as an analytical signal (price vs volume-weighted average) — distinct from execution_simulator's TWAP/VWAP fill algorithms. Slot output directly into gap_continuation_score or intraday_continuation_score feature vectors.",
+        "parameters": {"type": "object", "properties": {
+            "current_price":        {"type": "number", "description": "Current or latest price"},
+            "premarket_bars_json":  {"type": "string", "description": "JSON array of premarket OHLCV bars [{high,low,close,volume},...]. Pass 'null' if unavailable."},
+            "intraday_bars_json":   {"type": "string", "description": "JSON array of intraday OHLCV bars [{high,low,close,volume},...]. Pass 'null' if unavailable."},
+        }, "required": ["current_price"]}
+    }},
+    {"type": "function", "function": {
+        "name": "vwap_price_vs",
+        "description": "How far is the current price from the running VWAP of the given bars, as a %? Returns price_vs_vwap_pct, vwap, above_vwap. Positive = price above VWAP (institutional buying pressure). Negative = price below VWAP.",
+        "parameters": {"type": "object", "properties": {
+            "bars_json":      {"type": "string", "description": "JSON array of OHLCV bars [{high,low,close,volume},...]"},
+            "current_price":  {"type": "number", "description": "Current price (optional — uses last bar close if omitted)"},
+        }, "required": ["bars_json"]}
+    }},
+    {"type": "function", "function": {
+        "name": "vwap_reclaim_detect",
+        "description": "Detect a VWAP RECLAIM: price was below VWAP within the lookback window and just crossed back above. Distinct from 'currently above VWAP' — a reclaim signals a shift in control (sellers → buyers) that day traders specifically watch for.",
+        "parameters": {"type": "object", "properties": {
+            "bars_json":      {"type": "string", "description": "JSON array of OHLCV bars [{high,low,close,volume},...]"},
+            "lookback_bars":  {"type": "integer", "description": "How many recent bars to check for the below-VWAP period (default 5)"},
+        }, "required": ["bars_json"]}
+    }},
+    # ── Meta-Learning Signal Trust tools ─────────────────────────────────────
+    {"type": "function", "function": {
+        "name": "trust_classify_context",
+        "description": "Map a market_regime_overlay recommendation to one of three context buckets: calm_supportive_market / mixed_market / volatile_or_cautious_market. Use the returned context_bucket in all other trust_* calls so trust weights are conditioned on the market environment.",
+        "parameters": {"type": "object", "properties": {
+            "market_regime_recommendation": {"type": "string", "description": "Output from regime_overlay_check: 'full_exposure', 'reduce_exposure', 'sit_out', or similar"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "trust_update",
+        "description": "Record a resolved outcome for a signal in a context bucket. Call every time a tracked pick settles (win or loss). Updates the exponentially-decayed rolling win rate and trust weight automatically. signal_name should match the scanner exactly: 'breakout_signature', 'gap_continuation', 'intraday_continuation', or 'smart_money_divergence'.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name":          {"type": "string", "description": "Name of the scanner/signal that generated the pick"},
+            "context_bucket":       {"type": "string", "description": "Context bucket from trust_classify_context"},
+            "new_outcome_was_win":  {"type": "boolean", "description": "True if the pick was profitable, False if a loss"},
+            "decay_factor":         {"type": "number", "description": "EMA decay (default 0.95 = ~20-outcome memory window)"},
+        }, "required": ["signal_name", "context_bucket", "new_outcome_was_win"]}
+    }},
+    {"type": "function", "function": {
+        "name": "trust_get_weights",
+        "description": "Read current trust weights for all signals, optionally filtered to one context bucket. Check this BEFORE finalising any multi-signal recommendation. trust_weight < 0.8 = underperforming recently, down-weight. trust_weight > 1.2 = outperforming, up-weight.",
+        "parameters": {"type": "object", "properties": {
+            "context_bucket": {"type": "string", "description": "Filter to this context (optional — omit to see all)"},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "trust_get_history",
+        "description": "Full trust-weight timeline for one signal+context. Use to distinguish a sustained decline (signal is broken → flag for retrain) from a temporary rough patch (just variance). If trust has been declining for >20 consecutive updates, flag it.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name":    {"type": "string", "description": "Scanner/signal name"},
+            "context_bucket": {"type": "string", "description": "Context bucket"},
+            "limit":          {"type": "integer", "description": "Max history entries (default 50)"},
+        }, "required": ["signal_name", "context_bucket"]}
+    }},
+    {"type": "function", "function": {
+        "name": "trust_apply_to_candidates",
+        "description": "Apply current trust weights to a list of scanner candidates and re-rank by trust_adjusted_probability — the number to actually act on, not raw probability. Signals with < min_outcomes_to_trust resolved outcomes stay at neutral weight 1.0 (not enough track record yet).",
+        "parameters": {"type": "object", "properties": {
+            "candidates_json":       {"type": "string", "description": "JSON array of candidates, each with 'signal_name' and a probability field"},
+            "context_bucket":        {"type": "string", "description": "Context bucket for trust weight lookup"},
+            "probability_field":     {"type": "string", "description": "Name of the probability field in each candidate (default 'probability')"},
+            "min_outcomes_to_trust": {"type": "integer", "description": "Min resolved outcomes before adjusting trust (default 15)"},
+        }, "required": ["candidates_json", "context_bucket"]}
     }},
 ]
 
@@ -26511,6 +26598,156 @@ def _aiem_tool_squeeze_subscore(features_json: str, ticker: str = "") -> dict:
         return {"error": str(_e)}
 
 
+# ── VWAP Indicator tools ─────────────────────────────────────────────────────
+def _aiem_tool_vwap_compute_features(
+    current_price: float,
+    premarket_bars_json: str = "null",
+    intraday_bars_json: str = "null",
+) -> dict:
+    """Compute all 3 VWAP features for the premarket/intraday scanner feature
+    vectors: price_vs_premarket_vwap_pct, price_vs_intraday_vwap_pct,
+    vwap_reclaim_signal. Bars are JSON arrays with columns {high, low, close, volume}.
+    Missing bars default to 0.0 (neutral) so only pass what you have."""
+    try:
+        import vwap_indicators as _vi
+        import pandas as _pd, json as _j
+        pm  = _pd.DataFrame(_j.loads(premarket_bars_json))  if premarket_bars_json  != "null" else None
+        id_ = _pd.DataFrame(_j.loads(intraday_bars_json))   if intraday_bars_json   != "null" else None
+        return _vi.compute_vwap_features_for_scanner(pm, id_, float(current_price))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_vwap_price_vs(
+    bars_json: str,
+    current_price: float = None,
+) -> dict:
+    """How far is current price from the running VWAP of the given bars, as a %?
+    Returns price_vs_vwap_pct, vwap, current_price, above_vwap.
+    bars_json: JSON array with {high, low, close, volume} columns."""
+    try:
+        import vwap_indicators as _vi
+        import pandas as _pd, json as _j
+        bars  = _pd.DataFrame(_j.loads(bars_json))
+        price = float(current_price) if current_price is not None else None
+        return _vi.price_vs_vwap_pct(bars, price)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_vwap_reclaim_detect(
+    bars_json: str,
+    lookback_bars: int = 5,
+) -> dict:
+    """Detect a VWAP RECLAIM: price was below VWAP within the lookback window
+    and just crossed back above it — a distinct shift-in-control signal that
+    day traders treat differently from just 'currently above VWAP.'
+    bars_json: JSON array with {high, low, close, volume} columns."""
+    try:
+        import vwap_indicators as _vi
+        import pandas as _pd, json as _j
+        bars = _pd.DataFrame(_j.loads(bars_json))
+        return _vi.detect_vwap_reclaim(bars, int(lookback_bars))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+# ── Meta-Learning Signal Trust tools ─────────────────────────────────────────
+def _aiem_tool_trust_classify_context(
+    market_regime_recommendation: str = None,
+) -> dict:
+    """Map a market_regime_overlay recommendation to a context bucket
+    (calm_supportive_market / mixed_market / volatile_or_cautious_market).
+    Use the returned context_bucket in all other trust_* calls."""
+    try:
+        import meta_learning_signal_trust as _mlst
+        bucket = _mlst.classify_context_bucket(market_regime_recommendation or None)
+        return {"context_bucket": bucket, "recommendation_input": market_regime_recommendation}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_trust_update(
+    signal_name: str,
+    context_bucket: str,
+    new_outcome_was_win: bool,
+    decay_factor: float = 0.95,
+) -> dict:
+    """Record a resolved outcome for signal_name in context_bucket. Call this
+    every time a tracked pick resolves (win or loss). Trust weight updates
+    automatically — no manual step needed. signal_name should match the scanner
+    (e.g. 'breakout_signature', 'gap_continuation', 'intraday_continuation',
+    'smart_money_divergence'). decay_factor=0.95 gives ~20-outcome memory."""
+    try:
+        import meta_learning_signal_trust as _mlst
+        return _mlst.update_trust_weight(
+            signal_name=signal_name,
+            context_bucket=context_bucket,
+            new_outcome_was_win=bool(new_outcome_was_win),
+            decay_factor=float(decay_factor),
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_trust_get_weights(
+    context_bucket: str = None,
+) -> dict:
+    """Read current trust weights for all signals, optionally filtered to one
+    context_bucket. Check this BEFORE finalising any multi-signal recommendation.
+    A trust_weight < 0.8 means that signal has been underperforming recently
+    and should be down-weighted. Returns list sorted by trust_weight desc."""
+    try:
+        import meta_learning_signal_trust as _mlst
+        weights = _mlst.get_current_trust_weights(context_bucket or None)
+        return {"weights": weights, "count": len(weights),
+                "context_bucket": context_bucket or "all"}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_trust_get_history(
+    signal_name: str,
+    context_bucket: str,
+    limit: int = 50,
+) -> dict:
+    """Full trust-weight timeline for one signal+context. Useful for spotting
+    a sustained decline (vs a temporary rough patch). If trust has been
+    declining for >20 consecutive updates flag it for retrain review."""
+    try:
+        import meta_learning_signal_trust as _mlst
+        history = _mlst.get_trust_history(signal_name, context_bucket, int(limit))
+        return {"history": history, "count": len(history),
+                "signal_name": signal_name, "context_bucket": context_bucket}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_trust_apply_to_candidates(
+    candidates_json: str,
+    context_bucket: str,
+    probability_field: str = "probability",
+    min_outcomes_to_trust: int = 15,
+) -> dict:
+    """Apply current trust weights to a list of scanner candidates and re-rank
+    them by trust_adjusted_probability — the number to actually act on.
+    candidates_json: JSON array where each item has 'signal_name' and a
+    probability field. Signals with < min_outcomes_to_trust stay at neutral 1.0."""
+    try:
+        import meta_learning_signal_trust as _mlst
+        import json as _j
+        candidates = _j.loads(candidates_json)
+        adjusted = _mlst.apply_trust_weights_to_candidates(
+            candidates=candidates,
+            context_bucket=context_bucket,
+            probability_field=probability_field,
+            min_outcomes_to_trust=int(min_outcomes_to_trust),
+        )
+        return {"adjusted_candidates": adjusted, "count": len(adjusted)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 # ── Smart Money Divergence tools ──────────────────────────────────────────────
 def _aiem_tool_divergence_scan(
     price_history_json: str,
@@ -26845,6 +27082,16 @@ def _run_aiem_research_agent(max_iterations=None):
         "retrain_approve":             _aiem_tool_retrain_approve,
         "retrain_reject":              _aiem_tool_retrain_reject,
         "retrain_history":             _aiem_tool_retrain_history,
+        # ── VWAP indicator tools ──────────────────────────────────────────
+        "vwap_compute_features":       _aiem_tool_vwap_compute_features,
+        "vwap_price_vs":               _aiem_tool_vwap_price_vs,
+        "vwap_reclaim_detect":         _aiem_tool_vwap_reclaim_detect,
+        # ── Meta-learning signal trust tools ─────────────────────────────
+        "trust_classify_context":      _aiem_tool_trust_classify_context,
+        "trust_update":                _aiem_tool_trust_update,
+        "trust_get_weights":           _aiem_tool_trust_get_weights,
+        "trust_get_history":           _aiem_tool_trust_get_history,
+        "trust_apply_to_candidates":   _aiem_tool_trust_apply_to_candidates,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
