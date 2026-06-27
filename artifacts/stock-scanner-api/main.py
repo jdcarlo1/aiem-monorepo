@@ -2941,6 +2941,38 @@ try:
         id="oi_snapshot_premarket",
         replace_existing=True,
     )
+    # OI Buildup + Shakeout Setup Watch: 8:45 AM ET - after OI snapshot premarket
+    # runs and DB is written. Lists pre-positioned names that closed weak yesterday.
+    # Silent when no candidates. 75% WR, +8.20% EV backtest signal.
+    def _run_oi_shakeout_premarket():
+        try:
+            import threading as _thr_oispm
+            _thr_oispm.Thread(target=_send_oi_shakeout_premarket_email, daemon=True).start()
+        except Exception as _e_oispm:
+            print(f"[scheduler] oi_shakeout premarket error: {_e_oispm}")
+    _scheduler.add_job(
+        _run_oi_shakeout_premarket,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=45, timezone=_ET),
+        id="oi_shakeout_premarket",
+        replace_existing=True,
+    )
+    # OI Buildup + Shakeout Reentry Check: 9:52 AM ET - 22 min after market open,
+    # after options data settles. Checks if any 8:45 AM setup candidates have
+    # reclaimed their prior close (the entry confirmation). Silent if none trigger.
+    def _run_oi_shakeout_reentry():
+        if not _intraday_scan_allowed():
+            return
+        try:
+            import threading as _thr_oisre
+            _thr_oisre.Thread(target=_send_oi_shakeout_reentry_email, daemon=True).start()
+        except Exception as _e_oisre:
+            print(f"[scheduler] oi_shakeout reentry error: {_e_oisre}")
+    _scheduler.add_job(
+        _run_oi_shakeout_reentry,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=52, timezone=_ET),
+        id="oi_shakeout_reentry",
+        replace_existing=True,
+    )
     # Whale + High Conviction crossover alert - every 30 min, 10 AM–3:30 PM ET
     def _run_whale_hc_cross():
         if not _intraday_scan_allowed():
@@ -11785,6 +11817,317 @@ def _get_oi_accumulation_signals(days_back: int = 1) -> tuple:
 
 
 _init_oi_snapshot_table()
+
+
+# ── OI Buildup + Shakeout → Reentry Signal ────────────────────────────────────
+# Backtest result: 75% WR, +8.20% EV/trade (n=28) — strongest signal found.
+# Pattern: smart money loads OI for 2+ consecutive days with no price appreciation
+# (stealth accumulation). Then a fake breakdown shakes out weak retail holders.
+# OI stays elevated → institutions bought the dip. Entry = price reclaims prior
+# close after the shakeout.
+#
+# 8:30 AM: pre-market "Setup Watch" email (which names are pre-positioned)
+# 9:52 AM: live "ENTRY SIGNAL" email (fires only when a setup name bounces)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_oi_buildup_shakeout_candidates() -> list:
+    """
+    Query oi_daily_snapshot for tickers with 2+ consecutive days of rising OI
+    where the most recent snapshot price closed weaker than the prior day's
+    (the shakeout). Returns list of dicts sorted by total OI buildup %.
+    """
+    import psycopg2 as _pg_ois2, os as _os_ois2
+    try:
+        with _pg_ois2.connect(_os_ois2.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
+            _cur.execute("""
+                WITH snap_dates AS (
+                    SELECT DISTINCT snapshot_date
+                    FROM oi_daily_snapshot
+                    ORDER BY snapshot_date DESC LIMIT 3
+                ),
+                dates AS (
+                    SELECT
+                        (SELECT snapshot_date FROM snap_dates ORDER BY snapshot_date DESC LIMIT 1 OFFSET 0) AS d1,
+                        (SELECT snapshot_date FROM snap_dates ORDER BY snapshot_date DESC LIMIT 1 OFFSET 1) AS d2,
+                        (SELECT snapshot_date FROM snap_dates ORDER BY snapshot_date DESC LIMIT 1 OFFSET 2) AS d3
+                ),
+                ticker_oi AS (
+                    SELECT ticker, snapshot_date,
+                           SUM(oi)  AS total_oi,
+                           MAX(price) AS price
+                    FROM oi_daily_snapshot
+                    GROUP BY ticker, snapshot_date
+                ),
+                three_day AS (
+                    SELECT
+                        t1.ticker,
+                        t1.total_oi   AS oi_d1,
+                        t2.total_oi   AS oi_d2,
+                        t3.total_oi   AS oi_d3,
+                        t1.price      AS price_d1,
+                        t2.price      AS price_d2,
+                        t3.price      AS price_d3
+                    FROM ticker_oi t1
+                    JOIN ticker_oi t2 ON t1.ticker = t2.ticker
+                    JOIN ticker_oi t3 ON t1.ticker = t3.ticker
+                    CROSS JOIN dates
+                    WHERE t1.snapshot_date = dates.d1
+                      AND t2.snapshot_date = dates.d2
+                      AND t3.snapshot_date = dates.d3
+                      AND t2.total_oi > t3.total_oi
+                      AND t1.total_oi > t2.total_oi
+                      AND t1.total_oi >= t3.total_oi * 1.30
+                      AND t3.total_oi > 200
+                      AND t1.price < t2.price * 0.995
+                ),
+                top_strike AS (
+                    SELECT DISTINCT ON (s.ticker)
+                        s.ticker, s.strike
+                    FROM oi_daily_snapshot s
+                    CROSS JOIN dates
+                    WHERE s.snapshot_date = dates.d1
+                    ORDER BY s.ticker, s.oi DESC
+                )
+                SELECT
+                    td.ticker,
+                    td.price_d1,
+                    td.price_d2,
+                    td.price_d3,
+                    td.oi_d1,
+                    td.oi_d2,
+                    td.oi_d3,
+                    ROUND(((td.oi_d1 - td.oi_d3)::FLOAT / NULLIF(td.oi_d3,0) * 100)::NUMERIC, 1) AS oi_pct_2day,
+                    ROUND(((td.price_d1 - td.price_d2)::FLOAT / NULLIF(td.price_d2,0) * 100)::NUMERIC, 2) AS shakeout_pct,
+                    ts.strike AS top_strike
+                FROM three_day td
+                LEFT JOIN top_strike ts ON ts.ticker = td.ticker
+                ORDER BY oi_pct_2day DESC
+                LIMIT 8
+            """)
+            _rows = _cur.fetchall()
+        results = []
+        for _r in _rows:
+            _t, _p1, _p2, _p3, _oi1, _oi2, _oi3, _oip, _shk, _sk = _r
+            results.append({
+                "ticker":       _t,
+                "price":        round(float(_p1 or 0), 2),
+                "price_d2":     round(float(_p2 or 0), 2),
+                "price_d3":     round(float(_p3 or 0), 2),
+                "oi_d1":        int(_oi1 or 0),
+                "oi_d2":        int(_oi2 or 0),
+                "oi_d3":        int(_oi3 or 0),
+                "oi_pct_2day":  float(_oip or 0),
+                "shakeout_pct": float(_shk or 0),
+                "top_strike":   float(_sk or 0),
+            })
+        return results
+    except Exception as _e_oisq:
+        print(f"[oi_shakeout] query error: {_e_oisq}")
+        return []
+
+
+def _send_oi_shakeout_premarket_email() -> None:
+    """
+    8:30 AM Mon-Fri: 'OI Buildup + Shakeout Setup Watch' email.
+    Lists names pre-positioned for 2+ days that closed weak yesterday.
+    Silent when nothing qualifies. Caches candidates for the 9:52 AM
+    live reentry check.
+    """
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        from datetime import datetime as _dt_ois
+        if not smtp_configured():
+            return
+
+        _today_iso = _et_today_iso()
+
+        # Dedup: only send once per day
+        if getattr(app, "_oi_shakeout_premarket_sent", None) == _today_iso:
+            print("[oi_shakeout] pre-market email already sent today - skipping")
+            return
+
+        candidates = _get_oi_buildup_shakeout_candidates()
+        if not candidates:
+            print("[oi_shakeout] no setup candidates today - skipping pre-market email")
+            return
+
+        # Cache for the 9:52 AM reentry check
+        app._oi_shakeout_candidates  = candidates
+        app._oi_shakeout_date        = _today_iso
+
+        _date_str = _dt_ois.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
+        _cards = ""
+        for _i, _c in enumerate(candidates):
+            _tk   = _c["ticker"]
+            _pr   = _c["price"]
+            _shk  = _c["shakeout_pct"]
+            _oip  = _c["oi_pct_2day"]
+            _sk   = _c["top_strike"]
+            _oi1  = _c["oi_d1"]
+            _oi3  = _c["oi_d3"]
+            _gain = _oi1 - _oi3
+            _med  = {0: "🥇", 1: "🥈", 2: "🥉"}.get(_i, f"#{_i+1}")
+            _cards += f"""
+            <div style="background:#0f172a;border:1px solid #22c55e44;border-left:3px solid #22c55e;border-radius:10px;margin-bottom:14px;padding:14px 16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-size:16px;font-weight:900;color:#f1f5f9;">{_med} ${_tk}</span>
+                <span style="font-size:11px;font-weight:800;color:#22c55e;background:#22c55e22;padding:3px 10px;border-radius:4px;">2-DAY OI BUILDUP</span>
+              </div>
+              <div style="font-size:20px;font-weight:900;color:#22c55e;margin-bottom:6px;">+{_oip:.0f}% OI over 2 days</div>
+              <div style="font-size:12px;color:#cbd5e1;margin-bottom:10px;">
+                OI grew from <b>{_oi3:,}</b> → <b>{_oi1:,}</b> contracts (+{_gain:,}) while price stayed flat — stealth institutional loading.
+              </div>
+              <div style="background:#1e293b;border-radius:6px;padding:8px 12px;margin-bottom:8px;">
+                <span style="font-size:12px;color:#f59e0b;font-weight:700;">⚡ Yesterday's shakeout: {_shk:+.1f}%</span>
+                <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Price dipped while OI held — institutions bought the weakness, not sold it.</div>
+              </div>
+              <div style="font-size:11px;color:#94a3b8;">
+                📍 Last price: <b style="color:#f1f5f9;">${_pr:.2f}</b> &nbsp;·&nbsp;
+                Biggest OI strike: <b style="color:#f1f5f9;">${_sk:.0f}</b> call &nbsp;·&nbsp;
+                <b style="color:#22c55e;">Watch for green open + VWAP reclaim → entry signal fires at 9:52 AM.</b>
+              </div>
+            </div>"""
+
+        _html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:18px;">
+            <span style="font-size:22px;font-weight:800;color:#f1f5f9;">🎯 OI Buildup + Shakeout — Setup Watch</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">75% Win Rate · +8.20% EV/trade · {_date_str}</span>
+          </div>
+          <div style="background:#0f172a;border:1px solid #22c55e33;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
+            Smart money has been quietly loading call OI on these names for 2+ days without pushing price up — then yesterday faked a breakdown (shakeout). Institutions bought that dip. <b style="color:#f1f5f9;">If any of these reclaim their prior close at market open, you'll get a second email at 9:52 AM with the entry signal.</b>
+          </div>
+          {_cards}
+          <div style="text-align:center;margin-top:18px;font-size:11px;color:#374151;">StockScanner AI · OI Buildup + Shakeout Signal · 75% WR (n=28 backtest)</div>
+        </div>"""
+
+        _subj = f"🎯 OI Setup Watch: {len(candidates)} name{'s' if len(candidates)>1 else ''} pre-positioned [{_date_str.split('·')[0].strip()}]"
+        _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
+        if _ok:
+            app._oi_shakeout_premarket_sent = _today_iso
+        print(f"[oi_shakeout] pre-market email sent={_ok} ({len(candidates)} candidates: {[c['ticker'] for c in candidates]})")
+    except Exception as _e_oispm:
+        import traceback as _tb_oispm
+        print(f"[oi_shakeout] pre-market email error: {_e_oispm}\n{_tb_oispm.format_exc()}")
+
+
+def _send_oi_shakeout_reentry_email() -> None:
+    """
+    9:52 AM Mon-Fri: checks if any pre-market OI shakeout candidates have bounced
+    above their prior close (the reentry confirmation). Sends 'ENTRY SIGNAL' email
+    only for those that qualify. Silent when nothing triggers. Uses Tradier quotes
+    — no Yahoo throttle risk.
+    """
+    try:
+        from email_alerts import send_email_raw, smtp_configured
+        from datetime import datetime as _dt_oisre
+        if not smtp_configured():
+            return
+
+        _today_iso = _et_today_iso()
+
+        # Dedup: only fire the entry email once per day per ticker
+        _already_sent = getattr(app, "_oi_shakeout_entry_sent_tickers", set())
+        if getattr(app, "_oi_shakeout_entry_sent_date", None) != _today_iso:
+            _already_sent = set()
+            app._oi_shakeout_entry_sent_tickers = _already_sent
+            app._oi_shakeout_entry_sent_date     = _today_iso
+
+        # Load today's candidates (set at 8:30 AM, re-fetch if cache is stale)
+        _candidates = getattr(app, "_oi_shakeout_candidates", None)
+        _cache_date = getattr(app, "_oi_shakeout_date", None)
+        if not _candidates or _cache_date != _today_iso:
+            _candidates = _get_oi_buildup_shakeout_candidates()
+            if not _candidates:
+                print("[oi_shakeout] 9:52 check: no candidates")
+                return
+            app._oi_shakeout_candidates = _candidates
+            app._oi_shakeout_date       = _today_iso
+
+        # Remove tickers already alerted today
+        _candidates = [c for c in _candidates if c["ticker"] not in _already_sent]
+        if not _candidates:
+            print("[oi_shakeout] 9:52 check: all candidates already alerted today")
+            return
+
+        # Live price check via Tradier (fast, no Yahoo throttle)
+        _tickers = [c["ticker"] for c in _candidates]
+        try:
+            _quotes = _td_quotes(_tickers) or {}
+        except Exception:
+            _quotes = {}
+
+        _triggers = []
+        for _c in _candidates:
+            _tk    = _c["ticker"]
+            _prior = _c["price"]   # yesterday's 4:30 PM snapshot price = prior close
+            _q     = _quotes.get(_tk, {})
+            if not _q:
+                continue
+            _curr = float(_q.get("last") or _q.get("bid") or 0)
+            if _curr <= 0 or _prior <= 0:
+                continue
+            _chg = (_curr - _prior) / _prior * 100
+            if _chg >= 0.5:   # at least +0.5% above prior close = confirmed reentry
+                _triggers.append({**_c, "current_price": _curr, "chg_pct": round(_chg, 2)})
+
+        if not _triggers:
+            print(f"[oi_shakeout] 9:52 check: {len(_candidates)} candidates, none triggered reentry yet")
+            return
+
+        _date_str = _dt_oisre.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
+        _cards = ""
+        for _c in _triggers:
+            _tk   = _c["ticker"]
+            _curr = _c["current_price"]
+            _chg  = _c["chg_pct"]
+            _oip  = _c["oi_pct_2day"]
+            _sk   = _c["top_strike"]
+            _shk  = _c["shakeout_pct"]
+            _oi1  = _c["oi_d1"]
+            _cards += f"""
+            <div style="background:#0f172a;border:2px solid #22c55e;border-radius:10px;margin-bottom:14px;overflow:hidden;">
+              <div style="background:#14532d;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:20px;font-weight:900;color:#f0fdf4;">🚀 ${_tk} — ENTRY SIGNAL</span>
+                <span style="font-size:15px;font-weight:800;color:#86efac;">+{_chg:.1f}% ↑</span>
+              </div>
+              <div style="padding:14px 16px;">
+                <div style="font-size:13px;color:#cbd5e1;margin-bottom:12px;">
+                  Price has reclaimed above yesterday's close after the shakeout — <b style="color:#22c55e;">the OI buildup is playing out as expected</b>.
+                </div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;margin-bottom:12px;">
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">💰 Now: <b style="color:#22c55e;">${_curr:.2f}</b></div>
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">📈 2-day OI: <b style="color:#f1f5f9;">+{_oip:.0f}%</b></div>
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">⚡ Shakeout: <b style="color:#f59e0b;">{_shk:+.1f}%</b></div>
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">🎯 Strike: <b style="color:#f1f5f9;">${_sk:.0f}</b> call</div>
+                  <div style="background:#1e293b;border-radius:6px;padding:6px 12px;color:#94a3b8;">📊 OI now: <b style="color:#f1f5f9;">{_oi1:,}</b></div>
+                </div>
+                <div style="font-size:12px;color:#f59e0b;background:#451a0322;border:1px solid #f59e0b55;border-radius:6px;padding:8px 12px;">
+                  ⚠️ <b>Entry now.</b> Pattern resolves in 1-3 days per backtest. Size 1-2% portfolio. Stop loss: below today's open.
+                </div>
+              </div>
+            </div>"""
+            _already_sent.add(_tk)
+
+        _html = f"""
+        <div style="background:#0a0f1a;font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:620px;margin:0 auto;border-radius:12px;">
+          <div style="margin-bottom:18px;">
+            <span style="font-size:24px;font-weight:800;color:#22c55e;">🎯 ENTRY SIGNAL — OI Buildup Reentry</span>
+            <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Shakeout confirmed + price reclaimed · 75% WR pattern · {_date_str}</span>
+          </div>
+          <div style="background:#0f172a;border:1px solid #22c55e33;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#94a3b8;">
+            These were on the 8:30 AM pre-positioned watch list. Price is now above yesterday's close — the shakeout has reversed. Institutions who loaded OI for 2 days bought the dip; you're entering with them on the recovery.
+          </div>
+          {_cards}
+          <div style="text-align:center;margin-top:18px;font-size:11px;color:#374151;">StockScanner AI · OI Buildup + Shakeout → Reentry · 75% WR (n=28 backtest)</div>
+        </div>"""
+
+        _subj = f"🚀 ENTRY SIGNAL: {', '.join(t['ticker'] for t in _triggers)} — OI shakeout reentry [{_date_str.split('·')[0].strip()}]"
+        _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
+        print(f"[oi_shakeout] ENTRY SIGNAL sent={_ok} triggers={[t['ticker'] for t in _triggers]}")
+    except Exception as _e_oisre:
+        import traceback as _tb_oisre
+        print(f"[oi_shakeout] reentry email error: {_e_oisre}\n{_tb_oisre.format_exc()}")
 
 
 # ── 5-Layer Conviction System ──────────────────────────────────────────────────

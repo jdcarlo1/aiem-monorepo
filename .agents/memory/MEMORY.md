@@ -1,3 +1,4 @@
+- [OI Buildup + Shakeout Signal](oi-shakeout-signal.md) — 75% WR +8.20% EV backtest; 8:45 AM pre-market + 9:52 AM reentry emails; shakeout = d1 price < d2 price × 0.995; OI ≥30% over 3 snapshots
 - [AIEM email Q&A pipeline](aiem-email-qa.md) — owner emails ASK → IMAP polls every 30s → AIEM 3-iter session → reply; Gmail self-send needs ALL (not UNSEEN); UIDs persisted to /tmp/ask_processed_uids.txt; backtest vec dim mismatch fixed (14 vs 12)
 - [Accumulation Leaders scanner](accum-leaders-scanner.md) — sweep cross-confirm raises WR 49%→76%; filter in SQL, LEFT JOIN unusual_calls_log prem≥50
 - [AIEM 24/7 behavioral engine](aiem-24h-behavioral-engine.md) — behavioral fingerprint (14-dim), pre-move templates, 2,946 historical patterns, 24/7 schedule 14 sessions/week
