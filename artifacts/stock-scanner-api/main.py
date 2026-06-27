@@ -24304,6 +24304,36 @@ PREMARKET GAP CONTINUATION (gap-up vs fade prediction)
                            NOT that a squeeze is happening today.
 
 ═══════════════════════════════════════════════════════════════
+INTRADAY CONTINUATION (session shape → next-day prediction)
+═══════════════════════════════════════════════════════════════
+  intraday_continuation_score  — Train + validate + score tonight's EOD
+                                 candidates in one call. Answers: "given
+                                 HOW this stock traded during today's
+                                 session, will it continue tomorrow?" —
+                                 a genuinely different question from
+                                 premarket gaps (open behavior) or breakout
+                                 discovery (multi-day grinds). Uses 7
+                                 intraday shape features: close_position_
+                                 in_range (1.0 = closed at high), afternoon
+                                 vs morning volume ratio (buying building
+                                 vs fading?), higher_lows_count (buyers
+                                 stepping in on dips), 3-day closing range
+                                 trend (one-off strong close vs conviction
+                                 building?), relative volume (strong close
+                                 on thin volume is weaker evidence), net
+                                 return, and open gap size. OOS metric is
+                                 precision_at_70pct_confidence. Run each
+                                 candidate through run_risk_gate +
+                                 divergence_scan before the email.
+  intraday_compute_features    — Compute the 7-feature vector for one
+                                 ticker's completed session from raw
+                                 intraday bars. Use this to build the
+                                 today_features_json input, or to
+                                 sanity-check what the model sees on a
+                                 specific name. Includes a feature_guide
+                                 explaining what each value means.
+
+═══════════════════════════════════════════════════════════════
 AUTOMATED RETRAIN PIPELINE (model version management)
 ═══════════════════════════════════════════════════════════════
   retrain_pending  — Check the promotion queue: all retrain runs whose
@@ -25897,6 +25927,121 @@ def _aiem_tool_breakout_extract_features(
         return {"error": str(_e)}
 
 
+# ── Intraday Continuation Scanner tools ──────────────────────────────────────
+def _aiem_tool_intraday_continuation_score(
+    labeled_data_json: str,
+    train_end_date: str,
+    today_features_json: str,
+    probability_threshold: float = 0.65,
+    continuation_threshold_pct: float = 2.0,
+) -> dict:
+    """Train + OOS validate + score tonight's EOD candidates in one call.
+    labeled_data_json: JSON array of historical day rows, each containing
+    'date' (YYYY-MM-DD), 'next_day_continued' (0 or 1), and all 7 FEATURE_NAMES:
+    close_position_in_range, afternoon_morning_volume_ratio, higher_lows_count,
+    closing_range_trend_3day, relative_volume_vs_30day_avg, day_total_return_pct,
+    gap_at_open_pct.
+    today_features_json: {ticker: {feature_name: value}} for today's completed
+    sessions — run compute_intraday_features() per ticker, or assemble manually
+    from daily OHLCV if minute bars are unavailable.
+    Returns feature importances, OOS eval (precision at 70% confidence threshold),
+    and tomorrow's candidates ranked by continuation_probability. Each candidate
+    carries model_held_out_precision so you always know how to calibrate trust."""
+    try:
+        import intraday_continuation_scanner as _ics
+        import pandas as _pd, json as _j
+        rows = _j.loads(labeled_data_json)
+        df   = _pd.DataFrame(rows)
+        df["date"] = _pd.to_datetime(df["date"])
+        df   = df.sort_values("date").reset_index(drop=True)
+
+        labeled_df   = _ics.build_labeled_dataset(df)
+        train_result = _ics.train_continuation_classifier(labeled_df, train_end_date)
+        if "error" in train_result:
+            return train_result
+
+        model    = train_result.pop("model")
+        oos_eval = _ics.evaluate_held_out(model, labeled_df, train_end_date)
+        if "error" in oos_eval:
+            return {**train_result, "oos_eval_error": oos_eval}
+
+        held_p = oos_eval.get("precision_at_70pct_confidence")
+        current = _j.loads(today_features_json)
+
+        candidates = _ics.scan_end_of_day_candidates(
+            model                    = model,
+            today_features_by_ticker = current,
+            held_out_precision       = held_p,
+            probability_threshold    = float(probability_threshold),
+        )
+
+        return {
+            "training_summary":               train_result,
+            "oos_evaluation":                 oos_eval,
+            "n_tickers_scored":               len(current),
+            "current_candidates":             candidates,
+            "n_candidates_above_threshold":   len(candidates),
+            "probability_threshold":          float(probability_threshold),
+            "reminder": (
+                "precision_at_70pct_confidence is the OOS metric that answers how "
+                "trustworthy the model is at the confidence level you're acting on. "
+                "Run each candidate through run_risk_gate + divergence_scan before "
+                "including in the overnight or morning email."
+            ),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_intraday_compute_features(
+    intraday_bars_json: str,
+    prev_close: float,
+    avg_volume_30d: float,
+    ticker: str = "",
+    closing_range_trend_3day: float = 0.0,
+) -> dict:
+    """Compute the 7 intraday shape features for one completed trading session.
+    intraday_bars_json: JSON array of minute/5-min bar rows, each with keys
+    high, low, close, volume (and optionally time). prev_close is yesterday's
+    closing price (used for gap_at_open_pct and day_total_return_pct).
+    avg_volume_30d is the 30-day average daily volume for the ticker.
+    closing_range_trend_3day (optional): pass the pre-computed 3-day slope of
+    close_position_in_range — computed as (today_cpr - 3day_ago_cpr) / 3 —
+    or leave as 0.0 if you don't have prior day data handy.
+    Useful for sanity-checking what the model sees on a specific name, or for
+    assembling the today_features_json input to intraday_continuation_score."""
+    try:
+        import intraday_continuation_scanner as _ics
+        import pandas as _pd, json as _j
+        bars = _pd.DataFrame(_j.loads(intraday_bars_json))
+        prev_hist = _pd.DataFrame([{"close": float(prev_close)}])
+        result = _ics.compute_intraday_features(
+            intraday_bars             = bars,
+            daily_history             = prev_hist,
+            avg_volume_30d            = float(avg_volume_30d),
+            closing_range_trend_3day  = float(closing_range_trend_3day),
+        )
+        if result is None:
+            return {
+                "error":  "need at least 10 intraday bars to compute features",
+                "ticker": ticker,
+                "n_bars": len(bars),
+            }
+        result["ticker"] = ticker or "unknown"
+        result["feature_guide"] = {
+            "close_position_in_range":        "1.0 = closed at day high, 0.0 = at day low; > 0.7 = strong close",
+            "afternoon_morning_volume_ratio":  "> 1.0 = buying built through the day; < 1.0 = front-loaded and fading",
+            "higher_lows_count":              "how many pullback lows were higher than the prior one during the session",
+            "closing_range_trend_3day":       "positive = been closing progressively stronger over 3 days (conviction building)",
+            "relative_volume_vs_30day_avg":   "1.0 = average; 2.0 = twice the usual; strong close on < 1.0 is weaker signal",
+            "day_total_return_pct":           "net close-to-close % change",
+            "gap_at_open_pct":                "open vs prior close %; large gap here means most of the move happened at open, not intraday",
+        }
+        return result
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 # ── Automated Retrain Pipeline tools ─────────────────────────────────────────
 def _aiem_tool_retrain_pending(model_name: str = "") -> dict:
     """Return the promotion queue — all retrain runs waiting for a human
@@ -26419,6 +26564,8 @@ def _run_aiem_research_agent(max_iterations=None):
         "breakout_extract_features":   _aiem_tool_breakout_extract_features,
         "gap_continuation_score":      _aiem_tool_gap_continuation_score,
         "squeeze_subscore":            _aiem_tool_squeeze_subscore,
+        "intraday_continuation_score":  _aiem_tool_intraday_continuation_score,
+        "intraday_compute_features":   _aiem_tool_intraday_compute_features,
         "retrain_pending":             _aiem_tool_retrain_pending,
         "retrain_approve":             _aiem_tool_retrain_approve,
         "retrain_reject":              _aiem_tool_retrain_reject,
