@@ -270,7 +270,7 @@ export default function Landing() {
             <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
               className="font-black px-12 py-5 rounded-2xl transition-all text-xl"
               style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", boxShadow: "0 16px 56px rgba(34,197,94,0.5)", letterSpacing: "-0.02em" }}>
-              Get Instant Access — $397/mo
+              Get Instant Access — $150/mo
             </button>
             <button onClick={() => setLocation("/app")}
               className="font-bold px-10 py-5 rounded-2xl transition-all text-xl"
