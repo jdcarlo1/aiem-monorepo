@@ -24264,6 +24264,38 @@ BREAKOUT SIGNATURE DISCOVERY (pre-breakout pattern learning)
                               volume, above SMAs?) If the model fires but the
                               features look wrong, investigate before acting.
 
+═══════════════════════════════════════════════════════════════
+PREMARKET GAP CONTINUATION (gap-up vs fade prediction)
+═══════════════════════════════════════════════════════════════
+  gap_continuation_score — Trains + validates + scores in one call. Answers:
+                           "stock is up 2-3% premarket — will this gap
+                           CONTINUE into a much bigger intraday move, or
+                           fade by midday?" Uses GradientBoosting on 8
+                           features: premarket_volume_ratio (volume vs 30d
+                           avg), gap_pct, premarket_range_pct, relative_
+                           volume_30d, short_interest_pct_float,
+                           days_to_cover, float_shares_millions, distance_
+                           from_52wk_high_pct. CRITICAL: thin premarket
+                           volume (< min_premarket_volume_ratio, default 1.5x)
+                           is filtered OUT before scoring — a gap on 4,000
+                           shares is noise. OOS metric to watch is
+                           precision_at_80pct_confidence_threshold: if this
+                           is well below 80% on held-out data, the model is
+                           miscalibrated and its confidence scores should not
+                           be trusted at face value. Each candidate comes with
+                           a squeeze_subscore automatically attached.
+  squeeze_subscore       — Standalone rule-based squeeze ingredients check
+                           (no ML). Inputs: short_interest_pct_float,
+                           days_to_cover, float_shares_millions,
+                           relative_volume_30d, gap_pct. Returns
+                           squeeze_score (0-8), squeeze_likelihood
+                           (low/moderate/high), and plain-English reasons.
+                           Use this to distinguish squeeze-driven gaps from
+                           news-driven gaps — they have different dynamics
+                           and arguably deserve different position sizing.
+                           A high squeeze score means INGREDIENTS are present,
+                           NOT that a squeeze is happening today.
+
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
 
 ╔══════════════════════════════════════════════════════════════════════════╗
@@ -25823,6 +25855,104 @@ def _aiem_tool_breakout_extract_features(
         return {"error": str(_e)}
 
 
+# ── Premarket Gap Continuation tools ─────────────────────────────────────────
+def _aiem_tool_gap_continuation_score(
+    labeled_data_json: str,
+    train_end_date: str,
+    current_premarket_json: str,
+    probability_threshold: float = 0.8,
+    min_premarket_volume_ratio: float = 1.5,
+    min_gap_pct: float = 2.0,
+    continuation_threshold_pct: float = 5.0,
+) -> dict:
+    """Train + OOS validate + score today's premarket candidates in one call.
+    labeled_data_json: JSON array of historical gap-event rows, each row must
+    contain 'date' (YYYY-MM-DD), 'continued' (0 or 1), and all 8 FEATURE_NAMES:
+    premarket_volume_ratio, gap_pct, premarket_range_pct, relative_volume_30d,
+    short_interest_pct_float, days_to_cover, float_shares_millions,
+    distance_from_52wk_high_pct.
+    current_premarket_json: {ticker: {feature_name: value}} for today's movers.
+    Returns feature importances, full OOS eval (including precision at the
+    0.8 confidence threshold you'd actually act on), and ranked candidates with
+    squeeze_subscore attached to each. Thin premarket volume
+    (< min_premarket_volume_ratio) is filtered BEFORE scoring — this is a hard
+    floor, not a model input. A gap on 4,000 shares is noise."""
+    try:
+        import premarket_gap_continuation_scanner as _pgcs
+        import pandas as _pd, json as _j
+        rows = _j.loads(labeled_data_json)
+        df   = _pd.DataFrame(rows)
+        df["date"] = _pd.to_datetime(df["date"])
+        df   = df.sort_values("date").reset_index(drop=True)
+
+        labeled_df = _pgcs.build_labeled_gap_dataset(df)
+
+        train_result = _pgcs.train_continuation_classifier(labeled_df, train_end_date)
+        if "error" in train_result:
+            return train_result
+
+        model       = train_result.pop("model")
+        oos_eval    = _pgcs.evaluate_held_out(model, labeled_df, train_end_date)
+        if "error" in oos_eval:
+            return {**train_result, "oos_eval_error": oos_eval}
+
+        held_p80 = oos_eval.get("precision_at_80pct_confidence_threshold")
+        current  = _j.loads(current_premarket_json)
+
+        candidates = _pgcs.score_premarket_candidates(
+            model                       = model,
+            current_premarket_features  = current,
+            held_out_precision_at_80    = held_p80,
+            probability_threshold       = float(probability_threshold),
+            min_premarket_volume_ratio  = float(min_premarket_volume_ratio),
+        )
+
+        return {
+            "training_summary":           train_result,
+            "oos_evaluation":             oos_eval,
+            "n_premarket_candidates_in":  len(current),
+            "n_passed_volume_filter":     sum(
+                1 for f in current.values()
+                if f.get("premarket_volume_ratio", 0) >= min_premarket_volume_ratio
+            ),
+            "current_candidates":         candidates,
+            "n_candidates_above_threshold": len(candidates),
+            "probability_threshold":      float(probability_threshold),
+            "min_premarket_volume_ratio": float(min_premarket_volume_ratio),
+            "reminder": (
+                "Thin premarket volume (< min_premarket_volume_ratio) was filtered "
+                "before scoring — a gap on few thousand shares is noise. "
+                "The OOS precision_at_80pct_confidence_threshold is the number "
+                "that answers how trustworthy high confidence scores actually are. "
+                "Run each candidate through run_risk_gate + divergence_scan "
+                "before including in any morning email."
+            ),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_squeeze_subscore(features_json: str, ticker: str = "") -> dict:
+    """Standalone rule-based short squeeze ingredients check (no ML, no
+    historical data needed). Useful for any ticker you're already looking at
+    regardless of whether you ran gap_continuation_score. Inputs expected
+    in features_json: short_interest_pct_float (% of float short),
+    days_to_cover, float_shares_millions, relative_volume_30d, gap_pct.
+    Returns squeeze_score (0-8), squeeze_likelihood (low/moderate/high),
+    plain-English reasons, and a caveat reminding you what the score
+    means and doesn't mean."""
+    try:
+        import premarket_gap_continuation_scanner as _pgcs
+        import json as _j
+        features = _j.loads(features_json)
+        result   = _pgcs.short_squeeze_subscore(features)
+        result["ticker"] = ticker or "unknown"
+        result["features_used"] = features
+        return result
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 # ── Smart Money Divergence tools ──────────────────────────────────────────────
 def _aiem_tool_divergence_scan(
     price_history_json: str,
@@ -26148,6 +26278,8 @@ def _run_aiem_research_agent(max_iterations=None):
         "check_price_bullish":         _aiem_tool_check_price_bullish,
         "breakout_discover":           _aiem_tool_breakout_discover,
         "breakout_extract_features":   _aiem_tool_breakout_extract_features,
+        "gap_continuation_score":      _aiem_tool_gap_continuation_score,
+        "squeeze_subscore":            _aiem_tool_squeeze_subscore,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
