@@ -24616,6 +24616,328 @@ _AIEM_AGENT_TOOLS = [
                         "description": "Ticker symbols to get live data for (max 50)"},
         }, "required": ["tickers"]},
     }},
+
+    # ── Section 12: schemas for 52 previously schema-less tools (42 safe ones;
+    # 10 side-effect tools excluded: clear_kill_switch_halt, close_shadow_trade,
+    # log_decision, open_shadow_trade, record_decision_outcome,
+    # record_human_eval_decision, retrain_approve, retrain_reject,
+    # run_risk_gate, send_discovery_alert) ─────────────────────────────────────
+    {"type": "function", "function": {
+        "name": "adversarial_review",
+        "description": "Adversarially stress-test a proposed trading signal or hypothesis — returns the strongest counter-arguments and failure modes.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "benchmark_vs_baselines",
+        "description": "Compare the current scoring model's win-rate and EV against simple baselines (random, always-buy, buy-on-vol-spike).",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "breakout_discover",
+        "description": "Discover breakout precursor patterns from labeled price history. Trains on data up to train_end_date to find predictive patterns.",
+        "parameters": {"type": "object", "properties": {
+            "price_histories_json": {"type": "string", "description": "JSON list of OHLCV price histories with breakout labels"},
+            "train_end_date": {"type": "string", "description": "ISO date — train only on data before this date (OOS boundary)"},
+            "lookback_days_before_breakout": {"type": "integer", "description": "How many days before a breakout to examine (default 5)"},
+        }, "required": ["price_histories_json", "train_end_date"]},
+    }},
+    {"type": "function", "function": {
+        "name": "breakout_extract_features",
+        "description": "Extract breakout-relevant features from a price history for a given ticker.",
+        "parameters": {"type": "object", "properties": {
+            "price_history_json": {"type": "string", "description": "JSON OHLCV price history"},
+            "ticker": {"type": "string", "description": "Ticker symbol"},
+        }, "required": ["price_history_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "causal_discover",
+        "description": "Causal discovery across provided variables over a lookback window — identifies which signals Granger-cause others.",
+        "parameters": {"type": "object", "properties": {
+            "variables_json": {"type": "string", "description": "JSON dict mapping variable name to time-series list"},
+            "lookback_days": {"type": "integer", "description": "Days of history to use (default 90)"},
+        }, "required": ["variables_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "check_kill_switch",
+        "description": "Read-only: check whether a kill-switch halt is currently active and what triggered it.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "check_price_bullish",
+        "description": "Quick helper: is the price trend currently bullish over the given lookback window? Returns True/False plus slope details.",
+        "parameters": {"type": "object", "properties": {
+            "price_history_json": {"type": "string", "description": "JSON list of closing prices (most recent last)"},
+            "lookback": {"type": "integer", "description": "Number of days to evaluate (default 10)"},
+        }, "required": ["price_history_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "check_shadow_promotion",
+        "description": "Read-only: has a shadow trading window accumulated enough trades to be eligible for promotion to live scoring?",
+        "parameters": {"type": "object", "properties": {
+            "window_id": {"type": "string", "description": "Shadow window ID to check"},
+        }, "required": ["window_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "close_eval_window",
+        "description": "Close the active evaluation window for a signal, recording final stats. Call only after the window period has elapsed.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "decision_quality_summary",
+        "description": "Win-rate and avg-confidence breakdown by decision type for a signal — shows whether high-confidence calls actually outperform low-confidence ones.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string", "description": "Signal name to summarize"},
+        }, "required": ["signal_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "deep_rl_get_paper_action",
+        "description": "Get a paper-trading sizing/entry action from a deep RL policy given the current market state.",
+        "parameters": {"type": "object", "properties": {
+            "policy_name": {"type": "string", "description": "Which RL policy to query"},
+            "signal_name": {"type": "string", "description": "Signal triggering the action"},
+            "state_json": {"type": "string", "description": "JSON dict of current state features"},
+        }, "required": ["policy_name", "signal_name", "state_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "deep_rl_probe",
+        "description": "Probe a deep RL policy's current live training state — iterations, reward curve, current epsilon.",
+        "parameters": {"type": "object", "properties": {
+            "policy_name": {"type": "string", "description": "Policy name to probe"},
+        }, "required": ["policy_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "divergence_scan",
+        "description": "Scan for price/VIX-term-structure divergence — flags tickers that are moving opposite to volatility expectations.",
+        "parameters": {"type": "object", "properties": {
+            "price_history_json": {"type": "string", "description": "JSON OHLCV price history"},
+            "vix_front_month_json": {"type": "string", "description": "JSON VIX front-month time series"},
+            "vix_back_month_json": {"type": "string", "description": "JSON VIX back-month time series"},
+        }, "required": ["price_history_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "ensemble_combine_signals",
+        "description": "Combine multiple signal scores into a single ensemble score weighted by each signal's historical win rate.",
+        "parameters": {"type": "object", "properties": {
+            "signal_scores_json": {"type": "string", "description": "JSON dict mapping signal_name → score (0-1)"},
+            "signal_win_rates_json": {"type": "string", "description": "JSON dict mapping signal_name → win_rate (0-1)"},
+        }, "required": ["signal_scores_json", "signal_win_rates_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "eval_window_history",
+        "description": "All past evaluation windows for a signal — the full cumulative track record of starts, ends, win rates, and promotion decisions.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string", "description": "Signal to retrieve history for"},
+        }, "required": ["signal_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "execution_realistic_cost",
+        "description": "Estimate realistic round-trip execution cost (slippage + spread) for a trade given position size and daily volume.",
+        "parameters": {"type": "object", "properties": {
+            "mid_entry": {"type": "number", "description": "Mid-price at entry"},
+            "mid_exit": {"type": "number", "description": "Mid-price at exit"},
+            "direction": {"type": "string", "description": "'long' or 'short'"},
+            "order_shares": {"type": "number", "description": "Number of shares"},
+            "avg_daily_vol": {"type": "number", "description": "Average daily volume"},
+        }, "required": ["mid_entry", "mid_exit"]},
+    }},
+    {"type": "function", "function": {
+        "name": "gap_continuation_score",
+        "description": "Score the likelihood a premarket gap continues after open — trained on labeled historical gaps, evaluated on current premarket data.",
+        "parameters": {"type": "object", "properties": {
+            "labeled_data_json": {"type": "string", "description": "JSON list of historical gaps with continuation labels"},
+            "train_end_date": {"type": "string", "description": "ISO date OOS boundary"},
+            "current_premarket_json": {"type": "string", "description": "JSON dict of today's premarket features"},
+        }, "required": ["labeled_data_json", "train_end_date", "current_premarket_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "gate_history",
+        "description": "Pull recent risk-gate decisions — see which picks were BLOCKED, APPROVED_WITH_CAUTION, or APPROVED and why.",
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "Number of recent decisions to return (default 20)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_decisions",
+        "description": "Return logged agent decisions from the decision audit trail — useful for reviewing what the agent decided and why.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_literature_briefs",
+        "description": "Return unreviewed research briefs from the literature scanner — academic papers and quant research summaries the agent has queued for review.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_regime_flags",
+        "description": "Return open (unacknowledged) regime-change flags. Pass signal_name to filter to a specific signal's flags.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string", "description": "Filter to a specific signal (optional — omit for all flags)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "intraday_compute_features",
+        "description": "Compute the intraday feature set from minute bars — VWAP distance, open-to-now change, volume pace, etc. — used as input for intraday_continuation_score.",
+        "parameters": {"type": "object", "properties": {
+            "intraday_bars_json": {"type": "string", "description": "JSON list of minute OHLCV bars"},
+            "prev_close": {"type": "number", "description": "Previous day's closing price"},
+        }, "required": ["intraday_bars_json", "prev_close"]},
+    }},
+    {"type": "function", "function": {
+        "name": "intraday_continuation_score",
+        "description": "Score the likelihood an intraday move continues through the close — trained on labeled historical intraday moves.",
+        "parameters": {"type": "object", "properties": {
+            "labeled_data_json": {"type": "string", "description": "JSON list of historical intraday moves with continuation labels"},
+            "train_end_date": {"type": "string", "description": "ISO date OOS boundary"},
+            "today_features_json": {"type": "string", "description": "JSON dict of today's computed intraday features"},
+        }, "required": ["labeled_data_json", "train_end_date", "today_features_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "is_eval_window_active",
+        "description": "Check if a signal's evaluation window is still open. If active=False, the window has closed and you should call close_eval_window.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string", "description": "Signal name to check"},
+        }, "required": ["signal_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "kill_switch_events",
+        "description": "Read the full halt/clear event history for the kill switch — shows what triggered each halt and who cleared it.",
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "Number of recent events to return (default 20)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "list_hypotheses",
+        "description": "List recent hypotheses (locked and pending), showing Bonferroni-adjusted alpha thresholds and current test status.",
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "Number of hypotheses to return (default 20)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "model_version_history",
+        "description": "Show all saved versions of an online-learning model and which version is currently live.",
+        "parameters": {"type": "object", "properties": {
+            "model_name": {"type": "string", "description": "Model name to retrieve history for"},
+        }, "required": ["model_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "portfolio_allocate",
+        "description": "Allocate paper capital across signals based on their historical stats (win rate, Sharpe, max drawdown) using Kelly or equal-weight.",
+        "parameters": {"type": "object", "properties": {
+            "signal_stats_json": {"type": "string", "description": "JSON list of signal stat dicts (signal_name, win_rate, avg_return, n_trades)"},
+            "total_paper_capital": {"type": "number", "description": "Total paper capital to allocate in dollars"},
+        }, "required": ["signal_stats_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "regime_overlay_check",
+        "description": "Run the full 6-indicator regime check against live DB data and log the result — determines whether conditions favor aggressive or conservative signal weights.",
+        "parameters": {"type": "object", "properties": {
+            "lookback_days": {"type": "integer", "description": "Days of history for regime indicators (default 20)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "regime_overlay_manual",
+        "description": "Run the regime check with manually-supplied indicator values — useful for what-if analysis without needing live DB data.",
+        "parameters": {"type": "object", "properties": {
+            "vix_current": {"type": "number", "description": "Current VIX level"},
+            "spy_close": {"type": "number", "description": "SPY closing price"},
+            "put_call_ratio": {"type": "number", "description": "Market put/call ratio"},
+        }, "required": ["vix_current", "spy_close"]},
+    }},
+    {"type": "function", "function": {
+        "name": "register_hypothesis",
+        "description": "Register a single new hypothesis before testing it — records it in the hypothesis tracking table so it counts against Bonferroni budget.",
+        "parameters": {"type": "object", "properties": {
+            "hypothesis_text": {"type": "string", "description": "Clear statement of the hypothesis being tested"},
+            "signal_name": {"type": "string", "description": "Signal this hypothesis applies to"},
+            "predicted_direction": {"type": "string", "description": "'positive' or 'negative' expected effect"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "retrain_history",
+        "description": "Full history of retrain attempts for a model, including rejected runs — shows AUC, Brier score, and promotion decision for each.",
+        "parameters": {"type": "object", "properties": {
+            "model_name": {"type": "string", "description": "Model name"},
+            "limit": {"type": "integer", "description": "Number of recent runs (default 20)"},
+        }, "required": ["model_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "retrain_pending",
+        "description": "Return the promotion queue — retrain runs that have completed and are waiting for a human review decision before going live.",
+        "parameters": {"type": "object", "properties": {
+            "model_name": {"type": "string", "description": "Filter to a specific model (optional — omit for all pending)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "rl_get_paper_action",
+        "description": "Get a paper-trading position-sizing action from an RL policy given conviction score and current unrealized P&L.",
+        "parameters": {"type": "object", "properties": {
+            "policy_name": {"type": "string", "description": "Which RL policy to query"},
+            "signal_name": {"type": "string", "description": "Signal triggering the action"},
+            "conviction_score": {"type": "number", "description": "0-100 conviction score"},
+            "unrealized_pnl_pct": {"type": "number", "description": "Current unrealized P&L as a percentage"},
+            "days_held": {"type": "integer", "description": "Days position has been held"},
+        }, "required": ["policy_name", "signal_name", "conviction_score", "unrealized_pnl_pct", "days_held"]},
+    }},
+    {"type": "function", "function": {
+        "name": "rl_readable_policy",
+        "description": "Get a human-readable description of an RL policy's current learned behavior — what conditions trigger buy/hold/sell.",
+        "parameters": {"type": "object", "properties": {
+            "policy_name": {"type": "string", "description": "Policy name"},
+        }, "required": ["policy_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "run_granger_test",
+        "description": "Granger-precedence test: does this ticker's options flow score statistically predict its price move N days later?",
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol to test"},
+            "forward_days": {"type": "integer", "description": "Forward return horizon in days (default 3)"},
+            "days_back": {"type": "integer", "description": "Lookback window in days (default 90)"},
+        }, "required": ["ticker"]},
+    }},
+    {"type": "function", "function": {
+        "name": "shadow_stats",
+        "description": "Win-rate and avg-return stats for all closed shadow trades of a signal — the paper-trading track record before live promotion.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string", "description": "Signal to retrieve shadow stats for"},
+        }, "required": ["signal_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "simulation_audit_trail",
+        "description": "Read the simulation-lock audit log to see every check point — confirms the system stayed in paper mode throughout.",
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "Number of audit entries to return (default 50)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "simulation_lock_check",
+        "description": "Confirm the process is in simulation (paper) mode. Call this FIRST before any shadow-trade or RL action to verify no real money is at risk.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "squeeze_subscore",
+        "description": "Standalone rule-based short-squeeze ingredients check — scores short interest, days-to-cover, float, and borrow cost without needing an ML model.",
+        "parameters": {"type": "object", "properties": {
+            "features_json": {"type": "string", "description": "JSON dict of ticker features (short_interest_pct, days_to_cover, float_shares, borrow_rate)"},
+            "ticker": {"type": "string", "description": "Ticker symbol"},
+        }, "required": ["features_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "start_eval_window",
+        "description": "Start a fixed evaluation window for a signal. Refuses if one is already active. Call when a signal has enough paper trades to warrant a formal performance review.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string", "description": "Signal name to open the window for"},
+            "starting_paper_equity": {"type": "number", "description": "Starting paper equity in dollars"},
+            "weeks": {"type": "integer", "description": "Window length in weeks (default 4)"},
+        }, "required": ["signal_name", "starting_paper_equity"]},
+    }},
+    {"type": "function", "function": {
+        "name": "start_shadow_window",
+        "description": "Start a shadow trading window for a newly validated signal — paper trades begin accumulating toward a promotion decision.",
+        "parameters": {"type": "object", "properties": {
+            "signal_name": {"type": "string", "description": "Signal name"},
+            "weeks": {"type": "integer", "description": "Shadow window duration in weeks (default 4)"},
+            "min_trades_required": {"type": "integer", "description": "Minimum trades needed before promotion eligibility (default 10)"},
+        }, "required": ["signal_name"]},
+    }},
 ]
 
 
