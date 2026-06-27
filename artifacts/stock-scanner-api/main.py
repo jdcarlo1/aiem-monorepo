@@ -22125,6 +22125,13 @@ try:
 except Exception as _e_aiem_init:
     print(f"[aiem_integrity] schema init error: {_e_aiem_init}")
 
+try:
+    import automated_retrain_pipeline as _arp
+    _arp.init_schema()
+    print("[automated_retrain_pipeline] schema ready")
+except Exception as _e:
+    print(f"[automated_retrain_pipeline] schema init error: {_e}")
+
 
 def _compute_fingerprint(rows):
     """
@@ -24296,6 +24303,41 @@ PREMARKET GAP CONTINUATION (gap-up vs fade prediction)
                            A high squeeze score means INGREDIENTS are present,
                            NOT that a squeeze is happening today.
 
+═══════════════════════════════════════════════════════════════
+AUTOMATED RETRAIN PIPELINE (model version management)
+═══════════════════════════════════════════════════════════════
+  retrain_pending  — Check the promotion queue: all retrain runs whose
+                     mechanical steps (data pull → retrain → OOS eval →
+                     comparison vs live) have completed and are waiting
+                     for a yes/no decision. Filter by model_name or
+                     leave empty to see all. Each item shows the new
+                     vs live OOS metrics and the automated recommendation
+                     ('promote' / 'hold' / 'investigate'). This is the
+                     ONE recurring check that still needs a human — call
+                     it periodically (weekly is natural if retrain runs
+                     weekly). Returns the action to take next.
+  retrain_approve  — Approve a pending promotion. The ONE deliberate gate
+                     kept manual by design: if retraining AND promotion
+                     were both automatic, a model that quietly got worse
+                     would be impossible to trace. AIEM may call this
+                     autonomously ONLY when recommendation='promote' AND
+                     the new metrics are materially better on held-out
+                     data — NEVER approve an 'investigate' recommendation
+                     without a human in the loop. Always set decided_by
+                     to 'AIEM' if calling autonomously so the audit trail
+                     is clear. Returns the serialized model blob to write
+                     into the relevant module's is_live storage.
+  retrain_reject   — Reject a pending promotion. Always include notes
+                     explaining why — this becomes the audit trail that
+                     future sessions can read to understand why a retrain
+                     attempt was not promoted.
+  retrain_history  — Full retrain attempt history for a model, including
+                     rejected and 'investigate' runs. Key pattern: if a
+                     model repeatedly recommends 'investigate' across
+                     multiple retrain cycles, the underlying signal is
+                     probably not stable — consider retiring it from the
+                     active signal roster rather than continuing to retrain.
+
 STANDARDS: Never save without p<0.05 AND oos_validated=True. Always test inverse.
 
 ╔══════════════════════════════════════════════════════════════════════════╗
@@ -25855,6 +25897,103 @@ def _aiem_tool_breakout_extract_features(
         return {"error": str(_e)}
 
 
+# ── Automated Retrain Pipeline tools ─────────────────────────────────────────
+def _aiem_tool_retrain_pending(model_name: str = "") -> dict:
+    """Return the promotion queue — all retrain runs waiting for a human
+    decision. This is the one recurring check that still needs you: everything
+    mechanical (data pull, retrain, OOS eval, comparison vs live) already ran
+    automatically; this is just reading the short report and saying yes or no.
+    Pass model_name to filter to a specific model, or leave empty for all."""
+    try:
+        import automated_retrain_pipeline as _arp
+        items = _arp.get_pending_promotions(model_name or None)
+        for item in items:
+            for k in ("new_version_held_out_metrics", "currently_live_held_out_metrics"):
+                if isinstance(item.get(k), str):
+                    import json as _j
+                    try: item[k] = _j.loads(item[k])
+                    except Exception: pass
+            if hasattr(item.get("run_at"), "isoformat"):
+                item["run_at"] = item["run_at"].isoformat()
+        return {
+            "pending_count": len(items),
+            "pending_promotions": items,
+            "action": (
+                "For each item: read recommendation + new vs live metrics, then call "
+                "retrain_approve or retrain_reject with the run_id."
+            ),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_retrain_approve(
+    run_id: int,
+    decided_by: str,
+    notes: str = "",
+) -> dict:
+    """Approve a pending retrain promotion. This is the ONE deliberate gate
+    that was intentionally kept manual — automated retraining + automated
+    promotion with no human review would make it impossible to trace WHY
+    the track record changed if a model quietly got worse. decided_by should
+    be your name or 'AIEM' if AIEM is making the call autonomously (but
+    AIEM should only call this when the recommendation is 'promote' AND
+    new metrics are materially better — never approve an 'investigate'
+    recommendation without a human in the loop)."""
+    try:
+        import automated_retrain_pipeline as _arp
+        result = _arp.approve_promotion(int(run_id), decided_by, notes)
+        if "serialized_model_blob" in result and result["serialized_model_blob"] is not None:
+            result["serialized_model_blob"] = f"<{len(result['serialized_model_blob'])} bytes — write to is_live model storage>"
+        return result
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_retrain_reject(
+    run_id: int,
+    decided_by: str,
+    notes: str = "",
+) -> dict:
+    """Reject a pending retrain promotion (model did not improve, or
+    investigation is needed before promoting). Always include notes
+    explaining why — this becomes part of the audit trail that lets you
+    (or a future AIEM session) understand WHY certain retrain attempts
+    were not promoted."""
+    try:
+        import automated_retrain_pipeline as _arp
+        return _arp.reject_promotion(int(run_id), decided_by, notes)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_retrain_history(model_name: str, limit: int = 20) -> dict:
+    """Full history of retrain attempts for a model — including rejected ones
+    and 'investigate' recommendations. Pattern to look for: if a model keeps
+    recommending 'investigate' every retrain cycle, that is a sign the
+    underlying signal is not stable, regardless of how good any single
+    retrain's numbers look in isolation."""
+    try:
+        import automated_retrain_pipeline as _arp
+        rows = _arp.get_retrain_history(model_name, int(limit))
+        for r in rows:
+            for k in ("run_at", "promotion_decided_at"):
+                if hasattr(r.get(k), "isoformat"):
+                    r[k] = r[k].isoformat()
+        return {
+            "model_name":    model_name,
+            "n_returned":    len(rows),
+            "history":       rows,
+            "stability_note": (
+                "If recommendation='investigate' appears repeatedly across retrain cycles, "
+                "the underlying signal is probably not stable — consider retiring it from "
+                "the active signal roster rather than continuing to retrain."
+            ),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 # ── Premarket Gap Continuation tools ─────────────────────────────────────────
 def _aiem_tool_gap_continuation_score(
     labeled_data_json: str,
@@ -26280,6 +26419,10 @@ def _run_aiem_research_agent(max_iterations=None):
         "breakout_extract_features":   _aiem_tool_breakout_extract_features,
         "gap_continuation_score":      _aiem_tool_gap_continuation_score,
         "squeeze_subscore":            _aiem_tool_squeeze_subscore,
+        "retrain_pending":             _aiem_tool_retrain_pending,
+        "retrain_approve":             _aiem_tool_retrain_approve,
+        "retrain_reject":              _aiem_tool_retrain_reject,
+        "retrain_history":             _aiem_tool_retrain_history,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────
