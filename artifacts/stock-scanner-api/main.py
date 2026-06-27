@@ -2207,7 +2207,7 @@ try:
             _thr_mi.Thread(target=_send_morning_inflows_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] morning inflows email error: {e}")
-    for _mi_eh, _mi_em in [(9, 42), (10, 1), (13, 1)]:  # staggered: was 9:36 (collided with market_open_unusual_calls)
+    for _mi_eh, _mi_em in [(9, 42), (13, 1)]:  # trimmed: dropped 10:01 (redundant — only 20 min after 9:42 wave)
         _scheduler.add_job(
             _run_morning_inflows_email,
             CronTrigger(day_of_week="mon-fri", hour=_mi_eh, minute=_mi_em, timezone=_ET),
@@ -2680,6 +2680,76 @@ try:
          "Z days earlier. Going forward, look for this pattern as an early warning.' "
          "This is the most important research session of the day — turn today's surprises "
          "into tomorrow's early warnings."),
+
+        # ── Morning market-open scanning sessions (Mon-Fri) ───────────────
+
+        # 3. Premarket gap scan — 8:45 AM (Polygon RVOL scan finishes at 8:35)
+        ("mon-fri", 8, 45, "premarket_gap_scan", 10,
+         "PREMARKET SCAN — 8:45 AM ET. The Polygon RVOL snapshot just populated. "
+         "Your job: find premarket gap candidates worth watching at the open. "
+         "Step 1: Query polygon_rvol_scan for today's top premarket movers "
+         "(gap_pct >= 2.0, premarket_vol_ratio >= 1.5). Use mkt_get_stock_history "
+         "to pull 90 days of daily OHLCV for each candidate from polygon_market_daily. "
+         "Step 2: Assemble gap features (gap_pct, premarket_volume_ratio, "
+         "relative_volume_30d, distance_from_52wk_high_pct). For float and short "
+         "interest, use whatever is available in ticker_meta or set to 0 if missing. "
+         "Step 3: Run gap_continuation_score with the historical data and current "
+         "premarket features. Look at precision_at_80pct_confidence_threshold — "
+         "if it is below 0.65 on held-out data the model is not calibrated yet. "
+         "Step 4: For each candidate with continuation_probability >= 0.70 "
+         "AND precision_at_80pct >= 0.65: run run_risk_gate, then divergence_scan, "
+         "then squeeze_subscore. "
+         "Step 5: If risk gate passes and no major divergence: call send_discovery_alert "
+         "immediately. No permission needed. Include OOS precision in the alert. "
+         "Be honest in the reasoning — state what you know and what you do not know."),
+
+        # 4. Market open — 9:31 AM (first full minute confirmed)
+        ("mon-fri", 9, 31, "market_open_9h31", 8,
+         "MARKET OPEN — 9:31 AM ET. First minute of trading is complete. "
+         "Step 1: Check mkt_analyze_top_movers for stocks gapping and moving "
+         "with real volume in the first minute. "
+         "Step 2: Cross-reference against the 8:45 AM premarket_gap_scan: "
+         "did those candidates confirm at the open with price AND volume, or are "
+         "they fading? A premarket candidate that opens on heavy volume and holds "
+         "above its open price is a much stronger signal than one that fades. "
+         "Step 3: For any name that CONFIRMS the premarket signal at the open: "
+         "call send_discovery_alert with signal_name='gap_confirmed_at_open'. "
+         "Explain the confirmation: what did premarket show, what did the open confirm. "
+         "Be selective — only send if it is a genuine confirmation, not just the stock "
+         "still being up from premarket."),
+
+        # 5. Early momentum check — 9:35 AM
+        ("mon-fri", 9, 35, "early_momentum_9h35", 8,
+         "EARLY MOMENTUM — 9:35 AM ET, 5 minutes into the session. "
+         "The first 5 minutes separate the real movers from the open-spike faders. "
+         "Step 1: Look for stocks that are GRINDING higher — not spiking and dumping, "
+         "but making higher lows and continuing to press above their open price. "
+         "This is the breakout_discover pattern happening in real time. "
+         "Step 2: Use breakout_extract_features on candidates to see what the model "
+         "would see: close_position_in_range, volume trend, distance from recent high. "
+         "Step 3: Run run_risk_gate on any candidate that looks compelling. "
+         "Step 4: If a stock is grinding (not spiking), has good feature values, "
+         "and passes the risk gate: call send_discovery_alert with "
+         "signal_name='early_session_grind'. "
+         "Key distinction to communicate in reasoning: is this a grind or a spike? "
+         "Grinds are what we want — they tend to continue. Spikes tend to fade."),
+
+        # 6. Follow-through confirmation — 9:40 AM
+        ("mon-fri", 9, 40, "followthrough_9h40", 8,
+         "FOLLOW-THROUGH — 9:40 AM ET, 10 minutes into the session. "
+         "10 minutes is enough to see who is real. "
+         "Step 1: Which stocks appeared in BOTH an earlier morning session "
+         "(premarket_gap_scan at 8:45 OR market_open_9h31 at 9:31) AND are "
+         "still pushing higher right now? Multi-session confirmation is the "
+         "highest-confidence morning setup. "
+         "Step 2: Check that the move is still grinding — higher lows, "
+         "volume not collapsing, price above VWAP if available. "
+         "Step 3: If you find a stock with multi-session confirmation AND "
+         "still moving: call send_discovery_alert with "
+         "signal_name='cross_session_confirmed'. In the reasoning, explicitly "
+         "state: 'This appeared at [time] with [signal], and is still moving "
+         "at 9:40 AM — multi-session confirmation.' "
+         "This is the email the owner most wants to see."),
     ]
 
     for _day, _h, _m, _sid, _iter, _prompt in _FOCUSED_SESSIONS:
@@ -2954,7 +3024,7 @@ try:
             print(f"[scheduler] bigcat_gap error: {_e_bcg}")
     _scheduler.add_job(
         _run_bigcat_gap_alert,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=52, timezone=_ET),
         id="bigcat_gap_alert",
         replace_existing=True,
     )
@@ -3112,7 +3182,7 @@ try:
         except Exception as e:
             print(f"[scheduler] morning inflows error: {e}")
 
-    for _mi_h, _mi_m in [(9, 53), (10, 15), (13, 0)]:  # was 9:35; moved to 9:53 to clear 9:36/9:45 burst
+    for _mi_h, _mi_m in [(9, 53), (13, 0)]:  # trimmed: dropped 10:15 (redundant — only 22 min after 9:53 first wave)
         _scheduler.add_job(
             _run_morning_inflows,
             CronTrigger(day_of_week="mon-fri", hour=_mi_h, minute=_mi_m, timezone=_ET),
@@ -3603,7 +3673,7 @@ try:
           "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
           "sc (stealth): 8:15 AM ranking, 9:37 watch, 9:47 buy | "
           "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
-          "morning inflows: 9:42 + 10:01 + 13:01 | "
+          "morning inflows: 9:42 + 13:01 (email) / 9:53 + 13:00 (scan) | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 90 min - Mon–Fri ET")
 
     # ── Startup catch-up scan ──────────────────────────────────────────────
@@ -22913,6 +22983,24 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "run_statistical_significance": _aiem_tool_run_statistical_significance,
         "save_research_model":         _aiem_tool_save_research_model,
         "search_past_findings":        _aiem_tool_search_past_findings,
+        # ── Scanner + email tools (morning market-open sessions) ──────────
+        "send_discovery_alert":        _aiem_tool_send_discovery_alert,
+        "breakout_discover":           _aiem_tool_breakout_discover,
+        "breakout_extract_features":   _aiem_tool_breakout_extract_features,
+        "gap_continuation_score":      _aiem_tool_gap_continuation_score,
+        "squeeze_subscore":            _aiem_tool_squeeze_subscore,
+        "intraday_continuation_score": _aiem_tool_intraday_continuation_score,
+        "intraday_compute_features":   _aiem_tool_intraday_compute_features,
+        "run_risk_gate":               _aiem_tool_run_risk_gate,
+        "gate_history":                _aiem_tool_gate_history,
+        "divergence_scan":             _aiem_tool_divergence_scan,
+        "check_price_bullish":         _aiem_tool_check_price_bullish,
+        "regime_overlay_check":        _aiem_tool_regime_overlay_check,
+        "regime_overlay_manual":       _aiem_tool_regime_overlay_manual,
+        "retrain_pending":             _aiem_tool_retrain_pending,
+        "retrain_approve":             _aiem_tool_retrain_approve,
+        "retrain_reject":              _aiem_tool_retrain_reject,
+        "retrain_history":             _aiem_tool_retrain_history,
     }
 
     _fs_schema = _AIEM_AGENT_TOOLS  # reuse existing schema
