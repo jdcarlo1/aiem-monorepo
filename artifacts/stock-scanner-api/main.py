@@ -3761,6 +3761,8 @@ try:
     # this cache with a fresh scan once it completes.
     def _startup_preload():
         import time as _t_pl, datetime as _dt_pl
+        import psycopg2 as _psycopg2, os as _os_pl  # local imports — thread starts before module-level aliases are defined
+        _DB_URL = _os_pl.environ["DATABASE_URL"]     # read directly so we don't depend on module-level var
         _pl_loaded = []
 
         # ── 1. Unusual Calls (existing logic) ────────────────────────────────
@@ -33258,9 +33260,16 @@ def conviction_stack_endpoint():
     import threading as _stk_thr
     if not getattr(app, "_stk_scanning", False):
         _stk_thr.Thread(target=_bg_stk, daemon=True).start()
+    _cs_stk_cache = getattr(app, "_cs_stk_cache", None)
     if _cs_stk_cache:
         return jsonify({**_cs_stk_cache, "stale": True, "generating": True})
-    return jsonify({"results": [], "count": 0, "generating": True})
+    # No data yet — return explicit loading state (not silent empty 200).
+    # Frontend should show "Warming up..." rather than "No stocks found."
+    return jsonify({
+        "results": [], "count": 0,
+        "loading": True,
+        "note": "Scanner warming up after restart — data loads in ~60 seconds. Refresh in a moment.",
+    }), 202
 
 
 @app.route("/stock-api/conviction-stack/score/<ticker>", methods=["GET"])
