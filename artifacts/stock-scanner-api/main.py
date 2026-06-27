@@ -16855,7 +16855,7 @@ def _mkt_parse_conditions(conditions: dict):
             val = float(val)
         except (TypeError, ValueError):
             continue
-        parts.append(f"{_MKT_SAFE_COLS[field]} {op} %s")
+        parts.append(f"t.{_MKT_SAFE_COLS[field]} {op} %s")
         params.append(val)
     return (" AND ".join(parts), params)
 
@@ -26546,10 +26546,13 @@ def _aiem_tool_get_literature_briefs():
 
 def _aiem_tool_run_granger_test(ticker, forward_days=3, days_back=180):
     """Granger-precedence test: does this ticker's options flow score predict
-    its forward return better than past returns alone? Pulls from DB."""
+    its forward return better than past returns alone? Pulls from DB.
+    Falls back to polygon_market_daily (gap_pct signal) when scan_history
+    has insufficient rows for the requested ticker."""
     try:
         import psycopg2, psycopg2.extras, pandas as _pd
         from causal_inference import granger_precedence_test
+        rows = []
         with psycopg2.connect(_DB_URL) as _c:
             with _c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as _cu:
                 _cu.execute("""
@@ -26562,14 +26565,42 @@ def _aiem_tool_run_granger_test(ticker, forward_days=3, days_back=180):
                     ORDER BY scan_date
                 """, (ticker.upper(), days_back))
                 rows = [dict(r) for r in _cu.fetchall()]
+
+        # Fallback: use polygon_market_daily gap_pct when scan_history insufficient
         if len(rows) < 30:
-            return {"error": "insufficient_data", "ticker": ticker, "n": len(rows)}
+            with psycopg2.connect(_DB_URL) as _c:
+                with _c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as _cu:
+                    _cu.execute("""
+                        SELECT t.scan_date AS date,
+                               t.gap_pct   AS signal_score,
+                               ((nxt.close_price / NULLIF(t.close_price,0)) - 1) * 100 AS forward_return
+                        FROM polygon_market_daily t
+                        JOIN polygon_market_daily nxt
+                          ON nxt.ticker = t.ticker
+                         AND nxt.scan_date = (
+                               SELECT MIN(x.scan_date) FROM polygon_market_daily x
+                               WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
+                             )
+                        WHERE t.ticker = %s
+                          AND t.close_price > 0
+                          AND t.scan_date >= CURRENT_DATE - %s
+                        ORDER BY t.scan_date
+                    """, (ticker.upper(), days_back))
+                    rows = [dict(r) for r in _cu.fetchall()]
+            if len(rows) < 30:
+                return {"error": "insufficient_data", "ticker": ticker,
+                        "n": len(rows), "sources_tried": ["scan_history", "polygon_market_daily"]}
+            source = "polygon_market_daily (gap_pct signal)"
+        else:
+            source = "scan_history"
+
         df = _pd.DataFrame(rows)
         result = granger_precedence_test(
             df["signal_score"].astype(float),
             df["forward_return"].astype(float))
         result["ticker"] = ticker
         result["n_observations"] = len(df)
+        result["data_source"] = source
         return result
     except Exception as _e:
         return {"error": str(_e)}

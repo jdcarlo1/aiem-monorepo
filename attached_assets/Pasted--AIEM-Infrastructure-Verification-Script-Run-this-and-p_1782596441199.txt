@@ -1,0 +1,97 @@
+"""
+AIEM Infrastructure Verification Script
+-----------------------------------------
+Run this and paste the FULL raw output back. Do not summarize or paraphrase
+the output — I need to see the actual values, not a description of them.
+
+This checks the 4 things that failed/errored in the last stress test:
+  1. spy_daily_cache population (regime check dependency)
+  2. survivorship dependent table existence + population
+  3. mkt_validate_oos ambiguous-column bug
+  4. Tradier data availability for AAPL (Granger test dependency)
+"""
+
+import psycopg2
+import os
+import sys
+
+DB_URL = os.environ.get("DATABASE_URL")
+
+def section(title):
+    print("\n" + "=" * 60)
+    print(title)
+    print("=" * 60)
+
+def main():
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+
+    # 1. spy_daily_cache check
+    section("1. spy_daily_cache table status")
+    try:
+        cur.execute("SELECT COUNT(*) FROM spy_daily_cache;")
+        count = cur.fetchone()[0]
+        print(f"Row count: {count}")
+        if count > 0:
+            cur.execute("SELECT MIN(date), MAX(date) FROM spy_daily_cache;")
+            min_d, max_d = cur.fetchone()
+            print(f"Date range: {min_d} to {max_d}")
+        else:
+            print("TABLE IS EMPTY — this is why query_market_regime fails.")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    # 2. Survivorship dependency check
+    section("2. Survivorship check dependency table")
+    try:
+        # Replace 'delisted_tickers' / actual table name used by
+        # mkt_check_survivorship if different — ask Replit to confirm
+        # the real table name from the function source first.
+        cur.execute("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name ILIKE '%survivorship%'
+               OR table_name ILIKE '%delist%';
+        """)
+        rows = cur.fetchall()
+        print(f"Candidate tables found: {rows}")
+        for (tname,) in rows:
+            cur.execute(f"SELECT COUNT(*) FROM {tname};")
+            print(f"  {tname}: {cur.fetchone()[0]} rows")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    # 3. mkt_validate_oos ambiguous column bug
+    section("3. mkt_validate_oos source inspection")
+    print("Ask Replit to paste the exact SQL query inside mkt_validate_oos()")
+    print("and identify which column reference is ambiguous (likely a JOIN")
+    print("where both tables share a column name, e.g. 'date' or 'ticker',")
+    print("without table-qualifying it).")
+
+    # 4. Tradier/AAPL data check
+    section("4. AAPL historical data availability")
+    try:
+        cur.execute("""
+            SELECT COUNT(*), MIN(date), MAX(date)
+            FROM price_history
+            WHERE ticker = 'AAPL';
+        """)
+        cnt, min_d, max_d = cur.fetchone()
+        print(f"AAPL rows in price_history: {cnt}, range: {min_d} to {max_d}")
+    except Exception as e:
+        print(f"ERROR (table name may differ — ask Replit for correct table): {e}")
+
+    cur.close()
+    conn.close()
+
+    section("RE-RUN TEST AFTER FIXES")
+    print("""
+After fixing whatever this reveals, re-run the EXACT same stress test
+from before (mkt_discover_interactions -> run_granger_test ->
+query_market_regime -> mkt_check_survivorship -> mkt_validate_oos ->
+mkt_check_redundancy -> kelly_position_size) and paste the new ok:true/false
+results for steps 2-5 specifically. I need to see whether those 4 steps
+now return real numeric output, or still error out.
+""")
+
+if __name__ == "__main__":
+    main()
