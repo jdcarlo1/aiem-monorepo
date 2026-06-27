@@ -17811,6 +17811,330 @@ def _mkt_get_stock_history(tickers=None, start_date=None, end_date=None, limit=5
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# mkt_historical_study — "last time X was below/above indicator Y, what
+# happened over the next 1m / 3m / 6m?" — answers the exact question
+# "last time MSFT was below the 200-week MA, what was the forward return?"
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_historical_study(ticker, indicator="sma_200wk", operator="lt",
+                           forward_periods=None, start_date=None, end_date=None):
+    """Historical indicator study for a single ticker.
+    Finds every date where condition was met, then measures actual forward returns
+    at 1 week (5d), 1 month (21d), 3 months (63d), and 6 months (126d).
+    Answers: 'The last time MSFT was below its 200-week MA, the avg 3-month
+    return was +18.2% across 4 occurrences, with a 75% win rate.'
+    Supported indicators (same list as mkt_compute_indicators):
+    sma_200wk, sma_200, sma_100, sma_50, sma_20, sma_10, sma_5,
+    ema_200, ema_50, ema_20, rsi_14, macd, adx_14, bb_pct, roc_12,
+    pct_from_sma200, pct_from_sma200wk, pct_from_52w_high, pct_from_52w_low,
+    williams_r, stoch_k, cci_20, mfi_14, cmf_20, atr_pct."""
+    import psycopg2, numpy as _np
+
+    if forward_periods is None:
+        forward_periods = [5, 21, 63, 126]  # 1wk, 1mo, 3mo, 6mo
+
+    PERIOD_LABELS = {5: "1_week", 21: "1_month", 63: "3_months", 126: "6_months"}
+
+    # How much history we need to compute the indicator
+    LOOKBACK_NEEDED = {
+        "sma_200wk": 1010, "sma_200": 205, "sma_100": 105,
+        "sma_50": 55,  "sma_20": 25,  "sma_10": 15, "sma_5": 10,
+        "ema_200": 205,"ema_100": 105,"ema_50": 55, "ema_20": 25,
+        "rsi_14": 30,  "macd": 40,    "adx_14": 35, "bb_pct": 25,
+        "roc_12": 15,  "williams_r": 20, "stoch_k": 20,
+        "cci_20": 25,  "mfi_14": 20,  "cmf_20": 25, "atr_pct": 20,
+        "pct_from_sma200": 205, "pct_from_sma200wk": 1010,
+        "pct_from_52w_high": 260, "pct_from_52w_low": 260,
+        "momentum_10": 12,
+    }
+    warmup = LOOKBACK_NEEDED.get(indicator, 210)
+    max_forward = max(forward_periods)
+
+    try:
+        ticker = ticker.strip().upper()
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            where = ["ticker = %s", "close_price > 0"]
+            params = [ticker]
+            if start_date:
+                where.append("scan_date >= %s"); params.append(start_date)
+            if end_date:
+                where.append("scan_date <= %s"); params.append(end_date)
+            cur.execute(f"""
+                SELECT scan_date, open_price, high_price, low_price, close_price, volume
+                FROM polygon_market_daily
+                WHERE {' AND '.join(where)}
+                ORDER BY scan_date ASC
+                LIMIT 2000
+            """, params)
+            rows = cur.fetchall()
+
+        if not rows:
+            return {"status": "error", "error": f"No data for {ticker}. Is the historical backfill complete?"}
+
+        dates  = [str(r[0]) for r in rows]
+        opens  = _np.array([float(r[1] or 0) for r in rows])
+        highs  = _np.array([float(r[2] or 0) for r in rows])
+        lows   = _np.array([float(r[3] or 0) for r in rows])
+        closes = _np.array([float(r[4] or 0) for r in rows])
+        vols   = _np.array([float(r[5] or 0) for r in rows])
+        n = len(closes)
+
+        if n < warmup + max_forward + 5:
+            return {
+                "status": "insufficient_data",
+                "ticker": ticker,
+                "data_days": n,
+                "needed_days": warmup + max_forward + 5,
+                "message": (
+                    f"Need ~{warmup + max_forward + 5} days of data to study '{indicator}' "
+                    f"with {max_forward}-day forward windows. Currently have {n} days "
+                    f"({dates[0]} to {dates[-1]}). "
+                    f"{'The historical backfill is running — check back in ~2 hours.' if n < 200 else 'Try a shorter-period indicator like sma_50 or rsi_14.'}"
+                ),
+            }
+
+        # ── Compute indicator at every point in the series ─────────────────
+        def _sma_series(arr, p):
+            return [float(_np.mean(arr[i-p+1:i+1])) if i >= p-1 else None for i in range(len(arr))]
+
+        def _ema_series(arr, p):
+            out = [None] * len(arr)
+            k = 2.0 / (p + 1)
+            if p - 1 < len(arr):
+                out[p-1] = float(_np.mean(arr[:p]))
+                for i in range(p, len(arr)):
+                    out[i] = arr[i] * k + out[i-1] * (1 - k)
+            return out
+
+        def _rsi_series(arr, p=14):
+            out = [None] * len(arr)
+            if len(arr) < p + 1: return out
+            d = _np.diff(arr)
+            g = _np.where(d > 0, d, 0.); lo = _np.where(d < 0, -d, 0.)
+            ag = float(_np.mean(g[:p])); al = float(_np.mean(lo[:p]))
+            out[p] = round(100 - 100 / (1 + (ag / al if al > 0 else 100)), 2)
+            for i in range(p + 1, len(arr)):
+                ag = (ag * (p-1) + g[i-1]) / p
+                al = (al * (p-1) + lo[i-1]) / p
+                out[i] = round(100 - 100 / (1 + (ag / al if al > 0 else 100)), 2)
+            return out
+
+        # Build the full indicator series
+        ind = indicator
+        if ind in ("sma_200wk",):                  series_vals = _sma_series(closes, 1000)
+        elif ind.startswith("sma_"):               series_vals = _sma_series(closes, int(ind[4:]))
+        elif ind.startswith("ema_"):               series_vals = _ema_series(closes, int(ind[4:]))
+        elif ind == "rsi_14":                      series_vals = _rsi_series(closes, 14)
+        elif ind == "williams_r":
+            series_vals = [None]*n
+            for i in range(13, n):
+                hi14=float(_np.max(highs[i-13:i+1])); lo14=float(_np.min(lows[i-13:i+1]))
+                series_vals[i] = (hi14-closes[i])/(hi14-lo14)*-100 if hi14>lo14 else -50.
+        elif ind == "stoch_k":
+            series_vals = [None]*n
+            for i in range(13, n):
+                hi14=float(_np.max(highs[i-13:i+1])); lo14=float(_np.min(lows[i-13:i+1]))
+                series_vals[i] = (closes[i]-lo14)/(hi14-lo14)*100 if hi14>lo14 else 50.
+        elif ind == "cci_20":
+            series_vals = [None]*n
+            for i in range(19, n):
+                tp=(highs[i-19:i+1]+lows[i-19:i+1]+closes[i-19:i+1])/3
+                m=float(_np.mean(tp)); mad=float(_np.mean(_np.abs(tp-m)))
+                series_vals[i] = ((highs[i]+lows[i]+closes[i])/3-m)/(0.015*mad) if mad>0 else 0.
+        elif ind == "macd":
+            e12=_ema_series(closes,12); e26=_ema_series(closes,26)
+            series_vals = [round(e12[i]-e26[i],4) if e12[i] and e26[i] else None for i in range(n)]
+        elif ind == "adx_14":
+            series_vals = [None]*n
+            tr=[max(highs[i]-lows[i],abs(highs[i]-closes[i-1]) if i>0 else 0,abs(lows[i]-closes[i-1]) if i>0 else 0) for i in range(n)]
+            pdm=[max(highs[i]-highs[i-1],0) if highs[i]-highs[i-1]>lows[i-1]-lows[i] else 0 for i in range(1,n)]
+            mdm=[max(lows[i-1]-lows[i],0) if lows[i-1]-lows[i]>highs[i]-highs[i-1] else 0 for i in range(1,n)]
+            p=14
+            def _ws(a):
+                if len(a)<p: return None
+                s=sum(a[:p])
+                for x in a[p:]: s=s-s/p+x
+                return s
+            tr14=_ws(tr[1:]); pd14=_ws(pdm); md14=_ws(mdm)
+            if tr14 and tr14>0:
+                for i in range(2*p, n):
+                    pdi=100*pd14/tr14; mdi=100*md14/tr14
+                    d2=pdi+mdi
+                    series_vals[i]=abs(pdi-mdi)/d2*100 if d2>0 else 0.
+        elif ind == "bb_pct":
+            series_vals = [None]*n
+            for i in range(19, n):
+                m=float(_np.mean(closes[i-19:i+1])); std=float(_np.std(closes[i-19:i+1]))
+                u=m+2*std; lo_=m-2*std; bw=u-lo_
+                series_vals[i]=(closes[i]-lo_)/bw*100 if bw>0 else 50.
+        elif ind == "roc_12":
+            series_vals=[None]*n
+            for i in range(12,n):
+                series_vals[i]=(closes[i]-closes[i-12])/closes[i-12]*100 if closes[i-12]>0 else None
+        elif ind == "mfi_14":
+            tp_all=(highs+lows+closes)/3
+            series_vals=[None]*n
+            for i in range(14,n):
+                mfp=sum(tp_all[j]*vols[j] for j in range(i-13,i+1) if closes[j]>=closes[j-1])
+                mfn=sum(tp_all[j]*vols[j] for j in range(i-13,i+1) if closes[j]<closes[j-1])
+                series_vals[i]=100-100/(1+(mfp/mfn if mfn>0 else 100))
+        elif ind == "cmf_20":
+            series_vals=[None]*n
+            for i in range(19,n):
+                h_=highs[i-19:i+1];l_=lows[i-19:i+1];c_=closes[i-19:i+1];v_=vols[i-19:i+1]
+                rng=h_-l_;clv=_np.where(rng>0,(c_-l_-(h_-c_))/rng,0.)
+                vs=float(_np.sum(v_));series_vals[i]=float(_np.sum(clv*v_))/vs if vs>0 else 0.
+        elif ind == "atr_pct":
+            series_vals=[None]*n
+            tr=[max(highs[i]-lows[i],abs(highs[i]-closes[i-1]) if i>0 else 0,abs(lows[i]-closes[i-1]) if i>0 else 0) for i in range(n)]
+            a=float(_np.mean(tr[:14]))
+            for i in range(14,n):
+                a=(a*13+tr[i])/14
+                series_vals[i]=a/closes[i]*100 if closes[i]>0 else None
+        elif ind == "pct_from_sma200":
+            sma=_sma_series(closes,200)
+            series_vals=[round((closes[i]-sma[i])/sma[i]*100,2) if sma[i] else None for i in range(n)]
+        elif ind == "pct_from_sma200wk":
+            sma=_sma_series(closes,1000)
+            series_vals=[round((closes[i]-sma[i])/sma[i]*100,2) if sma[i] else None for i in range(n)]
+        elif ind == "pct_from_52w_high":
+            series_vals=[None]*n
+            for i in range(252,n):
+                hi=float(_np.max(highs[i-251:i+1]))
+                series_vals[i]=round((closes[i]-hi)/hi*100,2) if hi>0 else None
+        elif ind == "pct_from_52w_low":
+            series_vals=[None]*n
+            for i in range(252,n):
+                lo_=float(_np.min(lows[i-251:i+1]))
+                series_vals[i]=round((closes[i]-lo_)/lo_*100,2) if lo_>0 else None
+        elif ind == "momentum_10":
+            series_vals=[None]*n
+            for i in range(10,n): series_vals[i]=float(closes[i]-closes[i-10])
+        else:
+            return {"status":"error","error":f"Unknown indicator '{indicator}'"}
+
+        # ── Find all dates where condition is met ──────────────────────────
+        threshold_val = None  # indicator is compared to itself (e.g. price vs MA → ind val > 0)
+        # For MA indicators: "lt" means price < MA → the pct_from version would be < 0
+        # But for raw MA (sma_200): "lt" means price < SMA value
+        # We handle: the indicator value compared to 0 OR to a custom threshold
+        # For this tool: condition is always "indicator value vs 0"
+        # sma_200wk "lt" → close < sma_200wk → use pct_from version internally
+        # We'll compare the series value:
+        #   - For pct_from_* indicators: compare to 0  (negative = below MA)
+        #   - For absolute MA indicators: compare close to indicator value
+        #   - For oscillators: compare value to standard level (RSI<30 = oversold)
+
+        # Normalize: if indicator is an absolute MA, convert to pct deviation for logic
+        is_abs_ma = ind in {f"sma_{p}" for p in [5,10,20,50,100,200]} | \
+                    {f"ema_{p}" for p in [5,10,20,50,100,200]} | {"sma_200wk"}
+        if is_abs_ma:
+            # Recompute as pct from MA
+            compare_series = [
+                round((closes[i] - series_vals[i]) / series_vals[i] * 100, 2)
+                if series_vals[i] and series_vals[i] > 0 else None
+                for i in range(n)
+            ]
+            compare_threshold = 0.0
+            indicator_label = f"price vs {ind} (% deviation from MA)"
+        else:
+            compare_series = series_vals
+            # Standard thresholds for oscillators
+            DEFAULT_THRESHOLDS = {
+                "rsi_14": 50, "stoch_k": 50, "williams_r": -50,
+                "cci_20": 0,  "macd": 0,     "adx_14": 25,
+                "bb_pct": 50, "roc_12": 0,   "mfi_14": 50,
+                "cmf_20": 0,  "atr_pct": 2.0,"momentum_10": 0,
+                "pct_from_sma200": 0, "pct_from_sma200wk": 0,
+                "pct_from_52w_high": -20, "pct_from_52w_low": 20,
+            }
+            compare_threshold = DEFAULT_THRESHOLDS.get(ind, 0.0)
+            indicator_label = ind
+
+        # Scan for condition matches, leaving room for forward window
+        matches = []
+        for i in range(warmup, n - max_forward - 1):
+            val = compare_series[i]
+            if val is None:
+                continue
+            hit = ((operator == "lt"  and val < compare_threshold) or
+                   (operator == "lte" and val <= compare_threshold) or
+                   (operator == "gt"  and val > compare_threshold) or
+                   (operator == "gte" and val >= compare_threshold))
+            if hit:
+                entry_price = closes[i]
+                fwd_returns = {}
+                for fp in forward_periods:
+                    if i + fp < n:
+                        exit_price = closes[i + fp]
+                        ret = (exit_price - entry_price) / entry_price * 100
+                        label = PERIOD_LABELS.get(fp, f"{fp}d")
+                        fwd_returns[label] = round(ret, 2)
+                matches.append({
+                    "date":        dates[i],
+                    "close":       round(float(entry_price), 2),
+                    "indicator_val": round(float(compare_series[i]), 4) if compare_series[i] is not None else None,
+                    "forward_returns": fwd_returns,
+                })
+
+        if not matches:
+            return {
+                "status":  "no_matches",
+                "ticker":  ticker,
+                "indicator": indicator,
+                "operator":  operator,
+                "message": f"No dates found where {ticker} {indicator} {operator} threshold. "
+                           f"Data range: {dates[warmup]} to {dates[n-max_forward-1]}.",
+            }
+
+        # ── Aggregate statistics per forward period ────────────────────────
+        stats = {}
+        for fp in forward_periods:
+            label = PERIOD_LABELS.get(fp, f"{fp}d")
+            rets = [m["forward_returns"][label] for m in matches if label in m["forward_returns"]]
+            if not rets:
+                continue
+            winners = [r for r in rets if r > 0]
+            stats[label] = {
+                "occurrences": len(rets),
+                "win_rate_pct": round(len(winners) / len(rets) * 100, 1),
+                "avg_return":  round(sum(rets) / len(rets), 2),
+                "median_return": round(float(_np.median(rets)), 2),
+                "best_return":  round(max(rets), 2),
+                "worst_return": round(min(rets), 2),
+                "positive_avg": round(sum(winners) / len(winners), 2) if winners else None,
+            }
+
+        # Most recent match gets special callout
+        latest_match = matches[-1]
+        oldest_match = matches[0]
+
+        return {
+            "status":     "ok",
+            "ticker":     ticker,
+            "indicator":  indicator,
+            "indicator_label": indicator_label,
+            "condition":  f"{indicator} {operator} {compare_threshold} (price vs MA deviation threshold)",
+            "data_range": {"from": dates[warmup], "to": dates[n-max_forward-1]},
+            "total_occurrences": len(matches),
+            "most_recent_occurrence": latest_match,
+            "first_occurrence": oldest_match,
+            "all_occurrences": matches[-10:],  # last 10 for context
+            "forward_return_stats": stats,
+            "interpretation": (
+                f"{ticker} was {indicator} {operator} threshold "
+                f"{len(matches)} time(s) between {dates[warmup]} and {dates[n-max_forward-1]}. "
+                + (f"Most recent: {latest_match['date']} at ${latest_match['close']:.2f}. " if matches else "") +
+                " | ".join([
+                    f"{label}: avg {v['avg_return']:+.1f}% ({v['win_rate_pct']}% WR, n={v['occurrences']})"
+                    for label, v in stats.items()
+                ])
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # NEW: mkt_screen_period — full backtest over a custom date window
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_screen_period(conditions=None, start_date=None, end_date=None,
@@ -18659,25 +18983,38 @@ def _mkt_screen_by_indicator(indicator="rsi_14", operator="lt", threshold=30.0,
 # ──────────────────────────────────────────────────────────────────────────
 # Historical backfill: re-fetch all missing trading days from Polygon
 # ──────────────────────────────────────────────────────────────────────────
+_BACKFILL_RUNNING = False   # single-flight guard — prevents duplicate threads
+
 def _polygon_backfill_historical():
     """Background thread: fetch all trading days since start_date that are missing
     from polygon_market_daily. Saves ALL stocks (not just top movers)."""
+    global _BACKFILL_RUNNING
     import time as _bt, threading as _bth, psycopg2 as _bpg, urllib.request as _bur, json as _bj
     from datetime import date as _bdate, timedelta as _btd
 
+    if _BACKFILL_RUNNING:
+        print("[backfill] already running — skipping duplicate launch")
+        return
+
     def _run():
-        _bt.sleep(30)  # Let server fully start first
-        print("[backfill] starting polygon_market_daily historical backfill")
-        _key = os.environ.get("POLYGON_API_KEY", "")
-        if not _key:
-            print("[backfill] no POLYGON_API_KEY - skipping")
-            return
-
-        start = _bdate(2024, 1, 1)   # 2+ years of history for AIEM backtesting
-        today = _bdate.today()
-
+        global _BACKFILL_RUNNING
+        _BACKFILL_RUNNING = True
         try:
-            with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            _bt.sleep(30)  # Let server fully start first
+            print("[backfill] starting polygon_market_daily historical backfill")
+            _key = os.environ.get("POLYGON_API_KEY", "")
+            if not _key:
+                print("[backfill] no POLYGON_API_KEY - skipping")
+                return
+
+            today = _bdate.today()
+            # Polygon Starter: 2 years of history. Stay 10 days inside the window.
+            _two_years_back = today - _btd(days=720)
+            start = max(_bdate(2024, 7, 1), _two_years_back)
+
+            have_dates: set = set()
+            try:
+                with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
                 cur.execute("SELECT DISTINCT scan_date FROM polygon_market_daily")
                 have_dates = {str(r[0]) for r in cur.fetchall()}
         except Exception as e:
@@ -18756,8 +19093,14 @@ def _polygon_backfill_historical():
                 _bt.sleep(13)  # 5 req/min Polygon rate limit
 
             except Exception as e:
-                print(f"[backfill] {date_str} error: {e}")
-                _bt.sleep(20)
+                err_str = str(e)
+                if "403" in err_str or "Forbidden" in err_str:
+                    # 403 = outside Polygon plan's historical window; skip, don't retry
+                    print(f"[backfill] {date_str} SKIP (403 - outside plan window)")
+                    _bt.sleep(13)
+                else:
+                    print(f"[backfill] {date_str} error: {e}")
+                    _bt.sleep(20)
 
         # Now compute gap_pct for consecutive dates where prev_close available
         try:
@@ -22082,6 +22425,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "mkt_screen_period":           _mkt_screen_period,
         "mkt_compute_indicators":      _mkt_compute_indicators,
         "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
+        "mkt_historical_study":        _mkt_historical_study,
         "analyze_missed_movers":       _aiem_tool_analyze_missed_movers,
         "query_pick_outcomes":         _aiem_tool_query_pick_outcomes,
         "test_new_signal":             _aiem_tool_test_new_signal,
@@ -22746,6 +23090,41 @@ _AIEM_AGENT_TOOLS = [
             "end_date":   {"type": "string", "description": "Backtest end date 'YYYY-MM-DD'."},
             "min_move_pct": {"type": "number", "description": "Min move to count in results (default 0 = show all)."},
         }, "required": ["conditions", "start_date", "end_date"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_historical_study",
+        "description": (
+            "Answer 'the last time [stock] was [above/below] its [indicator], what happened over the next 1 month / 3 months / 6 months?' "
+            "Finds EVERY historical date where the condition was true, then measures the actual forward returns "
+            "at 1 week (5d), 1 month (21d), 3 months (63d), and 6 months (126d). "
+            "Returns: number of occurrences, win rate, avg/median/best/worst return at each horizon, "
+            "most recent occurrence date and price, and a plain-English interpretation. "
+            "EXAMPLES: "
+            "'The last time MSFT was below its 200-week MA' → ticker=MSFT, indicator=sma_200wk, operator=lt. "
+            "'When AAPL RSI dropped below 30, what happened next?' → ticker=AAPL, indicator=rsi_14, operator=lt. "
+            "'Every time NVDA was 20%+ above its 200-day MA' → ticker=NVDA, indicator=pct_from_sma200, operator=gt. "
+            "'When SPY was oversold on Stochastic' → ticker=SPY, indicator=stoch_k, operator=lt. "
+            "Use this for ANY historical 'what happened when...' question about a specific stock and indicator. "
+            "Requires historical data — best results once the 2-year backfill is complete."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":     {"type": "string", "description": "Stock ticker e.g. 'MSFT', 'AAPL', 'SPY'."},
+            "indicator":  {"type": "string", "description": (
+                "Technical indicator to study. Options: "
+                "sma_200wk (200-week MA), sma_200, sma_100, sma_50, sma_20, sma_10, sma_5, "
+                "ema_200, ema_100, ema_50, ema_20, "
+                "rsi_14, stoch_k, williams_r, cci_20, macd, adx_14, bb_pct, "
+                "mfi_14, cmf_20, roc_12, atr_pct, momentum_10, "
+                "pct_from_sma200 (% above/below 200d MA), pct_from_sma200wk, "
+                "pct_from_52w_high, pct_from_52w_low."
+            )},
+            "operator":   {"type": "string", "enum": ["lt","lte","gt","gte"],
+                "description": "lt=below, gt=above. For MA indicators: lt means price below the MA."},
+            "forward_periods": {"type": "array", "items": {"type": "integer"},
+                "description": "Forward days to measure (default [5,21,63,126] = 1wk/1mo/3mo/6mo)."},
+            "start_date": {"type": "string", "description": "Limit study to dates from 'YYYY-MM-DD'."},
+            "end_date":   {"type": "string", "description": "Limit study to dates up to 'YYYY-MM-DD'."},
+        }, "required": ["ticker", "indicator", "operator"]}
     }},
     {"type": "function", "function": {
         "name": "mkt_compute_indicators",
@@ -24248,6 +24627,7 @@ def _run_aiem_research_agent(max_iterations=None):
         "mkt_screen_period":           _mkt_screen_period,
         "mkt_compute_indicators":      _mkt_compute_indicators,
         "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
+        "mkt_historical_study":        _mkt_historical_study,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────

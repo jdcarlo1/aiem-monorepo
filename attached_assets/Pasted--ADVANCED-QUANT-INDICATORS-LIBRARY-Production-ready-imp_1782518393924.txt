@@ -1,0 +1,599 @@
+"""
+ADVANCED QUANT INDICATORS LIBRARY
+===================================
+Production-ready implementations of institutional-grade signal-quality
+indicators, beyond standard technicals (RSI/MACD/MAs).
+
+Organized into 5 groups:
+  1. Regime / Trend Character      -> Hurst, HMM regime
+  2. Order Flow / Microstructure   -> VPIN, Roll's Spread, Corwin-Schultz, Amihud
+  3. Statistical Risk / Tail Risk  -> Realized skew/kurtosis, jump detection, entropy
+  4. Cross-Sectional / Factor      -> PCA factor decomp, momentum z-score, absorption ratio
+  5. Options / Vol Surface         -> GEX/Vanna, risk-neutral density, VRP, skew velocity
+
+Dependencies: numpy, pandas, scipy, hmmlearn (pip install hmmlearn --break-system-packages)
+
+USAGE NOTE FOR INTEGRATION:
+Each function takes plain pandas Series/DataFrames (price, volume, OHLC, or
+options chain) and returns either a float, a pandas Series, or a dict of
+scores. Wire each into your existing scoring layers as additional inputs
+to your conviction score -- do NOT let the agent re-derive the math, only
+the I/O glue (pulling data into the right shape and writing to your DB).
+"""
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+from scipy.optimize import minimize
+
+
+# =====================================================================
+# 1. REGIME / TREND CHARACTER
+# =====================================================================
+
+def hurst_exponent(price_series: pd.Series, max_lag: int = 100) -> float:
+    """
+    Hurst Exponent via rescaled range (R/S) analysis.
+
+    Classifies whether a series is:
+      H < 0.5  -> mean-reverting (anti-persistent)
+      H = 0.5  -> random walk (no memory)
+      H > 0.5  -> trending (persistent / momentum regime)
+
+    Use this BEFORE applying momentum or mean-reversion signals, so you
+    don't fire a breakout signal on a stock that is statistically
+    mean-reverting right now.
+
+    Args:
+        price_series: pandas Series of prices (not returns), chronological.
+        max_lag: largest lag window to test (default 100 bars).
+
+    Returns:
+        float Hurst exponent, typically in [0, 1].
+    """
+    prices = price_series.dropna().values
+    n = len(prices)
+    if n < max_lag * 2:
+        max_lag = max(10, n // 2)
+
+    lags = range(2, max_lag)
+    tau = []
+    for lag in lags:
+        diffs = np.subtract(prices[lag:], prices[:-lag])
+        if len(diffs) == 0 or np.std(diffs) == 0:
+            continue
+        tau.append(np.sqrt(np.std(diffs)))
+
+    if len(tau) < 2:
+        return 0.5  # insufficient data, assume random walk
+
+    log_lags = np.log(list(lags)[: len(tau)])
+    log_tau = np.log(tau)
+    poly = np.polyfit(log_lags, log_tau, 1)
+    return float(poly[0] * 2.0)  # Hurst = slope * 2
+
+
+def hmm_regime_detection(returns: pd.Series, n_states: int = 3):
+    """
+    Hidden Markov Model regime classifier on a returns series.
+
+    Classifies each period into a latent regime (e.g. low-vol/calm,
+    transitional, high-vol/stress) WITHOUT needing fixed thresholds --
+    the model learns regime boundaries from the data itself.
+
+    Requires: pip install hmmlearn --break-system-packages
+
+    Args:
+        returns: pandas Series of period returns (not prices).
+        n_states: number of hidden regimes to fit (3 is standard:
+                  calm / normal / stressed).
+
+    Returns:
+        dict with:
+          'states': np.array of regime label per period (0..n_states-1)
+          'model': fitted hmmlearn GaussianHMM object
+          'state_means': mean return per regime (helps you label which
+                          state number = "calm" vs "stressed")
+    """
+    from hmmlearn.hmm import GaussianHMM
+
+    X = returns.dropna().values.reshape(-1, 1)
+    model = GaussianHMM(n_components=n_states, covariance_type="full",
+                         n_iter=1000, random_state=42)
+    model.fit(X)
+    states = model.predict(X)
+    state_means = [X[states == s].mean() for s in range(n_states)]
+
+    return {"states": states, "model": model, "state_means": state_means}
+
+
+# =====================================================================
+# 2. ORDER FLOW / MICROSTRUCTURE (works WITHOUT needing L2 book data)
+# =====================================================================
+
+def vpin(volume: pd.Series, price: pd.Series, bucket_size: int = None,
+          n_buckets_for_vpin: int = 50) -> pd.Series:
+    """
+    VPIN -- Volume-Synchronized Probability of Informed Trading
+    (Easley, Lopez de Prado, O'Hara).
+
+    Estimates the probability that volume flow is coming from informed
+    traders rather than noise. Spikes in VPIN often precede volatility
+    events / liquidity crises -- a classic "toxic flow" early warning.
+
+    This version only needs trade price + volume (no L2 book required) --
+    it classifies buy/sell volume using price-change direction (a tick-rule
+    proxy for the bulk-volume classification in the original paper).
+
+    Args:
+        volume: pandas Series, per-bar volume (intraday bars recommended).
+        price: pandas Series, per-bar close price, same index as volume.
+        bucket_size: target volume per "volume bucket". If None,
+                     defaults to total_volume / 50 (50 buckets total).
+        n_buckets_for_vpin: rolling window of buckets used in the VPIN
+                             average (paper default: 50).
+
+    Returns:
+        pandas Series of VPIN values, indexed by bucket number.
+    """
+    price = price.reindex(volume.index)
+    returns = price.diff()
+    std = returns.std()
+    if std == 0 or np.isnan(std):
+        std = 1e-8
+
+    # Bulk volume classification: fraction of volume classified as "buy"
+    # using a normal CDF of standardized price change (BVC method).
+    z = returns / std
+    buy_frac = stats.norm.cdf(z.fillna(0))
+    buy_vol = volume * buy_frac
+    sell_vol = volume * (1 - buy_frac)
+
+    if bucket_size is None:
+        bucket_size = max(1, int(volume.sum() / 50))
+
+    cum_vol = volume.cumsum()
+    bucket_id = (cum_vol // bucket_size).astype(int)
+
+    df = pd.DataFrame({"buy": buy_vol, "sell": sell_vol, "bucket": bucket_id})
+    grouped = df.groupby("bucket").sum()
+    grouped["imbalance"] = (grouped["buy"] - grouped["sell"]).abs()
+    grouped["total"] = grouped["buy"] + grouped["sell"]
+
+    vpin_series = (
+        grouped["imbalance"].rolling(n_buckets_for_vpin).sum()
+        / grouped["total"].rolling(n_buckets_for_vpin).sum()
+    )
+    return vpin_series
+
+
+def roll_spread_estimator(price_series: pd.Series) -> float:
+    """
+    Roll's (1984) implicit bid-ask spread estimator.
+
+    Estimates the effective bid-ask spread using ONLY a time series of
+    transaction prices -- no order book / quote data needed at all.
+    Based on the negative serial covariance of consecutive price changes
+    caused by bid-ask "bounce".
+
+    This is the cheap workaround for liquidity measurement when you don't
+    have (or can't afford) L2 book data.
+
+    Args:
+        price_series: pandas Series of transaction/close prices.
+
+    Returns:
+        float estimated spread (in price units). Returns 0.0 if the
+        serial covariance is positive (model assumption violated --
+        common in low-frequency or trending data).
+    """
+    delta_p = price_series.diff().dropna()
+    cov = np.cov(delta_p[:-1], delta_p[1:])[0, 1]
+    if cov >= 0:
+        return 0.0
+    return float(2 * np.sqrt(-cov))
+
+
+def corwin_schultz_spread(high: pd.Series, low: pd.Series) -> pd.Series:
+    """
+    Corwin-Schultz (2012) high-low spread estimator.
+
+    Estimates bid-ask spread from daily HIGH and LOW prices alone --
+    another no-order-book-needed liquidity proxy, generally more robust
+    than Roll's estimator for daily-bar data.
+
+    Args:
+        high: pandas Series of daily high prices.
+        low: pandas Series of daily low prices.
+
+    Returns:
+        pandas Series of estimated spread (%) per 2-day window.
+    """
+    beta = (np.log(high / low) ** 2 + np.log(high.shift(1) / low.shift(1)) ** 2)
+    gamma = np.log(high.combine(high.shift(1), max) / low.combine(low.shift(1), min)) ** 2
+
+    alpha = (
+        (np.sqrt(2 * beta) - np.sqrt(beta)) / (3 - 2 * np.sqrt(2))
+        - np.sqrt(gamma / (3 - 2 * np.sqrt(2)))
+    )
+    spread = 2 * (np.exp(alpha) - 1) / (1 + np.exp(alpha))
+    return spread.clip(lower=0)  # negative estimates floored at 0
+
+
+def amihud_illiquidity(returns: pd.Series, dollar_volume: pd.Series,
+                        window: int = 21) -> pd.Series:
+    """
+    Amihud (2002) illiquidity ratio: average |return| per dollar of volume.
+
+    Higher values = a given amount of volume moves price more = thinner,
+    easier-to-push stock. Useful quality gate: discount/filter signals on
+    illiquid names where a move could be a single large order, not real
+    flow.
+
+    Args:
+        returns: pandas Series of period returns.
+        dollar_volume: pandas Series of dollar volume (price * volume),
+                       same index as returns.
+        window: rolling average window (default 21 trading days).
+
+    Returns:
+        pandas Series, rolling Amihud illiquidity ratio.
+    """
+    daily_ratio = returns.abs() / dollar_volume.replace(0, np.nan)
+    return daily_ratio.rolling(window).mean()
+
+
+# =====================================================================
+# 3. STATISTICAL RISK / TAIL RISK
+# =====================================================================
+
+def realized_skew_kurtosis(returns: pd.Series, window: int = 21) -> pd.DataFrame:
+    """
+    Rolling realized skewness and excess kurtosis of returns.
+
+    Negative skew = crash risk skew (big down moves more likely than the
+    distribution implies). High kurtosis = fat tails / jump risk. Quant
+    desks watch the TREND in these, not just the level, as an early
+    warning before realized vol itself spikes.
+
+    Args:
+        returns: pandas Series of period returns.
+        window: rolling window size (default 21 = ~1 month of daily bars).
+
+    Returns:
+        pandas DataFrame with columns ['skew', 'kurtosis'].
+    """
+    roll = returns.rolling(window)
+    return pd.DataFrame({
+        "skew": roll.skew(),
+        "kurtosis": roll.kurt(),  # excess kurtosis (normal = 0)
+    })
+
+
+def jump_detection_bipower(returns: pd.Series, window: int = 21,
+                            confidence: float = 0.999) -> pd.Series:
+    """
+    Jump detection via Bipower Variation vs Realized Variance
+    (Barndorff-Nielsen & Shephard).
+
+    Compares "realized variance" (sum of squared returns, sensitive to
+    jumps) against "bipower variation" (a jump-robust volatility
+    estimate). A statistically significant gap flags a discontinuous
+    price jump (news, gap, halt-resumption) rather than normal diffusion.
+
+    Args:
+        returns: pandas Series of HIGH-FREQUENCY returns (intraday ideally;
+                 works on daily but with less power).
+        window: rolling window of bars used per estimation.
+        confidence: z-score threshold confidence level (default 0.999).
+
+    Returns:
+        pandas Series of booleans -- True where a jump is statistically
+        detected in that window.
+    """
+    abs_ret = returns.abs()
+    bpv = (np.pi / 2) * (abs_ret * abs_ret.shift(1)).rolling(window).mean()
+    rv = (returns ** 2).rolling(window).mean()
+
+    jump_component = (rv - bpv).clip(lower=0)
+    z_threshold = stats.norm.ppf(confidence)
+
+    # Standardize the jump statistic (simplified z-test form of the
+    # standard BNS jump test statistic).
+    denom = np.sqrt(((np.pi ** 2 / 4) + np.pi - 5) * bpv.rolling(window).var())
+    z_stat = jump_component / denom.replace(0, np.nan)
+
+    return (z_stat.abs() > z_threshold).fillna(False)
+
+
+def shannon_entropy(returns: pd.Series, window: int = 21, n_bins: int = 10) -> pd.Series:
+    """
+    Rolling Shannon entropy of the return distribution.
+
+    Measures how "predictable" vs "random" recent price action has been.
+    Low entropy = returns are clustering into a narrow, predictable
+    pattern (often precedes a breakout). High entropy = noisy / random,
+    lower-conviction environment for any directional signal.
+
+    Args:
+        returns: pandas Series of period returns.
+        window: rolling window size.
+        n_bins: number of histogram bins used to estimate the distribution.
+
+    Returns:
+        pandas Series of entropy values (in bits, base-2).
+    """
+    def _entropy(x):
+        if len(x.dropna()) < n_bins:
+            return np.nan
+        counts, _ = np.histogram(x.dropna(), bins=n_bins)
+        probs = counts / counts.sum()
+        probs = probs[probs > 0]
+        return float(-np.sum(probs * np.log2(probs)))
+
+    return returns.rolling(window).apply(_entropy, raw=False)
+
+
+# =====================================================================
+# 4. CROSS-SECTIONAL / FACTOR-BASED (needs a universe of tickers)
+# =====================================================================
+
+def pca_factor_decomposition(returns_matrix: pd.DataFrame, n_factors: int = 3):
+    """
+    PCA-based factor decomposition of a return matrix.
+
+    Strips out market-wide / sector-wide common factors so you can see
+    which stocks are moving for IDIOSYNCRATIC reasons (real news/flow)
+    vs. just riding a broad sector or market wave.
+
+    Args:
+        returns_matrix: pandas DataFrame, rows = time, columns = tickers,
+                         values = period returns. Must be a universe of
+                         multiple tickers, not a single stock.
+        n_factors: number of principal components to extract.
+
+    Returns:
+        dict with:
+          'factor_returns': DataFrame of the top n_factors PC time series
+          'loadings': DataFrame of each ticker's exposure to each factor
+          'idiosyncratic_returns': DataFrame, original returns minus the
+                                    reconstructed factor-explained portion
+                                    (this is your "pure alpha" residual)
+          'explained_variance_ratio': fraction of variance each factor explains
+    """
+    clean = returns_matrix.dropna(axis=1, thresh=int(len(returns_matrix) * 0.9)).dropna()
+    X = clean.values
+    X_centered = X - X.mean(axis=0)
+
+    cov = np.cov(X_centered, rowvar=False)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    order = np.argsort(eigvals)[::-1]
+    eigvals, eigvecs = eigvals[order], eigvecs[:, order]
+
+    top_vecs = eigvecs[:, :n_factors]
+    factor_returns = X_centered @ top_vecs
+    reconstructed = factor_returns @ top_vecs.T
+    idiosyncratic = X_centered - reconstructed
+
+    explained = eigvals[:n_factors] / eigvals.sum()
+
+    return {
+        "factor_returns": pd.DataFrame(factor_returns, index=clean.index,
+                                        columns=[f"PC{i+1}" for i in range(n_factors)]),
+        "loadings": pd.DataFrame(top_vecs, index=clean.columns,
+                                  columns=[f"PC{i+1}" for i in range(n_factors)]),
+        "idiosyncratic_returns": pd.DataFrame(idiosyncratic, index=clean.index,
+                                               columns=clean.columns),
+        "explained_variance_ratio": explained,
+    }
+
+
+def cross_sectional_momentum_zscore(returns_matrix: pd.DataFrame,
+                                     lookback: int = 21) -> pd.DataFrame:
+    """
+    Cross-sectional momentum z-score: how strong is this stock's move
+    RELATIVE to its peer universe, not just in absolute terms.
+
+    A stock up 5% means much more if its sector/universe averaged +1%
+    that day than if the whole universe was up 5%.
+
+    Args:
+        returns_matrix: pandas DataFrame, rows = time, columns = tickers.
+        lookback: rolling lookback window for cumulative return calc.
+
+    Returns:
+        pandas DataFrame, same shape as input, of cross-sectional z-scores
+        per period (z-score computed ACROSS columns at each timestamp).
+    """
+    cum_ret = (1 + returns_matrix).rolling(lookback).apply(lambda x: x.prod() - 1, raw=True)
+    cross_mean = cum_ret.mean(axis=1)
+    cross_std = cum_ret.std(axis=1)
+    z = cum_ret.sub(cross_mean, axis=0).div(cross_std.replace(0, np.nan), axis=0)
+    return z
+
+
+def absorption_ratio(returns_matrix: pd.DataFrame, n_factors: int = 5) -> float:
+    """
+    Absorption Ratio (Kritzman et al., MIT) -- systemic risk measure.
+
+    Fraction of total variance in the universe explained by the top
+    N principal components. HIGH absorption ratio = the market is moving
+    as one correlated blob (fragile, systemic-risk-on regime, all stocks
+    will fall/rise together). LOW = stock-picker's market, idiosyncratic
+    moves dominate. Spikes in this metric have historically preceded
+    market stress (used as an early warning indicator pre-2008, pre-2020).
+
+    Args:
+        returns_matrix: pandas DataFrame, rows = time, columns = tickers
+                         (use your full universe, the more tickers the
+                         more meaningful this is).
+        n_factors: number of top principal components to sum
+                    (Kritzman's paper uses 1/5th of total assets; 5 is a
+                    reasonable default for moderate universes).
+
+    Returns:
+        float, absorption ratio in [0, 1].
+    """
+    clean = returns_matrix.dropna(axis=1, thresh=int(len(returns_matrix) * 0.9)).dropna()
+    cov = np.cov(clean.values, rowvar=False)
+    eigvals = np.linalg.eigvalsh(cov)[::-1]
+    n_factors = min(n_factors, len(eigvals))
+    return float(eigvals[:n_factors].sum() / eigvals.sum())
+
+
+# =====================================================================
+# 5. OPTIONS / VOL SURFACE (requires a full options chain snapshot)
+# =====================================================================
+
+def gamma_exposure_by_strike(chain: pd.DataFrame, spot_price: float,
+                              contract_multiplier: int = 100) -> pd.DataFrame:
+    """
+    Dealer Gamma Exposure (GEX) estimate by strike.
+
+    Approximates net dealer gamma positioning assuming dealers are short
+    customer gamma (the standard market convention). Large positive GEX
+    strikes tend to act as "pinning" magnets (dealers hedge by selling
+    rallies/buying dips near them); large negative GEX = acceleration
+    zones (dealers must chase the move, amplifying it).
+
+    Args:
+        chain: pandas DataFrame with columns:
+               ['strike', 'open_interest', 'gamma', 'type'] where
+               'type' is 'call' or 'put', 'gamma' is the Black-Scholes
+               gamma per contract (from your options data provider).
+        spot_price: current underlying price.
+        contract_multiplier: shares per contract (100 for standard equity
+                              options).
+
+    Returns:
+        pandas DataFrame indexed by strike with column 'net_gex'
+        (positive = dealer long gamma / pinning, negative = dealer short
+        gamma / acceleration risk).
+    """
+    df = chain.copy()
+    df["sign"] = np.where(df["type"].str.lower() == "call", 1, -1)
+    df["dealer_gex"] = (
+        df["sign"] * df["gamma"] * df["open_interest"]
+        * contract_multiplier * spot_price * spot_price * 0.01
+    )
+    # Convention: calls = dealers short gamma effectively contribute
+    # negative dealer gamma in many formulations; flip sign convention
+    # to match your data provider's documented methodology before
+    # production use.
+    return df.groupby("strike")["dealer_gex"].sum().to_frame("net_gex")
+
+
+def variance_risk_premium(realized_vol: pd.Series, implied_vol: pd.Series) -> pd.Series:
+    """
+    Variance Risk Premium (VRP) = Implied Vol^2 - Realized Vol^2.
+
+    Persistently positive and mean-reverting: options tend to overprice
+    realized volatility on average (the "vol risk premium" sellers
+    harvest). Large deviations from the historical VRP mean are a
+    tradeable mean-reversion signal in vol itself.
+
+    Args:
+        realized_vol: pandas Series of trailing realized volatility
+                       (annualized, e.g. 20-day realized vol).
+        implied_vol: pandas Series of ATM implied volatility, same index.
+
+    Returns:
+        pandas Series of VRP values (variance units).
+    """
+    return (implied_vol ** 2) - (realized_vol ** 2)
+
+
+def skew_velocity(put_skew_25d: pd.Series, window: int = 5) -> pd.Series:
+    """
+    Skew velocity: rate of change of 25-delta put skew over time.
+
+    The LEVEL of skew tells you fear is priced in; the VELOCITY tells
+    you whether fear is actively building or unwinding RIGHT NOW --
+    much more useful as a timing signal than the static level.
+
+    Args:
+        put_skew_25d: pandas Series of 25-delta put implied vol minus
+                       ATM implied vol (the standard skew metric), one
+                       value per period (e.g. daily close).
+        window: lookback window for the rate-of-change calc.
+
+    Returns:
+        pandas Series, skew velocity (change per period, annualized-ish
+        depending on your input frequency).
+    """
+    return put_skew_25d.diff(window) / window
+
+
+def risk_neutral_density(strikes: np.ndarray, call_prices: np.ndarray,
+                          r: float, t: float) -> np.ndarray:
+    """
+    Risk-neutral probability density via Breeden-Litzenberger (1978).
+
+    Extracts the market's IMPLIED probability distribution of future
+    price outcomes directly from the options chain -- not a single
+    number like IV, but the entire shape (fat tails, bimodality, etc.)
+    the market is pricing in.
+
+    Formula: f(K) = e^(rT) * d^2C/dK^2
+
+    Args:
+        strikes: 1D np.array of strikes, SORTED ascending, evenly spaced
+                 (interpolate your chain to a uniform grid first).
+        call_prices: 1D np.array of call mid-prices at each strike,
+                     same length/order as strikes.
+        r: risk-free rate (annualized, decimal e.g. 0.05).
+        t: time to expiration in years.
+
+    Returns:
+        np.array of risk-neutral density values, same length as strikes
+        (first and last 2 points will be NaN due to second-derivative
+        edge effects -- trim before using).
+    """
+    dk = np.diff(strikes)
+    if not np.allclose(dk, dk[0], rtol=1e-3):
+        raise ValueError("strikes must be evenly spaced -- interpolate chain first")
+    dk = dk[0]
+
+    second_deriv = np.full_like(call_prices, np.nan, dtype=float)
+    second_deriv[1:-1] = (
+        call_prices[2:] - 2 * call_prices[1:-1] + call_prices[:-2]
+    ) / (dk ** 2)
+
+    density = np.exp(r * t) * second_deriv
+    return density
+
+
+# =====================================================================
+# QUICK SELF-TEST (run this file directly to sanity-check all functions)
+# =====================================================================
+
+if __name__ == "__main__":
+    np.random.seed(42)
+    n = 300
+    dates = pd.date_range("2025-01-01", periods=n, freq="D")
+    price = pd.Series(100 + np.cumsum(np.random.randn(n)), index=dates)
+    returns = price.pct_change()
+    high = price * 1.01
+    low = price * 0.99
+    volume = pd.Series(np.random.randint(1000, 10000, n), index=dates)
+    dollar_vol = volume * price
+
+    print("Hurst exponent:", hurst_exponent(price))
+    print("Roll spread estimate:", roll_spread_estimator(price))
+    print("Corwin-Schultz spread (tail):\n", corwin_schultz_spread(high, low).tail())
+    print("Amihud illiquidity (tail):\n", amihud_illiquidity(returns, dollar_vol).tail())
+    print("Realized skew/kurt (tail):\n", realized_skew_kurtosis(returns).tail())
+    print("Jump detected (tail):\n", jump_detection_bipower(returns).tail())
+    print("Shannon entropy (tail):\n", shannon_entropy(returns).tail())
+
+    # Multi-ticker tests
+    universe = pd.DataFrame(
+        {f"TICK{i}": np.random.randn(n) * 0.02 for i in range(10)}, index=dates
+    )
+    pca = pca_factor_decomposition(universe, n_factors=3)
+    print("PCA explained variance ratio:", pca["explained_variance_ratio"])
+    print("Absorption ratio:", absorption_ratio(universe, n_factors=3))
+    print("Cross-sectional momentum z (tail):\n",
+          cross_sectional_momentum_zscore(universe).tail(1))
+
+    print("\nAll functions ran without errors.")
