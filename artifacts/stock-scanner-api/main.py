@@ -3857,6 +3857,60 @@ try:
         except Exception as _e_aisc:
             print(f"[startup_preload] ai-short-calls error: {_e_aisc}")
 
+        # ── Conviction Calls (High Conviction tab) from snapshot table ────────
+        try:
+            if not getattr(app, "_conv_calls_cache", None):
+                with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c_cc, _c_cc.cursor() as _cur_cc:
+                    _cur_cc.execute("""
+                        SELECT ticker, price, score, conviction, num_strikes,
+                               total_prem_m, max_vol_oi, avg_iv, rank, snap_date
+                        FROM conviction_calls_snapshot
+                        ORDER BY snap_date DESC, rank ASC
+                        LIMIT 50
+                    """)
+                    _rows_cc = _cur_cc.fetchall()
+                if _rows_cc:
+                    _cols_cc = ["ticker","price","score","conviction","num_strikes",
+                                "total_prem_m","max_vol_oi","avg_iv","rank","snap_date"]
+                    _sigs_cc = []
+                    for _r_cc in _rows_cc:
+                        _d_cc = dict(zip(_cols_cc, _r_cc))
+                        _d_cc["snap_date"] = str(_d_cc["snap_date"]) if _d_cc["snap_date"] else None
+                        _d_cc["strikes"] = []
+                        _sigs_cc.append(_d_cc)
+                    app._conv_calls_cache = {
+                        "signals": _sigs_cc, "total": len(_sigs_cc),
+                        "stale": True, "source": "boot_preload",
+                        "note": "Showing most recent saved picks — live data loading shortly"
+                    }
+                    app._conv_calls_cache_ts = _dt_pl.datetime.now()
+                    _pl_loaded.append(f"conviction-calls({len(_sigs_cc)})")
+        except Exception as _e_cc:
+            print(f"[startup_preload] conviction-calls error: {_e_cc}")
+
+        # ── Microcap Calls from DB ────────────────────────────────────────────
+        try:
+            if not getattr(app, "_mc_calls_boot_done", False):
+                with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c_mc2, _c_mc2.cursor() as _cur_mc2:
+                    _cur_mc2.execute("""
+                        SELECT ticker, price::float, strike::float, expiry, days_out,
+                               volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
+                               iv::float, urgency, cap_tier, first_seen, last_seen
+                        FROM unusual_calls_microcap_log
+                        WHERE last_seen >= NOW() - INTERVAL '7 days'
+                          AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                          AND cap_tier IN ('nano', 'micro', 'small')
+                        ORDER BY prem DESC LIMIT 200
+                    """)
+                    _rows_mc2 = _cur_mc2.fetchall()
+                if _rows_mc2:
+                    _cols_mc2 = ["ticker","price","strike","expiry","days_out","volume","oi",
+                                 "vol_oi","prem","otm_pct","iv","urgency","cap_tier","first_seen","last_seen"]
+                    app._mc_calls_boot_done = True
+                    _pl_loaded.append(f"microcap-calls({len(_rows_mc2)})")
+        except Exception as _e_mc2:
+            print(f"[startup_preload] microcap-calls error: {_e_mc2}")
+
         # ── Summary ───────────────────────────────────────────────────────────
         if _pl_loaded:
             print(f"[startup_preload] ✅ Restored {len(_pl_loaded)} tabs from DB: {', '.join(_pl_loaded)}")
@@ -30925,7 +30979,10 @@ def unusual_calls_microcap():
                         "stale": _stale,
                         "stale_note": _stale_note})
     except Exception as e:
-        return jsonify({"error": str(e), "signals": [], "total": 0}), 500
+        import traceback
+        print(f"[microcap] endpoint error: {e}\n{traceback.format_exc()}")
+        return jsonify({"signals": [], "total": 0, "stale": True,
+                        "note": "DB temporarily busy — data will appear shortly"})
 
 
 @app.route("/stock-api/unusual-calls/microcap/scan", methods=["POST"])
@@ -31304,7 +31361,10 @@ def etf_calls():
             today_count = sum(1 for r in rows if (r.get("last_seen") or "")[:10] == today_str)
         return jsonify({"signals": rows, "total": len(rows), "today_count": today_count})
     except Exception as e:
-        return jsonify({"error": str(e), "signals": [], "total": 0, "today_count": 0}), 500
+        import traceback
+        print(f"[etf_calls] error: {e}\n{traceback.format_exc()}")
+        return jsonify({"signals": [], "total": 0, "today_count": 0, "stale": True,
+                        "note": "DB temporarily busy — data will appear shortly"})
 
 
 @app.route("/stock-api/eod-sweeps", methods=["GET"])
@@ -32223,7 +32283,13 @@ def conviction_calls():
     except Exception as e:
         import traceback
         print(f"[conviction_calls] error: {e}\n{traceback.format_exc()}", file=__import__("sys").stderr)
-        return jsonify({"error": str(e), "signals": []}), 500
+        if _cache:
+            return jsonify({**_cache, "stale": True, "note": "DB temporarily busy — showing cached data"})
+        _fb = _load_scan_cache("conviction-calls")
+        if _fb:
+            return jsonify({**_fb, "stale": True, "note": "DB temporarily busy — showing cached data"})
+        return jsonify({"signals": [], "total": 0, "stale": True,
+                        "note": "DB temporarily busy — data will appear shortly"})
 
 
 @app.route("/stock-api/conviction-history", methods=["GET"])
@@ -32356,7 +32422,8 @@ def conviction_outcomes_api():
     except Exception as e:
         import traceback
         print(f"[conviction_outcomes] api error: {e}\n{traceback.format_exc()}")
-        return jsonify({"error": str(e), "picks": [], "stats": {}}), 500
+        return jsonify({"picks": [], "stats": {}, "total": 0, "stale": True,
+                        "note": "DB temporarily busy — try again shortly"})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
