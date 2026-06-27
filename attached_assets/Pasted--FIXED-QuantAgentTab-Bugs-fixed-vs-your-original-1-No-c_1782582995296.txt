@@ -1,0 +1,362 @@
+/*
+FIXED: QuantAgentTab
+
+Bugs fixed vs. your original:
+
+1. No cleanup of the polling interval on unmount. If the user switches
+   tabs while a session is running, the interval keeps firing forever
+   against a component that's no longer mounted — silent memory leak,
+   and on a SPA dashboard with many tabs this adds up fast over a session.
+   Fixed with a cleanup function in useEffect.
+
+2. No AbortController on the fetch calls — same issue, in-flight requests
+   from an unmounted component still resolve and (if you're not careful)
+   call setState on a dead component.
+
+3. No persistence of the active job_id. If the user refreshes mid-research
+   (which takes minutes), they lose track of it entirely until it shows up
+   in history. Now stored in localStorage and restored on mount.
+
+4. No client-side timeout on polling. If a job somehow never reaches a
+   terminal status (shouldn't happen after the backend fix, but defense
+   in depth), the UI polls forever with no escape hatch for the user.
+   Added a max-wait cutoff that surfaces an error state.
+
+5. No error state UI at all — status === 'error' was unhandled.
+
+6. Answer rendered as plain pre-formatted text even though the agent
+   outputs markdown. Now uses react-markdown (addresses improvement #3).
+   Run: npm install react-markdown remark-gfm
+
+7. No double-submit guard — rapid Enter presses could fire multiple
+   POST /chat calls before the first one's job_id comes back.
+
+8. Tool trace from the backend is now shown as a collapsible list per
+   message (addresses improvement #6) instead of just elapsed time.
+
+Note on streaming (improvement #4): true token-level SSE streaming would
+require restructuring the OpenAI call into a stream + a parallel channel
+for tool-call events, which is a bigger lift than the bugs above. The
+`current_tool` field added on the backend gets you most of the perceived-
+responsiveness benefit for far less work — the spinner below now shows
+"Calling mkt_test_signal..." instead of just a generic dot animation, by
+polling that field. If you want literal token streaming later, swap the
+polling fetch for an EventSource and have the backend route push SSE
+events instead of just updating a DB row — but I'd ship this first.
+*/
+import { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+const API_BASE = import.meta.env.BASE_URL;
+const POLL_INTERVAL_MS = 3000;
+const MAX_WAIT_MS = 6 * 60 * 1000; // 6 min safety cutoff
+const ACTIVE_JOB_KEY = "quantAgent.activeJobId";
+
+const EXAMPLE_QUESTIONS = [
+  "Is quiet accumulation a real predictive signal or noise?",
+  "Compare MRVL and CRDO unusual call sweep activity this month",
+  "Backtest a 2.5x relative volume + gap-up filter over the last 90 days",
+  "What's driving the recent dark pool activity in semiconductor names?",
+  "Validate the squeeze fuel signal out-of-sample",
+];
+
+type SessionStatus = "pending" | "running" | "done" | "error";
+
+interface ToolTraceStep {
+  iteration: number;
+  tool: string;
+  ok: boolean;
+}
+
+interface Session {
+  job_id: string;
+  question: string;
+  status: SessionStatus;
+  answer?: string | null;
+  error?: string | null;
+  current_tool?: string | null;
+  tool_trace?: ToolTraceStep[] | null;
+  created_at?: string;
+}
+
+export default function QuantAgentTab() {
+  const [history, setHistory] = useState<Session[]>([]);
+  const [input, setInput] = useState("");
+  const [activeJob, setActiveJob] = useState<Session | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const mountedRef = useRef(true);
+
+  // ---- load history on mount, restore in-flight job if there was one ----
+  useEffect(() => {
+    mountedRef.current = true;
+    loadHistory();
+
+    const savedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
+    if (savedJobId) {
+      startPolling(savedJobId);
+    }
+
+    return () => {
+      mountedRef.current = false;
+      clearTimers();
+      abortRef.current?.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function clearTimers() {
+    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    pollTimerRef.current = null;
+    elapsedTimerRef.current = null;
+  }
+
+  async function loadHistory() {
+    try {
+      const res = await fetch(`${API_BASE}stock-api/aiem/chat/history`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (mountedRef.current) setHistory(data);
+    } catch {
+      // non-fatal — history just stays empty / stale
+    }
+  }
+
+  const startPolling = useCallback((jobId: string) => {
+    clearTimers();
+    startTimeRef.current = Date.now();
+    setElapsed(0);
+    setActiveJob({ job_id: jobId, question: "", status: "pending" });
+    localStorage.setItem(ACTIVE_JOB_KEY, jobId);
+
+    elapsedTimerRef.current = setInterval(() => {
+      if (!mountedRef.current) return;
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
+
+    const poll = async () => {
+      if (Date.now() - startTimeRef.current > MAX_WAIT_MS) {
+        clearTimers();
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+        if (mountedRef.current) {
+          setActiveJob((prev) =>
+            prev ? { ...prev, status: "error", error: "Timed out waiting for a response. The session may still finish in the background — check History in a bit." } : prev
+          );
+        }
+        return;
+      }
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const res = await fetch(`${API_BASE}stock-api/aiem/chat/${jobId}`, {
+          signal: controller.signal,
+        });
+        if (!mountedRef.current) return;
+
+        if (res.status === 404) {
+          clearTimers();
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+          setActiveJob((prev) => (prev ? { ...prev, status: "error", error: "Session not found." } : prev));
+          return;
+        }
+
+        const data: Session = await res.json();
+        setActiveJob(data);
+
+        if (data.status === "done" || data.status === "error") {
+          clearTimers();
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+          loadHistory();
+        }
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+        // transient fetch failure — let the next poll tick try again
+      }
+    };
+
+    poll();
+    pollTimerRef.current = setInterval(poll, POLL_INTERVAL_MS);
+  }, []);
+
+  async function handleSubmit(question: string) {
+    const q = question.trim();
+    if (!q || submitting) return; // guards rapid double-submit
+
+    setSubmitting(true);
+    setInput("");
+    try {
+      const res = await fetch(`${API_BASE}stock-api/aiem/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+
+      if (res.status === 429) {
+        const data = await res.json();
+        setActiveJob({
+          job_id: "",
+          question: q,
+          status: "error",
+          error: data.error || "A session is already running. Please wait for it to finish.",
+        });
+        return;
+      }
+
+      const data = await res.json();
+      if (data.job_id) {
+        startPolling(data.job_id);
+        setActiveJob((prev) => (prev ? { ...prev, question: q } : prev));
+      }
+    } catch {
+      setActiveJob({ job_id: "", question: q, status: "error", error: "Failed to start session — check your connection." });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(input);
+    }
+  }
+
+  const isBusy = activeJob?.status === "pending" || activeJob?.status === "running";
+
+  return (
+    <div style={{ background: "#060c14", color: "#d6e2f0", minHeight: "100%", padding: "16px" }}>
+      {history.length === 0 && !activeJob && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ opacity: 0.7, marginBottom: 8, fontSize: 13 }}>Try asking:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {EXAMPLE_QUESTIONS.map((q) => (
+              <button
+                key={q}
+                onClick={() => handleSubmit(q)}
+                style={{
+                  background: "#0d1726",
+                  border: "1px solid #1c3350",
+                  color: "#7fb3ff",
+                  borderRadius: 16,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {history
+          .filter((s) => s.job_id !== activeJob?.job_id)
+          .slice()
+          .reverse()
+          .map((s) => (
+            <SessionBubble key={s.job_id} session={s} />
+          ))}
+
+        {activeJob && <SessionBubble session={activeJob} elapsed={isBusy ? elapsed : undefined} />}
+      </div>
+
+      <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask the Quant Agent..."
+          rows={2}
+          disabled={isBusy || submitting}
+          style={{
+            flex: 1,
+            background: "#0d1726",
+            border: "1px solid #1c3350",
+            color: "#d6e2f0",
+            borderRadius: 8,
+            padding: 10,
+            resize: "none",
+          }}
+        />
+        <button
+          onClick={() => handleSubmit(input)}
+          disabled={isBusy || submitting || !input.trim()}
+          style={{
+            background: isBusy || submitting ? "#1c3350" : "#1e64c8",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            padding: "0 18px",
+            cursor: isBusy || submitting ? "not-allowed" : "pointer",
+          }}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SessionBubble({ session, elapsed }: { session: Session; elapsed?: number }) {
+  const [showTrace, setShowTrace] = useState(false);
+
+  return (
+    <div style={{ background: "#0d1726", border: "1px solid #1c3350", borderRadius: 10, padding: 14 }}>
+      <div style={{ color: "#7fb3ff", fontSize: 13, marginBottom: 8 }}>{session.question}</div>
+
+      {(session.status === "pending" || session.status === "running") && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#5ea0ff" }}>
+          <span className="dot-pulse" />
+          <span style={{ fontSize: 13 }}>
+            {session.current_tool ? `Calling ${session.current_tool}...` : "Researching..."}
+            {typeof elapsed === "number" && ` (${elapsed}s)`}
+          </span>
+        </div>
+      )}
+
+      {session.status === "done" && session.answer && (
+        <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answer}</ReactMarkdown>
+        </div>
+      )}
+
+      {session.status === "error" && (
+        <div style={{ color: "#ff6b6b", fontSize: 13 }}>
+          Something went wrong: {session.error || "unknown error"}
+        </div>
+      )}
+
+      {session.tool_trace && session.tool_trace.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <button
+            onClick={() => setShowTrace((v) => !v)}
+            style={{ background: "none", border: "none", color: "#5ea0ff", fontSize: 11, cursor: "pointer", padding: 0 }}
+          >
+            {showTrace ? "Hide" : "Show"} tool trace ({session.tool_trace.length} calls)
+          </button>
+          {showTrace && (
+            <ul style={{ marginTop: 6, fontSize: 11, color: "#8fa3bf", paddingLeft: 16 }}>
+              {session.tool_trace.map((t, i) => (
+                <li key={i}>
+                  {t.tool} {t.ok ? "" : "⚠️ failed"}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,600 @@
+"""
+main.py patches — apply each section in order. Find/replace instructions
+in the comment above each block. Section numbers match REPLIT_FIX_PACKAGE.md.
+"""
+
+# ============================================================================
+# SECTION 1 — Replace _fs_tool_map inside _run_aiem_focused_session()
+# (~line 22954-23027 in the reviewed export)
+#
+# FIND the dict literal that starts:
+#     _fs_tool_map = {
+#         "mkt_behavioral_templates":    _mkt_behavioral_templates,
+#         ...
+#     }
+# REPLACE the whole dict body with this merged version (135 entries —
+# union of the old _fs_tool_map and the complete _tool_map used by
+# _run_aiem_research_agent, deduped, no conflicting function refs found).
+# ============================================================================
+
+_fs_tool_map = {
+        "adversarial_review": _aiem_tool_adversarial_review,
+        "analyze_missed_movers": _aiem_tool_analyze_missed_movers,
+        "analyze_signal_correlation": _aiem_tool_analyze_signal_correlation,
+        "benchmark_vs_baselines": _aiem_tool_benchmark_vs_baselines,
+        "breakout_discover": _aiem_tool_breakout_discover,
+        "breakout_extract_features": _aiem_tool_breakout_extract_features,
+        "causal_discover": _aiem_tool_causal_discover,
+        "check_kill_switch": _aiem_tool_check_kill_switch,
+        "check_price_bullish": _aiem_tool_check_price_bullish,
+        "check_shadow_promotion": _aiem_tool_check_shadow_promotion,
+        "clear_kill_switch_halt": _aiem_tool_clear_kill_switch_halt,
+        "close_eval_window": _aiem_tool_close_eval_window,
+        "close_shadow_trade": _aiem_tool_close_shadow_trade,
+        "compare_picks_vs_misses": _aiem_tool_compare_picks_vs_misses,
+        "decision_quality_summary": _aiem_tool_decision_quality_summary,
+        "deep_rl_get_paper_action": _aiem_tool_deep_rl_get_paper_action,
+        "deep_rl_probe": _aiem_tool_deep_rl_probe,
+        "discover_numeric_patterns": _aiem_tool_discover_numeric_patterns,
+        "divergence_scan": _aiem_tool_divergence_scan,
+        "ensemble_combine_signals": _aiem_tool_ensemble_combine_signals,
+        "eval_window_history": _aiem_tool_eval_window_history,
+        "evaluate_previous_model": _aiem_tool_evaluate_previous_model,
+        "execution_realistic_cost": _aiem_tool_execution_realistic_cost,
+        "gap_continuation_score": _aiem_tool_gap_continuation_score,
+        "gate_history": _aiem_tool_gate_history,
+        "get_decisions": _aiem_tool_get_decisions,
+        "get_literature_briefs": _aiem_tool_get_literature_briefs,
+        "get_regime_flags": _aiem_tool_get_regime_flags,
+        "holding_period_optimize": _aiem_tool_holding_period_optimize,
+        "intraday_compute_features": _aiem_tool_intraday_compute_features,
+        "intraday_continuation_score": _aiem_tool_intraday_continuation_score,
+        "is_eval_window_active": _aiem_tool_is_eval_window_active,
+        "kelly_position_size": _aiem_tool_kelly_position_size,
+        "kill_switch_events": _aiem_tool_kill_switch_events,
+        "list_hypotheses": _aiem_tool_list_hypotheses,
+        "list_signal_dimensions": _aiem_tool_list_signal_dimensions,
+        "log_decision": _aiem_tool_log_decision,
+        "mkt_52week_momentum": _mkt_52week_high_momentum,
+        "mkt_accumulation_squeeze": _mkt_tool_accumulation_into_squeeze,
+        "mkt_analyze_false_signals": _mkt_tool_analyze_false_signals,
+        "mkt_analyze_top_movers": _mkt_tool_analyze_top_movers,
+        "mkt_behavioral_templates": _mkt_behavioral_templates,
+        "mkt_build_composite": _mkt_tool_build_composite,
+        "mkt_capitulation_detector": _detect_capitulation_signature,
+        "mkt_check_redundancy": _mkt_check_signal_redundancy,
+        "mkt_check_survivorship": _mkt_tool_check_survivorship,
+        "mkt_compare_signals": _mkt_tool_compare_signals,
+        "mkt_compute_indicators": _mkt_compute_indicators,
+        "mkt_compute_momentum": _mkt_tool_compute_momentum,
+        "mkt_cross_confirm_options": _mkt_cross_confirm_options_price,
+        "mkt_discover_interactions": _mkt_tool_discover_interactions,
+        "mkt_explore_dimensions": _mkt_tool_explore_dimensions,
+        "mkt_extreme_move_reversion": _mkt_extreme_move_reversion,
+        "mkt_factor_correlations": _mkt_tool_factor_correlations,
+        "mkt_find_behavioral_matches": _mkt_find_behavioral_matches,
+        "mkt_find_thresholds": _mkt_tool_find_thresholds,
+        "mkt_gap_fill_probability": _mkt_gap_fill_probability,
+        "mkt_generate_hypotheses": _mkt_tool_generate_hypotheses,
+        "mkt_get_stock_history": _mkt_get_stock_history,
+        "mkt_historical_study": _mkt_historical_study,
+        "mkt_invent_indicator": _mkt_tool_invent_indicator,
+        "mkt_layer9_score": _mkt_layer9_score,
+        "mkt_load_discoveries": _mkt_tool_load_discoveries,
+        "mkt_net_flow_db": _mkt_net_flow_db,
+        "mkt_options_flow_scan": _mkt_options_flow_scan,
+        "mkt_options_predicts_price": _mkt_options_predicts_price,
+        "mkt_pre_squeeze_warning": _mkt_tool_pre_squeeze_warning,
+        "mkt_price_patterns": _mkt_tool_price_patterns,
+        "mkt_quiet_accumulation": _mkt_tool_quiet_accumulation,
+        "mkt_refresh_universe": _mkt_tool_refresh_universe,
+        "mkt_regime_filter": _mkt_tool_regime_filter,
+        "mkt_required_pvalue": _mkt_tool_required_pvalue,
+        "mkt_retrospective_backtest": _mkt_retrospective_backtest,
+        "mkt_save_discovery": _mkt_tool_save_discovery,
+        "mkt_screen_by_indicator": _mkt_screen_by_indicator,
+        "mkt_screen_period": _mkt_screen_period,
+        "mkt_segment_by_cap_tier": _mkt_tool_segment_by_cap_tier,
+        "mkt_segment_by_sector": _mkt_tool_segment_by_sector,
+        "mkt_signal_drift": _mkt_tool_signal_drift,
+        "mkt_test_inverse": _mkt_tool_test_inverse,
+        "mkt_test_signal": _mkt_tool_test_signal,
+        "mkt_ticker_deep_compare": _mkt_ticker_deep_compare,
+        "mkt_ticker_options_history": _mkt_ticker_options_history,
+        "mkt_validate_oos": _mkt_tool_validate_oos,
+        "mkt_volatility_squeeze": _mkt_tool_volatility_squeeze,
+        "mkt_volume_patterns": _mkt_tool_volume_patterns,
+        "model_version_history": _aiem_tool_model_version_history,
+        "multivariate_regression": _aiem_tool_multivariate_regression,
+        "open_shadow_trade": _aiem_tool_open_shadow_trade,
+        "portfolio_allocate": _aiem_tool_portfolio_allocate,
+        "query_cross_signal_overlap": _aiem_tool_query_cross_signal_overlap,
+        "query_exit_timing": _aiem_tool_query_exit_timing,
+        "query_market_regime": _aiem_tool_query_market_regime,
+        "query_missed_movers": _aiem_tool_query_missed_movers,
+        "query_own_prediction_performance": _aiem_tool_query_own_prediction_performance,
+        "query_pick_outcomes": _aiem_tool_query_pick_outcomes,
+        "query_rank_effectiveness": _aiem_tool_query_rank_effectiveness,
+        "query_temporal_patterns": _aiem_tool_query_temporal_patterns,
+        "record_decision_outcome": _aiem_tool_record_decision_outcome,
+        "record_human_eval_decision": _aiem_tool_record_human_eval_decision,
+        "regime_overlay_check": _aiem_tool_regime_overlay_check,
+        "regime_overlay_manual": _aiem_tool_regime_overlay_manual,
+        "register_hypotheses": _aiem_tool_register_hypotheses,
+        "register_hypothesis": _aiem_tool_register_hypothesis,
+        "retrain_approve": _aiem_tool_retrain_approve,
+        "retrain_history": _aiem_tool_retrain_history,
+        "retrain_pending": _aiem_tool_retrain_pending,
+        "retrain_reject": _aiem_tool_retrain_reject,
+        "rl_get_paper_action": _aiem_tool_rl_get_paper_action,
+        "rl_readable_policy": _aiem_tool_rl_readable_policy,
+        "rollback_to_previous_model": _aiem_tool_rollback_to_previous_model,
+        "run_granger_test": _aiem_tool_run_granger_test,
+        "run_risk_gate": _aiem_tool_run_risk_gate,
+        "run_statistical_significance": _aiem_tool_run_statistical_significance,
+        "save_research_model": _aiem_tool_save_research_model,
+        "search_past_findings": _aiem_tool_search_past_findings,
+        "send_discovery_alert": _aiem_tool_send_discovery_alert,
+        "shadow_stats": _aiem_tool_shadow_stats,
+        "signal_layer_redundancy": _aiem_tool_signal_layer_redundancy,
+        "signal_magnitude_analysis": _aiem_tool_signal_magnitude_analysis,
+        "simulation_audit_trail": _aiem_tool_simulation_audit_trail,
+        "simulation_lock_check": _aiem_tool_simulation_lock_check,
+        "squeeze_subscore": _aiem_tool_squeeze_subscore,
+        "start_eval_window": _aiem_tool_start_eval_window,
+        "start_shadow_window": _aiem_tool_start_shadow_window,
+        "test_new_signal": _aiem_tool_test_new_signal,
+        "test_scoring_hypothesis": _aiem_tool_test_scoring_hypothesis,
+        "trust_apply_to_candidates": _aiem_tool_trust_apply_to_candidates,
+        "trust_classify_context": _aiem_tool_trust_classify_context,
+        "trust_get_history": _aiem_tool_trust_get_history,
+        "trust_get_weights": _aiem_tool_trust_get_weights,
+        "trust_update": _aiem_tool_trust_update,
+        "vwap_compute_features": _aiem_tool_vwap_compute_features,
+        "vwap_price_vs": _aiem_tool_vwap_price_vs,
+        "vwap_reclaim_detect": _aiem_tool_vwap_reclaim_detect,
+}
+
+
+# ============================================================================
+# SECTION 2 — Fix raw SDK message object appended to `messages`
+# (~line 23053-23054 in the reviewed export)
+#
+# FIND:
+#     msg = resp.choices[0].message
+#     messages.append(msg)
+#     if msg.content:
+#         _last_text = msg.content
+#     if not msg.tool_calls:
+#         break
+#
+# REPLACE with:
+# ============================================================================
+
+msg = resp.choices[0].message
+
+msg_dict = {"role": "assistant", "content": msg.content or None}
+if msg.tool_calls:
+    msg_dict["tool_calls"] = [
+        {
+            "id": tc.id,
+            "type": "function",
+            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+        }
+        for tc in msg.tool_calls
+    ]
+messages.append(msg_dict)
+
+if msg.content:
+    _last_text = msg.content
+if not msg.tool_calls:
+    break
+
+
+# ============================================================================
+# SECTION 3 — SMS webhook: acquire the existing concurrency lock + tag
+# the insight row so the readback can't cross-talk with another session
+# (~line 40873-40906 in the reviewed export, function nested inside the
+# /sms/incoming route)
+#
+# FIND:
+#     def _research(q=question, to=from_num):
+#         prompt = ( ... )
+#         try:
+#             _run_aiem_focused_session(
+#                 session_name=f"sms_{q[:20].replace(' ','_')}",
+#                 focus_prompt=prompt,
+#                 max_iterations=8
+#             )
+#             # Pull latest insight as SMS summary
+#             try:
+#                 import psycopg2 as _pg
+#                 with _pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+#                     _cur.execute("SELECT insight_text FROM aiem_research_insights ORDER BY created_at DESC LIMIT 1")
+#                     row = _cur.fetchone()
+#                     summary = (row[0][:280] if row and row[0] else
+#                                "Research complete — check your email for the full report.")
+#             except Exception:
+#                 summary = "Research complete — check your email for the full report."
+#             _send_sms(f"📊 {summary}", to=to)
+#         except Exception as _e:
+#             print(f"[sms/incoming] research error: {_e}")
+#             _send_sms("⚠️ Hit an error researching that. Try again.", to=to)
+#
+# REPLACE with:
+# ============================================================================
+
+def _research(q=question, to=from_num):
+    session_name = f"sms_{q[:20].replace(' ','_')}_{uuid.uuid4().hex[:6]}"
+    prompt = (
+        f"The owner just texted this question: '{q}'\n\n"
+        f"Research this using your tools. If they mention tickers, use "
+        f"mkt_retrospective_backtest and mkt_find_behavioral_matches. "
+        f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
+        f"If they ask about a signal or pattern, use mkt_test_signal to validate. "
+        f"After researching, write a SHORT reply (under 300 chars) that directly answers "
+        f"their question with the most important finding. Start with the direct answer."
+    )
+
+    # Reuse the SAME lock the email "ask AIEM" path uses, so SMS, email,
+    # web chat, and scheduled cron sessions can never run concurrently
+    # against each other and step on shared resources / cost budget.
+    if not app._aiem_qa_lock.acquire(blocking=False):
+        _send_sms("⏳ Already researching another question — I'll get to this one next. Try again in a few minutes.", to=to)
+        return
+
+    try:
+        _run_aiem_focused_session(
+            session_name=session_name,
+            focus_prompt=prompt,
+            max_iterations=8
+        )
+        # Pull THIS session's insight specifically, not just "the latest one" —
+        # prevents reading back a different concurrent session's answer.
+        try:
+            import psycopg2 as _pg
+            with _pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+                _cur.execute(
+                    """SELECT insight_text FROM aiem_research_insights
+                       WHERE session_name=%s ORDER BY created_at DESC LIMIT 1""",
+                    (session_name,),
+                )
+                row = _cur.fetchone()
+                if not row:
+                    # fall back to latest overall only if nothing tagged to this session
+                    _cur.execute("SELECT insight_text FROM aiem_research_insights ORDER BY created_at DESC LIMIT 1")
+                    row = _cur.fetchone()
+                summary = (row[0][:280] if row and row[0] else
+                           "Research complete — check your email for the full report.")
+        except Exception:
+            summary = "Research complete — check your email for the full report."
+        _send_sms(f"📊 {summary}", to=to)
+    except Exception as _e:
+        print(f"[sms/incoming] research error: {_e}")
+        _send_sms("⚠️ Hit an error researching that. Try again.", to=to)
+    finally:
+        app._aiem_qa_lock.release()
+
+
+# NOTE: this requires aiem_research_insights to have a session_name column.
+# If it doesn't yet, add: ALTER TABLE aiem_research_insights ADD COLUMN IF NOT EXISTS session_name TEXT;
+# and have whatever code writes to that table also write session_name.
+# (Included in db_migration.sql.txt)
+
+
+# ============================================================================
+# SECTION 4 — New chat endpoints (these don't exist yet anywhere in main.py)
+# Add this as a new block, anywhere routes are defined.
+# Requires: db_migration.sql.txt applied first.
+# ============================================================================
+
+import json
+import threading
+import uuid as _uuid_mod
+from flask import jsonify, request
+
+
+def _aiem_classify_question_complexity(question: str) -> int:
+    """Dynamic iteration budget instead of a flat number — complex
+    multi-step questions get more room before the model has to answer."""
+    q = question.lower()
+    deep_signals = ["backtest", "validate", "significan", "out-of-sample",
+                     "oos", "is it real", "does it work", "prove", "p-value"]
+    compare_signals = ["compare", "vs", "versus", "better than", "which of"]
+    simple_signals = ["what is", "define", "explain", "how does"]
+    if any(s in q for s in deep_signals):
+        return 10
+    if any(s in q for s in compare_signals):
+        return 7
+    if any(s in q for s in simple_signals) and len(q) < 80:
+        return 4
+    return 6
+
+
+def _get_thread_db_conn():
+    """New connection per thread — never reuse a connection across threads.
+    Swap this for your existing pool accessor if you have one."""
+    import psycopg2
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+
+@app.route("/stock-api/aiem/chat", methods=["POST"])
+def aiem_chat_start():
+    data = request.get_json(silent=True) or {}
+    question = (data.get("question") or "").strip()[:800]
+    if not question:
+        return jsonify({"error": "question is required"}), 400
+
+    # Single-flight check against the SAME lock used by SMS/email, so the
+    # web chat tab can't run a session concurrently with those either.
+    if not app._aiem_qa_lock.acquire(blocking=False):
+        return jsonify({
+            "error": "Another research session is already running (SMS, email, "
+                      "or chat). Please wait for it to finish before starting a new one.",
+        }), 429
+    app._aiem_qa_lock.release()  # release immediately — the worker thread re-acquires
+                                   # it itself so the HTTP request doesn't hold the lock
+
+    job_id = str(_uuid_mod.uuid4())
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO quant_agent_sessions (job_id, question, status)
+                   VALUES (%s, %s, 'pending')""",
+                (job_id, question),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    max_iter = _aiem_classify_question_complexity(question)
+    prompt = (
+        f"The user asks: '{question}'\n\n"
+        f"Research this thoroughly using your tools. "
+        f"If they mention specific tickers, use mkt_retrospective_backtest. "
+        f"If they ask about a pattern or signal, use mkt_test_signal to validate with real data. "
+        f"End with a clear, direct answer. Be concise but complete — 3-5 paragraphs max."
+    )
+
+    def _worker():
+        if not app._aiem_qa_lock.acquire(blocking=False):
+            wconn = _get_thread_db_conn()
+            try:
+                with wconn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE quant_agent_sessions SET status='error', error=%s WHERE job_id=%s",
+                        ("Another session started first — please retry.", job_id),
+                    )
+                wconn.commit()
+            finally:
+                wconn.close()
+            return
+
+        worker_conn = _get_thread_db_conn()
+        try:
+            with worker_conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE quant_agent_sessions SET status='running', updated_at=NOW() WHERE job_id=%s",
+                    (job_id,),
+                )
+            worker_conn.commit()
+
+            def _on_step(step):
+                try:
+                    with worker_conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE quant_agent_sessions SET current_tool=%s, updated_at=NOW() WHERE job_id=%s",
+                            (step.get("tool"), job_id),
+                        )
+                    worker_conn.commit()
+                except Exception:
+                    pass
+
+            answer, trace, err = _run_aiem_focused_session_v2(
+                session_name=f"quant_chat_{job_id[:8]}",
+                focus_prompt=prompt,
+                max_iterations=max_iter,
+                on_step=_on_step,
+            )
+
+            with worker_conn.cursor() as cur:
+                if err:
+                    cur.execute(
+                        """UPDATE quant_agent_sessions
+                           SET status='error', error=%s, tool_trace=%s, updated_at=NOW()
+                           WHERE job_id=%s""",
+                        (err, json.dumps(trace), job_id),
+                    )
+                else:
+                    cur.execute(
+                        """UPDATE quant_agent_sessions
+                           SET status='done', answer=%s, tool_trace=%s, updated_at=NOW()
+                           WHERE job_id=%s""",
+                        (answer, json.dumps(trace), job_id),
+                    )
+            worker_conn.commit()
+
+        except Exception as e:
+            try:
+                with worker_conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE quant_agent_sessions SET status='error', error=%s, updated_at=NOW() WHERE job_id=%s",
+                        (f"worker crashed: {type(e).__name__}: {e}", job_id),
+                    )
+                worker_conn.commit()
+            except Exception:
+                pass
+        finally:
+            worker_conn.close()
+            app._aiem_qa_lock.release()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return jsonify({"job_id": job_id, "status": "pending"})
+
+
+@app.route("/stock-api/aiem/chat/<job_id>", methods=["GET"])
+def aiem_chat_poll(job_id):
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT status, answer, error, current_tool, tool_trace, created_at
+                   FROM quant_agent_sessions WHERE job_id=%s""",
+                (job_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return jsonify({"error": "job not found"}), 404
+
+    status, answer, error, current_tool, tool_trace, created_at = row
+    return jsonify({
+        "job_id": job_id, "status": status, "answer": answer, "error": error,
+        "current_tool": current_tool, "tool_trace": tool_trace,
+        "created_at": created_at.isoformat() if created_at else None,
+    })
+
+
+@app.route("/stock-api/aiem/chat/history", methods=["GET"])
+def aiem_chat_history():
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT job_id, question, status, answer, tool_trace, created_at
+                   FROM quant_agent_sessions ORDER BY created_at DESC LIMIT 20"""
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify([
+        {"job_id": r[0], "question": r[1], "status": r[2], "answer": r[3],
+         "tool_trace": r[4], "created_at": r[5].isoformat() if r[5] else None}
+        for r in rows
+    ])
+
+
+def reconcile_orphaned_chat_sessions():
+    """Call once at app startup — recovers jobs stuck at 'running' if the
+    process restarted mid-session (redeploy, crash, autoscale cycle)."""
+    conn = _get_thread_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE quant_agent_sessions
+                   SET status='error', error='orphaned: server restarted mid-session'
+                   WHERE status='running' AND updated_at < NOW() - INTERVAL '10 minutes'"""
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# SECTION 5 — Fixed session runner used by the new chat endpoints above.
+# This is _run_aiem_focused_session with Section 1 (tool map) and Section 2
+# (message serialization) fixes already applied, plus per-tool error
+# isolation and a trace callback. Add this as a NEW function — don't
+# replace your original _run_aiem_focused_session, since SMS/email/cron
+# still call it directly. Once you've verified this version works, you can
+# migrate those callers over to it and delete the old one.
+# ============================================================================
+
+import time as _time_mod
+
+
+def _run_aiem_focused_session_v2(session_name: str, focus_prompt: str,
+                                  max_iterations: int = 12, on_step=None):
+    from openai import OpenAI as _OAIFS
+
+    _oai = _OAIFS(
+        base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
+        api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
+    )
+
+    _fs_schema = _AIEM_AGENT_TOOLS  # the existing shared schema, unchanged
+
+    session_system = (
+        _AIEM_AGENT_SYSTEM +
+        f"\n\nSESSION FOCUS ({session_name}): {focus_prompt}\n"
+        "Start immediately with the most relevant tools for this session's focus."
+    )
+    messages = [
+        {"role": "system", "content": session_system},
+        {"role": "user", "content": focus_prompt},
+    ]
+
+    trace = []
+    _last_text = ""
+    _context_budget = 60_000
+    _context_used = 0
+
+    for _i in range(max_iterations):
+        resp = None
+        for attempt in range(3):
+            try:
+                resp = _oai.chat.completions.create(
+                    model="gpt-4o", messages=messages, tools=_fs_schema,
+                    tool_choice="auto", max_tokens=2000, temperature=0.3,
+                )
+                break
+            except Exception as e:
+                if attempt == 2:
+                    return _last_text, trace, f"OpenAI call failed after retries: {e}"
+                _time_mod.sleep(1.5 * (attempt + 1))
+
+        msg = resp.choices[0].message
+        msg_dict = {"role": "assistant", "content": msg.content or None}
+        if msg.tool_calls:
+            msg_dict["tool_calls"] = [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls
+            ]
+        messages.append(msg_dict)
+
+        if msg.content:
+            _last_text = msg.content
+        if not msg.tool_calls:
+            break
+
+        for tc in msg.tool_calls:
+            fn = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError as e:
+                args = None
+                result = {"error": f"malformed arguments from model: {e}"}
+
+            if args is not None:
+                if fn not in _fs_tool_map:
+                    result = {"error": f"unknown tool: {fn}"}
+                else:
+                    try:
+                        result = _fs_tool_map[fn](**args)
+                    except Exception as e:
+                        result = {"error": f"{fn} raised: {type(e).__name__}: {e}"}
+
+            result_str = json.dumps(result, default=str)
+            if len(result_str) > 6000:
+                result_str = result_str[:6000] + "...[truncated]"
+            _context_used += len(result_str)
+            if _context_used > _context_budget:
+                result_str = json.dumps({"note": "result omitted, context budget reached"})
+
+            step = {"iteration": _i, "tool": fn, "args": args,
+                    "ok": "error" not in (result if isinstance(result, dict) else {})}
+            trace.append(step)
+            if on_step:
+                try:
+                    on_step(step)
+                except Exception:
+                    pass
+
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_str})
+
+    return _last_text, trace, None
