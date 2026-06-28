@@ -65,6 +65,8 @@ import {
   fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
   fetchFlowScores, fetchCallWinRates, fetchHistoricalSimilarity,
   HistSimEntry, HistSimRequest,
+  fetchAiemPaperPortfolio, AiemPaperPortfolio, AiemPaperTrade,
+  AiemPaperClosedTrade, AiemDailyPnl, forceAiemExecute, forceAiemMtm,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -14620,6 +14622,13 @@ export default function Dashboard() {
     enabled: tab === "portfolio",
   });
 
+  const { data: aiemPortfolio, isLoading: loadingAiemPortfolio, refetch: refetchAiem } = useQuery({
+    queryKey: ["aiem-paper-portfolio"],
+    queryFn: () => fetchAiemPaperPortfolio(30),
+    enabled: tab === "portfolio",
+    refetchInterval: tab === "portfolio" ? 60_000 : false,
+  });
+
   const tradeMutation = useMutation({
     mutationFn: ({ mode, t, shares, price }: { mode:"buy"|"sell"; t:string; shares:number; price:number }) =>
       mode === "buy" ? buyStock(t, shares, price) : sellStock(t, shares, price),
@@ -15302,6 +15311,164 @@ export default function Dashboard() {
               </>
             )}
             {!portfolio && !loadingPortfolio && <div className="text-center py-16 text-slate-500">Portfolio data unavailable</div>}
+
+            {/* ── AIEM Autonomous Paper Trading Engine ── */}
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-white font-semibold text-base flex items-center gap-2">
+                    <span className="text-violet-400">⚡</span> AIEM Autonomous Engine
+                  </div>
+                  <div className="text-slate-500 text-xs mt-0.5">20 picks/day · $1,000/trade · stocks, calls, ETFs · fully autonomous</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {aiemPortfolio && <span className="text-slate-500 text-xs">{aiemPortfolio.as_of}</span>}
+                  <button
+                    onClick={async () => { await forceAiemExecute(); setTimeout(() => refetchAiem(), 12000); }}
+                    className="px-3 py-1.5 bg-violet-900/60 hover:bg-violet-800/70 border border-violet-700/50 text-violet-300 text-xs rounded-lg transition-colors"
+                    title="Force today's trade picks now (normally runs at 9:35 AM ET)"
+                  >Pick Now</button>
+                  <button
+                    onClick={async () => { await forceAiemMtm(); setTimeout(() => refetchAiem(), 8000); }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 text-xs rounded-lg transition-colors"
+                    title="Update all open positions to current price"
+                  >Mark-to-Market</button>
+                </div>
+              </div>
+
+              {loadingAiemPortfolio && !aiemPortfolio && (
+                <div className="flex items-center justify-center py-10 gap-3 text-slate-400"><Spinner /> Loading AIEM trades…</div>
+              )}
+
+              {aiemPortfolio && (
+                <>
+                  {/* Account Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    {[
+                      { label: "Account Value", value: `$${aiemPortfolio.account_value.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, sub: `Started $${aiemPortfolio.account_start.toLocaleString()}`, color: "text-white" },
+                      { label: "Total P&L", value: `${aiemPortfolio.total_pnl >= 0 ? "+" : ""}$${Math.abs(aiemPortfolio.total_pnl).toFixed(2)}`, sub: `${aiemPortfolio.total_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.total_pnl_pct.toFixed(2)}%`, color: aiemPortfolio.total_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
+                      { label: "Win Rate", value: aiemPortfolio.win_rate != null ? `${aiemPortfolio.win_rate}%` : "—", sub: `${aiemPortfolio.winners}/${aiemPortfolio.total_closed} closed`, color: (aiemPortfolio.win_rate ?? 0) >= 50 ? "text-emerald-400" : "text-slate-300" },
+                      { label: "Avg P&L/Trade", value: `${aiemPortfolio.avg_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.avg_pnl_pct.toFixed(2)}%`, sub: `${aiemPortfolio.open_count} open now`, color: aiemPortfolio.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-red-400" },
+                    ].map(item => (
+                      <div key={item.label} className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-4">
+                        <div className="text-slate-500 text-xs mb-1">{item.label}</div>
+                        <div className={`text-lg font-bold ${item.color}`}>{item.value}</div>
+                        <div className="text-slate-600 text-xs mt-0.5">{item.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Open Positions */}
+                  {aiemPortfolio.open_positions.length > 0 && (
+                    <div className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-5 mb-4">
+                      <div className="text-slate-400 text-sm mb-3 flex items-center gap-2">
+                        <span className="w-2 h-2 bg-emerald-400 rounded-full inline-block animate-pulse" />
+                        Open Positions ({aiemPortfolio.open_positions.length})
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase">
+                              <th className="text-left py-2 px-3">Ticker</th>
+                              <th className="text-left py-2 px-3">Type</th>
+                              <th className="text-right py-2 px-3">Entry</th>
+                              <th className="text-right py-2 px-3">Last</th>
+                              <th className="text-right py-2 px-3">P&L</th>
+                              <th className="text-left py-2 px-3">Signal</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {aiemPortfolio.open_positions.map(pos => (
+                              <tr key={pos.id} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                                <td className="py-2.5 px-3 font-bold text-white">{pos.ticker}</td>
+                                <td className="py-2.5 px-3">
+                                  <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                    pos.trade_type === "CALL_OPTION"
+                                      ? "bg-violet-900/60 text-violet-300"
+                                      : pos.trade_type === "ETF"
+                                      ? "bg-blue-900/60 text-blue-300"
+                                      : "bg-slate-800 text-slate-300"
+                                  }`}>{pos.trade_type === "CALL_OPTION" ? "CALL" : pos.trade_type}</span>
+                                </td>
+                                <td className="text-right py-2.5 px-3 text-slate-400">${fmt(pos.entry_price)}</td>
+                                <td className="text-right py-2.5 px-3 text-slate-300">{pos.last_price ? `$${fmt(pos.last_price)}` : "—"}</td>
+                                <td className={`text-right py-2.5 px-3 font-medium ${(pos.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                  {pos.pnl != null
+                                    ? `${pos.pnl >= 0 ? "+" : ""}$${Math.abs(pos.pnl).toFixed(2)} (${pos.pnl_pct != null ? `${pos.pnl_pct >= 0 ? "+" : ""}${pos.pnl_pct.toFixed(1)}%` : "—"})`
+                                    : "—"}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-500 text-xs max-w-[140px] truncate" title={pos.signal_detail}>{pos.signal_source?.replace(/_/g," ")}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {aiemPortfolio.open_positions.length === 0 && aiemPortfolio.total_closed === 0 && (
+                    <div className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-8 text-center mb-4">
+                      <div className="text-violet-400 text-2xl mb-2">⚡</div>
+                      <div className="text-slate-400 text-sm">AIEM picks 20 trades automatically at 9:35 AM ET every weekday.</div>
+                      <div className="text-slate-600 text-xs mt-1">Click <span className="text-violet-400">Pick Now</span> to run the engine immediately.</div>
+                    </div>
+                  )}
+
+                  {/* Closed Trades */}
+                  {aiemPortfolio.closed_trades.length > 0 && (
+                    <div className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-5">
+                      <div className="text-slate-400 text-sm mb-3">Closed Trades (last 30 days)</div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase">
+                              <th className="text-left py-2 px-3">Ticker</th>
+                              <th className="text-left py-2 px-3">Type</th>
+                              <th className="text-right py-2 px-3">Entry</th>
+                              <th className="text-right py-2 px-3">Exit</th>
+                              <th className="text-right py-2 px-3">P&L</th>
+                              <th className="text-left py-2 px-3">Result</th>
+                              <th className="text-left py-2 px-3">Signal</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {aiemPortfolio.closed_trades.slice(0, 50).map(t => (
+                              <tr key={t.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
+                                <td className="py-2 px-3 font-semibold text-slate-200">{t.ticker}</td>
+                                <td className="py-2 px-3">
+                                  <span className={`px-1.5 py-0.5 rounded text-xs ${t.trade_type === "CALL_OPTION" ? "bg-violet-900/50 text-violet-400" : "bg-slate-800 text-slate-400"}`}>
+                                    {t.trade_type === "CALL_OPTION" ? "CALL" : t.trade_type}
+                                  </span>
+                                </td>
+                                <td className="text-right py-2 px-3 text-slate-400">${fmt(t.entry_price)}</td>
+                                <td className="text-right py-2 px-3 text-slate-400">{t.exit_price ? `$${fmt(t.exit_price)}` : "—"}</td>
+                                <td className={`text-right py-2 px-3 font-medium text-xs ${(t.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                  {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)} (${t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(1)}%` : ""})` : "—"}
+                                </td>
+                                <td className="py-2 px-3">
+                                  <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                    t.status === "CLOSED_TARGET" ? "bg-emerald-900/50 text-emerald-400" :
+                                    t.status === "CLOSED_STOP"   ? "bg-red-900/50 text-red-400" :
+                                    "bg-slate-800 text-slate-400"
+                                  }`}>
+                                    {t.status === "CLOSED_TARGET" ? "✓ Target" : t.status === "CLOSED_STOP" ? "✗ Stop" : "Expired"}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-slate-600 text-xs truncate max-w-[120px]">{t.signal_source?.replace(/_/g," ")}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {!aiemPortfolio && !loadingAiemPortfolio && (
+                <div className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-6 text-center text-slate-500 text-sm">AIEM portfolio data unavailable</div>
+              )}
+            </div>
           </div>
         )}
         {/* --- Bull Flow Top 10 --- */}

@@ -2313,3 +2313,76 @@ export function fetchHistoricalSimilarity(items: HistSimRequest[]): Promise<Reco
   const params = new URLSearchParams({ tickers: encoded });
   return fetchJson<Record<string, HistSimEntry | null>>(`/historical-similarity?${params}`);
 }
+
+// ── AIEM Autonomous Paper Trading ────────────────────────────────────────────
+
+export interface AiemPaperTrade {
+  id: number;
+  trade_date: string;
+  ticker: string;
+  trade_type: "STOCK" | "CALL_OPTION" | "ETF";
+  entry_price: number;
+  quantity: number;
+  notional: number;
+  signal_source: string;
+  signal_detail: string;
+  hold_days_max: number;
+  last_price: number | null;
+  pnl: number | null;
+  pnl_pct: number | null;
+  status: string;
+  created_at: string;
+}
+
+export interface AiemPaperClosedTrade {
+  id: number;
+  trade_date: string;
+  ticker: string;
+  trade_type: "STOCK" | "CALL_OPTION" | "ETF";
+  entry_price: number;
+  quantity: number;
+  notional: number;
+  signal_source: string;
+  signal_detail: string;
+  exit_price: number | null;
+  exit_date: string | null;
+  pnl: number | null;
+  pnl_pct: number | null;
+  status: string;
+}
+
+export interface AiemDailyPnl {
+  date: string;
+  pnl: number;
+  trades: number;
+}
+
+export interface AiemPaperPortfolio {
+  account_start: number;
+  account_value: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
+  total_pnl_pct: number;
+  win_rate: number | null;
+  total_closed: number;
+  winners: number;
+  avg_pnl_pct: number;
+  open_positions: AiemPaperTrade[];
+  open_count: number;
+  closed_trades: AiemPaperClosedTrade[];
+  daily_pnl: AiemDailyPnl[];
+  as_of: string;
+}
+
+export function fetchAiemPaperPortfolio(days = 30): Promise<AiemPaperPortfolio> {
+  return fetchJson<AiemPaperPortfolio>(`/aiem-paper-portfolio?days=${days}`);
+}
+
+export function forceAiemExecute(): Promise<{ status: string; message: string }> {
+  return fetchJson<{ status: string; message: string }>("/aiem-paper-portfolio/force-execute", { method: "POST" });
+}
+
+export function forceAiemMtm(): Promise<{ status: string; message: string }> {
+  return fetchJson<{ status: string; message: string }>("/aiem-paper-portfolio/force-mtm", { method: "POST" });
+}

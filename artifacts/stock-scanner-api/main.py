@@ -11378,6 +11378,25 @@ try:
 except Exception as _e_fp_sched:
     print(f"[flow_prob] scheduler add error: {_e_fp_sched}")
 
+# AIEM autonomous paper trading scheduler jobs
+# Use lambdas so the name lookup happens at call-time (functions defined later in file)
+try:
+    _scheduler.add_job(
+        lambda: _aiem_paper_execute_today(),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=35, timezone=_ET),
+        id="aiem_paper_execute",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _aiem_paper_mark_to_market(),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=0, timezone=_ET),
+        id="aiem_paper_mtm",
+        replace_existing=True,
+    )
+    print("[aiem_paper] scheduler jobs registered (9:35 AM execute, 4:00 PM MTM)")
+except Exception as _e_ap_sched:
+    print(f"[aiem_paper] scheduler error: {_e_ap_sched}")
+
 
 def _load_todays_unusual_calls_from_db(etf_set=None):
     """Return every unusual call sweep logged today (ET), sorted by vol_oi desc.
@@ -29906,6 +29925,452 @@ def sell():
         return jsonify({"error": "ticker, shares, and price are required"}), 400
     result = remove_position(ticker, shares, price)
     return jsonify(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AIEM AUTONOMOUS PAPER TRADING ENGINE
+# 20 picks/day · $1,000/trade · stocks, options, ETFs, anything
+# 9:35 AM ET: pick + execute  |  4:00 PM ET: mark-to-market + close exits
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _init_aiem_paper_trades_table():
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_paper_trades (
+                    id            SERIAL PRIMARY KEY,
+                    trade_date    DATE          NOT NULL,
+                    ticker        TEXT          NOT NULL,
+                    trade_type    TEXT          NOT NULL DEFAULT 'STOCK',
+                    entry_price   NUMERIC(14,4),
+                    quantity      NUMERIC(14,4),
+                    notional      NUMERIC(12,2) DEFAULT 1000.00,
+                    signal_source TEXT,
+                    signal_detail TEXT,
+                    hold_days_max INTEGER       DEFAULT 5,
+                    status        TEXT          NOT NULL DEFAULT 'OPEN',
+                    exit_price    NUMERIC(14,4),
+                    exit_date     DATE,
+                    pnl           NUMERIC(12,2),
+                    pnl_pct       NUMERIC(10,4),
+                    last_price    NUMERIC(14,4),
+                    created_at    TIMESTAMPTZ   DEFAULT NOW(),
+                    updated_at    TIMESTAMPTZ   DEFAULT NOW()
+                )
+            """)
+            _cu.execute("CREATE INDEX IF NOT EXISTS aiem_pt_date_idx ON aiem_paper_trades(trade_date)")
+            _cu.execute("CREATE INDEX IF NOT EXISTS aiem_pt_status_idx ON aiem_paper_trades(status)")
+            _c.commit()
+        print("[aiem_paper] trades table ready")
+    except Exception as _e:
+        print(f"[aiem_paper] table init error: {_e}")
+
+_init_aiem_paper_trades_table()
+
+
+def _aiem_paper_pick_candidates() -> list:
+    """
+    Aggregate candidates from every signal source, deduplicate, and return
+    a ranked list ready for trade execution. Each entry has:
+      ticker, score, trade_type (STOCK|CALL_OPTION|ETF), source, detail
+    """
+    _candidates = {}
+
+    def _add(ticker, score, trade_type, source, detail=""):
+        t = ticker.upper().strip()
+        if not t or len(t) > 6:
+            return
+        existing = _candidates.get(t)
+        if existing is None or score > existing["score"]:
+            _candidates[t] = {"ticker": t, "score": score,
+                               "trade_type": trade_type,
+                               "source": source, "detail": detail}
+        elif trade_type == "CALL_OPTION" and existing["trade_type"] == "STOCK":
+            existing["trade_type"] = "CALL_OPTION"
+            existing["detail"] = detail or existing["detail"]
+
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                               options="-c statement_timeout=5000") as _c, _c.cursor() as _cu:
+
+            # ── 1. Conviction stack (highest conviction tickers) ──────────────
+            _cu.execute("""
+                SELECT ticker, total_pts, label
+                FROM conviction_stack_watchlist
+                WHERE snap_date >= CURRENT_DATE - INTERVAL '3 days'
+                ORDER BY total_pts DESC LIMIT 12
+            """)
+            for _t, _pts, _lbl in _cu.fetchall():
+                _add(_t, float(_pts or 0) * 1.2, "STOCK", "conviction_stack", str(_lbl or ""))
+
+            # ── 2. Unusual call sweeps (options signal → buy calls) ────────────
+            _cu.execute("""
+                SELECT ticker, premium, stock_price, expiry, vol_oi_ratio,
+                       conviction, signals_fired
+                FROM call_sweep_log
+                WHERE sweep_date >= CURRENT_DATE - INTERVAL '2 days'
+                  AND premium >= 50000
+                ORDER BY premium DESC LIMIT 10
+            """)
+            for _t, _prem, _sp, _exp, _voi, _conv, _sigs in _cu.fetchall():
+                _score = (float(_prem or 0) / 100000) * (float(_voi or 1))
+                _add(_t, _score, "CALL_OPTION", "sweep",
+                     f"${int(_prem or 0):,} premium exp {_exp}")
+
+            # ── 3. Unusual calls log (intraday accumulation) ─────────────────
+            _cu.execute("""
+                SELECT ticker, prem, vol_oi, urgency
+                FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '2 days'
+                  AND prem >= 75000
+                ORDER BY prem DESC LIMIT 10
+            """)
+            for _t, _prem, _voi, _urg in _cu.fetchall():
+                _score = (float(_prem or 0) / 100000) * (float(_voi or 1))
+                _add(_t, _score, "CALL_OPTION", "unusual_calls",
+                     f"${int(_prem or 0):,} prem VOI={_voi}")
+
+            # ── 4. Gap + Volume signal (Polygon RVOL scan) ───────────────────
+            _cu.execute("""
+                SELECT ticker, rvol, gap_pct, price, close_strength
+                FROM polygon_rvol_scan
+                WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
+                  AND gap_pct >= 1.0 AND rvol >= 2.0 AND price >= 2.0
+                ORDER BY (gap_pct * rvol) DESC LIMIT 10
+            """)
+            for _t, _rv, _gp, _pr, _cs in _cu.fetchall():
+                _score = float(_rv or 1) * float(_gp or 1) * (1 + float(_cs or 0))
+                _add(_t, _score, "STOCK", "gap_volume",
+                     f"gap={_gp:.1f}% rvol={_rv:.1f}x")
+
+            # ── 5. Recent AIEM AI trade picks (high conviction) ───────────────
+            _cu.execute("""
+                SELECT ticker, direction, setup_type, conviction, price_at_signal
+                FROM ai_trade_log
+                WHERE trade_date >= CURRENT_DATE - INTERVAL '1 day'
+                  AND conviction IN ('HIGH','EXTREME')
+                  AND direction = 'BULLISH'
+                ORDER BY id DESC LIMIT 8
+            """)
+            for _t, _dir, _setup, _conv, _pr in _cu.fetchall():
+                _score = 15.0 if _conv == "EXTREME" else 10.0
+                _type = "CALL_OPTION" if "CALL" in (_setup or "").upper() else "STOCK"
+                _add(_t, _score, _type, "aiem_ai",
+                     f"{_conv} {_setup or ''}")
+
+            # ── 6. Multi-signal hits (multiple confirmations) ─────────────────
+            _cu.execute("""
+                SELECT payload->'hits' FROM scan_result_cache
+                WHERE endpoint = 'multi-signal'
+                ORDER BY scan_date DESC LIMIT 1
+            """)
+            _ms_row = _cu.fetchone()
+            if _ms_row and _ms_row[0]:
+                _ms_hits = _ms_row[0] if isinstance(_ms_row[0], list) else []
+                for _h in _ms_hits[:10]:
+                    _t = (_h.get("ticker") or "").upper()
+                    _sig_n = len(_h.get("signals", []) or [])
+                    if _t and _sig_n >= 3:
+                        _add(_t, float(_sig_n) * 2.5, "STOCK", "multi_signal",
+                             f"{_sig_n} signals confirmed")
+
+            # ── 7. OI buildup / accumulation ─────────────────────────────────
+            _cu.execute("""
+                SELECT ticker, oi_change_pct, days_building
+                FROM oi_daily_snapshot
+                WHERE snapshot_date >= CURRENT_DATE - INTERVAL '2 days'
+                  AND oi_change_pct >= 20
+                ORDER BY oi_change_pct DESC LIMIT 8
+            """)
+            for _t, _oip, _days in _cu.fetchall():
+                _score = float(_oip or 0) / 10 * (1 + float(_days or 0) * 0.1)
+                _add(_t, _score, "CALL_OPTION", "oi_buildup",
+                     f"OI +{_oip:.0f}% over {_days}d")
+
+    except Exception as _e:
+        print(f"[aiem_paper] pick error: {_e}")
+
+    # Sort by score desc, return top 20
+    return sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)[:20]
+
+
+def _aiem_paper_execute_today():
+    """
+    9:35 AM ET: pick top 20, fetch live prices, record positions.
+    Skips weekends and any day where today's trades are already entered.
+    """
+    import datetime as _apdt
+    _today = _apdt.date.today()
+
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE trade_date = %s", (_today,))
+            if _cu.fetchone()[0] >= 20:
+                print(f"[aiem_paper] already executed for {_today}, skipping")
+                return
+
+        picks = _aiem_paper_pick_candidates()
+        if not picks:
+            print("[aiem_paper] no candidates found today")
+            return
+
+        tickers = [p["ticker"] for p in picks]
+        quotes  = _td_quotes(tickers)
+
+        rows_inserted = 0
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            for pick in picks:
+                _t    = pick["ticker"]
+                _q    = quotes.get(_t) or {}
+                _price = float(_q.get("last") or _q.get("bid") or 0)
+                if _price <= 0:
+                    # fallback: try polygon
+                    try:
+                        _pg_row = None
+                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _c2, _c2.cursor() as _cu2:
+                            _cu2.execute("SELECT price FROM polygon_rvol_scan WHERE ticker=%s ORDER BY scan_date DESC LIMIT 1", (_t,))
+                            _pg_row = _cu2.fetchone()
+                        if _pg_row:
+                            _price = float(_pg_row[0])
+                    except Exception:
+                        pass
+                if _price <= 0:
+                    continue
+
+                _notional  = 1000.0
+                _trade_type = pick["trade_type"]
+
+                if _trade_type == "CALL_OPTION":
+                    # Paper options: record $1000 notional as premium spent,
+                    # 1 contract for tracking purposes
+                    _qty       = 1.0
+                    _hold_days = 3
+                elif _trade_type == "ETF":
+                    _qty       = round(_notional / _price, 4)
+                    _hold_days = 5
+                else:  # STOCK
+                    _qty       = round(_notional / _price, 4)
+                    _hold_days = 5
+
+                _cu.execute("""
+                    INSERT INTO aiem_paper_trades
+                        (trade_date, ticker, trade_type, entry_price, quantity,
+                         notional, signal_source, signal_detail, hold_days_max,
+                         last_price, status)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN')
+                    ON CONFLICT DO NOTHING
+                """, (_today, _t, _trade_type, _price, _qty,
+                      _notional, pick["source"], pick.get("detail",""),
+                      _hold_days, _price))
+                rows_inserted += 1
+            _c.commit()
+        print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
+    except Exception as _e:
+        print(f"[aiem_paper] execute error: {_e}")
+
+
+def _aiem_paper_mark_to_market():
+    """
+    4:00 PM ET: price every open position, close anything that hit its
+    target/stop/expiry.  For options we apply a 2× price-move multiplier
+    as a simplified delta approximation (paper-only — this is not real
+    options pricing).
+    """
+    import datetime as _mtmdt
+    _today = _mtmdt.date.today()
+
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT id, ticker, trade_type, entry_price, quantity,
+                       notional, trade_date, hold_days_max
+                FROM aiem_paper_trades WHERE status = 'OPEN'
+            """)
+            _open = _cu.fetchall()
+
+        if not _open:
+            return
+
+        _tickers = list(set(r[1] for r in _open))
+        _quotes  = _td_quotes(_tickers)
+
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            for (_id, _t, _ttype, _entry, _qty,
+                 _notional, _trade_date, _hold_max) in _open:
+
+                _q     = _quotes.get(_t) or {}
+                _last  = float(_q.get("last") or 0)
+                if _last <= 0:
+                    continue
+
+                _entry  = float(_entry)
+                _qty    = float(_qty)
+                _notional = float(_notional)
+                _days_held = (_today - _trade_date).days
+
+                if _ttype == "CALL_OPTION":
+                    # simplified: 2× delta on underlying move
+                    _move_pct = (_last - _entry) / _entry * 100 if _entry > 0 else 0
+                    _pnl_pct  = max(-100.0, _move_pct * 2.0)
+                    _pnl      = round(_notional * _pnl_pct / 100, 2)
+                    _target, _stop = 50.0, -40.0
+                else:
+                    _pnl     = round((_last - _entry) * _qty, 2)
+                    _pnl_pct = round((_last - _entry) / _entry * 100, 4) if _entry > 0 else 0
+                    _target, _stop = 20.0, -12.0
+
+                _status = "OPEN"
+                if _pnl_pct >= _target:
+                    _status = "CLOSED_TARGET"
+                elif _pnl_pct <= _stop:
+                    _status = "CLOSED_STOP"
+                elif _days_held >= _hold_max:
+                    _status = "CLOSED_EXPIRED"
+
+                if _status != "OPEN":
+                    _cu.execute("""
+                        UPDATE aiem_paper_trades
+                        SET status=%s, exit_price=%s, exit_date=%s,
+                            pnl=%s, pnl_pct=%s, last_price=%s, updated_at=NOW()
+                        WHERE id=%s
+                    """, (_status, _last, _today,
+                          round(_pnl, 2), round(_pnl_pct, 4), _last, _id))
+                else:
+                    _cu.execute("""
+                        UPDATE aiem_paper_trades
+                        SET last_price=%s, pnl=%s, pnl_pct=%s, updated_at=NOW()
+                        WHERE id=%s
+                    """, (_last, round(_pnl, 2), round(_pnl_pct, 4), _id))
+            _c.commit()
+        print(f"[aiem_paper] mark-to-market complete — {len(_open)} positions updated")
+    except Exception as _e:
+        print(f"[aiem_paper] mark-to-market error: {_e}")
+
+
+@app.route("/stock-api/aiem-paper-portfolio", methods=["GET"])
+def aiem_paper_portfolio():
+    """AIEM autonomous paper trading — full portfolio state."""
+    import datetime as _apvdt
+    _days = int(request.args.get("days", 30))
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5,
+                               options="-c statement_timeout=6000") as _c, \
+             _c.cursor() as _cu:
+
+            # Open positions with live P&L
+            _cu.execute("""
+                SELECT id, trade_date::text, ticker, trade_type,
+                       entry_price, quantity, notional,
+                       signal_source, signal_detail, hold_days_max,
+                       last_price, pnl, pnl_pct, status, created_at
+                FROM aiem_paper_trades
+                WHERE status = 'OPEN'
+                ORDER BY created_at DESC
+            """)
+            _cols = ["id","trade_date","ticker","trade_type","entry_price",
+                     "quantity","notional","signal_source","signal_detail",
+                     "hold_days_max","last_price","pnl","pnl_pct","status","created_at"]
+            _open_pos = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_cols, _r))
+                for _k in ["entry_price","quantity","notional","last_price","pnl","pnl_pct"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                _d["created_at"] = _d["created_at"].isoformat() if _d["created_at"] else None
+                _open_pos.append(_d)
+
+            # Closed trades (last N days)
+            _cu.execute("""
+                SELECT id, trade_date::text, ticker, trade_type,
+                       entry_price, quantity, notional,
+                       signal_source, signal_detail,
+                       exit_price, exit_date::text, pnl, pnl_pct, status
+                FROM aiem_paper_trades
+                WHERE status != 'OPEN'
+                  AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                ORDER BY exit_date DESC, id DESC
+                LIMIT 200
+            """, (_days,))
+            _closed_cols = ["id","trade_date","ticker","trade_type","entry_price",
+                            "quantity","notional","signal_source","signal_detail",
+                            "exit_price","exit_date","pnl","pnl_pct","status"]
+            _closed = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_closed_cols, _r))
+                for _k in ["entry_price","quantity","notional","exit_price","pnl","pnl_pct"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                _closed.append(_d)
+
+            # Summary stats
+            _cu.execute("""
+                SELECT
+                    COUNT(*) FILTER (WHERE status!='OPEN')           AS total_closed,
+                    COUNT(*) FILTER (WHERE pnl>0 AND status!='OPEN') AS winners,
+                    COALESCE(SUM(pnl) FILTER (WHERE status!='OPEN'),0) AS total_pnl,
+                    COALESCE(AVG(pnl_pct) FILTER (WHERE status!='OPEN'),0) AS avg_pnl_pct,
+                    COUNT(*) FILTER (WHERE status='OPEN')            AS open_count,
+                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN'),0) AS open_unrealized
+                FROM aiem_paper_trades
+                WHERE trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+            """, (_days,))
+            _sr = _cu.fetchone()
+            _total_closed, _winners, _total_pnl, _avg_pnl_pct, _open_count, _open_unreal = _sr
+
+            _win_rate = round(_winners / _total_closed * 100, 1) if _total_closed else None
+
+            # Daily P&L curve
+            _cu.execute("""
+                SELECT exit_date::text, SUM(pnl) AS day_pnl, COUNT(*) AS trades
+                FROM aiem_paper_trades
+                WHERE status != 'OPEN'
+                  AND exit_date IS NOT NULL
+                  AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                GROUP BY exit_date
+                ORDER BY exit_date
+            """, (_days,))
+            _daily = [{"date": r[0], "pnl": float(r[1] or 0), "trades": r[2]}
+                      for r in _cu.fetchall()]
+
+        # Virtual account: started with $20,000 (20 trades × $1,000)
+        _account_start = 20000.0
+        _realized_pnl  = float(_total_pnl or 0)
+        _unrealized    = float(_open_unreal or 0)
+        _account_value = _account_start + _realized_pnl + _unrealized
+
+        return jsonify({
+            "account_start":     _account_start,
+            "account_value":     round(_account_value, 2),
+            "realized_pnl":      round(_realized_pnl, 2),
+            "unrealized_pnl":    round(_unrealized, 2),
+            "total_pnl":         round(_realized_pnl + _unrealized, 2),
+            "total_pnl_pct":     round((_realized_pnl + _unrealized) / _account_start * 100, 2),
+            "win_rate":          _win_rate,
+            "total_closed":      int(_total_closed or 0),
+            "winners":           int(_winners or 0),
+            "avg_pnl_pct":       round(float(_avg_pnl_pct or 0), 2),
+            "open_positions":    _open_pos,
+            "open_count":        int(_open_count or 0),
+            "closed_trades":     _closed,
+            "daily_pnl":         _daily,
+            "as_of":             _apvdt.datetime.now().strftime("%b %d %I:%M %p ET"),
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-paper-portfolio/force-execute", methods=["POST"])
+def aiem_paper_force_execute():
+    """Admin: force today's pick-and-execute cycle immediately (for testing)."""
+    import threading as _ape_thr
+    _ape_thr.Thread(target=_aiem_paper_execute_today, daemon=True).start()
+    return jsonify({"status": "executing", "message": "AIEM picking 20 trades now — refresh portfolio in 15s"})
+
+
+@app.route("/stock-api/aiem-paper-portfolio/force-mtm", methods=["POST"])
+def aiem_paper_force_mtm():
+    """Admin: force mark-to-market immediately."""
+    import threading as _mtm_thr
+    _mtm_thr.Thread(target=_aiem_paper_mark_to_market, daemon=True).start()
+    return jsonify({"status": "marking", "message": "Marking all open positions to market — refresh in 10s"})
 
 
 @app.route("/stock-api/backtest", methods=["POST"])
