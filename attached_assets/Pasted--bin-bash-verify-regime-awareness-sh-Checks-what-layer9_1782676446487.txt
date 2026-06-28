@@ -1,0 +1,51 @@
+#!/bin/bash
+# verify_regime_awareness.sh
+# Checks: what layer9_regime actually contains, whether anything downstream
+# reads it, and what drift_alarm.py is actually monitoring.
+# Paste the full raw output back unedited.
+
+echo "################################################################"
+echo "# REGIME AWARENESS VERIFICATION"
+echo "################################################################"
+
+echo ""
+echo "=== STEP 1: What values does layer9_regime actually contain? ==="
+if [ -z "$DATABASE_URL" ]; then
+  echo "DATABASE_URL not set."
+else
+  psql "$DATABASE_URL" -c "
+    SELECT layer9_regime, COUNT(*) AS count
+    FROM ai_stock_picks
+    GROUP BY layer9_regime
+    ORDER BY count DESC;"
+fi
+
+echo ""
+echo "=== STEP 2: Where is layer9_regime WRITTEN (set)? ==="
+grep -rn "layer9_regime\s*=" --include="*.py" . | grep -v "WHERE\|SELECT" || echo "NO MATCHES — not being set anywhere as an assignment"
+
+echo ""
+echo "=== STEP 3: Where is layer9_regime READ by downstream decision logic? ==="
+echo "--- in the exit engine specifically ---"
+grep -n "layer9_regime" aiem_exit_engine.py 2>/dev/null || find . -name "aiem_exit_engine.py" -exec grep -Hn "layer9_regime" {} \; || echo "NO MATCHES in exit engine"
+echo "--- anywhere else in the codebase that USES (not just writes) it ---"
+grep -rn "layer9_regime" --include="*.py" . | grep -vi "INSERT\|UPDATE.*SET\|column_name" || echo "NO MATCHES"
+
+echo ""
+echo "=== STEP 4: What does drift_alarm.py actually monitor? ==="
+DRIFTFILE=$(find . -name "drift_alarm.py" 2>/dev/null | head -1)
+if [ -z "$DRIFTFILE" ]; then
+  echo "drift_alarm.py not found"
+else
+  echo "Full contents:"
+  cat "$DRIFTFILE"
+fi
+
+echo ""
+echo "=== STEP 5: Is drift_alarm.py actually called anywhere, or orphaned? ==="
+grep -rn "drift_alarm\|from drift_alarm import\|import drift_alarm" --include="*.py" . | grep -v "^./drift_alarm.py:" || echo "NO MATCHES — drift_alarm.py exists but nothing calls it"
+
+echo ""
+echo "################################################################"
+echo "# DONE — paste this entire output back unedited"
+echo "################################################################"
