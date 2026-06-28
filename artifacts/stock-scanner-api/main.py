@@ -2759,6 +2759,8 @@ try:
         try:
             import threading as _agj_thr
             _agj_thr.Thread(target=_run_aiem_prediction_grader, daemon=True).start()
+            # Also grade AIEM chat track record predictions
+            _agj_thr.Thread(target=_grade_aiem_track_record, daemon=True).start()
             record_job_success("aiem_prediction_grader")
         except Exception as e:
             record_job_failure("aiem_prediction_grader", str(e))
@@ -16720,6 +16722,213 @@ def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# AIEM TRACK RECORD  —  log predictions + grade outcomes + review accuracy
+# ════════════════════════════════════════════════════════════════════════════
+
+def _aiem_tool_log_prediction(ticker: str, direction: str, horizon_days: int = 3,
+                               confidence: str = "MEDIUM", predicted_win_pct: float = None,
+                               rationale: str = None, session_id: str = None) -> dict:
+    """
+    Save AIEM's own prediction to the track record so it can be graded later.
+    Call this whenever you make a directional call on a ticker — BULLISH, BEARISH, or NEUTRAL.
+    The outcome is graded automatically when target_date arrives.
+    Win condition: BULLISH >= +2%, BEARISH <= -2%, NEUTRAL within ±2%.
+    """
+    import psycopg2 as _tr_pg
+    try:
+        direction = direction.upper().strip()
+        if direction not in ("BULLISH", "BEARISH", "NEUTRAL"):
+            return {"error": f"direction must be BULLISH/BEARISH/NEUTRAL, got: {direction}"}
+        confidence = confidence.upper().strip()
+        if confidence not in ("HIGH", "MEDIUM", "LOW", "TOO FEW"):
+            confidence = "MEDIUM"
+
+        with _tr_pg.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT close_price, scan_date FROM polygon_market_daily
+                WHERE ticker = %s ORDER BY scan_date DESC LIMIT 1
+            """, (ticker.upper(),))
+            pr = _cu.fetchone()
+            entry_price = float(pr[0]) if pr else None
+            latest_date = pr[1] if pr else None
+
+            from datetime import timedelta
+            target_date = (latest_date + timedelta(days=int(horizon_days * 1.5))) if latest_date else None
+
+            _cu.execute("""
+                INSERT INTO aiem_track_record
+                    (session_id, ticker, direction, horizon_days, confidence,
+                     predicted_win_pct, rationale, entry_price, target_date)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (session_id, ticker.upper(), direction, int(horizon_days), confidence,
+                  predicted_win_pct, rationale, entry_price, target_date))
+            new_id = _cu.fetchone()[0]
+            _c.commit()
+
+        return {
+            "saved": True,
+            "id": new_id,
+            "ticker": ticker.upper(),
+            "direction": direction,
+            "horizon_days": horizon_days,
+            "confidence": confidence,
+            "predicted_win_pct": predicted_win_pct,
+            "entry_price": entry_price,
+            "target_date": str(target_date),
+            "note": "Logged. Will be graded automatically when target_date arrives.",
+        }
+    except Exception as _e_tr:
+        import traceback as _tb_tr
+        return {"error": str(_e_tr), "trace": _tb_tr.format_exc()}
+
+
+def _aiem_tool_review_own_accuracy(days_back: int = 90) -> dict:
+    """
+    Pull AIEM's own prediction track record and compute accuracy metrics.
+    Shows overall win rate, calibration (does HIGH confidence actually win more?),
+    breakdown by direction and confidence level, and the 10 most recent graded calls.
+    Call this to understand where AIEM's predictions are right and wrong.
+    """
+    import psycopg2 as _ra_pg
+    try:
+        with _ra_pg.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT
+                    COUNT(*)                                               AS total,
+                    COUNT(*) FILTER (WHERE was_correct IS NOT NULL)        AS graded,
+                    COUNT(*) FILTER (WHERE was_correct = true)             AS correct,
+                    COUNT(*) FILTER (WHERE was_correct IS NULL
+                                      AND target_date <= CURRENT_DATE)     AS pending_grade,
+                    ROUND(AVG(CASE WHEN was_correct IS NOT NULL
+                                   THEN outcome_pct END)::numeric, 2)      AS avg_outcome_pct
+                FROM aiem_track_record
+                WHERE created_at >= NOW() - (%s || ' days')::interval
+            """, (str(days_back),))
+            total, graded, correct, pending, avg_pct = _cu.fetchone()
+            win_rate = round(correct / graded * 100, 1) if graded else None
+
+            _cu.execute("""
+                SELECT direction,
+                       COUNT(*) FILTER (WHERE was_correct IS NOT NULL) AS graded,
+                       COUNT(*) FILTER (WHERE was_correct = true)       AS correct
+                FROM aiem_track_record
+                WHERE created_at >= NOW() - (%s || ' days')::interval
+                  AND was_correct IS NOT NULL
+                GROUP BY direction ORDER BY direction
+            """, (str(days_back),))
+            by_dir = {}
+            for r in _cu.fetchall():
+                wr = round(r[2]/r[1]*100, 1) if r[1] else None
+                by_dir[r[0]] = {"graded": r[1], "win_rate_pct": wr}
+
+            _cu.execute("""
+                SELECT confidence,
+                       COUNT(*) FILTER (WHERE was_correct IS NOT NULL) AS graded,
+                       COUNT(*) FILTER (WHERE was_correct = true)       AS correct
+                FROM aiem_track_record
+                WHERE created_at >= NOW() - (%s || ' days')::interval
+                  AND was_correct IS NOT NULL
+                GROUP BY confidence ORDER BY confidence
+            """, (str(days_back),))
+            by_conf = {}
+            for r in _cu.fetchall():
+                wr = round(r[2]/r[1]*100, 1) if r[1] else None
+                by_conf[r[0]] = {"graded": r[1], "win_rate_pct": wr}
+
+            _cu.execute("""
+                SELECT ticker, direction, confidence, predicted_win_pct,
+                       entry_price, outcome_price, outcome_pct, was_correct,
+                       graded_at::date, rationale
+                FROM aiem_track_record
+                WHERE was_correct IS NOT NULL
+                  AND created_at >= NOW() - (%s || ' days')::interval
+                ORDER BY graded_at DESC LIMIT 10
+            """, (str(days_back),))
+            recent = []
+            for r in _cu.fetchall():
+                recent.append({
+                    "ticker": r[0], "direction": r[1], "confidence": r[2],
+                    "predicted_win_pct": float(r[3]) if r[3] else None,
+                    "entry_price": float(r[4]) if r[4] else None,
+                    "outcome_price": float(r[5]) if r[5] else None,
+                    "outcome_pct": float(r[6]) if r[6] else None,
+                    "was_correct": r[7], "graded_at": str(r[8]),
+                    "rationale": r[9],
+                })
+
+        high_wr = by_conf.get("HIGH", {}).get("win_rate_pct")
+        low_wr  = by_conf.get("LOW",  {}).get("win_rate_pct")
+        if high_wr is not None and low_wr is not None:
+            calib = ("WELL CALIBRATED — HIGH confidence wins more than LOW"
+                     if high_wr > low_wr
+                     else "MISCALIBRATED — HIGH confidence does NOT outperform LOW")
+        else:
+            calib = "INSUFFICIENT DATA to assess calibration"
+
+        return {
+            "days_back":         days_back,
+            "total_predictions": total,
+            "graded":            graded,
+            "pending_grading":   pending,
+            "correct":           correct,
+            "win_rate_pct":      win_rate,
+            "avg_outcome_pct":   float(avg_pct) if avg_pct else None,
+            "calibration":       calib,
+            "by_direction":      by_dir,
+            "by_confidence":     by_conf,
+            "recent_graded":     recent,
+        }
+    except Exception as _e_ra:
+        import traceback as _tb_ra
+        return {"error": str(_e_ra), "trace": _tb_ra.format_exc()}
+
+
+def _grade_aiem_track_record():
+    """Nightly: fill outcome_price / outcome_pct / was_correct for due predictions."""
+    import psycopg2 as _gr_pg
+    try:
+        with _gr_pg.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT id, ticker, direction, entry_price, target_date
+                FROM aiem_track_record
+                WHERE was_correct IS NULL AND target_date <= CURRENT_DATE
+            """)
+            rows = _cu.fetchall()
+            graded = 0
+            for row_id, ticker, direction, entry_price, target_date in rows:
+                _cu.execute("""
+                    SELECT close_price FROM polygon_market_daily
+                    WHERE ticker = %s AND scan_date >= %s
+                    ORDER BY scan_date ASC LIMIT 1
+                """, (ticker, target_date))
+                pr = _cu.fetchone()
+                if not pr or pr[0] is None:
+                    continue
+                outcome_price = float(pr[0])
+                outcome_pct = ((outcome_price - float(entry_price)) / float(entry_price) * 100
+                               if entry_price else None)
+                if direction == "BULLISH":
+                    was_correct = outcome_pct is not None and outcome_pct >= 2.0
+                elif direction == "BEARISH":
+                    was_correct = outcome_pct is not None and outcome_pct <= -2.0
+                else:
+                    was_correct = outcome_pct is not None and abs(outcome_pct) < 2.0
+                _cu.execute("""
+                    UPDATE aiem_track_record
+                    SET outcome_price=%s, outcome_pct=%s, was_correct=%s, graded_at=NOW()
+                    WHERE id=%s
+                """, (outcome_price, outcome_pct, was_correct, row_id))
+                graded += 1
+            _c.commit()
+        print(f"[aiem_track_record] graded {graded} predictions")
+        return graded
+    except Exception as _e_gr:
+        print(f"[aiem_track_record] grader error: {_e_gr}")
+        return 0
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # SIGNAL DISCOVERY ENGINE  -  autonomous hypothesis testing + indicator creation
 # Tools: list_signal_dimensions, test_new_signal, analyze_missed_movers
 # Loop:  _run_aiem_continuous_research  (daily 6 PM ET, also Sunday 7 PM)
@@ -24256,6 +24465,8 @@ def _build_aiem_tool_map():
         "query_exit_timing":                 _aiem_tool_query_exit_timing,
         "run_statistical_significance":      _aiem_tool_run_statistical_significance,
         "predict_short_term":               _aiem_tool_predict_short_term,
+        "log_prediction":                   _aiem_tool_log_prediction,
+        "review_own_accuracy":              _aiem_tool_review_own_accuracy,
         "save_research_model":               _aiem_tool_save_research_model,
         "register_hypotheses":               _aiem_tool_register_hypotheses,
         "multivariate_regression":           _aiem_tool_multivariate_regression,
@@ -24885,6 +25096,36 @@ _AIEM_AGENT_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "days_back": {"type": "integer",
                 "description": "Days of prediction history to review (default 45)."}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "log_prediction",
+        "description": (
+            "Log AIEM's own directional prediction on a ticker to the track record table. "
+            "ALWAYS call this after making any BULLISH/BEARISH/NEUTRAL call in a chat session. "
+            "The outcome is graded automatically when the target date arrives. "
+            "Win: BULLISH needs +2%+, BEARISH needs -2%--, NEUTRAL needs within ±2%."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":            {"type": "string", "description": "Stock ticker symbol."},
+            "direction":         {"type": "string", "enum": ["BULLISH", "BEARISH", "NEUTRAL"]},
+            "horizon_days":      {"type": "integer", "description": "Trading days out for grading (default 3)."},
+            "confidence":        {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW", "TOO FEW"]},
+            "predicted_win_pct": {"type": "number", "description": "Your predicted probability of success (0-100)."},
+            "rationale":         {"type": "string", "description": "One-sentence reason for the call."},
+            "session_id":        {"type": "string", "description": "Pass the job_id from the session header so the prediction links back to this session."},
+        }, "required": ["ticker", "direction", "confidence"]}
+    }},
+    {"type": "function", "function": {
+        "name": "review_own_accuracy",
+        "description": (
+            "Pull AIEM's own prediction track record and show accuracy metrics: "
+            "overall win rate, calibration check (does HIGH confidence actually win more than LOW?), "
+            "breakdown by direction (BULLISH/BEARISH/NEUTRAL), and the 10 most recent graded calls. "
+            "Call this at the start of any session to understand past mistakes before making new calls."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Days of history to review (default 90)."},
         }, "required": []}
     }},
     {"type": "function", "function": {
@@ -27022,6 +27263,10 @@ The system compounds its intelligence like interest - each session builds on the
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 22. analyze_missed_movers        - Find what big moves you missed and why.
+23. log_prediction              - ALWAYS call this after making any directional call (BULLISH/BEARISH/NEUTRAL) on a specific ticker. Pass the session_id from the prompt header so the call is linked to this session.
+24. review_own_accuracy         - Review your own prediction track record. See overall win rate, calibration, and which calls were wrong. Use this to self-critique and improve.
+
+SELF-IMPROVEMENT RULE: Whenever you make a directional call on a ticker, you MUST call log_prediction to save it. When you start a session, call review_own_accuracy first to check where your past predictions went wrong and adjust your reasoning accordingly.
 
 HARD RULES - violating these produces an invalid model:
 1. ROLLBACK RULE: If evaluate_previous_model returns MODEL HURT, call rollback_to_previous_model
@@ -28907,6 +29152,8 @@ def _run_aiem_research_agent(max_iterations=None):
         "query_exit_timing":            _aiem_tool_query_exit_timing,
         "run_statistical_significance": _aiem_tool_run_statistical_significance,
         "predict_short_term":          _aiem_tool_predict_short_term,
+        "log_prediction":              _aiem_tool_log_prediction,
+        "review_own_accuracy":         _aiem_tool_review_own_accuracy,
         "save_research_model":          _aiem_tool_save_research_model,
         # ── Three new upgrades ────────────────────────────────────────────────
         "register_hypotheses":          _aiem_tool_register_hypotheses,
@@ -43573,7 +43820,13 @@ def aiem_chat_start():
 
     max_iters = _classify_question_complexity(question)
     prompt = (
+        f"SESSION_ID: {job_id}\n"
+        f"(Pass this session_id whenever you call log_prediction so your calls are linked back here.)\n\n"
         f"The user asks: '{question}'\n\n"
+        f"BEFORE answering: call review_own_accuracy to check your past prediction track record "
+        f"and understand where you have been wrong. Then research the question. "
+        f"If you make any directional call (BULLISH/BEARISH/NEUTRAL) on a specific ticker, "
+        f"ALWAYS call log_prediction with session_id='{job_id}' to save it for grading.\n\n"
         f"Research this thoroughly using your tools. "
         f"If they mention specific tickers, use mkt_retrospective_backtest and mkt_find_behavioral_matches. "
         f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
