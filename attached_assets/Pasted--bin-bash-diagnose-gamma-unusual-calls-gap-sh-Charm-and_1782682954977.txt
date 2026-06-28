@@ -1,0 +1,65 @@
+#!/bin/bash
+# diagnose_gamma_unusual_calls_gap.sh
+# Charm and dark pool logging worked (20 + 39 rows). Gamma and
+# unusual_calls show ZERO. This finds out exactly why — wiring gap
+# vs. trigger gap — using real code inspection, not a description.
+
+echo "################################################################"
+echo "# DIAGNOSING GAMMA + UNUSUAL_CALLS LOGGING GAP"
+echo "################################################################"
+
+echo ""
+echo "=== STEP 1: Is the log call actually present in the gamma scanner code? ==="
+echo "--- searching for log_gamma_decision anywhere in the codebase ---"
+grep -rn "log_gamma_decision" --include="*.py" . || echo "NO MATCHES — the call was never added to gamma scanner"
+
+echo ""
+echo "=== STEP 2: Is the log call actually present in unusual_calls scanner? ==="
+grep -rn "log_unusual_calls_decision" --include="*.py" . || echo "NO MATCHES — the call was never added to unusual_calls scanner"
+
+echo ""
+echo "=== STEP 3: Is decision_logging_helper even imported in those files? ==="
+echo "--- find the actual gamma scanner file ---"
+GAMMA_FILE=$(grep -rl "_run_gamma_pressure_scan\|gamma_pressure_scan" --include="*.py" . | head -1)
+echo "Gamma scanner file: $GAMMA_FILE"
+if [ -n "$GAMMA_FILE" ]; then
+  grep -n "^import\|^from" "$GAMMA_FILE" | head -20
+fi
+
+echo ""
+echo "--- find the actual unusual calls scanner file ---"
+UC_FILE=$(grep -rl "unusual_calls_scanner\|unusual.*call.*scan" --include="*.py" . | head -1)
+echo "Unusual calls scanner file: $UC_FILE"
+if [ -n "$UC_FILE" ]; then
+  grep -n "^import\|^from" "$UC_FILE" | head -20
+fi
+
+echo ""
+echo "=== STEP 4: Has the gamma scanner even RUN since the wiring attempt? ==="
+echo "(If it hasn't fired at all recently, 0 rows could mean 'never"
+echo " triggered' rather than 'wiring is broken' — need to rule this out.)"
+LOGFILE=$(ls -t /tmp/logs/artifactsstock-scanner_stock-api_*.log 2>/dev/null | head -1)
+if [ -n "$LOGFILE" ]; then
+  grep -i "gamma" "$LOGFILE" | tail -10
+else
+  echo "No log file found to check recent execution."
+fi
+
+echo ""
+echo "=== STEP 5: Show the actual end of the gamma scan function — does it call logging before returning? ==="
+if [ -n "$GAMMA_FILE" ]; then
+  echo "--- last 40 lines of the gamma scan function area ---"
+  grep -n "_run_gamma_pressure_scan" "$GAMMA_FILE"
+  echo "(Manually inspect: right before 'return {' inside _scan_one or"
+  echo " before the function ends, is dlh.log_gamma_decision(...) called?"
+  echo " If not, that's the exact missing line.)"
+fi
+
+echo ""
+echo "################################################################"
+echo "# DONE — paste this entire output back unedited"
+echo "################################################################"
+echo "# This will tell us: (a) was the call ever added at all, (b) is"
+echo "# the helper even imported, (c) has the scanner run recently"
+echo "# enough to have had a chance to log anything. Those three answers"
+echo "# together explain the 0-row gap definitively."
