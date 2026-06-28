@@ -30593,70 +30593,167 @@ def _aiem_paper_execute_today():
 
 def _aiem_paper_mark_to_market():
     """
-    4:00 PM ET: price every open position, close anything that hit its
-    target/stop/expiry.  For options we apply a 2× price-move multiplier
-    as a simplified delta approximation (paper-only — this is not real
-    options pricing).
+    4:00 PM ET: update prices and let AIEM decide autonomously whether to
+    hold or exit each position based on price action and momentum.
+    AIEM reasons about each position and logs WHY it exits.
+    Only hard cap: 14-day safety net — AIEM owns every decision before that.
     """
-    import datetime as _mtmdt
+    import datetime as _mtmdt, json as _mtmjson
     _today = _mtmdt.date.today()
 
     try:
+        # ── 1. Load all open positions ──────────────────────────────────────
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute("""
                 SELECT id, ticker, trade_type, entry_price, quantity,
-                       notional, trade_date, hold_days_max
+                       notional, trade_date, signal_source, signal_detail
                 FROM aiem_paper_trades WHERE status = 'OPEN'
             """)
             _open = _cu.fetchall()
 
         if not _open:
+            print("[aiem_paper] no open positions to mark-to-market")
             return
 
         _tickers = list(set(r[1] for r in _open))
         _quotes  = _td_quotes(_tickers)
 
+        # ── 2. Pull recent OHLCV context for each ticker ───────────────────
+        _indicator_ctx = {}
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+                _cu.execute("""
+                    SELECT ticker, scan_date, open_price, high_price, low_price,
+                           close_price, vwap, rvol, gap_pct, close_strength
+                    FROM polygon_market_daily
+                    WHERE ticker = ANY(%s)
+                      AND scan_date >= CURRENT_DATE - INTERVAL '10 days'
+                    ORDER BY ticker, scan_date DESC
+                """, (_tickers,))
+                for _row in _cu.fetchall():
+                    _tk = _row[0]
+                    if _tk not in _indicator_ctx:
+                        _indicator_ctx[_tk] = []
+                    _indicator_ctx[_tk].append({
+                        "date": str(_row[1]),
+                        "open": float(_row[2] or 0), "high": float(_row[3] or 0),
+                        "low":  float(_row[4] or 0), "close": float(_row[5] or 0),
+                        "vwap": float(_row[6] or 0), "rvol": float(_row[7] or 0),
+                        "gap_pct": float(_row[8] or 0),
+                        "close_strength": float(_row[9] or 0),
+                    })
+        except Exception as _ie:
+            print(f"[aiem_paper] indicator fetch skipped: {_ie}")
+
+        # ── 3. Build position snapshot ─────────────────────────────────────
+        _price_map = {}
+        _positions_for_ai = []
+
+        for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail) in _open:
+            _q        = _quotes.get(_t) or {}
+            _last     = float(_q.get("last") or 0)
+            _entry_f  = float(_entry)
+            _qty_f    = float(_qty)
+            _not_f    = float(_notional)
+            _days     = (_today - _trade_date).days
+            if _last <= 0:
+                _last = _entry_f
+
+            _price_map[_id] = (_last, _entry_f, _qty_f, _not_f, _ttype, _trade_date)
+
+            if _ttype == "CALL_OPTION":
+                _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
+                _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 2)
+                _pnl      = round(_not_f * _pnl_pct / 100, 2)
+            else:
+                _pnl     = round((_last - _entry_f) * _qty_f, 2)
+                _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 2) if _entry_f > 0 else 0
+
+            _positions_for_ai.append({
+                "id": _id, "ticker": _t, "trade_type": _ttype,
+                "entry_price": round(_entry_f, 2), "current_price": round(_last, 2),
+                "pnl_dollars": _pnl, "pnl_pct": _pnl_pct,
+                "days_held": _days, "signal_source": _src,
+                "signal_detail": _detail or "",
+                "recent_sessions": _indicator_ctx.get(_t, [])[:5],
+            })
+
+        # ── 4. Ask AIEM: hold or exit each position? ───────────────────────
+        _ai_decisions = {}
+        try:
+            _ai_prompt = (
+                f"You are AIEM, an autonomous paper trading AI. Today is {_today}.\n"
+                f"You have {len(_positions_for_ai)} open paper positions. Analyze each one "
+                f"using price action, momentum, and your own judgment. There are NO fixed hold "
+                f"periods or fixed targets — you decide when to exit based on what you see.\n\n"
+                f"For each position decide: HOLD or EXIT.\n"
+                f"Consider: Is momentum fading or accelerating? Did it close strong or weak? "
+                f"Has the original signal played out? For calls: time decay — if the move is "
+                f"done, exit. For stocks: ride it if momentum supports it.\n\n"
+                f"Return ONLY a JSON array, no other text:\n"
+                f'[{{"id":<int>,"ticker":"<str>","decision":"HOLD or EXIT","reason":"<one sentence>"}},...]\n\n'
+                f"Positions:\n{_mtmjson.dumps(_positions_for_ai, indent=2)}"
+            )
+            _ai_resp = _oai.chat.completions.create(
+                model="gpt-5.4",
+                messages=[{"role": "user", "content": _ai_prompt}],
+                max_completion_tokens=2000,
+            )
+            _raw = (_ai_resp.choices[0].message.content or "").strip()
+            if _raw.startswith("```"):
+                _raw = "\n".join(_raw.split("\n")[1:])
+            if _raw.endswith("```"):
+                _raw = "\n".join(_raw.split("\n")[:-1])
+            for _dec in _mtmjson.loads(_raw.strip()):
+                _ai_decisions[int(_dec["id"])] = {
+                    "decision": _dec.get("decision", "HOLD"),
+                    "reason":   _dec.get("reason", ""),
+                }
+            _exit_ct = sum(1 for v in _ai_decisions.values() if v["decision"] == "EXIT")
+            print(f"[aiem_paper] AIEM decisions: {len(_ai_decisions)} positions — "
+                  f"{_exit_ct} EXIT, {len(_ai_decisions)-_exit_ct} HOLD")
+        except Exception as _ae:
+            print(f"[aiem_paper] AIEM decision call failed (price-only fallback): {_ae}")
+
+        # ── 5. Apply decisions ─────────────────────────────────────────────
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
-            for (_id, _t, _ttype, _entry, _qty,
-                 _notional, _trade_date, _hold_max) in _open:
-
-                _q     = _quotes.get(_t) or {}
-                _last  = float(_q.get("last") or 0)
-                if _last <= 0:
-                    continue
-
-                _entry  = float(_entry)
-                _qty    = float(_qty)
-                _notional = float(_notional)
-                _days_held = (_today - _trade_date).days
+            for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail) in _open:
+                _last, _entry_f, _qty_f, _not_f, _, _ = _price_map[_id]
+                _days = (_today - _trade_date).days
 
                 if _ttype == "CALL_OPTION":
-                    # simplified: 2× delta on underlying move
-                    _move_pct = (_last - _entry) / _entry * 100 if _entry > 0 else 0
-                    _pnl_pct  = max(-100.0, _move_pct * 2.0)
-                    _pnl      = round(_notional * _pnl_pct / 100, 2)
-                    _target, _stop = 50.0, -40.0
+                    _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
+                    _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
+                    _pnl      = round(_not_f * _pnl_pct / 100, 2)
                 else:
-                    _pnl     = round((_last - _entry) * _qty, 2)
-                    _pnl_pct = round((_last - _entry) / _entry * 100, 4) if _entry > 0 else 0
-                    _target, _stop = 20.0, -12.0
+                    _pnl     = round((_last - _entry_f) * _qty_f, 2)
+                    _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 4) if _entry_f > 0 else 0
 
-                _status = "OPEN"
-                if _pnl_pct >= _target:
-                    _status = "CLOSED_TARGET"
-                elif _pnl_pct <= _stop:
-                    _status = "CLOSED_STOP"
-                elif _days_held >= _hold_max:
+                _ai      = _ai_decisions.get(_id, {})
+                _exit    = _ai.get("decision", "HOLD") == "EXIT"
+                _reason  = _ai.get("reason", "")
+
+                # 14-day absolute safety net only
+                if _days >= 14:
+                    _exit   = True
+                    _reason = f"14-day safety cap. {_reason}".strip()
                     _status = "CLOSED_EXPIRED"
+                elif _exit:
+                    _status = "CLOSED_AIEM"
+                else:
+                    _status = "OPEN"
 
                 if _status != "OPEN":
                     _cu.execute("""
                         UPDATE aiem_paper_trades
                         SET status=%s, exit_price=%s, exit_date=%s,
-                            pnl=%s, pnl_pct=%s, last_price=%s, updated_at=NOW()
+                            pnl=%s, pnl_pct=%s, last_price=%s,
+                            exit_reason=%s, updated_at=NOW()
                         WHERE id=%s
                     """, (_status, _last, _today,
-                          round(_pnl, 2), round(_pnl_pct, 4), _last, _id))
+                          round(_pnl, 2), round(_pnl_pct, 4),
+                          _last, _reason, _id))
+                    print(f"[aiem_paper] EXIT {_t} {_pnl_pct:+.1f}% — {_reason}")
                 else:
                     _cu.execute("""
                         UPDATE aiem_paper_trades
@@ -30664,7 +30761,10 @@ def _aiem_paper_mark_to_market():
                         WHERE id=%s
                     """, (_last, round(_pnl, 2), round(_pnl_pct, 4), _id))
             _c.commit()
-        print(f"[aiem_paper] mark-to-market complete — {len(_open)} positions updated")
+
+        _x = sum(1 for v in _ai_decisions.values() if v.get("decision") == "EXIT")
+        print(f"[aiem_paper] MTM done — {len(_open)} positions | {_x} exited | {len(_open)-_x} held")
+
     except Exception as _e:
         print(f"[aiem_paper] mark-to-market error: {_e}")
 
