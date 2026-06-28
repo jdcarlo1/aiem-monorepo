@@ -7669,9 +7669,10 @@ def _run_sc_morning_ranking():
                 closes = hist["Close"].dropna().tolist()
                 vols   = hist["Volume"].dropna().tolist()
                 highs  = hist["High"].dropna().tolist()
+                lows   = hist["Low"].dropna().tolist()
                 if len(closes) < 10 or closes[-1] <= 0:
                     return None
-                closes = closes[-25:]; vols = vols[-25:]; highs = highs[-25:]
+                closes = closes[-25:]; vols = vols[-25:]; highs = highs[-25:]; lows = lows[-25:]
                 price = closes[-1]
 
                 net_flow = 0.0; dollar_vol = 0.0; up_days = 0; rets = []
@@ -7815,6 +7816,16 @@ def _run_sc_morning_ranking():
                 elif 0.0 <= _gap_pct < 2.0:  _gap_pts = 5
                 elif _gap_pct < 0:           _gap_pts = 3
                 else:                        _gap_pts = 0
+
+                # 20-day average daily range as % of price (for risk penalty below)
+                range20 = 0.0
+                try:
+                    if len(highs) >= 20 and len(lows) >= 20:
+                        _rng_pts = [(highs[i] - lows[i]) / lows[i] * 100
+                                    for i in range(-20, 0) if lows[i] > 0]
+                        range20 = sum(_rng_pts) / len(_rng_pts) if _rng_pts else 0.0
+                except Exception:
+                    pass
 
                 # Risk penalty
                 _risk = 0.0
@@ -8322,7 +8333,7 @@ def _send_sc_buy_email():
                 </div>
                 <div style="font-size:13px;color:#ef4444;margin-top:3px;">🛑 Set 5% stop now: <b>${stop:.2f}</b></div>
                 <div style="font-size:11px;color:#64748b;margin-top:4px;">conviction {b['conviction']} · opt {optp:.0f}/25 · {b.get('reason', '')}</div>
-                {secret_line}
+                {stealth_line}
               </div>""")
         buy_html = "".join(buy_cards)
 
@@ -18693,6 +18704,11 @@ def _mkt_tool_validate_oos(conditions=None, train_pct=0.6, horizon="next_day"):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
+
+def _get_openai_client():
+    """Shared OpenAI client factory for AIEM market research tools."""
+    from openai import OpenAI as _OAI
+    return _OAI()
 
 # ──────────────────────────────────────────────────────────────────────────
 # Tool 9: AI generates its own hypotheses from scratch
@@ -30923,6 +30939,10 @@ def _get_microcap_tickers() -> list:
             return []
 
     def _barchart(bc_list: str) -> list:
+        _bhdrs = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json, text/plain, */*",
+        }
         try:
             url = (
                 "https://www.barchart.com/proxies/core-api/v1/quotes/get"
@@ -35117,7 +35137,7 @@ def unusual_calls_microcap():
         # only flag stale when the market is (or was today) open.
         if rows and _intraday_scan_allowed():
             try:
-                import datetime as _dtmc, pytz as _pzmc
+                from datetime import datetime as _datetime; import pytz as _pytz
                 _et_now = _datetime.now(_pytz.timezone('America/New_York'))
                 _today_et_str = _et_now.strftime('%Y-%m-%d')
                 _most_recent_str = max(

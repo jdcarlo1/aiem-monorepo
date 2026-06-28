@@ -149,6 +149,8 @@ def _score_swing(ticker: str) -> dict | None:
         pcr = None
         has_options = False
         try:
+            import yfinance as _yf_sw
+            tk = _yf_sw.Ticker(ticker)
             opts_list = tk.options
             if opts_list:
                 has_options = True

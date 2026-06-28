@@ -1331,7 +1331,9 @@ export function fetchGammaPressure(date?: string) {
 }
 
 export function triggerGammaScan() {
-  return fetch(`${getApiBase()}/gamma-pressure/trigger`, { method: "POST" }).then(r => r.json());
+  return fetch(`${BASE}/gamma-pressure/trigger`, { method: "POST" })
+    .then(r => r.json())
+    .catch(() => null);
 }
 
 export interface OiAccumRow {
@@ -1360,7 +1362,9 @@ export function fetchOiAccumulation(days = 1) {
 }
 
 export function triggerOiSnapshot() {
-  return fetch(`${getApiBase()}/oi-snapshot/trigger`, { method: "POST" }).then(r => r.json());
+  return fetch(`${BASE}/oi-snapshot/trigger`, { method: "POST" })
+    .then(r => r.json())
+    .catch(() => null);
 }
 
 export interface ConvictionLayers {
