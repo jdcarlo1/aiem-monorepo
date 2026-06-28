@@ -1,0 +1,133 @@
+#!/bin/bash
+echo "################################################################"
+echo "# AIEM EXIT ENGINE — FINAL VERIFICATION"
+echo "# Run at: $(TZ=America/New_York date)"
+echo "################################################################"
+
+PASS=0; FAIL=0; SKIP=0
+
+echo ""
+echo "=== STEP 1: File exists with real content ==="
+FILE=$(find . -maxdepth 1 -name "aiem_exit_engine.py" 2>/dev/null | head -1)
+if [ -z "$FILE" ]; then
+  echo "RESULT: FAIL — file not found"
+  FAIL=$((FAIL+1))
+else
+  ls -la "$FILE"
+  LINES=$(wc -l < "$FILE")
+  echo "Line count: $LINES"
+  if [ "$LINES" -gt 20 ]; then
+    echo "RESULT: PASS"
+    PASS=$((PASS+1))
+  else
+    echo "RESULT: FAIL — file too short to be real implementation"
+    FAIL=$((FAIL+1))
+  fi
+fi
+
+echo ""
+echo "=== STEP 2: No hardcoded countdown, safety cap present ==="
+HOLDDAYS_HITS=$(grep -c "hold_days" "$FILE" 2>/dev/null)
+SAFETYCAP_HITS=$(grep -c "safety_cap" "$FILE" 2>/dev/null)
+echo "hold_days literal matches in engine file: $HOLDDAYS_HITS"
+echo "safety_cap matches in engine file: $SAFETYCAP_HITS"
+if [ "$HOLDDAYS_HITS" = "0" ] && [ "$SAFETYCAP_HITS" -gt "0" ]; then
+  echo "RESULT: PASS"
+  PASS=$((PASS+1))
+else
+  echo "RESULT: FAIL — either countdown logic present or no safety cap found"
+  FAIL=$((FAIL+1))
+fi
+
+echo ""
+echo "=== STEP 3: DB columns exist on ai_stock_picks ==="
+if [ -z "$DATABASE_URL" ]; then
+  echo "DATABASE_URL not set — searching for actual connection method..."
+  grep -rn "DATABASE_URL\|SQLALCHEMY_DATABASE_URI" --include="*.py" . | grep -v ".pyc" | head -5
+  echo "RESULT: SKIP — set the correct env var name above and re-run"
+  SKIP=$((SKIP+1))
+else
+  COLS=$(psql "$DATABASE_URL" -t -c "SELECT column_name FROM information_schema.columns WHERE table_name = 'ai_stock_picks' AND column_name IN ('status','exit_price','exit_reason','closed_at');" | grep -v '^$' | wc -l)
+  echo "Matching columns found: $COLS / 4"
+  if [ "$COLS" = "4" ]; then
+    echo "RESULT: PASS"
+    PASS=$((PASS+1))
+  else
+    echo "RESULT: FAIL — missing columns"
+    FAIL=$((FAIL+1))
+  fi
+fi
+
+echo ""
+echo "=== STEP 4a: Scheduler job correctly registered ==="
+REG=$(grep -A2 'id="aiem_exit_review"' main.py 2>/dev/null)
+grep -B5 'id="aiem_exit_review"' main.py 2>/dev/null
+if [ -n "$REG" ]; then
+  echo "RESULT: PASS — job registered"
+  PASS=$((PASS+1))
+else
+  echo "RESULT: FAIL — job ID not found in scheduler registration"
+  FAIL=$((FAIL+1))
+fi
+
+echo ""
+echo "=== STEP 4b: Has the job fired? (market-hours-aware) ==="
+HOUR_ET=$(TZ=America/New_York date +%H)
+DOW_ET=$(TZ=America/New_York date +%u)
+echo "Current ET hour: $HOUR_ET, day-of-week: $DOW_ET"
+LOGFILE=$(ls -t /tmp/logs/artifactsstock-scanner_stock-api_*.log 2>/dev/null | head -1)
+if [ -z "$LOGFILE" ]; then
+  echo "RESULT: SKIP — no log file found"
+  SKIP=$((SKIP+1))
+else
+  echo "Log file: $LOGFILE"
+  HITS=$(grep -c "aiem_exit_engine\|aiem_exit_review" "$LOGFILE" 2>/dev/null || echo 0)
+  echo "Matching log lines: $HITS"
+  if [ "$HITS" -gt "0" ]; then
+    echo "--- sample lines ---"
+    grep "aiem_exit_engine\|aiem_exit_review" "$LOGFILE" | tail -10
+    echo "RESULT: PASS — job has fired and logged output"
+    PASS=$((PASS+1))
+  else
+    if [ "$DOW_ET" -ge 6 ] || [ "$HOUR_ET" -lt 9 ] || [ "$HOUR_ET" -gt 15 ]; then
+      echo "RESULT: SKIP — currently outside market hours (Mon-Fri 9am-3pm ET), absence of logs is expected"
+      SKIP=$((SKIP+1))
+    else
+      echo "RESULT: FAIL — inside market hours but job has never logged anything"
+      FAIL=$((FAIL+1))
+    fi
+  fi
+fi
+
+echo ""
+echo "=== STEP 4c: Has the job produced a DB decision? ==="
+if [ -z "$DATABASE_URL" ]; then
+  echo "RESULT: SKIP — DATABASE_URL not set in this shell"
+  SKIP=$((SKIP+1))
+else
+  ROWS=$(psql "$DATABASE_URL" -t -c "SELECT count(*) FROM agent_decisions WHERE signal_name LIKE '%exit%' OR decision_type = 'exit';" 2>&1)
+  echo "Row count query result: $ROWS"
+  echo "--- sample rows ---"
+  psql "$DATABASE_URL" -c "SELECT decision_time, signal_name, decision_type, reasoning FROM agent_decisions WHERE signal_name LIKE '%exit%' OR decision_type = 'exit' ORDER BY decision_time DESC LIMIT 10;"
+  echo "--- are there even any open positions for it to evaluate? ---"
+  psql "$DATABASE_URL" -c "SELECT count(*) AS open_positions FROM ai_stock_picks WHERE status IS NULL OR status = 'open';"
+fi
+
+echo ""
+echo "=== STEP 5: Protected files untouched since base commit ==="
+echo "Using base commit 530a1b9 (confirmed earlier as pre-integration point)"
+DIFF_OUT=$(git --no-optional-locks diff 530a1b9 HEAD -- shadow_ledger.py simulation_lock.py rl_position_sizer.py 2>&1)
+if [ -z "$DIFF_OUT" ]; then
+  echo "RESULT: PASS — zero diff, files untouched"
+  PASS=$((PASS+1))
+else
+  echo "$DIFF_OUT"
+  echo "RESULT: FAIL — files were modified, see diff above"
+  FAIL=$((FAIL+1))
+fi
+
+echo ""
+echo "################################################################"
+echo "# FINAL TALLY: $PASS PASS / $FAIL FAIL / $SKIP SKIP"
+echo "################################################################"
+echo "SKIP = couldn't run right now (outside market hours or missing env var), not a failure."
