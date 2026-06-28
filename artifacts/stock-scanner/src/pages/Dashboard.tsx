@@ -12054,13 +12054,29 @@ interface QASession {
   current_tool?: string | null;
   tool_trace?: ToolTraceStep[] | null;
   created_at?: string;
+  has_image?: boolean;
+  image_data_url?: string;  // ephemeral: only set on the active session, not stored in DB
 }
 
 function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: number }) {
   const [showTrace, setShowTrace] = useState(false);
   return (
     <div style={{ background: "#0d1726", border: "1px solid #1c3350", borderRadius: 10, padding: 14 }}>
-      <div style={{ color: "#7fb3ff", fontSize: 13, marginBottom: 8 }}>{session.question}</div>
+      <div style={{ color: "#7fb3ff", fontSize: 13, marginBottom: session.image_data_url || session.has_image ? 6 : 8 }}>
+        {session.question}
+      </div>
+      {session.image_data_url && (
+        <div style={{ marginBottom: 8 }}>
+          <img
+            src={session.image_data_url}
+            alt="Attached chart"
+            style={{ maxHeight: 120, maxWidth: 220, borderRadius: 6, border: "1px solid #1c3350", objectFit: "cover" }}
+          />
+        </div>
+      )}
+      {!session.image_data_url && session.has_image && (
+        <div style={{ marginBottom: 8, fontSize: 11, color: "#5ea0ff" }}>📷 Chart analyzed</div>
+      )}
       {(session.status === "pending" || session.status === "running") && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#5ea0ff" }}>
           <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#5ea0ff", animation: "pulse 1.2s infinite" }} />
@@ -12129,6 +12145,8 @@ function QuantAgentTab() {
   const startTimeRef    = useRef<number>(0);
   const mountedRef      = useRef(true);
   const recognitionRef  = useRef<any>(null);
+  const fileInputRef    = useRef<HTMLInputElement>(null);
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -12207,16 +12225,66 @@ function QuantAgentTab() {
     pollTimerRef.current = setInterval(poll, POLL_INTERVAL_MS);
   }, []);
 
+  async function compressImage(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX = 1568;
+          let { width, height } = img;
+          if (width > MAX || height > MAX) {
+            const ratio = Math.min(MAX / width, MAX / height);
+            width  = Math.round(width  * ratio);
+            height = Math.round(height * ratio);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width  = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d")!;
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.onerror = reject;
+        img.src = ev.target!.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleFileSelect(file: File) {
+    const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      alert("Only PNG, JPEG, and WebP images are supported.");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      alert("Image must be under 20 MB.");
+      return;
+    }
+    try {
+      const dataUrl = await compressImage(file);
+      setImageDataUrl(dataUrl);
+    } catch {
+      alert("Could not process this image. Please try a different file.");
+    }
+  }
+
   async function handleSubmit(question: string) {
     const q = question.trim();
     if (!q || submitting) return;
     setSubmitting(true);
     setInput("");
+    const capturedImage = imageDataUrl;
+    setImageDataUrl(null);
     try {
+      const body: Record<string, string> = { question: q };
+      if (capturedImage) body.image_data_url = capturedImage;
       const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q }),
+        body: JSON.stringify(body),
       });
       if (res.status === 429) {
         const data = await res.json();
@@ -12226,7 +12294,10 @@ function QuantAgentTab() {
       const data = await res.json();
       if (data.job_id) {
         startPolling(data.job_id);
-        setActiveJob(prev => prev ? { ...prev, question: q } : { job_id: data.job_id, question: q, status: "pending" });
+        setActiveJob(prev => prev
+          ? { ...prev, question: q, has_image: !!capturedImage, image_data_url: capturedImage ?? undefined }
+          : { job_id: data.job_id, question: q, status: "pending", has_image: !!capturedImage, image_data_url: capturedImage ?? undefined }
+        );
       }
     } catch {
       setActiveJob({ job_id: "", question: q, status: "error", error: "Failed to start session — check your connection." });
@@ -12326,13 +12397,75 @@ function QuantAgentTab() {
         {activeJob && <SessionBubble session={activeJob} elapsed={isBusy ? elapsed : undefined} />}
       </div>
 
-      {/* ── Input row: textarea + mic + send ────────────────────────── */}
+      {/* ── Image thumbnail preview (shown before send) ─────────────── */}
+      {imageDataUrl && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <img
+              src={imageDataUrl}
+              alt="Attached chart"
+              style={{ maxHeight: 80, maxWidth: 160, borderRadius: 6, border: "1px solid #1c3350", objectFit: "cover" }}
+            />
+            <button
+              onClick={() => setImageDataUrl(null)}
+              title="Remove image"
+              style={{
+                position: "absolute", top: -6, right: -6,
+                width: 18, height: 18, borderRadius: "50%",
+                background: "#374151", border: "none", cursor: "pointer",
+                color: "#d1d5db", fontSize: 11, lineHeight: "18px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >✕</button>
+          </div>
+          <span style={{ fontSize: 11, color: "#5ea0ff" }}>Chart attached — GPT-4o will analyze it</span>
+        </div>
+      )}
+
+      {/* ── Input row: clip + textarea + mic + send ──────────────────── */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/webp"
+        style={{ display: "none" }}
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); e.target.value = ""; }}
+      />
       <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        {/* 📎 Attach image */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isBusy || submitting}
+          title="Attach chart or screenshot (PNG, JPEG, WebP)"
+          style={{
+            width: 44, height: 44, flexShrink: 0,
+            background: imageDataUrl ? "#0f2d52" : "#0d1726",
+            border: `1px solid ${imageDataUrl ? "#3b82f6" : "#1c3350"}`,
+            borderRadius: 8,
+            cursor: isBusy || submitting ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            transition: "background 0.15s, border 0.15s",
+          }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke={imageDataUrl ? "#60a5fa" : "#7fb3ff"} strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+          </svg>
+        </button>
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(input); } }}
-          placeholder={isBusy ? "Thinking…" : isRecording ? "Listening…" : "Ask the Quant Agent…"}
+          onPaste={e => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (let i = 0; i < items.length; i++) {
+              if (items[i].type.startsWith("image/")) {
+                const file = items[i].getAsFile();
+                if (file) { handleFileSelect(file); break; }
+              }
+            }
+          }}
+          placeholder={isBusy ? "Thinking…" : isRecording ? "Listening…" : "Ask the Quant Agent… (paste a chart with ⌘V)"}
           rows={2}
           disabled={isBusy || submitting}
           style={{ flex: 1, background: "#0d1726", border: `1px solid ${isRecording ? "#ef4444" : "#1c3350"}`, color: "#d6e2f0", borderRadius: 8, padding: 10, resize: "none", fontSize: 13, transition: "border 0.15s" }}

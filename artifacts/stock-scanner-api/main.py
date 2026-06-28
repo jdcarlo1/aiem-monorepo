@@ -98,6 +98,7 @@ from multiday_runner import (
 )
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
 
 # ── NaN/Inf-safe JSON ─────────────────────────────────────────────────────────
@@ -1736,7 +1737,7 @@ try:
             print(f"[scheduler] EOD scan error: {e}")
 
     # Bounded executor + safe job defaults. Without these APScheduler defaults to a
-    # 10-worker pool with misfire_grace_time=1s and coalesce=False, so the morning
+    # Scheduler tuned to prevent 9:30-9:45 burst saturation: max 4 concurrent scan threads,
     # burst (many heavy yfinance scans firing 9:30-9:45) saturates CPU + Yahoo and
     # piles up ("Run time of job X was missed by N min"), starving the Flask HTTP
     # threads that serve the dashboard tabs. max_workers=4 caps concurrent scans;
@@ -24982,7 +24983,8 @@ def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM",
 
 
 def _run_aiem_focused_session(session_name: str, focus_prompt: str,
-                               max_iterations: int = 12, on_step=None):
+                               max_iterations: int = 12, on_step=None,
+                               image_data_url: str | None = None):
     """
     Parameterized research session. Returns (final_text, trace, error_str).
 
@@ -25016,9 +25018,17 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "Start immediately with the most relevant tools for this session's focus. "
         "Be systematic. Every finding should be tested statistically before saving."
     )
+    # Build first user message — plain text or multimodal (text + image) for vision
+    if image_data_url:
+        _first_user_content = [
+            {"type": "text",      "text": focus_prompt},
+            {"type": "image_url", "image_url": {"url": image_data_url, "detail": "high"}},
+        ]
+    else:
+        _first_user_content = focus_prompt
     messages = [
         {"role": "system", "content": session_system},
-        {"role": "user",   "content": focus_prompt},
+        {"role": "user",   "content": _first_user_content},
     ]
 
     _last_text      = ""
@@ -44776,9 +44786,15 @@ def reconcile_orphaned_sessions():
                     error       TEXT,
                     current_tool TEXT,
                     tool_trace  JSONB,
+                    has_image   BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
+            """)
+            # Add has_image column to existing tables that predate this migration
+            _cu.execute("""
+                ALTER TABLE quant_agent_sessions
+                ADD COLUMN IF NOT EXISTS has_image BOOLEAN NOT NULL DEFAULT FALSE
             """)
             _c.commit()
             _cu.execute(
@@ -44808,6 +44824,24 @@ def aiem_chat_start():
     if not question:
         return jsonify({"error": "question is required"}), 400
 
+    # ── Image validation (server-side, spec points 6 & 7) ─────────────────
+    image_data_url = (data.get("image_data_url") or "").strip()
+    if image_data_url:
+        _allowed_prefixes = (
+            "data:image/png;base64,",
+            "data:image/jpeg;base64,",
+            "data:image/jpg;base64,",
+            "data:image/webp;base64,",
+        )
+        if not any(image_data_url.startswith(p) for p in _allowed_prefixes):
+            return jsonify({"error": "Image must be PNG, JPEG, or WebP."}), 400
+        # Estimate decoded byte size: base64 is ~4/3 of raw
+        _b64_part = image_data_url.split(",", 1)[-1]
+        _estimated_bytes = len(_b64_part) * 3 // 4
+        if _estimated_bytes > 10 * 1024 * 1024:
+            return jsonify({"error": "Image must be under 10 MB. Please compress or resize before uploading."}), 400
+    # ─────────────────────────────────────────────────────────────────────
+
     # Fast-check: if a session is already running (SMS, email, cron, or prior chat),
     # reject immediately. The worker re-acquires the lock itself so we release here.
     if not app._aiem_qa_lock.acquire(blocking=False):
@@ -44817,12 +44851,13 @@ def aiem_chat_start():
     app._aiem_qa_lock.release()
 
     job_id = str(_uuid.uuid4())
+    _has_image = bool(image_data_url)
     try:
         import psycopg2 as _qa_pg
         with _qa_pg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
-                "INSERT INTO quant_agent_sessions (job_id, question, status) VALUES (%s,%s,'pending')",
-                (job_id, question)
+                "INSERT INTO quant_agent_sessions (job_id, question, status, has_image) VALUES (%s,%s,'pending',%s)",
+                (job_id, question, _has_image)
             )
             _c.commit()
     except Exception as _e:
@@ -44864,6 +44899,7 @@ def aiem_chat_start():
                 focus_prompt=prompt,
                 max_iterations=max_iters,
                 on_step=_on_step,
+                image_data_url=image_data_url or None,
             )
 
             if err and not answer_text:
@@ -44880,7 +44916,7 @@ def aiem_chat_start():
             app._aiem_qa_lock.release()
 
     _qa_thr.Thread(target=_worker, daemon=True, name=f"quant_chat_{job_id[:8]}").start()
-    return jsonify({"job_id": job_id, "status": "pending"})
+    return jsonify({"job_id": job_id, "status": "pending", "has_image": _has_image})
 
 
 @app.route("/stock-api/aiem/chat/<job_id>", methods=["GET"])
