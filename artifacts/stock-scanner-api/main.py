@@ -16096,7 +16096,7 @@ def _aiem_tool_query_exit_timing(days_back=30):
 
 def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
                                              group_b_wins, group_b_n,
-                                             n_bootstrap=2000):
+                                             n_bootstrap=10000):
     """
     Bootstrap p-value test: is the win rate difference between group A and B real or noise?
     Returns p_value and is_significant (p < 0.05).
@@ -24150,7 +24150,7 @@ _AIEM_AGENT_TOOLS = [
             "group_a_n": {"type": "number"},
             "group_b_wins": {"type": "number"},
             "group_b_n": {"type": "number"},
-            "n_bootstrap": {"type": "integer", "description": "Bootstrap iterations, default 2000"}
+            "n_bootstrap": {"type": "integer", "description": "Bootstrap iterations, default 10000"}
         }, "required": ["group_a_wins", "group_a_n", "group_b_wins", "group_b_n"]}
     }},
     {"type": "function", "function": {
