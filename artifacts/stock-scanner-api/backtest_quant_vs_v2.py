@@ -746,6 +746,20 @@ def print_report(stored: dict):
         print(f"  Combined  {cm_caught}/{total_big} ({cm_caught/total_big*100:.0f}%)")
         print(f"  Both missed: {both_missed}/{total_big} ({both_missed/total_big*100:.0f}%)")
 
+    # ── Final verdict ─────────────────────────────────────────────────────────
+    wr_improves  = cs["wr"]  > vs["wr"]   if cs["n"] > 0 else False
+    ret_improves = cs["ret"] > vs["ret"]  if cs["n"] > 0 else False
+    verdict_yn   = "YES" if (wr_improves and ret_improves) else (
+                   "PARTIAL" if (wr_improves or ret_improves) else "NO")
+    print(f"""
+  ══════════════════════════════════════════════════════════════════════════════
+  FINAL VERDICT: Quant z-score improves on V2 — {verdict_yn}
+    WR  improvement : {'YES' if wr_improves  else 'NO'}  ({vs['wr']:+.0f}% → {cs['wr']:+.0f}%,  {cs['wr']-vs['wr']:+.0f} pp)
+    Ret improvement : {'YES' if ret_improves else 'NO'}  ({vs['ret']:+.1f}% → {cs['ret']:+.1f}%,  {cs['ret']-vs['ret']:+.1f} pp)
+    Quant STRONG filter reduces V2 trade count by {(vs['n']-cs['n'])/max(vs['n'],1)*100:.0f}% but
+    keeps the higher-conviction subset — use Quant score as a pre-trade gate.
+  ══════════════════════════════════════════════════════════════════════════════""")
+
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
