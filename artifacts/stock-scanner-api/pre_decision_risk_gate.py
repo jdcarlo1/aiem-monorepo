@@ -41,6 +41,9 @@ import decision_logger    as dl
 import kill_switch        as ks
 import market_regime_overlay as mro
 import adversarial_critique  as ac
+import position_reconciler as pr
+import daily_loss_limit    as dll
+import order_dedup         as od
 
 try:
     import anthropic
@@ -154,12 +157,36 @@ def run_risk_gate(
     universe_description: str,
     signal_votes: Optional[Dict[str, str]]       = None,
     market_regime_result: Optional[Dict[str, Any]] = None,
+    decision_id: Optional[int]                   = None,
 ) -> Dict[str, Any]:
     """The actual gate. Call on EVERY candidate recommendation before it's
     allowed into the weekly email. Returns APPROVED / APPROVED_WITH_CAUTION /
     BLOCKED — never a silent pass-through."""
     reasons          = []
     blocking_reasons = []
+
+    _db_url = os.environ.get("DATABASE_URL", "")
+
+    # 0a. Position reconciliation — unresolved broker/DB mismatch blocks all new orders
+    if _db_url and pr.has_unresolved_mismatch(_db_url):
+        blocking_reasons.append(
+            "Unresolved position mismatch between broker and DB — trading blocked until resolved."
+        )
+
+    # 0b. Daily loss limit circuit breaker — pure math, no broker dependency
+    if _db_url:
+        _dll_result = dll.check_daily_loss_limit(_db_url)
+        if _dll_result["halt_trading"]:
+            blocking_reasons.append(
+                f"Daily loss limit breached: {_dll_result['loss_pct']}% "
+                f"(limit: -{_dll_result['loss_limit_pct']}%). Trading halted for today."
+            )
+
+    # 0c. Order dedup — if this decision_id already placed an order, block the duplicate
+    if _db_url and decision_id is not None and not od.should_place_order(_db_url, decision_id):
+        blocking_reasons.append(
+            f"Decision ID {decision_id} already has an order in order_execution_log — duplicate blocked."
+        )
 
     # 1. Kill switch — hard block, no exceptions
     halt_reason = ks._is_currently_halted()

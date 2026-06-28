@@ -1,0 +1,95 @@
+# Integration instructions for Replit agent
+
+Three new modules to integrate: position_reconciler.py, daily_loss_limit.py,
+order_dedup.py. None of these require broker credentials yet — all three
+work against the existing DB and a mock position source. Wire in a real
+broker later by replacing ONLY the position_source_fn in
+position_reconciler.py and get_account_value() in daily_loss_limit.py.
+
+## Setup steps
+
+1. Place all three .py files in the same directory as your other safety
+   modules (next to simulation_lock.py, kill_switch.py, etc.)
+
+2. Create the three new tables (run once):
+
+```sql
+CREATE TABLE IF NOT EXISTS reconciliation_log (
+    id SERIAL PRIMARY KEY,
+    checked_at TIMESTAMPTZ NOT NULL,
+    only_in_broker TEXT,
+    only_in_db TEXT,
+    mismatch_found BOOLEAN,
+    resolved BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS daily_loss_breach_log (
+    id SERIAL PRIMARY KEY,
+    checked_at TIMESTAMPTZ NOT NULL,
+    account_value DOUBLE PRECISION,
+    realized_pnl DOUBLE PRECISION,
+    loss_pct DOUBLE PRECISION,
+    loss_limit_pct DOUBLE PRECISION,
+    resolved BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS order_execution_log (
+    id SERIAL PRIMARY KEY,
+    decision_id INTEGER NOT NULL,
+    broker_order_id TEXT,
+    ticker TEXT,
+    side TEXT,
+    qty DOUBLE PRECISION,
+    status TEXT,
+    submitted_at TIMESTAMPTZ NOT NULL,
+    filled_at TIMESTAMPTZ,
+    fill_price DOUBLE PRECISION,
+    UNIQUE (decision_id)
+);
+```
+
+3. Set env vars (optional, has defaults):
+   - DAILY_LOSS_LIMIT_PCT (default 2.0 — halts at -2% of account value for the day)
+   - ACCOUNT_VALUE_BASELINE (default 10000 — placeholder until real account tracking exists)
+
+4. Wire into pre_decision_risk_gate.py: before any AIEM decision is acted
+   on, call all three of:
+   - has_unresolved_mismatch(db_url) from position_reconciler.py — if True, halt
+   - check_daily_loss_limit(db_url)["halt_trading"] from daily_loss_limit.py — if True, halt
+   - should_place_order(db_url, decision_id) from order_dedup.py — if False, skip (already handled)
+
+5. Schedule reconcile_positions() to run periodically (e.g. every 30 min
+   during market hours, same cadence as aiem_exit_review) once a real
+   broker is connected. For now it can be run manually for testing.
+
+## Verification commands (run these after integration, paste output back)
+
+```bash
+# Confirm all three files exist with real content
+for f in position_reconciler.py daily_loss_limit.py order_dedup.py; do
+  echo "--- $f ---"
+  find . -name "$f" -exec wc -l {} \;
+done
+
+# Confirm tables were created
+psql "$DATABASE_URL" -c "
+SELECT table_name FROM information_schema.tables
+WHERE table_name IN ('reconciliation_log', 'daily_loss_breach_log', 'order_execution_log');"
+
+# Test reconciliation against the mock source (should run without error)
+python3 position_reconciler.py
+
+# Test daily loss limit check (should run without error)
+python3 daily_loss_limit.py
+
+# Test dedup check against a decision_id that doesn't exist yet
+python3 order_dedup.py
+
+# Confirm pre_decision_risk_gate.py actually calls all three new checks
+grep -n "has_unresolved_mismatch\|check_daily_loss_limit\|should_place_order" pre_decision_risk_gate.py
+```
+
+If that last grep returns NO MATCHES, the modules exist but aren't
+actually wired into the decision gate yet — that's the integration step,
+not just file creation. Don't consider this done until that grep shows
+real hits inside pre_decision_risk_gate.py.
