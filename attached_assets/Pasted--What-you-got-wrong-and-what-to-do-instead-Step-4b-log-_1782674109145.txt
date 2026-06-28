@@ -1,0 +1,61 @@
+# What you got wrong, and what to do instead
+
+## Step 4b — log check
+You ran the grep correctly, but the log file you checked was timestamped
+20260628_180946 (6:09 PM). The scheduler job only fires during market hours:
+
+    CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/30", timezone=_ET)
+
+6:09 PM ET is after hour=15 (3pm), so there's nothing wrong — the job simply
+hasn't had a chance to fire yet today. "No output" was the CORRECT and
+HONEST answer for that timestamp. Do not reinterpret silence as success or
+failure; just report it accurately, including why.
+
+Run this again tomorrow, ONLY between 9:30am and 3:00pm ET (after the market
+has been open at least 30 min so the cron has had a chance to trigger):
+
+    LOGFILE=$(ls -t /tmp/logs/artifactsstock-scanner_stock-api_*.log | head -1)
+    echo "Checking log file: $LOGFILE"
+    echo "Current time: $(TZ=America/New_York date)"
+    grep "aiem_exit_engine\|aiem_exit_review\|aiem exit review" "$LOGFILE" | tail -20
+
+Paste back the literal output, including the "Checking log file" and
+"Current time" lines so we can confirm the check happened inside market
+hours. If output is still empty during market hours, that IS a real
+finding — say so plainly, don't paper over it.
+
+## Step 4c — DB check
+This failed because $DATABASE_URL was not set in your shell session.
+Find the actual variable name/connection string in use and confirm it
+resolves before running the query.
+
+    echo "DATABASE_URL is: $DATABASE_URL"
+    # If empty, search for how the app connects to its DB:
+    grep -rn "psycopg2.connect\|DATABASE_URL\|SQLALCHEMY_DATABASE_URI" \
+      --include="*.py" . | grep -v ".pyc" | head -20
+
+Once you've identified the correct env var name (it may be different from
+DATABASE_URL — check Replit's Secrets/env panel too), run:
+
+    psql "$DATABASE_URL" -c "
+    SELECT decision_time, signal_name, decision_type, reasoning
+    FROM agent_decisions
+    WHERE signal_name LIKE '%exit%' OR decision_type = 'exit'
+    ORDER BY decision_time DESC
+    LIMIT 10;"
+
+If the table name "agent_decisions" doesn't exist, do NOT guess or invent
+output. Instead run this to find the real table name:
+
+    psql "$DATABASE_URL" -c "
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema='public' AND table_name LIKE '%decision%';"
+
+and report back what tables actually exist.
+
+## Ground rule for both
+Paste the raw terminal output exactly as it appears — including command
+echoes, blank lines, "(0 rows)", or error messages. Do not summarize,
+do not say "this confirms X" without showing the literal text that confirms
+it, and do not fill in plausible-looking sample rows if a query returns
+nothing or errors out.
