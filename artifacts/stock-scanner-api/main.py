@@ -25010,7 +25010,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         return "", [], f"OpenAI init error: {_oe}"
 
     _fs_tool_map = _build_aiem_tool_map()
-    _fs_schema   = _AIEM_AGENT_TOOLS
+    _fs_schema   = _AIEM_AGENT_TOOLS[:128]  # OpenAI hard-caps at 128 tools
 
     session_system = (
         _AIEM_AGENT_SYSTEM +
@@ -29727,7 +29727,7 @@ def _run_aiem_research_agent(max_iterations=None):
             resp = _oai.chat.completions.create(
                 model="gpt-5.4",
                 messages=messages,
-                tools=_AIEM_AGENT_TOOLS,
+                tools=_AIEM_AGENT_TOOLS[:128],  # OpenAI hard-caps at 128 tools
                 tool_choice="auto",
                 max_completion_tokens=4096,
             )
@@ -29805,7 +29805,7 @@ def _run_aiem_research_agent(max_iterations=None):
                 _cr = _oai.chat.completions.create(
                     model="gpt-5.4",
                     messages=critique_messages,
-                    tools=_AIEM_AGENT_TOOLS,
+                    tools=_AIEM_AGENT_TOOLS[:128],  # OpenAI hard-caps at 128 tools
                     tool_choice="auto",
                     max_completion_tokens=2048,
                 )
