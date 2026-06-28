@@ -1,0 +1,303 @@
+"""
+candlestick_patterns.py
+====================================================================
+INSTRUCTIONS FOR THE REPLIT AGENT
+----------------------------------
+Add this file as-is to: artifacts/stock-scanner-api/candlestick_patterns.py
+
+This is a standalone module — it has no dependency on anything else in
+the project except pandas/numpy, which are already installed.
+
+The exit-side wiring into aiem_exit_engine.py is ALREADY DONE in that
+file — it already imports detect_candlestick_patterns and uses it
+inside _compute_indicators() and _score_exit(). You don't need to
+touch aiem_exit_engine.py for candlesticks; just add this file
+alongside it.
+
+The only wiring left to do by hand is on the ENTRY side, in main.py
+(the pick-builder function that currently loops `for ticker, sdata in
+ranked:` building `picks`):
+  1. Add: from candlestick_patterns import detect_candlestick_patterns
+  2. Before appending a ticker to `picks`, fetch its recent daily bars
+     (you already have a price-history fetch — _td_history) and call
+     detect_candlestick_patterns(df) on it.
+  3. If the result's bias is "bearish" with strength >= 2, SKIP the ticker
+     even if its flow/options signals look good — a bearish reversal
+     candle is reason to not enter a fresh long here.
+  4. If the result's bias is "bullish" with strength >= 2, this is a
+     confirmation signal — you can add a small conviction bonus (e.g.
+     +1 to conviction_pts) the same way other confirming signals already
+     add conviction in that function.
+
+That's the full wiring. Everything below is the pattern engine itself.
+====================================================================
+
+WHAT THIS COVERS
+-----------------
+Single-candle:      Doji, Spinning Top, Marubozu, Hammer, Inverted Hammer,
+                     Hanging Man, Shooting Star
+Two-candle:         Bullish/Bearish Engulfing, Bullish/Bearish Harami,
+                     Piercing Line, Dark Cloud Cover, Tweezer Top/Bottom
+Three-candle:       Morning Star, Evening Star, Three White Soldiers,
+                     Three Black Crows, Three Inside Up/Down
+
+All single/two-candle reversal patterns are evaluated WITH trend context
+(a real hammer only means something after a downtrend; the same shape
+after an uptrend is a hanging man, not a hammer) — this is exactly the
+distinction a discretionary trader makes by eye, done numerically here
+so it's consistent and never skipped.
+
+Works directly on the OHLCV DataFrame format already used everywhere
+else in this project (_td_history output: columns Open/High/Low/Close/
+Volume, oldest -> newest, DatetimeIndex). No image/chart screenshot is
+needed or used — this reads the same precise numbers a quant would pull
+from a data feed, which is more reliable than visually estimating wick
+length from a picture.
+"""
+
+from typing import Dict, Any, List
+
+import numpy as np
+import pandas as pd
+
+
+# ── Trend context helper ───────────────────────────────────────────────
+
+def _prior_trend(df: pd.DataFrame, lookback: int = 5, exclude_last: int = 1) -> str:
+    """Direction of the trend going INTO the pattern, judged by the slope
+    of closes over `lookback` candles before the pattern candles. Returns
+    'down', 'up', or 'flat'. This is what separates a hammer from a
+    hanging man, and a morning star from an evening star — same candle
+    shapes, opposite meaning depending on what came before."""
+    if len(df) < lookback + exclude_last + 1:
+        return "flat"
+    window = df["Close"].iloc[-(lookback + exclude_last):-exclude_last] if exclude_last else df["Close"].iloc[-lookback:]
+    if len(window) < 2:
+        return "flat"
+    pct_change = (window.iloc[-1] - window.iloc[0]) / window.iloc[0] * 100
+    if pct_change <= -1.5:
+        return "down"
+    if pct_change >= 1.5:
+        return "up"
+    return "flat"
+
+
+def _candle_metrics(o: float, h: float, l: float, c: float) -> Dict[str, float]:
+    rng = max(h - l, 1e-9)
+    body = abs(c - o)
+    upper_shadow = h - max(o, c)
+    lower_shadow = min(o, c) - l
+    return {
+        "range": rng,
+        "body": body,
+        "body_pct": body / rng,
+        "upper_shadow": upper_shadow,
+        "lower_shadow": lower_shadow,
+        "upper_shadow_pct": upper_shadow / rng,
+        "lower_shadow_pct": lower_shadow / rng,
+        "bullish": c > o,
+        "bearish": c < o,
+    }
+
+
+# ── Single-candle patterns ─────────────────────────────────────────────
+
+def _single_candle_patterns(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if len(df) < 6:
+        return []
+    o, h, l, c = (float(df["Open"].iloc[-1]), float(df["High"].iloc[-1]),
+                  float(df["Low"].iloc[-1]), float(df["Close"].iloc[-1]))
+    m = _candle_metrics(o, h, l, c)
+    trend = _prior_trend(df, lookback=5, exclude_last=1)
+    found = []
+
+    if m["body_pct"] <= 0.1:
+        found.append({"name": "Doji", "bias": "neutral", "strength": 1,
+                       "note": "Indecision — neither side in control."})
+
+    if m["body_pct"] <= 0.9 and m["body_pct"] > 0.1 and m["upper_shadow_pct"] > m["body_pct"] and m["lower_shadow_pct"] > m["body_pct"]:
+        found.append({"name": "Spinning Top", "bias": "neutral", "strength": 1,
+                       "note": "Small body, shadows both sides — momentum stalling."})
+
+    if m["body_pct"] >= 0.9:
+        found.append({"name": "Marubozu", "bias": "bullish" if m["bullish"] else "bearish",
+                       "strength": 1,
+                       "note": "Almost no shadow — strong conviction in the candle's direction."})
+
+    # Hammer / Hanging Man shape: small body near the top, long lower shadow, tiny upper shadow
+    if m["lower_shadow"] >= 2 * max(m["body"], 1e-9) and m["upper_shadow_pct"] <= 0.15 and m["body_pct"] <= 0.35:
+        if trend == "down":
+            found.append({"name": "Hammer", "bias": "bullish", "strength": 2,
+                          "note": "Long lower wick after a downtrend — buyers rejected new lows."})
+        elif trend == "up":
+            found.append({"name": "Hanging Man", "bias": "bearish", "strength": 2,
+                          "note": "Long lower wick after an uptrend — sellers showed up intraday."})
+
+    # Inverted Hammer / Shooting Star shape: small body near the bottom, long upper shadow
+    if m["upper_shadow"] >= 2 * max(m["body"], 1e-9) and m["lower_shadow_pct"] <= 0.15 and m["body_pct"] <= 0.35:
+        if trend == "down":
+            found.append({"name": "Inverted Hammer", "bias": "bullish", "strength": 2,
+                          "note": "Long upper wick after a downtrend — buyers tested higher prices."})
+        elif trend == "up":
+            found.append({"name": "Shooting Star", "bias": "bearish", "strength": 2,
+                          "note": "Long upper wick after an uptrend — rally rejected intraday."})
+
+    return found
+
+
+# ── Two-candle patterns ────────────────────────────────────────────────
+
+def _two_candle_patterns(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if len(df) < 7:
+        return []
+    p = df.iloc[-2]
+    c = df.iloc[-1]
+    po, ph, pl, pc = float(p["Open"]), float(p["High"]), float(p["Low"]), float(p["Close"])
+    co, ch, cl, cc = float(c["Open"]), float(c["High"]), float(c["Low"]), float(c["Close"])
+    pm = _candle_metrics(po, ph, pl, pc)
+    cm = _candle_metrics(co, ch, cl, cc)
+    trend = _prior_trend(df, lookback=5, exclude_last=2)
+    found = []
+
+    # Bullish Engulfing
+    if pm["bearish"] and cm["bullish"] and co <= pc and cc >= po and cm["body"] > pm["body"]:
+        found.append({"name": "Bullish Engulfing", "bias": "bullish", "strength": 3,
+                      "note": "Current candle fully engulfs the prior down candle — buyers took control."})
+
+    # Bearish Engulfing
+    if pm["bullish"] and cm["bearish"] and co >= pc and cc <= po and cm["body"] > pm["body"]:
+        found.append({"name": "Bearish Engulfing", "bias": "bearish", "strength": 3,
+                      "note": "Current candle fully engulfs the prior up candle — sellers took control."})
+
+    # Bullish Harami (small candle inside prior big down candle)
+    if pm["bearish"] and cm["bullish"] and co > pc and cc < po and cm["body"] < pm["body"] * 0.7:
+        found.append({"name": "Bullish Harami", "bias": "bullish", "strength": 2,
+                      "note": "Small up candle contained inside the prior down candle — selling pressure fading."})
+
+    # Bearish Harami
+    if pm["bullish"] and cm["bearish"] and co < pc and cc > po and cm["body"] < pm["body"] * 0.7:
+        found.append({"name": "Bearish Harami", "bias": "bearish", "strength": 2,
+                      "note": "Small down candle contained inside the prior up candle — buying pressure fading."})
+
+    # Piercing Line (bullish reversal in a downtrend)
+    if trend == "down" and pm["bearish"] and cm["bullish"]:
+        prior_mid = (po + pc) / 2
+        if co < pl and cc > prior_mid and cc < po:
+            found.append({"name": "Piercing Line", "bias": "bullish", "strength": 3,
+                          "note": "Gapped down then closed back above the midpoint of the prior candle."})
+
+    # Dark Cloud Cover (bearish reversal in an uptrend)
+    if trend == "up" and pm["bullish"] and cm["bearish"]:
+        prior_mid = (po + pc) / 2
+        if co > ph and cc < prior_mid and cc > po:
+            found.append({"name": "Dark Cloud Cover", "bias": "bearish", "strength": 3,
+                          "note": "Gapped up then closed back below the midpoint of the prior candle."})
+
+    # Tweezer Top / Bottom (matching highs or lows, opposite bodies)
+    if abs(ph - ch) / max(ph, 1e-9) < 0.003 and trend == "up" and pm["bullish"] and cm["bearish"]:
+        found.append({"name": "Tweezer Top", "bias": "bearish", "strength": 2,
+                      "note": "Two candles stalling at nearly the same high — resistance forming."})
+    if abs(pl - cl) / max(pl, 1e-9) < 0.003 and trend == "down" and pm["bearish"] and cm["bullish"]:
+        found.append({"name": "Tweezer Bottom", "bias": "bullish", "strength": 2,
+                      "note": "Two candles holding at nearly the same low — support forming."})
+
+    return found
+
+
+# ── Three-candle patterns ──────────────────────────────────────────────
+
+def _three_candle_patterns(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if len(df) < 8:
+        return []
+    c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+    m1 = _candle_metrics(float(c1["Open"]), float(c1["High"]), float(c1["Low"]), float(c1["Close"]))
+    m2 = _candle_metrics(float(c2["Open"]), float(c2["High"]), float(c2["Low"]), float(c2["Close"]))
+    m3 = _candle_metrics(float(c3["Open"]), float(c3["High"]), float(c3["Low"]), float(c3["Close"]))
+    trend = _prior_trend(df, lookback=5, exclude_last=3)
+    found = []
+
+    # Morning Star: long bearish, small-body star, long bullish closing into candle 1's body
+    if (trend == "down" and m1["bearish"] and m1["body_pct"] >= 0.5
+            and m2["body_pct"] <= 0.3 and m3["bullish"] and m3["body_pct"] >= 0.5
+            and float(c3["Close"]) > (float(c1["Open"]) + float(c1["Close"])) / 2):
+        found.append({"name": "Morning Star", "bias": "bullish", "strength": 3,
+                      "note": "Long down candle -> indecision -> strong reversal candle closing back into the down candle's body."})
+
+    # Evening Star: long bullish, small-body star, long bearish closing into candle 1's body
+    if (trend == "up" and m1["bullish"] and m1["body_pct"] >= 0.5
+            and m2["body_pct"] <= 0.3 and m3["bearish"] and m3["body_pct"] >= 0.5
+            and float(c3["Close"]) < (float(c1["Open"]) + float(c1["Close"])) / 2):
+        found.append({"name": "Evening Star", "bias": "bearish", "strength": 3,
+                      "note": "Long up candle -> indecision -> strong reversal candle closing back into the up candle's body."})
+
+    # Three White Soldiers: three consecutive strong up candles, each closing higher
+    closes = [float(c1["Close"]), float(c2["Close"]), float(c3["Close"])]
+    opens = [float(c1["Open"]), float(c2["Open"]), float(c3["Open"])]
+    if (m1["bullish"] and m2["bullish"] and m3["bullish"]
+            and closes[1] > closes[0] and closes[2] > closes[1]
+            and m1["body_pct"] >= 0.5 and m2["body_pct"] >= 0.5 and m3["body_pct"] >= 0.5):
+        found.append({"name": "Three White Soldiers", "bias": "bullish", "strength": 3,
+                      "note": "Three consecutive strong up closes — sustained buying, not a one-off pop."})
+
+    # Three Black Crows: three consecutive strong down candles, each closing lower
+    if (m1["bearish"] and m2["bearish"] and m3["bearish"]
+            and closes[1] < closes[0] and closes[2] < closes[1]
+            and m1["body_pct"] >= 0.5 and m2["body_pct"] >= 0.5 and m3["body_pct"] >= 0.5):
+        found.append({"name": "Three Black Crows", "bias": "bearish", "strength": 3,
+                      "note": "Three consecutive strong down closes — sustained selling, not a one-off dip."})
+
+    return found
+
+
+# ── Public entry point ─────────────────────────────────────────────────
+
+def detect_candlestick_patterns(df: pd.DataFrame) -> Dict[str, Any]:
+    """Run the full pattern set against the most recent candle(s) in `df`.
+    Returns:
+        {
+          "signals":  [pattern names that fired],
+          "bias":     "bullish" | "bearish" | "neutral" | "none",
+          "strength": int (sum of strength scores, signed by bias direction
+                      cancels out — this is the magnitude of the strongest
+                      same-direction signal set),
+          "details":  [{"name", "bias", "strength", "note"}, ...]
+        }
+    Returns {"signals": [], "bias": "none", "strength": 0, "details": []}
+    if there isn't enough history yet. Never raises.
+    """
+    try:
+        if df is None or df.empty or len(df) < 6:
+            return {"signals": [], "bias": "none", "strength": 0, "details": []}
+
+        details = (_single_candle_patterns(df)
+                   + _two_candle_patterns(df)
+                   + _three_candle_patterns(df))
+
+        if not details:
+            return {"signals": [], "bias": "none", "strength": 0, "details": []}
+
+        bull_strength = sum(d["strength"] for d in details if d["bias"] == "bullish")
+        bear_strength = sum(d["strength"] for d in details if d["bias"] == "bearish")
+
+        if bull_strength > bear_strength:
+            bias, strength = "bullish", bull_strength
+        elif bear_strength > bull_strength:
+            bias, strength = "bearish", bear_strength
+        else:
+            bias, strength = "neutral", 0
+
+        return {
+            "signals": [d["name"] for d in details],
+            "bias": bias,
+            "strength": strength,
+            "details": details,
+        }
+    except Exception as e:
+        print(f"[candlestick_patterns] error: {e}")
+        return {"signals": [], "bias": "none", "strength": 0, "details": [], "error": str(e)}
+
+
+if __name__ == "__main__":
+    print("candlestick_patterns: numeric detection of the standard reversal/continuation")
+    print("candle patterns (doji, hammer, engulfing, morning/evening star, three soldiers/crows, etc.)")
+    print("Call detect_candlestick_patterns(df) on a daily OHLCV DataFrame.")
