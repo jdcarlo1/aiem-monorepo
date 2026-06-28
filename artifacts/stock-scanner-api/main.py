@@ -18705,15 +18705,14 @@ def _mkt_tool_validate_oos(conditions=None, train_pct=0.6, horizon="next_day"):
         return {"status": "error", "error": str(e)}
 
 
-import functools as _ft_oai
+_openai_client_cache = {}
 
-@_ft_oai.lru_cache(maxsize=1)
 def _get_openai_client():
-    """Cached OpenAI client singleton for AIEM market research tools.
+    """Cached OpenAI client for AIEM market research tools.
 
     Raises RuntimeError (not a cryptic SDK error) when OPENAI_API_KEY is
-    missing so callers get a clear, actionable message.
-    Call _get_openai_client.cache_clear() after key rotation.
+    missing. Caches by key value — if the key rotates, a new client is built
+    automatically without requiring a manual cache_clear().
     """
     import os as _os_oai
     _key = _os_oai.environ.get("OPENAI_API_KEY")
@@ -18722,8 +18721,11 @@ def _get_openai_client():
             "OPENAI_API_KEY environment variable is not set. "
             "Set it before calling AIEM hypothesis or indicator tools."
         )
-    from openai import OpenAI as _OAI
-    return _OAI(api_key=_key, timeout=30.0, max_retries=2)
+    if _openai_client_cache.get("key") != _key:
+        from openai import OpenAI as _OAI
+        _openai_client_cache["client"] = _OAI(api_key=_key, timeout=30.0, max_retries=2)
+        _openai_client_cache["key"] = _key
+    return _openai_client_cache["client"]
 
 # ──────────────────────────────────────────────────────────────────────────
 # Tool 9: AI generates its own hypotheses from scratch
