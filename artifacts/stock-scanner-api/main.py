@@ -36300,8 +36300,8 @@ def conviction_stack_endpoint():
     if not _cs_stk_cache:
         try:
             import psycopg2 as _pg_imm
-            with _pg_imm.connect(_DB_URL, connect_timeout=2,
-                                 options="-c statement_timeout=3000 -c lock_timeout=1000") as _c_imm, \
+            with _pg_imm.connect(_DB_URL, connect_timeout=8,
+                                 options="-c statement_timeout=5000 -c lock_timeout=3000") as _c_imm, \
                  _c_imm.cursor() as _cu_imm:
                 _cu_imm.execute(
                     "SELECT ticker, total_pts, conviction_pct, label, price,"
@@ -36350,8 +36350,8 @@ def conviction_stack_endpoint():
                         " FROM conviction_stack_watchlist"
                         " ORDER BY snap_date DESC, rank ASC LIMIT 150"
                     )
-                    with _pg_cs_p.connect(_DB_URL, connect_timeout=2,
-                                          options="-c statement_timeout=4000 -c lock_timeout=2000") as _c_p,                          _c_p.cursor() as _cu_p:
+                    with _pg_cs_p.connect(_DB_URL, connect_timeout=8,
+                                          options="-c statement_timeout=5000 -c lock_timeout=3000") as _c_p,                          _c_p.cursor() as _cu_p:
                         _cu_p.execute(_sql_p)
                         _cols_p = [d[0] for d in _cu_p.description]
                         _rows_p = _cu_p.fetchall()
