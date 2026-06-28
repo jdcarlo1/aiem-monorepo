@@ -1,0 +1,55 @@
+#!/bin/bash
+# verify_synthesis_gate_blocking.sh
+# Confirms whether the synthesis gate ACTUALLY blocks low-confluence
+# tickers from becoming real picks, using real tickers already logged
+# tonight: HOOD (confluence 2/4, should PASS) vs AAPL/BYND/HIVE/MRNA
+# (confluence 0/4 or 1/4, should be BLOCKED).
+
+echo "################################################################"
+echo "# SYNTHESIS GATE BLOCKING VERIFICATION"
+echo "################################################################"
+
+echo ""
+echo "=== STEP 1: What did synthesis actually decide for each ticker? ==="
+psql "$DATABASE_URL" -c "
+  SELECT decision_time, ticker, reasoning
+  FROM agent_decisions
+  WHERE signal_name = 'pre_recommendation_synthesis'
+    AND ticker IN ('AAPL', 'BYND', 'HIVE', 'HOOD', 'MRNA')
+  ORDER BY decision_time DESC;"
+
+echo ""
+echo "=== STEP 2: Which of these tickers actually became real picks today? ==="
+psql "$DATABASE_URL" -c "
+  SELECT ticker, pick_date, status, score
+  FROM ai_stock_picks
+  WHERE ticker IN ('AAPL', 'BYND', 'HIVE', 'HOOD', 'MRNA')
+    AND pick_date = CURRENT_DATE;"
+
+echo ""
+echo "=== STEP 3: Side-by-side — does the gate's decision match the real outcome? ==="
+psql "$DATABASE_URL" -c "
+  SELECT ad.ticker,
+         ad.reasoning AS synthesis_decision,
+         CASE WHEN p.ticker IS NOT NULL THEN 'BECAME A REAL PICK' ELSE 'BLOCKED / NOT A PICK' END AS actual_outcome
+  FROM agent_decisions ad
+  LEFT JOIN ai_stock_picks p
+    ON p.ticker = ad.ticker AND p.pick_date = CURRENT_DATE
+  WHERE ad.signal_name = 'pre_recommendation_synthesis'
+    AND ad.ticker IN ('AAPL', 'BYND', 'HIVE', 'HOOD', 'MRNA')
+  ORDER BY ad.ticker;"
+
+echo ""
+echo "################################################################"
+echo "# HOW TO READ THIS"
+echo "################################################################"
+echo "REAL PASS requires:"
+echo "  - HOOD (confluence 2/4, at the threshold) shows 'BECAME A REAL"
+echo "    PICK' since min_confluence=2 means 2 should NOT be blocked"
+echo "  - AAPL (0/4), BYND/HIVE/MRNA (1/4 each) all show 'BLOCKED / NOT"
+echo "    A PICK' since they're below the threshold"
+echo ""
+echo "If HOOD got blocked too, or if AAPL/BYND/HIVE/MRNA became real"
+echo "picks despite low confluence, the gate is NOT actually preventing"
+echo "anything — it's just logging a decision that gets ignored. Paste"
+echo "back the actual rows from all 3 steps, unedited."
