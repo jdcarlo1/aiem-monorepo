@@ -1,0 +1,96 @@
+#!/bin/bash
+# verify_aiem_integration.sh
+# Run this directly in the Replit shell. Paste the FULL raw output back —
+# do not let an agent summarize or reformat this. Every section prints
+# real command output, or explicitly says "NO OUTPUT" if empty.
+
+echo "================================================================"
+echo "STEP 1: File exists + has real content"
+echo "================================================================"
+FILE=$(find . -name "aiem_exit_engine.py" 2>/dev/null | head -1)
+if [ -z "$FILE" ]; then
+  echo "FAIL: aiem_exit_engine.py not found anywhere in repo"
+else
+  ls -la "$FILE"
+  echo "--- line count ---"
+  wc -l "$FILE"
+  echo "--- first 20 lines ---"
+  head -20 "$FILE"
+fi
+
+echo ""
+echo "================================================================"
+echo "STEP 2: No hardcoded hold_days countdown, safety cap present"
+echo "================================================================"
+echo "--- grep hold_days ---"
+grep -n "hold_days" "$FILE" || echo "NO OUTPUT (no matches)"
+echo "--- grep for literal day lists (2,3,5 pattern) ---"
+grep -nE "\[?2,\s*3,\s*5\]?" "$FILE" || echo "NO OUTPUT (no matches)"
+echo "--- grep for 15-day safety cap context ---"
+grep -n -A3 -B3 "15" "$FILE" || echo "NO OUTPUT (no matches)"
+
+echo ""
+echo "================================================================"
+echo "STEP 3: DB columns exist on ai_stock_picks (requires psql/DATABASE_URL)"
+echo "================================================================"
+if [ -z "$DATABASE_URL" ]; then
+  echo "DATABASE_URL not set in this shell — run the SQL block manually:"
+  echo "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'ai_stock_picks';"
+else
+  psql "$DATABASE_URL" -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'ai_stock_picks';"
+  echo "--- sample populated rows ---"
+  psql "$DATABASE_URL" -c "SELECT status, exit_price, exit_reason, closed_at FROM ai_stock_picks WHERE status IS NOT NULL LIMIT 10;"
+fi
+
+echo ""
+echo "================================================================"
+echo "STEP 4a: Scheduler registration - what are the actual hits?"
+echo "================================================================"
+grep -rn -B3 "aiem_exit_review" --include="*.py" . || echo "NO OUTPUT (string not found anywhere)"
+
+echo ""
+echo "================================================================"
+echo "STEP 4b: Has the job actually fired? (log search)"
+echo "================================================================"
+LOGFILE=$(ls -t /tmp/logs/artifactsstock-scanner_stock-api_*.log 2>/dev/null | head -1)
+if [ -z "$LOGFILE" ]; then
+  echo "NO LOG FILE FOUND matching pattern /tmp/logs/artifactsstock-scanner_stock-api_*.log"
+  echo "Available log files:"
+  ls -la /tmp/logs/ 2>/dev/null || echo "NO /tmp/logs/ DIRECTORY"
+else
+  echo "Using log file: $LOGFILE"
+  grep "aiem_exit_engine\|aiem_exit_review" "$LOGFILE" | tail -20 || echo "NO OUTPUT (no matching lines in log)"
+fi
+
+echo ""
+echo "================================================================"
+echo "STEP 4c: Has the job produced a decision? (DB search - strongest proof)"
+echo "================================================================"
+if [ -z "$DATABASE_URL" ]; then
+  echo "DATABASE_URL not set in this shell — run manually:"
+  echo "SELECT decision_time, signal_name, decision_type, reasoning FROM agent_decisions WHERE signal_name LIKE '%exit%' OR decision_type = 'exit' ORDER BY decision_time DESC LIMIT 10;"
+else
+  psql "$DATABASE_URL" -c "SELECT decision_time, signal_name, decision_type, reasoning FROM agent_decisions WHERE signal_name LIKE '%exit%' OR decision_type = 'exit' ORDER BY decision_time DESC LIMIT 10;"
+fi
+
+echo ""
+echo "================================================================"
+echo "STEP 5: Protected files (shadow_ledger, simulation_lock, rl_position_sizer) untouched"
+echo "================================================================"
+echo "NOTE: replace BASE_COMMIT below with the actual commit hash before"
+echo "the AIEM exit engine integration started (e.g. 530a1b9)."
+BASE_COMMIT="REPLACE_ME"
+if [ "$BASE_COMMIT" = "REPLACE_ME" ]; then
+  echo "--- log of commits touching these files (manually inspect) ---"
+  git log --oneline -- shadow_ledger.py simulation_lock.py rl_position_sizer.py | head -10
+else
+  git diff "$BASE_COMMIT" HEAD -- shadow_ledger.py simulation_lock.py rl_position_sizer.py
+  echo "(empty output above = confirmed unchanged)"
+fi
+
+echo ""
+echo "================================================================"
+echo "DONE. Paste this ENTIRE output back, unedited, including any"
+echo "'NO OUTPUT' or 'FAIL' lines — those are informative, not failures"
+echo "to hide."
+echo "================================================================"
