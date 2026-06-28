@@ -16524,6 +16524,12 @@ def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
 
     days: any integer N — OFFSET (N-1) on polygon_market_daily.
     Confidence: n<20 TOO FEW | n 20-49 LIMITED | n>=50 REASONABLE SAMPLE
+
+    PATCH: confidence (sample-size only) and match_dimensionality (how many
+    score fields actually matched, after fallback) are now reported as two
+    separate numbers, plus a combined overall_confidence that is downgraded
+    whenever dimensionality is low — so a single-field fallback match can
+    never silently read with the same trust as a full 4-field match.
     """
     import psycopg2 as _pg_pst
 
@@ -16664,12 +16670,32 @@ def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
 
         win_rate_pct = round(sum(1 for w in wins if w) / n * 100, 1)
 
+        # Sample-size confidence (unchanged label)
         if n < 20:
             confidence = "TOO FEW SIMILAR HISTORICAL SETUPS TO TRUST"
         elif n < 50:
             confidence = "LIMITED DATA"
         else:
             confidence = "REASONABLE SAMPLE"
+
+        # Dimensionality: how many score fields actually matched after fallback
+        match_dimensionality = len(used_fields)
+        total_fields_available = len(_band_map)
+
+        # overall_confidence downgrades when dimensionality is low so AIEM can
+        # never treat a 1-field fallback match with the same trust as a full match
+        if match_dimensionality == total_fields_available:
+            overall_confidence = confidence
+        elif match_dimensionality >= 2:
+            overall_confidence = (
+                f"{confidence} — PARTIAL MATCH "
+                f"({match_dimensionality}/{total_fields_available} score fields)"
+            )
+        else:
+            overall_confidence = (
+                f"{confidence} — WEAK: single-field fallback only "
+                f"(1/{total_fields_available} score fields); treat with caution"
+            )
 
         return {
             "ticker":                       ticker.upper(),
@@ -16678,10 +16704,13 @@ def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
                                              for f in _SCORE_FIELDS},
             "filters_used":                 used_fields,
             "fallback_mode":                fallback_mode,
+            "match_dimensionality":         match_dimensionality,
+            "total_fields_available":       total_fields_available,
             "n_similar_historical_setups":  n,
             "n_skipped_no_price_data":      skipped,
             "win_rate_pct":                 win_rate_pct,
             "confidence":                   confidence,
+            "overall_confidence":           overall_confidence,
             "note": "win_rate_pct is meaningless without checking n_similar_historical_setups alongside it",
         }
 
