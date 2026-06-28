@@ -12114,7 +12114,7 @@ const AIEM_TOOLS = [
 ];
 
 function QuantAgentTab() {
-  const API_BASE_QA = import.meta.env.BASE_URL;
+  const API_BASE_QA = "/";
   const [history, setHistory]     = useState<QASession[]>([]);
   const [input, setInput]         = useState("");
   const [activeJob, setActiveJob] = useState<QASession | null>(null);
