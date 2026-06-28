@@ -301,7 +301,7 @@ def score_v2(cl: list, rvol_open: float) -> dict | None:
 
 # ── Quant z-score engine ──────────────────────────────────────────────────────
 
-def score_quant_batch(cands: list) -> list:
+def score_quant_batch(cands: list, base_weights: dict | None = None) -> list:
     """
     Cross-sectional quant z-score for a list of candidates on one trading day.
 
@@ -312,7 +312,11 @@ def score_quant_batch(cands: list) -> list:
         ft_z     : float turnover — (opening 15-min abs vol) / float_shares × 100%
         sq_z     : squeeze pressure — short_pct × (1 / days_to_cover)
 
-    Weights: gap 20%, mom 30%, qual 20%, ft 15%, sq 15%.
+    base_weights: optional dict specifying per-factor base weights before
+        redistribution for unavailable factors. Defaults to the production
+        momentum-quality-heavy scheme: gap 20%, mom 30%, qual 20%, ft 15%, sq 15%.
+        Pass {"gap": 0.20, "mom": 0.20, "qual": 0.20, "ft": 0.20, "sq": 0.20}
+        for the equal-weight baseline comparison.
     ft_z and sq_z are dropped (weight redistributed) when data is unavailable.
 
     Grade thresholds (cross-sectional, per-day — both conditions must hold):
@@ -373,16 +377,19 @@ def score_quant_batch(cands: list) -> list:
         if sd > 1e-9:
             sq_z[sq_ok] = (v - mu) / sd
 
+    # Production default: momentum-quality-heavy
+    _bw = base_weights or {"gap": 0.20, "mom": 0.30, "qual": 0.20, "ft": 0.15, "sq": 0.15}
+
     results = []
     for i, c in enumerate(cands):
         factors = {"gap": gap_z[i], "mom": mom_z[i], "qual": qual_z[i]}
-        weights = {"gap": 0.20,     "mom": 0.30,     "qual": 0.20}
+        weights = {"gap": _bw["gap"], "mom": _bw["mom"], "qual": _bw["qual"]}
         if ft_ok[i]:
             factors["ft"] = float(ft_z[i])
-            weights["ft"] = 0.15
+            weights["ft"] = _bw.get("ft", 0.15)
         if sq_ok[i]:
             factors["sq"] = float(sq_z[i])
-            weights["sq"] = 0.15
+            weights["sq"] = _bw.get("sq", 0.15)
         ws   = sum(weights.values())
         comp = sum(factors[k] * weights[k] / ws for k in factors)
         results.append({
@@ -668,6 +675,24 @@ def print_report(stored: dict):
         f" ({(vs['n']-cs['n'])/max(vs['n'],1)*100:.0f}% of V2 signals filtered out)"
     )
 
+    # V2-only per-trade breakdown
+    qt_set_full = {(t["ticker"], t.get("bt_date", "")) for t in tot_q}
+    print(f"\n  V2 ALONE — all {vs['n']} STRONG trades")
+    print(f"  {'Ticker':<7} {'Week':<12} {'V2sc':>5} {'Rnk':>4}  gap    m10    rv    → Ret%    P&L  Qconf?")
+    for lbl in WEEK_LABELS:
+        if lbl not in stored:
+            continue
+        v2t = stored[lbl][0]
+        for t in sorted(v2t, key=lambda x: x.get("score", 0), reverse=True):
+            nr  = t["next_ret"]
+            fla = "✓" if nr > 0 else "✗"
+            qconf = "★" if (t["ticker"], t.get("bt_date", "")) in qt_set_full else " "
+            print(f"  {t['ticker']:<7} {lbl:<12} {t.get('score', 0):>5}"
+                  f" {t.get('rank', 0):>4}  "
+                  f"{t.get('gap', 0):>+5.1f}%  {t.get('mom10', 0):>+5.1f}%  "
+                  f"{t.get('rvol', 0):>4.1f}x  → {nr:>+5.1f}%  {fla}  "
+                  f"${max(-50, 1000 * nr / 100):>+5.0f}  {qconf}")
+
     # Quant-only per-trade breakdown (all quant STRONG trades, independent of V2)
     print(f"\n  QUANT ALONE — all {qs['n']} STRONG trades")
     print(f"  {'Ticker':<7} {'Week':<12} {'Qz':>7} {'Rnk':>4}  gap    m10    rv    → Ret%    P&L")
@@ -763,6 +788,54 @@ def print_report(stored: dict):
   As pre-trade gate (V2+Quant intersection vs V2 alone):
     WR : {'YES' if filter_wr  else 'NO'}  ({vs['wr']:.0f}% → {cs['wr']:.0f}%,  {cs['wr']-vs['wr']:+.0f} pp)  |  Ret: {'YES' if filter_ret else 'NO'}  ({vs['ret']:.1f}% → {cs['ret']:.1f}%,  {cs['ret']-vs['ret']:+.1f} pp)
     Filter removes {(vs['n']-cs['n'])/max(vs['n'],1)*100:.0f}% of V2 signals ({vs['n']} → {cs['n']} trades)
+  ══════════════════════════════════════════════════════════════════════════════""")
+
+    # ── Dual-weight comparison ────────────────────────────────────────────────
+    # Re-score quant trades with equal 20/20/20/20/20 vs the production
+    # momentum-quality-heavy 20/30/20/15/15 scheme using the stored factor z-scores.
+    # This confirms whether the heavier momentum tilt adds value.
+    def _reweight(trades: list, wt: dict) -> list:
+        """Re-derive composite_z and STRONG grade from stored factor z-scores."""
+        out = []
+        for t in trades:
+            factors = {}
+            weights = {}
+            for k, wk in [("gap", "gap_z"), ("mom", "mom_z"), ("qual", "qual_z"),
+                           ("ft", "ft_z"), ("sq", "sq_z")]:
+                zv = t.get(wk)
+                if zv is not None and not (isinstance(zv, float) and (zv != zv)):
+                    factors[k] = float(zv)
+                    weights[k] = wt.get(k, 0.20)
+            if not factors:
+                continue
+            ws   = sum(weights.values())
+            comp = sum(factors[k] * weights[k] / ws for k in factors)
+            out.append({**t, "composite_z_rw": round(comp, 3)})
+        n   = len(out)
+        n15 = max(1, int(n * 0.15))
+        out.sort(key=lambda x: x["composite_z_rw"], reverse=True)
+        for rank, r in enumerate(out):
+            r["grade_rw"] = "STRONG" if (rank < n15 and r["composite_z_rw"] >= 0.5) else "OTHER"
+        return out
+
+    EQ_WEIGHTS  = {"gap": 0.20, "mom": 0.20, "qual": 0.20, "ft": 0.20, "sq": 0.20}
+    MOM_WEIGHTS = {"gap": 0.20, "mom": 0.30, "qual": 0.20, "ft": 0.15, "sq": 0.15}
+
+    eq_strong  = [t for t in _reweight(tot_q, EQ_WEIGHTS)  if t["grade_rw"] == "STRONG"]
+    mom_strong = [t for t in _reweight(tot_q, MOM_WEIGHTS) if t["grade_rw"] == "STRONG"]
+    es = stats(eq_strong);  ms = stats(mom_strong)
+
+    print(f"""
+  ══════════════════════════════════════════════════════════════════════════════
+  DUAL-WEIGHT COMPARISON  (re-scored from stored factor z-scores)
+  Scheme          │  n  │  WR   │ total P&L  │ ret/capital
+  ────────────────┼─────┼───────┼────────────┼────────────
+  Equal 20×5      │{es['n']:>3}  │{es['wr']:>5.0f}%  │ ${es['pl']:>+8.0f} │{es['ret']:>+7.1f}%
+  Mom-heavy 30mom │{ms['n']:>3}  │{ms['wr']:>5.0f}%  │ ${ms['pl']:>+8.0f} │{ms['ret']:>+7.1f}%
+  WR  delta: {ms['wr']-es['wr']:>+.0f} pp  |  Ret delta: {ms['ret']-es['ret']:>+.1f} pp
+  Verdict: {"Mom-heavy WINS" if ms['wr'] > es['wr'] and ms['ret'] > es['ret'] else
+             "Equal-weight WINS" if es['wr'] > ms['wr'] and es['ret'] > ms['ret'] else
+             "Mixed — check per-metric delta above"}
   ══════════════════════════════════════════════════════════════════════════════""")
 
 
