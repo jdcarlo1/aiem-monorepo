@@ -69,13 +69,13 @@ print("="*74)
 print("\nFetching daily data (May 16 – Jun 14)…")
 daily = yf.download(
     UNIVERSE, start="2026-05-16", end="2026-06-14",
-    interval="1d", group_by="ticker", auto_adjust=True, progress=False
+    interval="1d", group_by="ticker", auto_adjust=False, progress=False
 )
 
 print("Fetching 5-min intraday data (Jun 1 – Jun 14)…")
 intra = yf.download(
     UNIVERSE + ["SPY"], start="2026-06-01", end="2026-06-14",
-    interval="5m", group_by="ticker", auto_adjust=True, progress=False
+    interval="5m", group_by="ticker", auto_adjust=False, progress=False
 )
 print("Data ready.\n")
 

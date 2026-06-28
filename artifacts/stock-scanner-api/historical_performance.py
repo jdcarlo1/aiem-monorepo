@@ -126,7 +126,7 @@ def get_historical_performance(ticker: str, score: int) -> dict:
     # Fetch up to 1 year of daily history in one call
     try:
         hist = yf.download(ticker, period="365d", interval="1d",
-                           auto_adjust=True, progress=False)
+                           auto_adjust=False, progress=False)
         if hist.empty:
             return {"count": 0}
         closes = hist["Close"].squeeze()

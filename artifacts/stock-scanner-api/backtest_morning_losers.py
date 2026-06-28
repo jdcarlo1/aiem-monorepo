@@ -84,12 +84,12 @@ tickers_to_fetch = UNIVERSE + SECTOR_ETFS + ["SPY"]
 print("\nFetching daily data…")
 daily = yf.download(
     tickers_to_fetch, start="2026-05-16", end="2026-06-15",
-    interval="1d", group_by="ticker", auto_adjust=True, progress=False
+    interval="1d", group_by="ticker", auto_adjust=False, progress=False
 )
 print("Fetching 5-min intraday data…")
 intra = yf.download(
     tickers_to_fetch, start="2026-06-01", end="2026-06-15",
-    interval="5m", group_by="ticker", auto_adjust=True, progress=False
+    interval="5m", group_by="ticker", auto_adjust=False, progress=False
 )
 print("Data ready.\n")
 

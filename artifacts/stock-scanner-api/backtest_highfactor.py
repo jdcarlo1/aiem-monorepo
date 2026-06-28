@@ -112,7 +112,7 @@ def download_ohlcv(tickers, period="1y"):
         batch = tickers[i:i+80]
         try:
             raw = yf.download(batch, period=period, interval="1d",
-                              auto_adjust=True, progress=False, threads=True)
+                              auto_adjust=False, progress=False, threads=True)
             if raw.empty: continue
             for tkr in batch:
                 try:
@@ -137,7 +137,7 @@ def download_spy(period="1y"):
     spy = {}
     try:
         raw = yf.download("SPY", period=period, interval="1d",
-                          auto_adjust=True, progress=False)
+                          auto_adjust=False, progress=False)
         closes = raw["Close"].squeeze()
         dates  = list(closes.index)
         for i in range(1, len(dates)):

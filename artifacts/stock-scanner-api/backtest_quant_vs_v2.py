@@ -121,7 +121,7 @@ def build_cache():
 
     print("[build] Downloading daily OHLCV (Apr 1 – today) …", flush=True)
     raw = yf.download(syms, start="2026-04-01", end="2026-06-21",
-                      interval="1d", auto_adjust=True,
+                      interval="1d", auto_adjust=False,
                       progress=False, threads=True)
     all_hist = {}
     for t in syms:
@@ -136,7 +136,7 @@ def build_cache():
 
     print("[build] Downloading IWM …", flush=True)
     iwm_raw = yf.download("IWM", start="2026-04-01", end="2026-06-21",
-                          interval="1d", auto_adjust=True,
+                          interval="1d", auto_adjust=False,
                           progress=False)
     iwm_c = iwm_raw["Close"].squeeze().dropna()
 
@@ -427,7 +427,7 @@ def fetch_rvol_map(tickers: list, bt_date: date) -> dict:
     for chunk in [tickers[i:i + 20] for i in range(0, len(tickers), 20)]:
         try:
             iv = yf.download(chunk, start=bt_str, end=end_str,
-                             interval="1m", auto_adjust=True,
+                             interval="1m", auto_adjust=False,
                              progress=False, threads=True)
             if iv.empty:
                 continue

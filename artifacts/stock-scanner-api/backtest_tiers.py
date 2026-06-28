@@ -89,7 +89,7 @@ def download_prices(tickers: list[str], period: str = "3mo") -> dict[str, list[t
         try:
             raw = yf.download(
                 batch, period=period, interval="1d",
-                auto_adjust=True, progress=False, threads=True,
+                auto_adjust=False, progress=False, threads=True,
             )
             if raw.empty:
                 continue

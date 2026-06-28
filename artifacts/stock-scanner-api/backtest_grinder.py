@@ -45,19 +45,19 @@ def run_backtest():
     print("Fetching daily data…")
     daily = yf.download(
         UNIVERSE, start="2026-06-06", end="2026-06-14",
-        interval="1d", group_by="ticker", auto_adjust=True, progress=False
+        interval="1d", group_by="ticker", auto_adjust=False, progress=False
     )
 
     print("Fetching 1-min intraday data for the week…")
     intra = yf.download(
         UNIVERSE, start="2026-06-09", end="2026-06-14",
-        interval="1m", group_by="ticker", auto_adjust=True, progress=False
+        interval="1m", group_by="ticker", auto_adjust=False, progress=False
     )
 
     print("Fetching SPY 1-min for day direction…")
     spy_intra = yf.download(
         "SPY", start="2026-06-09", end="2026-06-14",
-        interval="1m", auto_adjust=True, progress=False
+        interval="1m", auto_adjust=False, progress=False
     )
     print("Data ready.\n")
 

@@ -69,7 +69,7 @@ print("="*72)
 print("\nFetching daily data (May 1 – Jun 18)…")
 daily_all = yf.download(
     UNIVERSE, start="2026-05-01", end="2026-06-18",
-    interval="1d", group_by="ticker", auto_adjust=True, progress=False
+    interval="1d", group_by="ticker", auto_adjust=False, progress=False
 )
 print("Data ready.\n")
 

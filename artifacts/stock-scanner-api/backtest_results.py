@@ -40,7 +40,7 @@ for ticker, dt in SIGNALS:
             start=str(dt_obj),
             end=str(dt_obj + timedelta(days=1)),
             interval="1m",
-            auto_adjust=True,
+            auto_adjust=False,
             progress=False,
         )
         if raw.empty:

@@ -63,7 +63,7 @@ def download_ohlcv(tickers, period="3mo"):
         batch = tickers[i:i+100]
         try:
             raw = yf.download(batch, period=period, interval="1d",
-                              auto_adjust=True, progress=False, threads=True)
+                              auto_adjust=False, progress=False, threads=True)
             if raw.empty: continue
             for tkr in batch:
                 try:
@@ -264,7 +264,7 @@ def main():
     # Download SPY for market direction context
     print("Downloading SPY for market context...")
     spy_raw = yf.download("SPY", period="3mo", interval="1d",
-                          auto_adjust=True, progress=False)
+                          auto_adjust=False, progress=False)
     spy_closes: dict[datetime.date, float] = {}
     if not spy_raw.empty:
         close_col = spy_raw["Close"]

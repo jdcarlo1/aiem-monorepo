@@ -60,7 +60,7 @@ def download_ohlcv(tickers, period="3mo"):
         batch = tickers[i:i+100]
         try:
             raw = yf.download(batch, period=period, interval="1d",
-                              auto_adjust=True, progress=False, threads=True)
+                              auto_adjust=False, progress=False, threads=True)
             if raw.empty: continue
             for tkr in batch:
                 try:

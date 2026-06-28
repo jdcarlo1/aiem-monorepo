@@ -42,7 +42,7 @@ print(f"Fetching Jun 12 data for: {sorted(tickers)}")
 
 data = yf.download(
     tickers, start="2026-06-11", end="2026-06-13",
-    interval="1d", progress=False, auto_adjust=True
+    interval="1d", progress=False, auto_adjust=False
 )
 
 jun12 = {}
