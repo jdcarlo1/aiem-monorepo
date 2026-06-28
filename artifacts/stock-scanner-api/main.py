@@ -16143,22 +16143,25 @@ def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
 
 def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
     """
-    Predict short-term win probability for a ticker by finding settled picks in
-    ai_short_calls_log with similar conviction scores, then looking up their
-    N-day forward close price via polygon_market_daily (OFFSET pattern — no live
-    HTTP calls, no yfinance).
+    Predict short-term win probability for `ticker` based on historical
+    picks with similar conviction scores.
 
-    Win definition mirrors _scwin():
-      - Primary:  close >= breakeven (options breakeven)
-      - Fallback: close moved up ≥ 2% from pick price
+    Confirmed column names:
+      ai_short_calls_log.stock_price = entry price (p0)
+      ai_short_calls_log.breakeven   = options breakeven price
+      polygon_market_daily: ticker, scan_date, close_price
 
-    Confidence tiers:
-      n <  20 → "TOO FEW SIMILAR HISTORICAL SETUPS TO TRUST"
-      n 20-49 → "LIMITED DATA"
-      n >= 50 → "REASONABLE SAMPLE"
+    Win definition (mirrors _scwin in _update_ai_short_call_outcomes):
+      close >= breakeven  if breakeven is set
+      (close - p0) / p0 * 100 >= 2.0  otherwise
+
+    days: any integer N — OFFSET (N-1) on polygon_market_daily.
+    Confidence: n<20 TOO FEW | n 20-49 LIMITED | n>=50 REASONABLE SAMPLE
     """
     import psycopg2 as _pg_pst
 
+    # _scwin is defined inside _update_ai_short_call_outcomes, not at module
+    # level — replicate the identical logic here to avoid a NameError.
     def _scwin_pst(close, p0, bkeven):
         if close is None or p0 is None or float(p0) <= 0:
             return None
@@ -16166,129 +16169,154 @@ def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
             return float(close) >= float(bkeven)
         return (float(close) - float(p0)) / float(p0) * 100 >= 2.0
 
-    try:
-        with _pg_pst.connect(_DB_URL) as _c, _c.cursor() as _cur:
+    _SCORE_FIELDS = ["gamma_score", "dark_pool_score", "squeeze_score", "sector_heat_score"]
 
-            # ── Step 1: most recent pick for this ticker ───────────────────────
-            _cur.execute("""
-                SELECT stock_price, strike, breakeven,
+    try:
+        days = int(days)
+
+        with _pg_pst.connect(_DB_URL) as _c, _c.cursor() as _cu:
+
+            # Step 1: most recent pick for this ticker — pull current scores
+            _cu.execute("""
+                SELECT ticker, trade_date,
                        gamma_score, dark_pool_score, squeeze_score, sector_heat_score,
-                       trade_date
+                       conviction, stock_price AS entry_price, breakeven
                 FROM ai_short_calls_log
                 WHERE ticker = %s
-                ORDER BY trade_date DESC, id DESC
+                ORDER BY trade_date DESC
                 LIMIT 1
             """, (ticker.upper(),))
-            row = _cur.fetchone()
+            row = _cu.fetchone()
             if not row:
-                return {"error": f"No pick found for {ticker} in ai_short_calls_log"}
+                return {"error": f"No pick found for ticker {ticker}"}
+            cols = [d[0] for d in _cu.description]
+            current = dict(zip(cols, row))
 
-            p0, strike, bkeven, g_sc, dp_sc, sq_sc, sh_sc, trade_date = row
+            # Step 2: ±20% similarity bands on every non-null/non-zero score
+            band_clauses = []
+            band_params = []
+            for field in _SCORE_FIELDS:
+                val = current.get(field)
+                if val is not None and float(val) != 0:
+                    lo, hi = float(val) * 0.8, float(val) * 1.2
+                    band_clauses.append(f"{field} BETWEEN %s AND %s")
+                    band_params.extend([lo, hi])
 
-            current_scores = {
-                "gamma_score":       float(g_sc)  if g_sc  is not None else None,
-                "dark_pool_score":   float(dp_sc) if dp_sc is not None else None,
-                "squeeze_score":     float(sq_sc) if sq_sc is not None else None,
-                "sector_heat_score": float(sh_sc) if sh_sc is not None else None,
-            }
+            if not band_clauses:
+                return {
+                    "error": "No non-null/non-zero scores on current pick to build similarity bands from",
+                    "current_scores": {f: current.get(f) for f in _SCORE_FIELDS},
+                }
 
-            # ── Step 2: build similarity filter (±20%, floor abs-span=0.5) ────
-            def _band(v, tol=0.20, floor=0.5):
-                if v is None:
-                    return None, None
-                span = max(abs(float(v)) * tol, floor)
-                return float(v) - span, float(v) + span
+            # Step 3: find historical picks matching score bands.
+            # Cascade: try all bands (AND); if empty, drop the sparsest field
+            # and retry — because a high-coverage field like dark_pool_score
+            # (340 picks) combined with a sparse field like gamma_score (4 picks)
+            # can AND-intersect to zero.  Priority order = most populated first.
+            _FIELD_PRIORITY = [
+                "dark_pool_score",    # 340 populated
+                "squeeze_score",      # 284 populated
+                "sector_heat_score",  # 52  populated
+                "gamma_score",        # 8   populated
+            ]
+            # Build per-field lookup: field -> (clause, [lo, hi])
+            _band_map = {}
+            _all_clauses = list(band_clauses)
+            _all_params  = list(band_params)
+            # Reconstruct per-field from band_clauses (they were built in _SCORE_FIELDS order)
+            _bc_idx = 0
+            for field in _SCORE_FIELDS:
+                val = current.get(field)
+                if val is not None and float(val) != 0:
+                    _band_map[field] = (band_clauses[_bc_idx], [float(val)*0.8, float(val)*1.2])
+                    _bc_idx += 1
 
-            conditions = ["outcome != 'OPEN'", "stock_price IS NOT NULL"]
-            params = []
-            active_filters = []
+            # Try progressively relaxed AND sets until we get matches
+            _tried_fields = [f for f in _FIELD_PRIORITY if f in _band_map]
+            matches = []
+            used_fields = []
+            fallback_mode = False
+            while _tried_fields:
+                _clauses = [_band_map[f][0] for f in _tried_fields]
+                _params  = [v for f in _tried_fields for v in _band_map[f][1]]
+                _params += [current["ticker"], current["trade_date"]]
+                _cu.execute("""
+                    SELECT ticker, trade_date, stock_price AS entry_price, breakeven
+                    FROM ai_short_calls_log
+                    WHERE {clauses}
+                      AND NOT (ticker = %s AND trade_date = %s)
+                      AND stock_price IS NOT NULL
+                """.format(clauses=" AND ".join(_clauses)), _params)
+                cols2 = [d[0] for d in _cu.description]
+                matches = [dict(zip(cols2, r)) for r in _cu.fetchall()]
+                if matches:
+                    used_fields = list(_tried_fields)
+                    fallback_mode = len(_tried_fields) < len(_band_map)
+                    break
+                _tried_fields.pop()   # drop the sparsest remaining field
 
-            for col, val in [
-                ("gamma_score",       g_sc),
-                ("dark_pool_score",   dp_sc),
-                ("squeeze_score",     sq_sc),
-                ("sector_heat_score", sh_sc),
-            ]:
-                lo, hi = _band(val)
-                if lo is not None:
-                    conditions.append(f"{col} BETWEEN %s AND %s")
-                    params += [lo, hi]
-                    active_filters.append(f"{col} ∈ [{lo:.2f}, {hi:.2f}]")
+            if not matches:
+                return {
+                    "error": "No historical matches found even with single-score fallback",
+                    "current_scores": {f: current.get(f) for f in _SCORE_FIELDS},
+                }
 
-            where = " AND ".join(conditions)
-            _cur.execute(f"""
-                SELECT ticker AS m_ticker, trade_date AS m_date,
-                       stock_price AS m_p0, breakeven AS m_bk
-                FROM ai_short_calls_log
-                WHERE {where}
-                ORDER BY trade_date DESC
-                LIMIT 300
-            """, params)
-            matches = _cur.fetchall()
-
-            # ── Steps 3+4: forward close via polygon_market_daily OFFSET ──────
-            # OFFSET (days-1) returns the Nth row when sorted ASC by scan_date,
-            # i.e. the close price exactly `days` trading sessions after the pick.
-            # If target date is a weekend/holiday, Polygon's next session is returned.
-            wins = 0
-            evaluated = 0
-            details = []
-
-            for (m_ticker, m_date, m_p0, m_bk) in matches:
-                _cur.execute("""
-                    SELECT close_price, scan_date
+            # Step 4: OFFSET lookup into polygon_market_daily
+            # OFFSET (days-1) → the Nth trading session after trade_date.
+            # Weekend/holiday dates are handled implicitly: Polygon only stores
+            # trading days, so scan_date > trade_date skips to next session.
+            wins = []
+            skipped = 0
+            for m in matches:
+                _cu.execute("""
+                    SELECT close_price
                     FROM polygon_market_daily
                     WHERE ticker = %s
                       AND scan_date > %s
                     ORDER BY scan_date ASC
                     LIMIT 1 OFFSET %s
-                """, (m_ticker, str(m_date), days - 1))
-                pr = _cur.fetchone()
-                if not pr or pr[0] is None:
+                """, (m["ticker"], m["trade_date"], days - 1))
+                price_row = _cu.fetchone()
+                if not price_row or price_row[0] is None:
+                    skipped += 1
                     continue
-                close, settle_date = float(pr[0]), str(pr[1])
-                w = _scwin_pst(close, m_p0, m_bk)
-                if w is None:
-                    continue
-                wins += 1 if w else 0
-                evaluated += 1
-                if len(details) < 5:
-                    pct = round((close - float(m_p0)) / float(m_p0) * 100, 2) if m_p0 else None
-                    details.append({
-                        "ticker":     m_ticker,
-                        "pick_date":  str(m_date),
-                        "settle_date": settle_date,
-                        "close":      round(close, 2),
-                        "move_pct":   pct,
-                        "win":        w,
-                    })
+                forward_close = float(price_row[0])
 
-            # ── Step 5: confidence tier ────────────────────────────────────────
-            if evaluated < 20:
-                confidence = "TOO FEW SIMILAR HISTORICAL SETUPS TO TRUST"
-            elif evaluated < 50:
-                confidence = "LIMITED DATA"
-            else:
-                confidence = "REASONABLE SAMPLE"
+                # Step 5: win/loss
+                w = _scwin_pst(forward_close, m["entry_price"], m.get("breakeven"))
+                if w is not None:
+                    wins.append(w)
 
-            wr = round(wins / evaluated * 100, 1) if evaluated > 0 else None
-
+        n = len(wins)
+        if n == 0:
             return {
-                "ticker":         ticker.upper(),
-                "days":           days,
-                "current_scores": current_scores,
-                "active_filters": active_filters,
-                "matched_picks":  len(matches),
-                "sample_size":    evaluated,
-                "wins":           wins,
-                "win_rate_pct":   wr,
-                "confidence":     confidence,
-                "sample_details": details,
-                "note": (
-                    f"Matched {len(matches)} settled picks with similar scores; "
-                    f"{evaluated} had polygon_market_daily data for T+{days}"
-                ),
+                "error": "No matches had usable forward price data",
+                "n_matches_found": len(matches),
+                "n_skipped_no_price": skipped,
             }
+
+        win_rate_pct = round(sum(1 for w in wins if w) / n * 100, 1)
+
+        if n < 20:
+            confidence = "TOO FEW SIMILAR HISTORICAL SETUPS TO TRUST"
+        elif n < 50:
+            confidence = "LIMITED DATA"
+        else:
+            confidence = "REASONABLE SAMPLE"
+
+        return {
+            "ticker":                       ticker.upper(),
+            "days":                         days,
+            "current_scores":               {f: (float(current.get(f)) if current.get(f) is not None else None)
+                                             for f in _SCORE_FIELDS},
+            "filters_used":                 used_fields,
+            "fallback_mode":                fallback_mode,
+            "n_similar_historical_setups":  n,
+            "n_skipped_no_price_data":      skipped,
+            "win_rate_pct":                 win_rate_pct,
+            "confidence":                   confidence,
+            "note": "win_rate_pct is meaningless without checking n_similar_historical_setups alongside it",
+        }
 
     except Exception as _e_pst:
         import traceback as _tb_pst

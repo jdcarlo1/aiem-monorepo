@@ -1,0 +1,153 @@
+"""
+_aiem_tool_predict_short_term — full implementation
+
+Built against CONFIRMED schema from this conversation:
+- ai_short_calls_log: ticker, trade_date, gamma_score, dark_pool_score,
+  squeeze_score, sector_heat_score, conviction, t1_win, t3_win, t5_win,
+  t1_pct, t3_pct, t5_pct, pick_id
+- polygon_market_daily: ticker, scan_date, close_price
+- _scwin(close, p0, bkeven): existing win-logic function
+
+⚠️ ONE PLACEHOLDER REMAINS — flagged below, not guessed silently:
+I don't have the confirmed column names for "entry price" (p0) and
+"breakeven price" (bkeven) in ai_short_calls_log. _scwin() needs both.
+Ask the agent: "What are the actual column names in ai_short_calls_log
+for entry price and breakeven price?" and swap _ENTRY_PRICE_COL /
+_BREAKEVEN_COL below before running this.
+"""
+
+import psycopg2 as _psycopg2
+
+_DB_URL = None  # reuse existing _DB_URL
+
+# ── CONFIRM WITH AGENT BEFORE RUNNING ───────────────────────────────────
+_ENTRY_PRICE_COL = "REPLACE_ME_entry_price_col"
+_BREAKEVEN_COL = "REPLACE_ME_breakeven_col"
+# ─────────────────────────────────────────────────────────────────────────
+
+_SCORE_FIELDS = ["gamma_score", "dark_pool_score", "squeeze_score", "sector_heat_score"]
+
+_DAY_FIELD_MAP = {
+    1: ("t1_win", "t1_pct"),
+    3: ("t3_win", "t3_pct"),
+    5: ("t5_win", "t5_pct"),
+}
+
+
+def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
+    """
+    Predict short-term win probability for `ticker` based on historical
+    picks with similar 9-layer scores.
+
+    days: nearest of 1, 3, 5 is used for the *current* pick's own settled
+    outcome lookup (existing columns). For the polygon_market_daily OFFSET
+    lookup against historical analogs, the exact `days` value is used
+    (any N), so this still works for days not equal to 1/3/5.
+    """
+    try:
+        days = int(days)
+
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # Step 1: most recent pick for this ticker — pull current scores
+            _cu.execute("""
+                SELECT ticker, trade_date, gamma_score, dark_pool_score,
+                       squeeze_score, sector_heat_score, conviction,
+                       """ + _ENTRY_PRICE_COL + """ AS entry_price,
+                       """ + _BREAKEVEN_COL + """ AS breakeven
+                FROM ai_short_calls_log
+                WHERE ticker = %s
+                ORDER BY trade_date DESC
+                LIMIT 1
+            """, (ticker,))
+            row = _cu.fetchone()
+            if not row:
+                return {"error": f"No pick found for ticker {ticker}"}
+            cols = [d[0] for d in _cu.description]
+            current = dict(zip(cols, row))
+
+            # Step 2: build ±20% similarity bands on every non-null score
+            band_clauses = []
+            band_params = []
+            for field in _SCORE_FIELDS:
+                val = current.get(field)
+                if val is not None and val != 0:
+                    lo, hi = float(val) * 0.8, float(val) * 1.2
+                    band_clauses.append(f"{field} BETWEEN %s AND %s")
+                    band_params.extend([lo, hi])
+
+            if not band_clauses:
+                return {"error": "No non-null/non-zero scores on current pick to build similarity bands from"}
+
+            # Step 3: find historical settled picks matching all score bands
+            # (exclude the current pick itself by trade_date/ticker combo)
+            query = f"""
+                SELECT ticker, trade_date, """ + _ENTRY_PRICE_COL + """ AS entry_price,
+                       """ + _BREAKEVEN_COL + """ AS breakeven
+                FROM ai_short_calls_log
+                WHERE {" AND ".join(band_clauses)}
+                  AND NOT (ticker = %s AND trade_date = %s)
+                  AND """ + _ENTRY_PRICE_COL + """ IS NOT NULL
+            """
+            band_params.extend([current["ticker"], current["trade_date"]])
+            _cu.execute(query, band_params)
+            cols2 = [d[0] for d in _cu.description]
+            matches = [dict(zip(cols2, r)) for r in _cu.fetchall()]
+
+            if not matches:
+                return {
+                    "error": "No historical matches found within ±20% similarity bands",
+                    "current_scores": {f: current.get(f) for f in _SCORE_FIELDS}
+                }
+
+            # Step 4: for each match, OFFSET lookup into polygon_market_daily
+            wins = []
+            skipped = 0
+            for m in matches:
+                _cu.execute("""
+                    SELECT close_price
+                    FROM polygon_market_daily
+                    WHERE ticker = %s
+                      AND scan_date > %s
+                    ORDER BY scan_date ASC
+                    LIMIT 1 OFFSET %s
+                """, (m["ticker"], m["trade_date"], days - 1))
+                price_row = _cu.fetchone()
+                if not price_row or price_row[0] is None:
+                    skipped += 1
+                    continue
+                forward_close = float(price_row[0])
+
+                # Step 5: run _scwin() logic
+                win = _scwin(forward_close, float(m["entry_price"]), m.get("breakeven"))
+                if win is not None:
+                    wins.append(win)
+
+        n = len(wins)
+        if n == 0:
+            return {
+                "error": "No matches had usable forward price data",
+                "n_matches_found": len(matches),
+                "n_skipped_no_price": skipped
+            }
+
+        win_rate_pct = round(sum(1 for w in wins if w) / n * 100, 1)
+
+        if n < 20:
+            confidence = "TOO FEW SIMILAR HISTORICAL SETUPS TO TRUST"
+        elif n < 50:
+            confidence = "LIMITED DATA"
+        else:
+            confidence = "REASONABLE SAMPLE"
+
+        return {
+            "ticker": ticker,
+            "days": days,
+            "current_scores": {f: current.get(f) for f in _SCORE_FIELDS},
+            "n_similar_historical_setups": n,
+            "n_skipped_no_price_data": skipped,
+            "win_rate_pct": win_rate_pct,
+            "confidence": confidence,
+            "note": "win_rate_pct is meaningless without checking n_similar_historical_setups alongside it"
+        }
+    except Exception as e:
+        return {"error": str(e)}
