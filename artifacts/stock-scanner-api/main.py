@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+import sys as _sys; _sys.stdout.reconfigure(line_buffering=True)  # flush logs in real time (prod containers buffer by default)
 from flask_cors import CORS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
