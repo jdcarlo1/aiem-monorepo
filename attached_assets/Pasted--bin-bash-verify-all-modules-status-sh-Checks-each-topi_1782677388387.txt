@@ -1,0 +1,78 @@
+#!/bin/bash
+# verify_all_modules_status.sh
+# Checks each topic from your saved PDFs against the actual codebase.
+# For each one: does a file exist? Does it have real content? Is it
+# referenced/used anywhere? Reports HAVE IT / DON'T HAVE IT honestly.
+#
+# Run with: bash verify_all_modules_status.sh
+# Paste the full output back unedited.
+
+check_module() {
+  local label="$1"
+  shift
+  local patterns=("$@")
+
+  echo ""
+  echo "=== $label ==="
+  local found_file=""
+  local found_any=0
+
+  for pattern in "${patterns[@]}"; do
+    local matches=$(find . -iname "*${pattern}*" -name "*.py" 2>/dev/null)
+    if [ -n "$matches" ]; then
+      echo "File match for '$pattern':"
+      echo "$matches"
+      for f in $matches; do
+        wc -l "$f"
+      done
+      found_any=1
+    fi
+  done
+
+  if [ "$found_any" -eq 0 ]; then
+    echo "--- no dedicated file found, searching for keyword mentions in code ---"
+    for pattern in "${patterns[@]}"; do
+      local grep_matches=$(grep -rln "$pattern" --include="*.py" . 2>/dev/null)
+      if [ -n "$grep_matches" ]; then
+        echo "Keyword '$pattern' mentioned in:"
+        echo "$grep_matches"
+        found_any=1
+      fi
+    done
+  fi
+
+  if [ "$found_any" -eq 0 ]; then
+    echo "STATUS: DON'T HAVE IT — no file or code reference found anywhere"
+  else
+    echo "STATUS: SOMETHING EXISTS — verify manually whether it's a real implementation or just a stub/mention"
+  fi
+}
+
+echo "################################################################"
+echo "# MODULE STATUS CHECK — what's real vs. still just a spec"
+echo "################################################################"
+
+check_module "Historical Analog Search" "historical_analog" "analog_search"
+check_module "Reddit Sentiment" "reddit_sentiment" "reddit"
+check_module "Candlestick Patterns" "candlestick"
+check_module "AIEM Exit Engine" "aiem_exit_engine"
+check_module "Microstructure Proxy" "microstructure"
+check_module "Economic Calendar" "economic_calendar" "econ_calendar"
+check_module "Regime Macro Patch" "regime_macro" "regime_detector"
+check_module "IV Percentile Tracker" "iv_percentile" "implied_vol_percentile"
+check_module "Volatility Clustering" "volatility_clustering" "vol_clustering"
+check_module "Macro Cross Asset" "macro_cross_asset" "cross_asset"
+check_module "Point In Time Guard" "point_in_time" "pit_guard"
+check_module "Lookahead Audit" "lookahead" "look_ahead"
+check_module "Model Swap Patches" "model_swap"
+check_module "Active Hypothesis Selection" "active_hypothesis" "hypothesis_selection"
+
+echo ""
+echo "################################################################"
+echo "# DONE — paste this entire output back unedited"
+echo "################################################################"
+echo "# Reminder: 'SOMETHING EXISTS' does not mean it's fully working —"
+echo "# it just means a file or keyword was found. Each one still needs"
+echo "# the same depth of verification (line count, real logic, actually"
+echo "# called downstream) that we applied to the exit engine and safety"
+echo "# infra modules earlier."
