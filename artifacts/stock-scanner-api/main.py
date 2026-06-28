@@ -31,6 +31,22 @@ del _pg_patch, _make_safe_pg_connect
 
 from scanner import analyze_ticker, scan_tickers, WATCHLIST_DEFAULT, fetch_stock_data
 from portfolio import get_portfolio, add_position, remove_position, get_portfolio_value
+
+# ── AIEM specialist modules (wired into paper trading + research loop) ────────
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import fred_macro as _fred_macro
+    import social_sentiment as _social_sentiment
+    import drift_alarm as _drift_alarm
+    import active_hypothesis_selection as _active_hypothesis
+    import bull_bear_debate as _bull_bear
+    import specialist_council as _specialist_council
+    print("[aiem_modules] all 6 specialist modules loaded ✓")
+except Exception as _aiem_mod_e:
+    print(f"[aiem_modules] load warning: {_aiem_mod_e}")
+    _fred_macro = _social_sentiment = _drift_alarm = None
+    _active_hypothesis = _bull_bear = _specialist_council = None
 from backtest import backtest_strategy
 from alerts import get_alerts, add_alert, delete_alert
 from analytics import run_historical_analytics
@@ -11393,9 +11409,68 @@ try:
         id="aiem_paper_mtm",
         replace_existing=True,
     )
-    print("[aiem_paper] scheduler jobs registered (9:35 AM execute, 4:00 PM MTM)")
+    _scheduler.add_job(
+        lambda: _aiem_paper_drift_check(),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=_ET),
+        id="aiem_paper_drift",
+        replace_existing=True,
+    )
+    print("[aiem_paper] scheduler jobs registered (9:35 AM execute, 4:00 PM MTM, 4:35 PM drift check)")
 except Exception as _e_ap_sched:
     print(f"[aiem_paper] scheduler error: {_e_ap_sched}")
+
+
+def _aiem_paper_drift_check():
+    """
+    4:35 PM ET daily: compare paper trading win rates per signal source
+    against backtest baselines using drift_alarm (Fisher's exact test).
+    Surfaces any signals that are significantly under/outperforming.
+    """
+    if not _drift_alarm:
+        return
+    try:
+        _baselines = {
+            "gap_volume":       {"backtest_win_rate": 0.58, "backtest_n_trades": 495},
+            "sweep":            {"backtest_win_rate": 0.62, "backtest_n_trades": 200},
+            "unusual_calls":    {"backtest_win_rate": 0.60, "backtest_n_trades": 300},
+            "conviction_stack": {"backtest_win_rate": 0.66, "backtest_n_trades": 297},
+            "multi_signal":     {"backtest_win_rate": 0.55, "backtest_n_trades": 150},
+            "aiem_ai":          {"backtest_win_rate": 0.60, "backtest_n_trades": 100},
+            "oi_buildup":       {"backtest_win_rate": 0.52, "backtest_n_trades":  80},
+        }
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT signal_source,
+                       COUNT(*) FILTER (WHERE pnl > 0) AS wins,
+                       COUNT(*) AS total
+                FROM aiem_paper_trades
+                WHERE status != 'OPEN' AND pnl IS NOT NULL
+                GROUP BY signal_source
+            """)
+            _live = {r[0]: {"wins": r[1], "total": r[2]} for r in _cu.fetchall()}
+
+        _alerts, _ok = [], []
+        for _src, _bl in _baselines.items():
+            _ld = _live.get(_src, {})
+            _n  = _ld.get("total", 0)
+            if _n < 15:
+                continue
+            _wr   = _ld["wins"] / _n
+            _gap  = _wr - _bl["backtest_win_rate"]
+            _tag  = f"{_src}: {_wr:.0%} live vs {_bl['backtest_win_rate']:.0%} bt ({_gap:+.0%})"
+            if abs(_gap) >= 0.10:
+                _alerts.append(f"⚠ {_tag}")
+            else:
+                _ok.append(_tag)
+
+        if _alerts:
+            print(f"[aiem_drift] ALERTS ({len(_alerts)}): " + " | ".join(_alerts))
+        if _ok:
+            print(f"[aiem_drift] consistent ({len(_ok)}): " + " | ".join(_ok))
+        if not _alerts and not _ok:
+            print("[aiem_drift] not enough live trades yet (need ≥15 per source)")
+    except Exception as _de:
+        print(f"[aiem_drift] error: {_de}")
 
 
 def _load_todays_unusual_calls_from_db(etf_set=None):
@@ -15654,6 +15729,46 @@ def _aiem_tool_query_own_prediction_performance(days_back=45):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+def _aiem_tool_rank_hypothesis_candidates(candidates: list) -> dict:
+    """
+    Rank a list of hypothesis candidates by expected information value using
+    active_hypothesis_selection: novelty (vs already-locked hypotheses) ×
+    Thompson-sampled category track record. Returns the ranked list so the
+    agent only registers/tests the highest-value candidates this session.
+    candidates: list of dicts with keys name, description, category,
+    parameters, estimated_n_trades, estimated_universe_pct.
+    """
+    if not _active_hypothesis:
+        return {"error": "active_hypothesis_selection module not available",
+                "candidates": candidates}
+    try:
+        _hc_list = []
+        for _c in (candidates or []):
+            _hc = _active_hypothesis.HypothesisCandidate(
+                name=_c.get("name", "unnamed"),
+                description=_c.get("description", ""),
+                category=_c.get("category", ""),
+                parameters=_c.get("parameters", {}),
+                estimated_n_trades=int(_c.get("estimated_n_trades", 30)),
+                estimated_universe_pct=float(_c.get("estimated_universe_pct", 0.1)),
+            )
+            _hc_list.append(_hc)
+        _ranked = _active_hypothesis.rank_candidates(_hc_list)
+        return {
+            "ranked": [
+                {"name": h.name, "category": h.category,
+                 "combined_score": round(h.combined_score or 0, 4),
+                 "novelty_score": round(h.novelty_score or 0, 3),
+                 "category_value": round(h.category_value or 0, 3)}
+                for h in _ranked
+            ],
+            "explanation": _active_hypothesis.explain_ranking(_ranked),
+            "recommendation": f"Register top {min(3, len(_ranked))} to stay within budget",
+        }
+    except Exception as _rhe:
+        return {"error": str(_rhe), "candidates": candidates}
 
 
 def _aiem_tool_register_hypotheses(hypotheses):
@@ -24519,6 +24634,7 @@ def _build_aiem_tool_map():
         "review_own_accuracy":              _aiem_tool_review_own_accuracy,
         "save_research_model":               _aiem_tool_save_research_model,
         "register_hypotheses":               _aiem_tool_register_hypotheses,
+        "rank_hypothesis_candidates":        _aiem_tool_rank_hypothesis_candidates,
         "multivariate_regression":           _aiem_tool_multivariate_regression,
         "search_past_findings":              _aiem_tool_search_past_findings,
         "query_own_prediction_performance":  _aiem_tool_query_own_prediction_performance,
@@ -24991,6 +25107,33 @@ _AIEM_AGENT_TOOLS = [
             "group_b_n": {"type": "number"},
             "n_bootstrap": {"type": "integer", "description": "Bootstrap iterations, default 10000"}
         }, "required": ["group_a_wins", "group_a_n", "group_b_wins", "group_b_n"]}
+    }},
+    {"type": "function", "function": {
+        "name": "rank_hypothesis_candidates",
+        "description": (
+            "CALL THIS BEFORE register_hypotheses. "
+            "Given a list of hypothesis candidates you are considering this session, "
+            "ranks them by expected information value = novelty (how different from already-tested "
+            "hypotheses) × Thompson-sampled category track record (how often does this category "
+            "of hypothesis come back as 'likely_real'?). Prevents wasting your iteration budget "
+            "on near-duplicate or historically low-yield hypothesis categories. "
+            "Only register/test the top 2-3 from the returned ranking."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "candidates": {
+                "type": "array",
+                "description": "List of candidate hypotheses to rank.",
+                "items": {"type": "object", "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "category": {"type": "string",
+                                 "description": "e.g. dark_pool, gamma, sweep, options, momentum, gap, volume, sector"},
+                    "parameters": {"type": "object"},
+                    "estimated_n_trades": {"type": "integer", "description": "Expected trades in backtest window"},
+                    "estimated_universe_pct": {"type": "number", "description": "Fraction of universe expected to qualify (0-1)"}
+                }, "required": ["name", "description", "category"]}
+            }
+        }, "required": ["candidates"]}
     }},
     {"type": "function", "function": {
         "name": "register_hypotheses",
@@ -29976,6 +30119,20 @@ def _aiem_paper_pick_candidates() -> list:
     """
     _candidates = {}
 
+    # ── 0. FRED macro bias — yield curve + credit spreads ─────────────────
+    _macro_bias = 0  # -1 = risk-off, 0 = neutral, 1 = risk-on
+    if _fred_macro:
+        try:
+            _mac_votes = _fred_macro.get_fred_macro_votes()
+            _mac_sum   = sum(v.get("vote", 0) for v in _mac_votes)
+            _macro_bias = 1 if _mac_sum >= 2 else (-1 if _mac_sum <= -2 else 0)
+            if _macro_bias != 0:
+                _mac_dir = "RISK-OFF ⚠" if _macro_bias < 0 else "RISK-ON ✓"
+                _mac_why = "; ".join(v.get("reason", "") for v in _mac_votes if v.get("vote") != 0)
+                print(f"[aiem_paper] FRED macro {_mac_dir}: {_mac_why[:120]}")
+        except Exception as _me:
+            print(f"[aiem_paper] FRED macro check skipped: {_me}")
+
     def _add(ticker, score, trade_type, source, detail=""):
         t = ticker.upper().strip()
         if not t or len(t) > 6:
@@ -30090,8 +30247,61 @@ def _aiem_paper_pick_candidates() -> list:
     except Exception as _e:
         print(f"[aiem_paper] pick error: {_e}")
 
-    # Sort by score desc, return top 20
-    return sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)[:20]
+    # ── Social sentiment boost (StockTwits) for top 12 candidates ─────────
+    _prelim = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)[:12]
+    if _social_sentiment:
+        for _sp in _prelim:
+            try:
+                _snap = _social_sentiment.compute_sentiment_snapshot(_sp["ticker"])
+                _bpct = _snap.get("bullish_pct")
+                _tcnt = _snap.get("tagged_count", 0)
+                if _bpct is not None and _tcnt >= 4:
+                    if _bpct >= 0.72:
+                        _sp["score"] *= 1.15
+                        _sp["detail"] = (_sp.get("detail","") + f" | ST:{_bpct:.0%}bull").strip(" |")
+                    elif _bpct <= 0.30:
+                        _sp["score"] *= 0.85
+            except Exception:
+                pass  # sentiment is additive; never block a pick
+
+    # ── Specialist council — weighted multi-signal negotiation ─────────────
+    if _specialist_council:
+        for _sp in _prelim:
+            try:
+                _opinions = [
+                    _specialist_council.SpecialistOpinion(
+                        specialist_name="signal_engine",
+                        vote=min(1.0, _sp["score"] / 20.0),
+                        confidence=0.80,
+                        reasoning=f"{_sp['source']}: {_sp.get('detail','')}",
+                        category="options" if _sp["trade_type"] == "CALL_OPTION" else "momentum",
+                    ),
+                    _specialist_council.SpecialistOpinion(
+                        specialist_name="fred_macro",
+                        vote=float(_macro_bias) * 0.5,
+                        confidence=0.65,
+                        reasoning="FRED yield curve + credit spread macro state",
+                        category="macro",
+                    ),
+                ]
+                _wv = _specialist_council.compute_weighted_verdict(_opinions)
+                _mult = 1.0 + (_wv.get("weighted_vote", 0) * 0.20)
+                _sp["score"] *= max(0.50, min(1.40, _mult))
+            except Exception:
+                pass  # council is additive; never block a pick
+
+    # Apply macro risk-off: cap at 10 picks and downweight options
+    _final = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)
+    if _macro_bias == -1:
+        for _fp in _final:
+            if _fp["trade_type"] == "CALL_OPTION":
+                _fp["score"] *= 0.60
+        _final = sorted(_final, key=lambda x: x["score"], reverse=True)[:10]
+        print(f"[aiem_paper] risk-off mode — capped at {len(_final)} picks, options de-weighted")
+    else:
+        _final = _final[:20]
+
+    return _final
 
 
 def _aiem_paper_execute_today():
@@ -30116,6 +30326,28 @@ def _aiem_paper_execute_today():
 
         tickers = [p["ticker"] for p in picks]
         quotes  = _td_quotes(tickers)
+
+        # ── Bull/bear debate for top 3 picks (GPT vs Claude adversarial) ──
+        _debate_verdicts: dict = {}
+        if _bull_bear and picks:
+            for _top in picks[:3]:
+                _tt = _top["ticker"]
+                _tq = quotes.get(_tt) or {}
+                _tp = float(_tq.get("last") or 0)
+                if _tp > 0:
+                    try:
+                        _ctx = {
+                            "price": _tp, "trade_type": _top["trade_type"],
+                            "signal_source": _top["source"],
+                            "signal_detail": _top.get("detail", ""),
+                            "score": round(_top["score"], 2),
+                        }
+                        _deb = _bull_bear.run_bull_bear_debate(_tt, _ctx)
+                        _verd = (_deb.get("synthesis") or {}).get("verdict", "CONFLICTED")
+                        _debate_verdicts[_tt] = _verd
+                        print(f"[aiem_paper] bull_bear {_tt}: {_verd}")
+                    except Exception as _bbe:
+                        print(f"[aiem_paper] debate skipped {_tt}: {_bbe}")
 
         rows_inserted = 0
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:

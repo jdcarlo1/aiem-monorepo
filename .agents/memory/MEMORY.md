@@ -85,3 +85,4 @@
 - [Interval job time-window burst](interval-job-burst.md) — midday-breakout/gap-recovery/steady-grinder must have ET hour/minute guards or they fire in 9:30-10:30 morning burst and saturate yfinance
 - [Startup preload pattern](startup-preload-all-tabs.md) — already exists; add new tabs to _startup_preload() + _load_scan_cache; cold-boot latency is one-time, warm cache is <25ms
 - [Weekend tab blank-out pattern](weekend-tab-blank.md) — two root causes: missing _intraday_scan_allowed() check (launches bg scan that fails silently) + missing _save_scan_cache() call (nothing to load on restart)
+- [AIEM specialist module wiring](aiem-specialist-modules.md) — 6 modules wired: fred_macro(pick cap), social_sentiment(score ±15%), specialist_council(±20%), bull_bear_debate(top 3 only), drift_alarm(4:35 PM), active_hypothesis(AIEM tool)
