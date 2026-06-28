@@ -36398,6 +36398,14 @@ def conviction_stack_endpoint():
                     "source": "free_yfinance", "universe_count": len(_results)}
             app._cs_stk_cache = _out
             app._cs_stk_ts    = _stk_dt.now()
+            # Persist to DB so next cold start serves this data immediately
+            # instead of whatever the EOD scheduler last wrote (potentially days old).
+            if _results:
+                try:
+                    snapshot_conviction_stack(precomputed=_results)
+                    print(f"[conviction-stack] bg scan saved {len(_results)} rows to conviction_stack_watchlist")
+                except Exception as _snap_e:
+                    print(f"[conviction-stack] bg snapshot save error (non-fatal): {_snap_e}")
         except Exception as _e:
             import traceback as _tb
             print(f"[conviction-stack] bg error: {_e}")
