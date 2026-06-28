@@ -1,0 +1,528 @@
+# Final 5 Modules: Reddit Sentiment, Candlestick Patterns, Economic Calendar, Regime Macro Patch, Model Swap Patches
+
+================================================================
+1. reddit_sentiment.py
+================================================================
+
+```python
+"""
+reddit_sentiment.py
+====================================================================
+Pulls recent Reddit posts/comments mentioning a ticker and computes a
+simple sentiment score. Uses PRAW if Reddit API credentials are set;
+falls back to a mock source otherwise so the scoring logic itself can
+be tested without live credentials.
+====================================================================
+"""
+
+import os
+import re
+import datetime as dt
+from typing import Dict, Any, List
+
+import psycopg2
+
+POSITIVE_WORDS = {
+    "moon", "bullish", "buy", "calls", "breakout", "squeeze", "rip",
+    "strong", "beat", "upgrade", "rally", "long", "green",
+}
+NEGATIVE_WORDS = {
+    "crash", "bearish", "sell", "puts", "dump", "tank", "weak",
+    "miss", "downgrade", "short", "red", "drop", "fear",
+}
+
+
+def mock_reddit_posts(ticker: str) -> List[str]:
+    return [
+        f"{ticker} looking strong here, might break out soon",
+        f"not sure about {ticker}, feels weak",
+    ]
+
+
+def fetch_reddit_posts(ticker: str, limit: int = 50) -> List[str]:
+    client_id = os.environ.get("REDDIT_CLIENT_ID")
+    client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
+    user_agent = os.environ.get("REDDIT_USER_AGENT", "stockscanner-ai/1.0")
+
+    if not client_id or not client_secret:
+        return mock_reddit_posts(ticker)
+
+    try:
+        import praw
+    except ImportError:
+        return mock_reddit_posts(ticker)
+
+    reddit = praw.Reddit(
+        client_id=client_id,
+        client_secret=client_secret,
+        user_agent=user_agent,
+    )
+
+    texts = []
+    for subreddit_name in ["wallstreetbets", "stocks", "options"]:
+        try:
+            subreddit = reddit.subreddit(subreddit_name)
+            for submission in subreddit.search(ticker, time_filter="day", limit=limit):
+                texts.append(submission.title + " " + (submission.selftext or ""))
+        except Exception:
+            continue
+
+    return texts if texts else mock_reddit_posts(ticker)
+
+
+def score_text(text: str) -> int:
+    text_lower = text.lower()
+    score = 0
+    for word in POSITIVE_WORDS:
+        score += len(re.findall(r"\b" + word + r"\b", text_lower))
+    for word in NEGATIVE_WORDS:
+        score -= len(re.findall(r"\b" + word + r"\b", text_lower))
+    return score
+
+
+def get_sentiment_score(ticker: str) -> Dict[str, Any]:
+    posts = fetch_reddit_posts(ticker)
+    if not posts:
+        return {"ticker": ticker, "sentiment_score": 0.0, "post_count": 0,
+                 "checked_at": dt.datetime.utcnow().isoformat()}
+
+    raw_scores = [score_text(p) for p in posts]
+    total = sum(raw_scores)
+    max_possible = len(posts) * 3
+    normalized = max(-1.0, min(1.0, total / max_possible)) if max_possible else 0.0
+
+    return {
+        "ticker": ticker,
+        "sentiment_score": round(normalized, 3),
+        "post_count": len(posts),
+        "raw_total_score": total,
+        "checked_at": dt.datetime.utcnow().isoformat(),
+    }
+
+
+def log_sentiment(db_url: str, result: Dict[str, Any]) -> None:
+    """
+    CREATE TABLE IF NOT EXISTS reddit_sentiment_log (
+        id SERIAL PRIMARY KEY,
+        ticker VARCHAR(10),
+        sentiment_score DOUBLE PRECISION,
+        post_count INTEGER,
+        checked_at TIMESTAMPTZ NOT NULL
+    );
+    """
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO reddit_sentiment_log (ticker, sentiment_score, post_count, checked_at)
+                VALUES (%s, %s, %s, %s)
+            """, (result["ticker"], result["sentiment_score"], result["post_count"], result["checked_at"]))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    print(get_sentiment_score("AAPL"))
+```
+
+================================================================
+2. candlestick_patterns.py
+================================================================
+
+```python
+"""
+candlestick_patterns.py
+====================================================================
+Detects common candlestick patterns from OHLC data: doji, hammer,
+shooting star, bullish/bearish engulfing.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any, List
+
+import psycopg2
+import psycopg2.extras
+
+
+def _body(o: float, c: float) -> float:
+    return abs(c - o)
+
+
+def _range(h: float, l: float) -> float:
+    return h - l if h > l else 0.0001
+
+
+def is_doji(o: float, h: float, l: float, c: float, threshold: float = 0.1) -> bool:
+    rng = _range(h, l)
+    return _body(o, c) / rng <= threshold
+
+
+def is_hammer(o: float, h: float, l: float, c: float) -> bool:
+    rng = _range(h, l)
+    body = _body(o, c)
+    upper_wick = h - max(o, c)
+    lower_wick = min(o, c) - l
+    return body / rng < 0.3 and lower_wick > 2 * body and upper_wick < body
+
+
+def is_shooting_star(o: float, h: float, l: float, c: float) -> bool:
+    rng = _range(h, l)
+    body = _body(o, c)
+    upper_wick = h - max(o, c)
+    lower_wick = min(o, c) - l
+    return body / rng < 0.3 and upper_wick > 2 * body and lower_wick < body
+
+
+def is_bullish_engulfing(prev: Dict[str, float], curr: Dict[str, float]) -> bool:
+    prev_bearish = prev["close"] < prev["open"]
+    curr_bullish = curr["close"] > curr["open"]
+    engulfs = curr["open"] <= prev["close"] and curr["close"] >= prev["open"]
+    return prev_bearish and curr_bullish and engulfs
+
+
+def is_bearish_engulfing(prev: Dict[str, float], curr: Dict[str, float]) -> bool:
+    prev_bullish = prev["close"] > prev["open"]
+    curr_bearish = curr["close"] < curr["open"]
+    engulfs = curr["open"] >= prev["close"] and curr["close"] <= prev["open"]
+    return prev_bullish and curr_bearish and engulfs
+
+
+def detect_patterns(ohlc_bars: List[Dict[str, float]]) -> Dict[str, Any]:
+    if len(ohlc_bars) < 2:
+        return {"patterns": [], "error": "need at least 2 bars"}
+
+    curr = ohlc_bars[-1]
+    prev = ohlc_bars[-2]
+    patterns = []
+
+    if is_doji(curr["open"], curr["high"], curr["low"], curr["close"]):
+        patterns.append("doji")
+    if is_hammer(curr["open"], curr["high"], curr["low"], curr["close"]):
+        patterns.append("hammer")
+    if is_shooting_star(curr["open"], curr["high"], curr["low"], curr["close"]):
+        patterns.append("shooting_star")
+    if is_bullish_engulfing(prev, curr):
+        patterns.append("bullish_engulfing")
+    if is_bearish_engulfing(prev, curr):
+        patterns.append("bearish_engulfing")
+
+    return {
+        "patterns": patterns,
+        "checked_at": dt.datetime.utcnow().isoformat(),
+        "bar_close": curr["close"],
+    }
+
+
+def get_patterns_for_ticker(db_url: str, ticker: str, lookback: int = 5) -> Dict[str, Any]:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT open_price AS open, high_price AS high,
+                       low_price AS low, close_price AS close
+                FROM price_history
+                WHERE ticker = %s
+                ORDER BY trade_date ASC
+                LIMIT %s
+            """, (ticker, lookback))
+            bars = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    if not bars:
+        return {"patterns": [], "error": f"no price data for {ticker}"}
+
+    result = detect_patterns(bars)
+    result["ticker"] = ticker
+    return result
+
+
+if __name__ == "__main__":
+    sample_bars = [
+        {"open": 100, "high": 102, "low": 98, "close": 99},
+        {"open": 99, "high": 105, "low": 97, "close": 104},
+    ]
+    print(detect_patterns(sample_bars))
+```
+
+================================================================
+3. economic_calendar.py
+================================================================
+
+```python
+"""
+economic_calendar.py
+====================================================================
+Tracks high-impact economic events (FOMC, CPI, NFP, etc.) so AIEM can
+reduce position size or pause new entries around known volatility
+catalysts. Manually maintained table you update periodically.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any, List
+
+import psycopg2
+
+HIGH_IMPACT_EVENT_TYPES = {"FOMC", "CPI", "NFP", "PCE", "GDP", "FED_SPEECH"}
+
+
+def add_event(db_url: str, event_date: str, event_type: str,
+              description: str = "", event_time: str = None,
+              impact_level: str = "high") -> None:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO economic_calendar (event_date, event_time, event_type, description, impact_level)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (event_date, event_time, event_type, description, impact_level))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_events_today(db_url: str) -> List[Dict[str, Any]]:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT event_type, description, impact_level, event_time
+                FROM economic_calendar
+                WHERE event_date = CURRENT_DATE
+            """)
+            cols = ["event_type", "description", "impact_level", "event_time"]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def is_high_impact_day(db_url: str) -> Dict[str, Any]:
+    events = get_events_today(db_url)
+    high_impact_today = any(
+        e["event_type"] in HIGH_IMPACT_EVENT_TYPES or e["impact_level"] == "high"
+        for e in events
+    )
+    return {
+        "checked_at": dt.datetime.utcnow().isoformat(),
+        "events_today": events,
+        "high_impact_day": high_impact_today,
+    }
+
+
+if __name__ == "__main__":
+    import os
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        print(is_high_impact_day(db_url))
+    else:
+        print("Set DATABASE_URL to test against real data.")
+```
+
+================================================================
+4. regime_macro_patch.py
+================================================================
+
+```python
+"""
+regime_macro_patch.py
+====================================================================
+Extends regime_detector.py with a macro-event overlay. If today is a
+high-impact economic calendar day, forces extra defensiveness on top
+of whatever the price-based regime classifier already says.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any
+
+from regime_detector import get_current_regime
+from economic_calendar import is_high_impact_day
+
+
+def get_regime_with_macro_overlay(db_url: str, proxy_ticker: str = "SPY") -> Dict[str, Any]:
+    base_regime = get_current_regime(db_url, proxy_ticker)
+    macro = is_high_impact_day(db_url)
+
+    multipliers = dict(base_regime.get("multipliers", {}))
+    if macro["high_impact_day"]:
+        multipliers["confidence_multiplier"] = multipliers.get("confidence_multiplier", 1.0) * 0.5
+        multipliers["position_size_multiplier"] = multipliers.get("position_size_multiplier", 1.0) * 0.5
+        multipliers["exit_sensitivity"] = multipliers.get("exit_sensitivity", 1.0) * 1.3
+
+    return {
+        "base_regime": base_regime.get("regime"),
+        "high_impact_macro_day": macro["high_impact_day"],
+        "macro_events_today": macro["events_today"],
+        "final_multipliers": multipliers,
+        "checked_at": dt.datetime.utcnow().isoformat(),
+    }
+
+
+if __name__ == "__main__":
+    import os
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        print(get_regime_with_macro_overlay(db_url))
+    else:
+        print("Set DATABASE_URL to test against real data.")
+```
+
+================================================================
+5. model_swap_patches.py
+================================================================
+
+```python
+"""
+model_swap_patches.py
+====================================================================
+Safe versioning/rollback for AIEM's underlying scoring model.
+====================================================================
+"""
+
+import datetime as dt
+import os
+from typing import Dict, Any, Optional
+
+import psycopg2
+
+
+def deploy_new_version(db_url: str, version_label: str, notes: str = "") -> None:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE model_versions SET is_active = FALSE WHERE is_active = TRUE")
+            cur.execute("""
+                INSERT INTO model_versions (version_label, deployed_at, is_active, notes)
+                VALUES (%s, %s, TRUE, %s)
+                ON CONFLICT (version_label) DO UPDATE
+                    SET is_active = TRUE, deployed_at = EXCLUDED.deployed_at, rolled_back_at = NULL
+            """, (version_label, dt.datetime.utcnow(), notes))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def rollback_to_previous(db_url: str) -> Optional[str]:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT version_label FROM model_versions WHERE is_active = TRUE")
+            current = cur.fetchone()
+
+            cur.execute("""
+                SELECT version_label FROM model_versions
+                WHERE is_active = FALSE
+                ORDER BY deployed_at DESC LIMIT 1
+            """)
+            previous = cur.fetchone()
+
+            if not previous:
+                return None
+
+            if current:
+                cur.execute("""
+                    UPDATE model_versions SET is_active = FALSE, rolled_back_at = %s
+                    WHERE version_label = %s
+                """, (dt.datetime.utcnow(), current[0]))
+
+            cur.execute("""
+                UPDATE model_versions SET is_active = TRUE WHERE version_label = %s
+            """, (previous[0],))
+        conn.commit()
+        return previous[0]
+    finally:
+        conn.close()
+
+
+def get_active_version(db_url: str) -> Optional[str]:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT version_label FROM model_versions WHERE is_active = TRUE")
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        print("Active version:", get_active_version(db_url))
+    else:
+        print("Set DATABASE_URL to test against real data.")
+```
+
+================================================================
+SETUP: create these tables once
+================================================================
+
+```sql
+CREATE TABLE IF NOT EXISTS reddit_sentiment_log (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10),
+    sentiment_score DOUBLE PRECISION,
+    post_count INTEGER,
+    checked_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS economic_calendar (
+    id SERIAL PRIMARY KEY,
+    event_date DATE NOT NULL,
+    event_time TIME,
+    event_type VARCHAR(30) NOT NULL,
+    description TEXT,
+    impact_level VARCHAR(10) DEFAULT 'high'
+);
+
+CREATE TABLE IF NOT EXISTS model_versions (
+    id SERIAL PRIMARY KEY,
+    version_label VARCHAR(50) NOT NULL UNIQUE,
+    deployed_at TIMESTAMPTZ NOT NULL,
+    is_active BOOLEAN DEFAULT FALSE,
+    notes TEXT,
+    rolled_back_at TIMESTAMPTZ
+);
+```
+
+================================================================
+FINAL VERIFICATION SCRIPT — run after building all 5
+================================================================
+
+```bash
+#!/bin/bash
+echo "################################################################"
+echo "# FINAL 5 MODULES — VERIFICATION"
+echo "################################################################"
+
+for f in reddit_sentiment.py candlestick_patterns.py economic_calendar.py regime_macro_patch.py model_swap_patches.py; do
+  echo ""
+  echo "=== $f ==="
+  FOUND=$(find . -name "$f" 2>/dev/null | head -1)
+  if [ -z "$FOUND" ]; then
+    echo "NOT FOUND"
+  else
+    LINES=$(wc -l < "$FOUND")
+    echo "Found: $FOUND ($LINES lines)"
+    echo "--- running it ---"
+    python3 "$FOUND" 2>&1
+  fi
+done
+
+echo ""
+echo "=== Confirm the 3 new tables exist ==="
+psql "$DATABASE_URL" -c "
+  SELECT table_name FROM information_schema.tables
+  WHERE table_name IN ('reddit_sentiment_log', 'economic_calendar', 'model_versions');"
+
+echo ""
+echo "################################################################"
+echo "# DONE — paste this entire output back unedited"
+echo "################################################################"
+```
+
+PASS CONDITION: all 5 files found with real line counts, each runs
+without a Python traceback, and all 3 tables show up in the query.
