@@ -37604,8 +37604,14 @@ def conviction_outcomes_api():
     except Exception as e:
         import traceback
         print(f"[conviction_outcomes] api error: {e}\n{traceback.format_exc()}")
-        return jsonify({"picks": [], "stats": {}, "total": 0, "stale": True,
-                        "note": "DB temporarily busy — try again shortly"})
+        _empty_stat = {"signals": 0, "settled": 0, "wins": 0, "losses": 0,
+                       "win_rate": None, "avg_gain": None, "avg_loss": None, "ev": None}
+        _empty_horizon = {"d1": _empty_stat, "d3": _empty_stat, "d5": _empty_stat}
+        return jsonify({"picks": [], "total": 0, "stale": True,
+                        "note": "DB temporarily busy — try again shortly",
+                        "stats": {"overall": _empty_horizon,
+                                  "extreme": _empty_horizon,
+                                  "high":    _empty_horizon}})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

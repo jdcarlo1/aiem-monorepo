@@ -9145,7 +9145,7 @@ function ConvictionTrackTab() {
   );
   if (error) return <div style={{ color: "#ef4444", padding: 20, fontSize: 10 }}>ERROR: {error}</div>;
 
-  const noGradedData = !data || data.stats.overall.d1.settled === 0;
+  const noGradedData = !data || !data.stats?.overall?.d1 || data.stats.overall.d1.settled === 0;
   const s = data?.stats;
 
   return (
