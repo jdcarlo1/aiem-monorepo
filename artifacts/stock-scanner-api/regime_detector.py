@@ -79,6 +79,9 @@ def get_current_regime(db_url: str, proxy_ticker: str = "SPY") -> Dict[str, Any]
         if isinstance(vix_raw.columns, pd.MultiIndex):
             vix_raw.columns = vix_raw.columns.get_level_values(0)
 
+        price_df = price_df.reset_index()
+        price_df.columns = [c.lower() for c in price_df.columns]
+
         vix_hist = (
             vix_raw["Close"].squeeze().dropna()
             if not vix_raw.empty and "Close" in vix_raw.columns
