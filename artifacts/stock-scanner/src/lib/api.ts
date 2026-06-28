@@ -2278,3 +2278,9 @@ export function fetchFlowScores(tickers: string[]): Promise<Record<string, numbe
   const params = new URLSearchParams({ tickers: tickers.join(",") });
   return fetchJson<Record<string, number | null>>(`/flow-scores?${params}`);
 }
+
+export function fetchCallWinRates(tickers: string[]): Promise<Record<string, { wr: number; n: number } | null>> {
+  if (!tickers.length) return Promise.resolve({});
+  const params = new URLSearchParams({ tickers: tickers.join(",") });
+  return fetchJson<Record<string, { wr: number; n: number } | null>>(`/call-win-rates?${params}`);
+}

@@ -11118,6 +11118,44 @@ def flow_scores_endpoint():
     return jsonify(_batch_flow_scores(_tickers)), 200
 
 
+@app.route("/stock-api/call-win-rates", methods=["GET"])
+def call_win_rates_endpoint():
+    """
+    GET /stock-api/call-win-rates?tickers=NVDA,AAPL,MSFT
+    Returns AIEM historical call win rate per ticker from signal_outcomes.
+    { "NVDA": {"wr": 45, "n": 11}, "AAPL": null, ... }
+    null = fewer than 3 tracked outcomes (not enough history yet).
+    wr = % of past call signals on this stock where price closed higher 3 days later.
+    """
+    import psycopg2 as _pg2_cwr
+    _raw     = request.args.get("tickers", "")
+    _tickers = [t.strip().upper() for t in _raw.split(",") if t.strip()][:80]
+    if not _tickers:
+        return jsonify({}), 200
+    try:
+        with _pg2_cwr.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT ticker,
+                       COUNT(*) AS n,
+                       ROUND(SUM(t3_win::int) * 100.0 / NULLIF(COUNT(*), 0), 0) AS t3_wr
+                FROM signal_outcomes
+                WHERE ticker = ANY(%s) AND t3_win IS NOT NULL
+                GROUP BY ticker
+                HAVING COUNT(*) >= 3
+            """, (_tickers,))
+            _rows = _cu.fetchall()
+        _out: dict = {}
+        for _tkr, _n, _wr in _rows:
+            _out[_tkr] = {"wr": int(_wr) if _wr is not None else None, "n": int(_n)}
+        for _t in _tickers:
+            if _t not in _out:
+                _out[_t] = None
+        return jsonify(_out), 200
+    except Exception as _e:
+        print(f"[call_win_rates] error: {_e}")
+        return jsonify({_t: None for _t in _tickers}), 200
+
+
 # Nightly pre-compute at 8:10 PM ET — warm the cache for every active ticker
 # so the first user request of the day is instant.
 def _run_nightly_flow_precompute():

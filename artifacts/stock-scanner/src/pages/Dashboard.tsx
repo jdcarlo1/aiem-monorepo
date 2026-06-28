@@ -63,7 +63,7 @@ import {
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
   fetchGrinderScan, GrinderScanData, GrinderResult,
   fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
-  fetchFlowScores,
+  fetchFlowScores, fetchCallWinRates,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -127,6 +127,83 @@ function FlowProbBadge({ score }: { score: number | null | undefined }) {
                whiteSpace: "nowrap", fontFamily: "JetBrains Mono, monospace", cursor: "default" }}
     >
       {score}% 3d
+    </span>
+  );
+}
+
+function useCallWinRates(tickers: string[]): Record<string, { wr: number; n: number } | null> {
+  const [rates, setRates] = React.useState<Record<string, { wr: number; n: number } | null>>({});
+  const key = [...tickers].sort().join(",");
+  React.useEffect(() => {
+    if (!tickers.length) return;
+    fetchCallWinRates(tickers).then(d => setRates(d)).catch(() => {});
+  }, [key]);
+  return rates;
+}
+
+function CallWinBadge({ data }: { data: { wr: number; n: number } | null | undefined }) {
+  if (!data || data.wr == null) return null;
+  const { wr, n } = data;
+  const color = wr >= 65 ? "#4ade80" : wr >= 50 ? "#facc15" : "#f87171";
+  const bg    = wr >= 65 ? "rgba(74,222,128,0.1)"  : wr >= 50 ? "rgba(250,204,21,0.08)"  : "rgba(248,113,113,0.08)";
+  const bdr   = wr >= 65 ? "rgba(74,222,128,0.3)"  : wr >= 50 ? "rgba(250,204,21,0.25)"  : "rgba(248,113,113,0.25)";
+  return (
+    <span
+      title={`AIEM tracked call win rate: ${wr}% of ${n} past call signals on this stock closed higher 3 days later`}
+      style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
+               background: bg, color, border: `1px solid ${bdr}`,
+               whiteSpace: "nowrap", fontFamily: "JetBrains Mono, monospace", cursor: "default" }}
+    >
+      {wr}% WR ({n})
+    </span>
+  );
+}
+
+// ── Black-Scholes option probability helpers ─────────────────────────────────
+function normCDF(x: number): number {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  const n = 1 - (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * x * x) * poly;
+  return x >= 0 ? n : 1 - n;
+}
+function probAbove(S: number, target: number, T_days: number, sigma_pct: number): number {
+  if (!S || !target || !T_days || !sigma_pct || S <= 0 || target <= 0 || T_days <= 0 || sigma_pct <= 0) return 0;
+  const T = T_days / 365;
+  const sigma = sigma_pct / 100;
+  const d2 = (Math.log(S / target) + (0.045 - 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+  return Math.round(normCDF(d2) * 100);
+}
+function daysUntil(expiry: string | null | undefined): number | null {
+  if (!expiry) return null;
+  const diff = new Date(expiry + "T00:00:00").getTime() - Date.now();
+  const d = Math.ceil(diff / 86_400_000);
+  return d > 0 ? d : null;
+}
+
+function BSProbBadge({ S, strike, breakeven, T_days, iv_pct }: {
+  S?: number | null; strike?: number | null; breakeven?: number | null;
+  T_days?: number | null; iv_pct?: number | null;
+}) {
+  if (!S || !strike || !T_days || S <= 0 || strike <= 0 || T_days <= 0) return null;
+  const iv       = (iv_pct && iv_pct > 5) ? iv_pct : 50;
+  const isEstIV  = !(iv_pct && iv_pct > 5);
+  const pItm     = probAbove(S, strike, T_days, iv);
+  const pWorth   = 100 - pItm;
+  const be       = (breakeven && breakeven > strike && breakeven < strike * 2) ? breakeven : null;
+  const pProfit  = be ? probAbove(S, be, T_days, iv) : null;
+  const show     = pProfit ?? pItm;
+  const profitC  = show >= 50 ? "#4ade80" : show >= 35 ? "#facc15" : "#f87171";
+  const profitBg = show >= 50 ? "rgba(74,222,128,0.08)" : show >= 35 ? "rgba(250,204,21,0.07)" : "rgba(248,113,113,0.07)";
+  const profitBd = show >= 50 ? "rgba(74,222,128,0.28)" : show >= 35 ? "rgba(250,204,21,0.22)" : "rgba(248,113,113,0.22)";
+  const tip = `Black-Scholes (IV=${iv}%${isEstIV ? " est." : ""}): `
+    + (pProfit != null ? `${pProfit}% chance of profit (stock > $${be!.toFixed(2)} breakeven)` : `${pItm}% chance ITM (stock > $${strike})`)
+    + ` · ${pWorth}% chance worthless (expires below $${strike})`;
+  return (
+    <span title={tip} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700,
+      padding: "2px 7px", borderRadius: 99, background: profitBg, color: profitC,
+      border: `1px solid ${profitBd}`, whiteSpace: "nowrap", fontFamily: "JetBrains Mono, monospace", cursor: "default" }}>
+      💰{pProfit ?? pItm}%
+      <span style={{ color: "#f87171", fontSize: 9 }}>/ 💀{pWorth}%</span>
     </span>
   );
 }
@@ -2720,6 +2797,7 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
   };
 
   const filtered = (data?.hits ?? []).filter(h => filter === "ALL" || h.urgency === filter);
+  const callWinRates = useCallWinRates(filtered.map(h => h.ticker));
 
   const urgencyStyle = (u: string) => {
     if (u === "EXPIRING") return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 EXPIRING ≤7d" };
@@ -2835,6 +2913,8 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                       <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>{h.ticker}</span>
+                      <CallWinBadge data={callWinRates[h.ticker]} />
+                      <BSProbBadge S={h.price} strike={h.strike} breakeven={h.volume > 0 ? h.strike + h.prem / (h.volume * 100) : null} T_days={h.days_out} iv_pct={h.iv} />
                       <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${h.price.toFixed(2)}</span>
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
                         background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>CALL</span>
@@ -3443,7 +3523,8 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 
   const ptColor = (pts: number) => pts >= 8 ? "#f87171" : pts >= 6 ? "#fb923c" : pts >= 4 ? "#facc15" : "#38bdf8";
   const results = data?.results ?? [];
-  const flowScores = useFlowScores(results.map(r => r.ticker));
+  const flowScores   = useFlowScores(results.map(r => r.ticker));
+  const callWinRates = useCallWinRates(results.map(r => r.ticker));
   const extreme = results.filter(r => r.total_pts >= 8).length;
   const high    = results.filter(r => r.total_pts >= 6 && r.total_pts < 8).length;
 
@@ -3536,6 +3617,8 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
                   <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                     <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 20, color: "#fff" }}>${r.ticker}</span>
                     <FlowProbBadge score={flowScores[r.ticker]} />
+                    <CallWinBadge data={callWinRates[r.ticker]} />
+                    <BSProbBadge S={r.price} strike={r.meta.strike} T_days={r.meta.days_out} />
                     <span style={{ fontFamily: BB_F, fontSize: 11, color: pc, fontWeight: 700, background: `${pc}15`, padding: "3px 10px", borderRadius: 99, border: `1px solid ${pc}44` }}>
                       {r.label}
                     </span>
@@ -4332,7 +4415,8 @@ function AIShortCallsTab() {
     return () => clearTimeout(t);
   }, [bgGenerating, picks.length]);
 
-  const flowScores = useFlowScores(picks.map(p => p.ticker));
+  const flowScores   = useFlowScores(picks.map(p => p.ticker));
+  const callWinRates = useCallWinRates(picks.map(p => p.ticker));
 
   const urgencyColor = (u: string) => {
     if (!u) return BB_DIM;
@@ -4419,6 +4503,8 @@ function AIShortCallsTab() {
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 14, fontWeight: 900, color: "#fff" }}>{p.ticker}</span>
                   <FlowProbBadge score={flowScores[p.ticker]} />
+                  <CallWinBadge data={callWinRates[p.ticker]} />
+                  <BSProbBadge S={p.stock_price} strike={p.strike} breakeven={p.breakeven} T_days={p.days_out} />
                   <span style={{
                     fontSize: 8, fontWeight: 900, borderRadius: 3, padding: "1px 5px",
                     background: p.rec_type === "BUY_STOCK" ? "rgba(0,230,118,0.12)" : "rgba(255,102,0,0.12)",
@@ -9184,6 +9270,7 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   };
   const fmtPrem = (p: number) => p >= 1 ? `$${p.toFixed(1)}M` : `$${(p * 1000).toFixed(0)}K`;
   const signals = data?.signals ?? [];
+  const callWinRates = useCallWinRates(signals.map(s => s.ticker));
 
   return (
     <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
@@ -9240,6 +9327,8 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                   style={{ color: BB_WHITE, fontWeight: 900, fontSize: 16, cursor: "pointer" }}
                   onClick={e => { e.stopPropagation(); onSelectTicker(sig.ticker); }}
                 >{sig.ticker}</span>
+                <CallWinBadge data={callWinRates[sig.ticker]} />
+                <BSProbBadge S={sig.price} strike={sig.strikes[0]?.strike} T_days={sig.strikes[0]?.days_out} iv_pct={sig.avg_iv} />
                 <span style={{ color: BB_LABEL, fontSize: 10 }}>${sig.price.toFixed(2)}</span>
                 <span style={{ background: sig.minutes_to_close <= 30 ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.1)", color: sig.minutes_to_close <= 30 ? BB_RED : "#fbbf24", fontSize: 8, fontWeight: 700, padding: "2px 7px" }}>
                   {sig.minutes_to_close <= 0 ? "AT CLOSE" : sig.minutes_to_close <= 30 ? `🔥 ${sig.minutes_to_close}min to close` : `${sig.minutes_to_close}min to close`}
@@ -10784,6 +10873,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const strong  = results.filter(r => r.call_put_ratio >= 3).sort((a, b) => b.call_put_ratio - a.call_put_ratio).slice(0, 20);
   const bearish = results.filter(r => r.call_put_ratio < 1).slice(0, 20);
   const displayed = flowView === "bullish" ? bullish : flowView === "strong" ? strong : bearish;
+  const callWinRates = useCallWinRates(displayed.map(r => r.ticker));
   const highConviction = flowView === "bearish"
     ? bearish.filter(r => r.call_put_ratio < 0.2).sort((a, b) => a.call_put_ratio - b.call_put_ratio)
     : displayed.filter(r => r.call_put_ratio >= 5).sort((a, b) => b.call_put_ratio - a.call_put_ratio);
@@ -11079,6 +11169,8 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-white font-black text-lg">{row.ticker}</span>
+                        <CallWinBadge data={callWinRates[row.ticker]} />
+                        <BSProbBadge S={row.price} strike={row.strike} T_days={daysUntil(row.expiry)} />
                         <span className="text-slate-500 text-sm">${row.price.toLocaleString()}</span>
                         {(() => {
                           const r = row.call_put_ratio;
