@@ -17,7 +17,7 @@ threading.excepthook = _thread_excepthook
 
 # ── DB connect timeout global default ────────────────────────────────────────
 # Patches psycopg2.connect() so every call in the entire codebase defaults to
-# connect_timeout=2s.  Prevents indefinite hangs when the DB connection pool is
+# connect_timeout=10s.  Prevents indefinite hangs when the DB connection pool is
 # under pressure from concurrent background scans.  Explicit callers that pass
 # their own connect_timeout= value are unaffected (setdefault never overwrites).
 import psycopg2 as _pg_patch
@@ -1480,7 +1480,7 @@ def _save_scan_cache(endpoint: str, payload: dict) -> None:
     try:
         import json as _scj
         from datetime import date as _scd
-        with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=3000") as _scc, _scc.cursor() as _sccu:
+        with _psycopg2.connect(_DB_URL, connect_timeout=10, options="-c statement_timeout=3000") as _scc, _scc.cursor() as _sccu:
             _sccu.execute("""
                 CREATE TABLE IF NOT EXISTS scan_result_cache (
                     endpoint   TEXT NOT NULL,
@@ -1506,7 +1506,7 @@ def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
     try:
         from datetime import date as _lcd, timedelta as _lctd
         _cutoff = _lcd.today() - _lctd(days=days_back)
-        with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=3000") as _lcc, _lcc.cursor() as _lccu:
+        with _psycopg2.connect(_DB_URL, connect_timeout=10, options="-c statement_timeout=3000") as _lcc, _lcc.cursor() as _lccu:
             _lccu.execute("""
                 SELECT payload FROM scan_result_cache
                 WHERE endpoint = %s AND scan_date >= %s
@@ -11527,7 +11527,7 @@ def _run_daily_fundamentals_snapshot():
             print("[fundamentals_snapshot] no tickers to snapshot")
             return
 
-        with _psycopg2.connect(_DB_URL, connect_timeout=8) as _c:
+        with _psycopg2.connect(_DB_URL, connect_timeout=10) as _c:
             _pit_guard.snapshot_daily_fundamentals(sorted(_tickers), _c)
         print(f"[fundamentals_snapshot] snapshotted {len(_tickers)} tickers")
     except Exception as _se:
@@ -36300,7 +36300,9 @@ def conviction_stack_endpoint():
     if not _cs_stk_cache:
         try:
             import psycopg2 as _pg_imm
-            with _pg_imm.connect(_DB_URL, connect_timeout=8,
+            import time as _t_imm
+            _t0_imm = _t_imm.time()
+            with _pg_imm.connect(_DB_URL, connect_timeout=10,
                                  options="-c statement_timeout=5000 -c lock_timeout=3000") as _c_imm, \
                  _c_imm.cursor() as _cu_imm:
                 _cu_imm.execute(
@@ -36311,6 +36313,8 @@ def conviction_stack_endpoint():
                 )
                 _cols_imm = [d[0] for d in _cu_imm.description]
                 _rows_imm = _cu_imm.fetchall()
+            _snap_imm = str(_rows_imm[0][_cols_imm.index('snap_date')]) if _rows_imm else 'none'
+            print(f"[conviction-stack] inline-fallback connect+query: {(_t_imm.time()-_t0_imm)*1000:.0f}ms, rows={len(_rows_imm)}, snap={_snap_imm}")
             if _rows_imm:
                 _db_imm = []
                 for _rr in _rows_imm:
@@ -36350,11 +36354,16 @@ def conviction_stack_endpoint():
                         " FROM conviction_stack_watchlist"
                         " ORDER BY snap_date DESC, rank ASC LIMIT 150"
                     )
-                    with _pg_cs_p.connect(_DB_URL, connect_timeout=8,
-                                          options="-c statement_timeout=5000 -c lock_timeout=3000") as _c_p,                          _c_p.cursor() as _cu_p:
+                    import time as _t_cs_p
+                    _t0_cs_p = _t_cs_p.time()
+                    with _pg_cs_p.connect(_DB_URL, connect_timeout=10,
+                                          options="-c statement_timeout=5000 -c lock_timeout=3000") as _c_p, \
+                         _c_p.cursor() as _cu_p:
                         _cu_p.execute(_sql_p)
                         _cols_p = [d[0] for d in _cu_p.description]
                         _rows_p = _cu_p.fetchall()
+                    _snap_p = str(_rows_p[0][_cols_p.index('snap_date')]) if _rows_p else 'none'
+                    print(f"[conviction-stack] bg-phase1 connect+query: {(_t_cs_p.time()-_t0_cs_p)*1000:.0f}ms, rows={len(_rows_p)}, snap={_snap_p}")
                     if _rows_p:
                         _db_r = []
                         for _rr in _rows_p:
@@ -38154,7 +38163,7 @@ def ai_short_calls():
         try:
             _et_floor = ("(date_trunc('day', now() AT TIME ZONE 'America/New_York') "
                          "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'")
-            with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=3000") as _sc2, _sc2.cursor() as _scc2:
+            with _psycopg2.connect(_DB_URL, connect_timeout=10, options="-c statement_timeout=3000") as _sc2, _sc2.cursor() as _scc2:
                 _scc2.execute(f"""
                     SELECT ticker, strike, expiry, days_out, vol_oi, prem,
                            thesis, confidence, urgency
@@ -42911,7 +42920,7 @@ def insider_radar():
             _delay_ir = max(0, 30 - (_time_ir.time() - _BOOT_TIME))
             if _delay_ir > 0:
                 _time_ir.sleep(_delay_ir)
-            with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
+            with _psycopg2.connect(_DB_URL, connect_timeout=10, options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
                 # All signals $10K+ from last 90 days, newest first
                 cur.execute(
                     "SELECT ticker, price::float, strike::float, expiry,"
