@@ -258,6 +258,44 @@ _YF_BREAKER = {"state": "closed", "until": 0.0, "probing": False}
 _YF_BREAKER_COOLDOWN = 300.0  # seconds to stay "open" after a rate-limit hit (5 min; long enough for Yahoo to recover before half-open probe)
 _YF_BREAKER_LOCK = threading.Lock()
 
+# ── Tradier circuit breaker ──────────────────────────────────────────────────
+# Tradier can time out (6 s per call). If 3+ timeouts hit within 30 s the
+# breaker trips for 90 s so subsequent _td_history/_td_intraday calls return
+# empty immediately instead of stacking up more 6-s hangs that saturate the
+# 4-worker thread pool and starve the Flask HTTP workers.
+_TD_BREAKER          = {"state": "closed", "until": 0.0}
+_TD_BREAKER_COOLDOWN = 90.0           # seconds the breaker stays open
+_TD_BREAKER_LOCK     = threading.Lock()
+_TD_TIMEOUT_HITS: list = []           # timestamps of recent Tradier timeouts
+_TD_TIMEOUT_LOCK     = threading.Lock()
+_TD_TIMEOUT_WINDOW   = 30.0           # seconds to look back
+_TD_TIMEOUT_THRESH   = 3             # hits in window before tripping
+
+def _td_breaker_open() -> bool:
+    """Return True if the Tradier breaker is open (data feed unavailable)."""
+    with _TD_BREAKER_LOCK:
+        if _TD_BREAKER["state"] == "open":
+            if _time_cb.time() < _TD_BREAKER["until"]:
+                return True
+            _TD_BREAKER["state"] = "closed"   # auto-reset after cooldown
+    return False
+
+def _td_note_timeout() -> None:
+    """Record a Tradier timeout; trip the breaker if threshold is reached."""
+    now = _time_cb.time()
+    with _TD_TIMEOUT_LOCK:
+        _TD_TIMEOUT_HITS.append(now)
+        cutoff = now - _TD_TIMEOUT_WINDOW
+        while _TD_TIMEOUT_HITS and _TD_TIMEOUT_HITS[0] < cutoff:
+            _TD_TIMEOUT_HITS.pop(0)
+        if len(_TD_TIMEOUT_HITS) >= _TD_TIMEOUT_THRESH:
+            with _TD_BREAKER_LOCK:
+                _TD_BREAKER["state"] = "open"
+                _TD_BREAKER["until"] = now + _TD_BREAKER_COOLDOWN
+            _TD_TIMEOUT_HITS.clear()
+            print(f"[td_breaker] tripped: {_TD_TIMEOUT_THRESH}+ Tradier timeouts "
+                  f"in {_TD_TIMEOUT_WINDOW:.0f}s — cooling {_TD_BREAKER_COOLDOWN:.0f}s")
+
 # ── Global yfinance rate limiter (token bucket) ──────────────────────────────
 # Caps ALL yfinance HTTP calls at 3/second across every thread and every job.
 # This is the primary defence against Yahoo throttling - no burst is possible.
@@ -563,6 +601,8 @@ def _td_history(ticker: str, days: int = 40, start_date: str = None) -> "pd.Data
     Otherwise fetches the last `days` trading sessions (adds 10-day weekend buffer).
     Returns empty DataFrame on error.
     """
+    if _td_breaker_open():
+        return __import__("pandas").DataFrame()
     import os as _th_os, requests as _th_req, pandas as _th_pd, datetime as _th_dt
     _token = _th_os.environ.get("TRADIER_API_TOKEN_2", "") or _th_os.environ.get("TRADIER_API_TOKEN", "")
     if not _token:
@@ -595,6 +635,7 @@ def _td_history(ticker: str, days: int = 40, start_date: str = None) -> "pd.Data
         _df = _df[_cols]
         return _df if start_date else _df.tail(days)
     except Exception as _e_th:
+        _td_note_timeout()
         print(f"[td_history] error {ticker}: {_e_th}")
         return _th_pd.DataFrame()
 
@@ -605,6 +646,8 @@ def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
     DatetimeIndex (America/New_York) so between_time() and tz_convert() work as-is.
     Returns empty DataFrame on error or outside market hours.
     """
+    if _td_breaker_open():
+        return __import__("pandas").DataFrame()
     import os as _ti_os, requests as _ti_req, pandas as _ti_pd
     _token = _ti_os.environ.get("TRADIER_API_TOKEN_2", "") or _ti_os.environ.get("TRADIER_API_TOKEN", "")
     if not _token:
@@ -637,6 +680,7 @@ def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
         _cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "VWAP"] if c in _df.columns]
         return _df[_cols]
     except Exception as _e_ti:
+        _td_note_timeout()
         print(f"[td_intraday] error {ticker}: {_e_ti}")
         return _ti_pd.DataFrame()
 
@@ -3160,7 +3204,7 @@ try:
             print(f"[scheduler] gamma pressure scan error: {_e_gps}")
     _scheduler.add_job(
         _run_gamma_pressure_job,
-        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/5", timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/10", timezone=_ET),
         id="gamma_pressure_scan",
         replace_existing=True,
     )
@@ -42737,10 +42781,18 @@ def standout_track():
                     except Exception:
                         pass
             # Also scrub any NaN values from the dict itself (if _rows had floats already)
+            # Includes Decimal('NaN') which slips through `isinstance(v, float)` check.
+            import decimal as _dec_st
             for _k in list(_r.keys()):
                 _v = _r[_k]
                 if isinstance(_v, float) and (_math_st.isnan(_v) or _math_st.isinf(_v)):
                     _r[_k] = None
+                elif isinstance(_v, _dec_st.Decimal):
+                    try:
+                        _f = float(_v)
+                        _r[_k] = None if (_math_st.isnan(_f) or _math_st.isinf(_f)) else _f
+                    except Exception:
+                        _r[_k] = None
 
         def _st_stats(rows):
             graded = [r for r in rows if r.get("open_to_close_pct") is not None]

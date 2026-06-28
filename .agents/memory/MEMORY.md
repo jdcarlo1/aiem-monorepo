@@ -10,6 +10,7 @@
 - [AIEM Barchart-parity indicators](aiem-barchart-indicators.md) — mkt_compute_indicators: SMA/EMA 5/10/20/50/100/200/200wk, RSI, Stoch %K/%D, Williams %R, CCI, MACD, ADX/DI, PSAR, BB, Keltner, OBV, MFI, CMF, ROC, Momentum, 14-signal summary; mkt_screen_by_indicator: 38 indicators across 11K tickers; both in all tool maps + schemas
 - [Conviction scoring engine](conviction-scoring-engine.md) — 4-factor quality score on multi-day runner; CV4=66% WR CI-floor 60.4% n=297; orthogonal to d1_strong; period extended 25d→45d
 - [Tradier migration complete](tradier-migration-complete.md) — Yahoo-only: ^VIX/market_cap/float/earnings/screener; everything else → _td_history/_td_intraday/_td_quotes
+- [Tradier circuit breaker](tradier-circuit-breaker.md) — _TD_BREAKER trips after 3 timeouts in 30s, cools 90s; wired into _td_history + _td_intraday fail-fast guards; _td_note_timeout() in exception handlers
 - [Yahoo breaker cooldown](yf-breaker-cooldown.md) — must be ≥300s; 60s caused trip→probe→trip spiral all morning; do not reduce
 - [Market-open tab spinners](market-open-spinners.md) — _yahoo_breaker NameError killed market_overview+squeeze_setup; 5 endpoints missing breaker guard; breaker conventions
 - [NCLEX Prep project state](nclex-prep-state.md) — question bank counts, categories, next question number, stack, and key constraints
