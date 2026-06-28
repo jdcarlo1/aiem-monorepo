@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import math
 import threading
-import time as _PROF_TIME; _BOOT_T0 = _PROF_TIME.time()
 
 def _thread_excepthook(args):
     """Global safety net: log unhandled background thread exceptions instead of
@@ -940,7 +939,6 @@ _DEFERRED_INITS.append(lambda: init_news_catalyst_log())
 _DEFERRED_INITS.append(lambda: init_midday_log_table())
 _DEFERRED_INITS.append(lambda: init_multiday_runner_tables())
 _DEFERRED_INITS.append(lambda: _init_steady_grinder_scan_table())
-print(f"[startup-profile] T+{_PROF_TIME.time()-_BOOT_T0:.2f}s: first DB init batch done")
 
 # ── Intraday bar cache: prerequisite for AIEM hypothesis #12 ─────────────────
 # Captures 1-min OHLCV bars from Tradier for a ~50-ticker priority watchlist
@@ -3948,7 +3946,6 @@ try:
     except Exception as _aiem_sched_e:
         print(f"[scheduler] AIEM enhancement jobs error: {_aiem_sched_e}")
     _scheduler.start()
-    print(f"[startup-profile] T+{_PROF_TIME.time()-_BOOT_T0:.2f}s: APScheduler started")
     # reconcile_orphaned_sessions is defined later in the file; defer so the
     # full module finishes loading before the function is looked up.
     import threading as _rt_sched
@@ -22473,7 +22470,6 @@ def _ensure_model_registry():
         print(f"[model_registry] init error: {_e}")
 
 _DEFERRED_INITS.append(lambda: _ensure_model_registry())
-print(f"[startup-profile] T+{_PROF_TIME.time()-_BOOT_T0:.2f}s: model_registry ensured")
 
 # Features pulled from JOIN aiem_predictions + polygon_market_daily + signal_fire_log
 _AIEM_FEATURE_COLUMNS = [
@@ -44976,5 +44972,4 @@ import threading as _di_thr
 _di_thr.Thread(target=_run_deferred_inits, daemon=True, name="startup-db-init").start()
 
 if __name__ == "__main__":
-    print(f"[startup-profile] T+{_PROF_TIME.time()-_BOOT_T0:.2f}s: binding port {PORT} now")
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
