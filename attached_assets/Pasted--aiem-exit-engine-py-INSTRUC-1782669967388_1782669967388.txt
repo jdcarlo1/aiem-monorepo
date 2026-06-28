@@ -1,0 +1,301 @@
+"""
+aiem_exit_engine.py
+====================================================================
+INSTRUCTIONS FOR THE REPLIT AGENT — READ THIS WHOLE BLOCK FIRST,
+THEN MAKE THE CHANGES IN ORDER. DO NOT SKIP STEPS.
+
+GOAL
+----
+AIEM currently picks a fixed hold_days (2, 3, or 5) at the moment a
+signal is created and just counts down a calendar date to decide when
+to exit (see main.py, the block commented "Determine hold_days based
+on dominant signal character"). That is NOT a judgment call — it's a
+timer. We are replacing it with real autonomous judgment: every open
+position gets re-checked against live technical indicators on a
+schedule, and AIEM decides hold-vs-exit itself, for as long as it
+thinks is appropriate, based on what the indicators actually show.
+
+This stays 100% paper trading. Nothing here adds order-placement
+capability or touches real money — it only changes WHEN a paper
+position in ai_stock_picks gets marked closed and why.
+
+STEP 1 — Add this file
+-----------------------
+Add this exact file to the project at:
+    artifacts/stock-scanner-api/aiem_exit_engine.py
+Do not modify the logic below this docstring.
+
+STEP 2 — Remove the fixed countdown in main.py
+------------------------------------------------
+Find this block in main.py (search for "Determine hold_days based on
+dominant signal character"):
+
+    if has_sweep and has_momentum and not has_inflow:
+        hold_days  = 2
+        ...
+    elif has_inflow and has_accum and (...):
+        hold_days  = 5
+        ...
+    else:
+        hold_days  = 3
+        ...
+    exit_date = today + _sptd(days=hold_days)
+
+DELETE the if/elif/else branching that sets hold_days. Replace the
+whole block with:
+
+    hold_days  = None
+    exit_date  = today + _sptd(days=15)   # safety cap only — see Step 4
+    hold_type  = "indicator_managed"
+
+Keep target_pct / stop_pct exactly as they are — those are price-based
+guardrails and are NOT being removed, only the calendar timer is.
+
+STEP 3 — Add columns to ai_stock_picks
+-----------------------------------------
+In main.py, inside _init_ai_stock_picks_table(), add (these are safe
+to run against the existing table):
+
+    ALTER TABLE ai_stock_picks ADD COLUMN IF NOT EXISTS status      VARCHAR(10) DEFAULT 'open';
+    ALTER TABLE ai_stock_picks ADD COLUMN IF NOT EXISTS exit_price  FLOAT;
+    ALTER TABLE ai_stock_picks ADD COLUMN IF NOT EXISTS exit_reason TEXT;
+    ALTER TABLE ai_stock_picks ADD COLUMN IF NOT EXISTS closed_at   TIMESTAMPTZ;
+
+STEP 4 — Schedule the review job
+-----------------------------------
+Add a new APScheduler job in main.py using the same pattern as the
+other aiem_* jobs already registered there. Run it every 30 minutes,
+market hours only (9:35 AM–4:00 PM ET, Mon–Fri):
+
+    from aiem_exit_engine import review_open_positions
+
+    def _run_aiem_exit_review():
+        try:
+            review_open_positions(db_url=_DB_URL, price_history_fn=_td_history)
+        except Exception as e:
+            print(f"[scheduler] aiem exit review error: {e}")
+
+    scheduler.add_job(
+        _run_aiem_exit_review,
+        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/30", timezone=_ET),
+        id="aiem_exit_review", replace_existing=True,
+    )
+
+(Match _ET / CronTrigger / scheduler to whatever names are already
+used for the other aiem_* jobs in the file — don't introduce new
+variable names if equivalents already exist.)
+
+STEP 5 — Do not touch
+------------------------
+Do not modify shadow_ledger.py, simulation_lock.py, or
+rl_position_sizer.py. This engine logs through decision_logger
+exactly like the rest of AIEM does, so every hold/exit call stays
+fully reviewable in agent_decisions.
+
+That's the whole change. Everything below this line is the engine
+itself — it's complete and ready to run as-is.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Callable, Dict, Any
+
+import psycopg2
+import psycopg2.extras
+
+try:
+    import ta
+except ImportError:
+    ta = None
+
+import decision_logger as dl
+
+
+# ── Indicator computation ──────────────────────────────────────────────
+
+def _compute_indicators(df) -> Dict[str, Any]:
+    """Given a daily OHLCV DataFrame (Open/High/Low/Close/Volume,
+    oldest -> newest), return the indicator readings AIEM judges a
+    position by. Returns {} if there isn't enough history yet —
+    never raises."""
+    if df is None or df.empty or len(df) < 20 or ta is None:
+        return {}
+
+    close = df["Close"].astype(float)
+    vol = df["Volume"].astype(float)
+    out: Dict[str, Any] = {}
+
+    try:
+        out["rsi_14"] = float(ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1])
+    except Exception:
+        out["rsi_14"] = None
+
+    try:
+        macd = ta.trend.MACD(close)
+        hist = float(macd.macd_diff().iloc[-1])
+        out["macd_hist"] = hist
+        out["macd_bullish"] = hist > 0
+    except Exception:
+        out["macd_hist"] = None
+        out["macd_bullish"] = None
+
+    try:
+        sma20_now = close.rolling(20).mean().iloc[-1]
+        sma20_prior = close.rolling(20).mean().iloc[-3]
+        out["above_sma20"] = bool(close.iloc[-1] > sma20_now)
+        out["sma20_rising"] = bool(sma20_now > sma20_prior)
+    except Exception:
+        out["above_sma20"] = None
+        out["sma20_rising"] = None
+
+    try:
+        avg_vol_20 = vol.rolling(20).mean().iloc[-1]
+        out["rvol"] = float(vol.iloc[-1] / avg_vol_20) if avg_vol_20 else None
+    except Exception:
+        out["rvol"] = None
+
+    try:
+        recent_lows = df["Low"].iloc[-6:]
+        out["lower_lows_count"] = int(sum(
+            1 for i in range(1, len(recent_lows))
+            if recent_lows.iloc[i] < recent_lows.iloc[i - 1]
+        ))
+    except Exception:
+        out["lower_lows_count"] = None
+
+    out["last_close"] = float(close.iloc[-1])
+    return out
+
+
+def _score_exit(indicators: Dict[str, Any], unrealized_pnl_pct: float,
+                 target_pct: float, stop_pct: float) -> Dict[str, str]:
+    """The actual judgment call. Price-based stop/target stay as hard
+    safety rails (not a timer); everything else is indicator-based
+    reasoning, and every reason is returned in plain text so it can be
+    logged and reviewed later."""
+    if unrealized_pnl_pct <= -abs(stop_pct):
+        return {"action": "exit", "reasoning":
+                f"Stop hit: unrealized P&L {unrealized_pnl_pct:.2f}% <= -{stop_pct:.2f}% stop."}
+
+    if unrealized_pnl_pct >= abs(target_pct) * 1.5:
+        if indicators.get("macd_bullish") is False and indicators.get("above_sma20") is False:
+            return {"action": "exit", "reasoning":
+                    f"Well past target ({unrealized_pnl_pct:.2f}%) and trend is rolling over "
+                    f"(MACD bearish, price below SMA20) — locking in the gain."}
+
+    if not indicators:
+        return {"action": "hold", "reasoning":
+                "Not enough price history yet to judge indicators; holding by default."}
+
+    reasons_exit, reasons_hold = [], []
+
+    rsi = indicators.get("rsi_14")
+    if rsi is not None and rsi >= 75:
+        reasons_exit.append(f"RSI {rsi:.1f} extended/overbought")
+    elif rsi is not None and rsi <= 35 and unrealized_pnl_pct < 0:
+        reasons_exit.append(f"RSI {rsi:.1f} weak while position is underwater")
+    elif rsi is not None:
+        reasons_hold.append(f"RSI {rsi:.1f} not extreme")
+
+    if indicators.get("macd_bullish") is False:
+        reasons_exit.append("MACD histogram turned negative (momentum fading)")
+    elif indicators.get("macd_bullish") is True:
+        reasons_hold.append("MACD still bullish")
+
+    if indicators.get("above_sma20") is False:
+        reasons_exit.append("price below SMA20")
+    elif indicators.get("above_sma20") is True:
+        reasons_hold.append("price holding above SMA20")
+
+    if (indicators.get("lower_lows_count") or 0) >= 4:
+        reasons_exit.append("4+ consecutive lower lows — reversal structure forming")
+
+    if len(reasons_exit) >= 2 and len(reasons_exit) > len(reasons_hold):
+        return {"action": "exit", "reasoning": "; ".join(reasons_exit)}
+    return {"action": "hold",
+            "reasoning": "; ".join(reasons_hold) if reasons_hold else "No strong exit signal yet."}
+
+
+# ── Scheduled entry point ──────────────────────────────────────────────
+
+def review_open_positions(db_url: str, price_history_fn: Callable,
+                           safety_cap_days: int = 15) -> Dict[str, Any]:
+    """Call on a schedule (every 30 min, market hours). Loops every open
+    ai_stock_picks row, computes indicators, lets AIEM decide hold vs
+    exit, and writes the outcome. Logs every decision via
+    decision_logger. Never raises — logs and continues per-ticker on
+    error so one bad ticker can't stall the whole review."""
+    reviewed, closed = 0, 0
+    try:
+        with psycopg2.connect(db_url, connect_timeout=5) as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, ticker, pick_date, target_pct, stop_pct
+                    FROM ai_stock_picks
+                    WHERE status = 'open' OR status IS NULL
+                """)
+                positions = cur.fetchall()
+    except Exception as e:
+        print(f"[aiem_exit_engine] could not load open positions: {e}")
+        return {"reviewed": 0, "closed": 0, "error": str(e)}
+
+    for pos in positions:
+        reviewed += 1
+        ticker = pos["ticker"]
+        try:
+            df = price_history_fn(ticker, days=40)
+            if df is None or df.empty:
+                continue
+
+            entry_rows = df[df.index.date >= pos["pick_date"]]
+            entry_price = float(entry_rows["Close"].iloc[0]) if not entry_rows.empty else float(df["Close"].iloc[0])
+            last_price = float(df["Close"].iloc[-1])
+            unrealized_pnl_pct = (last_price - entry_price) / entry_price * 100
+
+            indicators = _compute_indicators(df)
+            decision = _score_exit(
+                indicators, unrealized_pnl_pct,
+                target_pct=float(pos["target_pct"] or 5.0),
+                stop_pct=float(pos["stop_pct"] or 2.5),
+            )
+
+            days_open = (dt.date.today() - pos["pick_date"]).days
+            if days_open >= safety_cap_days and decision["action"] != "exit":
+                decision = {"action": "exit", "reasoning":
+                            f"Safety cap reached ({days_open}d open) — closing to bound risk "
+                            f"regardless of current indicator reading."}
+
+            dl.log_decision(
+                signal_name="aiem_position_review",
+                decision_type=decision["action"],
+                reasoning=decision["reasoning"],
+                ticker=ticker,
+                input_state_snapshot={
+                    "unrealized_pnl_pct": round(unrealized_pnl_pct, 3),
+                    "days_open": days_open,
+                    **{k: v for k, v in indicators.items() if k != "last_close"},
+                },
+            )
+
+            if decision["action"] == "exit":
+                with psycopg2.connect(db_url, connect_timeout=5) as conn2, conn2.cursor() as cur2:
+                    cur2.execute("""
+                        UPDATE ai_stock_picks
+                        SET status = 'closed', exit_price = %s,
+                            exit_reason = %s, closed_at = NOW()
+                        WHERE id = %s
+                    """, (last_price, decision["reasoning"][:500], pos["id"]))
+                    conn2.commit()
+                closed += 1
+
+        except Exception as e:
+            print(f"[aiem_exit_engine] {ticker} review error: {e}")
+            continue
+
+    print(f"[aiem_exit_engine] reviewed {reviewed} open position(s), closed {closed}")
+    return {"reviewed": reviewed, "closed": closed}
+
+
+if __name__ == "__main__":
+    print("aiem_exit_engine: indicator-based hold/exit judgment for open AIEM positions.")
+    print("Wire review_open_positions() into the scheduler per the instructions above.")

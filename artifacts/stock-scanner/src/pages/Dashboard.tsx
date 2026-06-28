@@ -15749,13 +15749,22 @@ export default function Dashboard() {
                               <td className="py-2 px-3">
                                 <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
                                   t.status === "CLOSED_TARGET" ? "bg-emerald-900/50 text-emerald-400"
-                                  : t.status === "CLOSED_STOP" ? "bg-red-900/50 text-red-400"
+                                  : t.status === "CLOSED_STOP"   ? "bg-red-900/50 text-red-400"
+                                  : t.status === "CLOSED_AIEM"   ? "bg-violet-900/50 text-violet-400"
                                   : "bg-slate-800 text-slate-400"
                                 }`}>
-                                  {t.status === "CLOSED_TARGET" ? "✓ Target" : t.status === "CLOSED_STOP" ? "✗ Stop" : "Expired"}
+                                  {t.status === "CLOSED_TARGET" ? "✓ Target"
+                                  : t.status === "CLOSED_STOP"   ? "✗ Stop"
+                                  : t.status === "CLOSED_AIEM"   ? "🤖 AIEM"
+                                  : "Expired"}
                                 </span>
                               </td>
-                              <td className="py-2 px-3 text-slate-600 text-xs truncate max-w-[120px]">{t.signal_source?.replace(/_/g," ")}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs max-w-[220px]" title={t.exit_reason || ""}>
+                                {t.exit_reason
+                                  ? <span className="text-violet-400/80 italic">{t.exit_reason.length > 80 ? t.exit_reason.slice(0,80)+"…" : t.exit_reason}</span>
+                                  : <span className="text-slate-600">{t.signal_source?.replace(/_/g," ")}</span>
+                                }
+                              </td>
                             </tr>
                           ))}
                         </tbody>

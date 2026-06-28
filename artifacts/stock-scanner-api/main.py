@@ -11459,6 +11459,20 @@ try:
         id="aiem_paper_execute",
         replace_existing=True,
     )
+    # AIEM exit engine: re-evaluates every open ai_stock_picks position every 30 min
+    # using RSI, MACD, SMA20, lower-lows — no countdown timer, AIEM decides hold vs exit.
+    def _run_aiem_exit_review():
+        try:
+            from aiem_exit_engine import review_open_positions
+            review_open_positions(db_url=_DB_URL, price_history_fn=_td_history)
+        except Exception as _aee:
+            print(f"[scheduler] aiem exit review error: {_aee}")
+    _scheduler.add_job(
+        _run_aiem_exit_review,
+        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/30", timezone=_ET),
+        id="aiem_exit_review",
+        replace_existing=True,
+    )
     _scheduler.add_job(
         lambda: _aiem_paper_mark_to_market(),
         CronTrigger(day_of_week="mon-fri", hour=16, minute=0, timezone=_ET),
@@ -30800,12 +30814,12 @@ def aiem_paper_portfolio():
                 _d["created_at"] = _d["created_at"].isoformat() if _d["created_at"] else None
                 _open_pos.append(_d)
 
-            # Closed trades (last N days)
+            # Closed trades (last N days) — includes exit_reason so UI can show AIEM's judgment
             _cu.execute("""
                 SELECT id, trade_date::text, ticker, trade_type,
                        entry_price, quantity, notional,
                        signal_source, signal_detail,
-                       exit_price, exit_date::text, pnl, pnl_pct, status
+                       exit_price, exit_date::text, pnl, pnl_pct, status, exit_reason
                 FROM aiem_paper_trades
                 WHERE status != 'OPEN'
                   AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
@@ -30814,7 +30828,7 @@ def aiem_paper_portfolio():
             """, (_days,))
             _closed_cols = ["id","trade_date","ticker","trade_type","entry_price",
                             "quantity","notional","signal_source","signal_detail",
-                            "exit_price","exit_date","pnl","pnl_pct","status"]
+                            "exit_price","exit_date","pnl","pnl_pct","status","exit_reason"]
             _closed = []
             for _r in _cu.fetchall():
                 _d = dict(zip(_closed_cols, _r))
@@ -37790,6 +37804,10 @@ def _init_ai_stock_picks_table():
                     UNIQUE(pick_date, ticker)
                 )
             """)
+            _cur.execute("ALTER TABLE ai_stock_picks ADD COLUMN IF NOT EXISTS status      VARCHAR(10) DEFAULT 'open'")
+            _cur.execute("ALTER TABLE ai_stock_picks ADD COLUMN IF NOT EXISTS exit_price  FLOAT")
+            _cur.execute("ALTER TABLE ai_stock_picks ADD COLUMN IF NOT EXISTS exit_reason TEXT")
+            _cur.execute("ALTER TABLE ai_stock_picks ADD COLUMN IF NOT EXISTS closed_at   TIMESTAMPTZ")
             _c.commit()
         print("[ai_stock_picks] table ready")
     except Exception as _e:
@@ -38047,26 +38065,23 @@ def _build_ai_stock_picks():
             has_momentum = any(s in sigs for s in ("high_rvol", "gamma_pressure", "multi_signal"))
             l9_trending  = l9_regime == "trending"
 
+            # Signal character sets target/stop. Hold period is now managed
+            # by aiem_exit_engine (indicator-based) — no countdown timer.
             if has_sweep and has_momentum and not has_inflow:
-                hold_days  = 2   # Quick momentum / sweep play
                 target_pct = 3.0
                 stop_pct   = 2.0
                 hold_type  = "momentum"
             elif has_inflow and has_accum and (l9_trending or meta.get("conviction_pts", 0) >= 7):
-                hold_days  = 5   # Positional accumulation play
                 target_pct = 8.0
                 stop_pct   = 3.5
                 hold_type  = "accumulation"
             else:
-                hold_days  = 3   # Standard swing
                 target_pct = 5.0
                 stop_pct   = 2.5
                 hold_type  = "swing"
 
-            # Advance exit past weekends
-            exit_date = today + _sptd(days=hold_days)
-            while exit_date.weekday() >= 5:
-                exit_date += _sptd(days=1)
+            hold_days = None
+            exit_date = today + _sptd(days=15)   # safety cap only — exit engine decides
 
             # ── Confidence tier ───────────────────────────────────────────────
             n_sigs    = len(sigs)
@@ -38087,7 +38102,7 @@ def _build_ai_stock_picks():
             entry_note = (
                 f"{'🔥 ' if confidence == 'HIGH' else ''}Signals: {', '.join(sig_labels)}. "
                 f"{nf_str}{uc_str}"
-                f"Hold {hold_days}d ({hold_type}) · Target +{target_pct:.0f}% · Stop -{stop_pct:.0f}%. "
+                f"AI-managed hold ({hold_type}) · Target +{target_pct:.0f}% · Stop -{stop_pct:.0f}%. "
                 f"{l9_str}"
             ).strip()
 
@@ -38123,10 +38138,10 @@ def _build_ai_stock_picks():
                     "ticker":       ticker,
                     "score":        round(float(sdata["score"]), 1),
                     "confidence":   "LOW",
-                    "hold_days":    3,
+                    "hold_days":    None,
                     "hold_type":    "swing",
                     "pick_date":    str(today),
-                    "exit_date":    str(today + _sptd(days=3)),
+                    "exit_date":    str(today + _sptd(days=15)),
                     "target_pct":   5.0,
                     "stop_pct":     2.5,
                     "entry_note":   f"Multi-signal: {', '.join(s.replace('_',' ').title() for s in sigs_list[:4])}. Standard 3d swing.",
