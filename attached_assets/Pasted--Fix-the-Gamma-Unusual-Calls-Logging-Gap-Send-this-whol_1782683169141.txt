@@ -1,0 +1,158 @@
+# Fix the Gamma + Unusual Calls Logging Gap
+
+Send this whole document to the agent. It walks through finding the
+exact broken line, fixing it, and proving the fix actually worked —
+in that order, so nothing gets skipped.
+
+================================================================
+STEP 1: Show me the actual broken code (read-only, no edits yet)
+================================================================
+
+Run this and show the FULL output before changing anything:
+
+```bash
+sed -n '12550,12600p' main.py
+```
+
+This shows lines 12550-12600 of main.py — the area right around the
+log_gamma_decision call at line 12583. I need to see:
+- What comes immediately BEFORE the log call (any `return`, `continue`,
+  or `if` that could skip past it)
+- Whether it's inside a try/except block
+- What comes immediately AFTER it (does the function actually finish
+  normally, or does something else happen that could undo the log)
+
+================================================================
+STEP 2: Check for a silent exception handler
+================================================================
+
+```bash
+grep -n -B5 "log_gamma_decision" main.py | grep -i "except\|try"
+```
+
+If this shows a bare `except:` or `except Exception:` with no logging
+of the error itself, that's very likely the culprit — the log call
+may be throwing an error every single time (e.g. a parameter mismatch,
+wrong argument name, missing import alias) and the error is being
+silently swallowed instead of crashing loudly.
+
+================================================================
+STEP 3: Test the log function directly, in isolation
+================================================================
+
+This bypasses the scanner entirely and tests ONLY whether
+log_gamma_decision itself works when called directly with real-looking
+values:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import os
+os.environ.setdefault('DATABASE_URL', os.environ.get('DATABASE_URL', ''))
+try:
+    import decision_logging_helper as dlh
+    result = dlh.log_gamma_decision(
+        ticker='TESTTICKER',
+        fir=2.5,
+        vol_oi=3.0,
+        score=10.0,
+        price_change_pct=1.5,
+        top_strike=50.0,
+    )
+    print('SUCCESS:', result)
+except Exception as e:
+    import traceback
+    print('FAILED WITH ERROR:')
+    traceback.print_exc()
+"
+```
+
+If this FAILS with an error, that error message is almost certainly
+the exact same error being silently swallowed inside the real scanner
+— now it's visible instead of hidden. Common causes to check for in
+the traceback:
+- Parameter name mismatch (the helper expects different argument names
+  than what main.py is actually passing)
+- decision_logger.log_decision() expecting different arguments than
+  decision_logging_helper assumes
+- A missing or incorrect import alias (_dlh_g vs decision_logging_helper)
+
+If this SUCCEEDS, that tells us the function itself works fine in
+isolation — meaning the bug is specifically in HOW or WHERE main.py
+calls it (back to Step 1's surrounding code), not in the function
+itself.
+
+================================================================
+STEP 4: Confirm the test write landed in the database
+================================================================
+
+```bash
+psql "$DATABASE_URL" -c "
+  SELECT * FROM agent_decisions WHERE ticker = 'TESTTICKER';"
+```
+
+If Step 3 said SUCCESS but this shows no row, that's ANOTHER layer of
+bug worth knowing about (e.g. a transaction not being committed).
+If a real row shows up here, clean it up after confirming:
+
+```bash
+psql "$DATABASE_URL" -c "
+  DELETE FROM agent_decisions WHERE ticker = 'TESTTICKER';"
+```
+
+================================================================
+STEP 5: Apply the actual fix
+================================================================
+
+Based on whatever Steps 1-4 reveal, fix the specific issue found:
+- If it's a silent except block: either remove the try/except around
+  just the logging call, or at minimum log the actual exception
+  message instead of swallowing it, so future bugs aren't invisible
+- If it's a parameter mismatch: align the actual call in main.py with
+  whatever signature decision_logging_helper.py really expects
+- If it's an early return skipping the log line: move the log call to
+  before whichever return statement is bypassing it, or add a second
+  call on that other code path too
+
+================================================================
+STEP 6: Run the EXACT SAME check for unusual_calls_scanner
+================================================================
+
+Repeat steps 1-5 for the unusual_calls scanner using line 2166 instead
+of 12583 — we have NOT yet confirmed whether this one has the same bug
+or a different one. Don't assume it's identical just because gamma
+had this issue.
+
+```bash
+sed -n '2140,2190p' main.py
+grep -n -B5 "log_unusual_calls_decision" main.py | grep -i "except\|try"
+```
+
+================================================================
+STEP 7: REAL verification — wait for a live signal, don't fake it
+================================================================
+
+After the fix is applied, do NOT manually insert test rows and call it
+verified. The real test is: wait for the gamma scanner's next real
+scheduled run during market hours, then check:
+
+```bash
+psql "$DATABASE_URL" -c "
+  SELECT COUNT(*) FROM agent_decisions
+  WHERE signal_name = 'gamma_pressure_scan'
+    AND decision_time > NOW() - INTERVAL '1 hour';"
+```
+
+A count greater than 0 here, AFTER a real scheduled run, is the only
+real proof this is fixed — not a manually-triggered test call.
+
+================================================================
+WHAT TO SEND BACK TO ME
+================================================================
+
+Paste back, in order: the Step 1 code block, the Step 2 grep result,
+the Step 3 success/failure output (including full traceback if it
+fails), and once applied, the Step 7 result after a real scheduled
+run has happened. I'll read through it the same way as everything
+else today — looking at what actually happened, not what's claimed.
