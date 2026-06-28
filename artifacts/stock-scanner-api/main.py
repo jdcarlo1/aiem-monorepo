@@ -996,8 +996,8 @@ _OWNER_EMAIL_SCHEDULE = {
     "accumulation":    [(16, 25)],
     "nano_watch":      [(8, 30)],
     "nano_buy":        [(8, 30)],
-    "sc_watch":        [(9, 37)],
-    "sc_buy":          [(9, 47)],
+    "sc_watch":        [(9, 53)],
+    "sc_buy":          [(9, 57)],
     "smp_morning":     [(9, 5)],
     "market_brief":    [(8, 30)],
     "multiday_intraday":[(14, 0)],
@@ -1532,10 +1532,10 @@ try:
         id="premarket_scan",
         replace_existing=True,
     )
-    # Morning: Mon-Fri 9:45 AM ET  (market opens 9:30, data ready by 9:45)
+    # Morning: Mon-Fri 9:58 AM ET  (market opens 9:30; staggered past unusual-calls burst at 9:36)
     _scheduler.add_job(
         _run_morning_scan,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=58, timezone=_ET),
         id="morning_scan",
         replace_existing=True,
     )
@@ -3028,7 +3028,7 @@ try:
             print(f"[scheduler] pre-market OI refresh error: {_e_pmoi}")
     _scheduler.add_job(
         _run_premarket_oi_refresh,
-        CronTrigger(day_of_week="mon-fri", hour=8, minute=30, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=40, timezone=_ET),
         id="oi_snapshot_premarket",
         replace_existing=True,
     )
@@ -3696,7 +3696,7 @@ try:
           "microcap: 10:30 AM, 3:30/4:00/4:15 PM ET | "
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
-          "sc (stealth): 8:15 AM ranking, 9:37 watch, 9:47 buy | "
+          "sc (stealth): 8:15 AM ranking, 9:53 watch, 9:57 buy | "
           "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
           "morning inflows: 9:42 + 13:01 (email) / 10:15 + 13:00 (scan — moved from 9:53 to clear 9:45 burst) | "
           "AIEM market-open: 9:55/10:00/10:05 AM (was 9:31/9:35/9:40 — burst staggered) | "
