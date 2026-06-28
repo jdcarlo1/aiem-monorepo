@@ -1,0 +1,77 @@
+# Gamma Layer Theory Verification Question
+
+Send this exact question to the Replit agent. Paste the FULL response
+back unedited — including any code it shows — so it can be checked
+against the grading criteria at the bottom.
+
+================================================================
+QUESTION TO SEND
+================================================================
+
+Explain, in plain language, the actual causal mechanism by which
+dealer gamma exposure is supposed to predict stock price movement —
+specifically, why do market makers being "short gamma" near a strike
+price cause them to buy or sell the underlying stock as price
+approaches that strike, and why does that dealer hedging activity
+tend to either accelerate or dampen the stock's move?
+
+Then show me the EXACT lines of code in our gamma layer that
+calculate this, and confirm: does our code actually distinguish
+between dealers being net short gamma versus net long gamma at a
+given strike? If it can't tell the difference, explain what the
+gamma score is actually measuring instead, in plain terms — not what
+it's supposed to measure.
+
+Do not summarize or paraphrase the code. Paste the actual function(s)
+that compute the gamma signal, in full.
+
+================================================================
+GRADING CRITERIA (for Claude to check the response against)
+================================================================
+
+1. CORRECT MECHANISM EXPLANATION must include all of these:
+   - Market makers who sell options are typically short gamma
+   - Short gamma dealers must BUY the underlying as price rises
+     toward/through a strike, and SELL as price falls — this is
+     "hedging" their option exposure to stay delta-neutral
+   - This buying-into-strength / selling-into-weakness behavior
+     AMPLIFIES (accelerates) the existing price move
+   - The opposite is true for dealers who are net LONG gamma
+     (common near large open interest where dealers bought options
+     back from retail/institutions): they sell into strength and
+     buy into weakness, which DAMPENS price moves
+   - A correct answer explains BOTH directions, not just one
+
+2. RED FLAGS that the explanation is hollow or wrong:
+   - Only explains "gamma measures rate of change of delta" (textbook
+     definition) without connecting it to actual dealer hedging
+     BEHAVIOR and its effect on price
+   - Never mentions the distinction between short and long gamma
+   - Describes gamma as simply "a sign of high volatility" or "more
+     volume = more gamma" without the strike-proximity/hedging logic
+   - Can't explain WHY hedging amplifies vs dampens — just asserts
+     that gamma "matters" without the causal chain
+
+3. CODE CHECK — does the actual code distinguish short vs long
+   dealer gamma exposure?
+   - PASS: code has clear logic that computes NET gamma exposure
+     (e.g., using open interest, sign conventions for calls vs puts,
+     and assumptions about dealer positioning) and produces a
+     DIRECTIONAL output (dealers are net short OR net long at this
+     strike) — not just a magnitude
+   - FAIL: code only sums total gamma magnitude regardless of
+     direction, or doesn't account for whether dealers are
+     structurally short or long at all, or uses a proxy that doesn't
+     actually capture dealer positioning (e.g., just total options
+     volume or open interest with no directional logic)
+
+4. HONESTY CHECK — if the code can't distinguish direction, did the
+   agent admit that clearly, or did it overstate what the metric
+   actually measures? An honest "this measures X, not Y" answer is
+   a better sign than a confident answer that papers over the gap.
+
+When the response comes back, compare it point by point against
+this list rather than judging on tone or confidence alone. A
+well-written, confident-sounding answer that fails point 3 is still
+a FAIL — the goal is whether the code does the real thing, not
+whether the explanation sounds smart.
