@@ -1366,28 +1366,43 @@ def get_conviction_stack_track_record(days: int = 120) -> dict:
 
 
 def _intraday_scan_allowed() -> bool:
-    """Return True only during NYSE market hours on trading days (excl. holidays)."""
-    from datetime import datetime as _dti, date as _di
+    """Return True only during NYSE market hours on confirmed trading days.
+    Uses exchange_calendars (XNYS) so holiday coverage is automatically correct
+    for any year — no hardcoded date lists to maintain or update annually.
+    Calendar object is cached on the function itself after first call."""
     import pytz as _pzi
-    _US_MARKET_HOLIDAYS_2026 = frozenset({
-        _di(2026, 1, 1),   # New Year's Day
-        _di(2026, 1, 19),  # MLK Day
-        _di(2026, 2, 16),  # Presidents' Day
-        _di(2026, 4, 3),   # Good Friday
-        _di(2026, 5, 25),  # Memorial Day
-        _di(2026, 6, 19),  # Juneteenth
-        _di(2026, 7, 3),   # Independence Day (observed)
-        _di(2026, 9, 7),   # Labor Day
-        _di(2026, 11, 26), # Thanksgiving
-        _di(2026, 12, 25), # Christmas
-    })
+    from datetime import datetime as _dti
     _now = _dti.now(_pzi.timezone("America/New_York"))
+    # Fast-path: weekends never trade (avoids calendar lookup entirely)
     if _now.weekday() > 4:
         return False
-    if _now.date() in _US_MARKET_HOLIDAYS_2026:
-        return False
+    # Time window: 9:30 AM – 4:30 PM ET (570–990 minutes since midnight)
     _mins = _now.hour * 60 + _now.minute
-    return 570 <= _mins <= 990  # 9:30 AM – 4:30 PM ET
+    if not (570 <= _mins <= 990):
+        return False
+    # NYSE holiday check — lazy-init calendar, cached as function attribute
+    try:
+        if not hasattr(_intraday_scan_allowed, "_cal"):
+            import exchange_calendars as _xcals
+            _intraday_scan_allowed._cal = _xcals.get_calendar("XNYS")
+        if not _intraday_scan_allowed._cal.is_session(_now.strftime("%Y-%m-%d")):
+            return False
+    except Exception as _e_cal:
+        _ename = type(_e_cal).__name__
+        if "OutOfBounds" in _ename:
+            # Library's pre-computed calendar ceiling reached.
+            # Fix: pip install --upgrade exchange_calendars
+            # Fallback: weekends already blocked above; Tradier returns
+            # {"series":null} on real holidays so no false positives in DB.
+            print(
+                f"[intraday_scan_allowed] WARNING: exchange_calendars ceiling "
+                f"reached for {_now.date()} (last session: "
+                f"{getattr(getattr(_intraday_scan_allowed, '_cal', None), 'last_session', '?')}). "
+                "Run: pip install --upgrade exchange_calendars"
+            )
+        else:
+            print(f"[intraday_scan_allowed] calendar check error ({_ename}): {_e_cal}")
+    return True
 
 
 def _save_scan_cache(endpoint: str, payload: dict) -> None:
