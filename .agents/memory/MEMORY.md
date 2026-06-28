@@ -84,3 +84,4 @@
 - [AIEM tool map canonical source](aiem-tool-map.md) — _build_aiem_tool_map() must stay in sync with research agent map + schema; startup reconcile needs 3s deferred timer; all sessions share app._aiem_qa_lock
 - [Interval job time-window burst](interval-job-burst.md) — midday-breakout/gap-recovery/steady-grinder must have ET hour/minute guards or they fire in 9:30-10:30 morning burst and saturate yfinance
 - [Startup preload pattern](startup-preload-all-tabs.md) — already exists; add new tabs to _startup_preload() + _load_scan_cache; cold-boot latency is one-time, warm cache is <25ms
+- [Weekend tab blank-out pattern](weekend-tab-blank.md) — two root causes: missing _intraday_scan_allowed() check (launches bg scan that fails silently) + missing _save_scan_cache() call (nothing to load on restart)

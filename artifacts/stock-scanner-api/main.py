@@ -34077,8 +34077,22 @@ def composite_score():
     if _yf_breaker_open():
         if _cache:
             return jsonify({**_cache, "stale": True})
-        return jsonify({"rows": [], "stale": True,
+        _db_cs_brk = _load_scan_cache("composite-score")
+        if _db_cs_brk:
+            return jsonify({**_db_cs_brk, "stale": True, "note": "feed temporarily paused - try again shortly"})
+        return jsonify({"results": [], "scanned": 0, "stale": True,
                         "note": "feed temporarily paused - try again shortly"})
+
+    if not _intraday_scan_allowed():
+        _db_cs_wknd = _load_scan_cache("composite-score")
+        if _db_cs_wknd:
+            app._cs_cache = _db_cs_wknd
+            app._cs_cache_ts = _dt.now()
+            return jsonify({**_db_cs_wknd, "stale": True})
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"results": [], "scanned": 0, "stale": True,
+                        "note": "market closed - no scan data yet for this week"})
 
     now = _dt.now()
 
@@ -39549,10 +39563,22 @@ def sector_rotation():
             _out = {"sectors": _results, "scanned": len(SECTORS)}
             app._sr_cache    = _out
             app._sr_cache_ts = _sr_dt.now()
+            if _results:
+                _save_scan_cache("sector-rotation", _out)
         except Exception as _e:
             print(f"[sector-rotation] bg error: {_e}", file=_sys.stderr)
         finally:
             app._sr_scanning = False
+
+    if not _intraday_scan_allowed():
+        _sr_db = _load_scan_cache("sector-rotation")
+        if _sr_db:
+            app._sr_cache = _sr_db; app._sr_cache_ts = _sr_dt.now()
+            return jsonify({**_sr_db, "stale": True})
+        if _cache:
+            return jsonify({**_cache, "stale": True})
+        return jsonify({"sectors": [], "scanned": len(SECTORS), "stale": True,
+                        "note": "market closed - showing last trading day's data"})
 
     import threading as _sr_thr
     if not getattr(app, "_sr_scanning", False):
