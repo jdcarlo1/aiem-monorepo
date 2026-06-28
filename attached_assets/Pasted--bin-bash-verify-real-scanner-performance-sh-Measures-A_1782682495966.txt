@@ -1,0 +1,93 @@
+#!/bin/bash
+# verify_real_scanner_performance.sh
+# Measures ACTUAL execution time of the existing scanners and the new
+# synthesis step, using real timestamps before/after execution — not
+# an explanation of how it "should" perform. This proves the
+# computational cost claim with real numbers from your own system.
+
+echo "################################################################"
+echo "# REAL PERFORMANCE MEASUREMENT — $(date)"
+echo "################################################################"
+
+echo ""
+echo "=== STEP 1: How long does the existing gamma scanner ACTUALLY take? ==="
+echo "(Check scheduler logs for real elapsed time of past runs — this"
+echo " is the scanner that does the REAL heavy lifting: fetching"
+echo " options chains, computing FIR/score across the whole universe.)"
+LOGFILE=$(ls -t /tmp/logs/artifactsstock-scanner_stock-api_*.log 2>/dev/null | head -1)
+if [ -n "$LOGFILE" ]; then
+  echo "Searching log file: $LOGFILE"
+  grep -i "gamma.*scan\|gamma_pressure" "$LOGFILE" | tail -20
+else
+  echo "No log file found — searching for timing instrumentation in the code instead:"
+  grep -rn "time.time()\|datetime.now()" --include="*.py" . | grep -i gamma | head -10
+fi
+
+echo ""
+echo "=== STEP 2: Run the synthesis lookup directly, with REAL wall-clock timing ==="
+echo "(This measures the actual SELECT queries synthesis depends on —"
+echo " real milliseconds, not an estimate.)"
+if [ -z "$DATABASE_URL" ]; then
+  echo "DATABASE_URL not set."
+else
+  echo "--- timing 4 real lookups against agent_decisions for one ticker ---"
+  time psql "$DATABASE_URL" -c "
+    SELECT reasoning, decision_time FROM agent_decisions
+    WHERE ticker = 'AAPL' AND signal_name = 'gamma_pressure_scan'
+    ORDER BY decision_time DESC LIMIT 1;
+    SELECT reasoning, decision_time FROM agent_decisions
+    WHERE ticker = 'AAPL' AND signal_name = 'charm_cascade'
+    ORDER BY decision_time DESC LIMIT 1;
+    SELECT reasoning, decision_time FROM agent_decisions
+    WHERE ticker = 'AAPL' AND signal_name = 'dark_pool_scanner'
+    ORDER BY decision_time DESC LIMIT 1;
+    SELECT reasoning, decision_time FROM agent_decisions
+    WHERE ticker = 'AAPL' AND signal_name = 'unusual_calls_scanner'
+    ORDER BY decision_time DESC LIMIT 1;"
+fi
+
+echo ""
+echo "=== STEP 3: Is agent_decisions actually indexed on ticker + signal_name? ==="
+echo "(If NOT indexed, the timing above may look fast now with a SMALL"
+echo " table, but will slow down significantly as real history grows —"
+echo " this check tells you whether that's a real future risk.)"
+if [ -n "$DATABASE_URL" ]; then
+  psql "$DATABASE_URL" -c "
+    SELECT indexname, indexdef FROM pg_indexes
+    WHERE tablename = 'agent_decisions';"
+  echo "--- current row count, for context on how meaningful this timing is ---"
+  psql "$DATABASE_URL" -c "SELECT COUNT(*) AS total_rows FROM agent_decisions;"
+fi
+
+echo ""
+echo "=== STEP 4: Real end-to-end timing of the FULL synthesis function ==="
+echo "(If pre_recommendation_synthesis.py exists, run it directly and"
+echo " time the actual wall-clock duration — not a description.)"
+SYNFILE=$(find . -name "pre_recommendation_synthesis.py" 2>/dev/null | head -1)
+if [ -n "$SYNFILE" ]; then
+  python3 -c "
+import time, os
+import sys
+sys.path.insert(0, '.')
+start = time.time()
+import pre_recommendation_synthesis as prs
+db_url = os.environ.get('DATABASE_URL')
+if db_url:
+    result = prs.synthesize_and_log(db_url, 'AAPL')
+    elapsed = time.time() - start
+    print(f'REAL elapsed time for synthesize_and_log(AAPL): {elapsed:.4f} seconds')
+    print(f'Result: {result}')
+else:
+    print('DATABASE_URL not set, cannot run real test')
+"
+else
+  echo "pre_recommendation_synthesis.py not found yet — run this after it's built."
+fi
+
+echo ""
+echo "################################################################"
+echo "# DONE — paste this entire output back unedited, including the"
+echo "# 'real' time output from the `time` command in Step 2 and the"
+echo "# elapsed-seconds print from Step 4. Those are actual measured"
+echo "# numbers, not estimates, and that's the whole point of this script."
+echo "################################################################"
