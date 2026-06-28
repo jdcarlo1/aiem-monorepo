@@ -1,0 +1,107 @@
+"""
+model_swap_patches.py
+====================================================================
+Safe versioning/rollback for AIEM's underlying scoring model. When you
+retrain or update a model, this lets you swap versions WITHOUT losing
+the ability to roll back if the new version performs worse — same
+safety-first philosophy as simulation_lock.py.
+====================================================================
+"""
+
+import datetime as dt
+import os
+from typing import Dict, Any, Optional
+
+import psycopg2
+
+
+def create_model_versions_table_sql() -> str:
+    return """
+        CREATE TABLE IF NOT EXISTS model_versions (
+            id SERIAL PRIMARY KEY,
+            version_label VARCHAR(50) NOT NULL UNIQUE,
+            deployed_at TIMESTAMPTZ NOT NULL,
+            is_active BOOLEAN DEFAULT FALSE,
+            notes TEXT,
+            rolled_back_at TIMESTAMPTZ
+        );
+    """
+
+
+def deploy_new_version(db_url: str, version_label: str, notes: str = "") -> None:
+    """
+    Registers a new model version as active, deactivating the previous one.
+    Does NOT delete the old version's record — rollback stays possible.
+    """
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE model_versions SET is_active = FALSE WHERE is_active = TRUE")
+            cur.execute("""
+                INSERT INTO model_versions (version_label, deployed_at, is_active, notes)
+                VALUES (%s, %s, TRUE, %s)
+                ON CONFLICT (version_label) DO UPDATE
+                    SET is_active = TRUE, deployed_at = EXCLUDED.deployed_at, rolled_back_at = NULL
+            """, (version_label, dt.datetime.utcnow(), notes))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def rollback_to_previous(db_url: str) -> Optional[str]:
+    """
+    Deactivates the current version and reactivates the most recently
+    deployed PRIOR version. Returns the version_label rolled back to,
+    or None if there's no prior version to roll back to.
+    """
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT version_label FROM model_versions
+                WHERE is_active = TRUE
+            """)
+            current = cur.fetchone()
+
+            cur.execute("""
+                SELECT version_label FROM model_versions
+                WHERE is_active = FALSE
+                ORDER BY deployed_at DESC LIMIT 1
+            """)
+            previous = cur.fetchone()
+
+            if not previous:
+                return None
+
+            if current:
+                cur.execute("""
+                    UPDATE model_versions SET is_active = FALSE, rolled_back_at = %s
+                    WHERE version_label = %s
+                """, (dt.datetime.utcnow(), current[0]))
+
+            cur.execute("""
+                UPDATE model_versions SET is_active = TRUE WHERE version_label = %s
+            """, (previous[0],))
+        conn.commit()
+        return previous[0]
+    finally:
+        conn.close()
+
+
+def get_active_version(db_url: str) -> Optional[str]:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT version_label FROM model_versions WHERE is_active = TRUE")
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        print("Active version:", get_active_version(db_url))
+    else:
+        print("Set DATABASE_URL to test against real data.")
