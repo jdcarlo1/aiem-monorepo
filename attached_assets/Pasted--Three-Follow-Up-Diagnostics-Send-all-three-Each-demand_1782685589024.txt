@@ -1,0 +1,127 @@
+# Three Follow-Up Diagnostics
+
+Send all three. Each demands REAL command output, not an explanation.
+
+================================================================
+1. LOOKAHEAD AUDIT — is "0 backtest-relevant findings" real or a scoping gap?
+================================================================
+
+Run this and show the literal output:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import lookahead_audit as la  # adjust import path to the real module
+results = la.run_full_audit()  # adjust to the real function name
+for r in results[:38]:
+    print(r.get('file'), r.get('line'), r.get('category'), r.get('severity'))
+"
+```
+
+Then run this to check specifically whether the files that matter most
+were even included in the scan:
+
+```bash
+grep -n "backtest.relevant\|relevant_files\|file_categories" lookahead_audit.py
+```
+
+QUESTION TO ANSWER WITH REAL OUTPUT: of the 38 total findings, list
+the actual file names. Then confirm — was aiem_exit_engine.py, the
+gamma scanner, or any of the 9 signal layer files actually INCLUDED
+in the audit's file list, or were they excluded by whatever logic
+defines "backtest-relevant"? Show the actual file-filtering logic,
+not a description of it.
+
+================================================================
+2. ACTIVE HYPOTHESIS SELECTION — is thompson_sample real or decorative?
+================================================================
+
+Run this and show the literal output:
+
+```bash
+grep -n -B5 -A15 "def.*score\|final_score\|combine.*score" active_hypothesis*.py
+```
+
+This shows the ACTUAL formula that combines novelty, category_value,
+universe_impact, and thompson_sample into the final ranking score.
+
+Then run this controlled test — manually vary ONLY thompson_sample
+and see if the final score/ranking actually changes:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import active_hypothesis_selection as ahs  # adjust to real module name
+
+# Test with a deliberately LOW thompson_sample
+test_case_low = {'novelty': 0.50, 'category_value': 0.82, 'universe_impact': 0.08, 'thompson_sample': 0.05}
+# Test with a deliberately HIGH thompson_sample, same other values
+test_case_high = {'novelty': 0.50, 'category_value': 0.82, 'universe_impact': 0.08, 'thompson_sample': 0.95}
+
+score_low = ahs.compute_score(**test_case_low)  # adjust function name
+score_high = ahs.compute_score(**test_case_high)
+
+print('Score with thompson_sample=0.05:', score_low)
+print('Score with thompson_sample=0.95:', score_high)
+print('Did changing thompson_sample alone change the score?', score_low != score_high)
+"
+```
+
+PASS REQUIRES: the two scores must be DIFFERENT. If they're identical,
+that proves thompson_sample is not actually affecting the ranking
+despite being computed and displayed.
+
+================================================================
+3. MICROSTRUCTURE PROXY — why is kyle_lambda exactly 0.0?
+================================================================
+
+Run this and show the literal output, including any intermediate values:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import microstructure_proxy as mp  # adjust to real module name
+
+# Show the RAW inputs going into the kyle_lambda calculation
+import inspect
+print(inspect.getsource(mp.compute_kyle_lambda))  # adjust function name
+"
+```
+
+Then run the actual calculation with print statements showing every
+intermediate value:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import microstructure_proxy as mp
+
+ticker = 'AAPL'
+data = mp.get_raw_data_for_kyle_lambda(ticker)  # adjust to whatever real function fetches this
+print('Raw data shape/contents:', data)
+
+result = mp.compute_kyle_lambda(ticker)
+print('Final kyle_lambda result:', result)
+"
+```
+
+QUESTION TO ANSWER: does this calculation require intraday tick or
+volume-bucketed data that daily bars (polygon_market_daily) simply
+don't provide? If so, say that plainly — '0.0 because daily data
+can't support this calculation' is an honest, acceptable answer.
+What is NOT acceptable is a 0.0 that comes from a silent division
+error, an empty dataset, or a default fallback value with no
+explanation. Show the actual intermediate numbers used in the
+calculation so we can see which case this is.
+
+================================================================
+WHAT TO SEND BACK
+================================================================
+
+Paste the literal output from all three. For #2 specifically, the
+test is binary — either the two scores differ or they don't. There's
+no room for explanation to substitute for that result.

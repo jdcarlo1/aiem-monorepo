@@ -3212,6 +3212,13 @@ try:
     def _run_gamma_pressure_job():
         if not _intraday_scan_allowed():
             return
+        # Skip 9:30–9:55 ET burst window: market-open unusual-calls scan fires at
+        # 9:36 AM and runs ~12 min; competing with it saturates Yahoo and trips the
+        # breaker. First gamma-pressure run of the day happens at 9:55 (next :50 slot
+        # is 9:50; first :00 slot that clears the window is 10:00).
+        _gps_now = _dt_sched.now(_ET)
+        if _gps_now.hour == 9 and _gps_now.minute < 55:
+            return
         try:
             import threading as _thr_gps
             _thr_gps.Thread(target=_run_gamma_pressure_scan, daemon=True).start()
@@ -33240,7 +33247,7 @@ def convergence():
             _ex_cv = ThreadPoolExecutor(max_workers=4)
             _futs = {_ex_cv.submit(_check, t): t for t in tickers}
             try:
-                for fut in as_completed(_futs, timeout=15):
+                for fut in as_completed(_futs, timeout=4):
                     try:
                         r = fut.result()
                         if r:
