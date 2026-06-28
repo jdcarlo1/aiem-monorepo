@@ -38195,6 +38195,24 @@ def _build_ai_stock_picks():
                     "meta":         {},
                 })
 
+        # ── Pre-recommendation synthesis gate ─────────────────────────────────
+        try:
+            import pre_recommendation_synthesis as _prs
+            _picks_gated = []
+            for _p in picks:
+                try:
+                    _syn = _prs.synthesize_and_log(_DB_URL, _p["ticker"])
+                    if _prs.should_block_low_confidence(_syn, min_confluence=2):
+                        print(f"[ai_stock_picks] BLOCKED: {_p['ticker']} confluence {_syn['confluence_count']}/4")
+                    else:
+                        _picks_gated.append(_p)
+                except Exception as _syn_e:
+                    print(f"[ai_stock_picks] synthesis gate error for {_p['ticker']}: {_syn_e}")
+                    _picks_gated.append(_p)
+            picks = _picks_gated
+        except Exception as _prs_e:
+            print(f"[ai_stock_picks] synthesis gate import error: {_prs_e}")
+
         # ── Save to DB ────────────────────────────────────────────────────────
         try:
             with _psycopg2.connect(_DB_URL, connect_timeout=5) as _sc, _sc.cursor() as _scu:
