@@ -11913,19 +11913,34 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
   );
 }
 
+const AIEM_TOOLS = [
+  { id: "free",        label: "💬 Ask anything",       template: "" },
+  { id: "predict",     label: "🎯 Predict short-term",  template: "Predict short-term win probability for [TICKER] at day 3" },
+  { id: "backtest",    label: "📊 Backtest a filter",   template: "Backtest a 2.5× relative volume + gap-up filter over the last 90 days" },
+  { id: "correlation", label: "🔗 Signal correlation",  template: "Analyze signal correlation for dark_pool_score over 30 days" },
+  { id: "outcomes",    label: "📋 Pick outcomes",       template: "Show pick outcomes and win rates for the last 30 days" },
+  { id: "missed",      label: "🔍 Missed movers",       template: "What big movers did we miss last 30 days, and what did they have in common?" },
+  { id: "scan",        label: "📡 Scan market",         template: "Scan the market for high-conviction setups with min RVOL 3.0 and price under $80" },
+  { id: "regression",  label: "📈 Regression",          template: "Run multivariate regression on squeeze_score and dark_pool_score vs 3-day return" },
+  { id: "discoveries", label: "💡 Discoveries",         template: "What new signals or patterns have been discovered recently?" },
+];
+
 function QuantAgentTab() {
   const API_BASE_QA = import.meta.env.BASE_URL;
-  const [history, setHistory] = useState<QASession[]>([]);
-  const [input, setInput]     = useState("");
+  const [history, setHistory]     = useState<QASession[]>([]);
+  const [input, setInput]         = useState("");
   const [activeJob, setActiveJob] = useState<QASession | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const [elapsed, setElapsed]     = useState(0);
+  const [activeTool, setActiveTool] = useState("free");
+  const [isRecording, setIsRecording] = useState(false);
 
   const pollTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef        = useRef<AbortController | null>(null);
   const startTimeRef    = useRef<number>(0);
   const mountedRef      = useRef(true);
+  const recognitionRef  = useRef<any>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -11936,6 +11951,7 @@ function QuantAgentTab() {
       mountedRef.current = false;
       clearTimers();
       abortRef.current?.abort();
+      recognitionRef.current?.abort();
     };
   }, []);
 
@@ -12031,44 +12047,140 @@ function QuantAgentTab() {
     }
   }
 
+  function handleToolPick(toolId: string) {
+    setActiveTool(toolId);
+    const tool = AIEM_TOOLS.find(t => t.id === toolId);
+    if (tool && tool.template) setInput(tool.template);
+    else if (tool && !tool.template) setInput("");
+  }
+
+  function startVoice() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      alert("Voice input isn't supported in this browser. Use Chrome on desktop or Safari on iPhone.");
+      return;
+    }
+    recognitionRef.current?.abort();
+    const rec = new SR();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    let finalText = "";
+    rec.onresult = (e: any) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+        else interim = e.results[i][0].transcript;
+      }
+      if (mountedRef.current) setInput(finalText + interim);
+    };
+    rec.onend = () => {
+      if (mountedRef.current) {
+        setIsRecording(false);
+        if (finalText.trim()) handleSubmit(finalText.trim());
+      }
+    };
+    rec.onerror = () => { if (mountedRef.current) setIsRecording(false); };
+    rec.start();
+    recognitionRef.current = rec;
+    setIsRecording(true);
+  }
+
+  function stopVoice() {
+    recognitionRef.current?.stop();
+  }
+
   const isBusy = activeJob?.status === "pending" || activeJob?.status === "running";
 
   return (
-    <div style={{ background: "#060c14", color: "#d6e2f0", minHeight: "100%", padding: "16px" }}>
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
-      {history.length === 0 && !activeJob && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ opacity: 0.7, marginBottom: 8, fontSize: 13 }}>Try asking:</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+    <div style={{ background: "#060c14", color: "#d6e2f0", minHeight: "100%", padding: "16px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes micpulse { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.5)} 70%{box-shadow:0 0 0 10px rgba(239,68,68,0)} }
+      `}</style>
+
+      {/* ── Tool picker ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {AIEM_TOOLS.map(t => (
+          <button key={t.id} onClick={() => handleToolPick(t.id)}
+            style={{
+              background: activeTool === t.id ? "#1e64c8" : "#0d1726",
+              border: `1px solid ${activeTool === t.id ? "#3a85f0" : "#1c3350"}`,
+              color: activeTool === t.id ? "#fff" : "#7fb3ff",
+              borderRadius: 16, padding: "5px 12px", fontSize: 12,
+              cursor: "pointer", transition: "all 0.15s",
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Example chips (free-form, empty state) ──────────────────── */}
+      {history.length === 0 && !activeJob && activeTool === "free" && (
+        <div>
+          <div style={{ opacity: 0.6, marginBottom: 6, fontSize: 12 }}>Try asking:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {EXAMPLE_QUESTIONS.map((q) => (
               <button key={q} onClick={() => handleSubmit(q)}
-                style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#7fb3ff", borderRadius: 16, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>
+                style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#7fb3ff", borderRadius: 16, padding: "5px 11px", fontSize: 11, cursor: "pointer" }}>
                 {q}
               </button>
             ))}
           </div>
         </div>
       )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── Chat history ─────────────────────────────────────────────── */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
         {history.filter(s => s.job_id !== activeJob?.job_id).slice().reverse().map(s => (
           <SessionBubble key={s.job_id} session={s} />
         ))}
         {activeJob && <SessionBubble session={activeJob} elapsed={isBusy ? elapsed : undefined} />}
       </div>
-      <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+
+      {/* ── Input row: textarea + mic + send ────────────────────────── */}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(input); } }}
-          placeholder="Ask the Quant Agent…"
+          placeholder={isBusy ? "Thinking…" : isRecording ? "Listening…" : "Ask the Quant Agent…"}
           rows={2}
           disabled={isBusy || submitting}
-          style={{ flex: 1, background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 8, padding: 10, resize: "none" }}
+          style={{ flex: 1, background: "#0d1726", border: `1px solid ${isRecording ? "#ef4444" : "#1c3350"}`, color: "#d6e2f0", borderRadius: 8, padding: 10, resize: "none", fontSize: 13, transition: "border 0.15s" }}
         />
+        {/* Mic — hold to talk, release to send (Web Speech API) */}
+        <button
+          onPointerDown={e => { e.preventDefault(); if (!isBusy && !submitting) startVoice(); }}
+          onPointerUp={stopVoice}
+          onPointerLeave={stopVoice}
+          onPointerCancel={stopVoice}
+          disabled={isBusy || submitting}
+          title="Hold to speak, release to send"
+          style={{
+            width: 44, height: 44, flexShrink: 0,
+            background: isRecording ? "#dc2626" : "#0d1726",
+            border: `1px solid ${isRecording ? "#ef4444" : "#1c3350"}`,
+            borderRadius: 8,
+            cursor: isBusy || submitting ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            animation: isRecording ? "micpulse 1s ease-out infinite" : "none",
+            transition: "background 0.15s, border 0.15s",
+            userSelect: "none",
+          }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke={isRecording ? "#fff" : "#7fb3ff"} strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="2" width="6" height="12" rx="3"/>
+            <path d="M5 10a7 7 0 0 0 14 0"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="8" y1="22" x2="16" y2="22"/>
+          </svg>
+        </button>
         <button
           onClick={() => handleSubmit(input)}
           disabled={isBusy || submitting || !input.trim()}
-          style={{ background: isBusy || submitting ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 8, padding: "0 18px", cursor: isBusy || submitting ? "not-allowed" : "pointer" }}
+          style={{ height: 44, flexShrink: 0, background: isBusy || submitting ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 8, padding: "0 18px", cursor: isBusy || submitting ? "not-allowed" : "pointer", fontSize: 14 }}
         >
           Send
         </button>
