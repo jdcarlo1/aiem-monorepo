@@ -1,0 +1,187 @@
+# Model Swap Patches: gpt-4o -> gpt-5.4 (AIEM agent loops)
+
+General rule applied to every patch below, based on your own working gpt-5.4
+calls (lines 29311, 37491):
+  - model: "gpt-4o" -> "gpt-5.4"
+  - max_tokens=N -> max_completion_tokens=N
+  - temperature=X line REMOVED (your working gpt-5.4 calls never set it -
+    if gpt-5.4 is a reasoning-tier model it may reject a custom temperature
+    entirely; safest to drop it and let it use the default)
+
+TEST ORDER: apply patch #4 (morning scan) first, run it once, confirm it
+completes normally and saves predictions. Only then apply the rest.
+
+---
+
+## Patch 1 - _mkt_tool_generate_hypotheses (line ~17430)
+
+FIND:
+```python
+        resp = _oai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.8,
+            max_tokens=2000,
+```
+
+REPLACE:
+```python
+        resp = _oai_client.chat.completions.create(
+            model="gpt-5.4",
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=2000,
+```
+
+---
+
+## Patch 2 - _mkt_tool_invent_indicator (line ~18037)
+
+FIND:
+```python
+        resp = _oai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.9,
+            max_tokens=500,
+```
+
+REPLACE:
+```python
+        resp = _oai_client.chat.completions.create(
+            model="gpt-5.4",
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=500,
+```
+
+---
+
+## Patch 3 - _run_aiem_focused_session (line ~23046) - USES TOOLS
+
+FIND:
+```python
+            resp = _oai.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                tools=_fs_schema,
+                tool_choice="auto",
+                max_tokens=2000,
+                temperature=0.3,
+            )
+```
+
+REPLACE:
+```python
+            resp = _oai.chat.completions.create(
+                model="gpt-5.4",
+                messages=messages,
+                tools=_fs_schema,
+                tool_choice="auto",
+                max_completion_tokens=2000,
+            )
+```
+
+---
+
+## Patch 4 - _run_aiem_morning_scan (line ~25358) - USES TOOLS - TEST THIS ONE FIRST
+
+FIND:
+```python
+                _resp = _oai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    tools=_AIEM_MORNING_TOOLS,
+                    tool_choice="auto",
+                    temperature=0.4,
+                    max_tokens=2000,
+                )
+```
+
+REPLACE:
+```python
+                _resp = _oai.chat.completions.create(
+                    model="gpt-5.4",
+                    messages=messages,
+                    tools=_AIEM_MORNING_TOOLS,
+                    tool_choice="auto",
+                    max_completion_tokens=2000,
+                )
+```
+
+---
+
+## Patch 5 - _run_aiem_research_agent main loop (line ~27150) - USES TOOLS
+
+FIND:
+```python
+            resp = _oai.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                tools=_AIEM_AGENT_TOOLS,
+                tool_choice="auto",
+                temperature=0.15,
+                max_tokens=4096,
+            )
+```
+
+REPLACE:
+```python
+            resp = _oai.chat.completions.create(
+                model="gpt-5.4",
+                messages=messages,
+                tools=_AIEM_AGENT_TOOLS,
+                tool_choice="auto",
+                max_completion_tokens=4096,
+            )
+```
+
+---
+
+## Patch 6 - _run_aiem_research_agent self-critique pass (line ~27229) - USES TOOLS
+
+FIND:
+```python
+                _cr = _oai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=critique_messages,
+                    tools=_AIEM_AGENT_TOOLS,
+                    tool_choice="auto",
+                    temperature=0.3,
+                    max_tokens=2048,
+                )
+```
+
+REPLACE:
+```python
+                _cr = _oai.chat.completions.create(
+                    model="gpt-5.4",
+                    messages=critique_messages,
+                    tools=_AIEM_AGENT_TOOLS,
+                    tool_choice="auto",
+                    max_completion_tokens=2048,
+                )
+```
+
+---
+
+## Patch 7 - multi_signal_ai_thesis (line ~36789)
+
+FIND:
+```python
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=500,
+        )
+```
+
+REPLACE:
+```python
+        resp = client.chat.completions.create(
+            model="gpt-5.4",
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=500,
+        )
+```
+(this one already uses max_completion_tokens and has no temperature -
+it's just the model string that needs to change)
+
