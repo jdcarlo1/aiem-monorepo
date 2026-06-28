@@ -1,0 +1,192 @@
+"""
+macro_cross_asset.py
+---------------------------
+Macro / cross-asset context layer, designed as additional indicators for
+market_regime_overlay.py — same vote-style contract as its existing 6
+indicators ({"vote": -1/0/1, "reason": str}).
+
+WHY THIS EXISTS
+----------------
+Every signal in your 9-layer architecture (OI Build, Gamma, Charm, Squeeze
+Fuel, Dark Pool, Float OD, Sweep, Sector Heat, Layer 9) is stock-specific.
+None of them currently know whether the broader macro backdrop supports or
+fights the trade. Two stock-specific bullish setups can have very different
+real odds depending on whether rates are falling (tailwind) or spiking
+(headwind), or whether the dollar is strengthening (often a drag on
+multinational earnings / risk assets generally).
+
+This module adds three independent macro votes:
+  1. Rates direction        — 10Y yield trend (^TNX). Falling/stable yields
+                               are generally supportive of risk assets;
+                               sharply rising yields are a headwind,
+                               especially for growth/tech names.
+  2. Dollar strength         — DXY proxy via UUP ETF. A strengthening dollar
+                               is a broad risk-asset headwind (tighter
+                               financial conditions, drag on multinational
+                               earnings).
+  3. Sector rotation breadth — what fraction of major sector ETFs are above
+                               their own 50-day SMA. Broad participation
+                               (most sectors trending up) is healthier than
+                               a narrow handful of sectors carrying the
+                               whole market.
+
+REQUIRES: pandas, numpy, yfinance (same as your other modules — no new
+data vendor needed).
+
+INTEGRATION
+-----------
+from macro_cross_asset import get_macro_context_votes
+votes.extend(get_macro_context_votes())
+Then feed into the same combination logic market_regime_overlay.py already
+uses for its other indicators.
+"""
+
+import datetime as dt
+from typing import Dict, Any, List
+
+import numpy as np
+import pandas as pd
+
+SECTOR_ETFS = ["XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"]
+
+
+def _fetch_series(ticker: str, period: str = "6mo") -> pd.Series:
+    import yfinance as yf
+    data = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+    if data is None or data.empty:
+        return pd.Series(dtype=float)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    return data["Close"].squeeze()
+
+
+def rates_direction_indicator(yield_history: pd.Series = None, lookback: int = 20) -> Dict[str, Any]:
+    """
+    Votes risk-off if the 10Y yield (^TNX) is both elevated relative to its
+    recent average AND rising sharply — the combination that historically
+    pressures equity multiples, especially growth/tech. Falling or stable
+    yields vote risk-on/neutral.
+
+    yield_history: optional pre-fetched Series (e.g. if you already pull
+    ^TNX elsewhere). If not provided, fetches it directly.
+    """
+    if yield_history is None or len(yield_history) == 0:
+        yield_history = _fetch_series("^TNX")
+
+    if len(yield_history) < lookback + 5:
+        return {"vote": 0, "reason": "insufficient 10Y yield history"}
+
+    current = float(yield_history.iloc[-1])
+    avg = float(yield_history.iloc[-lookback:].mean())
+    change_5d = float(yield_history.iloc[-1] - yield_history.iloc[-5])
+
+    if current > avg * 1.08 and change_5d > 0.15:
+        return {
+            "vote": -1,
+            "reason": f"10Y yield elevated ({current:.2f} vs {lookback}d avg {avg:.2f}) "
+                      f"and rising fast (+{change_5d:.2f} over 5d) — headwind for risk assets",
+        }
+    if change_5d < -0.15:
+        return {
+            "vote": 1,
+            "reason": f"10Y yield falling ({change_5d:.2f} over 5d) — generally "
+                      f"supportive of risk assets, especially growth/tech",
+        }
+    return {"vote": 0, "reason": f"10Y yield stable ({current:.2f} vs avg {avg:.2f})"}
+
+
+def dollar_strength_indicator(dollar_history: pd.Series = None, lookback: int = 20) -> Dict[str, Any]:
+    """
+    Votes risk-off if the dollar (proxied via UUP ETF, since DXY itself
+    isn't directly tradeable/fetchable via yfinance reliably) is strengthening
+    meaningfully — a broad headwind for risk assets and especially for
+    multinational earnings. Weakening dollar votes risk-on.
+    """
+    if dollar_history is None or len(dollar_history) == 0:
+        dollar_history = _fetch_series("UUP")
+
+    if len(dollar_history) < lookback + 5:
+        return {"vote": 0, "reason": "insufficient dollar (UUP) history"}
+
+    current = float(dollar_history.iloc[-1])
+    avg = float(dollar_history.iloc[-lookback:].mean())
+    change_10d_pct = float((dollar_history.iloc[-1] / dollar_history.iloc[-10] - 1) * 100)
+
+    if current > avg * 1.02 and change_10d_pct > 1.5:
+        return {
+            "vote": -1,
+            "reason": f"Dollar strengthening ({change_10d_pct:+.1f}% over 10d, "
+                      f"above {lookback}d avg) — headwind for risk assets",
+        }
+    if change_10d_pct < -1.5:
+        return {
+            "vote": 1,
+            "reason": f"Dollar weakening ({change_10d_pct:+.1f}% over 10d) — "
+                      f"generally supportive of risk assets",
+        }
+    return {"vote": 0, "reason": f"Dollar roughly flat ({change_10d_pct:+.1f}% over 10d)"}
+
+
+def sector_rotation_indicator(sector_tickers: List[str] = None, lookback: int = 50) -> Dict[str, Any]:
+    """
+    Votes risk-on if a broad majority of sector ETFs are trading above their
+    own 50-day SMA (healthy, broad participation). Votes risk-off if
+    participation is narrow (most sectors below their SMA, market being
+    carried by a small handful) — narrow breadth is a classic late-stage-
+    rally warning sign, independent of how any individual stock looks.
+    """
+    tickers = sector_tickers or SECTOR_ETFS
+    above_count = 0
+    valid_count = 0
+
+    for ticker in tickers:
+        try:
+            series = _fetch_series(ticker, period="6mo")
+            if len(series) < lookback:
+                continue
+            sma = series.rolling(lookback).mean().iloc[-1]
+            current = series.iloc[-1]
+            if np.isnan(sma):
+                continue
+            valid_count += 1
+            if current > sma:
+                above_count += 1
+        except Exception:
+            continue
+
+    if valid_count == 0:
+        return {"vote": 0, "reason": "could not fetch sector ETF data"}
+
+    breadth_pct = above_count / valid_count
+
+    if breadth_pct >= 0.70:
+        return {
+            "vote": 1,
+            "reason": f"{above_count}/{valid_count} sectors above {lookback}d SMA "
+                      f"({breadth_pct:.0%}) — broad, healthy participation",
+        }
+    if breadth_pct <= 0.35:
+        return {
+            "vote": -1,
+            "reason": f"Only {above_count}/{valid_count} sectors above {lookback}d SMA "
+                      f"({breadth_pct:.0%}) — narrow breadth, market may be carried "
+                      f"by a small handful of names",
+        }
+    return {
+        "vote": 0,
+        "reason": f"{above_count}/{valid_count} sectors above {lookback}d SMA "
+                  f"({breadth_pct:.0%}) — mixed participation",
+    }
+
+
+def get_macro_context_votes() -> List[Dict[str, Any]]:
+    """
+    Convenience wrapper: runs all three macro indicators and returns their
+    votes as a list, ready to extend() into market_regime_overlay.py's
+    existing vote list alongside its 6 (or 7, with GARCH added) indicators.
+    """
+    return [
+        rates_direction_indicator(),
+        dollar_strength_indicator(),
+        sector_rotation_indicator(),
+    ]

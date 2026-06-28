@@ -12,8 +12,8 @@ preserve capital and wait?" It never recommends going short or betting
 against the market — it only ever recommends full exposure, reduced
 exposure, or sitting out entirely.
 
-Combines 6 independent indicators, each contributing a vote, so no single
-noisy reading can dominate:
+Combines up to 10 independent indicators, each contributing a vote, so no
+single noisy reading can dominate:
 
   1. VIX level & trend          — elevated/rising VIX = bad for new call risk
   2. Trend structure (ADX/SMA)  — is the market actually trending up, or choppy?
@@ -24,14 +24,22 @@ noisy reading can dominate:
   5. Drawdown from recent high   — how far off highs are we right now?
   6. Realized volatility regime — reuses regime_monitor.py's existing
                                    volatility regime check if available
+  7. GARCH(1,1) vol forecast    — forward-looking volatility clustering model;
+                                   predicts whether vol is likely to rise or
+                                   fall over the next 5 days (volatility_clustering.py)
+  8. Rates direction             — 10Y yield trend; rising yields = headwind
+                                   for risk assets, especially growth/tech
+  9. Dollar strength             — DXY proxy via UUP; strengthening dollar =
+                                   broad risk-asset headwind
+ 10. Sector rotation breadth    — fraction of sector ETFs above 50d SMA;
+                                   narrow breadth = late-stage-rally warning
 
 Each indicator returns a vote in {-1 (bearish/risk-off), 0 (neutral), 1 (bullish/risk-on)}.
 The combined score and a CLEAR, READABLE explanation of which indicators
 drove the call get logged through decision_logger so you can see exactly
 why it said "sit out" any given week.
 
-REQUIRES: pandas, numpy. Feed it your existing price/volume history —
-no new data source needed beyond what you already pull for your signals.
+REQUIRES: pandas, numpy, arch (pip install arch for GARCH), yfinance.
 """
 
 import json
@@ -42,6 +50,18 @@ import numpy as np
 import pandas as pd
 
 import decision_logger as dl
+
+try:
+    from volatility_clustering import garch_regime_indicator as _garch_indicator
+    _GARCH_AVAILABLE = True
+except ImportError:
+    _GARCH_AVAILABLE = False
+
+try:
+    from macro_cross_asset import get_macro_context_votes as _macro_votes
+    _MACRO_AVAILABLE = True
+except ImportError:
+    _MACRO_AVAILABLE = False
 
 
 def vix_indicator(vix_history: pd.Series, lookback: int = 20) -> Dict[str, Any]:
@@ -170,6 +190,20 @@ def combine_regime_votes(
                 "vote":      -1,
                 "reason":    f"{len(critical)} critical regime flag(s) active from regime_monitor.py",
             })
+
+    if _GARCH_AVAILABLE:
+        try:
+            votes.append({"indicator": "garch_vol", **_garch_indicator(price_history)})
+        except Exception as _e:
+            votes.append({"indicator": "garch_vol", "vote": 0,
+                          "reason": f"GARCH unavailable: {_e}"})
+
+    if _MACRO_AVAILABLE:
+        try:
+            for _mv in _macro_votes():
+                votes.append({"indicator": f"macro_{len(votes)}", **_mv})
+        except Exception as _e:
+            pass
 
     bearish_count = sum(1 for v in votes if v["vote"] == -1)
     bullish_count = sum(1 for v in votes if v["vote"] == 1)

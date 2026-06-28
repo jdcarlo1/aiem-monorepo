@@ -1,0 +1,191 @@
+"""
+volatility_clustering.py
+---------------------------
+GARCH(1,1) volatility-clustering model, designed as a drop-in 7th indicator
+for market_regime_overlay.py.
+
+WHY THIS EXISTS
+----------------
+regime.py and market_regime_overlay.py's vix_indicator() both measure
+volatility using realized (backward-looking) measures: rolling std of
+returns, or the VIX level itself. Both are reactive — they tell you
+volatility WAS high, after it already happened.
+
+GARCH(1,1) instead models volatility as a process with memory: today's
+variance depends on yesterday's variance (clustering/persistence) AND
+yesterday's squared return (shock reaction). This lets it FORECAST next-
+period volatility, not just report the last realized number. It also
+exposes a single number — the persistence parameter (alpha + beta) — that
+tells you whether the market is currently in a "long memory" volatility
+regime (shocks decay slowly, danger lingers) or a "short memory" one
+(shocks die out fast).
+
+This is the same family of model used for VIX-futures pricing and most
+sell-side vol desks' regime classification — it's a genuine quant-standard
+tool, not a toy.
+
+REQUIRES: pip install arch
+  (the `arch` package is the standard Python GARCH implementation —
+  statsmodels does not have a maintained GARCH module)
+
+INTEGRATION
+-----------
+Add as a 7th vote in market_regime_overlay.py's combine function:
+    from volatility_clustering import garch_regime_indicator
+    votes.append(garch_regime_indicator(price_history))
+Same {"vote": -1/0/1, "reason": str} contract as the other 6 indicators,
+so it slots in without changing the overlay's aggregation logic.
+"""
+
+import numpy as np
+import pandas as pd
+from typing import Dict, Any, Optional
+
+
+def fit_garch_model(returns: pd.Series, p: int = 1, q: int = 1):
+    """
+    Fits a GARCH(p, q) model to a return series (in PERCENT, not decimal —
+    e.g. 1.5 for a 1.5% daily move, not 0.015 — this is the `arch` package's
+    expected scale and avoids numerical convergence issues).
+
+    Returns the fitted model result object (has .params, .conditional_volatility,
+    .forecast(), etc.) or None if fitting fails (e.g. insufficient data).
+    """
+    try:
+        from arch import arch_model
+    except ImportError:
+        raise ImportError(
+            "GARCH modeling requires the 'arch' package. Install with: "
+            "pip install arch"
+        )
+
+    returns_clean = returns.dropna()
+    if len(returns_clean) < 100:
+        return None
+
+    returns_pct = returns_clean * 100.0
+
+    try:
+        model = arch_model(returns_pct, vol="Garch", p=p, q=q, dist="t")
+        result = model.fit(disp="off", show_warning=False)
+        return result
+    except Exception:
+        return None
+
+
+def forecast_volatility(fitted_result, horizon: int = 5) -> Optional[Dict[str, Any]]:
+    """
+    Forecasts conditional volatility forward `horizon` trading days.
+    Returns annualized vol forecast (assuming 252 trading days) plus the
+    raw daily forecast path, or None if the fit is unusable.
+    """
+    if fitted_result is None:
+        return None
+
+    try:
+        forecast = fitted_result.forecast(horizon=horizon, reindex=False)
+        daily_variance = forecast.variance.values[-1]
+        daily_vol_pct = np.sqrt(daily_variance)
+        annualized_vol_pct = daily_vol_pct * np.sqrt(252)
+
+        return {
+            "daily_vol_forecast_pct": daily_vol_pct.tolist(),
+            "annualized_vol_forecast_pct": annualized_vol_pct.tolist(),
+            "horizon_days": horizon,
+        }
+    except Exception:
+        return None
+
+
+def get_persistence(fitted_result) -> Optional[float]:
+    """
+    alpha + beta from the fitted GARCH(1,1) model. This is the model's
+    'memory' parameter:
+      - close to 1.0 (e.g. > 0.95): shocks decay very slowly — volatility
+        clustering is strong, current conditions likely to persist for weeks
+      - well below 1.0 (e.g. < 0.80): shocks decay fast — even a big move
+        today doesn't tell you much about next week
+    Values >= 1.0 indicate a non-stationary fit (rare, usually a data issue —
+    treat as unreliable and fall back to realized-vol indicators).
+    """
+    if fitted_result is None:
+        return None
+    try:
+        params = fitted_result.params
+        alpha = params.get("alpha[1]", 0.0)
+        beta = params.get("beta[1]", 0.0)
+        return float(alpha + beta)
+    except Exception:
+        return None
+
+
+def garch_regime_indicator(price_history: pd.DataFrame, lookback: int = 252) -> Dict[str, Any]:
+    """
+    Vote-style indicator matching market_regime_overlay.py's contract:
+    {"vote": -1 | 0 | 1, "reason": str}
+
+    -1 (risk-off): GARCH forecasts rising volatility AND current regime is
+                   high-persistence (clustering strong — danger likely to
+                   continue, not a one-day blip)
+     0 (neutral):  forecast is flat, or persistence is low/unreliable
+                   (can't trust the regime read)
+     1 (risk-on):  GARCH forecasts falling/low volatility with normal
+                   persistence — calm and likely to stay calm
+
+    price_history: DataFrame with a 'Close' column, daily frequency,
+    most recent `lookback` rows used for fitting.
+    """
+    if price_history is None or "Close" not in price_history.columns:
+        return {"vote": 0, "reason": "no price history provided for GARCH fit"}
+
+    close = price_history["Close"].squeeze().astype(float)
+    if len(close) < lookback:
+        lookback = len(close)
+    returns = close.iloc[-lookback:].pct_change().dropna()
+
+    try:
+        fitted = fit_garch_model(returns)
+    except ImportError as e:
+        return {"vote": 0, "reason": str(e)}
+
+    if fitted is None:
+        return {"vote": 0, "reason": "GARCH fit failed or insufficient data — "
+                                       "falling back to neutral"}
+
+    persistence = get_persistence(fitted)
+    forecast = forecast_volatility(fitted, horizon=5)
+
+    if persistence is None or forecast is None:
+        return {"vote": 0, "reason": "GARCH forecast unavailable"}
+
+    if persistence >= 1.0:
+        return {"vote": 0, "reason": f"GARCH fit non-stationary (persistence={persistence:.3f}) "
+                                       "— unreliable, treating as neutral"}
+
+    current_cond_vol = fitted.conditional_volatility.iloc[-1]
+    forecast_avg_vol = float(np.mean(forecast["daily_vol_forecast_pct"]))
+    vol_rising = forecast_avg_vol > current_cond_vol * 1.10
+    vol_falling = forecast_avg_vol < current_cond_vol * 0.90
+    high_persistence = persistence > 0.90
+
+    if vol_rising and high_persistence:
+        return {
+            "vote": -1,
+            "reason": (f"GARCH forecasts rising volatility ({current_cond_vol:.2f}% -> "
+                       f"{forecast_avg_vol:.2f}% daily) with high persistence "
+                       f"({persistence:.3f}) — clustering suggests this isn't a one-day spike"),
+        }
+
+    if vol_falling and not high_persistence:
+        return {
+            "vote": 1,
+            "reason": (f"GARCH forecasts cooling volatility ({current_cond_vol:.2f}% -> "
+                       f"{forecast_avg_vol:.2f}% daily), normal persistence "
+                       f"({persistence:.3f}) — calm regime likely to hold"),
+        }
+
+    return {
+        "vote": 0,
+        "reason": (f"GARCH forecast flat/mixed (current {current_cond_vol:.2f}%, "
+                   f"forecast {forecast_avg_vol:.2f}%, persistence {persistence:.3f})"),
+    }
