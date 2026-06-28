@@ -3886,8 +3886,8 @@ try:
           "AI trades: 10:00 AM | AI short calls: 10:15 AM | "
           "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
           "sc (stealth): 8:15 AM ranking, 9:53 watch, 9:57 buy | "
-          "options warmer: 9:45 AM, 10:45 AM, 11:30 AM, 4:18 PM | "
-          "morning inflows: 9:42 + 13:01 (email) / 10:15 + 13:00 (scan — moved from 9:53 to clear 9:45 burst) | "
+          "options warmer: 10:05 AM, 10:45 AM, 11:30 AM, 4:18 PM (moved from 9:45 to clear unusual-calls burst) | "
+          "morning inflows: 9:42 + 13:01 (email) | "
           "AIEM market-open: 9:55/10:00/10:05 AM (was 9:31/9:35/9:40 — burst staggered) | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 90 min - Mon–Fri ET")
 
@@ -25097,6 +25097,20 @@ _AIEM_AGENT_TOOLS = [
             "days_back": {"type": "integer",
                 "description": "Days of prediction history to review (default 45)."}
         }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "predict_short_term",
+        "description": (
+            "Predict short-term win probability for a ticker based on historical picks "
+            "with similar conviction score fingerprints (dark_pool, squeeze, sector_heat, gamma). "
+            "Returns win_rate_pct, n_similar_historical_setups, match_dimensionality, "
+            "overall_confidence, and filters_used. "
+            "Use this before making any directional call — check historical base rate first."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Stock ticker symbol."},
+            "days":   {"type": "integer", "description": "Forward days to grade (default 3)."},
+        }, "required": ["ticker"]}
     }},
     {"type": "function", "function": {
         "name": "log_prediction",
