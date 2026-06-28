@@ -1402,6 +1402,7 @@ def _intraday_scan_allowed() -> bool:
             )
         else:
             print(f"[intraday_scan_allowed] calendar check error ({_ename}): {_e_cal}")
+            return False  # fail-safe: skip scan rather than risk running on a holiday
     return True
 
 
