@@ -49,6 +49,8 @@
 - [AI Early Movers isolated system](ai-early-movers.md) — completely separate experimental tab; own endpoint, DB table, miss-detection, feedback loop; NEVER mix with other tabs
 - [Nano V2 filter gates](nano-v2-filters.md) — 3 live gates: RVOL 3-60x window + IWM≤-1% suppression; lifted win rate 41%→58%, EV $2.25→$6.97; Jun 11 open problem (don't add more rules yet)
 - [NCLEX affiliate system](nclex-affiliate-system.md) — Stripe Connect Express; transfer logic split: lifetime in checkout.session.completed, monthly in invoice.payment_succeeded (never both)
+- [Weekend tab spinners pattern](weekend-tab-spinners.md) — endpoints that start bg scan workers must check _intraday_scan_allowed() first; returning warming:True on weekends causes frontend to poll every 7s forever; serve DB fallback with stale:True instead
+- [quant_agent_sessions auto-create](quant-agent-sessions.md) — table has no dedicated CREATE TABLE; reconcile_orphaned_sessions() now does CREATE TABLE IF NOT EXISTS on every startup so prod auto-creates it after deploy
 - [Routes after app.run() silently 404](routes-after-apprun.md) — Flask routes defined after `if __name__ == "__main__": app.run()` never register; app.run() blocks so nothing below it executes
 - [Insider Radar earnings timeout](insider-radar-fix.md) — ex.map earnings lookup needs timeout=3.0 or it blocks 30s+ on first auto-load; also add _yf_breaker_open() inside _earn_90d or it burns 3s per ticker when throttled
 - [Node.js pg pool crash rule](nodejs-pg-pool-crash.md) — Replit recycles DB connections → pg pool emits unhandled 'error' event → Node crashes; fix: process.on('uncaughtException') + process.on('unhandledRejection') in index.ts entry point

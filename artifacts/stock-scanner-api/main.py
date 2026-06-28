@@ -498,7 +498,7 @@ except Exception as _tpe:
 try:
     from curl_cffi import requests as _cffi_req
     from curl_cffi.requests import RequestsError as _CffiErr
-    _YF_YAHOO_TIMEOUT = 8.0
+    _YF_YAHOO_TIMEOUT = 4.0
     _cffi_orig_request = _cffi_req.Session.request
 
     def _cffi_patched_request(self, method, url, *args, **kwargs):
@@ -32081,6 +32081,23 @@ def net_flow_microcap():
     _gen   = getattr(app, "_nfmc_generating", False)
     _stale = not (_ts and (_dt.now() - _ts).total_seconds() < _CACHE_TTL)
 
+    # ── Market-closed / weekend guard ────────────────────────────────────────
+    # Never start a live scan outside market hours — it produces nothing and
+    # leaves the frontend polling every 7 s forever ("Scanning 350+ tickers…").
+    # Instead serve whatever we have (cache → DB → empty with a note).
+    if not _intraday_scan_allowed():
+        _mkt_note = "Market closed · showing last trading day's scan"
+        if _cache:
+            return jsonify({**_cache, "stale": True, "note": _mkt_note})
+        _db_fallback = _load_scan_cache("net-flow-microcap", days_back=5)
+        if _db_fallback:
+            return jsonify({**_db_fallback, "stale": True, "note": _mkt_note})
+        return jsonify({
+            "micro": [], "small": [], "nano": [], "mid": [], "unknown": [],
+            "scanned": 0, "stale": True,
+            "note": "Market closed — scanner runs Mon–Fri 10:30 AM–4:15 PM ET",
+        })
+
     if _stale and not _gen:
         _thr.Thread(target=_nfmc_worker, daemon=True).start()
 
@@ -44727,10 +44744,24 @@ def _qa_db_update(job_id: str, status: str, answer=None, error=None, current_too
 
 
 def reconcile_orphaned_sessions():
-    """On startup, mark any sessions that got stuck as 'pending'/'running' → 'error'."""
+    """On startup: ensure quant_agent_sessions table exists, then fix stuck rows."""
     import psycopg2 as _rqpg
     try:
         with _rqpg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS quant_agent_sessions (
+                    job_id      TEXT PRIMARY KEY,
+                    question    TEXT,
+                    status      TEXT NOT NULL DEFAULT 'pending',
+                    answer      TEXT,
+                    error       TEXT,
+                    current_tool TEXT,
+                    tool_trace  JSONB,
+                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            _c.commit()
             _cu.execute(
                 """UPDATE quant_agent_sessions
                    SET status='error', error='Server restarted while session was running.',

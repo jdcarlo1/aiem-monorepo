@@ -9385,7 +9385,7 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                   onClick={e => { e.stopPropagation(); onSelectTicker(sig.ticker); }}
                 >{sig.ticker}</span>
                 <CallWinBadge data={callWinRates[sig.ticker]} />
-                <BSProbBadge S={sig.price} strike={sig.strikes[0]?.strike} T_days={sig.strikes[0]?.days_out} iv_pct={sig.avg_iv} />
+                <BSProbBadge S={sig.price} strike={sig.strikes?.[0]?.strike} T_days={sig.strikes?.[0]?.days_out} iv_pct={sig.avg_iv} />
                 <HistSimBadge data={histSim[sig.ticker]} />
                 <span style={{ color: BB_LABEL, fontSize: 10 }}>${sig.price.toFixed(2)}</span>
                 <span style={{ background: sig.minutes_to_close <= 30 ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.1)", color: sig.minutes_to_close <= 30 ? BB_RED : "#fbbf24", fontSize: 8, fontWeight: 700, padding: "2px 7px" }}>
@@ -9417,7 +9417,7 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                 {sig.num_strikes} STRIKE{sig.num_strikes > 1 ? "S" : ""} IN EOD WINDOW · INSTITUTIONAL NEXT-DAY POSITIONING
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {sig.strikes.map((s, i) => (
+                {(sig.strikes ?? []).map((s, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#0a0a0a", padding: "8px 12px", border: `1px solid ${i === 0 ? convColor(sig.grade) + "44" : BB_BORDER}` }}>
                     {i === 0 && <span style={{ color: convColor(sig.grade), fontSize: 8, fontWeight: 900 }}>▶</span>}
                     {i > 0  && <span style={{ color: BB_LABEL, fontSize: 8 }}>{i + 1}</span>}
@@ -9434,9 +9434,9 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
               <div style={{ marginTop: 10, background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.15)", padding: "8px 12px" }}>
                 <div style={{ color: "#fbbf24", fontSize: 8, fontWeight: 900, letterSpacing: "0.08em", marginBottom: 3 }}>📋 NEXT DAY PLAY</div>
                 <div style={{ color: BB_LABEL, fontSize: 9, lineHeight: 1.6 }}>
-                  Institution placed <span style={{ color: BB_WHITE }}>{fmtPrem(sig.total_prem_m)}</span> in {sig.ticker} calls expiring in {sig.strikes[0]?.days_out ?? "?"} days — right before close.
+                  Institution placed <span style={{ color: BB_WHITE }}>{fmtPrem(sig.total_prem_m)}</span> in {sig.ticker} calls expiring in {sig.strikes?.[0]?.days_out ?? "?"} days — right before close.
                   {sig.num_strikes >= 2 ? ` Multi-strike sweep (${sig.num_strikes} strikes) = strongest conviction signal.` : " Watch for follow-through at tomorrow's open."}
-                  {" "}Target: stock above ${sig.strikes[0]?.strike ?? "?"} by expiry.
+                  {" "}Target: stock above ${sig.strikes?.[0]?.strike ?? "?"} by expiry.
                 </div>
               </div>
             </div>
@@ -9997,7 +9997,7 @@ function ConvictionCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
                 {sig.num_strikes} STRIKES SWEEPING — INSTITUTIONAL MULTI-STRIKE PATTERN
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {sig.strikes.map((s, i) => (
+                {(sig.strikes ?? []).map((s, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#0a0a0a", padding: "8px 12px", border: `1px solid ${i === 0 ? convColor(sig.conviction) + "44" : BB_BORDER}` }}>
                     {i === 0 && <span style={{ color: convColor(sig.conviction), fontSize: 8, fontWeight: 900 }}>▶</span>}
                     {i > 0  && <span style={{ color: BB_LABEL, fontSize: 8 }}>{i + 1}</span>}
