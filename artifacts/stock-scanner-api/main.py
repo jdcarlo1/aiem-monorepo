@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import math
 import threading
+import time as _PROF_TIME; _BOOT_T0 = _PROF_TIME.time()
 
 def _thread_excepthook(args):
     """Global safety net: log unhandled background thread exceptions instead of
@@ -916,12 +917,13 @@ app._nfmc_generating = False
 app._nfmc_lock = _threading.Lock()
 
 # ── init DB & scheduler ──────────────────────────────────────────────────────
-init_db()
-init_score_history_table()
-composite_scan.init_composite_table()
-composite_scan.init_meta_table()
-composite_scan.init_watchlist_table()
-init_signal_outcomes_table()
+_DEFERRED_INITS = []  # filled by module-level stubs below; run in bg thread before app.run()
+_DEFERRED_INITS.append(lambda: init_db())
+_DEFERRED_INITS.append(lambda: init_score_history_table())
+_DEFERRED_INITS.append(lambda: composite_scan.init_composite_table())
+_DEFERRED_INITS.append(lambda: composite_scan.init_meta_table())
+_DEFERRED_INITS.append(lambda: composite_scan.init_watchlist_table())
+_DEFERRED_INITS.append(lambda: init_signal_outcomes_table())
 # Backfill T+3/T+5/T+10 prices for any existing rows that haven't been filled yet.
 # Runs once at startup in a background thread - won't block the server or affect any tab.
 def _backfill_signal_outcomes():
@@ -931,13 +933,14 @@ def _backfill_signal_outcomes():
         print(f"[signal_outcomes] startup backfill error: {_e_bso}")
 import threading as _thr_bso
 _thr_bso.Thread(target=_backfill_signal_outcomes, daemon=True).start()
-init_sms_log_table()
-init_exit_log_table()
-init_call_sweep_log_table()
-init_news_catalyst_log()
-init_midday_log_table()
-init_multiday_runner_tables()
-_init_steady_grinder_scan_table()
+_DEFERRED_INITS.append(lambda: init_sms_log_table())
+_DEFERRED_INITS.append(lambda: init_exit_log_table())
+_DEFERRED_INITS.append(lambda: init_call_sweep_log_table())
+_DEFERRED_INITS.append(lambda: init_news_catalyst_log())
+_DEFERRED_INITS.append(lambda: init_midday_log_table())
+_DEFERRED_INITS.append(lambda: init_multiday_runner_tables())
+_DEFERRED_INITS.append(lambda: _init_steady_grinder_scan_table())
+print(f"[startup-profile] T+{_PROF_TIME.time()-_BOOT_T0:.2f}s: first DB init batch done")
 
 # ── Intraday bar cache: prerequisite for AIEM hypothesis #12 ─────────────────
 # Captures 1-min OHLCV bars from Tradier for a ~50-ticker priority watchlist
@@ -986,7 +989,7 @@ def _init_td_intraday_cache_table():
     except Exception as _e_it:
         print(f"[td_intraday_cache] table init error: {_e_it}")
 
-_init_td_intraday_cache_table()
+_DEFERRED_INITS.append(lambda: _init_td_intraday_cache_table())
 
 
 def _save_td_intraday_bars(ticker: str, df) -> int:
@@ -1101,7 +1104,7 @@ def _init_conviction_snapshot_table():
         """)
         _c.commit()
     print("[conviction_snapshot] table ready")
-_init_conviction_snapshot_table()
+_DEFERRED_INITS.append(lambda: _init_conviction_snapshot_table())
 
 def _init_conviction_outcomes_table():
     import psycopg2 as _pg2
@@ -1126,7 +1129,7 @@ def _init_conviction_outcomes_table():
         """)
         _c.commit()
     print("[conviction_outcomes] table ready")
-_init_conviction_outcomes_table()
+_DEFERRED_INITS.append(lambda: _init_conviction_outcomes_table())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1264,7 +1267,7 @@ def _init_conviction_stack_watchlist():
         """)
         _c.commit()
     print("[conviction_stack_watchlist] table ready")
-_init_conviction_stack_watchlist()
+_DEFERRED_INITS.append(lambda: _init_conviction_stack_watchlist())
 
 
 def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTION_STACK_MAX,
@@ -3945,6 +3948,7 @@ try:
     except Exception as _aiem_sched_e:
         print(f"[scheduler] AIEM enhancement jobs error: {_aiem_sched_e}")
     _scheduler.start()
+    print(f"[startup-profile] T+{_PROF_TIME.time()-_BOOT_T0:.2f}s: APScheduler started")
     # reconcile_orphaned_sessions is defined later in the file; defer so the
     # full module finishes loading before the function is looked up.
     import threading as _rt_sched
@@ -9657,7 +9661,7 @@ def _init_owner_email_log():
     except Exception as _e:
         print(f"[owner_email_log] init error: {_e}")
 
-_init_owner_email_log()
+_DEFERRED_INITS.append(lambda: _init_owner_email_log())
 
 
 def _owner_claim_slot(kind: str, slot: str) -> bool:
@@ -9845,7 +9849,7 @@ def _init_position_monitor_table():
     except Exception as e:
         print(f"[position_monitor] init error: {e}")
 
-_init_position_monitor_table()
+_DEFERRED_INITS.append(lambda: _init_position_monitor_table())
 
 
 def _parse_trade_command(subject: str) -> dict | None:
@@ -10912,7 +10916,7 @@ def _compute_daily_top10():
     return {"top10": [], "date": today, "total_scanned": len(DEFAULT_LEADERBOARD), "building": True}
 
 
-_init_daily_top10_table()
+_DEFERRED_INITS.append(lambda: _init_daily_top10_table())
 
 
 def _init_morning_inflows_table():
@@ -10930,7 +10934,7 @@ def _init_morning_inflows_table():
     except Exception as e:
         print(f"[morning_inflows_cache] init error: {e}")
 
-_init_morning_inflows_table()
+_DEFERRED_INITS.append(lambda: _init_morning_inflows_table())
 
 
 
@@ -10991,7 +10995,7 @@ def _save_whale_blocks_to_db(blocks: list):
         print(f"[whale_blocks] save error: {e}")
 
 
-_init_whale_blocks_table()
+_DEFERRED_INITS.append(lambda: _init_whale_blocks_table())
 
 
 def _init_unusual_calls_log_table():
@@ -11083,7 +11087,7 @@ def _save_unusual_calls_to_db(hits: list):
         print(f"[unusual_calls_log] save error: {e}")
 
 
-_init_unusual_calls_log_table()
+_DEFERRED_INITS.append(lambda: _init_unusual_calls_log_table())
 
 
 # ── Flow Probability Score ────────────────────────────────────────────────────
@@ -11111,7 +11115,7 @@ def _init_flow_prob_cache_table():
     except Exception as _e:
         print(f"[flow_prob] table init error: {_e}")
 
-_init_flow_prob_cache_table()
+_DEFERRED_INITS.append(lambda: _init_flow_prob_cache_table())
 
 
 def _compute_ticker_flow_score(ticker: str):
@@ -11500,7 +11504,7 @@ def _init_daily_fundamentals_snapshot_table():
     except Exception as _e:
         print(f"[fundamentals_snapshot] table init error: {_e}")
 
-_init_daily_fundamentals_snapshot_table()
+_DEFERRED_INITS.append(lambda: _init_daily_fundamentals_snapshot_table())
 
 
 def _run_daily_fundamentals_snapshot():
@@ -11656,7 +11660,7 @@ def _init_eod_sweep_log_table():
             conn.commit()
     except Exception as e:
         print(f"[eod_sweep_log] table init error: {e}")
-_init_eod_sweep_log_table()
+_DEFERRED_INITS.append(lambda: _init_eod_sweep_log_table())
 
 
 def _log_eod_sweep_signals(signals: list, today_only: bool = True):
@@ -12201,7 +12205,7 @@ def _run_microcap_options_scan_impl() -> list:
     return all_hits
 
 
-_init_microcap_calls_table()
+_DEFERRED_INITS.append(lambda: _init_microcap_calls_table())
 
 
 # ── Gamma Pressure Scanner + Morning Watchlist ────────────────────────────────
@@ -12628,7 +12632,7 @@ def _run_gamma_pressure_scan() -> list:
     return results
 
 
-_init_gamma_pressure_table()
+_DEFERRED_INITS.append(lambda: _init_gamma_pressure_table())
 
 
 # ── OI Accumulation Tracker ───────────────────────────────────────────────────
@@ -12834,7 +12838,7 @@ def _get_oi_accumulation_signals(days_back: int = 1) -> tuple:
         return [], None, None
 
 
-_init_oi_snapshot_table()
+_DEFERRED_INITS.append(lambda: _init_oi_snapshot_table())
 
 
 # ── S7c★ BigCatDay + InsideDay + Gap Signal ──────────────────────────────────
@@ -13798,7 +13802,7 @@ def _init_my_trades_table():
     except Exception as e:
         print(f"[my_trades] init table error: {e}")
 
-_init_my_trades_table()
+_DEFERRED_INITS.append(lambda: _init_my_trades_table())
 
 
 @app.route("/stock-api/my-trades", methods=["GET"])
@@ -14173,7 +14177,7 @@ def _update_ai_trade_outcomes():
         print(f"[ai_trade_log] update_outcomes error: {e}")
 
 
-_init_ai_trade_log_table()
+_DEFERRED_INITS.append(lambda: _init_ai_trade_log_table())
 
 
 # ── AI SHORT CALLS LOG ──────────────────────────────────────────────────────
@@ -14623,7 +14627,7 @@ def _update_ai_short_call_outcomes():
         import traceback as _tb_sc; _tb_sc.print_exc()
 
 
-_init_ai_short_calls_log_table()
+_DEFERRED_INITS.append(lambda: _init_ai_short_calls_log_table())
 
 # Startup: grade any unresolved picks in the background (catches up after redeploy)
 def _startup_grade_short_calls():
@@ -14664,7 +14668,7 @@ def _init_aisc_misses_table():
     except Exception as e:
         print(f"[aisc_misses] table init error: {e}")
 
-_init_aisc_misses_table()
+_DEFERRED_INITS.append(lambda: _init_aisc_misses_table())
 
 
 def _detect_aisc_misses():
@@ -14831,7 +14835,7 @@ def _init_aiem_misses_table():
     except Exception as _e:
         print(f"[aiem_misses] table init error: {_e}")
 
-_init_aiem_misses_table()
+_DEFERRED_INITS.append(lambda: _init_aiem_misses_table())
 
 
 def _init_aiem_research_table():
@@ -14857,7 +14861,7 @@ def _init_aiem_research_table():
     except Exception as _e:
         print(f"[aiem_research] table init error: {_e}")
 
-_init_aiem_research_table()
+_DEFERRED_INITS.append(lambda: _init_aiem_research_table())
 
 
 def _detect_aiem_misses():
@@ -22468,7 +22472,8 @@ def _ensure_model_registry():
     except Exception as _e:
         print(f"[model_registry] init error: {_e}")
 
-_ensure_model_registry()
+_DEFERRED_INITS.append(lambda: _ensure_model_registry())
+print(f"[startup-profile] T+{_PROF_TIME.time()-_BOOT_T0:.2f}s: model_registry ensured")
 
 # Features pulled from JOIN aiem_predictions + polygon_market_daily + signal_fire_log
 _AIEM_FEATURE_COLUMNS = [
@@ -22668,7 +22673,7 @@ def _ensure_watched_positions_table():
     except Exception as _e:
         print(f"[watched_positions] init error: {_e}")
 
-_ensure_watched_positions_table()
+_DEFERRED_INITS.append(lambda: _ensure_watched_positions_table())
 
 def detect_accumulation_breakout(lookback_squeeze=20, breakout_vol_ratio=2.0):
     """Find tickers that had a quiet-accumulation setup AND are breaking out today on volume."""
@@ -22978,7 +22983,7 @@ def _ensure_signal_fire_log():
     except Exception as _e:
         print(f"[signal_fire_log] init error: {_e}")
 
-_ensure_signal_fire_log()
+_DEFERRED_INITS.append(lambda: _ensure_signal_fire_log())
 
 def log_signal_fired(signal_name: str, ticker: str, fire_date: str,
                       fire_price: float, metadata: dict = None):
@@ -23291,7 +23296,7 @@ def _ensure_dividends_table():
     except Exception as _e:
         print(f"[dividend_calendar] init error: {_e}")
 
-_ensure_dividends_table()
+_DEFERRED_INITS.append(lambda: _ensure_dividends_table())
 
 def _refresh_dividend_calendar(ticker: str):
     """Pull dividend history from Polygon reference API."""
@@ -23351,7 +23356,7 @@ def _ensure_predictable_event_tables():
     except Exception as _e:
         print(f"[predictable_event_tables] init error: {_e}")
 
-_ensure_predictable_event_tables()
+_DEFERRED_INITS.append(lambda: _ensure_predictable_event_tables())
 
 def _get_upcoming_lockup_expirations(days_ahead=14):
     """Heuristic: 180-day default lockup. Verify against actual prospectus before trading."""
@@ -23794,7 +23799,7 @@ def _init_behavioral_tables():
     except Exception as e:
         print(f"[behavioral] table init error: {e}")
 
-_init_behavioral_tables()
+_DEFERRED_INITS.append(lambda: _init_behavioral_tables())
 
 # ── AIEM Research Integrity modules: set env + init DB schemas ────────────────
 # AIEM_DATABASE_URL keeps research tables isolated from production writes.
@@ -30051,7 +30056,7 @@ def _init_signal_history_table():
     except Exception as e:
         print(f"[signal_history] init table error: {e}")
 
-_init_signal_history_table()
+_DEFERRED_INITS.append(lambda: _init_signal_history_table())
 
 
 def _init_daily_vol_snapshots_table():
@@ -30077,7 +30082,7 @@ def _init_daily_vol_snapshots_table():
     except Exception as e:
         print(f"[daily_vol_snapshots] init error: {e}")
 
-_init_daily_vol_snapshots_table()
+_DEFERRED_INITS.append(lambda: _init_daily_vol_snapshots_table())
 
 
 # Module-level SPY 1y cache - avoids rate-limit collisions during concurrent ticker fetches
@@ -30286,7 +30291,7 @@ def _init_aiem_paper_trades_table():
     except Exception as _e:
         print(f"[aiem_paper] table init error: {_e}")
 
-_init_aiem_paper_trades_table()
+_DEFERRED_INITS.append(lambda: _init_aiem_paper_trades_table())
 
 
 def _aiem_paper_pick_candidates() -> list:
@@ -35439,7 +35444,7 @@ def _init_trade_watchlist_table():
     except Exception as e:
         print(f"[trade_watchlist] init error: {e}")
 
-_init_trade_watchlist_table()
+_DEFERRED_INITS.append(lambda: _init_trade_watchlist_table())
 
 
 def _init_insider_tables():
@@ -35484,7 +35489,7 @@ def _init_insider_tables():
     except Exception as e:
         print(f"[insider_tables] init error: {e}")
 
-_init_insider_tables()
+_DEFERRED_INITS.append(lambda: _init_insider_tables())
 
 
 def _check_insider_outcomes():
@@ -37683,7 +37688,7 @@ def _init_ai_stock_picks_table():
     except Exception as _e:
         print(f"[ai_stock_picks] table init error: {_e}")
 
-_init_ai_stock_picks_table()
+_DEFERRED_INITS.append(lambda: _init_ai_stock_picks_table())
 
 
 def _build_ai_stock_picks():
@@ -38781,7 +38786,7 @@ def _init_ai_early_movers_table():
     except Exception as _e:
         print(f"[ai_early_movers] table init error: {_e}")
 
-_init_ai_early_movers_table()
+_DEFERRED_INITS.append(lambda: _init_ai_early_movers_table())
 
 
 def _save_ai_early_movers_to_log(picks, trade_date):
@@ -44951,5 +44956,25 @@ def aiem_chat_history():
         return jsonify({"error": str(_e)}), 500
 
 
+
+# ── Deferred startup: run all table-init calls in a background thread ─────────
+# This allows Flask to bind port 5050 immediately (~T+2s) instead of waiting
+# for 42 serial psycopg2.connect() calls (~T+7s dev / ~T+46s prod cold start).
+# Tables already exist from previous boots; CREATE TABLE IF NOT EXISTS is a no-op.
+# Background thread completes in <5s; all endpoints have try/except fallbacks.
+def _run_deferred_inits():
+    import time as _dit
+    _t0 = _dit.time()
+    for _fn in _DEFERRED_INITS:
+        try:
+            _fn()
+        except Exception as _de:
+            print(f"[startup-init] error in {_de}")
+    print(f"[startup-init] {len(_DEFERRED_INITS)} table inits done in {_dit.time()-_t0:.2f}s")
+
+import threading as _di_thr
+_di_thr.Thread(target=_run_deferred_inits, daemon=True, name="startup-db-init").start()
+
 if __name__ == "__main__":
+    print(f"[startup-profile] T+{_PROF_TIME.time()-_BOOT_T0:.2f}s: binding port {PORT} now")
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
