@@ -1,0 +1,44 @@
+#!/bin/bash
+# check_existing_infra.sh
+# Checks whether modules 1-3 (reconciliation, kill switch, idempotent orders)
+# already exist anywhere in the codebase before building duplicates.
+# Paste the FULL raw output back, including "NO MATCHES" lines.
+
+echo "################################################################"
+echo "# CHECKING FOR EXISTING INFRASTRUCTURE MODULES"
+echo "################################################################"
+
+echo ""
+echo "=== MODULE 1: Position reconciliation (Alpaca vs DB) ==="
+echo "--- searching for Alpaca position-fetching calls ---"
+grep -rln "get_all_positions\|list_positions\|alpaca.*position" --include="*.py" . 2>/dev/null || echo "NO MATCHES"
+echo "--- searching for reconciliation/diff logic ---"
+grep -rln "reconcil\|position_mismatch\|sync_positions" --include="*.py" . 2>/dev/null || echo "NO MATCHES"
+
+echo ""
+echo "=== MODULE 2: Kill switch / circuit breaker for live trading ==="
+echo "--- searching for trading halt flags ---"
+grep -rln "trading_halted\|kill_switch\|halt_trading\|trading_enabled" --include="*.py" . 2>/dev/null || echo "NO MATCHES"
+echo "--- searching for daily loss limit checks ---"
+grep -rln "daily_loss_limit\|max_daily_loss\|loss_limit" --include="*.py" . 2>/dev/null || echo "NO MATCHES"
+echo "--- you mentioned simulation_lock.py and safety circuit breakers already — confirming what they actually do ---"
+find . -name "simulation_lock.py" -exec echo "Found: {}" \; -exec head -40 {} \; 2>/dev/null
+
+echo ""
+echo "=== MODULE 3: Idempotent order placement (duplicate-order protection) ==="
+echo "--- searching for order placement calls ---"
+grep -rln "submit_order\|create_order\|place_order" --include="*.py" . 2>/dev/null || echo "NO MATCHES"
+echo "--- searching for decision_id / idempotency key tracking ---"
+grep -rln "decision_id\|idempotency_key\|order_already_placed\|already_executed" --include="*.py" . 2>/dev/null || echo "NO MATCHES"
+echo "--- searching for any 'has this been acted on' check before ordering ---"
+grep -rn "decision_id" --include="*.py" . 2>/dev/null | head -20 || echo "NO MATCHES"
+
+echo ""
+echo "=== BONUS: Is there ANY live Alpaca order-placement code at all? ==="
+echo "--- searching for Alpaca client/API usage in general ---"
+grep -rln "alpaca" --include="*.py" -i . 2>/dev/null || echo "NO MATCHES — no Alpaca integration code found anywhere"
+
+echo ""
+echo "################################################################"
+echo "# DONE — paste this entire output back unedited"
+echo "################################################################"
