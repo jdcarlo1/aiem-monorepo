@@ -11156,6 +11156,142 @@ def call_win_rates_endpoint():
         return jsonify({_t: None for _t in _tickers}), 200
 
 
+@app.route("/stock-api/historical-similarity", methods=["GET"])
+def historical_similarity():
+    """
+    GET /stock-api/historical-similarity?tickers=NVDA,TSLA,AAPL
+    For each ticker, find historical market states similar to TODAY's state
+    (5d momentum, 20d momentum, 52-week range position, relative volume)
+    and return what actually happened 3 days later on THIS specific stock.
+    This is a ticker-specific historically-conditioned probability — not Black-Scholes,
+    not a generic market stat — based on how THIS stock behaved in similar past setups.
+    Returns: { "NVDA": { "n": 18, "wr3d": 67, "avg3d": 1.8, "signal": "BULLISH" } }
+    null = fewer than 5 similar setups found (not enough analogues).
+    Cached 1 hour per ticker.
+    """
+    import psycopg2 as _pg2_hs
+    import datetime as _dt_hs, math as _math_hs
+    _raw     = request.args.get("tickers", "")
+    _tickers = [t.strip().upper() for t in _raw.split(",") if t.strip()][:30]
+    if not _tickers:
+        return jsonify({}), 200
+
+    if not hasattr(app, "_hist_sim_cache"):    app._hist_sim_cache    = {}
+    if not hasattr(app, "_hist_sim_cache_ts"): app._hist_sim_cache_ts = {}
+    _now_hs = _dt_hs.datetime.now()
+    _result, _to_compute = {}, []
+    for _t in _tickers:
+        _ts = app._hist_sim_cache_ts.get(_t)
+        if _ts and (_now_hs - _ts).total_seconds() < 3600 and _t in app._hist_sim_cache:
+            _result[_t] = app._hist_sim_cache[_t]
+        else:
+            _to_compute.append(_t)
+
+    if not _to_compute:
+        return jsonify(_result), 200
+
+    try:
+        with _pg2_hs.connect(_DB_URL, connect_timeout=5) as _conn:
+            _conn.set_session(autocommit=True)
+            with _conn.cursor() as _cur:
+                _cur.execute("SET statement_timeout = '8000'")
+                for _ticker in _to_compute:
+                    try:
+                        _cur.execute("""
+                            WITH base AS (
+                                SELECT
+                                    scan_date,
+                                    close_price,
+                                    rvol,
+                                    close_price / NULLIF(LAG(close_price, 5)  OVER (ORDER BY scan_date), 0) - 1  AS ret_5d,
+                                    close_price / NULLIF(LAG(close_price, 20) OVER (ORDER BY scan_date), 0) - 1  AS ret_20d,
+                                    close_price / NULLIF(MAX(close_price) OVER (ORDER BY scan_date
+                                                         ROWS BETWEEN 251 PRECEDING AND CURRENT ROW), 0)         AS pos_52w,
+                                    LEAD(close_price, 3) OVER (ORDER BY scan_date)                               AS fwd_3d
+                                FROM polygon_market_daily
+                                WHERE ticker = %s AND close_price > 0
+                            )
+                            SELECT scan_date, ret_5d, ret_20d, pos_52w, rvol, fwd_3d, close_price
+                            FROM   base
+                            WHERE  ret_5d IS NOT NULL AND ret_20d IS NOT NULL
+                               AND pos_52w IS NOT NULL AND pos_52w > 0
+                               AND rvol   IS NOT NULL
+                            ORDER BY scan_date DESC
+                        """, (_ticker,))
+                        _rows = _cur.fetchall()
+
+                        if not _rows or len(_rows) < 25:
+                            _result[_ticker] = None
+                            app._hist_sim_cache[_ticker]    = None
+                            app._hist_sim_cache_ts[_ticker] = _now_hs
+                            continue
+
+                        # Current state = most recent row (index 0)
+                        _, _cr5, _cr20, _cp52, _crvol, _, _ = _rows[0]
+                        if any(v is None for v in [_cr5, _cr20, _cp52, _crvol]):
+                            _result[_ticker] = None
+                            app._hist_sim_cache[_ticker]    = None
+                            app._hist_sim_cache_ts[_ticker] = _now_hs
+                            continue
+
+                        _cr5   = float(_cr5);  _cr20  = float(_cr20)
+                        _cp52  = float(_cp52); _crvol = float(_crvol)
+
+                        # Find analogous historical days (skip last 5 to avoid look-ahead)
+                        _similar = []
+                        for _dt2, _r5, _r20, _p52, _rv, _fwd, _cls in _rows[5:]:
+                            if any(v is None for v in [_r5, _r20, _p52, _rv, _fwd, _cls]):
+                                continue
+                            _r5  = float(_r5);  _r20 = float(_r20)
+                            _p52 = float(_p52); _rv  = float(_rv)
+                            _fwd = float(_fwd); _cls = float(_cls)
+                            if _cls <= 0: continue
+                            # Normalised Euclidean distance across 4 dimensions
+                            _dist = (
+                                ((_r5  - _cr5)  / 0.05) ** 2 +
+                                ((_r20 - _cr20) / 0.10) ** 2 +
+                                ((_p52 - _cp52) / 0.15) ** 2 +
+                                (min(abs(_rv - _crvol), 2.0) / 1.0) ** 2
+                            ) ** 0.5
+                            if _dist < 2.0:
+                                _fwd_ret = _fwd / _cls - 1
+                                _similar.append((_dist, _fwd_ret))
+
+                        _similar.sort(key=lambda x: x[0])
+                        _similar = _similar[:40]
+
+                        if len(_similar) < 5:
+                            _result[_ticker] = None
+                            app._hist_sim_cache[_ticker]    = None
+                            app._hist_sim_cache_ts[_ticker] = _now_hs
+                            continue
+
+                        _graded  = [(d, r) for d, r in _similar if r is not None and not _math_hs.isnan(r)]
+                        _wins    = sum(1 for _, r in _graded if r > 0.005)
+                        _n       = len(_graded)
+                        _wr      = round(_wins / _n * 100) if _n else None
+                        _avg_ret = round(sum(r for _, r in _graded) / _n * 100, 1) if _n else None
+                        _signal  = ("BULLISH" if _wr and _wr >= 60
+                                    else "BEARISH" if _wr and _wr <= 40
+                                    else "NEUTRAL")
+                        _entry = {"n": _n, "wr3d": _wr, "avg3d": _avg_ret, "signal": _signal}
+                        _result[_ticker]                   = _entry
+                        app._hist_sim_cache[_ticker]       = _entry
+                        app._hist_sim_cache_ts[_ticker]    = _now_hs
+
+                    except Exception as _e_t:
+                        print(f"[hist_sim] {_ticker}: {_e_t}")
+                        _result[_ticker] = None
+
+    except Exception as _e_hs:
+        print(f"[hist_sim] DB error: {_e_hs}")
+        for _t in _to_compute:
+            if _t not in _result:
+                _result[_t] = None
+
+    return jsonify(_result), 200
+
+
 # Nightly pre-compute at 8:10 PM ET — warm the cache for every active ticker
 # so the first user request of the day is instant.
 def _run_nightly_flow_precompute():

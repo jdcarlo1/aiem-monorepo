@@ -2284,3 +2284,15 @@ export function fetchCallWinRates(tickers: string[]): Promise<Record<string, { w
   const params = new URLSearchParams({ tickers: tickers.join(",") });
   return fetchJson<Record<string, { wr: number; n: number } | null>>(`/call-win-rates?${params}`);
 }
+
+export interface HistSimEntry {
+  n: number;
+  wr3d: number;
+  avg3d: number;
+  signal: "BULLISH" | "NEUTRAL" | "BEARISH";
+}
+export function fetchHistoricalSimilarity(tickers: string[]): Promise<Record<string, HistSimEntry | null>> {
+  if (!tickers.length) return Promise.resolve({});
+  const params = new URLSearchParams({ tickers: tickers.join(",") });
+  return fetchJson<Record<string, HistSimEntry | null>>(`/historical-similarity?${params}`);
+}

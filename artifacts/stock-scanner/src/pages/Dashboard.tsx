@@ -63,7 +63,7 @@ import {
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
   fetchGrinderScan, GrinderScanData, GrinderResult,
   fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
-  fetchFlowScores, fetchCallWinRates,
+  fetchFlowScores, fetchCallWinRates, fetchHistoricalSimilarity, HistSimEntry,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -139,6 +139,32 @@ function useCallWinRates(tickers: string[]): Record<string, { wr: number; n: num
     fetchCallWinRates(tickers).then(d => setRates(d)).catch(() => {});
   }, [key]);
   return rates;
+}
+
+function useHistoricalSimilarity(tickers: string[]): Record<string, HistSimEntry | null> {
+  const [data, setData] = React.useState<Record<string, HistSimEntry | null>>({});
+  const key = [...tickers].sort().join(",");
+  React.useEffect(() => {
+    if (!tickers.length) return;
+    fetchHistoricalSimilarity(tickers).then(d => setData(d)).catch(() => {});
+  }, [key]);
+  return data;
+}
+
+function HistSimBadge({ data }: { data: HistSimEntry | null | undefined }) {
+  if (!data || data.wr3d == null || data.n < 5) return null;
+  const { wr3d, n, avg3d, signal } = data;
+  const color = signal === "BULLISH" ? "#38bdf8" : signal === "BEARISH" ? "#f87171" : "#94a3b8";
+  const bg    = signal === "BULLISH" ? "rgba(56,189,248,0.08)"  : signal === "BEARISH" ? "rgba(248,113,113,0.08)"  : "rgba(148,163,184,0.06)";
+  const bdr   = signal === "BULLISH" ? "rgba(56,189,248,0.28)"  : signal === "BEARISH" ? "rgba(248,113,113,0.25)"  : "rgba(148,163,184,0.15)";
+  const tip   = `Historical analog: found ${n} past setups where this stock had similar momentum, volatility, and price position — it was higher 3 days later ${wr3d}% of the time (avg ${avg3d && avg3d > 0 ? "+" : ""}${avg3d}%)`;
+  return (
+    <span title={tip} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
+      background: bg, color, border: `1px solid ${bdr}`,
+      whiteSpace: "nowrap", fontFamily: "JetBrains Mono, monospace", cursor: "default" }}>
+      📊 {wr3d}% ({n})
+    </span>
+  );
 }
 
 function CallWinBadge({ data }: { data: { wr: number; n: number } | null | undefined }) {
@@ -2797,7 +2823,8 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
   };
 
   const filtered = (data?.hits ?? []).filter(h => filter === "ALL" || h.urgency === filter);
-  const callWinRates = useCallWinRates(filtered.map(h => h.ticker));
+  const callWinRates  = useCallWinRates(filtered.map(h => h.ticker));
+  const histSim       = useHistoricalSimilarity(filtered.map(h => h.ticker));
 
   const urgencyStyle = (u: string) => {
     if (u === "EXPIRING") return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 EXPIRING ≤7d" };
@@ -2915,6 +2942,7 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                       <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>{h.ticker}</span>
                       <CallWinBadge data={callWinRates[h.ticker]} />
                       <BSProbBadge S={h.price} strike={h.strike} breakeven={h.volume > 0 ? h.strike + h.prem / (h.volume * 100) : null} T_days={h.days_out} iv_pct={h.iv} />
+                      <HistSimBadge data={histSim[h.ticker]} />
                       <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${h.price.toFixed(2)}</span>
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
                         background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>CALL</span>
@@ -3525,6 +3553,7 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   const results = data?.results ?? [];
   const flowScores   = useFlowScores(results.map(r => r.ticker));
   const callWinRates = useCallWinRates(results.map(r => r.ticker));
+  const histSim      = useHistoricalSimilarity(results.map(r => r.ticker));
   const extreme = results.filter(r => r.total_pts >= 8).length;
   const high    = results.filter(r => r.total_pts >= 6 && r.total_pts < 8).length;
 
@@ -3619,6 +3648,7 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
                     <FlowProbBadge score={flowScores[r.ticker]} />
                     <CallWinBadge data={callWinRates[r.ticker]} />
                     <BSProbBadge S={r.price} strike={r.meta.strike} T_days={r.meta.days_out} />
+                    <HistSimBadge data={histSim[r.ticker]} />
                     <span style={{ fontFamily: BB_F, fontSize: 11, color: pc, fontWeight: 700, background: `${pc}15`, padding: "3px 10px", borderRadius: 99, border: `1px solid ${pc}44` }}>
                       {r.label}
                     </span>
@@ -4417,6 +4447,7 @@ function AIShortCallsTab() {
 
   const flowScores   = useFlowScores(picks.map(p => p.ticker));
   const callWinRates = useCallWinRates(picks.map(p => p.ticker));
+  const histSim      = useHistoricalSimilarity(picks.map(p => p.ticker));
 
   const urgencyColor = (u: string) => {
     if (!u) return BB_DIM;
@@ -4505,6 +4536,7 @@ function AIShortCallsTab() {
                   <FlowProbBadge score={flowScores[p.ticker]} />
                   <CallWinBadge data={callWinRates[p.ticker]} />
                   <BSProbBadge S={p.stock_price} strike={p.strike} breakeven={p.breakeven} T_days={p.days_out} />
+                  <HistSimBadge data={histSim[p.ticker]} />
                   <span style={{
                     fontSize: 8, fontWeight: 900, borderRadius: 3, padding: "1px 5px",
                     background: p.rec_type === "BUY_STOCK" ? "rgba(0,230,118,0.12)" : "rgba(255,102,0,0.12)",
@@ -9271,6 +9303,7 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const fmtPrem = (p: number) => p >= 1 ? `$${p.toFixed(1)}M` : `$${(p * 1000).toFixed(0)}K`;
   const signals = data?.signals ?? [];
   const callWinRates = useCallWinRates(signals.map(s => s.ticker));
+  const histSim      = useHistoricalSimilarity(signals.map(s => s.ticker));
 
   return (
     <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
@@ -9329,6 +9362,7 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                 >{sig.ticker}</span>
                 <CallWinBadge data={callWinRates[sig.ticker]} />
                 <BSProbBadge S={sig.price} strike={sig.strikes[0]?.strike} T_days={sig.strikes[0]?.days_out} iv_pct={sig.avg_iv} />
+                <HistSimBadge data={histSim[sig.ticker]} />
                 <span style={{ color: BB_LABEL, fontSize: 10 }}>${sig.price.toFixed(2)}</span>
                 <span style={{ background: sig.minutes_to_close <= 30 ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.1)", color: sig.minutes_to_close <= 30 ? BB_RED : "#fbbf24", fontSize: 8, fontWeight: 700, padding: "2px 7px" }}>
                   {sig.minutes_to_close <= 0 ? "AT CLOSE" : sig.minutes_to_close <= 30 ? `🔥 ${sig.minutes_to_close}min to close` : `${sig.minutes_to_close}min to close`}
@@ -10874,6 +10908,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const bearish = results.filter(r => r.call_put_ratio < 1).slice(0, 20);
   const displayed = flowView === "bullish" ? bullish : flowView === "strong" ? strong : bearish;
   const callWinRates = useCallWinRates(displayed.map(r => r.ticker));
+  const histSim      = useHistoricalSimilarity(displayed.map(r => r.ticker));
   const highConviction = flowView === "bearish"
     ? bearish.filter(r => r.call_put_ratio < 0.2).sort((a, b) => a.call_put_ratio - b.call_put_ratio)
     : displayed.filter(r => r.call_put_ratio >= 5).sort((a, b) => b.call_put_ratio - a.call_put_ratio);
@@ -11171,6 +11206,7 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                         <span className="text-white font-black text-lg">{row.ticker}</span>
                         <CallWinBadge data={callWinRates[row.ticker]} />
                         <BSProbBadge S={row.price} strike={row.strike} T_days={daysUntil(row.expiry)} />
+                        <HistSimBadge data={histSim[row.ticker]} />
                         <span className="text-slate-500 text-sm">${row.price.toLocaleString()}</span>
                         {(() => {
                           const r = row.call_put_ratio;
