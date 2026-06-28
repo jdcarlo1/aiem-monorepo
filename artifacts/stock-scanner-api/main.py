@@ -18773,10 +18773,9 @@ Return a JSON array of exactly {n_hypotheses} objects, each with:
 Return ONLY the JSON array, no other text."""
 
         resp = _oai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.4",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.8,
-            max_tokens=2000,
+            max_completion_tokens=2000,
         )
         import json as _j
         raw = resp.choices[0].message.content.strip()
@@ -19380,10 +19379,9 @@ Return JSON with exactly these fields:
 Return ONLY the JSON, no other text."""
 
         resp = _oai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.4",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.9,
-            max_tokens=500,
+            max_completion_tokens=500,
         )
         import json as _j
         raw = resp.choices[0].message.content.strip()
@@ -24738,12 +24736,11 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         for _attempt in range(3):
             try:
                 resp = _oai.chat.completions.create(
-                    model="gpt-4o",
+                    model="gpt-5.4",
                     messages=messages,
                     tools=_fs_schema,
                     tool_choice="auto",
-                    max_tokens=2000,
-                    temperature=0.3,
+                    max_completion_tokens=2000,
                 )
                 break
             except Exception as _oe2:
@@ -27551,12 +27548,11 @@ def _run_aiem_morning_scan():
             saved = False
             for _i in range(6):
                 _resp = _oai.chat.completions.create(
-                    model="gpt-4o",
+                    model="gpt-5.4",
                     messages=messages,
                     tools=_AIEM_MORNING_TOOLS,
                     tool_choice="auto",
-                    temperature=0.4,
-                    max_tokens=2000,
+                    max_completion_tokens=2000,
                 )
                 _msg = _resp.choices[0].message
                 messages.append({
@@ -29377,12 +29373,11 @@ def _run_aiem_research_agent(max_iterations=None):
     for iteration in range(max_iterations):
         try:
             resp = _oai.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5.4",
                 messages=messages,
                 tools=_AIEM_AGENT_TOOLS,
                 tool_choice="auto",
-                temperature=0.15,
-                max_tokens=4096,
+                max_completion_tokens=4096,
             )
         except Exception as _ce:
             log_lines.append("  iter {}: API error: {}".format(iteration, _ce))
@@ -29456,12 +29451,11 @@ def _run_aiem_research_agent(max_iterations=None):
         try:
             for _ci in range(5):  # max 5 critique iterations
                 _cr = _oai.chat.completions.create(
-                    model="gpt-4o",
+                    model="gpt-5.4",
                     messages=critique_messages,
                     tools=_AIEM_AGENT_TOOLS,
                     tool_choice="auto",
-                    temperature=0.3,
-                    max_tokens=2048,
+                    max_completion_tokens=2048,
                 )
                 _cmsg = _cr.choices[0].message
                 critique_messages.append({
@@ -39055,7 +39049,7 @@ Be direct, specific, and professional. No disclaimers."""
             base_url=os.environ["AI_INTEGRATIONS_OPENAI_BASE_URL"],
         )
         resp = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.4",
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=500,
         )
