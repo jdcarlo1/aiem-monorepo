@@ -18705,10 +18705,25 @@ def _mkt_tool_validate_oos(conditions=None, train_pct=0.6, horizon="next_day"):
         return {"status": "error", "error": str(e)}
 
 
+import functools as _ft_oai
+
+@_ft_oai.lru_cache(maxsize=1)
 def _get_openai_client():
-    """Shared OpenAI client factory for AIEM market research tools."""
+    """Cached OpenAI client singleton for AIEM market research tools.
+
+    Raises RuntimeError (not a cryptic SDK error) when OPENAI_API_KEY is
+    missing so callers get a clear, actionable message.
+    Call _get_openai_client.cache_clear() after key rotation.
+    """
+    import os as _os_oai
+    _key = _os_oai.environ.get("OPENAI_API_KEY")
+    if not _key:
+        raise RuntimeError(
+            "OPENAI_API_KEY environment variable is not set. "
+            "Set it before calling AIEM hypothesis or indicator tools."
+        )
     from openai import OpenAI as _OAI
-    return _OAI()
+    return _OAI(api_key=_key, timeout=30.0, max_retries=2)
 
 # ──────────────────────────────────────────────────────────────────────────
 # Tool 9: AI generates its own hypotheses from scratch
