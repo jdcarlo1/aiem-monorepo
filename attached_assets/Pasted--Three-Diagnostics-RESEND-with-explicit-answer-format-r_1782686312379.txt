@@ -1,0 +1,123 @@
+# Three Diagnostics — RESEND with explicit answer format required
+
+The previous attempt returned an API health check, which does NOT
+answer these questions. Each question below has ONE specific, narrow
+thing it needs. Do not substitute a different test, a health check,
+or a general system status report. If you cannot run the exact
+command below, say "I cannot run this because X" — do not replace it
+with something else and present it as an answer.
+
+================================================================
+DIAGNOSTIC 1 — LOOKAHEAD AUDIT
+================================================================
+
+RUN EXACTLY THIS:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import lookahead_audit as la
+results = la.run_full_audit()
+for r in results:
+    print(r.get('file'), '|', r.get('line'), '|', r.get('category'), '|', r.get('severity'))
+"
+```
+
+(Adjust only the import name and function name if they don't match
+your actual module — but run the equivalent real audit function and
+print every individual finding, not a summary count.)
+
+REQUIRED ANSWER FORMAT: a literal list of file names and line numbers
+— at minimum, list all 38 findings with their file paths. I need to
+see with my own eyes whether files like aiem_exit_engine.py, the
+gamma scanner, or any of the 9 signal layer files appear anywhere in
+that list of 38, or whether they're absent entirely.
+
+A summary count ("38 findings, 0 relevant") is NOT an acceptable
+answer here — I already have that number. I need the actual list.
+
+================================================================
+DIAGNOSTIC 2 — ACTIVE HYPOTHESIS SELECTION
+================================================================
+
+RUN EXACTLY THIS:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import active_hypothesis_selection as ahs
+
+low = ahs.compute_score(novelty=0.50, category_value=0.82, universe_impact=0.08, thompson_sample=0.05)
+high = ahs.compute_score(novelty=0.50, category_value=0.82, universe_impact=0.08, thompson_sample=0.95)
+
+print('SCORE with thompson_sample=0.05:', low)
+print('SCORE with thompson_sample=0.95:', high)
+print('ARE THEY DIFFERENT:', low != high)
+"
+```
+
+(Adjust only the function/parameter names to match your actual code
+— but the test MUST hold novelty, category_value, and universe_impact
+IDENTICAL between the two calls, and ONLY vary thompson_sample.)
+
+REQUIRED ANSWER FORMAT: two literal printed numbers (the two scores)
+and the literal True/False from the final print line. This is a
+binary test — there is no explanation that substitutes for these two
+numbers actually being different or actually being the same.
+
+================================================================
+DIAGNOSTIC 3 — MICROSTRUCTURE PROXY / KYLE'S LAMBDA
+================================================================
+
+RUN EXACTLY THIS:
+
+```bash
+python3 -c "
+import sys, inspect
+sys.path.insert(0, '.')
+import microstructure_proxy as mp
+print(inspect.getsource(mp.compute_kyle_lambda))
+"
+```
+
+THEN RUN THIS:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import microstructure_proxy as mp
+
+ticker = 'AAPL'
+raw_data = mp.get_raw_data_for_kyle_lambda(ticker)
+print('RAW INPUT DATA:', raw_data)
+
+result = mp.compute_kyle_lambda(ticker)
+print('FINAL RESULT:', result)
+"
+```
+
+(Adjust function names to match the real code — but I need to see the
+ACTUAL SOURCE of the function, and the ACTUAL raw numbers going into
+it for one real ticker.)
+
+REQUIRED ANSWER FORMAT: the literal printed source code of the
+function, AND the literal printed raw data and result. Then, in your
+own words ONLY after showing that real output, state plainly: is the
+zero a result of the math genuinely producing zero, or is it a
+default/fallback value because daily bar data lacks what this
+calculation needs? Either honest answer is fine — what is NOT fine is
+skipping the raw printed numbers and jumping straight to an
+explanation.
+
+================================================================
+GENERAL RULE FOR ALL THREE
+================================================================
+
+If any import or function name in these commands doesn't match your
+actual code, FIX the command to use the real name, RUN it successfully,
+and show the corrected real output. Do not respond with "the function
+name didn't match" as if that closes the question — that just means
+try again with the right name until you get real printed output.
