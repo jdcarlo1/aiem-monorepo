@@ -870,6 +870,146 @@ init_midday_log_table()
 init_multiday_runner_tables()
 _init_steady_grinder_scan_table()
 
+# ── Intraday bar cache: prerequisite for AIEM hypothesis #12 ─────────────────
+# Captures 1-min OHLCV bars from Tradier for a ~50-ticker priority watchlist
+# every 5 min during market hours. ON CONFLICT DO NOTHING makes every call
+# idempotent — Tradier returns the full session to-date each time, so only
+# genuinely new bars land in the table.
+_TD_INTRADAY_WATCHLIST = list(dict.fromkeys([
+    # Semiconductors
+    "NVDA", "AMD", "INTC", "AVGO", "ARM",  "MU",   "MRVL", "SMCI", "QCOM", "TSM",
+    "AMAT", "LRCX", "KLAC", "TXN",  "ADI",  "ON",
+    # Megacaps + high-options-volume
+    "TSLA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "PLTR", "COIN", "MSTR",
+    "NFLX", "CRM",  "ORCL", "JPM",  "GS",   "BAC",   "MS",
+    # Biotech / speculative
+    "MRNA", "BNTX", "GILD", "HOOD", "RIVN", "SOFI",  "UPST", "AFRM",
+    "GME",  "JOBY", "ACHR", "LCID",
+    # ETFs (sector context for cross-signal work)
+    "SPY",  "QQQ",  "IWM",  "SMH",  "XBI",
+]))
+
+
+def _init_td_intraday_cache_table():
+    import psycopg2 as _pg_it
+    try:
+        with _pg_it.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS td_intraday_cache (
+                    id      SERIAL PRIMARY KEY,
+                    ticker  VARCHAR(10)  NOT NULL,
+                    ts      TIMESTAMPTZ  NOT NULL,
+                    open    FLOAT,
+                    high    FLOAT,
+                    low     FLOAT,
+                    close   FLOAT,
+                    volume  BIGINT,
+                    vwap    FLOAT,
+                    UNIQUE (ticker, ts)
+                )
+            """)
+            _cur.execute(
+                "CREATE INDEX IF NOT EXISTS td_intraday_ticker_ts "
+                "ON td_intraday_cache (ticker, ts DESC)"
+            )
+            _c.commit()
+        print("[td_intraday_cache] table ready")
+    except Exception as _e_it:
+        print(f"[td_intraday_cache] table init error: {_e_it}")
+
+_init_td_intraday_cache_table()
+
+
+def _save_td_intraday_bars(ticker: str, df) -> int:
+    """Batch-upsert a _td_intraday() DataFrame into td_intraday_cache.
+    Returns the number of rows passed to the DB (including any that were
+    skipped by ON CONFLICT DO NOTHING)."""
+    if df is None or df.empty:
+        return 0
+    import psycopg2 as _pg_sib, psycopg2.extras as _ext_sib
+    rows = []
+    for ts, row in df.iterrows():
+        try:
+            rows.append((
+                ticker,
+                ts.isoformat(),
+                float(row.get("Open")   or 0) or None,
+                float(row.get("High")   or 0) or None,
+                float(row.get("Low")    or 0) or None,
+                float(row.get("Close")  or 0) or None,
+                int(  row.get("Volume") or 0) or None,
+                float(row.get("VWAP")   or 0) or None,
+            ))
+        except Exception:
+            pass
+    if not rows:
+        return 0
+    try:
+        with _pg_sib.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _ext_sib.execute_values(
+                _cur,
+                """
+                INSERT INTO td_intraday_cache
+                    (ticker, ts, open, high, low, close, volume, vwap)
+                VALUES %s
+                ON CONFLICT (ticker, ts) DO NOTHING
+                """,
+                rows,
+                page_size=500,
+            )
+            _c.commit()
+        return len(rows)
+    except Exception as _e_sib:
+        print(f"[td_intraday_cache] save error {ticker}: {_e_sib}")
+        return 0
+
+
+def _run_td_intraday_capture():
+    """Snapshot 1-min bars for the priority watchlist + any live-signal tickers.
+    Runs every 5 min 9:35–16:00 ET via the scheduler.
+    _td_intraday() returns the full session bars each call; the DB upsert is
+    idempotent so only new bars are inserted on each pass."""
+    if not _intraday_scan_allowed():
+        return
+
+    _live_extra: list = []
+    try:
+        _uc = getattr(app, "_unusual_calls_cache", None)
+        if _uc:
+            _live_extra += [h["ticker"] for h in (_uc.get("hits") or [])[:20]]
+    except Exception:
+        pass
+    try:
+        _cs = getattr(app, "_cs_cache", None)
+        if _cs:
+            _live_extra += [r["ticker"] for r in (_cs.get("results") or [])[:10]]
+    except Exception:
+        pass
+
+    universe = list(dict.fromkeys(_TD_INTRADAY_WATCHLIST + _live_extra))
+
+    from concurrent.futures import ThreadPoolExecutor as _TDIE_TPE, as_completed as _tdie_asc
+    total_bars = 0
+
+    def _fetch_one(t):
+        df = _td_intraday(t, "1min")
+        return _save_td_intraday_bars(t, df)
+
+    with _TDIE_TPE(max_workers=4) as ex:
+        futs = {ex.submit(_fetch_one, t): t for t in universe}
+        try:
+            for fut in _tdie_asc(futs, timeout=90):
+                try:
+                    total_bars += fut.result()
+                except Exception:
+                    pass
+        except TimeoutError:
+            for f in futs:
+                f.cancel()
+
+    print(f"[td_intraday_cache] {len(universe)} tickers → {total_bars} bars upserted")
+
+
 def _init_conviction_snapshot_table():
     import psycopg2 as _pg2
     with _pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
@@ -3675,6 +3815,28 @@ try:
                      else record_job_failure("aiem_auto_retire", "auto_retire returned error")),
             _CT_aiem(day_of_week="sun", hour=18, minute=0, timezone=_ET),
             id="aiem_auto_retire_weekly", replace_existing=True,
+        )
+        # Intraday bar snapshot: every 5 min 9:35 AM – 4:00 PM ET Mon-Fri
+        # Captures 1-min OHLCV for ~50 priority tickers + live-signal names.
+        # Feeds AIEM hypothesis #12 (intraday pattern research).
+        def _run_intraday_capture_job():
+            import datetime as _dtid
+            _now_id = _dtid.datetime.now(_ET)
+            _h, _m  = _now_id.hour, _now_id.minute
+            if not ((_h > 9 or (_h == 9 and _m >= 35)) and _h < 16):
+                return
+            try:
+                import threading as _thr_id
+                _thr_id.Thread(target=_run_td_intraday_capture, daemon=True).start()
+            except Exception as _e_id:
+                print(f"[scheduler] td_intraday_capture error: {_e_id}")
+        _scheduler.add_job(
+            _run_intraday_capture_job,
+            "interval",
+            minutes=5,
+            start_date=_sched_start_delay,
+            id="td_intraday_capture",
+            replace_existing=True,
         )
         # Job health watchdog: every 30 min - separate from the jobs it monitors
         _scheduler.add_job(
