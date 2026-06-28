@@ -1,0 +1,141 @@
+# Complete Verification Package — 3 Categories, Clearly Labeled
+
+IMPORTANT CONTEXT BEFORE SENDING THIS: these three categories test
+DIFFERENT things, and only ONE of them is actually "AIEM answering."
+Read this section before sending anything, so you know what each
+result actually proves.
+
+================================================================
+WHO IS ACTUALLY ANSWERING EACH CATEGORY
+================================================================
+
+CATEGORY 1 — This is AIEM. Real evidence, no chat involved.
+  AIEM has no conversational interface — it never "answers questions."
+  What we CAN do is read what AIEM already wrote into the database
+  during its own real, scheduled, production runs. This is the closest
+  thing to "hearing from AIEM directly" — it's AIEM's own past output,
+  not a reply to anything.
+
+CATEGORY 2 — This is NOT AIEM. This is the Replit coding assistant
+  (the chatbot you talk to while building) explaining theory or
+  writing code on request. It's useful for checking whether the
+  BUILDER understands the theory correctly, but it is a different
+  AI system than AIEM, answering in real time in conversation.
+
+CATEGORY 3 — This is neither, really. These are factual database/
+  infrastructure checks (indexes, timing, schema) with a deterministic
+  right answer. Whichever AI runs the query, the database itself is
+  the actual source of truth — this category is closer to "checking a
+  fact" than "asking an AI anything."
+
+================================================================
+CATEGORY 1: AIEM's own real, logged production reasoning
+================================================================
+
+Run this directly in the Replit shell (or have the agent run it and
+paste back RAW output, unedited):
+
+```bash
+echo "=== AIEM's actual logged decisions, most recent first ==="
+psql "$DATABASE_URL" -c "
+  SELECT decision_time, ticker, signal_name, LEFT(reasoning, 300) AS reasoning_excerpt
+  FROM agent_decisions
+  ORDER BY decision_time DESC
+  LIMIT 20;"
+
+echo ""
+echo "=== Breakdown by signal type — confirms which scanners are actually logging ==="
+psql "$DATABASE_URL" -c "
+  SELECT signal_name, COUNT(*) AS count, MAX(decision_time) AS most_recent
+  FROM agent_decisions
+  GROUP BY signal_name
+  ORDER BY count DESC;"
+
+echo ""
+echo "=== Specifically gamma/charm/dark-pool reasoning, if any exists yet ==="
+psql "$DATABASE_URL" -c "
+  SELECT decision_time, ticker, signal_name, LEFT(reasoning, 400) AS reasoning_excerpt
+  FROM agent_decisions
+  WHERE signal_name IN ('gamma_pressure_scan','charm_cascade','dark_pool_scanner','unusual_calls_scanner')
+  ORDER BY decision_time DESC LIMIT 15;"
+
+echo ""
+echo "=== Distinctness check — proves reasoning is per-case, not templated ==="
+psql "$DATABASE_URL" -c "
+  SELECT signal_name, COUNT(*) AS total, COUNT(DISTINCT reasoning) AS distinct_reasoning
+  FROM agent_decisions GROUP BY signal_name;"
+```
+
+WHAT TO PASTE BACK: the full raw psql output, including table
+formatting and row counts. This is AIEM's real voice — no chat needed.
+
+================================================================
+CATEGORY 2: Coding assistant's theory understanding (NOT AIEM)
+================================================================
+
+Send this EXACT question in the Replit chat. This tests whether
+the BUILDER (coding assistant) understands options theory correctly
+enough to have built AIEM's signal logic soundly:
+
+---
+QUESTION TO SEND:
+
+Walk through this scenario in plain language, NO code in your answer:
+
+A stock is trading at $48, with heavy call open interest at the $50
+strike expiring in 9 days. Dealers are estimated net SHORT gamma at
+that strike. Call volume has been well above open interest for 3
+days. Dark pool block buying has occurred over the same period.
+Charm is increasing as expiration nears.
+
+1. If price moves toward $50, explain step by step why short gamma
+   could cause dealer hedging to accelerate the move.
+2. Explain what charm measures here and why it matters more as
+   expiration approaches, even with no price movement.
+3. Why would a system want BOTH dark pool confirmation AND unusual
+   call volume, rather than relying on either alone?
+4. Does this 9-day setup make a forceful breakout MORE or LESS likely
+   than the same setup with 30 days left? Explain why.
+5. Name one specific, real way this exact setup could still fail to
+   produce the expected move.
+---
+
+WHAT TO PASTE BACK: the full text response, screenshot is fine here
+since this is conversational, not a database query.
+
+================================================================
+CATEGORY 3: Infrastructure facts (deterministic, not "AI opinion")
+================================================================
+
+```bash
+echo "=== Real index check on agent_decisions ==="
+psql "$DATABASE_URL" -c "
+  SELECT indexname, indexdef FROM pg_indexes
+  WHERE tablename = 'agent_decisions';"
+
+echo ""
+echo "=== Real timing of a synthesis-style lookup, with the actual 'time' command ==="
+time psql "$DATABASE_URL" -c "
+  SELECT reasoning, decision_time FROM agent_decisions
+  WHERE ticker = 'AAPL' AND signal_name = 'gamma_pressure_scan'
+  ORDER BY decision_time DESC LIMIT 1;"
+
+echo ""
+echo "=== Row count, for context on table size ==="
+psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM agent_decisions;"
+```
+
+WHAT TO PASTE BACK: raw terminal output, including the real
+`real 0mX.XXXs` line that the `time` command produces — that exact
+line is what makes this a measured fact rather than a description.
+
+================================================================
+HOW TO SEND THIS
+================================================================
+
+Copy/paste the relevant category's commands directly into the Replit
+agent chat (for Category 1 and 3) or send the Category 2 question
+as a normal message. Paste whatever comes back to me, labeled by
+category number, and I'll grade each one against what it's actually
+supposed to prove — keeping straight which one is real AIEM evidence
+versus which one is just the coding assistant's explanation.
