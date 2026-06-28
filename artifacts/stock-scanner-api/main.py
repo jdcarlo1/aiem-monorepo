@@ -12308,27 +12308,58 @@ def _get_charm_cascade_signals(min_oi: int = 100) -> list:
         return []
 
 
+def _finviz_short_float(ticker: str) -> dict:
+    """
+    Scrape Short Float % and Short Ratio from finviz.com/quote.ashx.
+    Finviz republishes FINRA bi-monthly short interest for free — no API key needed.
+    Returns {"si_pct": float, "dtc": float} or None on failure.
+    """
+    import urllib.request as _ur
+    import re as _re
+    try:
+        url = f"https://finviz.com/quote.ashx?t={ticker}"
+        req = _ur.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        html = _ur.urlopen(req, timeout=8).read().decode("utf-8", errors="ignore")
+        si_pct, dtc = None, None
+        m = _re.search(r"Short Float[^<]*(?:<[^>]+>)*\s*<b>([\d.]+)%", html)
+        if m:
+            si_pct = round(float(m.group(1)), 1)
+        m2 = _re.search(r"Short Ratio[^<]*(?:<[^>]+>)*\s*<b>([\d.]+)", html)
+        if m2:
+            dtc = round(float(m2.group(1)), 1)
+        if si_pct is not None:
+            return {"si_pct": si_pct, "dtc": dtc or 0.0}
+    except Exception:
+        pass
+    return None
+
+
 def _get_short_interest(tickers: list) -> dict:
     """
     Layer 4 - Short Interest Overlay.
-    Fetch SI% and days-to-cover from yfinance for a list of tickers.
-    SI >15% + gamma FIR = multiplicative squeeze (shorts forced to cover as price rises).
+    Primary: Finviz quote page (FINRA-sourced, free, no breaker dependency).
+    Fallback: yfinance when Finviz fails and Yahoo breaker is closed.
     Returns {ticker: {"si_pct": float, "dtc": float}}
     """
     import yfinance as yf
     from concurrent.futures import ThreadPoolExecutor, as_completed as _ascf
 
     def _fetch_si(ticker):
-        try:
-            info = yf.Ticker(ticker).info
-            si   = round(float(info.get("shortPercentOfFloat", 0) or 0) * 100, 1)
-            dtc  = round(float(info.get("shortRatio",          0) or 0), 1)
-            return ticker, {"si_pct": si, "dtc": dtc}
-        except Exception:
-            return ticker, {"si_pct": 0.0, "dtc": 0.0}
+        fv = _finviz_short_float(ticker)
+        if fv is not None:
+            return ticker, fv
+        if not _yf_breaker_open():
+            try:
+                info = yf.Ticker(ticker).info
+                si   = round(float(info.get("shortPercentOfFloat", 0) or 0) * 100, 1)
+                dtc  = round(float(info.get("shortRatio",          0) or 0), 1)
+                return ticker, {"si_pct": si, "dtc": dtc}
+            except Exception:
+                pass
+        return ticker, {"si_pct": 0.0, "dtc": 0.0}
 
     result = {}
-    with ThreadPoolExecutor(max_workers=15) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(_fetch_si, t): t for t in tickers[:50]}
         for fut in _ascf(futs):
             try:
