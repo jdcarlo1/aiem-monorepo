@@ -1,0 +1,224 @@
+# Wire Real Decision Logging Into Every Signal Module
+
+PROBLEM CONFIRMED: gamma scanner, charm cascade, dark pool scanner,
+unusual calls scanner all compute results and fire alerts, but none
+of them call dl.log_decision() — only market_regime_overlay does.
+This means agent_decisions has no real audit trail for most signals.
+
+This package fixes that with a reusable helper + exact wiring
+instructions per module.
+
+================================================================
+PART 1: First, find the real log_decision() signature
+================================================================
+
+Before wiring anything in, confirm the EXACT function signature
+already in use, so the new calls match it correctly:
+
+```bash
+grep -n -A15 "def log_decision" decision_logger.py
+```
+
+Paste that output before proceeding — the helper below assumes a
+signature roughly like `log_decision(signal_name, decision_type,
+ticker, reasoning, ...)` but needs to match your actual function
+exactly. Adjust Part 2 below once you see the real signature.
+
+================================================================
+PART 2: Reusable decision logging helper
+================================================================
+
+Create this file — it builds a REAL, non-templated reasoning string
+from each scanner's actual computed values, instead of a generic
+placeholder sentence.
+
+```python
+"""
+decision_logging_helper.py
+====================================================================
+Reusable helper so every signal module logs a REAL, per-case reasoning
+string to agent_decisions — built from actual computed values, not a
+generic template. Import this into every scanner that currently
+computes signals but never calls dl.log_decision().
+====================================================================
+"""
+
+import decision_logger as dl
+
+
+def log_gamma_decision(ticker: str, fir: float, vol_oi: float,
+                        score: float, price_change_pct: float,
+                        top_strike: float, decision_type: str = "signal_fire"):
+    reasoning = (
+        f"Gamma pressure scan flagged {ticker}: Float Impact Ratio (FIR) "
+        f"of {fir}% exceeds threshold, Vol/OI ratio of {vol_oi} indicates "
+        f"unusual call buying relative to existing open interest, "
+        f"concentrated near the ${top_strike} strike. Price already up "
+        f"{price_change_pct}% suggests dealer hedging may be contributing "
+        f"to forced share demand. Composite score: {score}."
+    )
+    return dl.log_decision(
+        signal_name="gamma_pressure_scan",
+        decision_type=decision_type,
+        ticker=ticker,
+        reasoning=reasoning,
+    )
+
+
+def log_charm_decision(ticker: str, days_to_expiry: int, charm_value: float,
+                        strike: float, decision_type: str = "signal_fire"):
+    reasoning = (
+        f"Charm cascade flagged {ticker}: with {days_to_expiry} days to "
+        f"expiration on the ${strike} strike, charm value of {charm_value} "
+        f"indicates delta is shifting meaningfully even without price "
+        f"movement, meaning dealer hedge ratios are changing day-over-day "
+        f"as time decay accelerates near expiry."
+    )
+    return dl.log_decision(
+        signal_name="charm_cascade",
+        decision_type=decision_type,
+        ticker=ticker,
+        reasoning=reasoning,
+    )
+
+
+def log_dark_pool_decision(ticker: str, block_volume: int, block_count: int,
+                            avg_block_size: float, price_at_print: float,
+                            decision_type: str = "signal_fire"):
+    reasoning = (
+        f"Dark pool scanner flagged {ticker}: {block_count} large block "
+        f"trades totaling {block_volume:,} shares (avg block size "
+        f"{avg_block_size:,.0f} shares) printed near ${price_at_print}, "
+        f"suggesting institutional accumulation away from lit exchanges."
+    )
+    return dl.log_decision(
+        signal_name="dark_pool_scanner",
+        decision_type=decision_type,
+        ticker=ticker,
+        reasoning=reasoning,
+    )
+
+
+def log_unusual_calls_decision(ticker: str, call_volume: int, oi: int,
+                                vol_oi_ratio: float, strike: float,
+                                expiry: str, decision_type: str = "signal_fire"):
+    reasoning = (
+        f"Unusual call activity on {ticker}: {call_volume:,} contracts "
+        f"traded against {oi:,} existing open interest (Vol/OI ratio "
+        f"{vol_oi_ratio}) at the ${strike} strike expiring {expiry}, "
+        f"well above typical activity for this name."
+    )
+    return dl.log_decision(
+        signal_name="unusual_calls_scanner",
+        decision_type=decision_type,
+        ticker=ticker,
+        reasoning=reasoning,
+    )
+```
+
+NOTE: the exact parameters above (fir, vol_oi, charm_value, etc.) need
+to match whatever variables ALREADY EXIST in each real scanner
+function — these are illustrative based on the gamma scanner code
+shown earlier. The agent should adjust each function's parameters to
+match the REAL variable names already computed in each scanner, not
+invent new ones.
+
+================================================================
+PART 3: Wiring instructions — exactly where to add the call
+================================================================
+
+For EACH scanner module (gamma, charm, dark pool, unusual calls), the
+agent must:
+
+1. Add `import decision_logging_helper as dlh` at the top of the file
+2. Find the exact point in the code where a real signal fires (e.g.
+   in the gamma scanner, this is inside the loop building `results`,
+   right where `fir`, `vol_oi`, `score` etc. are already computed —
+   NOT in a separate, disconnected location)
+3. Call the matching `log_X_decision()` function RIGHT THERE, passing
+   the REAL computed values from that exact signal instance — not
+   placeholder values, not values from a different ticker
+
+Example for the gamma scanner specifically (using the real code shown
+earlier in this conversation), the call should go right after this
+existing block:
+
+```python
+            if fir < 1.2:
+                return None
+
+            # ADD THIS LINE — log the real decision using the values
+            # already computed above in this exact function call:
+            dlh.log_gamma_decision(
+                ticker=ticker, fir=fir, vol_oi=vol_oi,
+                score=score, price_change_pct=chg, top_strike=best_strike,
+            )
+
+            return {
+                "ticker": ticker, ...
+```
+
+The agent must do the equivalent for charm_cascade, dark_pool_scanner,
+and unusual_calls_scanner — find each one's real signal-fire point and
+insert the matching log call using that module's ACTUAL variable names.
+
+================================================================
+PART 4: Verification script — confirm it's actually working
+================================================================
+
+Run this AFTER the agent confirms the wiring is done. This is the
+real test — does agent_decisions actually start filling with REAL,
+DISTINCT reasoning across multiple signal types, not just regime
+overlay.
+
+```bash
+#!/bin/bash
+echo "=== Total decisions logged, by signal_name ==="
+psql "$DATABASE_URL" -c "
+  SELECT signal_name, COUNT(*) AS count
+  FROM agent_decisions
+  GROUP BY signal_name
+  ORDER BY count DESC;"
+
+echo ""
+echo "=== Are gamma/charm/dark-pool/unusual-calls NOW present? ==="
+psql "$DATABASE_URL" -c "
+  SELECT signal_name, COUNT(*) AS count
+  FROM agent_decisions
+  WHERE signal_name IN ('gamma_pressure_scan', 'charm_cascade',
+                         'dark_pool_scanner', 'unusual_calls_scanner')
+  GROUP BY signal_name;"
+
+echo ""
+echo "=== Confirm reasoning is genuinely distinct, not templated ==="
+psql "$DATABASE_URL" -c "
+  SELECT signal_name, COUNT(*) AS total,
+         COUNT(DISTINCT reasoning) AS distinct_reasoning
+  FROM agent_decisions
+  GROUP BY signal_name;"
+
+echo ""
+echo "=== Show 5 real examples per new signal type ==="
+psql "$DATABASE_URL" -c "
+  SELECT decision_time, ticker, signal_name, LEFT(reasoning, 200) AS reasoning_excerpt
+  FROM agent_decisions
+  WHERE signal_name = 'gamma_pressure_scan'
+  ORDER BY decision_time DESC LIMIT 5;"
+
+echo ""
+echo "=== Confirm code-level wiring (grep for the actual calls) ==="
+grep -rn "log_gamma_decision\|log_charm_decision\|log_dark_pool_decision\|log_unusual_calls_decision" --include="*.py" . | grep -v "decision_logging_helper.py:"
+```
+
+PASS condition: signal_name column shows entries for gamma_pressure_scan,
+charm_cascade, dark_pool_scanner, and unusual_calls_scanner — not just
+market_regime_overlay — AND distinct_reasoning is close to total count
+per signal_name (not 1 distinct value repeated many times) — AND the
+final grep shows the helper functions actually being CALLED from
+inside each scanner file, not just defined and unused.
+
+If total counts stay at 0 for these signal types even after the agent
+says it's done, that means either: (a) those scanners haven't fired
+on a real signal since the wiring was added (wait for a real trigger),
+or (b) the wiring didn't actually get added correctly despite being
+claimed — re-check with the grep in the last line above.

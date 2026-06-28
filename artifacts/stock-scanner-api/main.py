@@ -2159,6 +2159,18 @@ try:
                         _f.cancel()
                     print(f"[scheduler] {label} scan 180s timeout - {_uc_done}/{len(_universe)} tickers done, saving {len(all_hits)} partial hits")
             _save_unusual_calls_to_db(all_hits)
+            try:
+                import decision_logging_helper as _dlh_uc
+                _top_hits_uc = sorted(all_hits, key=lambda _h: _h.get("prem", 0), reverse=True)[:5]
+                for _h in _top_hits_uc:
+                    _dlh_uc.log_unusual_calls_decision(
+                        ticker=_h["ticker"], call_volume=_h.get("volume", 0),
+                        oi=_h.get("oi", 0), vol_oi=_h.get("vol_oi", 0.0),
+                        strike=_h.get("strike", 0.0), expiry=_h.get("expiry", ""),
+                        prem=_h.get("prem", 0), otm_pct=_h.get("otm_pct", 0.0),
+                    )
+            except Exception:
+                pass
             # Refresh the in-memory cache with ALL of today's accumulated sweeps so
             # that earlier scans' results stay visible - not just this scan's slice.
             from datetime import datetime as _dt_sch
@@ -12566,6 +12578,15 @@ def _run_gamma_pressure_scan() -> list:
             if fir < 1.2:
                 return None
 
+            try:
+                import decision_logging_helper as _dlh_g
+                _dlh_g.log_gamma_decision(
+                    ticker=ticker, fir=fir, vol_oi=vol_oi,
+                    score=score, price_change_pct=chg, top_strike=best_strike,
+                )
+            except Exception:
+                pass
+
             return {
                 "ticker": ticker, "price": round(price, 2),
                 "price_change_pct": chg, "fir": fir, "fsd": fsd,
@@ -13080,8 +13101,8 @@ def _get_charm_cascade_signals(min_oi: int = 100) -> list:
             cur.execute("""
                 SELECT ticker, price, strike, expiry::TEXT,
                        oi, otm_pct, days_out,
-                       ROUND((oi * 100.0 * GREATEST(0, 20.0 - ABS(otm_pct)))
-                             / (GREATEST(1, days_out) * 10.0), 1) AS charm_score
+                       ROUND(((oi * 100.0 * GREATEST(0, 20.0 - ABS(otm_pct)))
+                             / (GREATEST(1, days_out) * 10.0))::numeric, 1) AS charm_score
                 FROM oi_daily_snapshot
                 WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM oi_daily_snapshot)
                   AND days_out BETWEEN 1 AND 10
@@ -13090,7 +13111,18 @@ def _get_charm_cascade_signals(min_oi: int = 100) -> list:
                 ORDER BY charm_score DESC
                 LIMIT 20
             """, (min_oi,))
-            return cur.fetchall()
+            rows = cur.fetchall()
+        try:
+            import decision_logging_helper as _dlh_c
+            for _r in rows:
+                _dlh_c.log_charm_decision(
+                    ticker=str(_r[0]), strike=float(_r[2]), expiry=str(_r[3]),
+                    days_out=int(_r[6]), oi=int(_r[4]), otm_pct=float(_r[5]),
+                    charm_score=float(_r[7]),
+                )
+        except Exception:
+            pass
+        return rows
     except Exception:
         return []
 
@@ -13209,6 +13241,16 @@ def _get_dark_pool_convergence(tickers: list) -> dict:
                         "off_exchange_pct": round(d2["sv"] / tv * 100, 1),
                         "volume": tv,
                     }
+                    if result[ticker]["off_exchange_pct"] >= 45:
+                        try:
+                            import decision_logging_helper as _dlh_dp
+                            _dlh_dp.log_dark_pool_decision(
+                                ticker=ticker,
+                                off_exchange_pct=result[ticker]["off_exchange_pct"],
+                                volume=tv,
+                            )
+                        except Exception:
+                            pass
             break
     return result
 
