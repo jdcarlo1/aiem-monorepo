@@ -747,17 +747,22 @@ def print_report(stored: dict):
         print(f"  Both missed: {both_missed}/{total_big} ({both_missed/total_big*100:.0f}%)")
 
     # ── Final verdict ─────────────────────────────────────────────────────────
-    wr_improves  = cs["wr"]  > vs["wr"]   if cs["n"] > 0 else False
-    ret_improves = cs["ret"] > vs["ret"]  if cs["n"] > 0 else False
+    # PRIMARY: Quant Alone vs V2 Alone (head-to-head as required)
+    wr_improves  = qs["wr"]  > vs["wr"]   if qs["n"] > 0 else False
+    ret_improves = qs["ret"] > vs["ret"]  if qs["n"] > 0 else False
     verdict_yn   = "YES" if (wr_improves and ret_improves) else (
                    "PARTIAL" if (wr_improves or ret_improves) else "NO")
+    # SECONDARY: V2+Quant intersection as a pre-trade filter on V2 signals
+    filter_wr  = cs["wr"]  > vs["wr"]  if cs["n"] > 0 else False
+    filter_ret = cs["ret"] > vs["ret"] if cs["n"] > 0 else False
     print(f"""
   ══════════════════════════════════════════════════════════════════════════════
-  FINAL VERDICT: Quant z-score improves on V2 — {verdict_yn}
-    WR  improvement : {'YES' if wr_improves  else 'NO'}  ({vs['wr']:+.0f}% → {cs['wr']:+.0f}%,  {cs['wr']-vs['wr']:+.0f} pp)
-    Ret improvement : {'YES' if ret_improves else 'NO'}  ({vs['ret']:+.1f}% → {cs['ret']:+.1f}%,  {cs['ret']-vs['ret']:+.1f} pp)
-    Quant STRONG filter reduces V2 trade count by {(vs['n']-cs['n'])/max(vs['n'],1)*100:.0f}% but
-    keeps the higher-conviction subset — use Quant score as a pre-trade gate.
+  FINAL VERDICT: Quant Alone vs V2 Alone — {verdict_yn}
+    WR  improvement : {'YES' if wr_improves  else 'NO'}  (V2: {vs['wr']:.0f}% → Quant: {qs['wr']:.0f}%,  {qs['wr']-vs['wr']:+.0f} pp)
+    Ret improvement : {'YES' if ret_improves else 'NO'}  (V2: {vs['ret']:.1f}% → Quant: {qs['ret']:.1f}%,  {qs['ret']-vs['ret']:+.1f} pp)
+  As pre-trade gate (V2+Quant intersection vs V2 alone):
+    WR : {'YES' if filter_wr  else 'NO'}  ({vs['wr']:.0f}% → {cs['wr']:.0f}%,  {cs['wr']-vs['wr']:+.0f} pp)  |  Ret: {'YES' if filter_ret else 'NO'}  ({vs['ret']:.1f}% → {cs['ret']:.1f}%,  {cs['ret']-vs['ret']:+.1f} pp)
+    Filter removes {(vs['n']-cs['n'])/max(vs['n'],1)*100:.0f}% of V2 signals ({vs['n']} → {cs['n']} trades)
   ══════════════════════════════════════════════════════════════════════════════""")
 
 
