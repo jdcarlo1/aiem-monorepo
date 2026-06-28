@@ -2272,3 +2272,9 @@ export interface GapVolumeResult {
 export function fetchGapVolumeSignal() {
   return fetchJson<GapVolumeResult>("/gap-volume-signal");
 }
+
+export function fetchFlowScores(tickers: string[]): Promise<Record<string, number | null>> {
+  if (!tickers.length) return Promise.resolve({});
+  const params = new URLSearchParams({ tickers: tickers.join(",") });
+  return fetchJson<Record<string, number | null>>(`/flow-scores?${params}`);
+}

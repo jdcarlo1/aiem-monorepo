@@ -10999,6 +10999,162 @@ def _save_unusual_calls_to_db(hits: list):
 _init_unusual_calls_log_table()
 
 
+# ── Flow Probability Score ────────────────────────────────────────────────────
+# On high-RVOL bullish days (rvol>=1.5, close>open), what % of the time does
+# the stock close ≥2% higher three trading days later?  Sourced entirely from
+# polygon_market_daily — zero live calls.  Cache is per calendar-day (ET).
+
+def _init_flow_prob_cache_table():
+    import psycopg2 as _pg2_fpi
+    try:
+        with _pg2_fpi.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS flow_probability_cache (
+                    ticker      TEXT        NOT NULL,
+                    cache_date  DATE        NOT NULL,
+                    score       INTEGER,
+                    n           INTEGER,
+                    wins        INTEGER,
+                    computed_at TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (ticker, cache_date)
+                );
+                CREATE INDEX IF NOT EXISTS idx_fpc_date ON flow_probability_cache(cache_date);
+            """)
+        print("[flow_prob] table ready")
+    except Exception as _e:
+        print(f"[flow_prob] table init error: {_e}")
+
+_init_flow_prob_cache_table()
+
+
+def _compute_ticker_flow_score(ticker: str):
+    """
+    Returns int 0-100 (probability %) or None when n < 15 qualifying days.
+    Signal day = close > open (any bullish close).
+    Win       = LEAD(close, 3) >= current_close * 1.02.
+    rvol filter dropped: polygon_market_daily rvol max is ~1.78 (compressed);
+    rvol ≥ 1.5 left mega-caps with <5 qualifying days; close>open gives n~250.
+    Score = P(+2% in 3d | bullish close day), 495-day backtest on 12K tickers.
+    """
+    import psycopg2 as _pg2_fps
+    try:
+        with _pg2_fps.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                WITH ordered AS (
+                    SELECT close_price, open_price,
+                           LEAD(close_price, 3) OVER (PARTITION BY ticker ORDER BY scan_date) AS fwd3
+                    FROM polygon_market_daily
+                    WHERE ticker      = %s
+                      AND close_price IS NOT NULL
+                      AND open_price  IS NOT NULL
+                ),
+                sdays AS (
+                    SELECT close_price, fwd3
+                    FROM ordered
+                    WHERE close_price > open_price AND fwd3 IS NOT NULL
+                )
+                SELECT COUNT(*) AS n,
+                       SUM(CASE WHEN fwd3 >= close_price * 1.02 THEN 1 ELSE 0 END) AS wins
+                FROM sdays
+            """, (ticker.upper(),))
+            row = _cu.fetchone()
+        if not row or row[0] is None or int(row[0]) < 10:
+            return None
+        _n, _wins = int(row[0]), int(row[1] or 0)
+        return round(_wins / _n * 100)
+    except Exception as _e:
+        print(f"[flow_prob] compute {ticker}: {_e}")
+        return None
+
+
+def _batch_flow_scores(tickers: list) -> dict:
+    """Load today's scores from cache; compute + save any cache misses."""
+    import psycopg2 as _pg2_bfs
+    from datetime import datetime as _dt_bfs
+    if not tickers:
+        return {}
+    _today = _dt_bfs.now(_ET).strftime("%Y-%m-%d")
+    out = {}
+    try:
+        with _pg2_bfs.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                "SELECT ticker, score FROM flow_probability_cache WHERE cache_date=%s AND ticker=ANY(%s)",
+                (_today, list(tickers))
+            )
+            for _t, _s in _cu.fetchall():
+                out[_t] = _s
+    except Exception as _e:
+        print(f"[flow_prob] cache read: {_e}")
+
+    missing = [t for t in tickers if t not in out]
+    if missing:
+        computed = {t: _compute_ticker_flow_score(t) for t in missing}
+        out.update(computed)
+        try:
+            with _pg2_bfs.connect(_DB_URL) as _c, _c.cursor() as _cu:
+                for _t, _s in computed.items():
+                    _cu.execute("""
+                        INSERT INTO flow_probability_cache (ticker, cache_date, score)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (ticker, cache_date) DO UPDATE
+                        SET score=EXCLUDED.score, computed_at=NOW()
+                    """, (_t, _today, _s))
+        except Exception as _e:
+            print(f"[flow_prob] cache write: {_e}")
+    return out
+
+
+@app.route("/stock-api/flow-scores", methods=["GET"])
+def flow_scores_endpoint():
+    """
+    GET /stock-api/flow-scores?tickers=NVDA,AAPL,MSFT
+    Returns { "NVDA": 67, "AAPL": null, ... }
+    null = fewer than 15 qualifying historical signal days.
+    """
+    _raw     = request.args.get("tickers", "")
+    _tickers = [t.strip().upper() for t in _raw.split(",") if t.strip()][:80]
+    if not _tickers:
+        return jsonify({}), 200
+    return jsonify(_batch_flow_scores(_tickers)), 200
+
+
+# Nightly pre-compute at 8:10 PM ET — warm the cache for every active ticker
+# so the first user request of the day is instant.
+def _run_nightly_flow_precompute():
+    import psycopg2 as _pg2_nfp
+    try:
+        with _pg2_nfp.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT DISTINCT ticker FROM (
+                    SELECT ticker FROM unusual_calls_log
+                    WHERE logged_at >= NOW() - INTERVAL '30 days'
+                    UNION ALL
+                    SELECT ticker FROM ai_short_calls_log
+                    WHERE trade_date >= CURRENT_DATE - 30
+                    UNION ALL
+                    SELECT ticker FROM polygon_rvol_scan
+                    WHERE scan_date >= CURRENT_DATE - 7
+                ) _t
+            """)
+            _tickers = [r[0] for r in _cu.fetchall()]
+        print(f"[flow_prob] nightly pre-compute: {len(_tickers)} tickers")
+        _scores = _batch_flow_scores(_tickers)
+        _nn = sum(1 for v in _scores.values() if v is not None)
+        print(f"[flow_prob] done: {len(_scores)} tickers, {_nn} with scores")
+    except Exception as _e:
+        print(f"[flow_prob] nightly error: {_e}")
+
+try:
+    _scheduler.add_job(
+        _run_nightly_flow_precompute,
+        CronTrigger(day_of_week="mon-fri", hour=20, minute=10, timezone=_ET),
+        id="nightly_flow_precompute",
+        replace_existing=True,
+    )
+except Exception as _e_fp_sched:
+    print(f"[flow_prob] scheduler add error: {_e_fp_sched}")
+
+
 def _load_todays_unusual_calls_from_db(etf_set=None):
     """Return every unusual call sweep logged today (ET), sorted by vol_oi desc.
     Called after each scan so the endpoint always serves the full day's

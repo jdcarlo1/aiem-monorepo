@@ -63,6 +63,7 @@ import {
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
   fetchGrinderScan, GrinderScanData, GrinderResult,
   fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
+  fetchFlowScores,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -101,6 +102,33 @@ function wrColor(v: number | null) {
 
 function Spinner() {
   return <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />;
+}
+
+function useFlowScores(tickers: string[]): Record<string, number | null> {
+  const [scores, setScores] = React.useState<Record<string, number | null>>({});
+  const key = [...tickers].sort().join(",");
+  React.useEffect(() => {
+    if (!tickers.length) return;
+    fetchFlowScores(tickers).then(d => setScores(d)).catch(() => {});
+  }, [key]);
+  return scores;
+}
+
+function FlowProbBadge({ score }: { score: number | null | undefined }) {
+  if (score == null) return null;
+  const color = score >= 65 ? "#4ade80" : score >= 50 ? "#facc15" : "#94a3b8";
+  const bg    = score >= 65 ? "rgba(74,222,128,0.1)"  : score >= 50 ? "rgba(250,204,21,0.08)"  : "rgba(148,163,184,0.06)";
+  const bdr   = score >= 65 ? "rgba(74,222,128,0.3)"  : score >= 50 ? "rgba(250,204,21,0.25)"  : "rgba(148,163,184,0.15)";
+  return (
+    <span
+      title={`Flow probability: on high-volume bullish days, ${score}% chance of +2% in 3 trading days (495-day backtest)`}
+      style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
+               background: bg, color, border: `1px solid ${bdr}`,
+               whiteSpace: "nowrap", fontFamily: "JetBrains Mono, monospace", cursor: "default" }}
+    >
+      {score}% 3d
+    </span>
+  );
 }
 
 function ClaudeMarkdown({ text }: { text: string }) {
@@ -3415,6 +3443,7 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 
   const ptColor = (pts: number) => pts >= 8 ? "#f87171" : pts >= 6 ? "#fb923c" : pts >= 4 ? "#facc15" : "#38bdf8";
   const results = data?.results ?? [];
+  const flowScores = useFlowScores(results.map(r => r.ticker));
   const extreme = results.filter(r => r.total_pts >= 8).length;
   const high    = results.filter(r => r.total_pts >= 6 && r.total_pts < 8).length;
 
@@ -3504,8 +3533,9 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
 
                 {/* Row 1: Ticker + score bar */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                     <span style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 20, color: "#fff" }}>${r.ticker}</span>
+                    <FlowProbBadge score={flowScores[r.ticker]} />
                     <span style={{ fontFamily: BB_F, fontSize: 11, color: pc, fontWeight: 700, background: `${pc}15`, padding: "3px 10px", borderRadius: 99, border: `1px solid ${pc}44` }}>
                       {r.label}
                     </span>
@@ -4302,6 +4332,8 @@ function AIShortCallsTab() {
     return () => clearTimeout(t);
   }, [bgGenerating, picks.length]);
 
+  const flowScores = useFlowScores(picks.map(p => p.ticker));
+
   const urgencyColor = (u: string) => {
     if (!u) return BB_DIM;
     const up = u.toUpperCase();
@@ -4384,8 +4416,9 @@ function AIShortCallsTab() {
 
               {/* Ticker + rec_type + strike/expiry */}
               <div style={{ flex: "0 0 auto", minWidth: 80 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 14, fontWeight: 900, color: "#fff" }}>{p.ticker}</span>
+                  <FlowProbBadge score={flowScores[p.ticker]} />
                   <span style={{
                     fontSize: 8, fontWeight: 900, borderRadius: 3, padding: "1px 5px",
                     background: p.rec_type === "BUY_STOCK" ? "rgba(0,230,118,0.12)" : "rgba(255,102,0,0.12)",

@@ -1,0 +1,184 @@
+def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
+    """
+    Confirmed column names:
+      ai_short_calls_log.stock_price = entry price (p0)
+      ai_short_calls_log.breakeven   = options breakeven price
+      polygon_market_daily: ticker, scan_date, close_price
+
+    Win: close >= breakeven (if set), else (close-p0)/p0*100 >= 2.0
+    days: any N — OFFSET (N-1) on polygon_market_daily
+    Confidence: n<20 TOO FEW | n 20-49 LIMITED | n>=50 REASONABLE SAMPLE
+
+    PATCH: confidence (sample-size only) and match_dimensionality (how many
+    score fields actually matched, after fallback) are now reported as two
+    separate numbers, plus a combined overall_confidence that is downgraded
+    whenever dimensionality is low — so a single-field fallback match can
+    never silently read with the same trust as a full 4-field match.
+    """
+    import psycopg2 as _pg_pst
+
+    # _scwin is defined inside _update_ai_short_call_outcomes, not module-level
+    def _scwin_pst(close, p0, bkeven):
+        if close is None or p0 is None or float(p0) <= 0:
+            return None
+        if bkeven and float(bkeven) > 0:
+            return float(close) >= float(bkeven)
+        return (float(close) - float(p0)) / float(p0) * 100 >= 2.0
+
+    _SCORE_FIELDS = ["gamma_score", "dark_pool_score", "squeeze_score", "sector_heat_score"]
+
+    try:
+        days = int(days)
+        with _pg_pst.connect(_DB_URL) as _c, _c.cursor() as _cu:
+
+            # Step 1: most recent pick for this ticker
+            _cu.execute("""
+                SELECT ticker, trade_date,
+                       gamma_score, dark_pool_score, squeeze_score, sector_heat_score,
+                       conviction, stock_price AS entry_price, breakeven
+                FROM ai_short_calls_log
+                WHERE ticker = %s
+                ORDER BY trade_date DESC
+                LIMIT 1
+            """, (ticker.upper(),))
+            row = _cu.fetchone()
+            if not row:
+                return {"error": f"No pick found for ticker {ticker}"}
+            cols = [d[0] for d in _cu.description]
+            current = dict(zip(cols, row))
+
+            # Step 2: ±20% similarity bands on every non-null/non-zero score
+            band_clauses = []
+            band_params = []
+            for field in _SCORE_FIELDS:
+                val = current.get(field)
+                if val is not None and float(val) != 0:
+                    lo, hi = float(val) * 0.8, float(val) * 1.2
+                    band_clauses.append(f"{field} BETWEEN %s AND %s")
+                    band_params.extend([lo, hi])
+
+            if not band_clauses:
+                return {
+                    "error": "No non-null/non-zero scores on current pick",
+                    "current_scores": {f: current.get(f) for f in _SCORE_FIELDS},
+                }
+
+            # Step 3: cascade filter — try all bands (AND); if empty, drop the
+            # sparsest field and retry. Needed because gamma_score (8 picks) AND
+            # dark_pool_score (340 picks) can AND-intersect to zero.
+            _FIELD_PRIORITY = [
+                "dark_pool_score",    # 340 populated
+                "squeeze_score",      # 284 populated
+                "sector_heat_score",  # 52  populated
+                "gamma_score",        # 8   populated
+            ]
+            _band_map = {}
+            _bc_idx = 0
+            for field in _SCORE_FIELDS:
+                val = current.get(field)
+                if val is not None and float(val) != 0:
+                    _band_map[field] = (band_clauses[_bc_idx], [float(val)*0.8, float(val)*1.2])
+                    _bc_idx += 1
+
+            _max_available_fields = len(_band_map)   # NEW: how many fields *could* have matched
+
+            _tried_fields = [f for f in _FIELD_PRIORITY if f in _band_map]
+            matches = []
+            used_fields = []
+            fallback_mode = False
+            while _tried_fields:
+                _clauses = [_band_map[f][0] for f in _tried_fields]
+                _params  = [v for f in _tried_fields for v in _band_map[f][1]]
+                _params += [current["ticker"], current["trade_date"]]
+                _cu.execute("""
+                    SELECT ticker, trade_date, stock_price AS entry_price, breakeven
+                    FROM ai_short_calls_log
+                    WHERE {clauses}
+                      AND NOT (ticker = %s AND trade_date = %s)
+                      AND stock_price IS NOT NULL
+                """.format(clauses=" AND ".join(_clauses)), _params)
+                cols2 = [d[0] for d in _cu.description]
+                matches = [dict(zip(cols2, r)) for r in _cu.fetchall()]
+                if matches:
+                    used_fields = list(_tried_fields)
+                    fallback_mode = len(_tried_fields) < len(_band_map)
+                    break
+                _tried_fields.pop()   # drop sparsest remaining field
+
+            if not matches:
+                return {
+                    "error": "No historical matches found even with single-score fallback",
+                    "current_scores": {f: current.get(f) for f in _SCORE_FIELDS},
+                }
+
+            # Step 4: OFFSET (days-1) → Nth trading session after trade_date
+            wins = []
+            skipped = 0
+            for m in matches:
+                _cu.execute("""
+                    SELECT close_price
+                    FROM polygon_market_daily
+                    WHERE ticker = %s
+                      AND scan_date > %s
+                    ORDER BY scan_date ASC
+                    LIMIT 1 OFFSET %s
+                """, (m["ticker"], m["trade_date"], days - 1))
+                price_row = _cu.fetchone()
+                if not price_row or price_row[0] is None:
+                    skipped += 1
+                    continue
+                # Step 5: win/loss
+                w = _scwin_pst(float(price_row[0]), m["entry_price"], m.get("breakeven"))
+                if w is not None:
+                    wins.append(w)
+
+        n = len(wins)
+        if n == 0:
+            return {"error": "No matches had usable forward price data",
+                    "n_matches_found": len(matches), "n_skipped_no_price": skipped}
+
+        win_rate_pct = round(sum(1 for w in wins if w) / n * 100, 1)
+
+        # ── Sample-size confidence (unchanged) ───────────────────────────────
+        sample_confidence = ("TOO FEW SIMILAR HISTORICAL SETUPS TO TRUST" if n < 20
+                              else "LIMITED DATA" if n < 50
+                              else "REASONABLE SAMPLE")
+
+        # ── NEW: dimensionality — how many score fields actually matched ─────
+        match_dimensionality     = len(used_fields)
+        match_dimensionality_max = _max_available_fields
+
+        # ── NEW: combined confidence — dimensionality can only downgrade,
+        # never upgrade, the sample-size confidence. A single-field fallback
+        # match caps out at LIMITED DATA even if n >= 50, because matching on
+        # one of four intended dimensions is a materially weaker claim than
+        # matching on all of them.
+        if match_dimensionality <= 1 and sample_confidence == "REASONABLE SAMPLE":
+            overall_confidence = "LIMITED DATA (single-factor match — see match_dimensionality)"
+        elif match_dimensionality < match_dimensionality_max and sample_confidence == "REASONABLE SAMPLE":
+            overall_confidence = "REASONABLE SAMPLE, PARTIAL MATCH (see match_dimensionality)"
+        else:
+            overall_confidence = sample_confidence
+
+        return {
+            "ticker":                       ticker.upper(),
+            "days":                         days,
+            "current_scores":               {f: (float(current.get(f)) if current.get(f) is not None else None)
+                                             for f in _SCORE_FIELDS},
+            "filters_used":                 used_fields,
+            "fallback_mode":                fallback_mode,
+            "match_dimensionality":         match_dimensionality,       # NEW
+            "match_dimensionality_max":     match_dimensionality_max,   # NEW
+            "n_similar_historical_setups":  n,
+            "n_skipped_no_price_data":      skipped,
+            "win_rate_pct":                 win_rate_pct,
+            "confidence":                   sample_confidence,          # sample-size only, as before
+            "overall_confidence":           overall_confidence,         # NEW: sample-size AND dimensionality
+            "note": ("win_rate_pct is meaningless without checking n_similar_historical_setups "
+                     "AND match_dimensionality alongside it — a high n with dimensionality=1 means "
+                     "the match only controlled for one of four intended factors."),
+        }
+
+    except Exception as _e_pst:
+        import traceback as _tb_pst
+        return {"error": str(_e_pst), "trace": _tb_pst.format_exc()}
