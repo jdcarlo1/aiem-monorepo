@@ -16141,6 +16141,160 @@ def _aiem_tool_run_statistical_significance(group_a_wins, group_a_n,
 # ── The agentic loop ───────────────────────────────────────────────────────────
 
 
+def _aiem_tool_predict_short_term(ticker: str, days: int = 3) -> dict:
+    """
+    Predict short-term win probability for a ticker by finding settled picks in
+    ai_short_calls_log with similar conviction scores, then looking up their
+    N-day forward close price via polygon_market_daily (OFFSET pattern — no live
+    HTTP calls, no yfinance).
+
+    Win definition mirrors _scwin():
+      - Primary:  close >= breakeven (options breakeven)
+      - Fallback: close moved up ≥ 2% from pick price
+
+    Confidence tiers:
+      n <  20 → "TOO FEW SIMILAR HISTORICAL SETUPS TO TRUST"
+      n 20-49 → "LIMITED DATA"
+      n >= 50 → "REASONABLE SAMPLE"
+    """
+    import psycopg2 as _pg_pst
+
+    def _scwin_pst(close, p0, bkeven):
+        if close is None or p0 is None or float(p0) <= 0:
+            return None
+        if bkeven and float(bkeven) > 0:
+            return float(close) >= float(bkeven)
+        return (float(close) - float(p0)) / float(p0) * 100 >= 2.0
+
+    try:
+        with _pg_pst.connect(_DB_URL) as _c, _c.cursor() as _cur:
+
+            # ── Step 1: most recent pick for this ticker ───────────────────────
+            _cur.execute("""
+                SELECT stock_price, strike, breakeven,
+                       gamma_score, dark_pool_score, squeeze_score, sector_heat_score,
+                       trade_date
+                FROM ai_short_calls_log
+                WHERE ticker = %s
+                ORDER BY trade_date DESC, id DESC
+                LIMIT 1
+            """, (ticker.upper(),))
+            row = _cur.fetchone()
+            if not row:
+                return {"error": f"No pick found for {ticker} in ai_short_calls_log"}
+
+            p0, strike, bkeven, g_sc, dp_sc, sq_sc, sh_sc, trade_date = row
+
+            current_scores = {
+                "gamma_score":       float(g_sc)  if g_sc  is not None else None,
+                "dark_pool_score":   float(dp_sc) if dp_sc is not None else None,
+                "squeeze_score":     float(sq_sc) if sq_sc is not None else None,
+                "sector_heat_score": float(sh_sc) if sh_sc is not None else None,
+            }
+
+            # ── Step 2: build similarity filter (±20%, floor abs-span=0.5) ────
+            def _band(v, tol=0.20, floor=0.5):
+                if v is None:
+                    return None, None
+                span = max(abs(float(v)) * tol, floor)
+                return float(v) - span, float(v) + span
+
+            conditions = ["outcome != 'OPEN'", "stock_price IS NOT NULL"]
+            params = []
+            active_filters = []
+
+            for col, val in [
+                ("gamma_score",       g_sc),
+                ("dark_pool_score",   dp_sc),
+                ("squeeze_score",     sq_sc),
+                ("sector_heat_score", sh_sc),
+            ]:
+                lo, hi = _band(val)
+                if lo is not None:
+                    conditions.append(f"{col} BETWEEN %s AND %s")
+                    params += [lo, hi]
+                    active_filters.append(f"{col} ∈ [{lo:.2f}, {hi:.2f}]")
+
+            where = " AND ".join(conditions)
+            _cur.execute(f"""
+                SELECT ticker AS m_ticker, trade_date AS m_date,
+                       stock_price AS m_p0, breakeven AS m_bk
+                FROM ai_short_calls_log
+                WHERE {where}
+                ORDER BY trade_date DESC
+                LIMIT 300
+            """, params)
+            matches = _cur.fetchall()
+
+            # ── Steps 3+4: forward close via polygon_market_daily OFFSET ──────
+            # OFFSET (days-1) returns the Nth row when sorted ASC by scan_date,
+            # i.e. the close price exactly `days` trading sessions after the pick.
+            # If target date is a weekend/holiday, Polygon's next session is returned.
+            wins = 0
+            evaluated = 0
+            details = []
+
+            for (m_ticker, m_date, m_p0, m_bk) in matches:
+                _cur.execute("""
+                    SELECT close_price, scan_date
+                    FROM polygon_market_daily
+                    WHERE ticker = %s
+                      AND scan_date > %s
+                    ORDER BY scan_date ASC
+                    LIMIT 1 OFFSET %s
+                """, (m_ticker, str(m_date), days - 1))
+                pr = _cur.fetchone()
+                if not pr or pr[0] is None:
+                    continue
+                close, settle_date = float(pr[0]), str(pr[1])
+                w = _scwin_pst(close, m_p0, m_bk)
+                if w is None:
+                    continue
+                wins += 1 if w else 0
+                evaluated += 1
+                if len(details) < 5:
+                    pct = round((close - float(m_p0)) / float(m_p0) * 100, 2) if m_p0 else None
+                    details.append({
+                        "ticker":     m_ticker,
+                        "pick_date":  str(m_date),
+                        "settle_date": settle_date,
+                        "close":      round(close, 2),
+                        "move_pct":   pct,
+                        "win":        w,
+                    })
+
+            # ── Step 5: confidence tier ────────────────────────────────────────
+            if evaluated < 20:
+                confidence = "TOO FEW SIMILAR HISTORICAL SETUPS TO TRUST"
+            elif evaluated < 50:
+                confidence = "LIMITED DATA"
+            else:
+                confidence = "REASONABLE SAMPLE"
+
+            wr = round(wins / evaluated * 100, 1) if evaluated > 0 else None
+
+            return {
+                "ticker":         ticker.upper(),
+                "days":           days,
+                "current_scores": current_scores,
+                "active_filters": active_filters,
+                "matched_picks":  len(matches),
+                "sample_size":    evaluated,
+                "wins":           wins,
+                "win_rate_pct":   wr,
+                "confidence":     confidence,
+                "sample_details": details,
+                "note": (
+                    f"Matched {len(matches)} settled picks with similar scores; "
+                    f"{evaluated} had polygon_market_daily data for T+{days}"
+                ),
+            }
+
+    except Exception as _e_pst:
+        import traceback as _tb_pst
+        return {"error": str(_e_pst), "trace": _tb_pst.format_exc()}
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # SIGNAL DISCOVERY ENGINE  -  autonomous hypothesis testing + indicator creation
 # Tools: list_signal_dimensions, test_new_signal, analyze_missed_movers
@@ -23677,6 +23831,7 @@ def _build_aiem_tool_map():
         "query_rank_effectiveness":          _aiem_tool_query_rank_effectiveness,
         "query_exit_timing":                 _aiem_tool_query_exit_timing,
         "run_statistical_significance":      _aiem_tool_run_statistical_significance,
+        "predict_short_term":               _aiem_tool_predict_short_term,
         "save_research_model":               _aiem_tool_save_research_model,
         "register_hypotheses":               _aiem_tool_register_hypotheses,
         "multivariate_regression":           _aiem_tool_multivariate_regression,
@@ -28327,6 +28482,7 @@ def _run_aiem_research_agent(max_iterations=None):
         "query_rank_effectiveness":     _aiem_tool_query_rank_effectiveness,
         "query_exit_timing":            _aiem_tool_query_exit_timing,
         "run_statistical_significance": _aiem_tool_run_statistical_significance,
+        "predict_short_term":          _aiem_tool_predict_short_term,
         "save_research_model":          _aiem_tool_save_research_model,
         # ── Three new upgrades ────────────────────────────────────────────────
         "register_hypotheses":          _aiem_tool_register_hypotheses,
