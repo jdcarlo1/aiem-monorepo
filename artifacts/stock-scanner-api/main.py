@@ -32,21 +32,30 @@ del _pg_patch, _make_safe_pg_connect
 from scanner import analyze_ticker, scan_tickers, WATCHLIST_DEFAULT, fetch_stock_data
 from portfolio import get_portfolio, add_position, remove_position, get_portfolio_value
 
-# ── AIEM specialist modules (wired into paper trading + research loop) ────────
+# ── AIEM specialist modules (all 9 — wired into paper trading, regime overlay,
+#    research loop, and point-in-time backtest integrity) ────────────────────
 try:
     import sys as _sys
     _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    # Paper-trading / research wiring
     import fred_macro as _fred_macro
     import social_sentiment as _social_sentiment
     import drift_alarm as _drift_alarm
     import active_hypothesis_selection as _active_hypothesis
     import bull_bear_debate as _bull_bear
     import specialist_council as _specialist_council
-    print("[aiem_modules] all 6 specialist modules loaded ✓")
+    # Regime overlay wiring (market_regime_overlay.py imports these directly;
+    # we also expose them here so main.py code can call them if needed)
+    import macro_cross_asset as _macro_cross_asset
+    import volatility_clustering as _volatility_clustering
+    # Point-in-time backtest integrity
+    import point_in_time_guard as _pit_guard
+    print("[aiem_modules] all 9 specialist modules loaded ✓")
 except Exception as _aiem_mod_e:
     print(f"[aiem_modules] load warning: {_aiem_mod_e}")
     _fred_macro = _social_sentiment = _drift_alarm = None
     _active_hypothesis = _bull_bear = _specialist_council = None
+    _macro_cross_asset = _volatility_clustering = _pit_guard = None
 from backtest import backtest_strategy
 from alerts import get_alerts, add_alert, delete_alert
 from analytics import run_historical_analytics
@@ -11415,9 +11424,70 @@ try:
         id="aiem_paper_drift",
         replace_existing=True,
     )
-    print("[aiem_paper] scheduler jobs registered (9:35 AM execute, 4:00 PM MTM, 4:35 PM drift check)")
+    _scheduler.add_job(
+        lambda: _run_daily_fundamentals_snapshot(),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=_ET),
+        id="daily_fundamentals_snapshot",
+        replace_existing=True,
+    )
+    print("[aiem_paper] scheduler jobs registered (9:35 AM execute, 4:00 PM MTM, 4:35 PM drift, 4:45 PM fundamentals snapshot)")
 except Exception as _e_ap_sched:
     print(f"[aiem_paper] scheduler error: {_e_ap_sched}")
+
+
+def _init_daily_fundamentals_snapshot_table():
+    """Create the daily_fundamentals_snapshot table if it doesn't exist."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS daily_fundamentals_snapshot (
+                    ticker        TEXT NOT NULL,
+                    snapshot_date DATE NOT NULL,
+                    market_cap    BIGINT,
+                    sector        TEXT,
+                    pe_ratio      DOUBLE PRECISION,
+                    forward_pe    DOUBLE PRECISION,
+                    beta          DOUBLE PRECISION,
+                    PRIMARY KEY (ticker, snapshot_date)
+                )
+            """)
+            _c.commit()
+        print("[fundamentals_snapshot] table ready")
+    except Exception as _e:
+        print(f"[fundamentals_snapshot] table init error: {_e}")
+
+_init_daily_fundamentals_snapshot_table()
+
+
+def _run_daily_fundamentals_snapshot():
+    """
+    4:45 PM ET: snapshot current fundamentals for the conviction watchlist
+    into daily_fundamentals_snapshot so future backtests have a real
+    point-in-time source (via point_in_time_guard) instead of always-current
+    yfinance .info values.
+    """
+    if not _pit_guard:
+        return
+    try:
+        # Build universe: conviction watchlist + recent paper trading picks
+        _tickers = set()
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("SELECT DISTINCT ticker FROM conviction_stack_watchlist LIMIT 60")
+            for _r in _cu.fetchall():
+                _tickers.add(_r[0])
+            _cu.execute("SELECT DISTINCT ticker FROM aiem_paper_trades WHERE trade_date >= CURRENT_DATE - INTERVAL '7 days' LIMIT 40")
+            for _r in _cu.fetchall():
+                _tickers.add(_r[0])
+
+        if not _tickers:
+            print("[fundamentals_snapshot] no tickers to snapshot")
+            return
+
+        with _psycopg2.connect(_DB_URL, connect_timeout=8) as _c:
+            _pit_guard.snapshot_daily_fundamentals(sorted(_tickers), _c)
+        print(f"[fundamentals_snapshot] snapshotted {len(_tickers)} tickers")
+    except Exception as _se:
+        print(f"[fundamentals_snapshot] error: {_se}")
 
 
 def _aiem_paper_drift_check():
@@ -15729,6 +15799,50 @@ def _aiem_tool_query_own_prediction_performance(days_back=45):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+def _aiem_tool_fetch_historical_prices_pit(ticker: str, as_of_date: str,
+                                             period: str = "2y") -> dict:
+    """
+    Point-in-time price fetch for AIEM backtest work. Wraps
+    point_in_time_guard.fetch_point_in_time_prices() to ensure no future
+    data bleeds into historical feature computation.
+
+    Use this INSTEAD of any direct yfinance call whenever you need prices
+    for computing a feature at a past signal_date. It fetches raw (unadjusted)
+    prices so future stock splits don't retroactively change historical values,
+    then trims everything strictly after as_of_date.
+
+    as_of_date: 'YYYY-MM-DD' string — the signal_date of the backtest row.
+    period:     yfinance period string, default '2y'. Enough for most indicators.
+    """
+    if not _pit_guard:
+        return {"error": "point_in_time_guard module not available"}
+    try:
+        df = _pit_guard.fetch_point_in_time_prices(ticker, as_of_date, period=period)
+        if df is None or df.empty:
+            return {"ticker": ticker, "as_of_date": as_of_date, "rows": 0, "data": []}
+        df = df.tail(30)  # return last 30 rows for the agent to work with
+        records = []
+        for idx, row in df.iterrows():
+            rec = {"date": str(idx.date() if hasattr(idx, "date") else idx)}
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                if col in row:
+                    v = row[col]
+                    import math as _m
+                    rec[col.lower()] = None if (v is None or (isinstance(v, float) and (_m.isnan(v) or _m.isinf(v)))) else round(float(v), 4)
+            records.append(rec)
+        return {
+            "ticker":       ticker,
+            "as_of_date":   as_of_date,
+            "rows":         len(df),
+            "data":         records,
+            "note":         "raw unadjusted prices, trimmed at as_of_date — safe for backtests",
+        }
+    except _pit_guard.LookaheadViolation as _lv:
+        return {"error": f"lookahead violation: {_lv}"}
+    except Exception as _pe:
+        return {"error": str(_pe)}
 
 
 def _aiem_tool_rank_hypothesis_candidates(candidates: list) -> dict:
@@ -24634,6 +24748,7 @@ def _build_aiem_tool_map():
         "review_own_accuracy":              _aiem_tool_review_own_accuracy,
         "save_research_model":               _aiem_tool_save_research_model,
         "register_hypotheses":               _aiem_tool_register_hypotheses,
+        "fetch_historical_prices_pit":       _aiem_tool_fetch_historical_prices_pit,
         "rank_hypothesis_candidates":        _aiem_tool_rank_hypothesis_candidates,
         "multivariate_regression":           _aiem_tool_multivariate_regression,
         "search_past_findings":              _aiem_tool_search_past_findings,
@@ -25107,6 +25222,25 @@ _AIEM_AGENT_TOOLS = [
             "group_b_n": {"type": "number"},
             "n_bootstrap": {"type": "integer", "description": "Bootstrap iterations, default 10000"}
         }, "required": ["group_a_wins", "group_a_n", "group_b_wins", "group_b_n"]}
+    }},
+    {"type": "function", "function": {
+        "name": "fetch_historical_prices_pit",
+        "description": (
+            "Point-in-time safe price fetch for AIEM backtest work. "
+            "Use this INSTEAD of direct yfinance whenever you need historical prices to compute "
+            "a feature for a past signal_date in a backtest or walk-forward validation. "
+            "Fetches raw (unadjusted) prices so future stock splits don't retroactively corrupt "
+            "historical values, then trims everything strictly after as_of_date. "
+            "If you use regular yfinance in a backtest you get 'future split bleeds into the past' "
+            "lookahead contamination. This tool eliminates that."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":       {"type": "string"},
+            "as_of_date":   {"type": "string",
+                             "description": "The signal_date of the backtest row, YYYY-MM-DD format"},
+            "period":       {"type": "string", "default": "2y",
+                             "description": "yfinance period string (e.g. '1y', '2y'). Default 2y."},
+        }, "required": ["ticker", "as_of_date"]}
     }},
     {"type": "function", "function": {
         "name": "rank_hypothesis_candidates",
