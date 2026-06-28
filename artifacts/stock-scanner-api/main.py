@@ -3820,6 +3820,10 @@ try:
         # Captures 1-min OHLCV for ~50 priority tickers + live-signal names.
         # Feeds AIEM hypothesis #12 (intraday pattern research).
         def _run_intraday_capture_job():
+            # Gate 1: weekends + NYSE holidays (full calendar check via _intraday_scan_allowed)
+            if not _intraday_scan_allowed():
+                return
+            # Gate 2: narrow the window — start at 9:35 (let market settle) and cut at 16:00
             import datetime as _dtid
             _now_id = _dtid.datetime.now(_ET)
             _h, _m  = _now_id.hour, _now_id.minute
