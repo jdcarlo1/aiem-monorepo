@@ -12461,7 +12461,7 @@ function QuantAgentTab() {
             for (let i = 0; i < items.length; i++) {
               if (items[i].type.startsWith("image/")) {
                 const file = items[i].getAsFile();
-                if (file) { handleFileSelect(file); break; }
+                if (file) { e.preventDefault(); handleFileSelect(file); break; }
               }
             }
           }}
