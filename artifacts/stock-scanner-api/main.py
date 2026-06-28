@@ -13431,24 +13431,109 @@ def _init_ai_short_calls_log_table():
         print(f"[ai_short_calls_log] init error: {e}")
 
 
+def _compute_pick_layer_scores(tickers: list, trade_date: str) -> dict:
+    """
+    Batch-compute the four ML feature scores for a list of tickers at pick time.
+    Returns {ticker: {gamma_score, dark_pool_score, squeeze_score, sector_heat_score}}.
+    Each sub-fetch is individually guarded — a failure returns None for that column,
+    never crashes the whole save.
+    """
+    result = {t: {"gamma_score": None, "dark_pool_score": None,
+                  "squeeze_score": None, "sector_heat_score": None}
+              for t in tickers}
+
+    # ── gamma_score: MAX(fir) from gamma_pressure_alerts for this date ────────
+    try:
+        with _psycopg2.connect(_DB_URL) as _gc, _gc.cursor() as _gcur:
+            _gcur.execute("""
+                SELECT ticker, MAX(fir) FROM gamma_pressure_alerts
+                WHERE alert_date = %s AND ticker = ANY(%s)
+                GROUP BY ticker
+            """, (trade_date, list(tickers)))
+            for _tk, _fir in _gcur.fetchall():
+                if _tk in result:
+                    result[_tk]["gamma_score"] = float(_fir) if _fir is not None else None
+    except Exception as _ge:
+        print(f"[pick_scores] gamma fetch error: {_ge}")
+
+    # ── dark_pool_score: off_exchange_pct from FINRA Reg SHO (batch) ─────────
+    try:
+        _dp = _get_dark_pool_convergence(tickers)
+        for _tk, _dp_data in _dp.items():
+            if _tk in result:
+                result[_tk]["dark_pool_score"] = _dp_data.get("off_exchange_pct")
+    except Exception as _dpe:
+        print(f"[pick_scores] dark_pool fetch error: {_dpe}")
+
+    # ── squeeze_score: SI% from yfinance (respects yahoo breaker) ────────────
+    try:
+        if not _yf_breaker_open():
+            _si = _get_short_interest(tickers)
+            for _tk, _si_data in _si.items():
+                if _tk in result:
+                    result[_tk]["squeeze_score"] = _si_data.get("si_pct")
+    except Exception as _sie:
+        print(f"[pick_scores] squeeze fetch error: {_sie}")
+
+    # ── sector_heat_score: heat score for ticker's sector ────────────────────
+    try:
+        _sh = _get_sector_heat(days_back=2)
+        _ticker_heat: dict = {}
+        for _hs in _sh.get("hot_sectors", []):
+            _heat = _hs.get("heat_score", 0)
+            for _stk in _hs.get("sympathy_plays", []):
+                if _stk not in _ticker_heat or _heat > _ticker_heat[_stk]:
+                    _ticker_heat[_stk] = _heat
+        for _tk in tickers:
+            if _tk in result and _tk in _ticker_heat:
+                result[_tk]["sector_heat_score"] = float(_ticker_heat[_tk])
+    except Exception as _she:
+        print(f"[pick_scores] sector_heat fetch error: {_she}")
+
+    return result
+
+
 def _save_ai_short_calls_to_log(picks: list, trade_date: str):
-    """Persist today's AI short-call picks. Skips rows already logged."""
+    """Persist today's AI short-call picks. Skips rows already logged.
+    Also writes gamma_score, dark_pool_score, squeeze_score, sector_heat_score
+    at insert time so future ML retrains have real features for every pick.
+    pick_id (BIGSERIAL) is returned and used as the stable join key into
+    aiem_ml_predictions — never rely on ticker+trade_date which collides if
+    the same ticker is picked twice on the same day.
+    """
     if not picks:
         return
     try:
+        # ── Batch-compute all four layer scores before touching the DB ────────
+        _tickers = [p.get("ticker") for p in picks if p.get("ticker")]
+        _layer_scores = {}
+        if _tickers:
+            try:
+                _layer_scores = _compute_pick_layer_scores(_tickers, trade_date)
+            except Exception as _lse:
+                print(f"[ai_short_calls_log] layer score error (non-fatal): {_lse}")
+
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             for i, p in enumerate(picks):
+                _tk = p.get("ticker")
+                _sc = _layer_scores.get(_tk, {})
                 cur.execute("""
                     INSERT INTO ai_short_calls_log
                         (trade_date, rank, ticker, strike, expiry, days_out, vol_oi,
                          prem, stock_price, otm_pct, breakeven, conviction, urgency,
-                         thesis, why_it_stands_out, rec_type, day_ret, confirmed_2d)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (trade_date, ticker, strike, expiry) DO NOTHING
+                         thesis, why_it_stands_out, rec_type, day_ret, confirmed_2d,
+                         gamma_score, dark_pool_score, squeeze_score, sector_heat_score)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (trade_date, ticker, strike, expiry) DO UPDATE
+                        SET gamma_score       = COALESCE(EXCLUDED.gamma_score,       ai_short_calls_log.gamma_score),
+                            dark_pool_score   = COALESCE(EXCLUDED.dark_pool_score,   ai_short_calls_log.dark_pool_score),
+                            squeeze_score     = COALESCE(EXCLUDED.squeeze_score,     ai_short_calls_log.squeeze_score),
+                            sector_heat_score = COALESCE(EXCLUDED.sector_heat_score, ai_short_calls_log.sector_heat_score)
+                    RETURNING pick_id, id
                 """, (
                     trade_date,
                     i + 1,
-                    p.get("ticker"),
+                    _tk,
                     p.get("strike"),
                     p.get("expiry"),
                     p.get("days_out"),
@@ -13464,23 +13549,151 @@ def _save_ai_short_calls_to_log(picks: list, trade_date: str):
                     p.get("rec_type", "BUY_CALL"),
                     p.get("day_ret"),
                     p.get("confirmed_2d"),
+                    _sc.get("gamma_score"),
+                    _sc.get("dark_pool_score"),
+                    _sc.get("squeeze_score"),
+                    _sc.get("sector_heat_score"),
                 ))
+                _returned = cur.fetchone()
+                if _returned and _tk:
+                    _pick_id_val, _row_id = _returned
+                    # Write to aiem_ml_predictions using pick_id as join key
+                    try:
+                        import json as _json
+                        _features = {
+                            "days_out":         p.get("days_out"),
+                            "vol_oi":           p.get("vol_oi"),
+                            "otm_pct":          p.get("otm_pct"),
+                            "prem":             p.get("prem"),
+                            "conviction":       p.get("conviction"),
+                            "gamma_score":      _sc.get("gamma_score"),
+                            "dark_pool_score":  _sc.get("dark_pool_score"),
+                            "squeeze_score":    _sc.get("squeeze_score"),
+                            "sector_heat_score":_sc.get("sector_heat_score"),
+                        }
+                        cur.execute("""
+                            INSERT INTO aiem_ml_predictions
+                                (ticker, trade_date, predicted_prob, model_version,
+                                 features_json, created_at)
+                            VALUES (%s, %s, NULL, %s, %s::jsonb, NOW())
+                            ON CONFLICT DO NOTHING
+                        """, (
+                            _tk,
+                            trade_date,
+                            "pending_score",
+                            _json.dumps({k: v for k, v in _features.items() if v is not None}),
+                        ))
+                    except Exception as _mp_e:
+                        print(f"[ai_short_calls_log] aiem_ml_predictions insert error: {_mp_e}")
             conn.commit()
-        # Log each pick into the ML prediction tracker
-        try:
-            from prediction_logger import log_prediction as _log_pred
-            from feature_engineering import build_feature_row as _bfr
-            for p in picks:
-                _ticker = p.get("ticker")
-                if _ticker:
-                    _feat = _bfr({"trade_date": trade_date, **p}, market_df=None)
-                    _log_pred(_ticker, trade_date, predicted_prob=None,
-                              features=_feat, model_version="rule_based")
-        except Exception as _pl_e:
-            print(f"[prediction_logger] log picks error: {_pl_e}")
-        print(f"[ai_short_calls_log] saved {len(picks)} picks for {trade_date}")
+        print(f"[ai_short_calls_log] saved {len(picks)} picks for {trade_date} (with layer scores)")
     except Exception as e:
         print(f"[ai_short_calls_log] save error: {e}")
+
+
+def _backfill_pick_scores():
+    """
+    Backfill gamma_score, dark_pool_score, and sector_heat_score for existing
+    ai_short_calls_log rows where those columns are NULL.
+
+    What CAN be backfilled from stored data:
+      gamma_score       — gamma_pressure_alerts table has historical rows by date ✅
+      dark_pool_score   — FINRA Reg SHO CDN files are public and queryable by date ✅
+      sector_heat_score — polygon_market_daily has historical data ✅
+      squeeze_score     — yfinance SI% is current-only, NOT historical ❌ (stays NULL)
+
+    Returns a summary dict with counts.
+    """
+    from datetime import datetime as _dt2, timedelta as _td2
+    import json as _json2
+    summary = {"rows_found": 0, "gamma_updated": 0, "dark_pool_updated": 0,
+               "sector_updated": 0, "errors": []}
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            # Find rows with any NULL score column
+            cur.execute("""
+                SELECT pick_id, ticker, trade_date
+                FROM ai_short_calls_log
+                WHERE gamma_score IS NULL
+                   OR dark_pool_score IS NULL
+                   OR sector_heat_score IS NULL
+                ORDER BY trade_date DESC
+                LIMIT 500
+            """)
+            rows = cur.fetchall()
+            summary["rows_found"] = len(rows)
+            if not rows:
+                return summary
+
+            # Group by date so we can batch per-date
+            from collections import defaultdict as _dd
+            by_date = _dd(list)
+            for pick_id, ticker, trade_date in rows:
+                by_date[str(trade_date)].append((pick_id, ticker))
+
+            for date_str, picks_on_date in by_date.items():
+                tickers_on_date = [t for _, t in picks_on_date]
+                pick_id_map = {t: pid for pid, t in picks_on_date}
+
+                # ── gamma: query gamma_pressure_alerts for this date ──────────
+                gamma_by_ticker = {}
+                try:
+                    cur.execute("""
+                        SELECT ticker, MAX(fir) FROM gamma_pressure_alerts
+                        WHERE alert_date = %s AND ticker = ANY(%s)
+                        GROUP BY ticker
+                    """, (date_str, tickers_on_date))
+                    gamma_by_ticker = {r[0]: float(r[1]) for r in cur.fetchall() if r[1] is not None}
+                except Exception as _ge2:
+                    summary["errors"].append(f"gamma {date_str}: {_ge2}")
+
+                # ── dark_pool: fetch FINRA file for this specific date ────────
+                dp_by_ticker = {}
+                try:
+                    dp_by_ticker = _get_dark_pool_convergence(tickers_on_date)
+                    dp_by_ticker = {k: v.get("off_exchange_pct") for k, v in dp_by_ticker.items()}
+                except Exception as _dpe2:
+                    summary["errors"].append(f"dark_pool {date_str}: {_dpe2}")
+
+                # ── sector_heat: recompute from polygon_market_daily ──────────
+                sh_by_ticker = {}
+                try:
+                    _sh2 = _get_sector_heat(days_back=2)
+                    for _hs2 in _sh2.get("hot_sectors", []):
+                        _heat2 = _hs2.get("heat_score", 0)
+                        for _stk2 in _hs2.get("sympathy_plays", []):
+                            if _stk2 not in sh_by_ticker or _heat2 > sh_by_ticker[_stk2]:
+                                sh_by_ticker[_stk2] = float(_heat2)
+                except Exception as _she2:
+                    summary["errors"].append(f"sector_heat {date_str}: {_she2}")
+
+                # ── Write updates per ticker ──────────────────────────────────
+                for ticker in tickers_on_date:
+                    g  = gamma_by_ticker.get(ticker)
+                    dp = dp_by_ticker.get(ticker)
+                    sh = sh_by_ticker.get(ticker)
+                    if g is None and dp is None and sh is None:
+                        continue
+                    try:
+                        cur.execute("""
+                            UPDATE ai_short_calls_log
+                            SET gamma_score       = COALESCE(%s, gamma_score),
+                                dark_pool_score   = COALESCE(%s, dark_pool_score),
+                                sector_heat_score = COALESCE(%s, sector_heat_score)
+                            WHERE ticker = %s AND trade_date = %s
+                              AND (gamma_score IS NULL OR dark_pool_score IS NULL
+                                   OR sector_heat_score IS NULL)
+                        """, (g, dp, sh, ticker, date_str))
+                        if g  is not None: summary["gamma_updated"]     += 1
+                        if dp is not None: summary["dark_pool_updated"]  += 1
+                        if sh is not None: summary["sector_updated"]     += 1
+                    except Exception as _ue:
+                        summary["errors"].append(f"update {ticker} {date_str}: {_ue}")
+
+            conn.commit()
+    except Exception as _bfe:
+        summary["errors"].append(f"outer: {_bfe}")
+    return summary
 
 
 def _update_ai_short_call_outcomes():
@@ -37222,6 +37435,41 @@ def admin_grade_short_calls():
             print(f"[admin_grade_short_calls] error: {_e}")
     _thr_gsc.Thread(target=_bg, daemon=True).start()
     return jsonify({"status": "grading started - check logs in ~60s"})
+
+
+@app.route("/stock-api/admin/backfill-pick-scores", methods=["POST"])
+def admin_backfill_pick_scores():
+    """
+    Admin: backfill gamma_score, dark_pool_score, sector_heat_score for existing
+    ai_short_calls_log rows where those columns are NULL.
+
+    squeeze_score is NOT backfilled — yfinance SI% is current-only, not historical.
+
+    Returns a JSON summary with counts of rows updated per column.
+    Run in background so the HTTP response returns immediately.
+    """
+    import threading as _thr_bps
+    _result_holder = {}
+
+    def _bg_bps():
+        try:
+            _result_holder.update(_backfill_pick_scores())
+            print(f"[admin_backfill_pick_scores] done: {_result_holder}")
+        except Exception as _e:
+            _result_holder["error"] = str(_e)
+            print(f"[admin_backfill_pick_scores] error: {_e}")
+
+    _thr_bps.Thread(target=_bg_bps, daemon=True).start()
+    return jsonify({
+        "status": "backfill started",
+        "note": (
+            "Backfills gamma_score (from gamma_pressure_alerts), "
+            "dark_pool_score (from FINRA Reg SHO CDN), "
+            "sector_heat_score (from polygon_market_daily). "
+            "squeeze_score stays NULL — yfinance SI% is current-only. "
+            "Check server logs in ~60-120s for completion counts."
+        ),
+    })
 
 
 @app.route("/stock-api/multi-signal", methods=["GET"])
