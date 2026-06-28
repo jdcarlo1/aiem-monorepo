@@ -1,0 +1,104 @@
+#!/bin/bash
+# verify_8_modules_real_execution.sh
+# This is NOT a conversation. Every check below RUNS real code against
+# real stored data and captures the LITERAL output. This is the closest
+# thing to "AIEM answering" that's actually possible — because AIEM has
+# no chat interface, the only real evidence is execution output, not
+# an explanation. Paste the FULL raw output back, unedited.
+
+echo "################################################################"
+echo "# REAL EXECUTION PROOF — 8 MODULES"
+echo "# Run at: $(date) | ET: $(TZ=America/New_York date)"
+echo "################################################################"
+
+run_and_capture() {
+  local label="$1"
+  local pyfile="$2"
+  local funcname="$3"
+  local test_arg="$4"
+
+  echo ""
+  echo "=== $label ==="
+  FILE=$(find . -iname "*${pyfile}*" -name "*.py" 2>/dev/null | head -1)
+  if [ -z "$FILE" ]; then
+    FILE=$(grep -rl "def.*${funcname}" --include="*.py" . | head -1)
+  fi
+
+  if [ -z "$FILE" ]; then
+    echo "RESULT: NOT FOUND — no file contains this function"
+    return
+  fi
+
+  echo "File: $FILE"
+  echo "--- ACTUAL function signature found in file ---"
+  grep -n "def.*${funcname}" "$FILE"
+
+  echo "--- ATTEMPTING REAL EXECUTION (not a description) ---"
+  python3 -c "
+import sys, os, traceback
+sys.path.insert(0, '.')
+try:
+    module_name = '$FILE'.replace('./', '').replace('.py', '').replace('/', '.')
+    mod = __import__(module_name, fromlist=['$funcname'])
+    fn = getattr(mod, '$funcname', None)
+    if fn is None:
+        print('FUNCTION NOT FOUND IN MODULE AFTER IMPORT')
+    else:
+        print('FUNCTION FOUND. Attempting call with: $test_arg')
+        try:
+            result = fn($test_arg)
+            print('REAL RETURNED VALUE:', result)
+        except TypeError as te:
+            print('Call failed with this exact signature, trying no-arg call:', te)
+            try:
+                result = fn()
+                print('REAL RETURNED VALUE (no args):', result)
+            except Exception as e2:
+                print('STILL FAILED:', e2)
+except Exception as e:
+    print('IMPORT/EXECUTION FAILED WITH REAL ERROR:')
+    traceback.print_exc()
+"
+}
+
+run_and_capture "1. Volatility Clustering" "volatility_clustering" "compute_volatility_clustering" "'AAPL'"
+run_and_capture "2. Macro Cross Asset" "macro_cross_asset" "compute_macro_cross_asset" "'SPY'"
+run_and_capture "3. Point In Time Guard" "point_in_time" "validate_point_in_time" "'AAPL'"
+run_and_capture "4. Lookahead Audit" "lookahead" "audit_lookahead_bias" "'AAPL'"
+run_and_capture "5. Active Hypothesis Selection" "active_hypothesis" "select_active_hypothesis" "'AAPL'"
+run_and_capture "6. Historical Analog Search" "historical_analog" "find_historical_analog" "'AAPL'"
+run_and_capture "7. Microstructure Proxy" "microstructure" "compute_microstructure_proxy" "'AAPL'"
+run_and_capture "8. IV Percentile Tracker" "iv_percentile" "compute_iv_percentile" "'AAPL'"
+
+echo ""
+echo "################################################################"
+echo "# CROSS-CHECK: do any of these write to a real table? Confirm with DB"
+echo "################################################################"
+if [ -n "$DATABASE_URL" ]; then
+  echo "--- searching for any tables these modules might write to ---"
+  psql "$DATABASE_URL" -c "
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema='public' AND (
+      table_name ILIKE '%volatility%' OR table_name ILIKE '%macro%' OR
+      table_name ILIKE '%hypothesis%' OR table_name ILIKE '%analog%' OR
+      table_name ILIKE '%microstructure%' OR table_name ILIKE '%iv_percentile%'
+    );"
+fi
+
+echo ""
+echo "################################################################"
+echo "# HOW TO READ THIS RESULT"
+echo "################################################################"
+echo "REAL PASS for each module = 'REAL RETURNED VALUE:' line shows an"
+echo "  actual computed number/dict/value — not an error, not empty."
+echo ""
+echo "REAL FAIL = 'NOT FOUND', 'IMPORT/EXECUTION FAILED', or a returned"
+echo "  value that's obviously a placeholder (e.g. exactly 0, None, or"
+echo "  an empty dict for every single ticker tried)."
+echo ""
+echo "NOTE: the exact function names and test arguments above are"
+echo "GUESSES based on naming conventions — if a function name doesn't"
+echo "match, the agent should correct the script to use the REAL"
+echo "function name it finds, then re-run and show the corrected"
+echo "real output. Do not let it just say 'the name was wrong' without"
+echo "showing the corrected, successfully executed result."
