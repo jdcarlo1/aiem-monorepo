@@ -1,0 +1,502 @@
+# Final Tonight's Batch: 5 New Modules (skipping broker-side circuit breaker — no broker connected yet)
+
+================================================================
+1. slippage_model.py — execution cost estimation
+================================================================
+
+```python
+"""
+slippage_model.py
+====================================================================
+Estimates expected execution cost (slippage) for an options order
+before it's placed, using bid-ask spread and order size relative to
+volume. No broker needed — this works off quote/volume data already
+available from your options chain feeds.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any
+
+import psycopg2
+
+
+def estimate_slippage(bid: float, ask: float, contract_volume: int,
+                       order_size: int) -> Dict[str, Any]:
+    """
+    Rough slippage estimate: half the bid-ask spread as baseline cost,
+    plus an extra penalty if order_size is large relative to volume
+    (since large orders relative to liquidity move the price more).
+    """
+    if bid is None or ask is None or ask <= bid:
+        return {"error": "invalid bid/ask", "estimated_slippage_pct": None}
+
+    mid = (bid + ask) / 2
+    spread = ask - bid
+    spread_pct = (spread / mid) * 100 if mid else 0
+
+    size_ratio = order_size / contract_volume if contract_volume > 0 else 1.0
+    size_penalty_pct = min(size_ratio * 5.0, 10.0)  # cap penalty at 10%
+
+    estimated_slippage_pct = round((spread_pct / 2) + size_penalty_pct, 3)
+    estimated_cost_per_contract = round(mid * (estimated_slippage_pct / 100), 4)
+
+    return {
+        "mid_price": round(mid, 4),
+        "spread_pct": round(spread_pct, 3),
+        "size_ratio": round(size_ratio, 3),
+        "estimated_slippage_pct": estimated_slippage_pct,
+        "estimated_cost_per_contract": estimated_cost_per_contract,
+        "checked_at": dt.datetime.utcnow().isoformat(),
+    }
+
+
+def log_slippage_estimate(db_url: str, ticker: str, result: Dict[str, Any]) -> None:
+    """
+    CREATE TABLE IF NOT EXISTS slippage_estimates (
+        id SERIAL PRIMARY KEY,
+        ticker VARCHAR(10),
+        estimated_slippage_pct DOUBLE PRECISION,
+        estimated_cost_per_contract DOUBLE PRECISION,
+        checked_at TIMESTAMPTZ NOT NULL
+    );
+    """
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO slippage_estimates
+                    (ticker, estimated_slippage_pct, estimated_cost_per_contract, checked_at)
+                VALUES (%s, %s, %s, %s)
+            """, (ticker, result.get("estimated_slippage_pct"),
+                  result.get("estimated_cost_per_contract"), result.get("checked_at")))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    print(estimate_slippage(bid=2.40, ask=2.55, contract_volume=500, order_size=10))
+```
+
+================================================================
+2. portfolio_correlation_risk.py — detect hidden concentrated bets
+================================================================
+
+```python
+"""
+portfolio_correlation_risk.py
+====================================================================
+Checks whether current open positions are secretly concentrated in
+correlated names (e.g. 5 tech stocks that move together), even if
+they look diversified by ticker count alone.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any, List
+
+import psycopg2
+import psycopg2.extras
+
+# Simple static sector/correlation grouping. Expand this over time —
+# this is a starting point, not exhaustive.
+CORRELATION_GROUPS = {
+    "mega_tech": {"AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA"},
+    "semis": {"NVDA", "AMD", "INTC", "AVGO", "MU", "SNDK", "LSCC", "MRVL", "LITE", "CRDO", "AMAT"},
+    "ev_meme": {"TSLA", "RIVN", "LCID"},
+    "biotech_meme": {"MRNA", "BYND", "HOOD"},
+    "crypto_adjacent": {"COIN", "MARA", "RIOT", "HIVE"},
+}
+
+
+def get_open_position_tickers(db_url: str) -> List[str]:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker FROM ai_stock_picks
+                WHERE status IS NULL OR status = 'open'
+            """)
+            return [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def check_concentration_risk(tickers: List[str]) -> Dict[str, Any]:
+    """
+    Flags if too many open positions fall into the same correlation
+    group — meaning real diversification is lower than the position
+    count suggests.
+    """
+    group_counts = {}
+    for group_name, group_tickers in CORRELATION_GROUPS.items():
+        matches = [t for t in tickers if t in group_tickers]
+        if matches:
+            group_counts[group_name] = matches
+
+    total_positions = len(tickers)
+    warnings = []
+    for group_name, matches in group_counts.items():
+        if len(matches) >= 3:
+            pct = round(len(matches) / total_positions * 100, 1) if total_positions else 0
+            warnings.append(
+                f"{len(matches)} of {total_positions} open positions ({pct}%) "
+                f"are in the '{group_name}' correlation group: {matches} — "
+                f"these likely move together, real diversification is lower than position count suggests."
+            )
+
+    return {
+        "total_open_positions": total_positions,
+        "group_breakdown": group_counts,
+        "warnings": warnings,
+        "concentration_risk_flag": len(warnings) > 0,
+        "checked_at": dt.datetime.utcnow().isoformat(),
+    }
+
+
+def check_current_portfolio_risk(db_url: str) -> Dict[str, Any]:
+    tickers = get_open_position_tickers(db_url)
+    return check_concentration_risk(tickers)
+
+
+if __name__ == "__main__":
+    test_tickers = ["AAPL", "NVDA", "AMD", "MU", "TSLA"]
+    print(check_concentration_risk(test_tickers))
+```
+
+================================================================
+3. earnings_calendar.py — per-ticker earnings avoidance
+================================================================
+
+```python
+"""
+earnings_calendar.py
+====================================================================
+Per-ticker earnings date awareness, distinct from economic_calendar.py
+(which is macro-level). Avoids entering new positions right before
+earnings, when IV crush risk is highest.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any, Optional
+
+import psycopg2
+
+
+def add_earnings_date(db_url: str, ticker: str, earnings_date: str,
+                       timing: str = "unknown") -> None:
+    """timing: 'before_market', 'after_market', or 'unknown'"""
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO earnings_calendar (ticker, earnings_date, timing)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (ticker, earnings_date) DO NOTHING
+            """, (ticker, earnings_date, timing))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def days_until_earnings(db_url: str, ticker: str) -> Optional[int]:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT earnings_date FROM earnings_calendar
+                WHERE ticker = %s AND earnings_date >= CURRENT_DATE
+                ORDER BY earnings_date ASC LIMIT 1
+            """, (ticker,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            delta = (row[0] - dt.date.today()).days
+            return delta
+    finally:
+        conn.close()
+
+
+def should_avoid_entry(db_url: str, ticker: str, buffer_days: int = 2) -> Dict[str, Any]:
+    """
+    Returns whether a new position should be avoided due to upcoming
+    earnings within buffer_days.
+    """
+    days_out = days_until_earnings(db_url, ticker)
+    if days_out is None:
+        return {"ticker": ticker, "avoid": False, "reason": "no known upcoming earnings date"}
+
+    avoid = days_out <= buffer_days
+    return {
+        "ticker": ticker,
+        "days_until_earnings": days_out,
+        "avoid": avoid,
+        "reason": f"earnings in {days_out} days" if avoid else f"earnings in {days_out} days, outside {buffer_days}-day buffer",
+    }
+
+
+if __name__ == "__main__":
+    import os
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        print(should_avoid_entry(db_url, "AAPL"))
+    else:
+        print("Set DATABASE_URL to test against real data.")
+```
+
+================================================================
+4. backtest_harness.py — run real signal logic against historical data
+================================================================
+
+```python
+"""
+backtest_harness.py
+====================================================================
+Runs your ACTUAL signal logic against stored historical data
+(polygon_market_daily) to see how it would have performed — separate
+from live signals firing in real time. Pure historical replay.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any, List, Callable
+
+import psycopg2
+import psycopg2.extras
+
+
+def get_historical_bars(db_url: str, ticker: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT scan_date, open_price, high_price, low_price, close_price, volume
+                FROM polygon_market_daily
+                WHERE ticker = %s AND scan_date BETWEEN %s AND %s
+                ORDER BY scan_date ASC
+            """, (ticker, start_date, end_date))
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def run_backtest(db_url: str, ticker: str, start_date: str, end_date: str,
+                  signal_fn: Callable[[List[Dict[str, Any]], int], bool],
+                  exit_after_days: int = 5) -> Dict[str, Any]:
+    """
+    signal_fn: a function that takes (bars_so_far, current_index) and
+    returns True if it would have entered a position on that day.
+    This lets you plug in YOUR actual signal logic (gamma, candlestick,
+    etc.) and replay it against real history.
+    """
+    bars = get_historical_bars(db_url, ticker, start_date, end_date)
+    if len(bars) < exit_after_days + 1:
+        return {"error": "not enough historical data for this window"}
+
+    trades = []
+    for i in range(len(bars) - exit_after_days):
+        bars_so_far = bars[:i + 1]
+        if signal_fn(bars_so_far, i):
+            entry_price = bars[i]["close_price"]
+            exit_price = bars[i + exit_after_days]["close_price"]
+            pct_return = round((exit_price - entry_price) / entry_price * 100, 3)
+            trades.append({
+                "entry_date": str(bars[i]["scan_date"]),
+                "exit_date": str(bars[i + exit_after_days]["scan_date"]),
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "pct_return": pct_return,
+            })
+
+    if not trades:
+        return {"ticker": ticker, "total_trades": 0, "trades": [], "note": "signal never fired in this window"}
+
+    win_rate = round(sum(1 for t in trades if t["pct_return"] > 0) / len(trades) * 100, 1)
+    avg_return = round(sum(t["pct_return"] for t in trades) / len(trades), 3)
+
+    return {
+        "ticker": ticker,
+        "total_trades": len(trades),
+        "win_rate_pct": win_rate,
+        "avg_return_pct": avg_return,
+        "trades": trades,
+        "checked_at": dt.datetime.utcnow().isoformat(),
+    }
+
+
+def example_simple_signal(bars_so_far: List[Dict[str, Any]], idx: int) -> bool:
+    """Example placeholder signal: enter if today closed up >3%. Replace
+    with your real signal logic (import from candlestick_patterns,
+    regime_detector, etc.) when actually using this."""
+    if idx == 0:
+        return False
+    today = bars_so_far[-1]
+    yesterday = bars_so_far[-2]
+    if yesterday["close_price"] == 0:
+        return False
+    pct_change = (today["close_price"] - yesterday["close_price"]) / yesterday["close_price"]
+    return pct_change > 0.03
+
+
+if __name__ == "__main__":
+    import os
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        result = run_backtest(db_url, "AAPL", "2025-01-01", "2025-06-01", example_simple_signal)
+        print(result)
+    else:
+        print("Set DATABASE_URL to test against real data.")
+```
+
+================================================================
+5. news_catalyst_monitor.py — extends existing news_catalyst.py
+================================================================
+
+NOTE: you already have a news_catalyst.py (it showed up in tonight's
+lookahead audit results). This is a thin extension, not a full
+replacement — confirm with the agent what news_catalyst.py already
+does before assuming this is needed from scratch.
+
+```python
+"""
+news_catalyst_monitor.py
+====================================================================
+Lightweight headline-risk flag: checks for recent high-severity news
+keywords (FDA, lawsuit, investigation, etc.) before allowing entry on
+a ticker. Pairs with whatever news_catalyst.py already does — this is
+specifically a pre-entry GATE, not a full news analysis system.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any, List
+
+import psycopg2
+
+HIGH_RISK_KEYWORDS = {
+    "fda rejection", "fda denial", "lawsuit", "sec investigation",
+    "fraud", "bankruptcy", "recall", "ceo resigns", "ceo fired",
+    "halted", "delisting", "going concern",
+}
+
+
+def check_recent_headlines(db_url: str, ticker: str, lookback_hours: int = 24) -> Dict[str, Any]:
+    """
+    Checks whatever headline/news table already exists (likely fed by
+    news_catalyst.py) for high-risk keywords in the last N hours.
+    ADJUST the table/column names below to match what news_catalyst.py
+    actually writes to.
+    """
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT headline, published_at FROM news_catalyst_log
+                WHERE ticker = %s AND published_at > NOW() - INTERVAL '%s hours'
+            """, (ticker, lookback_hours))
+            headlines = cur.fetchall()
+    except Exception as e:
+        return {"ticker": ticker, "error": f"could not query news table: {e}", "high_risk_flag": False}
+    finally:
+        conn.close()
+
+    flagged = []
+    for headline, published_at in headlines:
+        headline_lower = headline.lower()
+        for keyword in HIGH_RISK_KEYWORDS:
+            if keyword in headline_lower:
+                flagged.append({"headline": headline, "published_at": str(published_at), "matched_keyword": keyword})
+                break
+
+    return {
+        "ticker": ticker,
+        "headlines_checked": len(headlines),
+        "flagged_headlines": flagged,
+        "high_risk_flag": len(flagged) > 0,
+        "checked_at": dt.datetime.utcnow().isoformat(),
+    }
+
+
+if __name__ == "__main__":
+    import os
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        print(check_recent_headlines(db_url, "AAPL"))
+    else:
+        print("Set DATABASE_URL to test against real data.")
+```
+
+================================================================
+SETUP: tables needed
+================================================================
+
+```sql
+CREATE TABLE IF NOT EXISTS slippage_estimates (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10),
+    estimated_slippage_pct DOUBLE PRECISION,
+    estimated_cost_per_contract DOUBLE PRECISION,
+    checked_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS earnings_calendar (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10) NOT NULL,
+    earnings_date DATE NOT NULL,
+    timing VARCHAR(20) DEFAULT 'unknown',
+    UNIQUE (ticker, earnings_date)
+);
+```
+
+portfolio_correlation_risk.py and backtest_harness.py need no new
+tables — they read from ai_stock_picks and polygon_market_daily,
+which already exist.
+
+news_catalyst_monitor.py assumes a news_catalyst_log table already
+exists from your existing news_catalyst.py — CONFIRM this with the
+agent first; if the real table/column names differ, fix the query in
+check_recent_headlines() before testing.
+
+================================================================
+FINAL VERIFICATION SCRIPT
+================================================================
+
+```bash
+#!/bin/bash
+echo "################################################################"
+echo "# FINAL BATCH — 5 MODULES VERIFICATION"
+echo "################################################################"
+
+for f in slippage_model.py portfolio_correlation_risk.py earnings_calendar.py backtest_harness.py news_catalyst_monitor.py; do
+  echo ""
+  echo "=== $f ==="
+  FOUND=$(find . -name "$f" 2>/dev/null | head -1)
+  if [ -z "$FOUND" ]; then
+    echo "NOT FOUND"
+  else
+    LINES=$(wc -l < "$FOUND")
+    echo "Found: $FOUND ($LINES lines)"
+    echo "--- running it ---"
+    python3 "$FOUND" 2>&1
+  fi
+done
+
+echo ""
+echo "=== Confirm new tables exist ==="
+psql "$DATABASE_URL" -c "
+  SELECT table_name FROM information_schema.tables
+  WHERE table_name IN ('slippage_estimates', 'earnings_calendar');"
+
+echo ""
+echo "################################################################"
+echo "# DONE — paste this entire output back unedited"
+echo "################################################################"
+```
+
+PASS CONDITION: all 5 files found, each runs without a Python
+traceback (news_catalyst_monitor.py may show a real, honest error if
+news_catalyst_log doesn't exist under that name — that's fine, it
+just means the table name needs adjusting, not a failure of the
+script itself), and both new tables exist.
