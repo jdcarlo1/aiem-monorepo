@@ -2290,9 +2290,22 @@ export interface HistSimEntry {
   wr3d: number;
   avg3d: number;
   signal: "BULLISH" | "NEUTRAL" | "BEARISH";
+  mode: "breakeven" | "strike" | "stock";
+  strike?: number | null;
+  breakeven?: number | null;
 }
-export function fetchHistoricalSimilarity(tickers: string[]): Promise<Record<string, HistSimEntry | null>> {
-  if (!tickers.length) return Promise.resolve({});
-  const params = new URLSearchParams({ tickers: tickers.join(",") });
+export interface HistSimRequest {
+  ticker: string;
+  strike?: number | null;
+  breakeven?: number | null;
+}
+export function fetchHistoricalSimilarity(items: HistSimRequest[]): Promise<Record<string, HistSimEntry | null>> {
+  if (!items.length) return Promise.resolve({});
+  const encoded = items.map(i => {
+    if (i.breakeven && i.breakeven > 0) return `${i.ticker}:${i.strike ?? ""}:${i.breakeven}`;
+    if (i.strike && i.strike > 0) return `${i.ticker}:${i.strike}`;
+    return i.ticker;
+  }).join(",");
+  const params = new URLSearchParams({ tickers: encoded });
   return fetchJson<Record<string, HistSimEntry | null>>(`/historical-similarity?${params}`);
 }

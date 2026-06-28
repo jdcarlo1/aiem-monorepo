@@ -1688,10 +1688,13 @@ try:
         id="premarket_scan",
         replace_existing=True,
     )
-    # Morning: Mon-Fri 9:58 AM ET  (market opens 9:30; staggered past unusual-calls burst at 9:36)
+    # Morning: Mon-Fri 10:32 AM ET
+    # Pushed from 9:58 → 10:32 so it doesn't compete with the 9:36 market-open
+    # unusual-calls scan (~12 min runtime) or the 10:05→10:45 mid-morning scan.
+    # Gives a clean 56-min runway after the market-open Yahoo burst settles.
     _scheduler.add_job(
         _run_morning_scan,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=58, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=32, timezone=_ET),
         id="morning_scan",
         replace_existing=True,
     )
@@ -2113,9 +2116,11 @@ try:
         id="market_open_unusual_calls",
         replace_existing=True,
     )
+    # Mid-morning: pushed from 10:05 → 10:45 (was only 29 min after the 9:36
+    # market-open scan which takes ~12 min; 10:45 gives a clean 69-min gap).
     _scheduler.add_job(
         lambda: _run_unusual_calls_scan("mid-morning"),
-        CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=45, timezone=_ET),
         id="mid_morning_unusual_calls",
         replace_existing=True,
     )
@@ -11171,21 +11176,36 @@ def historical_similarity():
     """
     import psycopg2 as _pg2_hs
     import datetime as _dt_hs, math as _math_hs
-    _raw     = request.args.get("tickers", "")
-    _tickers = [t.strip().upper() for t in _raw.split(",") if t.strip()][:30]
-    if not _tickers:
+    # tickers param supports optional strike/breakeven per ticker:
+    # ?tickers=TSLA:370:385,NVDA:188:192,AAPL:200,AMD
+    # format: TICKER[:strike[:breakeven]]   (breakeven optional)
+    _raw = request.args.get("tickers", "")
+    _parsed: list[tuple[str, float | None, float | None]] = []
+    for _entry in _raw.split(","):
+        _parts = _entry.strip().split(":")
+        if not _parts[0].strip(): continue
+        _tk = _parts[0].strip().upper()
+        try: _str_v = float(_parts[1]) if len(_parts) > 1 and _parts[1] else None
+        except Exception: _str_v = None
+        try: _be_v  = float(_parts[2]) if len(_parts) > 2 and _parts[2] else None
+        except Exception: _be_v = None
+        _parsed.append((_tk, _str_v, _be_v))
+    _parsed = _parsed[:30]
+    if not _parsed:
         return jsonify({}), 200
 
     if not hasattr(app, "_hist_sim_cache"):    app._hist_sim_cache    = {}
     if not hasattr(app, "_hist_sim_cache_ts"): app._hist_sim_cache_ts = {}
     _now_hs = _dt_hs.datetime.now()
     _result, _to_compute = {}, []
-    for _t in _tickers:
-        _ts = app._hist_sim_cache_ts.get(_t)
-        if _ts and (_now_hs - _ts).total_seconds() < 3600 and _t in app._hist_sim_cache:
-            _result[_t] = app._hist_sim_cache[_t]
+    for (_t, _str_v, _be_v) in _parsed:
+        # Cache key includes strike+be so same ticker with different options isn't stale-served
+        _cache_key = f"{_t}:{_str_v}:{_be_v}"
+        _ts = app._hist_sim_cache_ts.get(_cache_key)
+        if _ts and (_now_hs - _ts).total_seconds() < 3600 and _cache_key in app._hist_sim_cache:
+            _result[_t] = app._hist_sim_cache[_cache_key]
         else:
-            _to_compute.append(_t)
+            _to_compute.append((_t, _str_v, _be_v, _cache_key))
 
     if not _to_compute:
         return jsonify(_result), 200
@@ -11195,7 +11215,7 @@ def historical_similarity():
             _conn.set_session(autocommit=True)
             with _conn.cursor() as _cur:
                 _cur.execute("SET statement_timeout = '8000'")
-                for _ticker in _to_compute:
+                for _ticker, _strike, _breakeven, _cache_key in _to_compute:
                     try:
                         _cur.execute("""
                             WITH base AS (
@@ -11255,29 +11275,46 @@ def historical_similarity():
                             ) ** 0.5
                             if _dist < 2.0:
                                 _fwd_ret = _fwd / _cls - 1
-                                _similar.append((_dist, _fwd_ret))
+                                _similar.append((_dist, _fwd_ret, _fwd))  # keep raw fwd price
 
                         _similar.sort(key=lambda x: x[0])
                         _similar = _similar[:40]
 
                         if len(_similar) < 5:
                             _result[_ticker] = None
-                            app._hist_sim_cache[_ticker]    = None
-                            app._hist_sim_cache_ts[_ticker] = _now_hs
+                            app._hist_sim_cache[_cache_key]    = None
+                            app._hist_sim_cache_ts[_cache_key] = _now_hs
                             continue
 
-                        _graded  = [(d, r) for d, r in _similar if r is not None and not _math_hs.isnan(r)]
-                        _wins    = sum(1 for _, r in _graded if r > 0.005)
+                        # ── Win condition: option-specific if strike/breakeven provided ──
+                        # "Win" = the specific call option would have been profitable.
+                        # Priority: breakeven (clears premium cost) > strike (ITM) > stock up.
+                        _graded = [(r, fwd) for _, r, fwd in _similar
+                                   if r is not None and fwd is not None and not _math_hs.isnan(r)]
+                        if _breakeven and _breakeven > 0:
+                            # P(stock > breakeven) — call is actually profitable after premium
+                            _wins = sum(1 for _, fwd in _graded if fwd > _breakeven)
+                            _mode = "breakeven"
+                        elif _strike and _strike > 0:
+                            # P(stock > strike) — call is at least ITM
+                            _wins = sum(1 for _, fwd in _graded if fwd > _strike)
+                            _mode = "strike"
+                        else:
+                            # Fallback: any positive close
+                            _wins = sum(1 for r, _ in _graded if r > 0.005)
+                            _mode = "stock"
                         _n       = len(_graded)
                         _wr      = round(_wins / _n * 100) if _n else None
-                        _avg_ret = round(sum(r for _, r in _graded) / _n * 100, 1) if _n else None
+                        _avg_ret = round(sum(r for r, _ in _graded) / _n * 100, 1) if _n else None
                         _signal  = ("BULLISH" if _wr and _wr >= 60
                                     else "BEARISH" if _wr and _wr <= 40
                                     else "NEUTRAL")
-                        _entry = {"n": _n, "wr3d": _wr, "avg3d": _avg_ret, "signal": _signal}
-                        _result[_ticker]                   = _entry
-                        app._hist_sim_cache[_ticker]       = _entry
-                        app._hist_sim_cache_ts[_ticker]    = _now_hs
+                        _entry = {"n": _n, "wr3d": _wr, "avg3d": _avg_ret,
+                                  "signal": _signal, "mode": _mode,
+                                  "strike": _strike, "breakeven": _breakeven}
+                        _result[_ticker]                       = _entry
+                        app._hist_sim_cache[_cache_key]        = _entry
+                        app._hist_sim_cache_ts[_cache_key]     = _now_hs
 
                     except Exception as _e_t:
                         print(f"[hist_sim] {_ticker}: {_e_t}")
@@ -11285,7 +11322,7 @@ def historical_similarity():
 
     except Exception as _e_hs:
         print(f"[hist_sim] DB error: {_e_hs}")
-        for _t in _to_compute:
+        for (_t, *_) in _to_compute:
             if _t not in _result:
                 _result[_t] = None
 

@@ -63,7 +63,8 @@ import {
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
   fetchGrinderScan, GrinderScanData, GrinderResult,
   fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
-  fetchFlowScores, fetchCallWinRates, fetchHistoricalSimilarity, HistSimEntry,
+  fetchFlowScores, fetchCallWinRates, fetchHistoricalSimilarity,
+  HistSimEntry, HistSimRequest,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -141,23 +142,29 @@ function useCallWinRates(tickers: string[]): Record<string, { wr: number; n: num
   return rates;
 }
 
-function useHistoricalSimilarity(tickers: string[]): Record<string, HistSimEntry | null> {
+function useHistoricalSimilarity(items: HistSimRequest[]): Record<string, HistSimEntry | null> {
   const [data, setData] = React.useState<Record<string, HistSimEntry | null>>({});
-  const key = [...tickers].sort().join(",");
+  // Key encodes ticker+strike+be so changing the option triggers a re-fetch
+  const key = items.map(i => `${i.ticker}:${i.strike ?? ""}:${i.breakeven ?? ""}`).sort().join(",");
   React.useEffect(() => {
-    if (!tickers.length) return;
-    fetchHistoricalSimilarity(tickers).then(d => setData(d)).catch(() => {});
+    if (!items.length) return;
+    fetchHistoricalSimilarity(items).then(d => setData(d)).catch(() => {});
   }, [key]);
   return data;
 }
 
 function HistSimBadge({ data }: { data: HistSimEntry | null | undefined }) {
   if (!data || data.wr3d == null || data.n < 5) return null;
-  const { wr3d, n, avg3d, signal } = data;
+  const { wr3d, n, avg3d, signal, mode, strike, breakeven } = data;
   const color = signal === "BULLISH" ? "#38bdf8" : signal === "BEARISH" ? "#f87171" : "#94a3b8";
   const bg    = signal === "BULLISH" ? "rgba(56,189,248,0.08)"  : signal === "BEARISH" ? "rgba(248,113,113,0.08)"  : "rgba(148,163,184,0.06)";
   const bdr   = signal === "BULLISH" ? "rgba(56,189,248,0.28)"  : signal === "BEARISH" ? "rgba(248,113,113,0.25)"  : "rgba(148,163,184,0.15)";
-  const tip   = `Historical analog: found ${n} past setups where this stock had similar momentum, volatility, and price position — it was higher 3 days later ${wr3d}% of the time (avg ${avg3d && avg3d > 0 ? "+" : ""}${avg3d}%)`;
+  const avgStr = avg3d != null ? ` (avg ${avg3d > 0 ? "+" : ""}${avg3d}% on the stock)` : "";
+  const tip = mode === "breakeven"
+    ? `Historical analog (${n} similar setups): stock closed above your $${breakeven?.toFixed(2)} breakeven 3 days later ${wr3d}% of the time${avgStr}. Win = call is profitable.`
+    : mode === "strike"
+    ? `Historical analog (${n} similar setups): stock closed above your $${strike?.toFixed(2)} strike 3 days later ${wr3d}% of the time${avgStr}. Win = call is at least ITM.`
+    : `Historical analog (${n} similar setups): stock closed higher 3 days later ${wr3d}% of the time${avgStr}.`;
   return (
     <span title={tip} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
       background: bg, color, border: `1px solid ${bdr}`,
@@ -2824,7 +2831,12 @@ function UnusualCallsTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
 
   const filtered = (data?.hits ?? []).filter(h => filter === "ALL" || h.urgency === filter);
   const callWinRates  = useCallWinRates(filtered.map(h => h.ticker));
-  const histSim       = useHistoricalSimilarity(filtered.map(h => h.ticker));
+  const histSim       = useHistoricalSimilarity(filtered.map(h => ({
+    ticker:    h.ticker,
+    strike:    h.strike ?? null,
+    breakeven: h.strike && h.prem && h.volume > 0
+      ? h.strike + h.prem / (h.volume * 100) : null,
+  })));
 
   const urgencyStyle = (u: string) => {
     if (u === "EXPIRING") return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 EXPIRING ≤7d" };
@@ -3553,7 +3565,10 @@ function ConvictionStackTab({ onSelectTicker }: { onSelectTicker: (t: string) =>
   const results = data?.results ?? [];
   const flowScores   = useFlowScores(results.map(r => r.ticker));
   const callWinRates = useCallWinRates(results.map(r => r.ticker));
-  const histSim      = useHistoricalSimilarity(results.map(r => r.ticker));
+  const histSim      = useHistoricalSimilarity(results.map(r => ({
+    ticker: r.ticker,
+    strike: r.meta?.strike ?? null,
+  })));
   const extreme = results.filter(r => r.total_pts >= 8).length;
   const high    = results.filter(r => r.total_pts >= 6 && r.total_pts < 8).length;
 
@@ -4447,7 +4462,11 @@ function AIShortCallsTab() {
 
   const flowScores   = useFlowScores(picks.map(p => p.ticker));
   const callWinRates = useCallWinRates(picks.map(p => p.ticker));
-  const histSim      = useHistoricalSimilarity(picks.map(p => p.ticker));
+  const histSim      = useHistoricalSimilarity(picks.map(p => ({
+    ticker:    p.ticker,
+    strike:    p.strike    ?? null,
+    breakeven: p.breakeven ?? null,
+  })));
 
   const urgencyColor = (u: string) => {
     if (!u) return BB_DIM;
@@ -9303,7 +9322,10 @@ function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const fmtPrem = (p: number) => p >= 1 ? `$${p.toFixed(1)}M` : `$${(p * 1000).toFixed(0)}K`;
   const signals = data?.signals ?? [];
   const callWinRates = useCallWinRates(signals.map(s => s.ticker));
-  const histSim      = useHistoricalSimilarity(signals.map(s => s.ticker));
+  const histSim      = useHistoricalSimilarity(signals.map(s => ({
+    ticker: s.ticker,
+    strike: s.strikes?.[0]?.strike ?? null,
+  })));
 
   return (
     <div style={{ padding: 16, color: BB_WHITE, fontFamily: BB_FONT }}>
@@ -10908,7 +10930,10 @@ function BullFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   const bearish = results.filter(r => r.call_put_ratio < 1).slice(0, 20);
   const displayed = flowView === "bullish" ? bullish : flowView === "strong" ? strong : bearish;
   const callWinRates = useCallWinRates(displayed.map(r => r.ticker));
-  const histSim      = useHistoricalSimilarity(displayed.map(r => r.ticker));
+  const histSim      = useHistoricalSimilarity(displayed.map(r => ({
+    ticker: r.ticker,
+    strike: r.strike ?? null,
+  })));
   const highConviction = flowView === "bearish"
     ? bearish.filter(r => r.call_put_ratio < 0.2).sort((a, b) => a.call_put_ratio - b.call_put_ratio)
     : displayed.filter(r => r.call_put_ratio >= 5).sort((a, b) => b.call_put_ratio - a.call_put_ratio);
