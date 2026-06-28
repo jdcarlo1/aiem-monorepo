@@ -1,0 +1,101 @@
+# Resolve the Active Hypothesis Selection Conflict
+
+THE PROBLEM, STATED PLAINLY: We have two different formulas claiming
+to determine hypothesis ranking:
+
+  Formula A (tested earlier): produces DIFFERENT scores when
+  thompson_sample changes (0.002 vs 0.038) — implies thompson_sample
+  matters.
+
+  Formula B (shown just now): combined_score = category_value *
+  novelty_score * max(estimated_universe_pct, 0.01) — has NO
+  thompson_sample term at all.
+
+These can't both be "the real one." Before fixing anything, we need
+to know which formula ACTUALLY determines what gets ranked/selected
+in production. This is a diagnosis step, not a guess.
+
+================================================================
+STEP 1: Find every place a score gets computed for hypothesis ranking
+================================================================
+
+```bash
+grep -rn "combined_score\|def compute_score\|thompson_sample" --include="*.py" . | grep -v "test"
+```
+
+Paste the FULL output. I need to see every file and line number where
+either formula appears, and where each one is actually CALLED from.
+
+================================================================
+STEP 2: Trace which one feeds the actual ranking/sorting step
+================================================================
+
+```bash
+grep -n -B5 "ORDER BY\|sort\|sorted(\|rank" active_hypothesis_selection.py
+```
+
+This shows what the REAL ranking step sorts by — does it sort by
+combined_score, or by whatever compute_score returned, or by
+something else entirely?
+
+================================================================
+STEP 3: Confirm with a live, end-to-end real test
+================================================================
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import active_hypothesis_selection as ahs
+
+# Run the REAL, top-level ranking function (not the isolated scorer)
+results = ahs.get_ranked_hypotheses()  # adjust to the real top-level function name
+for r in results:
+    print(r)
+"
+```
+
+This runs whatever function ACTUALLY produces the final ranked list
+used in production — not an isolated formula test. Show me the real
+field names in the output — does it include combined_score,
+thompson_sample, both, or something else?
+
+================================================================
+WHAT THE ANSWER TELLS US, AND THE FIX FOR EACH CASE
+================================================================
+
+CASE 1: If combined_score is what actually drives the real ranking,
+and thompson_sample is computed but never fed into it — then
+thompson_sample is DEAD CODE. The fix is either:
+  (a) Remove thompson_sample entirely if it's not needed, OR
+  (b) Actually incorporate it into combined_score, e.g.:
+      combined_score = category_value * novelty_score *
+                        max(estimated_universe_pct, 0.01) * thompson_sample
+      (This would make Thompson sampling's exploration/exploitation
+      balancing actually influence real decisions, which was
+      presumably the original design intent — confirm with the agent
+      why thompson_sample was built in the first place before just
+      deleting it.)
+
+CASE 2: If compute_score (the thompson_sample-using one) is actually
+what drives real production ranking, and combined_score is a
+different, unused or legacy calculation — then combined_score is the
+dead code, and the earlier "0.002 vs 0.038" test result was the real
+one all along. The fix is simply confirming combined_score isn't
+silently being used somewhere we haven't found yet, and possibly
+removing it if it's truly unused.
+
+CASE 3 (most likely, given two separate formulas exist): they may be
+TWO DIFFERENT, INTENTIONALLY SEPARATE SCORES for different purposes
+— e.g. combined_score for initial filtering/eligibility, and the
+thompson_sample-based score for final ranking AMONG eligible
+candidates. If so, this isn't a bug — but it needs to be stated
+explicitly and shown working end-to-end, not left ambiguous.
+
+================================================================
+WHAT TO SEND BACK
+================================================================
+
+The Step 1, 2, and 3 outputs, plus a plain statement of which CASE
+(1, 2, or 3) actually matches what the real code does — backed by
+the grep/execution evidence, not an assumption.
