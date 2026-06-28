@@ -1,0 +1,145 @@
+"""
+daily_loss_limit.py
+====================================================================
+Pure-math circuit breaker: checks today's realized + unrealized P&L
+against a configured threshold. No broker dependency — works purely
+off your own DB. Wire `check_daily_loss_limit()` into
+pre_decision_risk_gate.py as one of the checks run before any new
+decision is acted on.
+====================================================================
+"""
+
+import datetime as dt
+import os
+from typing import Dict, Any
+
+import psycopg2
+import psycopg2.extras
+
+
+# Set this via env var so it can be changed without a code deploy.
+# Example: DAILY_LOSS_LIMIT_PCT=2.0 means halt at -2% of account value for the day.
+DEFAULT_LOSS_LIMIT_PCT = float(os.environ.get("DAILY_LOSS_LIMIT_PCT", "2.0"))
+
+
+def get_account_value(db_url: str) -> float:
+    """
+    Placeholder — replace with a real query against wherever your
+    system tracks account equity. Until a broker is wired in, this
+    can return a manually-set baseline value to test the logic.
+    """
+    baseline = float(os.environ.get("ACCOUNT_VALUE_BASELINE", "10000"))
+    return baseline
+
+
+def get_todays_realized_pnl(db_url: str) -> float:
+    """Sums exit_price - entry data for positions closed today."""
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COALESCE(SUM(
+                    CASE
+                        WHEN exit_price IS NOT NULL AND score IS NOT NULL
+                        THEN exit_price - score
+                        ELSE 0
+                    END
+                ), 0)
+                FROM ai_stock_picks
+                WHERE closed_at::date = CURRENT_DATE
+            """)
+            return float(cur.fetchone()[0])
+    finally:
+        conn.close()
+
+
+def check_daily_loss_limit(
+    db_url: str,
+    loss_limit_pct: float = DEFAULT_LOSS_LIMIT_PCT,
+) -> Dict[str, Any]:
+    """
+    Returns a result dict. `halt_trading` is True if today's loss has
+    breached the configured percentage threshold.
+
+    Call this FIRST, before any order-placement logic runs, the same
+    way assert_simulation_mode() is called first in simulation_lock.py.
+    """
+    account_value = get_account_value(db_url)
+    realized_pnl = get_todays_realized_pnl(db_url)
+
+    loss_pct = (realized_pnl / account_value) * 100 if account_value else 0
+    halt = loss_pct <= -abs(loss_limit_pct)
+
+    result = {
+        "checked_at": dt.datetime.utcnow().isoformat(),
+        "account_value": account_value,
+        "todays_realized_pnl": realized_pnl,
+        "loss_pct": round(loss_pct, 3),
+        "loss_limit_pct": loss_limit_pct,
+        "halt_trading": halt,
+    }
+
+    if halt:
+        _log_breach(db_url, result)
+
+    return result
+
+
+def _log_breach(db_url: str, result: Dict[str, Any]) -> None:
+    """
+    Logs a breach event. Create this table once:
+
+        CREATE TABLE IF NOT EXISTS daily_loss_breach_log (
+            id SERIAL PRIMARY KEY,
+            checked_at TIMESTAMPTZ NOT NULL,
+            account_value DOUBLE PRECISION,
+            realized_pnl DOUBLE PRECISION,
+            loss_pct DOUBLE PRECISION,
+            loss_limit_pct DOUBLE PRECISION,
+            resolved BOOLEAN DEFAULT FALSE
+        );
+    """
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO daily_loss_breach_log
+                    (checked_at, account_value, realized_pnl, loss_pct, loss_limit_pct)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (
+                result["checked_at"],
+                result["account_value"],
+                result["todays_realized_pnl"],
+                result["loss_pct"],
+                result["loss_limit_pct"],
+            ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def is_daily_loss_breached_today(db_url: str) -> bool:
+    """
+    Quick check for use as a gate elsewhere: has today already had an
+    unresolved breach logged? Use this in addition to (not instead of)
+    calling check_daily_loss_limit() live, since this only reflects
+    past checks, not the current live P&L.
+    """
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM daily_loss_breach_log
+                WHERE checked_at::date = CURRENT_DATE AND resolved = FALSE
+            """)
+            return cur.fetchone()[0] > 0
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        print("Set DATABASE_URL to test this module.")
+    else:
+        print(check_daily_loss_limit(db_url))
