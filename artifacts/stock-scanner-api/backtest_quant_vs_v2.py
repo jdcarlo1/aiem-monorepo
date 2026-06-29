@@ -126,10 +126,13 @@ def build_cache():
     all_hist = {}
     for t in syms:
         try:
-            cs = raw["Close"][t].dropna()
-            vs = raw["Volume"][t].dropna()
+            cs  = raw["Close"][t].dropna()
+            ops = raw["Open"][t].dropna()
+            vs  = raw["Volume"][t].dropna()
             if len(cs) >= 12:
-                all_hist[t] = {"close": cs, "vol": vs}
+                # Store Open alongside Close so gap = open[t]/close[t-1]
+                # (signal fires at market open — no lookahead into same-day close).
+                all_hist[t] = {"close": cs, "open": ops, "vol": vs}
         except Exception:
             pass
     print(f"[build] {len(all_hist)} tickers with history", flush=True)
@@ -144,12 +147,16 @@ def build_cache():
     candidates = set()
     for bt_date, _, _ in TRADING_DAYS:
         for ticker, hist in all_hist.items():
-            cs = hist["close"]
-            cu = cs[cs.index.date <= bt_date]
+            cs  = hist["close"]
+            ops = hist.get("open", hist["close"])  # fallback if old cache
+            cu  = cs[cs.index.date <= bt_date]
+            ou  = ops[ops.index.date <= bt_date]
             if len(cu) < 12:
                 continue
             cl = cu.tolist()
-            gap   = (cl[-1] / cl[-2] - 1) * 100
+            ol = ou.tolist()
+            # gap = open[t] / close[t-1] — avoids lookahead into same-day close
+            gap   = (ol[-1] / cl[-2] - 1) * 100 if len(ol) >= 2 and cl[-2] > 0 else 0.0
             mom10 = (cl[-1] / cl[-11] - 1) * 100
             if 1 <= gap < 20 and 3 <= mom10 < 17 and cl[-1] > 0.50:
                 candidates.add(ticker)
@@ -252,10 +259,14 @@ def _sharpe10(cl):
 
 # ── V2 scorer (read-only copy of production logic) ───────────────────────────
 
-def score_v2(cl: list, rvol_open: float) -> dict | None:
+def score_v2(cl: list, rvol_open: float, gap: float) -> dict | None:
     """
     Production V2 nano-cap score.  Returns dict with keys:
         score, grade (STRONG/WATCH/SKIP), gap, mom10, rvol
+
+    gap: pre-computed gap% using open[t]/close[t-1].  Must be supplied by the
+         caller so the score uses only opening-range information (no lookahead
+         into the same-day close).
     Returns None if RVOL gate fails or insufficient history.
     """
     if len(cl) < 11:
@@ -263,7 +274,6 @@ def score_v2(cl: list, rvol_open: float) -> dict | None:
     if rvol_open < 3.0 or rvol_open > 60.0:
         return None
 
-    gap   = (cl[-1] / cl[-2]  - 1) * 100
     mom10 = (cl[-1] / cl[-11] - 1) * 100
 
     gp = (35 if  2 <= gap < 5  else
@@ -481,17 +491,23 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
         return [], [], []
 
     # Daily pre-filter: gap 1-20%, mom10 3-17%, price > $0.50
+    # gap = open[t] / close[t-1] — only uses information available at market open.
     cands = []
     for ticker, hist in all_hist.items():
-        cs = hist["close"]
-        vs = hist["vol"]
-        cu = cs[cs.index.date <= bt_date]
-        vu = vs[vs.index.date <= bt_date]
+        cs  = hist["close"]
+        ops = hist.get("open", hist["close"])  # fallback for old cache without open
+        vs  = hist["vol"]
+        cu  = cs[cs.index.date <= bt_date]
+        ou  = ops[ops.index.date <= bt_date]
+        vu  = vs[vs.index.date <= bt_date]
         if len(cu) < 12:
             continue
         cl  = cu.tolist()
+        ol  = ou.tolist()
         vl  = vu.tolist()
-        gap   = (cl[-1] / cl[-2]  - 1) * 100
+        # Use open[t] / close[t-1] so the gap reflects the opening price
+        # vs prior close — no lookahead into the same-day close.
+        gap   = (ol[-1] / cl[-2]  - 1) * 100 if len(ol) >= 2 and cl[-2] > 0 else 0.0
         mom10 = (cl[-1] / cl[-11] - 1) * 100
         mom5  = (cl[-1] / cl[-6]  - 1) * 100 if len(cl) >= 7 else 0.0
         mom3  = (cl[-1] / cl[-4]  - 1) * 100 if len(cl) >= 5 else 0.0
@@ -542,10 +558,10 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
             return None
         return round((float(nc.iloc[0]) / entry - 1) * 100, 1)
 
-    # Score V2
+    # Score V2 — pass pre-computed open-based gap to avoid lookahead.
     v2_strong = []
     for c in cands_rv:
-        r = score_v2(c["cl"], c["rvol_open"])
+        r = score_v2(c["cl"], c["rvol_open"], gap=c.get("gap"))
         if not r or r["grade"] != "STRONG":
             continue
         nr = nret(c["ticker"], c["cl"][-1])
