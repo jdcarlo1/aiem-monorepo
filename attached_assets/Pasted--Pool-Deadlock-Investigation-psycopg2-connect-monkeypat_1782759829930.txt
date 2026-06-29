@@ -1,0 +1,48 @@
+# Pool Deadlock Investigation — psycopg2.connect monkeypatch
+
+Root cause hypothesis: `psycopg2.connect` has been monkeypatched to point at
+`_pg_pooled_connect()` itself. When the pool is empty, `ThreadedConnectionPool._connect()`
+calls `psycopg2.connect(...)` to open a fresh raw connection — but that call gets
+redirected back into `_pg_pooled_connect()`, which calls `_PG_POOL.getconn()` again
+on the same thread that already holds the (non-reentrant) `self._lock`. Permanent
+self-deadlock.
+
+Answer these with raw terminal output — no summaries, no "should be fine":
+
+1. **Where is `psycopg2.connect` reassigned?**
+   Run and paste full output:
+   ```
+   grep -n "psycopg2.connect\s*=" main.py
+   grep -n "_pg_pooled_connect" main.py
+   ```
+
+2. **Is the pool constructed with a `connection_factory` argument?**
+   Paste the exact `ThreadedConnectionPool(...)` call block (around line 10960),
+   including all kwargs, not paraphrased.
+
+3. **After removing/fixing the patch, prove the deadlock is gone:**
+   - Restart the process.
+   - Force pool exhaustion (more concurrent requests than `maxconn`).
+   - Paste a `py-spy dump` (or equivalent thread dump) taken *during* that load test
+     showing no thread blocked inside `self._lock.acquire()` at `psycopg2/pool.py:167`
+     for more than a few ms.
+
+---
+
+## Verification required before closing — fix must reproduce the actual trigger condition
+
+The original deadlock only fires when the pool tries to **grow past its pre-warmed
+connections while multiple concurrent callers** hit it at once (that's what happened
+at T+180s in the outage — concurrent morning scans forcing the pool past its 2
+pre-warmed connections). Sequential health-check pings against an idle pool will
+pass every time whether or not the bug is actually fixed. "28/28 endpoints green"
+and "zero threads blocked" as a static summary does NOT prove this.
+
+1. **Fire 5–10 concurrent requests at once** (not sequential) against an endpoint
+   that needs a DB connection, starting from a cold/idle pool at 2 connections —
+   forcing it to grow past pre-warmed capacity.
+2. **Capture a thread dump (`py-spy dump`) during that burst**, not after it
+   completes.
+3. Paste the dump and confirm zero threads sitting in `self._lock.acquire()` at
+   `psycopg2/pool.py:167` for more than a few ms. A claim without the dump doesn't
+   count as proof.
