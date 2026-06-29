@@ -1,0 +1,131 @@
+#!/bin/bash
+# final_real_aiem_scenario_test.sh
+#
+# This is NOT a chat question. This constructs the XYZ scenario as
+# REAL data in the database, then calls AIEM's REAL functions against
+# it and captures the REAL printed/logged results. Nothing here is an
+# explanation — every section either inserts real rows, runs real
+# code, or queries real output. Paste the FULL output back unedited.
+
+echo "################################################################"
+echo "# REAL SCENARIO TEST — XYZ — $(date)"
+echo "################################################################"
+
+echo ""
+echo "=== ANCHOR: real-time proof, before anything else runs ==="
+echo "Shell time: $(date)"
+psql "$DATABASE_URL" -c "SELECT NOW() AS db_time;"
+
+echo ""
+echo "=== STEP 1: Insert REAL test data simulating the scenario ==="
+echo "--- gamma decision for XYZ (simulating a real fire) ---"
+psql "$DATABASE_URL" -c "
+INSERT INTO agent_decisions (signal_name, decision_type, ticker, reasoning, decision_time)
+VALUES ('gamma_pressure_scan', 'signal_fire', 'XYZTEST',
+  'TEST SCENARIO: Gamma pressure flagged XYZTEST, dealers estimated short gamma near nearby strike.',
+  NOW());"
+
+echo "--- dark pool decision for XYZ ---"
+psql "$DATABASE_URL" -c "
+INSERT INTO agent_decisions (signal_name, decision_type, ticker, reasoning, decision_time)
+VALUES ('dark_pool_scanner', 'signal_fire', 'XYZTEST',
+  'TEST SCENARIO: Dark pool block buying detected in XYZTEST this morning.',
+  NOW());"
+
+echo "--- earnings date 2 trading days out for XYZ ---"
+psql "$DATABASE_URL" -c "
+INSERT INTO earnings_calendar (ticker, earnings_date, timing)
+VALUES ('XYZTEST', CURRENT_DATE + INTERVAL '2 days', 'after_market')
+ON CONFLICT (ticker, earnings_date) DO NOTHING;"
+
+echo "--- existing open positions: NVDA, AMD, MU ---"
+psql "$DATABASE_URL" -c "
+INSERT INTO ai_stock_picks (ticker, status, pick_date, score)
+VALUES
+  ('NVDATEST', 'open', CURRENT_DATE, 100),
+  ('AMDTEST', 'open', CURRENT_DATE, 100),
+  ('MUTEST', 'open', CURRENT_DATE, 100)
+ON CONFLICT DO NOTHING;"
+
+echo ""
+echo "=== STEP 2: Run AIEM's REAL synthesis function against XYZTEST ==="
+python3 -c "
+import sys, os
+sys.path.insert(0, '.')
+db_url = os.environ.get('DATABASE_URL')
+import pre_recommendation_synthesis as prs
+result = prs.synthesize_and_log(db_url, 'XYZTEST')
+print('REAL SYNTHESIS RESULT:', result)
+print('WOULD BE BLOCKED:', prs.should_block_low_confidence(result, min_confluence=2))
+"
+
+echo ""
+echo "=== STEP 3: Run AIEM's REAL earnings check against XYZTEST ==="
+python3 -c "
+import sys, os
+sys.path.insert(0, '.')
+db_url = os.environ.get('DATABASE_URL')
+import earnings_calendar as ec
+result = ec.should_avoid_entry(db_url, 'XYZTEST', buffer_days=2)
+print('REAL EARNINGS CHECK RESULT:', result)
+"
+
+echo ""
+echo "=== STEP 4: Run AIEM's REAL portfolio correlation check ==="
+echo "(using test tickers including the existing NVDA/AMD/MU)"
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import portfolio_correlation_risk as pcr
+result = pcr.check_concentration_risk(['NVDATEST', 'AMDTEST', 'MUTEST', 'XYZTEST'])
+print('REAL CORRELATION RESULT:', result)
+"
+
+echo ""
+echo "=== STEP 5: Run AIEM's REAL regime check ==="
+python3 -c "
+import sys, os
+sys.path.insert(0, '.')
+db_url = os.environ.get('DATABASE_URL')
+import regime_detector as rd
+result = rd.get_current_regime(db_url, 'SPY')
+print('REAL REGIME RESULT:', result)
+"
+
+echo ""
+echo "=== STEP 6: Run AIEM's REAL slippage estimate (8% spread scenario) ==="
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import slippage_model as sm
+result = sm.estimate_slippage(bid=4.60, ask=5.00, contract_volume=200, order_size=15)
+print('REAL SLIPPAGE RESULT:', result)
+"
+
+echo ""
+echo "=== STEP 7: Pull back every REAL logged row this test just created ==="
+psql "$DATABASE_URL" -c "
+SELECT decision_time, ticker, signal_name, LEFT(reasoning, 200) AS reasoning_excerpt
+FROM agent_decisions
+WHERE ticker = 'XYZTEST'
+ORDER BY decision_time DESC;"
+
+echo ""
+echo "################################################################"
+echo "# CLEANUP — remove test data so it doesn't pollute real history"
+echo "################################################################"
+psql "$DATABASE_URL" -c "DELETE FROM agent_decisions WHERE ticker = 'XYZTEST';"
+psql "$DATABASE_URL" -c "DELETE FROM earnings_calendar WHERE ticker = 'XYZTEST';"
+psql "$DATABASE_URL" -c "DELETE FROM ai_stock_picks WHERE ticker IN ('NVDATEST','AMDTEST','MUTEST');"
+echo "Cleanup complete."
+
+echo ""
+echo "################################################################"
+echo "# DONE — paste this entire output back unedited"
+echo "################################################################"
+echo "# This is real evidence: real inserted rows, real function calls,"
+echo "# real printed results, real logged decisions pulled back from"
+echo "# the database. Nothing here is a chat explanation — every line"
+echo "# is either a database operation or a literal function return"
+echo "# value. This IS what AIEM's own code actually does when given"
+echo "# this exact scenario."

@@ -53,9 +53,9 @@ CREATE INDEX IF NOT EXISTS idx_agent_decisions_time ON agent_decisions(decision_
 
 
 def _connect():
-    url = os.environ.get("AIEM_DATABASE_URL")
+    url = os.environ.get("AIEM_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not url:
-        raise RuntimeError("AIEM_DATABASE_URL is not set.")
+        raise RuntimeError("Neither AIEM_DATABASE_URL nor DATABASE_URL is set.")
     return psycopg2.connect(url)
 
 
