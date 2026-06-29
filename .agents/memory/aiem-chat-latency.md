@@ -13,6 +13,20 @@ description: Profiling results for the AIEM research path; what's slow and why; 
 
 DB is never the bottleneck. Every second of latency is OpenAI inference.
 
+## Concurrent session fix (removed global Semaphore)
+
+The `/aiem/chat` endpoint previously held a `Semaphore(1)` that serialized all user chat sessions. Removed completely — each session is isolated by `job_id` with its own DB row and OpenAI message array; no shared mutable state. SMS/email/cron still use `app._aiem_qa_lock` (owner-only, intentional).
+
+**Result**: 10-session burst submits in 0.17s, 9/10 done concurrently. Wall time 66s vs 136s serialized.
+
+**Remaining lock**: `app._aiem_qa_lock` (Semaphore(1)) — keep for owner SMS/email/cron only. Never wire to user-facing chat.
+
+**120s hard deadline**: `_run_aiem_focused_session` runs in a daemon thread; outer worker does `join(timeout=120)`. If `is_alive()=True` after join, writes "error" to DB. Daemon thread continues (can't kill Python threads); completes eventually but result is discarded.
+
+**Slow outliers are OpenAI**: RSI question hit `t_llm=29.5s` at iter=1; tool calls were 0.0–0.34s. Short squeeze ran 142s (OpenAI slow call, exceeded 120s deadline). Not a code problem — pure API jitter.
+
+**Shared rate limiters** that concurrent sessions share: `_YF_RATE_LIMITER` (3/sec token bucket) and `_POLYGON_RATE_LIMITER`. These only matter if many sessions call yfinance/Polygon tools simultaneously. For casual questions (1-iter, no tool calls), they're never hit.
+
 ## Instrumentation added
 
 `t_tool_s` and `t_llm_s` are now recorded in every trace step inside `_run_aiem_focused_session`. Poll endpoint exposes `tool_trace` with these fields. Session total logged on completion.
