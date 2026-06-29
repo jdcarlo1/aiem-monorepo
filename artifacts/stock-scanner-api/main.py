@@ -247,9 +247,8 @@ def _log_admin_requests():
         _addr = request.remote_addr
         _meth = request.method
         _ua   = request.headers.get("User-Agent", "")
-        import psycopg2 as _rl_pg
-        with _rl_pg.connect(_DB_URL, connect_timeout=1,
-                            options="-c statement_timeout=1000") as _c, \
+        with _pg_patch.connect(_DB_URL, connect_timeout=1,
+                              options="-c statement_timeout=1000") as _c, \
              _c.cursor() as _cu:
             _cu.execute(
                 "INSERT INTO request_log (remote_addr, method, path, user_agent)"
