@@ -30721,16 +30721,31 @@ def _aiem_paper_pick_candidates() -> list:
     return _final
 
 
+def _is_trading_day(d=None):
+    """Return True if d (default: today ET) is a NYSE trading session.
+    Uses exchange_calendars for full holiday coverage; falls back to weekday
+    check if the library is unavailable."""
+    import datetime as _itd_dt
+    try:
+        import exchange_calendars as _xcals
+        _d = d if d is not None else _itd_dt.datetime.now(_ET).date()
+        return _xcals.get_calendar("XNYS").is_session(_d.isoformat())
+    except Exception:
+        _d = d if d is not None else _itd_dt.date.today()
+        return _d.weekday() < 5
+
+
 def _aiem_paper_execute_today():
     """
     9:35 AM ET: pick top 20, fetch live prices, record positions.
-    Skips weekends and any day where today's trades are already entered.
+    Skips non-NYSE trading days (weekends + holidays) and any day where
+    today's trades are already entered.
     """
     import datetime as _apdt
-    _today = _apdt.date.today()
+    _today = _apdt.datetime.now(_ET).date()
 
-    if _today.weekday() >= 5:  # 5=Saturday, 6=Sunday
-        print(f"[aiem_paper] skipping — market closed on weekend ({_today.strftime('%A')})")
+    if not _is_trading_day(_today):
+        print(f"[aiem_paper] skipping — not a NYSE trading day ({_today.strftime('%A %Y-%m-%d')})")
         return
 
     try:
@@ -31113,12 +31128,15 @@ def aiem_paper_portfolio():
 @app.route("/stock-api/aiem-paper-portfolio/force-execute", methods=["POST"])
 def aiem_paper_force_execute():
     """Admin: force today's pick-and-execute cycle immediately (for testing)."""
+    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
     import datetime as _fe_dt, threading as _ape_thr
-    _today = _fe_dt.date.today()
-    if _today.weekday() >= 5:
+    _today = _fe_dt.datetime.now(_ET).date()
+    if not _is_trading_day(_today):
         return jsonify({
             "status": "rejected",
-            "reason": f"market closed — today is {_today.strftime('%A %Y-%m-%d')} (weekend)",
+            "reason": f"market closed — {_today.strftime('%A %Y-%m-%d')} is not a NYSE trading day (weekend or holiday)",
         }), 400
     _ape_thr.Thread(target=_aiem_paper_execute_today, daemon=True).start()
     return jsonify({"status": "executing", "message": "AIEM picking 20 trades now — refresh portfolio in 15s"})
@@ -31127,6 +31145,9 @@ def aiem_paper_force_execute():
 @app.route("/stock-api/aiem-paper-portfolio/force-mtm", methods=["POST"])
 def aiem_paper_force_mtm():
     """Admin: force mark-to-market immediately."""
+    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
     import threading as _mtm_thr
     _mtm_thr.Thread(target=_aiem_paper_mark_to_market, daemon=True).start()
     return jsonify({"status": "marking", "message": "Marking all open positions to market — refresh in 10s"})
@@ -37216,6 +37237,9 @@ def admin_run_aiem_grader():
 @app.route("/stock-api/admin/test-emails", methods=["POST"])
 def admin_test_emails():
     """Admin: fire all six daily emails right now using today's cached/DB data."""
+    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
     import threading as _thr
     results = {}
 
@@ -37269,6 +37293,9 @@ def admin_run_eod_scan():
     instead of the full 6,610-name leaderboard - useful when Yahoo is throttling
     and you only need a targeted set of liquid names scanned quickly.
     """
+    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
     import threading as _thr
     import traceback as _tb
 
@@ -37545,6 +37572,9 @@ def admin_owner_catchup():
     automatically on any request via the before_request hook). Sends any of today's
     owner emails that were due but haven't gone out yet, deduped via owner_email_log.
     Returns what was sent/claimed."""
+    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
     return jsonify(_owner_run_due_emails())
 
 
@@ -37554,6 +37584,9 @@ def admin_news_catchup():
     automatically on any request via the before_request hook). Runs a fresh news
     scan now; run_news_catalyst_scan's per-ticker log dedupes so only NEW catalysts
     are emailed. Returns the scan status."""
+    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
     return jsonify(_news_run_due_scan())
 
 
@@ -39810,6 +39843,9 @@ def behavioral_matches_endpoint():
 @app.route("/stock-api/admin/grade-short-calls", methods=["POST"])
 def admin_grade_short_calls():
     """Admin: manually trigger short-call outcome grading (backfill ungraded picks)."""
+    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
     import threading as _thr_gsc
     def _bg():
         try:
@@ -39831,6 +39867,9 @@ def admin_backfill_pick_scores():
     Returns a JSON summary with counts of rows updated per column.
     Run in background so the HTTP response returns immediately.
     """
+    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
     import threading as _thr_bps
     _result_holder = {}
 
