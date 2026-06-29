@@ -12528,7 +12528,7 @@ function QuantAgentTab() {
         </button>
         <button
           onClick={() => handleSubmit(input)}
-          disabled={isBusy || submitting || !input.trim()}
+          disabled={isBusy || submitting || (!input.trim() && !imageDataUrl)}
           style={{ height: 44, flexShrink: 0, background: isBusy || submitting ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 8, padding: "0 18px", cursor: isBusy || submitting ? "not-allowed" : "pointer", fontSize: 14 }}
         >
           Send
