@@ -1590,7 +1590,7 @@ def check_job_health(max_staleness_hours: dict) -> dict:
     try:
         _ensure_job_heartbeat_table()
         import psycopg2 as _pg_hc
-        with _pg_hc.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        with _pg_hc.connect(os.environ["DATABASE_URL"], connect_timeout=5) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT job_name, last_success, consecutive_failures, last_error,
                        last_attempt
@@ -4018,6 +4018,46 @@ try:
         print("[scheduler] Job health watchdog scheduled (every 30 min)")
     except Exception as _aiem_sched_e:
         print(f"[scheduler] AIEM enhancement jobs error: {_aiem_sched_e}")
+
+    # ── APScheduler job-failure alerting ──────────────────────────────────────
+    # Emails owner when any job is HUNG (max instances = previous run still
+    # blocking an executor thread) or CRASHED (unhandled exception).
+    # Throttled: fires on hit #1, #5, #10, #20, #50 per job to prevent flood.
+    from apscheduler.events import EVENT_JOB_MAX_INSTANCES as _APEV_MAX,                                    EVENT_JOB_ERROR        as _APEV_ERR
+    _sched_alert_counts: dict = {}
+
+    def _sched_alert_listener(event):
+        job_id = getattr(event, "job_id", "unknown")
+        is_hang = getattr(event, "code", 0) == _APEV_MAX
+        label   = "HUNG (previous run still blocking executor thread)" if is_hang                   else "CRASHED (unhandled exception)"
+        _sched_alert_counts[job_id] = _sched_alert_counts.get(job_id, 0) + 1
+        n = _sched_alert_counts[job_id]
+        print(f"[sched_alert] {job_id} {label} — occurrence #{n}")
+        if n not in (1, 5, 10, 20, 50):
+            return
+        try:
+            from email_alerts import send_email_raw, smtp_configured
+            _owner = os.environ.get("OWNER_EMAIL", "")
+            if not smtp_configured() or not _owner:
+                return
+            exc_txt = ""
+            if hasattr(event, "exception") and event.exception:
+                exc_txt = f"\nException: {event.exception}"
+            send_email_raw(
+                _owner,
+                f"[StockScanner AI] ALERT: scheduler job '{job_id}' {label} (#{n})",
+                f"Job ID : {job_id}\n"
+                f"Status : {label}\n"
+                f"Count  : #{n} consecutive occurrences{exc_txt}\n\n"
+                f"A stuck job blocks executor threads — dashboard tabs may be "
+                f"unresponsive.\nIf tabs are dark, republish the app to clear "
+                f"the hung thread.",
+            )
+            print(f"[sched_alert] owner email sent for {job_id} (#{n})")
+        except Exception as _ae:
+            print(f"[sched_alert] email error: {_ae}")
+
+    _scheduler.add_listener(_sched_alert_listener, _APEV_MAX | _APEV_ERR)
     _scheduler.start()
     # reconcile_orphaned_sessions is defined later in the file; defer so the
     # full module finishes loading before the function is looked up.
@@ -9968,7 +10008,7 @@ def _poll_trade_emails() -> None:
         return
 
     try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=30)
         mail.login(user, pwd)
         mail.select("INBOX")
 
@@ -10127,7 +10167,7 @@ def _poll_ask_sms() -> None:
     _since = (_dt_poll.now() - _td_poll(days=1)).strftime("%d-%b-%Y")
 
     try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=30)
         mail.login(user, pwd)
         mail.select("INBOX")
 
