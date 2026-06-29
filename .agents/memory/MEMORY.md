@@ -1,3 +1,4 @@
+- [Flask thread saturation](flask-thread-saturation.md) — 120+ threads from concurrent scan endpoints starves Flask; pure-DB endpoints appear to "hang" (000); fix = wait for startup preload before testing
 - [Grinder-scan DB indexes](grinder-scan-indexes.md) — two CONCURRENT indexes cut query 18s→0.49s; also statement_timeout must match thread deadline
 - [Price Signal Backtest Results](price-signal-backtest.md) — 495-day backtest; S7c★ BigCatDay+InsideDay+Gap = 72.9% WR 3d EV+2.19%; S4◆ GapDown+Reversal 58.6% WR 1d; 4 signals saved to aiem_signal_discoveries
 - [OI Buildup + Shakeout Signal](oi-shakeout-signal.md) — 75% WR claim NOT validated with volume proxy (47.5% WR); needs real OI data (3-4 months of oi_daily_snapshot); 8:45 AM + 9:52 AM emails still live

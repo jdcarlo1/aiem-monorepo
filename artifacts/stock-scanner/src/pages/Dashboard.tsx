@@ -12199,6 +12199,7 @@ function QuantAgentTab() {
   }
 
   const startPolling = useCallback((jobId: string) => {
+    if (!jobId || !jobId.trim()) return;
     clearTimers();
     startTimeRef.current = Date.now();
     setElapsed(0);
