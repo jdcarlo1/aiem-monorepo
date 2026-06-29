@@ -226,6 +226,40 @@ def _news_catchup_on_wake():
         pass
 
 
+_ADMIN_LOG_PREFIXES = (
+    "/stock-api/admin/",
+    "/stock-api/aiem-paper-portfolio/force-",
+)
+
+@app.before_request
+def _log_admin_requests():
+    """Write (ts, remote_addr, method, path, user_agent) to request_log for
+    every admin/* and force-* call so there is a permanent DB record of who
+    triggered what. Written synchronously (short timeout) so the row is
+    guaranteed in the DB before the response is returned."""
+    try:
+        _path = request.path
+        if request.method == "OPTIONS":
+            return
+        if not any(_path.startswith(_p) for _p in _ADMIN_LOG_PREFIXES):
+            return
+        _addr = request.remote_addr
+        _meth = request.method
+        _ua   = request.headers.get("User-Agent", "")
+        import psycopg2 as _rl_pg
+        with _rl_pg.connect(_DB_URL, connect_timeout=1,
+                            options="-c statement_timeout=1000") as _c, \
+             _c.cursor() as _cu:
+            _cu.execute(
+                "INSERT INTO request_log (remote_addr, method, path, user_agent)"
+                " VALUES (%s, %s, %s, %s)",
+                (_addr, _meth, _path, _ua),
+            )
+            _c.commit()
+    except Exception as _rl_e:
+        print(f"[request_log] write error: {_rl_e}")
+
+
 _NTFY_TOPIC = "stockscanner-joel-9x7k2"
 
 def _send_ntfy(title: str, body: str, priority: str = "high", tags: str = "bell") -> bool:
@@ -946,6 +980,30 @@ _DEFERRED_INITS.append(lambda: init_news_catalyst_log())
 _DEFERRED_INITS.append(lambda: init_midday_log_table())
 _DEFERRED_INITS.append(lambda: init_multiday_runner_tables())
 _DEFERRED_INITS.append(lambda: _init_steady_grinder_scan_table())
+
+def _init_request_log_table():
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5,
+                               options="-c statement_timeout=5000") as _c, \
+             _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS request_log (
+                    id          BIGSERIAL PRIMARY KEY,
+                    ts          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    remote_addr TEXT,
+                    method      TEXT,
+                    path        TEXT,
+                    user_agent  TEXT
+                )
+            """)
+            _cu.execute("CREATE INDEX IF NOT EXISTS request_log_ts_idx   ON request_log(ts DESC)")
+            _cu.execute("CREATE INDEX IF NOT EXISTS request_log_path_idx ON request_log(path)")
+            _c.commit()
+        print("[request_log] table ready")
+    except Exception as _e:
+        print(f"[request_log] init error: {_e}")
+
+_DEFERRED_INITS.append(lambda: _init_request_log_table())
 
 # ── Intraday bar cache: prerequisite for AIEM hypothesis #12 ─────────────────
 # Captures 1-min OHLCV bars from Tradier for a ~50-ticker priority watchlist
@@ -10012,7 +10070,7 @@ def _poll_trade_emails() -> None:
         return
 
     try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=30)
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=10)
         mail.login(user, pwd)
         mail.select("INBOX")
 
@@ -10171,7 +10229,7 @@ def _poll_ask_sms() -> None:
     _since = (_dt_poll.now() - _td_poll(days=1)).strftime("%d-%b-%Y")
 
     try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=30)
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=10)
         mail.login(user, pwd)
         mail.select("INBOX")
 
@@ -43172,8 +43230,9 @@ def standout_track():
     import psycopg2.extras as _ext_st
 
     try:
-        with _pg_st.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor(cursor_factory=_ext_st.RealDictCursor) as _cu:
-            _cu.execute("SET statement_timeout = '6000'")
+        with _pg_st.connect(_DB_URL, connect_timeout=2,
+                             options="-c statement_timeout=5000") as _c, \
+             _c.cursor(cursor_factory=_ext_st.RealDictCursor) as _cu:
             _cu.execute("""
                 SELECT DISTINCT ON (s.scan_date, s.ticker)
                     s.scan_date,
@@ -44407,7 +44466,9 @@ def gap_volume_signal_endpoint():
     """
     try:
         import psycopg2 as _gvs_pg
-        with _gvs_pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+        with _gvs_pg.connect(os.environ["DATABASE_URL"],
+                             connect_timeout=2,
+                             options="-c statement_timeout=5000") as _c, _c.cursor() as _cur:
             _cur.execute("""
                 SELECT ticker, price, open_price, high, low, vwap,
                        gap_pct, volume, avg_volume, rvol, close_strength,
