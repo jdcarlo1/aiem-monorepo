@@ -168,3 +168,9 @@ id = "rhQ5-TegXqtMDq7uKpQzQ"
 uri = "file://FOR_CLAUDE.md"
 type = "text"
 title = "FOR_CLAUDE.md — Send this to Claude"
+
+[[outputs]]
+id = "SHl2CJJ9w_S5Qr_1OzE5D"
+uri = "file://stockscanner-code.zip"
+type = "unspecified"
+title = "StockScanner AI — Current Code"
