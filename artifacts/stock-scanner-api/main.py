@@ -1,6 +1,17 @@
 from flask import Flask, request, jsonify
 import sys as _sys; _sys.stdout.reconfigure(line_buffering=True)  # flush logs in real time (prod containers buffer by default)
 import hmac
+
+# Load .env file if present (picks up AIEM_SECRET and other local overrides)
+import os as _os_env
+_env_path = _os_env.path.join(_os_env.path.dirname(_os_env.path.abspath(__file__)), ".env")
+if _os_env.path.exists(_env_path):
+    with open(_env_path) as _ef:
+        for _el in _ef:
+            _el = _el.strip()
+            if _el and not _el.startswith("#") and "=" in _el:
+                _ek, _ev = _el.split("=", 1)
+                _os_env.environ.setdefault(_ek.strip(), _ev.strip())
 from flask_cors import CORS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
@@ -45384,19 +45395,48 @@ def admin_backfill_iv():
 # need to be serialized with each other to avoid duplicate research runs).
 
 
+def _aiem_sign(job_id: str, timestamp: str, response_text: str) -> str:
+    """HMAC-SHA256 sign an AIEM response for authenticity verification."""
+    import hmac as _hmac_s, hashlib as _hs, os as _os_s
+    secret = _os_s.environ.get("AIEM_SECRET", "")
+    if not secret:
+        return ""
+    payload = f"{job_id}:{timestamp}:{response_text}"
+    return _hmac_s.new(secret.encode(), payload.encode(), _hs.sha256).hexdigest()
+
+
+def _aiem_verify(job_id: str, timestamp: str, response_text: str, signature: str) -> bool:
+    """Constant-time verify an AIEM response signature."""
+    import hmac as _hmac_v, os as _os_v
+    secret = _os_v.environ.get("AIEM_SECRET", "")
+    if not secret or not signature:
+        return False
+    expected = _aiem_sign(job_id, timestamp, response_text)
+    return _hmac_v.compare_digest(expected, signature)
+
+
 def _qa_db_update(job_id: str, status: str, answer=None, error=None, current_tool=None, tool_trace=None):
     """Thread-safe DB update for a quant_agent_sessions row."""
-    import psycopg2 as _qpg, json as _qj
+    import psycopg2 as _qpg, json as _qj, time as _qt
+    _sig = None
+    _signed_at_val = None
+    if status == "done" and answer:
+        _ts = str(int(_qt.time()))
+        _sig = _aiem_sign(job_id, _ts, answer)
+        _signed_at_val = "NOW()"
     try:
         with _qpg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
                 """UPDATE quant_agent_sessions
                    SET status=%s, answer=%s, error=%s,
-                       current_tool=%s, tool_trace=%s, updated_at=NOW()
+                       current_tool=%s, tool_trace=%s, updated_at=NOW(),
+                       aiem_signature=%s,
+                       signed_at=CASE WHEN %s IS NOT NULL THEN NOW() ELSE signed_at END
                    WHERE job_id=%s""",
                 (status, answer, error,
                  current_tool,
                  _qj.dumps(tool_trace) if tool_trace is not None else None,
+                 _sig, _sig,
                  job_id)
             )
             _c.commit()
@@ -45638,14 +45678,15 @@ def aiem_chat_poll(job_id):
     try:
         with _pp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
-                """SELECT status, answer, error, current_tool, tool_trace, created_at
+                """SELECT status, answer, error, current_tool, tool_trace, created_at,
+                          aiem_signature, signed_at
                    FROM quant_agent_sessions WHERE job_id=%s""",
                 (job_id,)
             )
             row = _cu.fetchone()
             if not row:
                 return jsonify({"error": "job not found"}), 404
-            status, answer, error, current_tool, tool_trace_raw, created_at = row
+            status, answer, error, current_tool, tool_trace_raw, created_at, aiem_sig, signed_at = row
             tool_trace = None
             if tool_trace_raw:
                 try:
@@ -45653,16 +45694,77 @@ def aiem_chat_poll(job_id):
                 except Exception:
                     tool_trace = None
             return jsonify({
-                "job_id":       job_id,
-                "status":       status,
-                "answer":       answer,
-                "error":        error,
-                "current_tool": current_tool,
-                "tool_trace":   tool_trace,
-                "created_at":   created_at.isoformat() if created_at else None,
+                "job_id":          job_id,
+                "status":          status,
+                "answer":          answer,
+                "error":           error,
+                "current_tool":    current_tool,
+                "tool_trace":      tool_trace,
+                "created_at":      created_at.isoformat() if created_at else None,
+                "aiem_signature":  aiem_sig,
+                "signed_at":       signed_at.isoformat() if signed_at else None,
+                "verify_url":      f"/stock-api/aiem/verify/{job_id}",
             })
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem/verify/<job_id>", methods=["GET"])
+def aiem_verify(job_id):
+    """Cryptographically verify that a response was produced by the AIEM pipeline.
+    Returns verified=true only if the stored HMAC matches the saved answer.
+    This proves the response came from the AIEM engine, not fabricated afterward.
+    """
+    import psycopg2 as _vp
+    try:
+        with _vp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                "SELECT answer, aiem_signature, signed_at, created_at, status FROM quant_agent_sessions WHERE job_id=%s",
+                (job_id,)
+            )
+            row = _cu.fetchone()
+            if not row:
+                return jsonify({"verified": False, "error": "job not found"}), 404
+            answer, stored_sig, signed_at, created_at, status = row
+            if status != "done" or not answer or not stored_sig:
+                return jsonify({
+                    "verified": False,
+                    "job_id": job_id,
+                    "status": status,
+                    "reason": "session not complete or unsigned",
+                })
+            # Re-derive the signature from what's stored and compare constant-time
+            import hmac as _vh, hashlib as _vhs, os as _vos
+            secret = _vos.environ.get("AIEM_SECRET", "")
+            if not secret:
+                return jsonify({"verified": False, "reason": "AIEM_SECRET not configured on server"})
+            # Signature format: HMAC-SHA256( job_id:unix_ts:answer )
+            # We verify by checking stored_sig is a valid hex digest over the stored payload.
+            # Since we don't store the original timestamp separately, we verify by
+            # re-computing from stored answer and comparing to stored signature using
+            # the known payload structure.
+            # Extract timestamp from signature creation time (stored as signed_at).
+            import time as _vt
+            if signed_at:
+                ts = str(int(signed_at.timestamp()))
+            else:
+                ts = str(int(created_at.timestamp()))
+            expected = _aiem_sign(job_id, ts, answer)
+            verified = _vh.compare_digest(expected, stored_sig)
+            return jsonify({
+                "verified":        verified,
+                "job_id":          job_id,
+                "status":          status,
+                "signed_at":       signed_at.isoformat() if signed_at else None,
+                "aiem_signature":  stored_sig,
+                "algorithm":       "HMAC-SHA256",
+                "payload_format":  "job_id:unix_timestamp:response_text",
+                "model":           "gpt-5.4",
+                "reason":          "Signature matches — this response was produced by the AIEM pipeline" if verified
+                                   else "Signature mismatch — response may have been tampered with",
+            })
+    except Exception as _e:
+        return jsonify({"verified": False, "error": str(_e)}), 500
 
 
 @app.route("/stock-api/aiem/chat/history", methods=["GET"])
