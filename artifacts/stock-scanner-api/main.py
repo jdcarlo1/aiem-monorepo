@@ -24685,10 +24685,36 @@ def _mkt_net_flow_db(days_back: int = 5, min_rvol: float = 1.5,
 
 
 def _classify_question_complexity(question: str) -> int:
-    """Dynamic max_iterations based on question type (Claude fix #2)."""
+    """Dynamic max_iterations based on question type."""
+    import re as _re_cq
     q = question.lower()
+    words = q.split()
+
+    # Fast-path: short conversational messages with no analytical intent.
+    # Avoids routing "hey" / "thanks" / "are you working?" through the full
+    # multi-step research loop.  A question is casual if ALL of:
+    #   - under 15 words
+    #   - no uppercase ticker-like token (e.g. AAPL, MSFT, NVDA)
+    #   - no analytical keywords
+    _ANALYTICAL = [
+        "backtest", "validate", "significan", "out-of-sample", "oos",
+        "is it real", "does it work", "prove", "p-value",
+        "compare", "versus", "better than", "which of",
+        "analyze", "analysis", "signal", "strategy", "correlation",
+        "regression", "pattern", "sector", "momentum", "breakout",
+        "squeeze", "sweep", "flow", "conviction", "scanner",
+        "predict", "forecast", "historical", "scan", "screen",
+        "options", "calls", "puts", "gamma", "delta", "vix",
+        "earnings", "report", "filing", "insider", "ticker",
+        "stock", "pick", "today", "market", "bullish", "bearish",
+    ]
+    _has_ticker = bool(_re_cq.search(r'\b[A-Z]{2,5}\b', question))
+    _has_analytical = any(kw in q for kw in _ANALYTICAL)
+    if len(words) < 15 and not _has_ticker and not _has_analytical:
+        return 1  # conversational — single LLM pass, no tools needed
+
     deep = ["backtest", "validate", "significan", "out-of-sample", "oos",
-            "is it real", "does it work", "prove", "p-value"]
+            "is it real", "prove", "p-value", "statistically"]
     compare = ["compare", "vs", "versus", "better than", "which of"]
     simple = ["what is", "define", "explain", "how does"]
     if any(s in q for s in deep):   return 10
@@ -24697,19 +24723,36 @@ def _classify_question_complexity(question: str) -> int:
     return 6
 
 
+# 45-second in-memory cache for live snapshot calls (keyed by frozenset of tickers).
+# Prevents redundant Polygon API hits when the same ticker set is requested multiple
+# times within a single AIEM research session or back-to-back chat messages.
+_LIVE_SNAPSHOT_CACHE: dict = {}   # frozenset(tickers) → (timestamp, result)
+_LIVE_SNAPSHOT_TTL = 45           # seconds
+
+
 def _aiem_tool_get_live_snapshot(tickers) -> dict:
     """Get live intraday data for specific tickers RIGHT NOW from Polygon snapshot endpoint.
     Returns current price, today's volume, most recent minute bar, and change %.
     data_status will be 'OK' (real-time) or 'DELAYED' (15-min lag) depending on Polygon tier.
     Use when a question mentions 'right now', 'currently', 'this minute', or 'today so far'.
     """
-    import urllib.request as _ureq_ls, urllib.parse as _uparse_ls, json as _json_ls
+    import urllib.request as _ureq_ls, urllib.parse as _uparse_ls, json as _json_ls, time as _tls
 
     if isinstance(tickers, str):
         tickers = [tickers]
     tickers = [t.upper().strip() for t in tickers if t][:50]
     if not tickers:
         return {"status": "error", "error": "no tickers provided"}
+
+    # Cache check — serve hit if fresh enough
+    _cache_key = frozenset(tickers)
+    _cached = _LIVE_SNAPSHOT_CACHE.get(_cache_key)
+    if _cached:
+        _age = _tls.time() - _cached[0]
+        if _age < _LIVE_SNAPSHOT_TTL:
+            result = dict(_cached[1])
+            result["_cache_age_s"] = round(_age, 1)
+            return result
 
     key = os.environ.get("POLYGON_API_KEY", "")
     if not key:
@@ -24752,7 +24795,7 @@ def _aiem_tool_get_live_snapshot(tickers) -> dict:
             "snapshot_updated_at":  t.get("updated"),
         })
 
-    return {
+    _result = {
         "status":      "ok",
         "data_status": data.get("status"),
         "snapshots":   results,
@@ -24763,6 +24806,15 @@ def _aiem_tool_get_live_snapshot(tickers) -> dict:
             "presenting delayed data as current."
         ),
     }
+    # Store in cache (only successful results)
+    import time as _tls2
+    _LIVE_SNAPSHOT_CACHE[_cache_key] = (_tls2.time(), _result)
+    # Evict stale entries to prevent unbounded growth
+    _now = _tls2.time()
+    for _k in list(_LIVE_SNAPSHOT_CACHE.keys()):
+        if _now - _LIVE_SNAPSHOT_CACHE[_k][0] > _LIVE_SNAPSHOT_TTL * 4:
+            _LIVE_SNAPSHOT_CACHE.pop(_k, None)
+    return _result
 
 
 def _aiem_tool_get_daily_candidates(limit: int = 10, min_conviction_pct: int = 60,
@@ -25160,7 +25212,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                     model="gpt-5.4",
                     messages=messages,
                     tools=_fs_schema,
-                    tool_choice="auto",
+                    # Fast-path: 1-iter casual questions skip tool use entirely
+                    tool_choice="none" if max_iterations == 1 else "auto",
                     max_completion_tokens=2000,
                 )
                 break
@@ -25190,25 +25243,40 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         if not msg.tool_calls:
             break
 
-        for tc in msg.tool_calls:
-            fn = tc.function.name
+        # Fix #7: run all tool calls in this step concurrently.
+        # When the model fans out (e.g. check AAPL + MSFT + NVDA in one step),
+        # parallel execution cuts wall-clock time by ~N× vs sequential.
+        # Results are merged back in the ORIGINAL tool_calls order so the
+        # OpenAI message list stays valid.
+        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
 
-            # Fix #3: safe args parse
+        def _exec_one_tool(_tc):
+            """Parse args + run one tool; returns (_tc, fn, args, result)."""
+            _fn = _tc.function.name
             try:
-                args = _fsj.loads(tc.function.arguments or "{}")
+                _args = _fsj.loads(_tc.function.arguments or "{}")
             except Exception as _je:
-                result = {"error": f"malformed arguments from model: {_je}"}
-                args   = None
+                return _tc, _fn, None, {"error": f"malformed arguments: {_je}"}
+            if _fn not in _fs_tool_map:
+                return _tc, _fn, _args, {"error": f"unknown tool: {_fn}"}
+            try:
+                return _tc, _fn, _args, _fs_tool_map[_fn](**_args)
+            except Exception as _te:
+                return _tc, _fn, _args, {"error": f"{_fn} raised {type(_te).__name__}: {_te}"}
 
-            if args is not None:
-                if fn not in _fs_tool_map:
-                    result = {"error": f"unknown tool: {fn}"}
-                else:
-                    # Fix #2: per-tool exception isolation
-                    try:
-                        result = _fs_tool_map[fn](**args)
-                    except Exception as _te:
-                        result = {"error": f"{fn} raised {type(_te).__name__}: {_te}"}
+        _n_tools = len(msg.tool_calls)
+        _workers = min(_n_tools, 5)   # cap at 5 to avoid overwhelming downstream APIs
+        _tool_results: dict = {}       # tc.id → (fn, args, result)
+
+        with _TPE(max_workers=_workers) as _pool:
+            _futs = {_pool.submit(_exec_one_tool, tc): tc for tc in msg.tool_calls}
+            for _fut in _ac(_futs):
+                _tc_r, _fn_r, _args_r, _res_r = _fut.result()
+                _tool_results[_tc_r.id] = (_fn_r, _args_r, _res_r)
+
+        # Merge in original order — OpenAI requires tool messages to match tool_calls order
+        for tc in msg.tool_calls:
+            fn, args, result = _tool_results[tc.id]
 
             result_str = _fsj.dumps(result, default=str)
             if len(result_str) > 6000:
@@ -45106,22 +45174,31 @@ def aiem_chat_start():
         return jsonify({"error": f"DB error: {_e}"}), 500
 
     max_iters = _classify_question_complexity(question)
-    prompt = (
-        f"SESSION_ID: {job_id}\n"
-        f"(Pass this session_id whenever you call log_prediction so your calls are linked back here.)\n\n"
-        f"The user asks: '{question}'\n\n"
-        f"BEFORE answering: call review_own_accuracy to check your past prediction track record "
-        f"and understand where you have been wrong. Then research the question. "
-        f"If you make any directional call (BULLISH/BEARISH/NEUTRAL) on a specific ticker, "
-        f"ALWAYS call log_prediction with session_id='{job_id}' to save it for grading.\n\n"
-        f"Research this thoroughly using your tools. "
-        f"If they mention specific tickers, use mkt_retrospective_backtest and mkt_find_behavioral_matches. "
-        f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
-        f"If they ask about a pattern or signal, use mkt_test_signal to validate it with real data. "
-        f"If they ask for a backtest, run it and report win rate, sample size, average return, and edge. "
-        f"End with a clear, direct answer. Be concise but complete — 3-5 paragraphs max. "
-        f"Use bullet points for lists of findings."
-    )
+    # Casual fast-path: short conversational question with no analytical intent.
+    # Skip the research-loop prompt entirely — just answer directly.
+    if max_iters == 1:
+        prompt = (
+            f"The user says: '{question}'\n\n"
+            f"This is a casual/conversational message. Respond directly and concisely "
+            f"without calling any tools. Keep the reply to 1-3 sentences."
+        )
+    else:
+        prompt = (
+            f"SESSION_ID: {job_id}\n"
+            f"(Pass this session_id whenever you call log_prediction so your calls are linked back here.)\n\n"
+            f"The user asks: '{question}'\n\n"
+            f"BEFORE answering: call review_own_accuracy to check your past prediction track record "
+            f"and understand where you have been wrong. Then research the question. "
+            f"If you make any directional call (BULLISH/BEARISH/NEUTRAL) on a specific ticker, "
+            f"ALWAYS call log_prediction with session_id='{job_id}' to save it for grading.\n\n"
+            f"Research this thoroughly using your tools. "
+            f"If they mention specific tickers, use mkt_retrospective_backtest and mkt_find_behavioral_matches. "
+            f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
+            f"If they ask about a pattern or signal, use mkt_test_signal to validate it with real data. "
+            f"If they ask for a backtest, run it and report win rate, sample size, average return, and edge. "
+            f"End with a clear, direct answer. Be concise but complete — 3-5 paragraphs max. "
+            f"Use bullet points for lists of findings."
+        )
 
     def _worker():
         # Re-acquire the shared lock — if another session slipped in between the

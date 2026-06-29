@@ -1,0 +1,20 @@
+Three speed improvements for the Quant Agent's AIEM research loop. These are backend-only changes - no UI changes, no new code paths exposed to users. Please implement, test, and show me real before/after timing for each.
+
+1. Fast-path for casual/simple questions
+
+In _classify_question_complexity, right now anything that doesn't match the deep, compare, or simple keyword lists defaults to 6 iterations - even a one-word message like "hey" gets routed into the full multi-step research loop. Add a fast-path: if the question is short (under ~15 words) and contains no analytical keywords at all (no ticker symbols, no words like backtest/compare/analyze/signal/etc.), respond conversationally with 1 iteration max, skipping tool-calling entirely. Show me the updated function.
+
+2. Batch tool calls within a single iteration where possible
+
+Look at _aiem_tool_get_live_snapshot and any other tools that take a list of tickers - confirm the agent is already calling these with multiple tickers in one request rather than looping one-ticker-at-a-time across multiple iterations. If it's currently doing sequential single-ticker calls anywhere in the agent's tool-use pattern, fix that to batch them. Show me which tools were already batched vs which ones you changed.
+
+3. Short-lived cache for live market data lookups
+
+Add a 30-60 second in-memory cache (keyed by ticker list) for _aiem_tool_get_live_snapshot and any other tools hitting Polygon for live price/volume data. If the same ticker is requested again within that window, serve the cached result instead of re-hitting the API. This should be invisible - no behavior change except speed. Show me the caching logic you added.
+
+Verification - run these and paste real timing:
+- Time a simple "hey, are you working?" question before and after fix #1 - confirm it now finishes in a few seconds instead of going through the full research loop
+- Time a multi-ticker question (e.g. "check AAPL, MSFT, NVDA right now") before and after fix #2/#3 - confirm it's measurably faster
+- Confirm a real analytical question (backtest, significance test) is NOT shortened - it should still run its full iteration count and depth; we only want to speed up the easy cases, not cut corners on the real research
+
+Do not touch the frontend, the current_tool progress display, the DB connection pool code, or anything related to the Send button / image upload fixes from earlier today. Those are confirmed working - keep this change isolated to the three items above only.
