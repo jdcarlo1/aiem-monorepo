@@ -1,3 +1,4 @@
+- [AIEM chat latency profile](aiem-chat-latency.md) — DB tools 0-10ms (not bottleneck); OpenAI gpt-5.4 = 1.5-52s jitter (all the time); image questions need min 3 iters; review_own_accuracy now conditional
 - [Flask thread saturation](flask-thread-saturation.md) — 120+ threads from concurrent scan endpoints starves Flask; pure-DB endpoints appear to "hang" (000); fix = wait for startup preload before testing
 - [Grinder-scan DB indexes](grinder-scan-indexes.md) — two CONCURRENT indexes cut query 18s→0.49s; also statement_timeout must match thread deadline
 - [Price Signal Backtest Results](price-signal-backtest.md) — 495-day backtest; S7c★ BigCatDay+InsideDay+Gap = 72.9% WR 3d EV+2.19%; S4◆ GapDown+Reversal 58.6% WR 1d; 4 signals saved to aiem_signal_discoveries

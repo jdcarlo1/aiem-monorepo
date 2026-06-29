@@ -45484,6 +45484,10 @@ def aiem_chat_start():
         return jsonify({"error": f"DB error: {_e}"}), 500
 
     max_iters = _classify_question_complexity(question)
+    # Images always need at least 3 iterations — the casual 1-iter path uses a
+    # 'conversational message' prompt that never mentions the image, causing empty replies.
+    if image_data_url and max_iters < 3:
+        max_iters = 3
     # Casual fast-path: short conversational question with no analytical intent.
     # Skip the research-loop prompt entirely — just answer directly.
     if max_iters == 1:
@@ -45518,6 +45522,7 @@ def aiem_chat_start():
             f"SESSION_ID: {job_id}\n"
             f"(Pass this session_id whenever you call log_prediction so your calls are linked back here.)\n\n"
             f"The user asks: '{question}'\n\n"
+            f"{('NOTE: The user has attached an image. Look at it carefully and describe what you see before answering their question.' + chr(10) + chr(10)) if image_data_url else ''}"
             f"{_review_instruction}"
             f"{_log_instruction}"
             f"Research this thoroughly using your tools. "
