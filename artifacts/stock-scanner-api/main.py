@@ -18684,12 +18684,19 @@ def _mkt_run_two_group(conn, sig_where, sig_params, base_where, base_params, lim
 # ──────────────────────────────────────────────────────────────────────────
 # Tool 1: Explore the full market dataset dimensions
 # ──────────────────────────────────────────────────────────────────────────
+_mkt_explore_dimensions_cache: dict = {}
+
 def _mkt_tool_explore_dimensions():
     """Statistical summary of the full polygon_market_daily universe.
     Call this FIRST to understand what data exists before testing signals."""
-    import psycopg2
+    import psycopg2, time as _t
+    _cache_ttl = 3600
+    _now = _t.time()
+    if _mkt_explore_dimensions_cache.get("ts", 0) + _cache_ttl > _now:
+        return _mkt_explore_dimensions_cache["data"]
     try:
         with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SET LOCAL statement_timeout = '45s'")
             cur.execute("""
                 SELECT
                     COUNT(DISTINCT scan_date) AS n_dates,
@@ -18726,31 +18733,31 @@ def _mkt_tool_explore_dimensions():
             """)
             dist = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
 
-            # Baseline forward returns
+            # Baseline forward returns — LEAD window function avoids correlated subquery
             cur.execute("""
                 SELECT
                     COUNT(*) AS n_pairs,
                     ROUND(AVG(fwd_ret)::numeric, 4) AS avg_next_day_ret,
                     ROUND((COUNT(*) FILTER (WHERE fwd_ret > 0))::numeric / NULLIF(COUNT(*),0) * 100, 2) AS baseline_win_rate
                 FROM (
-                    SELECT ((nxt.close_price / NULLIF(t.close_price,0)) - 1) * 100 AS fwd_ret
-                    FROM polygon_market_daily t
-                    JOIN polygon_market_daily nxt
-                      ON nxt.ticker = t.ticker
-                     AND nxt.scan_date = (
-                           SELECT MIN(x.scan_date) FROM polygon_market_daily x
-                           WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
-                         )
-                    WHERE t.close_price > 0
-                    LIMIT 500000
+                    SELECT
+                        (LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date)
+                         / NULLIF(close_price, 0) - 1) * 100 AS fwd_ret
+                    FROM (
+                        SELECT ticker, scan_date, close_price
+                        FROM polygon_market_daily
+                        WHERE close_price > 0
+                        LIMIT 500000
+                    ) sample
                 ) sub
+                WHERE fwd_ret IS NOT NULL
             """)
             baseline = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
 
             cur.execute("SELECT COUNT(*) FROM aiem_signal_discoveries")
             disc_count = cur.fetchone()[0]
 
-        return {
+        result = {
             "status": "ok",
             "dataset": {k: (int(v) if isinstance(v, (int,)) else str(v) if hasattr(v, 'isoformat') else v)
                         for k, v in meta.items()},
@@ -18760,6 +18767,9 @@ def _mkt_tool_explore_dimensions():
             "available_factors": list(_MKT_SAFE_COLS.keys()),
             "condition_format": "Use {factor}_min and {factor}_max keys, e.g. {'gap_pct_min': 2.0, 'rvol_min': 3.0}",
         }
+        _mkt_explore_dimensions_cache["data"] = result
+        _mkt_explore_dimensions_cache["ts"] = _t.time()
+        return result
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -25317,6 +25327,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         _oai = _OAIFS(
             base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
             api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
+            timeout=25.0,
+            max_retries=1,
         )
     except Exception as _oe:
         return "", [], f"OpenAI init error: {_oe}"
