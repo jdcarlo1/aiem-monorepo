@@ -31,6 +31,8 @@ export default function Landing() {
   const [status, setStatus] = useState<"idle"|"loading"|"ok"|"err">("idle");
   const [errMsg, setErrMsg] = useState("");
   const [showManage, setShowManage] = useState(false);
+  const [refCode, setRefCode] = useState("");
+  const [showRefCode, setShowRefCode] = useState(false);
   const [tickerPos, setTickerPos] = useState(0);
   const [liveFlow, setLiveFlow] = useState<BullFlowRow[]>([]);
   const [topPick, setTopPick] = useState<AITradeSetup | null>(null);
@@ -106,7 +108,7 @@ export default function Landing() {
         setStatus("ok");
         return;
       }
-      const { url } = await createStockScannerCheckout(email.trim());
+      const { url } = await createStockScannerCheckout(email.trim(), refCode.trim() || undefined);
       window.location.href = url;
     } catch (err: any) {
       setErrMsg(err.message ?? "Failed to start checkout");
@@ -1245,6 +1247,24 @@ export default function Landing() {
                 placeholder="Enter your email to get started"
                 className="w-full rounded-xl px-5 py-4 text-white placeholder-slate-500 focus:outline-none text-base"
                 style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)" }} />
+              {showRefCode ? (
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={refCode}
+                    onChange={e => setRefCode(e.target.value.toUpperCase())}
+                    placeholder="Referral code"
+                    maxLength={20}
+                    className="flex-1 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none text-sm font-mono tracking-widest"
+                    style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(34,197,94,0.3)" }}
+                  />
+                  <button onClick={() => { setShowRefCode(false); setRefCode(""); }} className="text-slate-500 hover:text-slate-300 text-xs transition-colors px-2">✕</button>
+                </div>
+              ) : (
+                <button onClick={() => setShowRefCode(true)} className="text-slate-500 hover:text-slate-300 text-xs transition-colors w-full text-left">
+                  Have a referral code? →
+                </button>
+              )}
               <button onClick={handleSubscribe} disabled={status === "loading"}
                 className="w-full rounded-xl font-black transition-all disabled:opacity-50 py-5 text-xl"
                 style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", letterSpacing: "-0.02em", boxShadow: "0 12px 40px rgba(34,197,94,0.45)" }}>

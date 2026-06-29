@@ -317,7 +317,7 @@ export function fetchCongressTrades(refresh = false) {
 }
 
 export function subscribeEmail(email: string) {
-  return fetchJson<{ ok: boolean; error?: string }>("/alerts/subscribe", {
+  return fetchJson<{ ok: boolean; pending?: boolean; error?: string }>("/alerts/subscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
@@ -497,11 +497,11 @@ export function fetchBullFlowPersistence() {
   );
 }
 
-export async function createStockScannerCheckout(email: string): Promise<{ url: string }> {
+export async function createStockScannerCheckout(email: string, referralCode?: string): Promise<{ url: string }> {
   const res = await fetch("/api/stock-scanner/checkout", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, ...(referralCode ? { referralCode } : {}) }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

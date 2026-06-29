@@ -13,11 +13,68 @@ Env vars needed:
 import os
 import smtplib
 import secrets
+import random
+import time
 from historical_performance import get_historical_performance
 import psycopg2
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
+
+# ── Email verification (in-memory, 15-min TTL) ───────────────────────────────
+# {email: {"code": str, "expires": float}}
+_pending_verifications: dict = {}
+_VERIFY_TTL = 900  # 15 minutes
+
+
+def send_verification_code(email: str) -> dict:
+    """Generate a 6-digit code, email it, store with 15-min TTL."""
+    email = email.strip().lower()
+    if not email or "@" not in email:
+        return {"ok": False, "error": "Invalid email"}
+
+    code = f"{random.randint(0, 999999):06d}"
+    _pending_verifications[email] = {"code": code, "expires": time.time() + _VERIFY_TTL}
+
+    html = f"""
+    <div style="font-family:Inter,sans-serif;background:#060c14;padding:40px 24px;max-width:480px;margin:0 auto;border-radius:16px;border:1px solid rgba(34,197,94,0.2)">
+      <div style="text-align:center;margin-bottom:28px">
+        <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#16a34a,#22c55e);font-weight:900;font-size:22px;color:#fff;margin-bottom:12px">S</div>
+        <div style="color:#fff;font-weight:900;font-size:20px;letter-spacing:-0.03em">StockScanner <span style="color:#4ade80">AI</span></div>
+      </div>
+      <div style="color:#94a3b8;font-size:14px;text-align:center;margin-bottom:20px">Your verification code</div>
+      <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;padding:28px;text-align:center;margin-bottom:24px">
+        <div style="color:#4ade80;font-size:48px;font-weight:900;letter-spacing:0.15em;line-height:1">{code}</div>
+        <div style="color:#64748b;font-size:12px;margin-top:10px">Expires in 15 minutes</div>
+      </div>
+      <div style="color:#64748b;font-size:12px;text-align:center">
+        Enter this code on the StockScanner AI page to confirm your email.<br>
+        If you didn't request this, you can safely ignore it.
+      </div>
+    </div>
+    """
+
+    sent = send_email_raw(email, "Your StockScanner AI verification code", html)
+    if not sent:
+        # SMTP not configured — allow code verification anyway (dev/test)
+        print(f"[verify] SMTP not configured; code for {email} = {code}")
+    return {"ok": True, "pending": True}
+
+
+def verify_code(email: str, code: str) -> dict:
+    """Verify the code and, if valid, subscribe the email."""
+    email = email.strip().lower()
+    code  = (code or "").strip()
+    entry = _pending_verifications.get(email)
+    if not entry:
+        return {"ok": False, "error": "No pending verification for this email"}
+    if time.time() > entry["expires"]:
+        del _pending_verifications[email]
+        return {"ok": False, "error": "Code expired — please subscribe again"}
+    if entry["code"] != code:
+        return {"ok": False, "error": "Incorrect code"}
+    del _pending_verifications[email]
+    return subscribe(email)
 
 
 # ── DB helpers ──────────────────────────────────────────────────────────────

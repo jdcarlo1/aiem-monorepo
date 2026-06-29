@@ -284,7 +284,7 @@ router.post("/admin/fix-sessions", async (req, res) => {
 // ─── StockScanner AI subscription checkout ───────────────────────────────────
 
 router.post("/stock-scanner/checkout", async (req, res) => {
-  const { email } = req.body as { email?: string };
+  const { email, referralCode } = req.body as { email?: string; referralCode?: string };
   if (!email || !email.includes("@")) {
     res.status(400).json({ error: "Valid email is required" });
     return;
@@ -324,6 +324,20 @@ router.post("/stock-scanner/checkout", async (req, res) => {
   const host = domains[0] ?? "localhost";
   const baseUrl = `https://${host}/stock-scanner`;
 
+  // Validate referral code if provided
+  let validatedCode: string | null = null;
+  if (referralCode) {
+    const upper = referralCode.trim().toUpperCase();
+    const [affiliate] = await db
+      .select()
+      .from(affiliatesTable)
+      .where(eq(affiliatesTable.code, upper))
+      .limit(1);
+    if (affiliate) {
+      validatedCode = upper;
+    }
+  }
+
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     payment_method_types: ["card"],
@@ -332,10 +346,10 @@ router.post("/stock-scanner/checkout", async (req, res) => {
     success_url: `${baseUrl}?subscribed=true`,
     cancel_url: `${baseUrl}`,
     customer_email: undefined,
-    metadata: { product: "stock-scanner" },
+    metadata: { product: "stock-scanner", ...(validatedCode ? { referralCode: validatedCode } : {}) },
   });
 
-  res.json({ url: session.url });
+  res.json({ url: session.url, referralCode: validatedCode });
 });
 
 router.post("/stock-scanner/manage", async (req, res) => {
