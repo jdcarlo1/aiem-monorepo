@@ -31777,8 +31777,9 @@ def net_flow_single():
     ticker = request.args.get("ticker", "").upper().strip()
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
-    if _yf_breaker_open():
-        return jsonify({"error": "data feed temporarily throttled, try again in a few minutes"}), 503
+    # NOTE: no _yf_breaker_open() guard here — this endpoint uses _td_intraday
+    # (Tradier), not yfinance. Yahoo breaker state is irrelevant; Tradier has its
+    # own _td_breaker. Gating on the Yahoo breaker was causing false 503s.
     try:
         hist = _td_intraday(ticker, "1min")
         if hist is None or hist.empty or len(hist) < 5:
@@ -40515,19 +40516,13 @@ def iv_rank_scan():
 @app.route("/stock-api/52week-breakout", methods=["GET"])
 def breakout_52week():
     """52-week high breakout scanner - price near/above 52wk high + volume confirmation."""
-    import yfinance as yf
+    # NOTE: scan uses _td_quotes (Tradier) only — no yfinance, no Yahoo breaker guard needed.
     from datetime import datetime as _bk_dt
 
     _cache = getattr(app, "_bk_cache", None)
     _ts    = getattr(app, "_bk_cache_ts", None)
     if _cache and _ts and (_bk_dt.now() - _ts).total_seconds() < 900:
         return jsonify(_cache)
-
-    if _yf_breaker_open():
-        if _cache:
-            return jsonify({**_cache, "stale": True})
-        return jsonify({"rows": [], "scanned": 0, "stale": True,
-                        "note": "feed temporarily paused - try again shortly"})
 
     results = []
 
@@ -40606,9 +40601,6 @@ def breakout_52week():
         finally:
             app._bk_scanning = False
 
-    if _yf_breaker_open():
-        if _cache: return jsonify({**_cache, "stale": True})
-        return jsonify({"hits": [], "total": 0, "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     import threading as _bk_thr
     if not getattr(app, "_bk_scanning", False):
         _bk_thr.Thread(target=_bg_bk, daemon=True).start()
@@ -40980,15 +40972,8 @@ def morning_runners():
     if _cache and _ts and (_mr_dt.now() - _ts).total_seconds() < 600:
         return jsonify(_cache)
 
-    # Yahoo throttled - fail-fast rather than hang 18s+
-    if _yf_breaker_open():
-        _mr_db = _load_scan_cache("morning-runners")
-        if _mr_db:
-            return jsonify({**_mr_db, "stale": True, "note": "cached - Yahoo rate limited"})
-        if _cache:
-            return jsonify({**_cache, "stale": True, "note": "cached - Yahoo rate limited"})
-        return jsonify({"runners": [], "total": 0, "scanned": 0, "stale": True,
-                        "note": "Yahoo rate limited - try again shortly"})
+    # NOTE: scan uses _td_quotes + _pg_market_cap_batch (Tradier + Polygon only).
+    # No yfinance — Yahoo breaker is irrelevant here. Removed incorrect guard.
 
     # Market closed - serve last scan from DB rather than an empty live result
     if not _intraday_scan_allowed():
