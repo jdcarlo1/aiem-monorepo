@@ -31113,7 +31113,13 @@ def aiem_paper_portfolio():
 @app.route("/stock-api/aiem-paper-portfolio/force-execute", methods=["POST"])
 def aiem_paper_force_execute():
     """Admin: force today's pick-and-execute cycle immediately (for testing)."""
-    import threading as _ape_thr
+    import datetime as _fe_dt, threading as _ape_thr
+    _today = _fe_dt.date.today()
+    if _today.weekday() >= 5:
+        return jsonify({
+            "status": "rejected",
+            "reason": f"market closed — today is {_today.strftime('%A %Y-%m-%d')} (weekend)",
+        }), 400
     _ape_thr.Thread(target=_aiem_paper_execute_today, daemon=True).start()
     return jsonify({"status": "executing", "message": "AIEM picking 20 trades now — refresh portfolio in 15s"})
 
