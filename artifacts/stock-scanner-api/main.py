@@ -45242,34 +45242,40 @@ import threading as _di_thr
 _di_thr.Thread(target=_run_deferred_inits, daemon=True, name="startup-db-init").start()
 
 
-@app.route("/stock-api/download-source", methods=["GET"])
+@app.route("/stock-api/get-all-code", methods=["GET"])
 def download_source():
     import zipfile, io, os
     buf = io.BytesIO()
-    workspace = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-    targets = [
-        (os.path.join(workspace, "stock-scanner-api"), "stock-scanner-api"),
-        (os.path.join(workspace, "stock-scanner"),     "stock-scanner"),
-    ]
-    skip_dirs = {"node_modules", "__pycache__", ".vite", "dist", ".git", ".local"}
-    skip_ext  = {".pyc", ".pyo"}
+    artifacts_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    workspace_dir = os.path.normpath(os.path.join(artifacts_dir, ".."))
+    skip_dirs = {"node_modules", "__pycache__", ".vite", "dist", ".git", ".local", ".agents"}
+    skip_ext  = {".pyc", ".pyo", ".pkl", ".zip"}
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for base_dir, arc_prefix in targets:
-            if not os.path.isdir(base_dir):
+        for folder, arc_prefix in [
+            (os.path.join(artifacts_dir, "stock-scanner-api"), "stock-scanner-api"),
+            (os.path.join(artifacts_dir, "stock-scanner"),     "stock-scanner"),
+        ]:
+            if not os.path.isdir(folder):
                 continue
-            for root, dirs, files in os.walk(base_dir):
+            for root, dirs, files in os.walk(folder):
                 dirs[:] = [d for d in dirs if d not in skip_dirs]
                 for fname in files:
                     if any(fname.endswith(e) for e in skip_ext):
                         continue
                     fp = os.path.join(root, fname)
-                    arcname = arc_prefix + "/" + os.path.relpath(fp, base_dir)
+                    arcname = arc_prefix + "/" + os.path.relpath(fp, folder)
                     zf.write(fp, arcname)
+        for fname in ["STOCKSCANNER_AI_INVENTION_DISCLOSURE.md", "MODULES.md", "FOR_CLAUDE.md", "replit.md"]:
+            fp = os.path.join(workspace_dir, fname)
+            if os.path.isfile(fp):
+                zf.write(fp, fname)
     buf.seek(0)
     from flask import send_file
-    return send_file(buf, mimetype="application/zip",
+    resp = send_file(buf, mimetype="application/zip",
                      as_attachment=True,
-                     download_name="stockscanner-full.zip")
+                     download_name="stockscanner-complete.zip")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
