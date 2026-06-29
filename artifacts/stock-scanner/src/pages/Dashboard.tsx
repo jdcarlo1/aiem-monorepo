@@ -12312,6 +12312,11 @@ function QuantAgentTab() {
         setActiveJob({ job_id: "", question: q, status: "error", error: data.error || "A session is already running — please wait for it to finish." });
         return;
       }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setActiveJob({ job_id: "", question: q, status: "error", error: (data as any).error || `Server error (${res.status}). Please try again.` });
+        return;
+      }
       const data = await res.json();
       if (data.job_id) {
         startPolling(data.job_id);
