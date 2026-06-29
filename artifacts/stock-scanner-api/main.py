@@ -25346,8 +25346,10 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
     _context_budget = 60_000
     _context_used   = 0
 
+    _t_session_start = _fst.time()
     for _i in range(max_iterations):
         # Fix #4: retry with backoff on transient OpenAI errors
+        _t_llm_start = _fst.time()
         resp = None
         for _attempt in range(3):
             try:
@@ -25366,6 +25368,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                     return _last_text, trace, f"OpenAI call failed: {_oe2}"
                 _fst.sleep(1.5 * (_attempt + 1))
 
+        _t_llm_elapsed = round(_fst.time() - _t_llm_start, 2)
         msg = resp.choices[0].message
         if msg.content:
             _last_text = msg.content
@@ -25394,18 +25397,20 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
 
         def _exec_one_tool(_tc):
-            """Parse args + run one tool; returns (_tc, fn, args, result)."""
+            """Parse args + run one tool; returns (_tc, fn, args, result, t_s)."""
             _fn = _tc.function.name
             try:
                 _args = _fsj.loads(_tc.function.arguments or "{}")
             except Exception as _je:
-                return _tc, _fn, None, {"error": f"malformed arguments: {_je}"}
+                return _tc, _fn, None, {"error": f"malformed arguments: {_je}"}, 0.0
             if _fn not in _fs_tool_map:
-                return _tc, _fn, _args, {"error": f"unknown tool: {_fn}"}
+                return _tc, _fn, _args, {"error": f"unknown tool: {_fn}"}, 0.0
+            _t0_tool = _fst.time()
             try:
-                return _tc, _fn, _args, _fs_tool_map[_fn](**_args)
+                _res = _fs_tool_map[_fn](**_args)
+                return _tc, _fn, _args, _res, round(_fst.time() - _t0_tool, 2)
             except Exception as _te:
-                return _tc, _fn, _args, {"error": f"{_fn} raised {type(_te).__name__}: {_te}"}
+                return _tc, _fn, _args, {"error": f"{_fn} raised {type(_te).__name__}: {_te}"}, round(_fst.time() - _t0_tool, 2)
 
         _n_tools = len(msg.tool_calls)
         _workers = min(_n_tools, 5)   # cap at 5 to avoid overwhelming downstream APIs
@@ -25414,12 +25419,12 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         with _TPE(max_workers=_workers) as _pool:
             _futs = {_pool.submit(_exec_one_tool, tc): tc for tc in msg.tool_calls}
             for _fut in _ac(_futs):
-                _tc_r, _fn_r, _args_r, _res_r = _fut.result()
-                _tool_results[_tc_r.id] = (_fn_r, _args_r, _res_r)
+                _tc_r, _fn_r, _args_r, _res_r, _t_tool_r = _fut.result()
+                _tool_results[_tc_r.id] = (_fn_r, _args_r, _res_r, _t_tool_r)
 
         # Merge in original order — OpenAI requires tool messages to match tool_calls order
         for tc in msg.tool_calls:
-            fn, args, result = _tool_results[tc.id]
+            fn, args, result, _t_tool_s = _tool_results[tc.id]
 
             result_str = _fsj.dumps(result, default=str)
             if len(result_str) > 6000:
@@ -25431,7 +25436,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                 result_str = _fsj.dumps({"note": "result omitted, context budget reached"})
 
             step = {"iteration": _i, "tool": fn, "args": args,
-                    "ok": "error" not in (result if isinstance(result, dict) else {})}
+                    "ok": "error" not in (result if isinstance(result, dict) else {}),
+                    "t_tool_s": _t_tool_s, "t_llm_s": _t_llm_elapsed}
             trace.append(step)
 
             # Fix #5: live progress callback
@@ -25446,7 +25452,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                 "content": result_str,
             })
 
-    print(f"[aiem_24h:{session_name}] complete ({_i+1} iters, {len(trace)} tool calls)")
+    print(f"[aiem_24h:{session_name}] complete ({_i+1} iters, {len(trace)} tool calls, {round(_fst.time()-_t_session_start,1)}s total)")
     return _last_text, trace, None
 
 
@@ -45487,14 +45493,33 @@ def aiem_chat_start():
             f"without calling any tools. Keep the reply to 1-3 sentences."
         )
     else:
+        # Only inject the review_own_accuracy instruction when the question is actually
+        # about AIEM's own prediction track record. For data-retrieval, signal, or
+        # market questions it adds a wasted LLM round-trip (~2-5s) with no benefit.
+        # Use precise phrases that unambiguously mean self-review — avoid single words
+        # like 'call'/'pick'/'right' that collide with market terminology.
+        _q_lower = question.lower()
+        _wants_review = any(kw in _q_lower for kw in [
+            "your accuracy", "your track record", "your win rate", "your prediction",
+            "your picks", "your calls", "your performance", "your record",
+            "been wrong", "been right", "how have you done", "how well have you",
+            "self-critique", "calibrat", "where were you wrong", "your losses",
+            "review_own", "review your",
+        ])
+        _review_instruction = (
+            f"BEFORE answering: call review_own_accuracy to check your past prediction track record "
+            f"and understand where you have been wrong. Then research the question. "
+        ) if _wants_review else ""
+        _log_instruction = (
+            f"If you make any directional call (BULLISH/BEARISH/NEUTRAL) on a specific ticker, "
+            f"ALWAYS call log_prediction with session_id='{job_id}' to save it for grading.\n\n"
+        ) if _wants_review else ""
         prompt = (
             f"SESSION_ID: {job_id}\n"
             f"(Pass this session_id whenever you call log_prediction so your calls are linked back here.)\n\n"
             f"The user asks: '{question}'\n\n"
-            f"BEFORE answering: call review_own_accuracy to check your past prediction track record "
-            f"and understand where you have been wrong. Then research the question. "
-            f"If you make any directional call (BULLISH/BEARISH/NEUTRAL) on a specific ticker, "
-            f"ALWAYS call log_prediction with session_id='{job_id}' to save it for grading.\n\n"
+            f"{_review_instruction}"
+            f"{_log_instruction}"
             f"Research this thoroughly using your tools. "
             f"If they mention specific tickers, use mkt_retrospective_backtest and mkt_find_behavioral_matches. "
             f"If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
