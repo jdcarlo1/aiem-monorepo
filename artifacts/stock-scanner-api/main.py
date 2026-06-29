@@ -10839,17 +10839,16 @@ try:
     def _pg_pooled_connect(*_a, **_kw):
         _kw.pop("connect_timeout", None)
         for _attempt in range(2):
+            _raw = None
             try:
                 _raw = _PG_POOL.getconn()
-                _raw.cursor().execute("SELECT 1")  # liveness check — evicts stale/closed connections
+                _raw.cursor().execute("SELECT 1")  # detect stale connection
                 return _PoolConn(_raw, _PG_POOL)
             except (_psycopg2.OperationalError, _psycopg2.InterfaceError):
-                try:
-                    _PG_POOL.putconn(_raw, close=True)
-                except Exception:
-                    pass
+                if _raw is not None:
+                    _PG_POOL.putconn(_raw, close=True)  # evict the dead connection
                 if _attempt == 1:
-                    raise
+                    raise  # give up after 2 tries
             except _pg_pool_mod.PoolError as e:
                 raise Exception(f"[db] connection pool exhausted — system under load; try again ({e})")
     _psycopg2.connect = _pg_pooled_connect          # patch the module; all aliases follow
