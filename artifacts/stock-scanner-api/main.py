@@ -45280,5 +45280,51 @@ def download_source():
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
+
+@app.route("/stock-api/all-code-text", methods=["GET"])
+def all_code_text():
+    import os
+    artifacts_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    skip_dirs = {"node_modules", "__pycache__", ".vite", "dist", ".git", ".local", ".agents"}
+    skip_ext  = {".pyc", ".pyo", ".pkl", ".zip", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".eot", ".tsbuildinfo"}
+    text_ext  = {".py", ".ts", ".tsx", ".js", ".jsx", ".css", ".json", ".md", ".txt", ".toml", ".yaml", ".yml", ".html", ".env", ".sh"}
+    lines_out = []
+    for folder in [
+        os.path.join(artifacts_dir, "stock-scanner-api"),
+        os.path.join(artifacts_dir, "stock-scanner"),
+    ]:
+        if not os.path.isdir(folder):
+            continue
+        for root, dirs, files in os.walk(folder):
+            dirs[:] = sorted([d for d in dirs if d not in skip_dirs])
+            for fname in sorted(files):
+                if any(fname.endswith(e) for e in skip_ext):
+                    continue
+                if not any(fname.endswith(e) for e in text_ext):
+                    continue
+                fp = os.path.join(root, fname)
+                rel = os.path.relpath(fp, os.path.dirname(artifacts_dir))
+                try:
+                    with open(fp, "r", encoding="utf-8", errors="replace") as fh:
+                        code = fh.read()
+                    line_count = code.count("\n") + 1
+                    lines_out.append("=" * 60)
+                    lines_out.append(f"FILE: {rel}  ({line_count} lines)")
+                    lines_out.append("=" * 60)
+                    lines_out.append(code)
+                    lines_out.append("")
+                except Exception:
+                    pass
+    output = "\n".join(lines_out)
+    from flask import Response
+    return Response(
+        output,
+        mimetype="text/plain",
+        headers={
+            "Content-Disposition": "attachment; filename=stockscanner-allcode.txt",
+            "Cache-Control": "no-store"
+        }
+    )
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
