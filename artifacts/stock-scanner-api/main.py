@@ -247,8 +247,8 @@ def _log_admin_requests():
         _addr = request.remote_addr
         _meth = request.method
         _ua   = request.headers.get("User-Agent", "")
-        with _pg_patch.connect(_DB_URL, connect_timeout=1,
-                              options="-c statement_timeout=1000") as _c, \
+        with _psycopg2.connect(_DB_URL, connect_timeout=1,
+                               options="-c statement_timeout=1000") as _c, \
              _c.cursor() as _cu:
             _cu.execute(
                 "INSERT INTO request_log (remote_addr, method, path, user_agent)"
@@ -1571,9 +1571,10 @@ def _save_scan_cache(endpoint: str, payload: dict) -> None:
 def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
     """Load the most recent cached scan result (up to days_back calendar days)."""
     try:
+        import psycopg2 as _psycopg2  # local import — don't depend on module-level alias timing
         from datetime import date as _lcd, timedelta as _lctd
         _cutoff = _lcd.today() - _lctd(days=days_back)
-        with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=3000") as _lcc, _lcc.cursor() as _lccu:
+        with _psycopg2.connect(os.environ.get("DATABASE_URL", ""), connect_timeout=2, options="-c statement_timeout=3000") as _lcc, _lcc.cursor() as _lccu:
             _lccu.execute("""
                 SELECT payload FROM scan_result_cache
                 WHERE endpoint = %s AND scan_date >= %s
@@ -1581,7 +1582,8 @@ def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
             """, (endpoint, _cutoff))
             _row = _lccu.fetchone()
             return _row[0] if _row else None
-    except Exception:
+    except Exception as _lsc_e:
+        print(f"[load_scan_cache] error ({endpoint}): {_lsc_e}")
         return None
 
 
@@ -7458,7 +7460,9 @@ def _run_nano_morning_outcomes():
 def nano_morning_candidates():
     import psycopg2 as _pg
     try:
-        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+        with _pg.connect(os.environ["DATABASE_URL"],
+                         connect_timeout=2,
+                         options="-c statement_timeout=2500") as c, c.cursor() as cur:
             cur.execute("""
                 SELECT snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
                        accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days,
@@ -8706,7 +8710,9 @@ def _run_sc_morning_outcomes():
 def sc_morning_candidates():
     import psycopg2 as _pg, json as _json
     try:
-        with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
+        with _pg.connect(os.environ["DATABASE_URL"],
+                         connect_timeout=2,
+                         options="-c statement_timeout=2500") as c, c.cursor() as cur:
             cur.execute("""
                 SELECT snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
                        accum_pts, steady_pts, vol_pts, mom_pts, opt_pts, net_flow_m,
@@ -10938,11 +10944,22 @@ class _PoolConn:
 
 try:
     import psycopg2.pool as _pg_pool_mod
+    import types as _ptypes
+
+    # ── Save the REAL psycopg2.connect BEFORE any patching ─────────────────────
+    # pool._connect() calls psycopg2.connect() while holding _PG_POOL._lock.
+    # If we patch psycopg2.connect FIRST, that call recurses into _pg_pooled_connect
+    # → _PG_POOL.getconn() → tries to re-acquire _PG_POOL._lock (non-reentrant)
+    # → permanent self-deadlock. We break the cycle by keeping the real connect
+    # for pool-internal use only.
+    _pg2_orig_connect = _psycopg2.connect
+
     _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(
         minconn=2, maxconn=25, dsn=_DB_URL,
         keepalives=1, keepalives_idle=10,
         keepalives_interval=5, keepalives_count=3,
     )
+
     def _pg_pooled_connect(*_a, **_kw):
         _kw.pop("connect_timeout", None)
         for _attempt in range(2):
@@ -10950,6 +10967,7 @@ try:
             try:
                 _raw = _PG_POOL.getconn()
                 _raw.cursor().execute("SELECT 1")  # detect stale connection
+                _raw.rollback()  # reset STATUS_IN_TRANSACTION → idle so __enter__ works
                 return _PoolConn(_raw, _PG_POOL)
             except (_psycopg2.OperationalError, _psycopg2.InterfaceError):
                 if _raw is not None:
@@ -10958,7 +10976,29 @@ try:
                     raise  # give up after 2 tries
             except _pg_pool_mod.PoolError as e:
                 raise Exception(f"[db] connection pool exhausted — system under load; try again ({e})")
+
     _psycopg2.connect = _pg_pooled_connect          # patch the module; all aliases follow
+
+    # ── DEADLOCK FIX: override pool._connect() to use the original connect ──────
+    # After the patch above, psycopg2.pool.ThreadedConnectionPool._connect()
+    # (called while _PG_POOL._lock IS held, to grow the pool beyond minconn)
+    # would call psycopg2.connect() → _pg_pooled_connect → _PG_POOL.getconn()
+    # → _lock.acquire() on the same non-reentrant lock → permanent deadlock.
+    # We replace _connect on this instance to call the saved pre-patch connect.
+    _pg2_orig_ref = _pg2_orig_connect   # cell for closure below
+    def _pool_direct_connect(pool_self, key=None):
+        # Mirror psycopg2 AbstractConnectionPool._connect exactly, but use the
+        # pre-patch connect so the pool can grow without re-entering _PG_POOL._lock.
+        # Real psycopg2 _connect: key!=None → _used/rused; key==None → _pool.
+        conn = _pg2_orig_ref(*pool_self._args, **pool_self._kwargs)
+        if key is not None:
+            pool_self._used[key] = conn
+            pool_self._rused[id(conn)] = key
+        else:
+            pool_self._pool.append(conn)
+        return conn
+    _PG_POOL._connect = _ptypes.MethodType(_pool_direct_connect, _PG_POOL)
+
     print("[db] connection pool ready (min=2 max=25)")
 except Exception as _pool_init_err:
     print(f"[db] pool init failed — falling back to direct connections: {_pool_init_err}")
@@ -35482,6 +35522,14 @@ def composite_score():
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 1800:
         return jsonify(_cache)
 
+    # Cold-cache fallback: serve DB data rather than triggering a live scan after restart
+    if not _cache:
+        _cs_db_cold = _load_scan_cache("composite-score")
+        if _cs_db_cold:
+            app._cs_cache = _cs_db_cold
+            app._cs_cache_ts = _dt.now()
+            return jsonify({**_cs_db_cold, "stale": True})
+
     if _yf_breaker_open():
         if _cache:
             return jsonify({**_cache, "stale": True})
@@ -36555,7 +36603,9 @@ def unusual_calls_microcap():
         LIMIT 1000
     """
     try:
-        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+        with _psycopg2.connect(_DB_URL,
+                               connect_timeout=2,
+                               options="-c statement_timeout=2500") as conn, conn.cursor() as cur:
             cur.execute(_SEL, _params)
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -36588,7 +36638,9 @@ def unusual_calls_microcap():
         _stale_note = None
         if not rows:
             try:
-                with _psycopg2.connect(_DB_URL) as conn2, conn2.cursor() as cur2:
+                with _psycopg2.connect(_DB_URL,
+                                       connect_timeout=2,
+                                       options="-c statement_timeout=2500") as conn2, conn2.cursor() as cur2:
                     cur2.execute("""
                         SELECT ticker, price::float, strike::float, expiry, days_out,
                                volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
@@ -36720,7 +36772,9 @@ def gamma_pressure_endpoint():
         date_arg = request.args.get("date")
         limit    = min(int(request.args.get("limit", 60)), 200)
 
-        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        with psycopg2.connect(_os.environ["DATABASE_URL"],
+                              connect_timeout=2,
+                              options="-c statement_timeout=2500") as conn, conn.cursor() as cur:
             if date_arg:
                 cur.execute("""
                     SELECT ticker, price, price_change_pct, fir, fsd, float_shares, float_m,
@@ -36782,7 +36836,9 @@ def oi_accumulation_endpoint():
             })
         # Return snapshot dates and the specific dates being compared
         import psycopg2, os as _os
-        with psycopg2.connect(_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        with psycopg2.connect(_os.environ["DATABASE_URL"],
+                              connect_timeout=2,
+                              options="-c statement_timeout=2500") as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT DISTINCT snapshot_date::TEXT
                 FROM oi_daily_snapshot
@@ -37068,7 +37124,9 @@ def etf_calls():
     placeholders = ",".join(["%s"] * len(_etf_set))
     date_filter = "AND (last_seen AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date" if today_only else ""
     try:
-        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+        with _psycopg2.connect(_DB_URL,
+                               connect_timeout=2,
+                               options="-c statement_timeout=2500") as conn, conn.cursor() as cur:
             cur.execute(f"""
                 SELECT ticker, price::float, strike::float, expiry, days_out,
                        volume, oi, vol_oi::float, prem::bigint, otm_pct::float,
@@ -37116,7 +37174,9 @@ def eod_sweeps():
         return jsonify(_cache)
 
     try:
-        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+        with _psycopg2.connect(_DB_URL,
+                               connect_timeout=2,
+                               options="-c statement_timeout=2500") as conn, conn.cursor() as cur:
             # First try today's EOD data only
             cur.execute("""
                 SELECT ticker, price::float, strike::float, expiry, days_out,
@@ -42514,8 +42574,8 @@ def eod_accumulation():
         # Avoids two sequential TCP-level connection round-trips (was causing 6s+ timeout on
         # cold restarts when both connect_timeout=5 calls happened close together under load).
         try:
-            with _pg_ea.connect(_DB_URL, connect_timeout=5,
-                                 options="-c statement_timeout=4000") as _c_db, \
+            with _pg_ea.connect(_DB_URL, connect_timeout=2,
+                                 options="-c statement_timeout=2500") as _c_db, \
                  _c_db.cursor() as _cu_db:
                 # Run migration once per process lifetime; idempotent due to IF NOT EXISTS.
                 if not getattr(_eod_accumulation, "_migration_done", False):
@@ -43179,7 +43239,9 @@ def short_squeeze_radar():
         _today_sq    = _et_today()
         _lookback_sq = (_today_sq - _dt_sq.timedelta(days=5)).isoformat()
 
-        with _pg_sq.connect(_DB_URL) as _c_sq, _c_sq.cursor() as _cu_sq:
+        with _pg_sq.connect(_DB_URL,
+                            connect_timeout=2,
+                            options="-c statement_timeout=2500") as _c_sq, _c_sq.cursor() as _cu_sq:
             _cu_sq.execute("""
                 SELECT DISTINCT ticker FROM (
                     SELECT ticker FROM eod_accum_picks  WHERE scan_date >= %s
@@ -43319,7 +43381,7 @@ def standout_track():
 
     try:
         with _pg_st.connect(_DB_URL, connect_timeout=2,
-                             options="-c statement_timeout=5000") as _c, \
+                             options="-c statement_timeout=2500") as _c, \
              _c.cursor(cursor_factory=_ext_st.RealDictCursor) as _cu:
             _cu.execute("""
                 SELECT DISTINCT ON (s.scan_date, s.ticker)
@@ -44556,7 +44618,7 @@ def gap_volume_signal_endpoint():
         import psycopg2 as _gvs_pg
         with _gvs_pg.connect(os.environ["DATABASE_URL"],
                              connect_timeout=2,
-                             options="-c statement_timeout=5000") as _c, _c.cursor() as _cur:
+                             options="-c statement_timeout=2500") as _c, _c.cursor() as _cur:
             _cur.execute("""
                 SELECT ticker, price, open_price, high, low, vwap,
                        gap_pct, volume, avg_volume, rvol, close_strength,
@@ -45653,6 +45715,19 @@ def all_code_text():
             "Cache-Control": "no-store"
         }
     )
+
+@app.route("/__debug/threads")
+def _debug_threads():
+    import sys, traceback, io, threading
+    frames = sys._current_frames()
+    out = {}
+    for t in threading.enumerate():
+        f = frames.get(t.ident)
+        buf = io.StringIO()
+        if f:
+            traceback.print_stack(f, file=buf)
+        out[f"{t.name}|{t.ident}"] = buf.getvalue()
+    return jsonify(out)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

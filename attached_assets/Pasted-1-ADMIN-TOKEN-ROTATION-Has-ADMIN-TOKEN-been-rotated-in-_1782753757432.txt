@@ -1,0 +1,54 @@
+1. ADMIN_TOKEN ROTATION
+   Has ADMIN_TOKEN been rotated in the Secrets panel since the real token
+   value was written into the access log during testing earlier today?
+   Confirm yes/no. If not done yet, do not publish until it is.
+
+2. TICKER TYPOS
+   The logs show repeated errors for $APPL (should be AAPL) and INTEL
+   (should be INTC) showing up as "possibly delisted" / "quote not found."
+   Find where these tickers are defined (static list or dynamic source)
+   and fix the typos. Run:
+       grep -rn "APPL\b" main.py
+       grep -rn "\"INTEL\"\|'INTEL'" main.py
+   Paste the actual lines found and the fix applied.
+
+3. _pg_patch.connect
+   Earlier a diff changed a raw psycopg2.connect() call to use
+   _pg_patch.connect() instead. What is _pg_patch — where is it defined,
+   and what does it do differently from calling psycopg2 directly?
+   Run: grep -n "_pg_patch" main.py
+   Paste the definition and explain the purpose of this change.
+
+4. FORCE-EXECUTE DURING SCAN STORM
+   Earlier today, force-execute was called while the server was under
+   load from a startup scan storm (Tradier timeouts, breaker trips).
+   Check the execution log for that specific timestamp and confirm
+   whether it completed successfully or failed/got lost:
+       curl -s "https://yoursite/stock-api/aiem-paper-portfolio/execution-log" \
+         -H "X-Admin-Token: <TOKEN>" | python3 -m json.tool
+   Paste the raw JSON output, specifically the row matching that timestamp.
+
+5. UNIQUE CONSTRAINT ON aiem_paper_trades
+   Confirm whether a unique constraint exists on (trade_date, ticker,
+   trade_type) in aiem_paper_trades -- this is what makes
+   "ON CONFLICT DO NOTHING" actually work instead of being a no-op.
+   Run this SQL and paste the raw result:
+       SELECT conname, pg_get_constraintdef(oid)
+       FROM pg_constraint
+       WHERE conrelid = 'aiem_paper_trades'::regclass
+         AND contype IN ('u','p');
+   If no rows come back, add the constraint:
+       ALTER TABLE aiem_paper_trades
+       ADD CONSTRAINT uq_aiem_paper_trades_date_ticker_type
+       UNIQUE (trade_date, ticker, trade_type);
+
+6. SILENT EXCEPTION HANDLERS
+   _load_scan_cache and _load_top10_from_db both currently have
+   "except Exception: return None" with no logging -- meaning a DB
+   timeout, a bad query, or a missing table all look identical to
+   "no cached data available," with zero visibility into which one
+   actually happened. Update both to at least log the error:
+       except Exception as _e:
+           print(f"[function_name] error: {_e}")
+           return None
+   Confirm this change is applied to both functions and paste the diff.

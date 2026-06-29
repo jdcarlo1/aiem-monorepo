@@ -32,7 +32,7 @@ def _et_today() -> date:
 
 def _connect():
     import psycopg2
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(DATABASE_URL, connect_timeout=2, options="-c statement_timeout=3000")
 
 
 def init_signal_outcomes_table():
