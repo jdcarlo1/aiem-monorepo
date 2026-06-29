@@ -12319,6 +12319,8 @@ function QuantAgentTab() {
           ? { ...prev, question: q, has_image: !!capturedImage, image_data_url: capturedImage ?? undefined }
           : { job_id: data.job_id, question: q, status: "pending", has_image: !!capturedImage, image_data_url: capturedImage ?? undefined }
         );
+      } else {
+        setActiveJob({ job_id: "", question: q, status: "error", error: data.error || "Something went wrong — please try again." });
       }
     } catch {
       setActiveJob({ job_id: "", question: q, status: "error", error: "Failed to start session — check your connection." });
