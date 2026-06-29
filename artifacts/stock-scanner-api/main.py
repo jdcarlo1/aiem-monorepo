@@ -1770,6 +1770,50 @@ try:
         id="morning_scan",
         replace_existing=True,
     )
+    # Opening tracker: Mon-Fri 9:30-10:00 ET every 5 min
+    # Pulls a live Tradier quote snapshot for recent unusual-calls candidates
+    # and accumulates them into opening_snapshot_tracker for pattern classification.
+    def _run_premarket_open_tracker():
+        try:
+            import os as _pot_os
+            import opening_snapshot_tracker as _ost
+            import premarket_open_trader as _pot
+            _db = _pot_os.environ.get("DATABASE_URL", "")
+            if not _db:
+                return
+            import psycopg2 as _pot_pg
+            _conn = _pot_pg.connect(_db)
+            try:
+                with _conn.cursor() as _cur:
+                    _cur.execute("""
+                        SELECT DISTINCT ticker FROM unusual_calls_log
+                        WHERE created_at >= NOW() - INTERVAL '2 days'
+                        LIMIT 30
+                    """)
+                    _candidates = [r[0] for r in _cur.fetchall()]
+            finally:
+                _conn.close()
+            if not _candidates:
+                return
+            _quotes = _td_quotes(_candidates)
+            for _t in _candidates:
+                _q = _quotes.get(_t, {})
+                _price = _q.get("last", 0)
+                _volume = _q.get("volume", 0)
+                if not _price:
+                    continue
+                _ost.record_snapshot(_db, _t, _price, _volume)
+                _pot.evaluate_ticker(_db, _t, premarket_gap_pct=_q.get("change_pct", 0))
+        except Exception as _e:
+            print(f"[scheduler] premarket_open_tracker error: {_e}")
+
+    _scheduler.add_job(
+        _run_premarket_open_tracker,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute="30-59/5", timezone=_ET),
+        id="premarket_open_tracker",
+        replace_existing=True,
+    )
+
     # Pre-close: Mon-Fri 3:30 PM ET  (30 min before 4 PM close - still time to act)
     _scheduler.add_job(
         _run_preclose_scan,

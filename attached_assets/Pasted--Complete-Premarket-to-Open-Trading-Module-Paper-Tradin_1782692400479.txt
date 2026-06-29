@@ -1,0 +1,379 @@
+# Complete Premarket-to-Open Trading Module (Paper Trading)
+
+DESIGN: runs on the SAME scan cadence as your existing scanners
+(every 5 min). At each scan, it pulls a live price/volume snapshot —
+NOT a dedicated minute-bar feed — and stores it. Over several scans,
+those snapshots accumulate into a real picture of the stock's
+behavior since open, which is enough to classify the pattern. This
+matches your actual infrastructure instead of requiring a data
+product you may not have.
+
+Since this is paper trading, "entering a trade" means writing a real
+row to ai_stock_picks with a clear note that it's a premarket-momentum
+based paper entry — not a live order anywhere.
+
+================================================================
+1. opening_snapshot_tracker.py — builds bars from repeated scans
+================================================================
+
+```python
+"""
+opening_snapshot_tracker.py
+====================================================================
+Every time this runs (same 5-min cadence as gamma scanner), it takes
+a live price/volume snapshot for each candidate ticker and stores it.
+Across multiple scans during the morning, these snapshots become the
+"bars" used to classify opening behavior — no dedicated minute-bar
+feed required.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any, List
+
+import psycopg2
+import psycopg2.extras
+
+
+def create_table_sql() -> str:
+    return """
+        CREATE TABLE IF NOT EXISTS opening_snapshots (
+            id SERIAL PRIMARY KEY,
+            ticker VARCHAR(10) NOT NULL,
+            scan_time TIMESTAMPTZ NOT NULL,
+            price DOUBLE PRECISION NOT NULL,
+            volume BIGINT,
+            scan_date DATE NOT NULL DEFAULT CURRENT_DATE
+        );
+        CREATE INDEX IF NOT EXISTS idx_opening_snapshots_ticker_date
+            ON opening_snapshots(ticker, scan_date);
+    """
+
+
+def record_snapshot(db_url: str, ticker: str, price: float, volume: int) -> None:
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO opening_snapshots (ticker, scan_time, price, volume)
+                VALUES (%s, NOW(), %s, %s)
+            """, (ticker, price, volume))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_todays_snapshots(db_url: str, ticker: str) -> List[Dict[str, Any]]:
+    """Returns all snapshots taken for this ticker today, oldest first —
+    these ARE the self-built bars."""
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT scan_time, price, volume FROM opening_snapshots
+                WHERE ticker = %s AND scan_date = CURRENT_DATE
+                ORDER BY scan_time ASC
+            """, (ticker,))
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    import os
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        print(get_todays_snapshots(db_url, "AAPL"))
+    else:
+        print("Set DATABASE_URL to test.")
+```
+
+================================================================
+2. premarket_open_trader.py — the full decision engine
+================================================================
+
+```python
+"""
+premarket_open_trader.py
+====================================================================
+Combines opening-snapshot pattern classification with TODAY's other
+verified modules (synthesis confluence, earnings buffer, correlation
+risk, regime, slippage) into ONE final decision: enter_now,
+wait_until_945, or skip. If entering, writes a real PAPER pick to
+ai_stock_picks.
+
+This is the orchestration layer that's been explicitly missing all
+night — the piece that combines separate checks into one verdict
+instead of leaving you to read six numbers and decide yourself.
+====================================================================
+"""
+
+import datetime as dt
+from typing import Dict, Any, List, Optional
+
+import psycopg2
+import decision_logger as dl
+import opening_snapshot_tracker as ost
+import pre_recommendation_synthesis as prs
+import earnings_calendar as ec
+import portfolio_correlation_risk as pcr
+import regime_detector as rd
+import slippage_model as sm
+
+
+def classify_from_snapshots(snapshots: List[Dict[str, Any]],
+                              premarket_gap_pct: float) -> Dict[str, Any]:
+    """Same classification logic as before, fed by accumulated
+    snapshots instead of a dedicated minute-bar feed."""
+    if len(snapshots) < 3:
+        return {"pattern": "insufficient_data", "confidence": "low",
+                "recommendation": "wait_for_more_scans"}
+
+    open_price = snapshots[0]["price"]
+    current_price = snapshots[-1]["price"]
+    high_so_far = max(s["price"] for s in snapshots)
+    low_so_far = min(s["price"] for s in snapshots)
+
+    move_from_open_pct = ((current_price - open_price) / open_price) * 100 if open_price else 0
+    pulled_back_pct = ((high_so_far - low_so_far) / high_so_far) * 100 if high_so_far else 0
+    recovered_from_low_pct = ((current_price - low_so_far) / low_so_far) * 100 if low_so_far else 0
+
+    is_gap_up = premarket_gap_pct > 0
+
+    if is_gap_up:
+        if current_price < open_price and move_from_open_pct < -1.0:
+            pattern, confidence = "fake_breakout", ("medium" if move_from_open_pct < -2.0 else "low")
+        elif pulled_back_pct > 1.5 and recovered_from_low_pct > 1.0 and current_price >= open_price * 0.99:
+            pattern, confidence = "pullback_continuation", "medium"
+        elif current_price >= open_price:
+            pattern, confidence = "genuine_continuation", ("medium" if move_from_open_pct > 0.5 else "low")
+        else:
+            pattern, confidence = "ambiguous", "low"
+    else:
+        if current_price > open_price and move_from_open_pct > 1.0:
+            pattern, confidence = "fake_breakdown", ("medium" if move_from_open_pct > 2.0 else "low")
+        elif pulled_back_pct > 1.5 and current_price <= open_price * 1.01:
+            pattern, confidence = "pullback_breakdown", "medium"
+        elif current_price <= open_price:
+            pattern, confidence = "genuine_breakdown", ("medium" if move_from_open_pct < -0.5 else "low")
+        else:
+            pattern, confidence = "ambiguous", "low"
+
+    return {
+        "pattern": pattern, "confidence": confidence,
+        "move_from_open_pct": round(move_from_open_pct, 3),
+        "pulled_back_pct": round(pulled_back_pct, 3),
+        "recovered_from_low_pct": round(recovered_from_low_pct, 3),
+        "n_snapshots": len(snapshots),
+    }
+
+
+def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[str, Any]:
+    """
+    THE FULL COMBINED DECISION. Pulls every relevant check built today
+    and produces ONE verdict, with the reasoning trail showing which
+    factors drove it.
+    """
+    snapshots = ost.get_todays_snapshots(db_url, ticker)
+    opening_pattern = classify_from_snapshots(snapshots, premarket_gap_pct)
+
+    synthesis = prs.synthesize_and_log(db_url, ticker)
+    earnings = ec.should_avoid_entry(db_url, ticker, buffer_days=2)
+    regime = rd.get_current_regime(db_url, "SPY")
+
+    blockers = []
+    if earnings.get("avoid"):
+        blockers.append(f"earnings risk: {earnings['reason']}")
+    if opening_pattern["pattern"] in ("fake_breakout", "fake_breakdown"):
+        blockers.append(f"opening pattern looks like a fake move ({opening_pattern['pattern']})")
+    if opening_pattern["confidence"] == "low" or opening_pattern["pattern"] == "ambiguous":
+        blockers.append("opening behavior still ambiguous, not enough signal yet")
+    if synthesis["confluence_count"] < 2:
+        blockers.append(f"weak signal confluence ({synthesis['confluence_count']}/4)")
+    if regime.get("regime") in ("high_vol_downtrend",) or (regime.get("confidence") == "low" and regime.get("total_score", 0) < 0):
+        blockers.append("defensive market regime")
+
+    if blockers:
+        decision = "skip" if len(blockers) >= 2 else "wait_until_945"
+    elif opening_pattern["pattern"] in ("genuine_continuation", "genuine_breakdown") and opening_pattern["confidence"] == "medium":
+        decision = "enter_now"
+    else:
+        decision = "wait_until_945"
+
+    result = {
+        "ticker": ticker,
+        "decision": decision,
+        "opening_pattern": opening_pattern,
+        "synthesis_confluence": synthesis["confluence_count"],
+        "earnings_check": earnings,
+        "regime": regime.get("regime"),
+        "blockers": blockers,
+        "checked_at": dt.datetime.utcnow().isoformat(),
+    }
+
+    reasoning = (
+        f"PREMARKET/OPEN DECISION for {ticker}: {decision.upper()}. "
+        f"Opening pattern: {opening_pattern['pattern']} (confidence {opening_pattern['confidence']}, "
+        f"{opening_pattern.get('n_snapshots', 0)} scans observed). "
+        f"Synthesis confluence: {synthesis['confluence_count']}/4. "
+        f"Blockers: {blockers if blockers else 'none'}."
+    )
+    dl.log_decision(
+        signal_name="premarket_open_trader",
+        decision_type=decision,
+        ticker=ticker,
+        reasoning=reasoning,
+    )
+
+    if decision == "enter_now":
+        write_paper_pick(db_url, ticker, opening_pattern, synthesis)
+
+    return result
+
+
+def write_paper_pick(db_url: str, ticker: str, opening_pattern: Dict[str, Any],
+                      synthesis: Dict[str, Any]) -> None:
+    """Writes a REAL paper-trade row to ai_stock_picks — no real money,
+    no broker, just a recorded paper entry for later outcome tracking."""
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO ai_stock_picks
+                    (ticker, status, pick_date, entry_note, confidence)
+                VALUES (%s, 'open', CURRENT_DATE, %s, %s)
+            """, (
+                ticker, "open",
+                f"PAPER ENTRY (premarket_open_trader): pattern={opening_pattern['pattern']}, "
+                f"confluence={synthesis['confluence_count']}/4",
+                opening_pattern["confidence"],
+            ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    import os
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        print(evaluate_ticker(db_url, "AAPL", premarket_gap_pct=4.5))
+    else:
+        print("Set DATABASE_URL to test.")
+```
+
+================================================================
+3. SCHEDULER WIRING — run this every 5 min, 9:30-10:00 AM ET
+================================================================
+
+Add a scheduled job alongside your existing gamma scanner job:
+
+```python
+from apscheduler.triggers.cron import CronTrigger
+
+def _run_premarket_open_tracker():
+    # For each candidate from premarket_scanner.py's gap screen,
+    # record a snapshot and evaluate
+    import premarket_open_trader as pot
+    import opening_snapshot_tracker as ost
+    candidates = []  # populate from your real premarket gap screen
+    for ticker in candidates:
+        # pull a live price snapshot the SAME way your gamma scanner
+        # already does (e.g. _TdTicker(ticker).fast_info.last_price)
+        price = None  # wire to your real live-quote source
+        volume = None
+        if price:
+            ost.record_snapshot(db_url, ticker, price, volume)
+            result = pot.evaluate_ticker(db_url, ticker, premarket_gap_pct=0)
+            print(result)
+
+_scheduler.add_job(
+    _run_premarket_open_tracker,
+    CronTrigger(day_of_week="mon-fri", hour="9", minute="30-59/5", timezone=_ET),
+    id="premarket_open_tracker",
+)
+```
+
+NOTE: the live price-pull (`price = None` placeholder above) needs to
+be wired to whatever real-time quote mechanism the gamma scanner
+already uses — that part of the integration needs the agent to find
+and reuse the EXACT pattern from the existing gamma scanner code, not
+a fresh guess.
+
+================================================================
+4. SETUP
+================================================================
+
+```sql
+CREATE TABLE IF NOT EXISTS opening_snapshots (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10) NOT NULL,
+    scan_time TIMESTAMPTZ NOT NULL,
+    price DOUBLE PRECISION NOT NULL,
+    volume BIGINT,
+    scan_date DATE NOT NULL DEFAULT CURRENT_DATE
+);
+CREATE INDEX IF NOT EXISTS idx_opening_snapshots_ticker_date
+    ON opening_snapshots(ticker, scan_date);
+```
+
+================================================================
+5. HONEST LIMITS — even in this "complete" version
+================================================================
+
+- With scans every 5 minutes, you get bars like 9:30/9:35/9:40/9:45 —
+  coarser than true minute bars, but real and workable for this
+  purpose. By 9:45 you'd have 3-4 real snapshots, enough to classify.
+- The decision thresholds (move_from_open_pct, pulled_back_pct, etc.)
+  are still reasonable STARTING guesses, not historically validated.
+  Tomorrow's real run will be the first time this sees genuine data —
+  treat its first several days of decisions as something to REVIEW,
+  not blindly trust, even though it's paper money.
+- The live price-pull in the scheduler wiring is a placeholder that
+  the agent needs to connect to your real quote source — this is the
+  one piece that genuinely needs the agent's own investigation into
+  your existing gamma scanner code, not something I can wire blindly.
+
+================================================================
+VERIFICATION SCRIPT
+================================================================
+
+```bash
+#!/bin/bash
+echo "=== Files exist? ==="
+for f in opening_snapshot_tracker.py premarket_open_trader.py; do
+  find . -name "$f" -exec wc -l {} \;
+done
+
+echo "=== Table created? ==="
+psql "$DATABASE_URL" -c "SELECT table_name FROM information_schema.tables WHERE table_name = 'opening_snapshots';"
+
+echo "=== Manually record 4 fake snapshots for AAPL to simulate a morning, then evaluate ==="
+python3 -c "
+import sys, os
+sys.path.insert(0, '.')
+db_url = os.environ.get('DATABASE_URL')
+import opening_snapshot_tracker as ost
+
+# Simulate: gapped up, pulled back, recovering
+ost.record_snapshot(db_url, 'AAPLTEST', 230.00, 500000)
+ost.record_snapshot(db_url, 'AAPLTEST', 228.50, 400000)
+ost.record_snapshot(db_url, 'AAPLTEST', 227.80, 380000)
+ost.record_snapshot(db_url, 'AAPLTEST', 230.10, 420000)
+
+import premarket_open_trader as pot
+result = pot.evaluate_ticker(db_url, 'AAPLTEST', premarket_gap_pct=4.5)
+print('REAL RESULT:', result)
+"
+
+echo "=== Confirm it logged a real decision ==="
+psql "$DATABASE_URL" -c "
+SELECT decision_time, ticker, reasoning FROM agent_decisions
+WHERE ticker = 'AAPLTEST' AND signal_name = 'premarket_open_trader'
+ORDER BY decision_time DESC LIMIT 1;"
+
+echo "=== Cleanup ==="
+psql "$DATABASE_URL" -c "DELETE FROM opening_snapshots WHERE ticker = 'AAPLTEST';"
+psql "$DATABASE_URL" -c "DELETE FROM agent_decisions WHERE ticker = 'AAPLTEST';"
+psql "$DATABASE_URL" -c "DELETE FROM ai_stock_picks WHERE ticker = 'AAPLTEST';"
+```
