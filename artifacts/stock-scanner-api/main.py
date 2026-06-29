@@ -45249,7 +45249,7 @@ def download_source():
     artifacts_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     workspace_dir = os.path.normpath(os.path.join(artifacts_dir, ".."))
     skip_dirs = {"node_modules", "__pycache__", ".vite", "dist", ".git", ".local", ".agents"}
-    skip_ext  = {".pyc", ".pyo", ".pkl", ".zip"}
+    skip_ext  = {".pyc", ".pyo"}
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for folder, arc_prefix in [
             (os.path.join(artifacts_dir, "stock-scanner-api"), "stock-scanner-api"),
