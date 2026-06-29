@@ -45250,10 +45250,18 @@ def download_source():
     workspace_dir = os.path.normpath(os.path.join(artifacts_dir, ".."))
     skip_dirs = {"node_modules", "__pycache__", ".vite", "dist", ".git", ".local", ".agents"}
     skip_ext  = {".pyc", ".pyo"}
+    seen_names = {}
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for folder, arc_prefix in [
-            (os.path.join(artifacts_dir, "stock-scanner-api"), "stock-scanner-api"),
-            (os.path.join(artifacts_dir, "stock-scanner"),     "stock-scanner"),
+        def _add(fp, preferred_name):
+            name = preferred_name
+            if name in seen_names:
+                base, ext = os.path.splitext(name)
+                name = f"{base}_{seen_names[preferred_name]}{ext}"
+            seen_names[preferred_name] = seen_names.get(preferred_name, 0) + 1
+            zf.write(fp, "stockscanner-code/" + name)
+        for folder in [
+            os.path.join(artifacts_dir, "stock-scanner-api"),
+            os.path.join(artifacts_dir, "stock-scanner"),
         ]:
             if not os.path.isdir(folder):
                 continue
@@ -45262,18 +45270,12 @@ def download_source():
                 for fname in files:
                     if any(fname.endswith(e) for e in skip_ext):
                         continue
-                    fp = os.path.join(root, fname)
-                    arcname = arc_prefix + "/" + os.path.relpath(fp, folder)
-                    zf.write(fp, arcname)
-        for fname in ["STOCKSCANNER_AI_INVENTION_DISCLOSURE.md", "MODULES.md", "FOR_CLAUDE.md", "replit.md"]:
-            fp = os.path.join(workspace_dir, fname)
-            if os.path.isfile(fp):
-                zf.write(fp, fname)
+                    _add(os.path.join(root, fname), fname)
     buf.seek(0)
     from flask import send_file
     resp = send_file(buf, mimetype="application/zip",
                      as_attachment=True,
-                     download_name="stockscanner-complete.zip")
+                     download_name="stockscanner-code.zip")
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
