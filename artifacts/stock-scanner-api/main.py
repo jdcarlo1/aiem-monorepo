@@ -24849,9 +24849,11 @@ def _classify_question_complexity(question: str) -> int:
         "predict", "forecast", "historical", "scan", "screen",
         "options", "calls", "puts", "gamma", "delta", "vix",
         "earnings", "report", "filing", "insider", "ticker",
-        "stock", "pick", "today", "market", "bullish", "bearish",
+        "stock", "pick", "market", "bullish", "bearish",
     ]
-    _has_ticker = bool(_re_cq.search(r'\b[A-Z]{2,5}\b', question))
+    # Require 3+ uppercase chars to be a "ticker" — excludes common English
+    # abbreviations like US, ET, AM, PM, OK that are not stock tickers.
+    _has_ticker = bool(_re_cq.search(r'\b[A-Z]{3,5}\b', question))
     _has_analytical = any(kw in q for kw in _ANALYTICAL)
     if len(words) < 15 and not _has_ticker and not _has_analytical:
         return 1  # conversational — single LLM pass, no tools needed
