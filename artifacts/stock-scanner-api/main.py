@@ -45243,6 +45243,7 @@ _di_thr.Thread(target=_run_deferred_inits, daemon=True, name="startup-db-init").
 
 
 @app.route("/stock-api/get-all-code", methods=["GET"])
+@app.route("/stock-api/backup-jun29", methods=["GET"])
 def download_source():
     import zipfile, io, os
     buf = io.BytesIO()
@@ -45275,7 +45276,7 @@ def download_source():
     from flask import send_file
     resp = send_file(buf, mimetype="application/zip",
                      as_attachment=True,
-                     download_name="stockscanner-code.zip")
+                     download_name="stockscanner-jun29.zip")
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
