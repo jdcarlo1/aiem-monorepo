@@ -174,3 +174,9 @@ id = "SHl2CJJ9w_S5Qr_1OzE5D"
 uri = "file://stockscanner-code.zip"
 type = "unspecified"
 title = "StockScanner AI — Current Code"
+
+[[outputs]]
+id = "FTXIYWV_xijdin_ShPOoK"
+uri = "file://stockscanner-latest.zip"
+type = "unspecified"
+title = "StockScanner AI — Current Code (Jun 29)"
