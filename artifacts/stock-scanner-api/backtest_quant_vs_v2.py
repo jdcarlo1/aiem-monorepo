@@ -157,8 +157,9 @@ def build_cache():
             ol = ou.tolist()
             # gap = open[t] / close[t-1] — avoids lookahead into same-day close
             gap   = (ol[-1] / cl[-2] - 1) * 100 if len(ol) >= 2 and cl[-2] > 0 else 0.0
-            mom10 = (cl[-1] / cl[-11] - 1) * 100
-            if 1 <= gap < 20 and 3 <= mom10 < 17 and cl[-1] > 0.50:
+            # momentum uses T-1 close (cl[-2]) as base — T close not available at open
+            mom10 = (cl[-2] / cl[-12] - 1) * 100 if len(cl) >= 12 else 0.0
+            if 1 <= gap < 20 and 3 <= mom10 < 17 and cl[-2] > 0.50:
                 candidates.add(ticker)
     print(f"[build] {len(candidates)} candidate tickers — fetching float/SI …", flush=True)
 
@@ -269,12 +270,13 @@ def score_v2(cl: list, rvol_open: float, gap: float) -> dict | None:
          into the same-day close).
     Returns None if RVOL gate fails or insufficient history.
     """
-    if len(cl) < 11:
+    if len(cl) < 12:
         return None
     if rvol_open < 3.0 or rvol_open > 60.0:
         return None
 
-    mom10 = (cl[-1] / cl[-11] - 1) * 100
+    # momentum: T-1 close (cl[-2]) so no lookahead into same-day close
+    mom10 = (cl[-2] / cl[-12] - 1) * 100
 
     gp = (35 if  2 <= gap < 5  else
           30 if  5 <= gap < 8  else
@@ -508,11 +510,12 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
         # Use open[t] / close[t-1] so the gap reflects the opening price
         # vs prior close — no lookahead into the same-day close.
         gap   = (ol[-1] / cl[-2]  - 1) * 100 if len(ol) >= 2 and cl[-2] > 0 else 0.0
-        mom10 = (cl[-1] / cl[-11] - 1) * 100
-        mom5  = (cl[-1] / cl[-6]  - 1) * 100 if len(cl) >= 7 else 0.0
-        mom3  = (cl[-1] / cl[-4]  - 1) * 100 if len(cl) >= 5 else 0.0
+        # momentum: T-1 close (cl[-2]) as current — T close not available at open
+        mom10 = (cl[-2] / cl[-12] - 1) * 100
+        mom5  = (cl[-2] / cl[-7]  - 1) * 100 if len(cl) >= 8 else 0.0
+        mom3  = (cl[-2] / cl[-5]  - 1) * 100 if len(cl) >= 6 else 0.0
         vol20 = sum(vl[-20:]) / min(20, len(vl))
-        if 1 <= gap < 20 and 3 <= mom10 < 17 and cl[-1] > 0.50 and vol20 > 0:
+        if 1 <= gap < 20 and 3 <= mom10 < 17 and cl[-2] > 0.50 and vol20 > 0:
             fi = fi_cache.get(ticker, {})
             cands.append({
                 "ticker":       ticker,
