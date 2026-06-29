@@ -1573,7 +1573,7 @@ def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
     try:
         from datetime import date as _lcd, timedelta as _lctd
         _cutoff = _lcd.today() - _lctd(days=days_back)
-        with _psycopg2.connect(_DB_URL, connect_timeout=10, options="-c statement_timeout=3000") as _lcc, _lcc.cursor() as _lccu:
+        with _psycopg2.connect(_DB_URL, connect_timeout=2, options="-c statement_timeout=3000") as _lcc, _lcc.cursor() as _lccu:
             _lccu.execute("""
                 SELECT payload FROM scan_result_cache
                 WHERE endpoint = %s AND scan_date >= %s
@@ -10988,7 +10988,7 @@ def _init_daily_top10_table():
 def _load_top10_from_db(today: str):
     """Load today's (or latest available) top10 from DB."""
     try:
-        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+        with _psycopg2.connect(_DB_URL, connect_timeout=2) as conn, conn.cursor() as cur:
             cur.execute("SELECT payload FROM daily_top10 WHERE scan_date = %s", (today,))
             row = cur.fetchone()
             if row:

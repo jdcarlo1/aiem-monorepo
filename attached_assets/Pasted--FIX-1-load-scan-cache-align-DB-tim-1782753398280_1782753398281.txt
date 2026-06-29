@@ -1,0 +1,58 @@
+=============================================================
+FIX 1 — _load_scan_cache: align DB timeout with client timeout
+=============================================================
+Problem: connect_timeout=10 on the DB side, but the curl/client
+calling it gives up after 5s (timeout=5), so under DB load you
+get HTTP:000 (connection failed) even though the DB connection
+attempt is still legitimately running for another 5 seconds.
+
+Find the current line:
+    grep -n "_load_scan_cache" main.py
+
+Then locate the connect() call inside that function and change:
+
+    connect_timeout=10
+
+to:
+
+    connect_timeout=4
+
+(4 leaves margin under a 5s client timeout. If the DB genuinely
+needs close to 10s under load, that's a separate problem — pool
+exhaustion — not something to fix by just raising the client
+timeout instead.)
+
+
+=============================================================
+FIX 2 — _load_top10_from_db: add a missing connect_timeout
+=============================================================
+Problem: this function has NO connect_timeout set at all, which
+means it inherits psycopg2's default of unlimited wait. Under DB
+load or an outage, this call can hang forever and block whatever
+called it.
+
+Find the current line:
+    grep -n "_load_top10_from_db" main.py
+
+Then find the connect() call inside that function. It currently
+looks something like:
+
+    with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+
+Change it to:
+
+    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+
+
+=============================================================
+CHECK BEFORE SHIPPING — is this on a live request path?
+=============================================================
+Run this and paste the output — it matters whether this function
+can block a real user request, or only runs in a background job:
+
+    grep -n "_load_top10_from_db(" main.py
+
+Look at every line that CALLS the function (not the def line) and
+check: is it inside a Flask @app.route handler (blocks a live
+request if it hangs), or inside a background/scheduled job
+(less urgent, but still worth fixing)?
