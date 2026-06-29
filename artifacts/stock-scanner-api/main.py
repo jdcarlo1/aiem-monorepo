@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import sys as _sys; _sys.stdout.reconfigure(line_buffering=True)  # flush logs in real time (prod containers buffer by default)
+import hmac
 from flask_cors import CORS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
@@ -360,6 +361,7 @@ class _YFRateLimiter:
 
 _YF_RATE_LIMITER      = _YFRateLimiter(calls_per_sec=3.0)
 _POLYGON_RATE_LIMITER = _YFRateLimiter(calls_per_sec=3.0)  # Starter plan: safe at 3/sec sustained
+_AIEM_PAPER_LOCK      = threading.Lock()  # prevents concurrent _aiem_paper_execute_today runs
 
 # ── Rotating leaderboard cursor ────────────────────────────────────────────────
 # Each hourly scan covers a fresh 1,000-ticker segment so the full 6,610-ticker
@@ -7596,8 +7598,8 @@ def _admin_ok():
     want = os.environ.get("ADMIN_TOKEN", "")
     if not want:
         return False
-    got = request.headers.get("X-Admin-Token", "") or request.args.get("token", "")
-    return bool(got) and got == want
+    got = request.headers.get("X-Admin-Token", "")
+    return bool(got) and bool(want) and hmac.compare_digest(got, want)
 
 
 @app.route("/stock-api/nano-morning/run-ranking", methods=["POST"])
@@ -30586,6 +30588,25 @@ def _init_aiem_paper_trades_table():
 _DEFERRED_INITS.append(lambda: _init_aiem_paper_trades_table())
 
 
+def _init_paper_execution_log():
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_paper_execution_log (
+                    id               SERIAL PRIMARY KEY,
+                    started_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    finished_at      TIMESTAMPTZ,
+                    status           TEXT NOT NULL DEFAULT 'RUNNING',
+                    trades_inserted  INTEGER,
+                    error_msg        TEXT
+                )
+            """)
+            _c.commit()
+    except Exception as _ie:
+        print(f"[paper_exec_log] init error: {_ie}")
+_DEFERRED_INITS.append(lambda: _init_paper_execution_log())
+
+
 def _aiem_paper_pick_candidates() -> list:
     """
     Aggregate candidates from every signal source, deduplicate, and return
@@ -30806,11 +30827,42 @@ def _aiem_paper_execute_today():
         print(f"[aiem_paper] skipping — not a NYSE trading day ({_today.strftime('%A %Y-%m-%d')})")
         return
 
+    if not _AIEM_PAPER_LOCK.acquire(blocking=False):
+        print("[aiem_paper] already executing — concurrent call rejected")
+        return
+
+    _exec_id = None
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _lc, _lc.cursor() as _lcu:
+            _lcu.execute(
+                "INSERT INTO aiem_paper_execution_log (status) VALUES ('RUNNING') RETURNING id"
+            )
+            _exec_id = _lcu.fetchone()[0]
+            _lc.commit()
+    except Exception as _le:
+        print(f"[aiem_paper] exec log start error: {_le}")
+
+    def _log_finish(_status, _trades=None, _err=None):
+        if not _exec_id:
+            return
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _lc, _lc.cursor() as _lcu:
+                _lcu.execute(
+                    "UPDATE aiem_paper_execution_log "
+                    "SET finished_at=NOW(), status=%s, trades_inserted=%s, error_msg=%s "
+                    "WHERE id=%s",
+                    (_status, _trades, _err, _exec_id),
+                )
+                _lc.commit()
+        except Exception as _le:
+            print(f"[aiem_paper] exec log finish error: {_le}")
+
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE trade_date = %s", (_today,))
             if _cu.fetchone()[0] >= 20:
                 print(f"[aiem_paper] already executed for {_today}, skipping")
+                _log_finish("SKIPPED", _trades=0)
                 return
 
         picks = _aiem_paper_pick_candidates()
@@ -30891,8 +30943,12 @@ def _aiem_paper_execute_today():
                 rows_inserted += 1
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
+        _log_finish("SUCCESS", _trades=rows_inserted)
     except Exception as _e:
         print(f"[aiem_paper] execute error: {_e}")
+        _log_finish("FAILED", _err=str(_e))
+    finally:
+        _AIEM_PAPER_LOCK.release()
 
 
 def _aiem_paper_mark_to_market():
@@ -31187,7 +31243,8 @@ def aiem_paper_portfolio():
 def aiem_paper_force_execute():
     """Admin: force today's pick-and-execute cycle immediately (for testing)."""
     _tok = request.headers.get("X-Admin-Token", "")
-    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
         return jsonify({"error": "unauthorized"}), 403
     import datetime as _fe_dt, threading as _ape_thr
     _today = _fe_dt.datetime.now(_ET).date()
@@ -31196,8 +31253,39 @@ def aiem_paper_force_execute():
             "status": "rejected",
             "reason": f"market closed — {_today.strftime('%A %Y-%m-%d')} is not a NYSE trading day (weekend or holiday)",
         }), 400
+    if _AIEM_PAPER_LOCK.locked():
+        return jsonify({"status": "already_running", "message": "execute already in progress — try again in ~30s"}), 409
     _ape_thr.Thread(target=_aiem_paper_execute_today, daemon=True).start()
     return jsonify({"status": "executing", "message": "AIEM picking 20 trades now — refresh portfolio in 15s"})
+
+
+@app.route("/stock-api/aiem-paper-portfolio/execution-log")
+def aiem_paper_execution_log_endpoint():
+    """Admin: query aiem_paper_execution_log — last 30 run records (status, times, trades, errors)."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT id,
+                       to_char(started_at  AT TIME ZONE 'America/New_York',
+                               'YYYY-MM-DD HH24:MI:SS') AS started_et,
+                       to_char(finished_at AT TIME ZONE 'America/New_York',
+                               'YYYY-MM-DD HH24:MI:SS') AS finished_et,
+                       status, trades_inserted, error_msg
+                FROM aiem_paper_execution_log
+                ORDER BY id DESC LIMIT 30
+            """)
+            rows = _cu.fetchall()
+        return jsonify([
+            {"id": r[0], "started_et": r[1], "finished_et": r[2],
+             "status": r[3], "trades": r[4], "error": r[5]}
+            for r in rows
+        ])
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
 
 
 @app.route("/stock-api/aiem-paper-portfolio/force-mtm", methods=["POST"])
@@ -37571,8 +37659,9 @@ def admin_reset_breaker():
     POST ?token=<ADMIN_TOKEN>  - resets breaker state to 'closed'.
     POST ?token=...&scan=1     - also queues an unusual-calls scan in background.
     """
-    token = request.args.get("token") or (request.get_json(silent=True) or {}).get("token", "")
-    if not token or token != os.getenv("ADMIN_TOKEN", ""):
+    token = request.headers.get("X-Admin-Token", "") or (request.get_json(silent=True) or {}).get("token", "")
+    _want_rb = os.getenv("ADMIN_TOKEN", "")
+    if not token or not _want_rb or not hmac.compare_digest(token, _want_rb):
         return jsonify({"error": "unauthorized"}), 403
     with _YF_BREAKER_LOCK:
         _YF_BREAKER["state"] = "closed"
