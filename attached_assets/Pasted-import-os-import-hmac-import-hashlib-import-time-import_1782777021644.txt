@@ -1,0 +1,128 @@
+import os
+import hmac
+import hashlib
+import time
+import requests
+from functools import wraps
+from flask import request, abort, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
+from datetime import datetime, timezone
+
+# ── Secret token (set in Replit Secrets) ─────────────────────────────────────
+AIEM_TOKEN = os.environ["AIEM_INTERNAL_TOKEN"]
+
+
+# ── Apply ProxyFix to your Flask app ─────────────────────────────────────────
+# Call once after creating your Flask app:
+#   from aiem_verification import apply_proxy_fix
+#   apply_proxy_fix(app)
+
+def apply_proxy_fix(app):
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    return app
+
+
+# ── Audit logger ──────────────────────────────────────────────────────────────
+def log_audit(verified: bool, ip: str, reason: str = None, token_hint: str = None, job_id: str = None):
+    record = {
+        "at":       datetime.now(timezone.utc).isoformat(),
+        "ip":       ip,
+        "verified": verified,
+    }
+    if job_id:      record["job"]         = job_id
+    if token_hint:  record["token_hint"]  = f"...{token_hint}"
+    if reason:      record["reason"]      = reason
+
+    # Replace with your actual DB write
+    print(f"AUDIT | {record}")
+
+
+# ── HMAC signing: makes every request replay-proof ───────────────────────────
+def sign_request(question: str) -> tuple:
+    ts  = str(int(time.time()))
+    msg = f"{ts}:{question}"
+    sig = hmac.new(AIEM_TOKEN.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return ts, sig
+
+def verify_signature(question: str, ts: str, sig: str, max_age: int = 30) -> bool:
+    # Reject anything older than 30 seconds (blocks replay attacks)
+    if abs(time.time() - int(ts)) > max_age:
+        return False
+    expected = hmac.new(AIEM_TOKEN.encode(), f"{ts}:{question}".encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
+
+
+# ── Decorator: blocks every request that didn't come from AIEM ───────────────
+def require_aiem_verification(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("X-AIEM-Token")
+        ts    = request.headers.get("X-AIEM-Timestamp")
+        sig   = request.headers.get("X-AIEM-Signature")
+        ip    = request.remote_addr
+
+        if token != AIEM_TOKEN:
+            log_audit(verified=False, ip=ip, reason="bad_token")
+            abort(403)
+
+        question = request.json.get("question", "") if request.is_json else ""
+        if not verify_signature(question, ts or "", sig or ""):
+            log_audit(verified=False, ip=ip, reason="bad_signature_or_replay")
+            abort(403)
+
+        log_audit(verified=True, ip=ip, token_hint=token[-4:])
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+# ── AIEM client: sends signed token on every outbound question ────────────────
+def aiem_ask(question: str, base_url: str = None) -> dict:
+    url = base_url or os.environ.get("AIEM_BASE_URL", "https://yourdomain.com")
+    ts, sig = sign_request(question)
+    response = requests.post(
+        f"{url}/stock-api/aiem/chat",
+        json={"question": question},
+        headers={
+            "X-AIEM-Token":     AIEM_TOKEN,
+            "X-AIEM-Timestamp": ts,
+            "X-AIEM-Signature": sig,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+# ── Debug route: confirm ProxyFix is stripping spoofed headers ───────────────
+# Add to your Flask app:
+#   from aiem_verification import register_debug_route
+#   register_debug_route(app)
+#
+# Then test spoof rejection:
+#   curl -H "X-Forwarded-For: FAKE_IP, 1.2.3.4" https://yourdomain.com/stock-api/aiem/debug-ip
+# Expected: ip=1.2.3.4, NOT FAKE_IP
+
+def register_debug_route(app):
+    @app.route("/stock-api/aiem/debug-ip")
+    def debug_ip():
+        return jsonify({
+            "ip":        request.remote_addr,
+            "forwarded": request.headers.get("X-Forwarded-For"),
+        })
+
+
+# ── Run audit questions directly ──────────────────────────────────────────────
+if __name__ == "__main__":
+    AUDIT_QUESTIONS = [
+        "When verification fails, do you raise an exception and block the return, or do you log the failure and return the result anyway?",
+        "The audit log shows id=1 — is this the first-ever audit record in production, or was the table recently created or wiped?",
+        "In the polling loop, is poll_result the final resolved value at the time the decorator receives it, or could it still be a reference to an in-flight mutable variable?",
+        "When ask_aiem() is called from a user-facing request, does the audit log capture the originating request IP, or does it always log 127.0.0.1 regardless of where the call originated?",
+    ]
+
+    for i, question in enumerate(AUDIT_QUESTIONS, 1):
+        print(f"\n--- Question {i} ---")
+        print(f"Q: {question}")
+        result = aiem_ask(question)
+        print(f"A: {result}")

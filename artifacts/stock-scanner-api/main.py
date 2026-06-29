@@ -112,6 +112,8 @@ from multiday_runner import (
 app = Flask(__name__)
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+from aiem_verification import register_debug_route, verify_signature as _verify_req_sig, log_audit as _aiem_log_audit
+register_debug_route(app)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
 
@@ -2420,7 +2422,7 @@ try:
             print(f"[scheduler] signal snapshot error: {e}")
     _scheduler.add_job(
         _run_signal_snapshot,
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=0, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=2, timezone=_ET),
         id="signal_snapshot",
         replace_existing=True,
     )
@@ -3861,7 +3863,7 @@ try:
 
     _scheduler.add_job(
         _run_eod_outcomes,
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=17, timezone=_ET),
         id="eod_outcomes_fetcher",
         replace_existing=True,
     )
@@ -3893,7 +3895,7 @@ try:
             print(f"[scheduler] composite scan error: {_e_cs}")
     _scheduler.add_job(
         _run_composite_scan_eod,
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=19, timezone=_ET),
         id="composite_scan_eod",
         replace_existing=True,
     )
@@ -4007,7 +4009,7 @@ try:
         _scheduler.add_job(
             lambda: (record_job_success("vix_daily_fetch") if _mkt_fetch_and_store_vix() is not None
                      else record_job_failure("vix_daily_fetch", "fetch returned None (plan may lack Indices access)")),
-            _CT_aiem(day_of_week="mon-fri", hour=16, minute=15, timezone=_ET),
+            _CT_aiem(day_of_week="mon-fri", hour=16, minute=21, timezone=_ET),
             id="aiem_vix_daily", replace_existing=True,
         )
         # Ticker meta refresh: every Sunday 10 PM ET (slow, runs overnight)
@@ -11702,7 +11704,7 @@ try:
     )
     _scheduler.add_job(
         lambda: _aiem_paper_mark_to_market(),
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=0, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=1, timezone=_ET),
         id="aiem_paper_mtm",
         replace_existing=True,
     )
@@ -45501,6 +45503,25 @@ def aiem_chat_start():
     independently (owner flows serialized with each other, not with chat).
     """
     import uuid as _uuid, threading as _qa_thr
+
+    # ── Optional signed-request verification ─────────────────────────────
+    # Programmatic callers send all three headers; the frontend sends none.
+    # If X-AIEM-Token is present all three must be valid — partial headers = 403.
+    _req_token = request.headers.get("X-AIEM-Token", "")
+    if _req_token:
+        import os as _aiem_os, hmac as _aiem_hmac
+        _expected_tok = _aiem_os.environ.get("AIEM_INTERNAL_TOKEN", "")
+        _req_ts  = request.headers.get("X-AIEM-Timestamp", "")
+        _req_sig = request.headers.get("X-AIEM-Signature", "")
+        _req_q   = ((request.get_json(silent=True) or {}).get("question") or "").strip()
+        _tok_ok  = bool(_expected_tok) and _aiem_hmac.compare_digest(_expected_tok, _req_token)
+        _sig_ok  = _verify_req_sig(_req_q, _req_ts, _req_sig) if _tok_ok else False
+        if not _tok_ok or not _sig_ok:
+            _aiem_log_audit(False, request.remote_addr,
+                            reason="bad_token" if not _tok_ok else "bad_signature_or_replay")
+            return jsonify({"error": "Forbidden"}), 403
+        _aiem_log_audit(True, request.remote_addr, token_hint=_req_token[-4:])
+    # ─────────────────────────────────────────────────────────────────────
 
     data          = request.get_json(silent=True) or {}
     question      = (data.get("question") or "").strip()[:800]
