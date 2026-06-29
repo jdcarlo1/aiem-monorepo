@@ -1,0 +1,154 @@
+# Complete the Premarket Scheduler Wiring — Steps 1-4
+
+================================================================
+STEP 1: Find the exact live-quote code already used in the gamma scanner
+================================================================
+
+Run this to see exactly how gamma_pressure_scan pulls a live price:
+
+```bash
+grep -n -B2 -A5 "fast_info\|_TdTicker" main.py | head -40
+```
+
+This should show something like `tk = _TdTicker(ticker)` and
+`price = _sf(getattr(fi, "last_price", None))` — the EXACT real
+pattern, not a guess. Paste this output before proceeding to Step 2,
+so the wiring below can be corrected if the real pattern differs.
+
+================================================================
+STEP 2: Wire the real quote pull into the scheduler function
+================================================================
+
+Replace the placeholder in main.py with this (ADJUST the quote-pulling
+lines to match EXACTLY what Step 1 revealed — the structure below
+assumes the same _TdTicker/fast_info pattern gamma uses, confirm
+before trusting it):
+
+```python
+def _run_premarket_open_tracker():
+    """
+    Runs every 5 min, 9:30-10:00 AM ET. Records a live snapshot for
+    each premarket gap candidate and evaluates the combined decision.
+    """
+    import os
+    import premarket_scanner as ps
+    import opening_snapshot_tracker as ost
+    import premarket_open_trader as pot
+
+    db_url = os.environ.get("AIEM_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if not db_url:
+        print("[premarket_open_tracker] DATABASE_URL not set, skipping run")
+        return
+
+    # STEP 4 connects here: pull real candidates instead of an empty list
+    universe = list(_MICRO_CAP_UNIVERSE)  # reuse existing universe, or your full ticker list
+    candidates = ps.scan_premarket_universe(db_url, universe, min_gap_pct=3.0, min_premarket_volume=50000)
+
+    for c in candidates:
+        ticker = c["ticker"]
+        try:
+            # Same live-quote pattern as gamma scanner — CONFIRM this
+            # matches Step 1's real output before trusting it:
+            tk = _TdTicker(ticker)
+            fi = tk.fast_info
+            price = _sf(getattr(fi, "last_price", None))
+            volume = _si(getattr(fi, "last_volume", None) or 0)
+
+            if not price:
+                continue
+
+            ost.record_snapshot(db_url, ticker, price, volume)
+            result = pot.evaluate_ticker(db_url, ticker, premarket_gap_pct=c["gap_pct"])
+            print(f"[premarket_open_tracker] {ticker}: {result['decision']}")
+        except Exception as e:
+            print(f"[premarket_open_tracker] error on {ticker}: {e}")
+            continue
+```
+
+================================================================
+STEP 3: Register the scheduled job
+================================================================
+
+Add this near where the other scheduled jobs (like aiem_exit_review)
+are registered — find that exact location first:
+
+```bash
+grep -n "_scheduler.add_job" main.py
+```
+
+Then add the new registration in the same area, using the SAME
+timezone variable (`_ET`) the other jobs already use:
+
+```python
+_scheduler.add_job(
+    _run_premarket_open_tracker,
+    CronTrigger(day_of_week="mon-fri", hour="9", minute="30-59/5", timezone=_ET),
+    id="premarket_open_tracker",
+    coalesce=True,
+    max_instances=1,
+    misfire_grace_time=300,
+)
+```
+
+================================================================
+STEP 4: Confirm candidate list is real, not empty
+================================================================
+
+The `universe` variable in Step 2 reuses `_MICRO_CAP_UNIVERSE` as a
+starting point. Run this to confirm that variable actually has real
+tickers in it (not empty, not just a handful):
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import main
+print('Universe size:', len(main._MICRO_CAP_UNIVERSE))
+print('Sample:', list(main._MICRO_CAP_UNIVERSE)[:10])
+"
+```
+
+If this list is too narrow for what you actually want scanned
+premarket (e.g. it's currently tuned for microcap squeeze detection,
+not a broad market scan), tell the agent specifically what universe
+you want covered (S&P 500? Your existing tracked tickers list? A
+specific watchlist?) and have it swap in the right ticker list here.
+
+================================================================
+VERIFICATION — confirms the registration is real, not just claimed
+================================================================
+
+```bash
+grep -n -A3 'id="premarket_open_tracker"' main.py
+```
+
+PASS: this should show the real CronTrigger line with day_of_week,
+hour, and minute exactly matching what was specified, sitting right
+above the id field — same verification pattern used for
+aiem_exit_review earlier today.
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '.')
+import main
+jobs = main._scheduler.get_jobs()
+for j in jobs:
+    if j.id == 'premarket_open_tracker':
+        print('FOUND REGISTERED JOB:', j)
+"
+```
+
+PASS: this should print the actual registered job object, confirming
+it's live in the scheduler's job list, not just present in source
+code that never got executed/registered at startup.
+
+================================================================
+WHAT TO SEND BACK
+================================================================
+
+The Step 1 grep output, confirmation the wiring in Step 2 matches it
+(or was corrected to match), the Step 3 registration grep result, the
+Step 4 universe size/sample, and both verification command outputs.
+That combination proves this will actually run tomorrow morning,
+not just that the code exists.

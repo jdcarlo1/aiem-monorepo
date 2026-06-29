@@ -9,12 +9,22 @@ Provides:
   - REGIME_SIGNAL_MULTIPLIERS — position-size / confidence multipliers
     keyed by recommendation string; consumed by regime_macro_patch.py.
 
-Falls back gracefully if data sources are unavailable — never crashes.
+Falls back gracefully if data sources are unavailable — never raises.
+
+CACHING: results are cached for 15 min (module-level). Multiple callers
+in the same APScheduler burst all get the same cached value — only one
+yfinance download per 15-min window, regardless of ticker universe size.
+
+TIMEOUT: each yfinance download is capped at 8s via a daemon thread.
+If Yahoo is throttled the function returns the stale cache (or fallback)
+instead of hanging the APScheduler worker.
 ====================================================================
 """
 
 import datetime as dt
-from typing import Dict, Any
+import threading
+import time
+from typing import Dict, Any, Optional
 
 import pandas as pd
 
@@ -45,6 +55,35 @@ _FALLBACK_REGIME = {
     "note":             "data unavailable — defaulting to reduce_exposure",
 }
 
+_REGIME_CACHE_TTL = 900.0        # 15 min: regime doesn't change tick-by-tick
+_FETCH_TIMEOUT    = 8.0          # seconds before we give up on yfinance
+
+_cache_lock   = threading.Lock()
+_cached_result: Optional[Dict[str, Any]] = None
+_cached_at:    float = 0.0
+
+
+def _yf_download_with_timeout(symbol: str, period: str, timeout: float):
+    """Downloads yfinance data in a daemon thread. Returns None on timeout."""
+    import yfinance as yf
+    result: list = [None]
+    exc:    list = [None]
+
+    def _run():
+        try:
+            result[0] = yf.download(symbol, period=period, progress=False, auto_adjust=True)
+        except Exception as e:
+            exc[0] = e
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        return None
+    if exc[0]:
+        raise exc[0]
+    return result[0]
+
 
 def get_current_regime(db_url: str, proxy_ticker: str = "SPY") -> Dict[str, Any]:
     """
@@ -59,20 +98,32 @@ def get_current_regime(db_url: str, proxy_ticker: str = "SPY") -> Dict[str, Any]
     Falls back to a conservative reduce_exposure baseline if any data fetch or
     computation fails — never raises.
     """
+    global _cached_result, _cached_at
+
+    with _cache_lock:
+        now = time.time()
+        if _cached_result and (now - _cached_at) < _REGIME_CACHE_TTL:
+            return _cached_result
+
     try:
         from market_regime_overlay import combine_regime_votes
     except ImportError:
         return dict(_FALLBACK_REGIME, note="market_regime_overlay not importable")
 
     try:
-        import yfinance as yf
+        price_df = _yf_download_with_timeout(proxy_ticker, "6mo", _FETCH_TIMEOUT)
+        if price_df is None:
+            with _cache_lock:
+                if _cached_result:
+                    return dict(_cached_result, note="yfinance timeout — returning stale regime")
+            return dict(_FALLBACK_REGIME, note="yfinance timeout on SPY")
 
-        price_df = yf.download(
-            proxy_ticker, period="6mo", progress=False, auto_adjust=True
-        )
-        vix_raw = yf.download(
-            "^VIX", period="6mo", progress=False, auto_adjust=True
-        )
+        vix_raw = _yf_download_with_timeout("^VIX", "6mo", _FETCH_TIMEOUT)
+        if vix_raw is None:
+            with _cache_lock:
+                if _cached_result:
+                    return dict(_cached_result, note="yfinance timeout on VIX — returning stale regime")
+            return dict(_FALLBACK_REGIME, note="yfinance timeout on VIX")
 
         if isinstance(price_df.columns, pd.MultiIndex):
             price_df.columns = price_df.columns.get_level_values(0)
@@ -92,6 +143,9 @@ def get_current_regime(db_url: str, proxy_ticker: str = "SPY") -> Dict[str, Any]
             return dict(_FALLBACK_REGIME, note="insufficient price history")
 
     except Exception as e:
+        with _cache_lock:
+            if _cached_result:
+                return dict(_cached_result, note=f"fetch error ({e}) — returning stale regime")
         return dict(_FALLBACK_REGIME, note=f"data fetch failed: {e}")
 
     try:
@@ -106,6 +160,11 @@ def get_current_regime(db_url: str, proxy_ticker: str = "SPY") -> Dict[str, Any]
         result["regime"]      = rec
         result["multipliers"] = multipliers
         result["checked_at"]  = dt.datetime.utcnow().isoformat()
+
+        with _cache_lock:
+            _cached_result = result
+            _cached_at     = time.time()
+
         return result
 
     except Exception as e:

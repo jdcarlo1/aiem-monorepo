@@ -93,3 +93,4 @@
 - [Conviction-stack cold-start fix](conviction-stack-coldstart.md) — connect_timeout 2→10; bg_stk now saves to DB; 8+ pt gate means Sunday saves nothing (correct); prod snap_date comes from EOD job, dev always stale
 - [Prod startup race — deferred DB init](prod-startup-race.md) — 48 serial psycopg2.connect() at module level = 14-48s prod cold start; fix: _DEFERRED_INITS list + bg thread; all new _init_*() must use append pattern; stdout was buffered → add line_buffering=True at line 2
 - [Decision logging wiring](decision-logging-wiring.md) — decision_logging_helper.py wires 4 signals; charm had silent ROUND(float8,int) bug fixed with ::numeric; decision_type must be trade/no_trade/hold/exit NOT signal_fire
+- [Premarket-to-open paper trading module](premarket-open-module.md) — opening_snapshot_tracker + premarket_open_trader; regime_detector has 15-min cache; scheduler starts at 9:45 not 9:30; decision_type must use _DECISION_TYPE_MAP

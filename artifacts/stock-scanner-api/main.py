@@ -1807,9 +1807,12 @@ try:
         except Exception as _e:
             print(f"[scheduler] premarket_open_tracker error: {_e}")
 
+    # Starts at 9:45 (not 9:30) so the first 3 slots of the critical open burst
+    # (9:30, 9:35, 9:40) are free for the unusual-calls market-open scan and other
+    # heavy jobs. Options data isn't reliable until ~9:40 anyway.
     _scheduler.add_job(
         _run_premarket_open_tracker,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute="30-59/5", timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute="45-59/5", timezone=_ET),
         id="premarket_open_tracker",
         replace_existing=True,
     )
