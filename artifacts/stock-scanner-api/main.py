@@ -45455,6 +45455,7 @@ def aiem_chat_start():
     data          = request.get_json(silent=True) or {}
     question      = (data.get("question") or "").strip()[:800]
     image_data_url = (data.get("image_data_url") or "").strip()
+    analysis_mode = bool(data.get("analysis_mode", False))
 
     # Allow image-only submissions — default question so OpenAI always gets text
     if not question and image_data_url:
@@ -45497,9 +45498,26 @@ def aiem_chat_start():
     # 'conversational message' prompt that never mentions the image, causing empty replies.
     if image_data_url and max_iters < 3:
         max_iters = 3
+    # Analysis mode: all data is pre-loaded in the question. AIEM synthesizes
+    # directly. Only DB-only tools allowed — no live chain/price fetches.
+    if analysis_mode:
+        max_iters = 4
+        prompt = (
+            f"SESSION_ID: {job_id}\n\n"
+            f"The user asks: '{question}'\n\n"
+            f"ALL market data has already been pre-loaded and is included in the question above. "
+            f"Do NOT call any live-fetch tools: mkt_options_predicts_price, predict_short_term, "
+            f"mkt_test_signal, get_live_snapshot. "
+            f"You MAY call: mkt_load_discoveries, mkt_cross_confirm_options, mkt_find_behavioral_matches, "
+            f"mkt_options_flow_scan — but ONLY if the data in the question is insufficient. "
+            f"Synthesize the provided data into a clear, direct answer. "
+            f"Give BUY / PASS / WATCH ratings with one-sentence reasoning for each name. "
+            f"Be specific: cite the vol/oi ratio, DTE, ITM/OTM status, and what the pattern implies. "
+            f"End with your top 2-3 picks and a risk note."
+        )
     # Casual fast-path: short conversational question with no analytical intent.
     # Skip the research-loop prompt entirely — just answer directly.
-    if max_iters == 1:
+    elif max_iters == 1:
         prompt = (
             f"The user says: '{question}'\n\n"
             f"This is a casual/conversational message. Respond directly and concisely "
