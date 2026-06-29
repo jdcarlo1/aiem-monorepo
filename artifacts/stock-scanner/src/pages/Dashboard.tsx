@@ -12294,13 +12294,13 @@ function QuantAgentTab() {
 
   async function handleSubmit(question: string) {
     const q = question.trim();
-    if (!q || submitting) return;
+    if ((!q && !imageDataUrl) || submitting) return;
     setSubmitting(true);
     setInput("");
     const capturedImage = imageDataUrl;
     setImageDataUrl(null);
     try {
-      const body: Record<string, string> = { question: q };
+      const body: Record<string, string> = { question: q || "Analyze this chart/screenshot." };
       if (capturedImage) body.image_data_url = capturedImage;
       const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat`, {
         method: "POST",
