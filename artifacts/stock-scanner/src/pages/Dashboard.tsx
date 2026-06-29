@@ -12050,11 +12050,12 @@ const MAX_WAIT_MS = 6 * 60 * 1000;
 const ACTIVE_JOB_KEY = "quantAgent.activeJobId";
 
 const EXAMPLE_QUESTIONS = [
-  "Is quiet accumulation a real predictive signal or noise?",
-  "Compare MRVL and CRDO unusual call sweep activity this month",
-  "Backtest a 2.5x relative volume + gap-up filter over the last 90 days",
-  "What's driving the recent dark pool activity in semiconductor names?",
-  "Validate the squeeze fuel signal out-of-sample",
+  "Which tickers in today's unusual calls scan have the strongest conviction score?",
+  "Backtest the weak-close + high-volume rebound signal over the last 60 days",
+  "What's the best setup right now across dark pool, gamma wall, and options flow?",
+  "Show me stocks with inside-day compression after a big move — ready to break out",
+  "Which sweeps from this week had the highest premium and are still open?",
+  "Analyze the gap-down reversal signal — how is it performing live vs backtest?",
 ];
 
 type SessionStatus = "pending" | "running" | "done" | "error";
