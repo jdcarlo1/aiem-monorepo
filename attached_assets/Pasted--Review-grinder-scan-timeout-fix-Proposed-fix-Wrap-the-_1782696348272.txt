@@ -1,0 +1,37 @@
+# Review: `/grinder-scan` timeout fix
+
+## Proposed fix
+Wrap the grinder-scan SQL JOIN in a background thread with a hard 5s deadline (same pattern used for `iv-rank`).
+
+## Concern: this doesn't actually stop the query
+
+A Python-side thread deadline kills *your wait* for the result — it does not kill the query running on the database connection. The thread (and the SQL JOIN) keeps executing on Postgres in the background even after the request returns a timeout to the user.
+
+If this endpoint gets hit repeatedly (retries, multiple users, polling), you can end up stacking concurrent JOINs against the DB faster than they finish, which is worse than the original slow-endpoint problem — it's a path to connection pool exhaustion / DB load spikes that are invisible to the user (they just see "it timed out" and may retry).
+
+**Same question applies to the existing `iv-rank` endpoint** — if it uses this same pattern, it likely has the same issue already in production.
+
+## What to check / ask for
+
+1. **Is there a DB-level statement timeout, or only a thread timeout?**
+   - Thread-only timeout = silent zombie query, not a real fix.
+   - Postgres has a real `statement_timeout` setting that can be set per-connection or per-query:
+     ```sql
+     SET statement_timeout = '5000';  -- ms, scoped to the session/transaction
+     ```
+     or via psycopg2 connection options:
+     ```python
+     conn = psycopg2.connect(..., options="-c statement_timeout=5000")
+     ```
+   - This actually cancels the query on the server, not just on the client.
+
+2. **If only a thread timeout exists, ask for one of:**
+   - Add a `statement_timeout` on the query/connection itself, **and/or**
+   - Call `pg_cancel_backend(pid)` (or the equivalent cancel call your driver exposes) when the deadline hits, so the in-flight query is actually killed server-side.
+
+3. **Treat the timeout as a symptom patch, not the fix.** The root cause is "heavy JOIN on cold cache." A 5s timeout just hides that — it doesn't make the endpoint fast or cheap. Worth asking for:
+   - `EXPLAIN ANALYZE` on the query before and after any change, so there's a real before/after artifact (not just "it's wrapped now, trust me").
+   - A look at whether the JOIN can be backed by an index, a materialized view, or a warm cache layer instead of relying on a timeout band-aid.
+
+## Bottom line
+Don't accept "wrapped in a 5s timeout" as done. Ask for: (a) proof the query is actually cancelled server-side, not just abandoned client-side, and (b) an `EXPLAIN ANALYZE` showing the underlying query got faster, not just that failures got quieter.

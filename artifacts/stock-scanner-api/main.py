@@ -44669,7 +44669,7 @@ def _run_polygon_accum_scan() -> list:
     """
     try:
         with _ag_pg.connect(os.environ["DATABASE_URL"],
-                            options="-c statement_timeout=8000") as _c, _c.cursor() as _cur:
+                            options="-c statement_timeout=5000") as _c, _c.cursor() as _cur:
             _cur.execute(_sql)
             cols = [d[0] for d in _cur.description]
             rows = _cur.fetchall()
@@ -44849,7 +44849,7 @@ def grinder_scan_endpoint():
     Uses close_strength (CS), RVOL trend, range tightness, and shakeout-reentry detection.
     Zero API calls — pure SQL on existing Polygon data (12K stocks, updated daily at 8:35 AM).
     """
-    import datetime as _gse_dt
+    import datetime as _gse_dt, threading as _gse_thr
     force = request.args.get("force", "0") == "1"
 
     # Serve from cache (max 4h)
@@ -44860,29 +44860,48 @@ def grinder_scan_endpoint():
         if age < 14400:
             return jsonify({**_cache, "cached": True, "age_min": int(age/60)})
 
-    try:
-        results = _run_polygon_accum_scan()
-        _scan_date = results[0]["last_seen"] if results else str(_gse_dt.date.today())
-        _n_confirmed = sum(1 for r in results if r.get("sweep_confirmed"))
-        out = {
-            "results":              results,
-            "count":                len(results),
-            "sweep_confirmed_count": _n_confirmed,
-            "scan_date":            _scan_date,
-            "stale":                False,
-            "as_of":                _gse_dt.datetime.now().strftime("%b %d %I:%M %p ET"),
-            "methodology": "Shakeout→Reentry + options sweep cross-confirm · 76% WR backtest",
-        }
-        app._accum_cache    = out
-        app._accum_cache_ts = _gse_dt.datetime.now()
-        return jsonify(out)
-    except Exception as e:
-        # Fallback to legacy grinder results
+    # Run the heavy SQL in a background thread with a hard 5s deadline so
+    # a slow DB query never blocks the Flask worker thread and hangs the tab.
+    _out = [None]
+    def _do_scan():
         try:
-            data = get_steady_grinder_results()
-            return jsonify(data)
-        except Exception:
-            return jsonify({"error": str(e), "results": [], "count": 0, "stale": True}), 200
+            results = _run_polygon_accum_scan()
+            _scan_date = results[0]["last_seen"] if results else str(_gse_dt.date.today())
+            _n_confirmed = sum(1 for r in results if r.get("sweep_confirmed"))
+            _out[0] = {
+                "results":               results,
+                "count":                 len(results),
+                "sweep_confirmed_count": _n_confirmed,
+                "scan_date":             _scan_date,
+                "stale":                 False,
+                "as_of":                 _gse_dt.datetime.now().strftime("%b %d %I:%M %p ET"),
+                "methodology": "Shakeout→Reentry + options sweep cross-confirm · 76% WR backtest",
+            }
+        except Exception as _e_gs:
+            print(f"[grinder_scan] scan error: {_e_gs}")
+
+    _t = _gse_thr.Thread(target=_do_scan, daemon=True)
+    _t.start()
+    _t.join(timeout=5)
+
+    if _out[0] is not None:
+        app._accum_cache    = _out[0]
+        app._accum_cache_ts = _gse_dt.datetime.now()
+        return jsonify(_out[0])
+
+    # Scan didn't finish in 5s — kick it off in the background and return stale/empty
+    # so the tab never spins indefinitely. A follow-up request will hit the warm cache.
+    _gse_thr.Thread(target=_do_scan, daemon=True).start()
+    if _cache:
+        return jsonify({**_cache, "cached": True, "stale": True,
+                        "generating": True, "note": "Refreshing in background"})
+    try:
+        data = get_steady_grinder_results()
+        return jsonify(data)
+    except Exception:
+        return jsonify({"results": [], "count": 0, "stale": True,
+                        "generating": True,
+                        "methodology": "Shakeout→Reentry + options sweep cross-confirm · 76% WR backtest"})
 
 
 @app.route("/stock-api/admin/backfill-iv", methods=["POST"])

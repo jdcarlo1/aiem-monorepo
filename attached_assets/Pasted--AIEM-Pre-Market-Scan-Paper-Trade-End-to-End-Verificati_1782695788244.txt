@@ -1,0 +1,160 @@
+# AIEM Pre-Market Scan → Paper Trade: End-to-End Verification Checklist
+
+**Purpose:** Prove — with real executed output, not self-reported summaries —
+that AIEM can autonomously scan pre-market, identify breakout candidates, and
+record a paper trade through every required safety gate. Every item below
+must produce a pasteable artifact (DB row, log line, JSON output) — not a
+description of what *should* have happened.
+
+**Ground rule for whoever runs this:** "It works" is not an acceptable answer
+to any item below. Paste the actual output. If a step can't be completed,
+say which one and why, instead of skipping to the next.
+
+---
+
+## 0. Pre-flight: confirm we are NOT touching real money
+
+This is non-negotiable and must be verified FIRST, before any of the
+functional tests below.
+
+- [ ] Run `is_live_trading_enabled()` (from `simulation_lock.py`) and paste
+      the literal return value.
+      - Expected: `False`.
+- [ ] Confirm `LIVE_TRADING_ENABLED` env var is either unset or `false`.
+      Paste `echo $LIVE_TRADING_ENABLED` output.
+- [ ] Confirm there is no broker order-placement integration wired into the
+      scan→trade path (no Alpaca/IBKR/Schwab/TDA order calls). Grep the repo
+      for `place_order`, `submit_order`, or any broker SDK import in the
+      execution path and paste the (expected: empty) result.
+- [ ] Call `simulation_lock_check` and paste its logged audit entry.
+
+**If any of these come back showing live trading is possible, STOP — do not
+proceed with the rest of this checklist. Report that immediately instead.**
+
+---
+
+## 1. Data inputs: is the pre-market scan seeing real, current data?
+
+- [ ] Run `_get_bigcat_gap_candidates()` (or the equivalent current
+      pattern-candidate query) against the live `polygon_market_daily` table
+      this morning. Paste the actual row output (tickers + metrics), not a
+      count.
+- [ ] For at least 3 of those tickers, pull a live Tradier quote via
+      `_td_quotes()` and paste the raw quote response (price, premarket
+      volume) next to the DB-derived expectation.
+- [ ] Confirm `premarket_volume_ratio` is being computed from *today's* actual
+      premarket volume, not a stale/cached value — paste the timestamp on the
+      data used.
+- [ ] Confirm the hard floor `min_premarket_volume_ratio` (1.5x default) is
+      actually filtering candidates — paste at least one ticker that was
+      excluded for failing this floor, with its actual ratio.
+
+---
+
+## 2. Scoring: is the breakout/continuation call honest?
+
+- [ ] Run `score_premarket_candidates()` for today's universe. Paste full
+      output for every candidate that scored above threshold (ticker,
+      `continuation_probability`, `squeeze_subscore`, features used) — not
+      just the top pick.
+- [ ] Paste `held_out_precision_at_80` for the model being used today. If
+      it's `None` or below ~0.8, paste it anyway — do not omit unfavorable
+      numbers.
+- [ ] Confirm `evaluate_held_out()` was run on a date range strictly AFTER
+      `train_end_date` (no look-ahead). Paste both date ranges used.
+- [ ] For the squeeze sub-score specifically, paste the `reasons` list for
+      one fired candidate — confirm it's not always returning the same
+      boilerplate regardless of inputs.
+
+---
+
+## 3. Safety stack: every gate actually fires, not just exists
+
+Run these IN ORDER, exactly as `main.py`'s documented safety order requires.
+Paste output for each — a gate that always returns "pass" with no real check
+is a rubber stamp, not a safety control.
+
+- [ ] **`simulation_lock_check`** — paste result.
+- [ ] **`is_eval_window_active`** — paste result. If `False`, this should
+      stop the loop — confirm it actually does (don't let the agent proceed
+      past a closed window).
+- [ ] **`check_kill_switch`** — paste result including current
+      `drawdown_pct`, `trades_today`, `consecutive_losses`.
+      - [ ] Separately, artificially trip one limit (e.g. temporarily set
+            `max_trades_per_day=1` and place two test paper trades) and paste
+            the `halted: True` response plus the persisted `halted_reason` in
+            `kill_switch_state`. Then run `clear_halt()` and paste that
+            entry too. This proves the halt actually persists and actually
+            blocks — not just that the function exists.
+- [ ] **`regime_overlay_check`** — paste the 6-indicator output and whether
+      it would block/reduce today.
+- [ ] **`run_risk_gate`** — paste the full result for at least one real
+      candidate: `gate_decision`, `reasons`, `devils_advocate` object,
+      `cross_signal_agreement`. If `gate_decision` is `APPROVED` with an
+      empty `reasons` list, sanity-check that this is genuinely a clean pass
+      and not a misconfigured gate.
+- [ ] **`gate_history`** (last 50) — paste the breakdown of
+      APPROVED / APPROVED_WITH_CAUTION / BLOCKED counts. If BLOCKED+CAUTION
+      is near zero, flag this explicitly — per the code's own comment, that
+      means the gate isn't doing real work.
+
+---
+
+## 4. Decision logging: is the track record honest?
+
+- [ ] Paste at least one `log_decision` call of each type from today's
+      session: `trade`, `no_trade`, `hold` (if applicable). Confirm
+      `reasoning` field is non-empty and specific (not boilerplate) for each.
+- [ ] Paste `decision_quality_summary` output. Confirm `no_trade` decisions
+      are present in the log, not just winning trades — an agent that only
+      logs the trades it took has a meaningless track record.
+
+---
+
+## 5. Paper trade execution: does a candidate actually become a recorded position?
+
+- [ ] For one candidate that passed all gates above, call
+      `open_shadow_trade()` and paste the resulting row from
+      `shadow_ledger` (entry price, size, timestamp).
+- [ ] Paste `get_positions()` / `get_cash()` from `execution.py` before and
+      after the trade, confirming `CASH` actually decremented by
+      `price * size`.
+- [ ] Confirm position sizing used a real function (`rl_get_paper_action`,
+      `portfolio_allocate`, or fixed size) rather than a hardcoded/default
+      value — paste which sizing path fired and why.
+- [ ] Later the same day (or next session), close the position via
+      `close_shadow_trade()` + `record_decision_outcome()` and paste the
+      logged P&L.
+
+---
+
+## 6. Honesty check on stats AIEM reports about itself
+
+- [ ] Pick any win-rate or EV claim AIEM has made recently in a log/email
+      (e.g. the "72.9% WR / EV +2.19%" BigCatDay claim) and paste:
+      - `n_trades_in_backtest` it's based on
+      - Whether `execution_realistic_cost` (slippage/impact) was subtracted
+        before that win rate was reported
+      - Whether the held-out/out-of-sample check (`evaluate_held_out`) was
+        run, and its result
+- [ ] Run `benchmark_vs_baselines` for the current eval window and paste the
+      comparison against buy-and-hold SPY, the SMA crossover, and the
+      Monte Carlo coin-flip 95th percentile. State explicitly whether AIEM
+      beat the 95th percentile — if not, say so plainly.
+
+---
+
+## 7. Final sign-off
+
+- [ ] One sentence: did every item above produce real pasted output, or were
+      any skipped/assumed? List any gaps explicitly — do not summarize them
+      away.
+- [ ] Confirm again, as a closing statement: no real brokerage order was
+      placed at any point during this verification, and `LIVE_TRADING_ENABLED`
+      is still `false`.
+
+---
+
+*When this comes back, send me the filled-in version (with pasted outputs,
+not just checked boxes) and I'll review it against the actual code to confirm
+nothing was glossed over or self-reported without evidence.*
