@@ -101,6 +101,11 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
 
+# Shared semaphore: one AIEM session at a time (chat, SMS, email, cron).
+# Initialized here at module load so it's always present before any request.
+import threading as _aiem_lock_thr
+app._aiem_qa_lock = _aiem_lock_thr.Semaphore(1)
+
 # ── NaN/Inf-safe JSON ─────────────────────────────────────────────────────────
 # Postgres float columns and numpy computations can yield NaN/Infinity. Python's
 # default json emits the literal tokens `NaN`/`Infinity`, which are INVALID JSON -
@@ -10832,23 +10837,11 @@ try:
     import psycopg2.pool as _pg_pool_mod
     _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(minconn=2, maxconn=25, dsn=_DB_URL)
     def _pg_pooled_connect(*_a, **_kw):
-        """Draw a connection from the shared pool with timeout support.
-        Uses explicit lock acquisition with timeout so Flask request threads
-        never block indefinitely when background threads hold the pool lock
-        (e.g. during a slow TCP connect() inside _getconn).
-        """
-        _timeout = float(_kw.pop("connect_timeout", None) or 5)
-        # Acquire the pool lock with a deadline — prevents infinite blocking
-        if not _PG_POOL._lock.acquire(blocking=True, timeout=_timeout):
-            raise Exception(
-                f"[db] pool lock busy >{_timeout}s — system under load; try again"
-            )
+        _kw.pop("connect_timeout", None)
         try:
-            _raw = _PG_POOL._getconn()
-        except Exception:
-            _PG_POOL._lock.release()
-            raise
-        _PG_POOL._lock.release()
+            _raw = _PG_POOL.getconn()
+        except _pg_pool_mod.PoolError as e:
+            raise Exception(f"[db] connection pool exhausted — system under load; try again ({e})")
         return _PoolConn(_raw, _PG_POOL)
     _psycopg2.connect = _pg_pooled_connect          # patch the module; all aliases follow
     print("[db] connection pool ready (min=2 max=25)")
@@ -45052,13 +45045,17 @@ def aiem_chat_start():
     """
     import uuid as _uuid, threading as _qa_thr
 
-    data     = request.get_json(silent=True) or {}
-    question = (data.get("question") or "").strip()[:800]
-    if not question:
+    data          = request.get_json(silent=True) or {}
+    question      = (data.get("question") or "").strip()[:800]
+    image_data_url = (data.get("image_data_url") or "").strip()
+
+    # Allow image-only submissions — default question so OpenAI always gets text
+    if not question and image_data_url:
+        question = "Analyze this chart/screenshot."
+    if not question and not image_data_url:
         return jsonify({"error": "question is required"}), 400
 
-    # ── Image validation (server-side, spec points 6 & 7) ─────────────────
-    image_data_url = (data.get("image_data_url") or "").strip()
+    # ── Image validation (server-side) ────────────────────────────────────
     if image_data_url:
         _allowed_prefixes = (
             "data:image/png;base64,",
