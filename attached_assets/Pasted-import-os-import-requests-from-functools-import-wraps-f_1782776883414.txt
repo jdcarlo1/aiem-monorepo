@@ -1,0 +1,83 @@
+import os
+import requests
+from functools import wraps
+from flask import request, abort
+from werkzeug.middleware.proxy_fix import ProxyFix
+from datetime import datetime, timezone
+
+# ── Secret token (set in Replit Secrets) ─────────────────────────────────────
+AIEM_TOKEN = os.environ["AIEM_INTERNAL_TOKEN"]
+
+
+# ── Apply ProxyFix to your Flask app ─────────────────────────────────────────
+# Call this once after you create your Flask app:
+#   from aiem_verification import apply_proxy_fix
+#   apply_proxy_fix(app)
+
+def apply_proxy_fix(app):
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    return app
+
+
+# ── Audit logger ──────────────────────────────────────────────────────────────
+def log_audit(verified: bool, ip: str, reason: str = None, token_hint: str = None, job_id: str = None):
+    record = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "ip": ip,
+        "verified": verified,
+    }
+    if job_id:
+        record["job"] = job_id
+    if token_hint:
+        record["token_hint"] = f"...{token_hint}"
+    if reason:
+        record["reason"] = reason
+
+    # Replace this with your actual DB write
+    print(f"AUDIT | {record}")
+
+
+# ── Decorator: every endpoint must come from AIEM ────────────────────────────
+def require_aiem_verification(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("X-AIEM-Token")
+        ip = request.remote_addr
+
+        if token != AIEM_TOKEN:
+            log_audit(verified=False, ip=ip, reason="bad_token")
+            abort(403)
+
+        log_audit(verified=True, ip=ip, token_hint=token[-4:])
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+# ── AIEM client: sends token on every outbound question ──────────────────────
+def aiem_ask(question: str, base_url: str = None) -> dict:
+    url = base_url or os.environ.get("AIEM_BASE_URL", "https://yourdomain.com")
+    response = requests.post(
+        f"{url}/stock-api/aiem/chat",
+        json={"question": question},
+        headers={"X-AIEM-Token": AIEM_TOKEN},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+# ── Usage example ─────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    AUDIT_QUESTIONS = [
+        "When verification fails, do you raise an exception and block the return, or do you log the failure and return the result anyway?",
+        "The audit log shows id=1 — is this the first-ever audit record in production, or was the table recently created or wiped?",
+        "In the polling loop, is poll_result the final resolved value at the time the decorator receives it, or could it still be a reference to an in-flight mutable variable?",
+        "When ask_aiem() is called from a user-facing request, does the audit log capture the originating request IP, or does it always log 127.0.0.1 regardless of where the call originated?",
+    ]
+
+    for i, question in enumerate(AUDIT_QUESTIONS, 1):
+        print(f"\n--- Question {i} ---")
+        print(f"Q: {question}")
+        result = aiem_ask(question)
+        print(f"A: {result}")
