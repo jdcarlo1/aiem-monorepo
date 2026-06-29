@@ -1,0 +1,71 @@
+VERIFICATION TASK 3 — concurrency, error visibility, alerting, legacy auth routes.
+Paste raw code/output for every item, no summaries, no "this is handled."
+
+=== ITEM 1: Concurrent force-execute protection ===
+
+A valid admin token can currently call force-execute repeatedly with no
+rate limit — each call spins up a new daemon thread running
+_aiem_paper_execute_today.
+
+1. Paste the full body of _aiem_paper_execute_today (the function force-execute
+   threads off to).
+2. Is there any lock, flag, or guard (e.g. a module-level boolean, a DB row,
+   a threading.Lock) that prevents two invocations from running concurrently
+   and trading against the same paper portfolio at the same time?
+3. If no such guard exists, demonstrate it: fire two force-execute calls
+   back-to-back (within 1-2 seconds of each other) with a valid token, and
+   paste the raw logs/output showing whether both threads ran simultaneously
+   or the second was blocked/queued/rejected.
+4. If a guard exists, paste the exact code for it and point to the
+   line(s) that implement the check.
+
+=== ITEM 2: Thread error visibility ===
+
+force-execute returns "executing" immediately via a fire-and-forget thread.
+If _aiem_paper_execute_today throws partway through, the HTTP caller never
+finds out.
+
+1. Does _aiem_paper_execute_today have a try/except wrapping its body? Paste
+   it. If it throws unhandled, where does that exception surface — stdout,
+   a log file, nowhere?
+2. Is there any way for me (outside of staring at server logs) to know
+   whether the last force-execute actually completed successfully or died
+   mid-run — e.g. a status row in a table, a timestamp of "last successful
+   run," anything queryable?
+3. If nothing currently tracks completion/failure status, propose the
+   minimal code change (a status column + update at start/success/failure
+   of _aiem_paper_execute_today) and show it.
+
+=== ITEM 3: Force-execute frequency / alerting ===
+
+1. Run this query and paste raw output:
+
+   SELECT date_trunc('hour', ts) AS hr, COUNT(*)
+   FROM request_log
+   WHERE path = '/stock-api/aiem-paper-portfolio/force-execute'
+   GROUP BY hr
+   ORDER BY hr DESC;
+
+2. Is there ANY existing mechanism (email/SMS/log alert/dashboard) that
+   would notify me if this number spiked abnormally in one hour? Name the
+   specific mechanism and show the code, or state explicitly "no such
+   mechanism exists."
+
+=== ITEM 4: Legacy query-param token routes ===
+
+Two routes (lines ~13969-13970 and ~7596-7599) accept the admin token via
+request.args.get("token") as a URL query parameter, in addition to the
+header. The other 8 protected routes accept header only.
+
+1. Paste the full route handler (decorator + function) for both of these
+   two legacy routes, so I can see what they actually do.
+2. Is there a reason these two specifically still accept query-param auth
+   instead of being migrated to header-only like the other 8?
+3. Show the exact code diff to remove the request.args.get("token") fallback
+   from both routes, making them header-only like the rest, OR explain
+   why query-param auth is intentionally needed here (e.g. called from a
+   context that can't set custom headers, like a cron webhook or browser
+   link).
+
+DO NOT report any item as resolved without the raw code, raw log output, or
+raw query output pasted directly in your response.
