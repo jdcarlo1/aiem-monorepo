@@ -45724,59 +45724,110 @@ def aiem_chat_poll(job_id):
         return jsonify({"error": str(_e)}), 500
 
 
+# In-memory rate limiter for /aiem/verify — keyed by IP.
+# Stores list of request timestamps; evicts entries older than the window.
+_VERIFY_RATE_LIMIT: dict = {}          # ip → [timestamp, ...]
+_VERIFY_RATE_WINDOW = 60               # seconds
+_VERIFY_RATE_MAX    = 20               # max requests per window per IP
+
+
+def _verify_check_rate_limit(ip: str) -> bool:
+    """Return True if the IP is over the rate limit (should be blocked)."""
+    import time as _rt
+    now = _rt.time()
+    window_start = now - _VERIFY_RATE_WINDOW
+    hits = _VERIFY_RATE_LIMIT.get(ip, [])
+    hits = [t for t in hits if t > window_start]   # evict old entries
+    _VERIFY_RATE_LIMIT[ip] = hits
+    if len(hits) >= _VERIFY_RATE_MAX:
+        return True
+    hits.append(now)
+    _VERIFY_RATE_LIMIT[ip] = hits
+    return False
+
+
 @app.route("/stock-api/aiem/verify/<job_id>", methods=["GET"])
 def aiem_verify(job_id):
-    """Cryptographically verify that a response was produced by the AIEM pipeline.
-    Returns verified=true only if the stored HMAC matches the saved answer.
-    This proves the response came from the AIEM engine, not fabricated afterward.
+    """Cryptographically verify a response was produced by the AIEM pipeline.
+
+    Auth:  X-API-Key header or ?api_key= query param must match ADMIN_TOKEN.
+    Limit: 20 requests per minute per IP — returns 429 when exceeded.
+    Logic: re-derives HMAC-SHA256 from the exact signed_ts + openai_response_id
+           stored at signing time (no timestamp re-derivation drift).
     """
-    import psycopg2 as _vp
+    import os as _vos, hmac as _vh, psycopg2 as _vp
+
+    # ── 1. Auth ──────────────────────────────────────────────────────────
+    _expected_key = _vos.environ.get("ADMIN_TOKEN", "")
+    _provided_key = (
+        request.headers.get("X-API-Key") or
+        request.args.get("api_key") or
+        ""
+    )
+    if not _expected_key or not _vh.compare_digest(_expected_key, _provided_key):
+        return jsonify({
+            "verified": False,
+            "error":    "Unauthorized — provide a valid X-API-Key header or ?api_key= param",
+        }), 401
+
+    # ── 2. Rate limit ─────────────────────────────────────────────────────
+    _client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    if _verify_check_rate_limit(_client_ip):
+        return jsonify({
+            "verified": False,
+            "error":    f"Rate limit exceeded — max {_VERIFY_RATE_MAX} requests per {_VERIFY_RATE_WINDOW}s",
+            "retry_after": _VERIFY_RATE_WINDOW,
+        }), 429
+
+    # ── 3. Fetch record ───────────────────────────────────────────────────
     try:
         with _vp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
-                "SELECT answer, aiem_signature, signed_at, created_at, status FROM quant_agent_sessions WHERE job_id=%s",
+                """SELECT answer, aiem_signature, signed_at, signed_ts,
+                          openai_response_id, status
+                   FROM quant_agent_sessions WHERE job_id=%s""",
                 (job_id,)
             )
             row = _cu.fetchone()
             if not row:
                 return jsonify({"verified": False, "error": "job not found"}), 404
-            answer, stored_sig, signed_at, created_at, status = row
+            answer, stored_sig, signed_at, signed_ts, openai_id, status = row
+
             if status != "done" or not answer or not stored_sig:
                 return jsonify({
                     "verified": False,
-                    "job_id": job_id,
-                    "status": status,
-                    "reason": "session not complete or unsigned",
+                    "job_id":   job_id,
+                    "status":   status,
+                    "reason":   "session not complete or unsigned",
                 })
-            # Re-derive the signature from what's stored and compare constant-time
-            import hmac as _vh, hashlib as _vhs, os as _vos
+
             secret = _vos.environ.get("AIEM_SECRET", "")
             if not secret:
-                return jsonify({"verified": False, "reason": "AIEM_SECRET not configured on server"})
-            # Signature format: HMAC-SHA256( job_id:unix_ts:answer )
-            # We verify by checking stored_sig is a valid hex digest over the stored payload.
-            # Since we don't store the original timestamp separately, we verify by
-            # re-computing from stored answer and comparing to stored signature using
-            # the known payload structure.
-            # Extract timestamp from signature creation time (stored as signed_at).
-            import time as _vt
-            if signed_at:
-                ts = str(int(signed_at.timestamp()))
-            else:
-                ts = str(int(created_at.timestamp()))
-            expected = _aiem_sign(job_id, ts, answer)
+                return jsonify({"verified": False,
+                                "reason": "AIEM_SECRET not configured on server"}), 500
+
+            # ── 4. Verify using the exact timestamp string stored at signing time ──
+            # signed_ts is the str(int(time.time())) captured in _qa_db_update —
+            # no float/timezone re-derivation needed or possible.
+            ts = signed_ts or ""
+            expected = _aiem_sign(job_id, ts, answer, openai_id or "")
             verified = _vh.compare_digest(expected, stored_sig)
+
             return jsonify({
-                "verified":        verified,
-                "job_id":          job_id,
-                "status":          status,
-                "signed_at":       signed_at.isoformat() if signed_at else None,
-                "aiem_signature":  stored_sig,
-                "algorithm":       "HMAC-SHA256",
-                "payload_format":  "job_id:unix_timestamp:response_text",
-                "model":           "gpt-5.4",
-                "reason":          "Signature matches — this response was produced by the AIEM pipeline" if verified
-                                   else "Signature mismatch — response may have been tampered with",
+                "verified":          verified,
+                "job_id":            job_id,
+                "status":            status,
+                "signed_at":         signed_at.isoformat() if signed_at else None,
+                "openai_response_id": openai_id or None,
+                "aiem_signature":    stored_sig,
+                "algorithm":         "HMAC-SHA256",
+                "payload_format":    "job_id:signed_ts:openai_response_id:response_text.strip()",
+                "model":             "gpt-5.4",
+                "reason":            (
+                    "Signature matches — this response was produced by the AIEM pipeline"
+                    if verified else
+                    "Signature mismatch — response may have been tampered with"
+                ),
             })
     except Exception as _e:
         return jsonify({"verified": False, "error": str(_e)}), 500
