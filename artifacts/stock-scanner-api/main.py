@@ -25367,6 +25367,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
     ]
 
     _last_text      = ""
+    _last_openai_id = ""
     trace           = []
     _context_budget = 60_000
     _context_used   = 0
@@ -25394,6 +25395,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                 _fst.sleep(1.5 * (_attempt + 1))
 
         _t_llm_elapsed = round(_fst.time() - _t_llm_start, 2)
+        _last_openai_id = getattr(resp, "id", "") or ""
         msg = resp.choices[0].message
         if msg.content:
             _last_text = msg.content
@@ -25478,7 +25480,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
             })
 
     print(f"[aiem_24h:{session_name}] complete ({_i+1} iters, {len(trace)} tool calls, {round(_fst.time()-_t_session_start,1)}s total)")
-    return _last_text, trace, None
+    return _last_text, trace, None, _last_openai_id
 
 
 _AIEM_AGENT_TOOLS = [
@@ -45395,35 +45397,37 @@ def admin_backfill_iv():
 # need to be serialized with each other to avoid duplicate research runs).
 
 
-def _aiem_sign(job_id: str, timestamp: str, response_text: str) -> str:
-    """HMAC-SHA256 sign an AIEM response for authenticity verification."""
+def _aiem_sign(job_id: str, timestamp: str, response_text: str, openai_id: str = "") -> str:
+    """HMAC-SHA256 sign an AIEM response for authenticity verification.
+    Payload: job_id:unix_timestamp:openai_response_id:response_text (stripped).
+    """
     import hmac as _hmac_s, hashlib as _hs, os as _os_s
     secret = _os_s.environ.get("AIEM_SECRET", "")
     if not secret:
         return ""
-    payload = f"{job_id}:{timestamp}:{response_text}"
+    payload = f"{job_id}:{timestamp}:{openai_id}:{response_text.strip()}"
     return _hmac_s.new(secret.encode(), payload.encode(), _hs.sha256).hexdigest()
 
 
-def _aiem_verify(job_id: str, timestamp: str, response_text: str, signature: str) -> bool:
+def _aiem_verify(job_id: str, timestamp: str, response_text: str, signature: str, openai_id: str = "") -> bool:
     """Constant-time verify an AIEM response signature."""
     import hmac as _hmac_v, os as _os_v
     secret = _os_v.environ.get("AIEM_SECRET", "")
     if not secret or not signature:
         return False
-    expected = _aiem_sign(job_id, timestamp, response_text)
+    expected = _aiem_sign(job_id, timestamp, response_text, openai_id)
     return _hmac_v.compare_digest(expected, signature)
 
 
-def _qa_db_update(job_id: str, status: str, answer=None, error=None, current_tool=None, tool_trace=None):
+def _qa_db_update(job_id: str, status: str, answer=None, error=None,
+                  current_tool=None, tool_trace=None, openai_response_id=None):
     """Thread-safe DB update for a quant_agent_sessions row."""
     import psycopg2 as _qpg, json as _qj, time as _qt
     _sig = None
-    _signed_at_val = None
+    _signed_ts = None
     if status == "done" and answer:
-        _ts = str(int(_qt.time()))
-        _sig = _aiem_sign(job_id, _ts, answer)
-        _signed_at_val = "NOW()"
+        _signed_ts = str(int(_qt.time()))
+        _sig = _aiem_sign(job_id, _signed_ts, answer, openai_response_id or "")
     try:
         with _qpg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
@@ -45431,12 +45435,16 @@ def _qa_db_update(job_id: str, status: str, answer=None, error=None, current_too
                    SET status=%s, answer=%s, error=%s,
                        current_tool=%s, tool_trace=%s, updated_at=NOW(),
                        aiem_signature=%s,
-                       signed_at=CASE WHEN %s IS NOT NULL THEN NOW() ELSE signed_at END
+                       signed_at=CASE WHEN %s IS NOT NULL THEN NOW() ELSE signed_at END,
+                       signed_ts=%s,
+                       openai_response_id=%s
                    WHERE job_id=%s""",
                 (status, answer, error,
                  current_tool,
                  _qj.dumps(tool_trace) if tool_trace is not None else None,
                  _sig, _sig,
+                 _signed_ts,
+                 openai_response_id,
                  job_id)
             )
             _c.commit()
@@ -45615,16 +45623,21 @@ def aiem_chat_start():
             # Hard 120s deadline on the session so a hung OpenAI call can never
             # hold the lock forever.  The session thread is daemon so it won't
             # prevent process exit; we collect results via the shared list.
-            _sess_result = [None, None, None]  # [answer_text, trace, err]
+            _sess_result = [None, None, None, None]  # [answer_text, trace, err, openai_id]
             def _sess_run():
                 try:
-                    _sess_result[0], _sess_result[1], _sess_result[2] = _run_aiem_focused_session(
+                    _r = _run_aiem_focused_session(
                         session_name=f"quant_chat_{job_id[:8]}",
                         focus_prompt=prompt,
                         max_iterations=max_iters,
                         on_step=_on_step,
                         image_data_url=image_data_url or None,
                     )
+                    # _run_aiem_focused_session returns (text, trace, err) or (text, trace, err, openai_id)
+                    _sess_result[0] = _r[0]
+                    _sess_result[1] = _r[1]
+                    _sess_result[2] = _r[2]
+                    _sess_result[3] = _r[3] if len(_r) > 3 else ""
                 except Exception as _se:
                     _sess_result[2] = str(_se)[:400]
             import threading as _wt_thr
@@ -45638,7 +45651,8 @@ def aiem_chat_start():
 
             print(f"[quant_chat] job={job_id[:8]} session_run={_session_run_s}s timed_out={_timed_out}")
 
-            answer_text, trace, err = _sess_result
+            answer_text, trace, err, openai_id = _sess_result
+            openai_id = openai_id or ""
             trace = trace or []
 
             # Prepend timing metadata as first trace entry so every poll response
@@ -45661,7 +45675,8 @@ def aiem_chat_start():
                 answer = (answer_text or "").strip()
                 if not answer or len(answer) < 20:
                     answer = "The research session completed but returned no findings. Try rephrasing your question with a specific ticker or signal name."
-                _qa_db_update(job_id, "done", answer=answer, current_tool=None, tool_trace=trace)
+                _qa_db_update(job_id, "done", answer=answer, current_tool=None,
+                              tool_trace=trace, openai_response_id=openai_id or None)
         except Exception as _e:
             _session_run_s = round(_wt.time() - _t_session_start, 3)
             print(f"[quant_agent] job={job_id[:8]} session error (run={_session_run_s}s): {_e}")
