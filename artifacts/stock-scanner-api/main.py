@@ -45366,8 +45366,10 @@ def admin_backfill_iv():
 
 
 # ── Quant Agent Chat ──────────────────────────────────────────────────────────
-# Uses the shared app._aiem_qa_lock (same Semaphore as SMS/email/cron sessions)
-# so all AIEM session sources are mutually exclusive — no concurrent budget burn.
+# Chat sessions are NOT serialized. Each job is fully isolated: separate DB row,
+# separate job_id, separate OpenAI message array, separate tool call state.
+# SMS/email/cron sessions still use app._aiem_qa_lock (owner-only flows that
+# need to be serialized with each other to avoid duplicate research runs).
 
 
 def _qa_db_update(job_id: str, status: str, answer=None, error=None, current_tool=None, tool_trace=None):
@@ -45432,8 +45434,9 @@ def reconcile_orphaned_sessions():
 @app.route("/stock-api/aiem/chat", methods=["POST"])
 def aiem_chat_start():
     """Start an AIEM research session from the Quant Agent tab.
-    Uses the shared app._aiem_qa_lock so chat, SMS, and email sessions are
-    fully mutually exclusive — one AIEM session at a time across all sources.
+    Chat sessions are fully concurrent — no global lock. Each session is
+    isolated by job_id. SMS/email/cron sessions use app._aiem_qa_lock
+    independently (owner flows serialized with each other, not with chat).
     """
     import uuid as _uuid, threading as _qa_thr
 
@@ -45463,14 +45466,6 @@ def aiem_chat_start():
         if _estimated_bytes > 10 * 1024 * 1024:
             return jsonify({"error": "Image must be under 10 MB. Please compress or resize before uploading."}), 400
     # ─────────────────────────────────────────────────────────────────────
-
-    # Fast-check: if a session is already running (SMS, email, cron, or prior chat),
-    # reject immediately. The worker re-acquires the lock itself so we release here.
-    if not app._aiem_qa_lock.acquire(blocking=False):
-        return jsonify({
-            "error": "Another AIEM session is already running (SMS, email, or chat). Please wait for it to finish."
-        }), 429
-    app._aiem_qa_lock.release()
 
     job_id = str(_uuid.uuid4())
     _has_image = bool(image_data_url)
@@ -45537,27 +45532,60 @@ def aiem_chat_start():
         )
 
     def _worker():
-        # Re-acquire the shared lock — if another session slipped in between the
-        # check above and this thread starting, we bail gracefully.
-        if not app._aiem_qa_lock.acquire(blocking=False):
-            _qa_db_update(job_id, "error",
-                          error="Another session started between submit and worker start — please retry.")
-            return
+        # No global lock — each chat session is fully isolated by job_id.
+        # SMS/email/cron sessions manage app._aiem_qa_lock independently.
+        import time as _wt
+        _t_session_start = _wt.time()
         try:
             _qa_db_update(job_id, "running")
 
             def _on_step(step):
                 _qa_db_update(job_id, "running", current_tool=step.get("tool"))
 
-            answer_text, trace, err = _run_aiem_focused_session(
-                session_name=f"quant_chat_{job_id[:8]}",
-                focus_prompt=prompt,
-                max_iterations=max_iters,
-                on_step=_on_step,
-                image_data_url=image_data_url or None,
-            )
+            # Hard 120s deadline on the session so a hung OpenAI call can never
+            # hold the lock forever.  The session thread is daemon so it won't
+            # prevent process exit; we collect results via the shared list.
+            _sess_result = [None, None, None]  # [answer_text, trace, err]
+            def _sess_run():
+                try:
+                    _sess_result[0], _sess_result[1], _sess_result[2] = _run_aiem_focused_session(
+                        session_name=f"quant_chat_{job_id[:8]}",
+                        focus_prompt=prompt,
+                        max_iterations=max_iters,
+                        on_step=_on_step,
+                        image_data_url=image_data_url or None,
+                    )
+                except Exception as _se:
+                    _sess_result[2] = str(_se)[:400]
+            import threading as _wt_thr
+            _sess_thr = _wt_thr.Thread(target=_sess_run, daemon=True,
+                                        name=f"aiem_sess_{job_id[:8]}")
+            _sess_thr.start()
+            _sess_thr.join(timeout=120)
 
-            if err and not answer_text:
+            _session_run_s = round(_wt.time() - _t_session_start, 3)
+            _timed_out = _sess_thr.is_alive()
+
+            print(f"[quant_chat] job={job_id[:8]} session_run={_session_run_s}s timed_out={_timed_out}")
+
+            answer_text, trace, err = _sess_result
+            trace = trace or []
+
+            # Prepend timing metadata as first trace entry so every poll response
+            # exposes session_run_s without a schema change.
+            _timing_entry = {
+                "iteration": 0,
+                "tool": "_timing",
+                "session_run_s": _session_run_s,
+                "timed_out": _timed_out,
+            }
+            trace = [_timing_entry] + list(trace)
+
+            if _timed_out:
+                _qa_db_update(job_id, "error",
+                              error="Session exceeded 120s hard deadline (OpenAI hang). The lock has been released — retry.",
+                              tool_trace=trace)
+            elif err and not answer_text:
                 _qa_db_update(job_id, "error", error=err[:400], tool_trace=trace)
             else:
                 answer = (answer_text or "").strip()
@@ -45565,10 +45593,9 @@ def aiem_chat_start():
                     answer = "The research session completed but returned no findings. Try rephrasing your question with a specific ticker or signal name."
                 _qa_db_update(job_id, "done", answer=answer, current_tool=None, tool_trace=trace)
         except Exception as _e:
-            print(f"[quant_agent] session error: {_e}")
+            _session_run_s = round(_wt.time() - _t_session_start, 3)
+            print(f"[quant_agent] job={job_id[:8]} session error (run={_session_run_s}s): {_e}")
             _qa_db_update(job_id, "error", error=str(_e)[:400])
-        finally:
-            app._aiem_qa_lock.release()
 
     _qa_thr.Thread(target=_worker, daemon=True, name=f"quant_chat_{job_id[:8]}").start()
     return jsonify({"job_id": job_id, "status": "pending", "has_image": _has_image})
