@@ -496,7 +496,7 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
 
     if gate:
         print(f"  🚫 {gate}")
-        return [], [], []
+        return [], [], [], []
 
     # Daily pre-filter: gap 1-20%, mom10 3-17%, price > $0.50
     # gap = open[t] / close[t-1] — only uses information available at market open.
