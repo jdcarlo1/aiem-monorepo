@@ -1,0 +1,61 @@
+import hmac
+import hashlib
+import time
+import os
+from functools import wraps
+
+AIEM_SECRET = os.environ.get("AIEM_SECRET")
+
+def require_aiem_verification(func):
+    """
+    Decorator — wrap ANY function that calls AIEM.
+    If the response can't be verified, it never reaches you.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        
+        # Extract required fields
+        job_id    = result.get("job_id")
+        timestamp = result.get("unix_timestamp")
+        openai_id = result.get("openai_response_id")
+        response  = result.get("response", "").strip()
+        signature = result.get("aiem_signature")
+        
+        # Hard fail if any field is missing
+        if not all([job_id, timestamp, openai_id, response, signature]):
+            raise ValueError("AIEM response missing required verification fields — BLOCKED")
+        
+        # Rebuild payload and verify
+        payload = f"{job_id}:{timestamp}:{openai_id}:{response}"
+        expected = hmac.new(
+            AIEM_SECRET.encode(),
+            payload.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        if not hmac.compare_digest(expected, signature):
+            raise ValueError("AIEM signature mismatch — response BLOCKED, possible tampering")
+        
+        # Log every verified response permanently
+        log_verified_response(job_id, timestamp, openai_id)
+        
+        return result
+    return wrapper
+
+
+def log_verified_response(job_id, timestamp, openai_id):
+    """Permanent audit trail in your DB."""
+    db.execute("""
+        INSERT INTO aiem_verification_log 
+        (job_id, unix_timestamp, openai_response_id, verified_at)
+        VALUES (%s, %s, %s, NOW())
+    """, [job_id, timestamp, openai_id])
+
+
+# Apply it permanently to your AIEM caller
+@require_aiem_verification
+def ask_aiem(question: str) -> dict:
+    # your existing AIEM call here
+    resp = _oai.chat.completions.create(...)
+    return sign_aiem_response(...)
