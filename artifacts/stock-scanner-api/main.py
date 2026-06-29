@@ -30729,6 +30729,10 @@ def _aiem_paper_execute_today():
     import datetime as _apdt
     _today = _apdt.date.today()
 
+    if _today.weekday() >= 5:  # 5=Saturday, 6=Sunday
+        print(f"[aiem_paper] skipping — market closed on weekend ({_today.strftime('%A')})")
+        return
+
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE trade_date = %s", (_today,))
