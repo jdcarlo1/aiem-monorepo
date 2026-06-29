@@ -618,11 +618,11 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
     # All quant-scored candidates (STRONG + WATCH + SKIP) with next_ret.
     # Stored separately so print_report can re-rank the FULL pool under
     # different weight schemes — not just re-rank the already-STRONG subset.
-    qt_scored_all = [
-        {**r, "next_ret": nret(r["ticker"], r["cl"][-1]), "bt_date": bt_str}
-        for r in qt_scored
-        if nret(r["ticker"], r["cl"][-1]) is not None
-    ]
+    qt_scored_all = []
+    for r in qt_scored:
+        nr = nret(r["ticker"], r["cl"][-1])
+        if nr is not None:
+            qt_scored_all.append({**r, "next_ret": nr, "bt_date": bt_str})
 
     return (
         [t for t in v2_strong if t["next_ret"] is not None],
