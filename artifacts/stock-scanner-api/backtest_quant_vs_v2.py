@@ -250,10 +250,16 @@ def _pct_z(vals):
 
 
 def _sharpe10(cl):
-    """10-day daily-returns Sharpe for momentum quality factor."""
+    """10-day daily-returns Sharpe for momentum quality factor.
+    Uses only pre-signal data: returns from cl[-12] through cl[-2], excluding
+    the signal-day close (cl[-1]) which is not known at 9:30-9:45 AM signal
+    formation time.
+    """
     if len(cl) < 12:
         return 0.0
-    rets = [cl[i] / cl[i - 1] - 1 for i in range(-10, 0)]
+    # range(-11, -1) → indices -11..-2; cl[i-1] bottoms at cl[-12]
+    # → excludes signal-day close cl[-1] entirely
+    rets = [cl[i] / cl[i - 1] - 1 for i in range(-11, -1)]
     mu, sd = np.mean(rets), np.std(rets, ddof=1)
     return float(mu / sd) if sd > 1e-9 else 0.0
 
@@ -609,10 +615,20 @@ def run_day(bt_date: date, next_date, all_hist: dict, iwm_c: pd.Series,
             full_universe.append({"ticker": c["ticker"], "next_ret": nr,
                                   "bt_date": bt_str, "week": ""})
 
+    # All quant-scored candidates (STRONG + WATCH + SKIP) with next_ret.
+    # Stored separately so print_report can re-rank the FULL pool under
+    # different weight schemes — not just re-rank the already-STRONG subset.
+    qt_scored_all = [
+        {**r, "next_ret": nret(r["ticker"], r["cl"][-1]), "bt_date": bt_str}
+        for r in qt_scored
+        if nret(r["ticker"], r["cl"][-1]) is not None
+    ]
+
     return (
         [t for t in v2_strong if t["next_ret"] is not None],
         [t for t in qt_strong  if t["next_ret"] is not None],
         full_universe,
+        qt_scored_all,
     )
 
 
@@ -653,16 +669,19 @@ def print_report(stored: dict):
     sep = "  " + "─" * 90
     print(hdr); print(sub); print(sep)
 
-    tot_v, tot_q, tot_c, tot_full = [], [], [], []
+    tot_v, tot_q, tot_c, tot_full, tot_q_all = [], [], [], [], []
     for lbl in WEEK_LABELS:
         if lbl not in stored:
             continue
         entry = stored[lbl]
         v2t, qtt = entry[0], entry[1]
-        full_u   = entry[2] if len(entry) == 3 else []
+        full_u   = entry[2] if len(entry) >= 3 else []
+        # 4th element: full scored pool (STRONG+WATCH+SKIP) for unbiased weight comparison
+        qt_all_u = entry[3] if len(entry) >= 4 else []
         qt_set   = {(t["ticker"], t.get("bt_date","")) for t in qtt}
         combined = [t for t in v2t if (t["ticker"], t.get("bt_date","")) in qt_set]
         tot_v.extend(v2t); tot_q.extend(qtt); tot_c.extend(combined); tot_full.extend(full_u)
+        tot_q_all.extend(qt_all_u)
         vs = stats(v2t); qs = stats(qtt); cs = stats(combined)
         print(f"  {lbl:<12} │ {vs['n']:>3} {vs['wr']:>4.0f}% ${vs['pl']:>+7.0f} "
               f"{vs['ret']:>+5.1f}% │ "
@@ -840,8 +859,12 @@ def print_report(stored: dict):
     EQ_WEIGHTS  = {"gap": 0.20, "mom": 0.20, "qual": 0.20, "ft": 0.20, "sq": 0.20}
     MOM_WEIGHTS = {"gap": 0.20, "mom": 0.30, "qual": 0.20, "ft": 0.15, "sq": 0.15}
 
-    eq_strong  = [t for t in _reweight(tot_q, EQ_WEIGHTS)  if t["grade_rw"] == "STRONG"]
-    mom_strong = [t for t in _reweight(tot_q, MOM_WEIGHTS) if t["grade_rw"] == "STRONG"]
+    # Use the full scored pool (STRONG+WATCH+SKIP) so both schemes rank from the
+    # same universe and can promote different candidates to STRONG independently.
+    # Fallback to tot_q (STRONG-only) when the full pool wasn't stored (old pickles).
+    _weight_pool = tot_q_all if tot_q_all else tot_q
+    eq_strong  = [t for t in _reweight(_weight_pool, EQ_WEIGHTS)  if t["grade_rw"] == "STRONG"]
+    mom_strong = [t for t in _reweight(_weight_pool, MOM_WEIGHTS) if t["grade_rw"] == "STRONG"]
     es = stats(eq_strong);  ms = stats(mom_strong)
 
     print(f"""
@@ -877,14 +900,17 @@ def run_backtest():
     for bt_date, next_date, week_lbl in TRADING_DAYS:
         if week_lbl in weeks_done:
             continue
-        v2s, qts, full = run_day(bt_date, next_date, all_hist, iwm_c, fi_cache)
+        v2s, qts, full, qt_all = run_day(bt_date, next_date, all_hist, iwm_c, fi_cache)
         # Tag each universe entry with its week label for mover reporting
         for u in full:
             u["week"] = week_lbl
         if week_lbl not in stored:
-            stored[week_lbl] = ([], [], [])
-        old_v2, old_qt, old_full = stored[week_lbl] if len(stored[week_lbl]) == 3 else (*stored[week_lbl], [])
-        stored[week_lbl] = (old_v2 + v2s, old_qt + qts, old_full + full)
+            stored[week_lbl] = ([], [], [], [])
+        tup = stored[week_lbl]
+        # Backward-compat: old pickles are 3-tuples; pad to 4
+        old_v2, old_qt, old_full = tup[0], tup[1], tup[2]
+        old_qt_all = tup[3] if len(tup) >= 4 else []
+        stored[week_lbl] = (old_v2 + v2s, old_qt + qts, old_full + full, old_qt_all + qt_all)
         pickle.dump(stored, open(RESULTS_PATH, "wb"))
 
     print_report(stored)
