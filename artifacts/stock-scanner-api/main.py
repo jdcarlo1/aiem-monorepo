@@ -31128,7 +31128,7 @@ def aiem_paper_portfolio():
 @app.route("/stock-api/aiem-paper-portfolio/force-execute", methods=["POST"])
 def aiem_paper_force_execute():
     """Admin: force today's pick-and-execute cycle immediately (for testing)."""
-    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     import datetime as _fe_dt, threading as _ape_thr
@@ -31145,7 +31145,7 @@ def aiem_paper_force_execute():
 @app.route("/stock-api/aiem-paper-portfolio/force-mtm", methods=["POST"])
 def aiem_paper_force_mtm():
     """Admin: force mark-to-market immediately."""
-    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     import threading as _mtm_thr
@@ -37237,7 +37237,7 @@ def admin_run_aiem_grader():
 @app.route("/stock-api/admin/test-emails", methods=["POST"])
 def admin_test_emails():
     """Admin: fire all six daily emails right now using today's cached/DB data."""
-    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     import threading as _thr
@@ -37293,7 +37293,7 @@ def admin_run_eod_scan():
     instead of the full 6,610-name leaderboard - useful when Yahoo is throttling
     and you only need a targeted set of liquid names scanned quickly.
     """
-    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     import threading as _thr
@@ -37572,7 +37572,7 @@ def admin_owner_catchup():
     automatically on any request via the before_request hook). Sends any of today's
     owner emails that were due but haven't gone out yet, deduped via owner_email_log.
     Returns what was sent/claimed."""
-    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     return jsonify(_owner_run_due_emails())
@@ -37584,7 +37584,7 @@ def admin_news_catchup():
     automatically on any request via the before_request hook). Runs a fresh news
     scan now; run_news_catalyst_scan's per-ticker log dedupes so only NEW catalysts
     are emailed. Returns the scan status."""
-    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     return jsonify(_news_run_due_scan())
@@ -39843,7 +39843,7 @@ def behavioral_matches_endpoint():
 @app.route("/stock-api/admin/grade-short-calls", methods=["POST"])
 def admin_grade_short_calls():
     """Admin: manually trigger short-call outcome grading (backfill ungraded picks)."""
-    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     import threading as _thr_gsc
@@ -39867,7 +39867,7 @@ def admin_backfill_pick_scores():
     Returns a JSON summary with counts of rows updated per column.
     Run in background so the HTTP response returns immediately.
     """
-    _tok = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+    _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     import threading as _thr_bps
