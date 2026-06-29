@@ -45246,32 +45246,30 @@ _di_thr.Thread(target=_run_deferred_inits, daemon=True, name="startup-db-init").
 def download_source():
     import zipfile, io, os
     buf = io.BytesIO()
-    base = os.path.dirname(os.path.abspath(__file__))
-    skip_dirs = {"node_modules", "__pycache__", ".vite", "dist", ".git"}
+    workspace = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    targets = [
+        (os.path.join(workspace, "stock-scanner-api"), "stock-scanner-api"),
+        (os.path.join(workspace, "stock-scanner"),     "stock-scanner"),
+    ]
+    skip_dirs = {"node_modules", "__pycache__", ".vite", "dist", ".git", ".local"}
     skip_ext  = {".pyc", ".pyo"}
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, dirs, files in os.walk(base):
-            dirs[:] = [d for d in dirs if d not in skip_dirs]
-            for fname in files:
-                if any(fname.endswith(e) for e in skip_ext):
-                    continue
-                fp = os.path.join(root, fname)
-                arcname = "stock-scanner-api/" + os.path.relpath(fp, base)
-                zf.write(fp, arcname)
-        fe_base = os.path.join(base, "..", "stock-scanner", "src")
-        fe_base = os.path.normpath(fe_base)
-        if os.path.isdir(fe_base):
-            for root, dirs, files in os.walk(fe_base):
+        for base_dir, arc_prefix in targets:
+            if not os.path.isdir(base_dir):
+                continue
+            for root, dirs, files in os.walk(base_dir):
                 dirs[:] = [d for d in dirs if d not in skip_dirs]
                 for fname in files:
+                    if any(fname.endswith(e) for e in skip_ext):
+                        continue
                     fp = os.path.join(root, fname)
-                    arcname = "stock-scanner-frontend/" + os.path.relpath(fp, fe_base)
+                    arcname = arc_prefix + "/" + os.path.relpath(fp, base_dir)
                     zf.write(fp, arcname)
     buf.seek(0)
     from flask import send_file
     return send_file(buf, mimetype="application/zip",
                      as_attachment=True,
-                     download_name="stockscanner-source.zip")
+                     download_name="stockscanner-full.zip")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
