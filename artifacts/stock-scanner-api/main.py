@@ -1590,7 +1590,11 @@ def check_job_health(max_staleness_hours: dict) -> dict:
     try:
         _ensure_job_heartbeat_table()
         import psycopg2 as _pg_hc
-        with _pg_hc.connect(os.environ["DATABASE_URL"], connect_timeout=5) as conn, conn.cursor() as cur:
+        with _pg_hc.connect(
+            os.environ["DATABASE_URL"],
+            connect_timeout=5,
+            options="-c statement_timeout=5000",
+        ) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT job_name, last_success, consecutive_failures, last_error,
                        last_attempt
