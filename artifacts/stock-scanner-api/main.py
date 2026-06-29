@@ -45241,5 +45241,37 @@ def _run_deferred_inits():
 import threading as _di_thr
 _di_thr.Thread(target=_run_deferred_inits, daemon=True, name="startup-db-init").start()
 
+
+@app.route("/stock-api/download-source", methods=["GET"])
+def download_source():
+    import zipfile, io, os
+    buf = io.BytesIO()
+    base = os.path.dirname(os.path.abspath(__file__))
+    skip_dirs = {"node_modules", "__pycache__", ".vite", "dist", ".git"}
+    skip_ext  = {".pyc", ".pyo"}
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for fname in files:
+                if any(fname.endswith(e) for e in skip_ext):
+                    continue
+                fp = os.path.join(root, fname)
+                arcname = "stock-scanner-api/" + os.path.relpath(fp, base)
+                zf.write(fp, arcname)
+        fe_base = os.path.join(base, "..", "stock-scanner", "src")
+        fe_base = os.path.normpath(fe_base)
+        if os.path.isdir(fe_base):
+            for root, dirs, files in os.walk(fe_base):
+                dirs[:] = [d for d in dirs if d not in skip_dirs]
+                for fname in files:
+                    fp = os.path.join(root, fname)
+                    arcname = "stock-scanner-frontend/" + os.path.relpath(fp, fe_base)
+                    zf.write(fp, arcname)
+    buf.seek(0)
+    from flask import send_file
+    return send_file(buf, mimetype="application/zip",
+                     as_attachment=True,
+                     download_name="stockscanner-source.zip")
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
