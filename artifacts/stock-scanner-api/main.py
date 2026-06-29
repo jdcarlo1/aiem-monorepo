@@ -45813,21 +45813,21 @@ def aiem_verify(job_id):
             expected = _aiem_sign(job_id, ts, answer, openai_id or "")
             verified = _vh.compare_digest(expected, stored_sig)
 
-            # ── 5. Audit log — write every successful verification permanently ──
-            if verified:
-                try:
-                    _cu.execute(
-                        """
-                        INSERT INTO aiem_verification_log
-                            (job_id, unix_timestamp, openai_response_id, client_ip)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT DO NOTHING
-                        """,
-                        (job_id, ts, openai_id or None, _client_ip or None),
-                    )
-                    _c.commit()
-                except Exception:
-                    pass  # audit log failure must never block a valid response
+            # ── 5. Audit log — write EVERY verification attempt (pass + fail) ──
+            try:
+                _cu.execute(
+                    """
+                    INSERT INTO aiem_verification_log
+                        (job_id, unix_timestamp, openai_response_id,
+                         client_ip, verified, failure_reason)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (job_id, ts, openai_id or None, _client_ip or None,
+                     verified, None if verified else "HMAC mismatch"),
+                )
+                _c.commit()
+            except Exception:
+                pass  # audit log failure must never block the response
 
             return jsonify({
                 "verified":          verified,
