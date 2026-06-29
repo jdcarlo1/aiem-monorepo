@@ -45813,6 +45813,22 @@ def aiem_verify(job_id):
             expected = _aiem_sign(job_id, ts, answer, openai_id or "")
             verified = _vh.compare_digest(expected, stored_sig)
 
+            # ── 5. Audit log — write every successful verification permanently ──
+            if verified:
+                try:
+                    _cu.execute(
+                        """
+                        INSERT INTO aiem_verification_log
+                            (job_id, unix_timestamp, openai_response_id, client_ip)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT DO NOTHING
+                        """,
+                        (job_id, ts, openai_id or None, _client_ip or None),
+                    )
+                    _c.commit()
+                except Exception:
+                    pass  # audit log failure must never block a valid response
+
             return jsonify({
                 "verified":          verified,
                 "job_id":            job_id,
