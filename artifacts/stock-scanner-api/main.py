@@ -10835,7 +10835,11 @@ class _PoolConn:
 
 try:
     import psycopg2.pool as _pg_pool_mod
-    _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(minconn=2, maxconn=25, dsn=_DB_URL)
+    _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(
+        minconn=2, maxconn=25, dsn=_DB_URL,
+        keepalives=1, keepalives_idle=10,
+        keepalives_interval=5, keepalives_count=3,
+    )
     def _pg_pooled_connect(*_a, **_kw):
         _kw.pop("connect_timeout", None)
         for _attempt in range(2):

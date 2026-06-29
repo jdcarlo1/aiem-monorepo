@@ -12302,11 +12302,26 @@ function QuantAgentTab() {
     try {
       const body: Record<string, string> = { question: q || "Analyze this chart/screenshot." };
       if (capturedImage) body.image_data_url = capturedImage;
-      const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const _submitCtrl = new AbortController();
+      const _submitTimeout = setTimeout(() => _submitCtrl.abort(), 20000);
+      let res: Response;
+      try {
+        res = await fetch(`${API_BASE_QA}stock-api/aiem/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: _submitCtrl.signal,
+        });
+      } catch (fetchErr) {
+        clearTimeout(_submitTimeout);
+        if ((fetchErr as Error).name === "AbortError") {
+          setActiveJob({ job_id: "", question: q, status: "error", error: "Server took too long to respond — it may be busy. Please try again in a moment." });
+        } else {
+          setActiveJob({ job_id: "", question: q, status: "error", error: "Failed to start session — check your connection." });
+        }
+        return;
+      }
+      clearTimeout(_submitTimeout);
       if (res.status === 429) {
         const data = await res.json();
         setActiveJob({ job_id: "", question: q, status: "error", error: data.error || "A session is already running — please wait for it to finish." });
