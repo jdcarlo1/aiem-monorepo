@@ -4294,6 +4294,31 @@ try:
                         print(f"[startup_catchup] microcap done - {len(hits)} signals saved")
                     except Exception as _e_mc:
                         print(f"[startup_catchup] microcap error: {_e_mc}")
+
+            # ── AIEM Paper Trading catch-up ──────────────────────────────────
+            # If the server restarted mid-morning and missed the 9:35 AM run,
+            # fire it now as long as it's still a market-hours weekday.
+            if _dow < 5 and 9 <= _hour_et < 16:
+                _need_paper = True
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_pt, _c_pt.cursor() as _cur_pt:
+                        _cur_pt.execute(
+                            "SELECT 1 FROM aiem_paper_trades "
+                            "WHERE DATE(entry_time AT TIME ZONE 'America/New_York') = %s LIMIT 1",
+                            (_today_et,)
+                        )
+                        if _cur_pt.fetchone():
+                            _need_paper = False
+                except Exception:
+                    pass
+                if _need_paper:
+                    print(f"[startup_catchup] no paper trades for {_today_et} — running catch-up pick session")
+                    _time_su.sleep(20)   # let other catch-ups settle first
+                    try:
+                        _aiem_paper_execute_today()
+                        print(f"[startup_catchup] paper trading catch-up complete")
+                    except Exception as _e_pt:
+                        print(f"[startup_catchup] paper trading catch-up error: {_e_pt}")
         except Exception as _e_su:
             print(f"[startup_catchup] error: {_e_su}")
 
