@@ -112,10 +112,56 @@ def _init_pool():
                     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            # ── Watch-criteria feedback loop (added 2026-06-30) ──────────────
+            # Concrete, threshold-level criteria extracted from today's missed
+            # runners (RSI extreme, volume buildup, EOD range position, 5-day
+            # grind streak, premarket gap+volume) that tomorrow's premarket
+            # scan / missed-morning-check actually re-screen the live universe
+            # for. This is what turns "lesson learned" into AIEM actually
+            # going to look for the same pattern again, instead of just
+            # journaling it.
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_watch_criteria (
+                    id               BIGSERIAL    PRIMARY KEY,
+                    discovered_date  DATE         NOT NULL,
+                    expires_at       DATE         NOT NULL,
+                    origin_ticker    TEXT         NOT NULL,
+                    origin_bucket    TEXT,
+                    origin_move_pct  NUMERIC,
+                    reason_cat       TEXT         NOT NULL,
+                    metric_name      TEXT         NOT NULL,
+                    operator         TEXT         NOT NULL,
+                    threshold_value  NUMERIC      NOT NULL,
+                    observed_value   NUMERIC,
+                    lookback_days    INT          DEFAULT 1,
+                    source_text      TEXT,
+                    validation_n         INT,
+                    validation_win_rate  NUMERIC,
+                    validation_avg_next_day NUMERIC,
+                    active           BOOLEAN      NOT NULL DEFAULT TRUE,
+                    created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+                )
+            """)
+            _cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_awc_active_expiry
+                ON aiem_watch_criteria (active, expires_at)
+            """)
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_watch_alerts (
+                    id           BIGSERIAL   PRIMARY KEY,
+                    criteria_id  BIGINT      NOT NULL REFERENCES aiem_watch_criteria(id),
+                    ticker       TEXT        NOT NULL,
+                    alert_date   DATE        NOT NULL,
+                    job_name     TEXT,
+                    observed_value NUMERIC,
+                    sent_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (criteria_id, ticker, alert_date)
+                )
+            """)
             _c.commit()
             _cur.close()
             _AIEM_POOL.putconn(_c)
-            log.info("job_log + aiem_ticker_reference_cache tables ready")
+            log.info("job_log + aiem_ticker_reference_cache + aiem_watch_criteria/alerts tables ready")
         except Exception as _jl_e:
             log.warning(f"job_log table init: {_jl_e}")
 
