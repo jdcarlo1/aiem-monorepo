@@ -6135,6 +6135,16 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
         subject = f"🔥 Smart Money Pressure: {len(signals)} signal(s) /10 · {date_str}"
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[smart_money_email] sent={ok} → {len(signals)} signals ({n_ext} EXTREME / {n_high} HIGH)")
+        if ok and signals:
+            try:
+                _tg_lines = [f"🔥 Smart Money ({len(signals)} signals · {n_ext} EXTREME / {n_high} HIGH):"]
+                for _sig in signals[:6]:
+                    _pts = float(_sig.get("total_pts", 0) or 0)
+                    _lbl = "EXTREME" if _pts >= 8 else "HIGH"
+                    _tg_lines.append(f"  {_sig.get('ticker','')}  {_pts:.1f}/10 {_lbl}")
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
 
         try:
             _send_ntfy(
@@ -6239,6 +6249,16 @@ def _smp_send_morning_bucket(signals: list, label: str, accent: str, date_str: s
     subject = f"🌅 Morning Ideas - {label}: {len(signals)} scored · {date_str}"
     ok = send_email_raw(_OWNER_EMAIL, subject, html)
     print(f"[smp_morning] {label}: sent={ok} ({len(signals)} ideas - {n_ext} EXTREME / {n_high} HIGH / {n_mod} MODERATE)")
+    if ok and signals:
+        try:
+            _tg_lines = [f"🌅 {label} Ideas ({len(signals)} · {n_ext} EXTREME / {n_high} HIGH):"]
+            for _s in signals[:5]:
+                _pts = float(_s.get("total_pts", 0) or 0)
+                _lbl = "EXTREME" if _pts >= 8 else "HIGH" if _pts >= 6 else "MOD"
+                _tg_lines.append(f"  {_s.get('ticker','')}  {_pts:.1f}/10 {_lbl}")
+            _tg_send("\n".join(_tg_lines))
+        except Exception:
+            pass
     return bool(ok)
 
 
@@ -6464,6 +6484,11 @@ def _build_market_brief_html() -> tuple:
     </div>"""
 
     subject = f"📊 Premarket Brief · {now_et.strftime('%a %b %d')}"
+    try:
+        _tg_brief = f"📊 Premarket Brief · {date_str}\n" + "\n".join(f"• {b}" for b in bottom_bits[:6])
+        _tg_send(_tg_brief)
+    except Exception:
+        pass
     return subject, html
 
 
@@ -7346,6 +7371,17 @@ def _send_nano_watch_email():
         </div>"""
         ok = send_email_raw(_OWNER_EMAIL, f"🌅 Nano Quant Watchlist · {len(rows)} names · {date_str}", html)
         print(f"[nano_watch] sent={ok} → {len(rows)} candidates")
+        if ok and rows:
+            try:
+                _tg_lines = [f"🌅 Nano Watchlist · {date_str} ({len(rows)} names):"]
+                for _r in rows[:6]:
+                    _rm = _r[12] if isinstance(_r[12], dict) else (json.loads(_r[12]) if _r[12] else {})
+                    _qz = float(_rm.get("quant_composite_z", 0)) if _rm else 0
+                    _gr = str(_rm.get("quant_grade", "")) if _rm else ""
+                    _tg_lines.append(f"  #{_r[1]} {_r[0]}  ${float(_r[3] or 0):.2f}  z={_qz:+.2f} {_gr}")
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
         try:
             top = rows[0]
             _top_meta = top[12] if isinstance(top[12], dict) else (json.loads(top[12]) if top[12] else {})
@@ -7543,6 +7579,18 @@ def _send_nano_buy_email():
         </div>"""
         ok = send_email_raw(_OWNER_EMAIL, f"🧮 {len(buys)} Nano Quant buys · {date_str}", html)
         print(f"[nano_buy] sent={ok} → {len(buys)} quant STRONG buys")
+        if ok and buys:
+            try:
+                _tg_lines = [f"🚀 Nano BUY · {date_str} ({len(buys)} picks):"]
+                for _b in buys:
+                    _entry = float(_b.get("price") or 0)
+                    _stop  = _entry * (1 - _NANO_STOP_PCT)
+                    _tg_lines.append(
+                        f"  {_b['ticker']}  entry ${_entry:.2f}  stop ${_stop:.2f}  z={float(_b.get('quant_z',0)):+.2f}"
+                    )
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
         try:
             names = ", ".join(b["ticker"] for b in buys[:6])
             _send_ntfy(f"{len(buys)} Nano Quant buys",
@@ -8535,6 +8583,17 @@ def _send_sc_watch_email():
         </div>"""
         ok = send_email_raw(_OWNER_EMAIL, f"📊 Small-Cap Watchlist: {len(rows)} to watch · {date_str}", html)
         print(f"[sc_watch] sent={ok} → {len(rows)} candidates")
+        if ok and rows:
+            try:
+                _tg_lines = [f"📊 SC Watchlist · {date_str} ({len(rows)} names):"]
+                for _r in rows[:6]:
+                    _tk = _r[0]; _rk = _r[1]; _pr = float(_r[3] or 0)
+                    _ds = "⚡DOUBLE " if _r[13] else ""
+                    _op = "📈calls " if (_r[10] and float(_r[10]) > 0) else ""
+                    _tg_lines.append(f"  #{_rk} {_tk}  ${_pr:.2f}  {_ds}{_op}conv {_r[2]}")
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
         try:
             top = rows[0]
             _send_ntfy(f"Small-cap watchlist: {len(rows)} names",
@@ -8796,6 +8855,19 @@ def _send_sc_buy_email():
         </div>"""
         ok = send_email_raw(_OWNER_EMAIL, f"✅ {len(buys)} confirmed small-cap buys · {date_str}", html)
         print(f"[sc_buy] sent={ok} → {len(buys)} buys / {len(cands)} watched")
+        if ok and buys:
+            try:
+                _tg_lines = [f"✅ SC BUY · {date_str} ({len(buys)} confirmed):"]
+                for _b in buys:
+                    _entry = float(_b.get("price") or 0)
+                    _stop  = _entry * (1 - _SC_STOP_PCT)
+                    _vd    = "⚡" if _b.get("double_signal") else ""
+                    _tg_lines.append(
+                        f"  {_vd}{_b['ticker']}  entry ${_entry:.2f}  stop ${_stop:.2f}  blend {float(_b.get('blended',0)):.0f}"
+                    )
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
         try:
             names = ", ".join(b["ticker"] for b in buys[:6])
             _send_ntfy(f"{len(buys)} confirmed small-cap buys",
@@ -9797,6 +9869,20 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
         print(f"[microcap_calls_email] sent to {sent}/{len(subs)} - {len(top5)} picks")
+        if sent > 0 and top5:
+            try:
+                _tg_lines = [f"🎯 Micro/Small Calls ({len(top5)} picks · {date_str}):"]
+                for _h in top5:
+                    _pr = int(_h.get("prem", 0) or 0)
+                    _ps = f"${_pr/1e6:.1f}M" if _pr >= 1_000_000 else f"${_pr/1e3:.0f}K"
+                    _ot = float(_h.get("otm_pct", 0) or 0)
+                    _tg_lines.append(
+                        f"  {_h.get('ticker','')}  ${float(_h.get('strike',0)):.0f}c"
+                        f"  {str(_h.get('expiry',''))[:7]}  {float(_h.get('vol_oi',0)):.0f}×  {_ps}"
+                    )
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
     except Exception as _e:
         import traceback
         print(f"[microcap_calls_email] error: {_e}\n{traceback.format_exc()}")
@@ -9978,6 +10064,19 @@ def _send_high_conviction_email(owner_only: bool = False) -> None:
             if send_email_raw(sub["email"], subject, html):
                 sent += 1
         print(f"[hc_calls_email] sent to {sent}/{len(subs)} - {len(top5)} signals")
+        if sent > 0 and top5:
+            try:
+                _tg_lines = [f"🔥 High Conviction Calls ({len(top5)} picks · {date_str}):"]
+                for _s in top5:
+                    _conv = _s.get("conviction", "")
+                    _icon = "🔥" if _conv == "EXTREME" else "⚡" if _conv == "HIGH" else "✅"
+                    _tg_lines.append(
+                        f"  {_icon} {_s.get('ticker','')}  score {float(_s.get('score',0)):.1f}"
+                        f"  {_s.get('num_strikes',1)}× sweeps  ${float(_s.get('total_prem_m',0)):.1f}M  {_s.get('urgency','')}"
+                    )
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
         top_ticker = top5[0]["ticker"] if top5 else "-"
         _send_ntfy(
             f"🔥 High Conviction Calls: Top 5 · {date_str}",
@@ -44923,6 +45022,14 @@ def _send_polygon_rvol_email() -> None:
         _subj = f"🔥 Full Market RVOL - {_n} movers ({_scan_date}) · Polygon"
         _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
         print(f"[polygon_rvol] email sent={_ok} → {_n} movers for {_scan_date}")
+        if _ok and _mv:
+            try:
+                _tg_lines = [f"🔥 RVOL Scan · {_scan_date} ({_n} movers):"]
+                for _mi in _mv[:8]:
+                    _tg_lines.append(f"  {_mi['ticker']}  +{_mi['gap_pct']:.1f}%  {_mi['rvol']:.0f}x vol  ${_mi['price']:.2f}")
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
     except Exception as _e5:
         print(f"[polygon_rvol] email error: {_e5}\n{traceback.format_exc()}")
 
@@ -45548,6 +45655,17 @@ def _send_accum_leaders_email() -> None:
         _subj = f"📈 {_n_conf} SWEEP-CONFIRMED + {len(watch_list)} Watch · Accum Leaders {_today}"
         _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
         print(f"[accum_leaders] email sent={_ok} → {_n_conf} confirmed + {len(watch_list)} watch")
+        if _ok and results:
+            try:
+                _tg_lines = [f"📈 Accum Leaders · {_today} ({_n_conf} sweep-confirmed + {len(watch_list)} watch):"]
+                for _r in confirmed[:5]:
+                    _tg_lines.append(f"  ⚡ {_r['ticker']}  ${_r['price']:.2f}  score {_r['score']:.0f}  {_r['high_cs_days']}/{_r['days_seen']}d")
+                if not confirmed:
+                    for _r in watch_list[:4]:
+                        _tg_lines.append(f"  👁 {_r['ticker']}  ${_r['price']:.2f}  score {_r['score']:.0f}")
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
     except Exception as _e:
         print(f"[accum_leaders] email error: {_e}")
 
