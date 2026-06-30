@@ -1,0 +1,181 @@
+#!/bin/bash
+# verify_all_modules.sh
+# SAVE THIS FILE. Run AFTER 10:00 AM ET on a weekday — gives the
+# scanners several real cycles to fire. Paste the FULL raw output
+# back, unedited.
+#
+# ============================================================
+# CONFIG — CONFIRM/EDIT THESE BEFORE TRUSTING RESULTS
+# ============================================================
+# The signal_name values below are my best guess based on your
+# 9-layer system (OI Build, Gamma, Charm, Squeeze Fuel, Dark Pool,
+# Float OD, Sweep, Sector Heat, Layer 9 quant engine). Have the
+# agent confirm the ACTUAL signal_name strings in agent_decisions
+# before relying on this — if it can't produce them accurately
+# from the schema, that's itself a finding.
+SIGNAL_NAMES=(
+  "oi_build_scan"
+  "gamma_pressure_scan"
+  "charm_scan"
+  "squeeze_fuel_scan"
+  "dark_pool_scan"
+  "float_od_scan"
+  "sweep_scan"
+  "sector_heat_scan"
+  "unusual_calls_scanner"
+)
+# Scanner active window — adjust if different scanners run on
+# different schedules.
+WINDOW_START="09:35"
+WINDOW_END="15:30"
+# Table that logs scheduled job runs — confirm actual table/column
+# names with the agent; this is a guess.
+JOBS_TABLE="job_run_log"
+JOBS_NAME_COL="job_name"
+JOBS_TIME_COL="run_time"
+JOBS_STATUS_COL="status"
+EXPECTED_JOB_COUNT_MIN=50   # you have 71+ jobs; flag if today's count is far below this
+
+echo "################################################################"
+echo "# FULL SYSTEM VERIFICATION — ALL MODULES"
+echo "################################################################"
+echo ""
+echo "=== ANCHOR 1: Real-time proof this is running NOW, live ==="
+echo "Shell time: $(date)"
+echo "ET time: $(TZ=America/New_York date)"
+if [ -n "$DATABASE_URL" ]; then
+  psql "$DATABASE_URL" -c "SELECT NOW() AS db_server_time;"
+fi
+echo ""
+echo "=== ANCHOR 2: Has the market actually been open today? ==="
+DOW=$(TZ=America/New_York date +%u)
+HOUR=$(TZ=America/New_York date +%H)
+echo "Day of week (1=Mon...7=Sun): $DOW, ET hour: $HOUR"
+if [ "$DOW" -ge 6 ]; then
+  echo "WARNING: weekend — not meaningful, wait for a weekday."
+elif [ "$HOUR" -lt 9 ]; then
+  echo "WARNING: before market open — wait until at least 10:00 AM ET."
+else
+  echo "Market hours context check: OK to proceed."
+fi
+echo ""
+
+if [ -z "$DATABASE_URL" ]; then
+  echo "DATABASE_URL not set — cannot run DB checks. STOP HERE, this is a real failure."
+  exit 1
+fi
+
+echo "################################################################"
+echo "# PART A — SIGNAL SCANNERS (per layer)"
+echo "################################################################"
+for SIG in "${SIGNAL_NAMES[@]}"; do
+  echo ""
+  echo "--- Module: $SIG ---"
+  psql "$DATABASE_URL" -c "
+    SELECT COUNT(*) AS count_today,
+           MIN(decision_time) AS first_today,
+           MAX(decision_time) AS last_today,
+           COUNT(DISTINCT reasoning) AS distinct_reasoning_today
+    FROM agent_decisions
+    WHERE signal_name = '$SIG'
+      AND decision_time::date = CURRENT_DATE;"
+
+  echo "Sample raw reasoning (up to 5 rows) for $SIG:"
+  psql "$DATABASE_URL" -c "
+    SELECT decision_time, ticker, reasoning
+    FROM agent_decisions
+    WHERE signal_name = '$SIG'
+      AND decision_time::date = CURRENT_DATE
+    ORDER BY decision_time DESC
+    LIMIT 5;"
+
+  echo "Out-of-window rows for $SIG (should be EMPTY if scanner only runs $WINDOW_START-$WINDOW_END ET):"
+  psql "$DATABASE_URL" -c "
+    SELECT decision_time AT TIME ZONE 'America/New_York' AS et_time
+    FROM agent_decisions
+    WHERE signal_name = '$SIG'
+      AND decision_time::date = CURRENT_DATE
+      AND (decision_time AT TIME ZONE 'America/New_York')::time
+          NOT BETWEEN '$WINDOW_START' AND '$WINDOW_END';"
+done
+
+echo ""
+echo "################################################################"
+echo "# PART B — SCHEDULED JOBS (expect 70+/day per system snapshot)"
+echo "################################################################"
+echo "NOTE: table/column names below are guesses — confirm with the"
+echo "agent against the real schema if this errors out."
+psql "$DATABASE_URL" -c "
+  SELECT $JOBS_STATUS_COL, COUNT(*) AS count_today
+  FROM $JOBS_TABLE
+  WHERE $JOBS_TIME_COL::date = CURRENT_DATE
+  GROUP BY $JOBS_STATUS_COL;" 2>&1
+
+echo ""
+echo "Distinct jobs that actually ran today (names + counts):"
+psql "$DATABASE_URL" -c "
+  SELECT $JOBS_NAME_COL, COUNT(*) AS runs_today
+  FROM $JOBS_TABLE
+  WHERE $JOBS_TIME_COL::date = CURRENT_DATE
+  GROUP BY $JOBS_NAME_COL
+  ORDER BY runs_today DESC;" 2>&1
+
+echo ""
+echo "If total distinct jobs today is well below $EXPECTED_JOB_COUNT_MIN,"
+echo "that's a real finding — push the agent for the scheduler log, not"
+echo "an explanation."
+echo ""
+
+echo "################################################################"
+echo "# PART C — AI PIPELINES (5 distinct pipelines per snapshot)"
+echo "################################################################"
+echo "Ask the agent directly, with this script's output in hand, to show:"
+echo " 1. Conversational AIEM agent — session/message count today"
+echo " 2. Autonomous research/discovery loop — last run timestamp + hypotheses tested today"
+echo " 3. XGBoost conviction model — last retrain timestamp (should be weekly, not stale)"
+echo " 4. Behavioral fingerprint matcher — matches logged today"
+echo " 5. Bull/bear specialist council — debate runs today + sample output"
+echo "These tables weren't in the original script — have the agent name"
+echo "the exact tables and paste the equivalent SELECT + raw output for"
+echo "each, the same way Part A does for scanners. Don't accept a verbal"
+echo "summary in place of raw rows."
+echo ""
+
+echo "################################################################"
+echo "# PART D — MARKET DATA INTEGRATIONS (Polygon / Tradier / Yahoo)"
+echo "################################################################"
+echo "Ask the agent to show, with raw output:"
+echo " - Any circuit breaker trips today (table/log, timestamp, which provider)"
+echo " - API error/rate-limit counts per provider today"
+echo " - Most recent successful data pull timestamp per provider"
+echo ""
+
+echo "################################################################"
+echo "# PART E — PROCESS / SCHEDULER LOGS"
+echo "################################################################"
+LOGFILE=$(ls -t /tmp/logs/*stock-scanner*stock-api*.log 2>/dev/null | head -1)
+if [ -n "$LOGFILE" ]; then
+  echo "Log file: $LOGFILE"
+  echo "Last modified: $(stat -c '%y' "$LOGFILE" 2>/dev/null || stat -f '%Sm' "$LOGFILE")"
+  echo "--- last 20 lines mentioning any module keyword ---"
+  grep -iE "gamma|charm|squeeze|dark.?pool|float.?od|sweep|sector.?heat|oi.?build|xgboost|specialist.?council|retrain" "$LOGFILE" | tail -20
+else
+  echo "No log file found matching expected pattern — confirm actual log path/naming with the agent."
+fi
+
+echo ""
+echo "################################################################"
+echo "# FINAL VERDICT CRITERIA"
+echo "################################################################"
+echo "REAL PASS requires ALL of:"
+echo " - Anchor timestamps genuinely current"
+echo " - Every scanner in Part A has count_today > 0 on a normal trading day"
+echo " - distinct_reasoning_today is close to count_today per module (not 1 repeated string)"
+echo " - Zero out-of-window rows per module"
+echo " - Job count today is consistent with 70+/day, not a fraction of it"
+echo " - Each of the 5 AI pipelines produces raw, specific evidence — not a summary"
+echo " - No unexplained circuit breaker trips or stale data-provider timestamps"
+echo ""
+echo "Any module that comes back empty, templated, or only summarized"
+echo "(not raw) is a real finding. Don't let it get explained away without"
+echo "the underlying query result or log line to back it up."
