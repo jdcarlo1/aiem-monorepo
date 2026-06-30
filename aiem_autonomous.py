@@ -1280,6 +1280,15 @@ def aiem_premarket_scan():
         for p in top_picks[:5]:
             log.info(f"  #{p['ticker']} conf={p['conf']:.1f} — {p['reasoning'][:80]}")
 
+        # ── T004: prospective miss-pattern scan ─────────────────────────────
+        # Re-screen TODAY's premarket candidate universe (the same gap/volume
+        # gated `candidates` pulled in Step 1) for any still-active watch
+        # criteria extracted from a recent EOD missed-runner review.
+        try:
+            _aiem_scan_watch_criteria(conn, cur, "premarket_scan", candidates=candidates)
+        except Exception as _wc_e:
+            log.warning(f"[watch_scan] premarket_scan hook failed: {_wc_e}")
+
     except Exception as e:
         log.error(f"premarket_scan error: {e}")
         if conn:
@@ -1637,74 +1646,101 @@ def _calc_rsi(closes: list, period: int = 14) -> float:
     return 100 - (100 / (1 + rs))
 
 
+_LOOKBACK_DAYS_MAX = 7   # user-requested: check EVERY day back to a week, not just yesterday
+
 def _aiem_predictability_check(ohlcv: list, runner: dict) -> dict:
     """
-    Could this move have been called BEFORE it happened? Looks at the bars
-    strictly before today (ohlcv excludes today's bar when sliced [:-1] by the
-    caller) for: a multi-day volume build-up (accumulation), a prior-day move
-    already underway, and an RSI(14) setup (oversold bounce / overbought
-    continuation). This is the "what was different yesterday / pre-market"
-    analysis the daily review needs — not just a same-day pattern tag.
+    Could this move have been called BEFORE it happened? Walks back DAY BY
+    DAY over the last 1-7 trading days (ohlcv excludes today's bar, sliced
+    [:-1] by the caller) and evaluates EACH day independently — its own
+    RSI(14) as of that day's close, its own volume buildup vs the 10 days
+    before IT, its own move %, and its own EOD close-range position. A
+    precursor that only showed up 4 or 5 days back (not just "yesterday")
+    must not be missed just because the most recent day looked quiet.
+    Also keeps the multi-day "slow grinder" cumulative-streak check, now
+    extended to the same 7-day window.
     """
     out = {'verdict': 'no_precursor', 'reasons': [], 'rsi': None,
-           'prior_day_move_pct': None, 'volume_buildup_x': None}
+           'prior_day_move_pct': None, 'volume_buildup_x': None,
+           'eod_range_position': None, 'daily_lookback': [], 'strongest_day': None}
     if not ohlcv or len(ohlcv) < 3:
         return out
 
-    closes = [b.get('c') or 0 for b in ohlcv if b.get('c')]
-    vols   = [b.get('v') or 0 for b in ohlcv if b.get('v')]
+    n = len(ohlcv)
+    max_back = min(_LOOKBACK_DAYS_MAX, n - 1)
 
-    rsi = _calc_rsi(closes, period=14)
-    out['rsi'] = round(rsi, 1) if rsi is not None else None
+    # days_back=1 is yesterday (closest to today's move), days_back=7 is a
+    # full week prior. Indexing is done directly against ohlcv (not a
+    # separately-filtered closes/vols list) so RSI/volume/range for a given
+    # day always line up with THAT day's actual bar.
+    for days_back in range(1, max_back + 1):
+        pos = n - days_back   # 0-indexed position of "that day" in ohlcv
+        if pos < 1:
+            continue
+        bar = ohlcv[pos]
+        day_c = bar.get('c') or 0
+        day_o, day_h, day_l = bar.get('o') or 0, bar.get('h') or 0, bar.get('l') or 0
 
-    prev_close = ohlcv[-1].get('c') or 0
-    prev2_close = ohlcv[-2].get('c') or 0
-    if prev2_close > 0:
-        prior_day_move = (prev_close - prev2_close) / prev2_close * 100
-        out['prior_day_move_pct'] = round(prior_day_move, 1)
-    else:
-        prior_day_move = 0
+        close_window = [b.get('c') or 0 for b in ohlcv[:pos + 1] if b.get('c')]
+        day_rsi = _calc_rsi(close_window, period=14) if len(close_window) >= 15 else None
 
-    prior_vol = ohlcv[-1].get('v') or 0
-    baseline_vols = vols[:-1][-10:] if len(vols) > 1 else []
-    baseline_avg  = (sum(baseline_vols) / len(baseline_vols)) if baseline_vols else 0
-    buildup_x = (prior_vol / baseline_avg) if baseline_avg > 0 else 0
-    out['volume_buildup_x'] = round(buildup_x, 1) if buildup_x else None
+        prev_close = ohlcv[pos - 1].get('c') or 0
+        day_move_pct = ((day_c - prev_close) / prev_close * 100) if prev_close > 0 else None
 
-    if buildup_x >= 2:
-        out['reasons'].append(f"volume was already {buildup_x:.1f}x normal the day before")
-    if abs(prior_day_move) >= 5:
-        out['reasons'].append(f"it moved {prior_day_move:+.1f}% the prior day too — already in motion")
-    if rsi is not None and rsi <= 30:
-        out['reasons'].append(f"RSI(14) was {rsi:.0f} — oversold, primed for a bounce")
-    elif rsi is not None and rsi >= 70:
-        out['reasons'].append(f"RSI(14) was {rsi:.0f} — already overbought, momentum continuation")
+        day_vol = bar.get('v') or 0
+        baseline_vols = [b.get('v') or 0 for b in ohlcv[max(0, pos - 10):pos]]
+        baseline_avg  = (sum(baseline_vols) / len(baseline_vols)) if baseline_vols else 0
+        day_buildup_x = (day_vol / baseline_avg) if baseline_avg > 0 else 0
 
-    # ── Yesterday's EOD behavior: did it close strong into the bell on
-    # rising volume, the classic "quietly loading up the night before"
-    # tell? Uses the daily bar we already fetched — no extra API call.
-    prior_bar = ohlcv[-1]
-    o, h, l, c = (prior_bar.get('o') or 0, prior_bar.get('h') or 0,
-                  prior_bar.get('l') or 0, prior_bar.get('c') or 0)
-    if h > l:
-        range_pos = (c - l) / (h - l)
-        out['eod_range_position'] = round(range_pos, 2)
-        if range_pos >= 0.85 and buildup_x >= 1.5:
-            out['reasons'].append(
-                f"closed yesterday in the top {round((1-range_pos)*100)}% of its daily range "
-                f"on {buildup_x:.1f}x volume — strength going into the close"
-            )
-        elif range_pos <= 0.15 and buildup_x >= 1.5 and prior_day_move < 0:
-            out['reasons'].append(
-                f"closed yesterday at the bottom of its range on {buildup_x:.1f}x volume — "
-                f"capitulation/shakeout setup"
-            )
+        day_range_pos = ((day_c - day_l) / (day_h - day_l)) if day_h > day_l else None
+
+        day_flags = []
+        if day_rsi is not None and day_rsi >= 70:
+            day_flags.append(f"RSI(14)={day_rsi:.0f} (overbought)")
+        elif day_rsi is not None and day_rsi <= 30:
+            day_flags.append(f"RSI(14)={day_rsi:.0f} (oversold)")
+        if day_buildup_x >= 2:
+            day_flags.append(f"volume {day_buildup_x:.1f}x baseline")
+        if day_move_pct is not None and abs(day_move_pct) >= 5:
+            day_flags.append(f"moved {day_move_pct:+.1f}% that day")
+        if day_range_pos is not None and day_range_pos >= 0.85 and day_buildup_x >= 1.5:
+            day_flags.append(f"closed top {round((1 - day_range_pos) * 100)}% of range on {day_buildup_x:.1f}x vol")
+        elif (day_range_pos is not None and day_range_pos <= 0.15 and day_buildup_x >= 1.5
+              and (day_move_pct or 0) < 0):
+            day_flags.append(f"closed bottom of range on {day_buildup_x:.1f}x vol (capitulation)")
+
+        day_record = {
+            'days_back': days_back,
+            'rsi': round(day_rsi, 1) if day_rsi is not None else None,
+            'volume_buildup_x': round(day_buildup_x, 1) if day_buildup_x else None,
+            'day_move_pct': round(day_move_pct, 1) if day_move_pct is not None else None,
+            'range_position': round(day_range_pos, 2) if day_range_pos is not None else None,
+            'flags': day_flags,
+        }
+        out['daily_lookback'].append(day_record)
+        if day_flags:
+            label = "yesterday" if days_back == 1 else f"{days_back} days ago"
+            out['reasons'].append(f"{label}: {'; '.join(day_flags)}")
+
+        # Keep the original "yesterday" fields populated so existing report
+        # text/branches that read them directly (discovery_text, detail
+        # blocks) keep working unchanged.
+        if days_back == 1:
+            out['rsi']                 = day_record['rsi']
+            out['prior_day_move_pct']  = day_record['day_move_pct']
+            out['volume_buildup_x']    = day_record['volume_buildup_x']
+            out['eod_range_position']  = day_record['range_position']
+
+    flagged_days = [d for d in out['daily_lookback'] if d['flags']]
+    if flagged_days:
+        out['strongest_day'] = max(flagged_days, key=lambda d: len(d['flags']))
 
     # ── "Slow grinder" multi-day climb: quietly up several days in a row
     # BEFORE the headline move, each day modest on its own (so a single-day
     # gap scan would miss it), but the cumulative climb was conspicuous.
-    # User-requested pattern — look back a few days, not just yesterday.
-    grind_days = min(5, len(closes) - 1)
+    # Window matches the same 7-day lookback used above.
+    closes = [b.get('c') or 0 for b in ohlcv if b.get('c')]
+    grind_days = min(_LOOKBACK_DAYS_MAX, len(closes) - 1)
     if grind_days >= 3:
         streak = 0
         for i in range(-1, -grind_days - 1, -1):
@@ -1746,13 +1782,13 @@ _REASON_LESSONS = {
         "the move was already visible in the premarket tape hours before the open",
         "promote this premarket volume+gap check into the live pre-9:30 scan so it fires as a real-time alert instead of only showing up in this postmortem",
     ),
-    "multi-day slow grinder (5-day lookback)": (
+    "multi-day slow grinder (7-day lookback)": (
         "it was quietly grinding higher for several days before the breakout, not a one-day surprise",
-        "add a rolling 5-day streak/cumulative-gain screen to the nightly watchlist builder so grinders get flagged before they break out, not after",
+        "add a rolling 7-day streak/cumulative-gain screen to the nightly watchlist builder so grinders get flagged before they break out, not after",
     ),
-    "strong/weak EOD close (yesterday)": (
-        "yesterday's close already sat at the extreme of its daily range on elevated volume — a 'coiled' tell",
-        "add an EOD-range-position screen to the after-close job so tonight's coiled closes carry straight into tomorrow's watchlist",
+    "strong/weak EOD close (1-7 day lookback)": (
+        "a close earlier in the last week already sat at the extreme of its daily range on elevated volume — a 'coiled' tell",
+        "add an EOD-range-position screen across the full 1-7 day lookback to the after-close job so coiled closes from any day this past week carry straight into tomorrow's watchlist",
     ),
     "behavioral fingerprint match": (
         "it matched a known historical behavioral fingerprint",
@@ -1846,6 +1882,497 @@ def _aiem_check_premarket_signal(ticker: str, prior_close: float) -> dict:
             out['reason'] = (f"premarket volume was already {int(pm_vol):,} shares with a "
                               f"{gap_pct:+.1f}% gap before the 9:30 bell — the move was visible hours early")
     return out
+
+
+_WATCH_CRITERIA_EXPIRY_TRADING_DAYS = 3   # per architect plan: criteria stay live ~3 trading days
+
+
+def _aiem_add_trading_days(d, n: int):
+    """Calendar-day walk that skips Sat/Sun (market-holiday precision isn't
+    needed for a "stay live ~3 trading days" expiry window)."""
+    cur = d
+    added = 0
+    while added < n:
+        cur = cur + timedelta(days=1)
+        if cur.weekday() < 5:
+            added += 1
+    return cur
+
+
+def _aiem_extract_watch_criteria(predictability: dict, runner: dict, premkt: dict, today) -> list:
+    """
+    Turn TODAY's miss into concrete, re-screenable (metric, operator,
+    threshold, observed_value) rows instead of just a postmortem sentence.
+    The threshold is the SAME detection bar the predictability/premarket
+    checks already use internally (so tomorrow's prospective scan is
+    re-running the identical rule), while observed_value records exactly
+    what this specific miss showed (RSI=94, vol=27x, etc.) for the report.
+    """
+    ticker, move_pct = runner['ticker'], runner['move_pct']
+    rows = []
+
+    def add(metric, operator, threshold, observed, lookback_days, source_text):
+        if observed is None:
+            return
+        rows.append({
+            'metric_name': metric, 'operator': operator, 'threshold_value': threshold,
+            'observed_value': observed, 'lookback_days': lookback_days, 'source_text': source_text,
+        })
+
+    for day in predictability.get('daily_lookback', []):
+        if not day['flags']:
+            continue
+        db = day['days_back']
+        tag = "yesterday" if db == 1 else f"{db} days before"
+        if day['rsi'] is not None and day['rsi'] >= 70:
+            add('rsi_14', '>=', 70, day['rsi'], db,
+                f"{ticker} RSI(14)={day['rsi']} {tag} its +{move_pct:.1f}% breakout")
+        elif day['rsi'] is not None and day['rsi'] <= 30:
+            add('rsi_14', '<=', 30, day['rsi'], db,
+                f"{ticker} RSI(14)={day['rsi']} {tag} its +{move_pct:.1f}% breakout")
+        if day['volume_buildup_x'] and day['volume_buildup_x'] >= 2:
+            add('volume_buildup_x', '>=', 2, day['volume_buildup_x'], db,
+                f"{ticker} volume was {day['volume_buildup_x']}x baseline {tag} its +{move_pct:.1f}% breakout")
+        if day['range_position'] is not None and day['range_position'] >= 0.85:
+            add('eod_range_position', '>=', 0.85, day['range_position'], db,
+                f"{ticker} closed in the top of its daily range {tag} its +{move_pct:.1f}% breakout")
+        elif day['range_position'] is not None and day['range_position'] <= 0.15:
+            add('eod_range_position', '<=', 0.15, day['range_position'], db,
+                f"{ticker} closed at the bottom of its range (capitulation) {tag} its +{move_pct:.1f}% breakout")
+
+    if predictability.get('grind_streak_days', 0) >= 3:
+        add('grind_streak_days', '>=', 3, predictability['grind_streak_days'], predictability['grind_streak_days'],
+            f"{ticker} was on a {predictability['grind_streak_days']}-day up-streak "
+            f"(+{predictability.get('grind_cum_pct')}% cumulative) before its +{move_pct:.1f}% breakout")
+
+    if premkt.get('flagged'):
+        add('premarket_gap_pct', '>=', _PREMARKET_GAP_PCT, abs(premkt.get('premarket_gap_pct') or 0), 0,
+            f"{ticker} premarket gap {premkt.get('premarket_gap_pct')}% on {premkt.get('premarket_volume')} shares "
+            f"the same morning as its +{move_pct:.1f}% breakout")
+
+    return rows
+
+
+def _aiem_save_watch_criteria(conn, cur, criteria_rows: list, runner: dict, bucket: str,
+                               reason_cat: str, today) -> int:
+    """INSERT the extracted criteria so tomorrow's premarket scan / missed-
+    morning-check can actually re-screen the live universe for them — this
+    is what turns "lesson learned" into a real prospective watch, not just
+    a sentence in the EOD report."""
+    if not criteria_rows:
+        return 0
+    expires_at = _aiem_add_trading_days(today, _WATCH_CRITERIA_EXPIRY_TRADING_DAYS)
+    saved = 0
+    for row in criteria_rows:
+        try:
+            cur.execute("""
+                INSERT INTO aiem_watch_criteria
+                    (discovered_date, expires_at, origin_ticker, origin_bucket, origin_move_pct,
+                     reason_cat, metric_name, operator, threshold_value, observed_value,
+                     lookback_days, source_text)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (today, expires_at, runner['ticker'], bucket, round(runner['move_pct'], 2),
+                  reason_cat, row['metric_name'], row['operator'], row['threshold_value'],
+                  row['observed_value'], row['lookback_days'], row['source_text']))
+            saved += 1
+        except Exception as e:
+            log.warning(f"[watch_criteria] insert failed for {runner['ticker']}/{row['metric_name']}: {e}")
+    if saved:
+        conn.commit()
+    return saved
+
+
+_WATCH_VALIDATION_LOOKBACK_DAYS = 180   # SQL-backed metrics
+_WATCH_VALIDATION_SAMPLE_TICKERS = 300  # Python-sampled metrics (rsi_14, grind_streak_days)
+_WATCH_VALIDATION_MIN_N = 15            # below this, the row gets labeled "experimental"
+
+
+def _aiem_validate_via_python_sample(cur, metric_name: str, operator: str, threshold_value: float) -> dict:
+    """
+    rsi_14 and grind_streak_days aren't single-row computations, so they
+    can't be expressed as a plain SQL window-function query the way
+    eod_range_position/premarket_gap_pct/volume_buildup_x can. Instead,
+    sample a bounded set of tickers (random, must have enough history),
+    walk each one's own daily closes day-by-day computing the metric AS OF
+    that day (same logic as `_aiem_predictability_check`/`_calc_rsi`), and
+    tally how often the next day's close was higher when the metric met
+    the criterion. Bounded sample + bounded lookback keeps this "lightweight"
+    (no coupling to main.py, completes in low single-digit seconds).
+    """
+    cur.execute("""
+        SELECT ticker FROM polygon_market_daily
+        WHERE scan_date >= CURRENT_DATE - INTERVAL '%s days'
+        GROUP BY ticker HAVING COUNT(*) >= 20
+        ORDER BY RANDOM() LIMIT %s
+    """ % (_WATCH_VALIDATION_LOOKBACK_DAYS, _WATCH_VALIDATION_SAMPLE_TICKERS))
+    tickers = [r[0] for r in cur.fetchall()]
+
+    n = wins = 0
+    ret_sum = 0.0
+    for t in tickers:
+        cur.execute("""
+            SELECT close_price FROM polygon_market_daily
+            WHERE ticker = %s AND scan_date >= CURRENT_DATE - INTERVAL '%s days'
+            ORDER BY scan_date
+        """ % ("%s", _WATCH_VALIDATION_LOOKBACK_DAYS), (t,))
+        closes = [float(r[0]) for r in cur.fetchall() if r[0]]
+        if len(closes) < 17:
+            continue
+        for i in range(15, len(closes) - 1):
+            if metric_name == 'rsi_14':
+                val = _calc_rsi(closes[:i + 1], period=14)
+                if val is None:
+                    continue
+            else:  # grind_streak_days
+                streak, j = 0, i
+                while j > 0 and closes[j] > closes[j - 1]:
+                    streak += 1
+                    j -= 1
+                val = streak
+            passes = (val >= threshold_value) if operator == '>=' else (val <= threshold_value)
+            if not passes or closes[i] <= 0:
+                continue
+            n += 1
+            nxt_ret = (closes[i + 1] - closes[i]) / closes[i]
+            ret_sum += nxt_ret
+            if nxt_ret > 0:
+                wins += 1
+    if n == 0:
+        return {'n': 0, 'win_rate': None, 'avg_next_day': None}
+    return {'n': n, 'win_rate': round(wins / n, 3), 'avg_next_day': round(ret_sum / n, 4)}
+
+
+def _aiem_validate_watch_criterion(conn, cur, metric_name: str, operator: str, threshold_value: float) -> dict:
+    """
+    Lightweight LOCAL backtest (no main.py coupling) against
+    `polygon_market_daily`: historically, how often did THIS exact
+    metric/operator/threshold precede a positive next-day close? Returns
+    {n, win_rate, avg_next_day}; n < _WATCH_VALIDATION_MIN_N means the
+    caller should label the criterion "experimental" rather than trusted.
+    """
+    cmp_sql = '>=' if operator == '>=' else '<='
+    try:
+        if metric_name == 'eod_range_position':
+            cur.execute(f"""
+                WITH daily AS (
+                    SELECT close_price, high_price, low_price,
+                           LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date) AS next_close
+                    FROM polygon_market_daily
+                    WHERE scan_date >= CURRENT_DATE - INTERVAL '{_WATCH_VALIDATION_LOOKBACK_DAYS} days'
+                      AND high_price > low_price AND close_price > 0
+                )
+                SELECT COUNT(*),
+                       AVG(CASE WHEN next_close > close_price THEN 1.0 ELSE 0.0 END),
+                       AVG((next_close - close_price) / close_price)
+                FROM daily
+                WHERE next_close IS NOT NULL
+                  AND ((close_price - low_price) / (high_price - low_price)) {cmp_sql} %s
+            """, (threshold_value,))
+        elif metric_name == 'premarket_gap_pct':
+            cur.execute(f"""
+                WITH daily AS (
+                    SELECT close_price, gap_pct,
+                           LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date) AS next_close
+                    FROM polygon_market_daily
+                    WHERE scan_date >= CURRENT_DATE - INTERVAL '{_WATCH_VALIDATION_LOOKBACK_DAYS} days'
+                      AND close_price > 0
+                )
+                SELECT COUNT(*),
+                       AVG(CASE WHEN next_close > close_price THEN 1.0 ELSE 0.0 END),
+                       AVG((next_close - close_price) / close_price)
+                FROM daily
+                WHERE next_close IS NOT NULL AND ABS(gap_pct) {cmp_sql} %s
+            """, (threshold_value,))
+        elif metric_name == 'volume_buildup_x':
+            cur.execute(f"""
+                WITH daily AS (
+                    SELECT close_price, volume,
+                           AVG(volume) OVER (PARTITION BY ticker ORDER BY scan_date
+                                              ROWS BETWEEN 10 PRECEDING AND 1 PRECEDING) AS baseline_vol,
+                           LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date) AS next_close
+                    FROM polygon_market_daily
+                    WHERE scan_date >= CURRENT_DATE - INTERVAL '{_WATCH_VALIDATION_LOOKBACK_DAYS} days'
+                      AND close_price > 0
+                )
+                SELECT COUNT(*),
+                       AVG(CASE WHEN next_close > close_price THEN 1.0 ELSE 0.0 END),
+                       AVG((next_close - close_price) / close_price)
+                FROM daily
+                WHERE next_close IS NOT NULL AND baseline_vol > 0
+                  AND (volume / baseline_vol) {cmp_sql} %s
+            """, (threshold_value,))
+        elif metric_name in ('rsi_14', 'grind_streak_days'):
+            return _aiem_validate_via_python_sample(cur, metric_name, operator, threshold_value)
+        else:
+            return {'n': 0, 'win_rate': None, 'avg_next_day': None}
+
+        row = cur.fetchone()
+        n = row[0] or 0
+        if n == 0:
+            return {'n': 0, 'win_rate': None, 'avg_next_day': None}
+        return {'n': n, 'win_rate': round(float(row[1]), 3) if row[1] is not None else None,
+                'avg_next_day': round(float(row[2]), 4) if row[2] is not None else None}
+    except Exception as e:
+        log.warning(f"[watch_validate] {metric_name} {operator} {threshold_value} validation failed: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return {'n': 0, 'win_rate': None, 'avg_next_day': None}
+
+
+# ─────────────────────────────────────────────────────────────
+# T004: PROSPECTIVE SCAN — turn yesterday's "lesson learned" into AIEM
+# actually re-screening TODAY's live candidate universe for the exact
+# pattern it missed, instead of only journaling it in the EOD postmortem.
+# ─────────────────────────────────────────────────────────────
+def _aiem_load_active_watch_criteria(conn, cur) -> list:
+    """Load all non-expired, active watch criteria extracted from recent
+    missed-runner reviews (up to ~3 trading days old)."""
+    today = date.today()
+    try:
+        cur.execute("""
+            SELECT id, discovered_date, expires_at, origin_ticker, origin_bucket,
+                   origin_move_pct, reason_cat, metric_name, operator, threshold_value,
+                   observed_value, validation_n, validation_win_rate, validation_avg_next_day
+            FROM aiem_watch_criteria
+            WHERE active = TRUE AND expires_at >= %s
+            ORDER BY discovered_date DESC
+        """, (today,))
+        cols = ['id', 'discovered_date', 'expires_at', 'origin_ticker', 'origin_bucket',
+                'origin_move_pct', 'reason_cat', 'metric_name', 'operator', 'threshold_value',
+                'observed_value', 'validation_n', 'validation_win_rate', 'validation_avg_next_day']
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as e:
+        log.warning(f"[watch_scan] load active criteria failed: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return []
+
+
+def _aiem_watch_scan_premarket_gap(crits: list, candidates) -> list:
+    """premarket_gap_pct criteria: cross-check against the candidate list
+    aiem_premarket_scan already pulled (gap/volume-gated) rather than
+    re-querying — that list IS today's premarket gap universe. Returns
+    [] when no candidate list is available (e.g. called from a job that
+    didn't run a premarket DB pull)."""
+    matches = []
+    if not candidates:
+        return matches
+    for crit in crits:
+        op  = crit['operator']
+        thr = float(crit['threshold_value'])
+        for c in candidates:
+            gap = c.get('gap_pct')
+            if gap is None:
+                continue
+            val = abs(float(gap))
+            passes = (val >= thr) if op == '>=' else (val <= thr)
+            if passes:
+                matches.append((crit, c['ticker'], round(val, 4)))
+    return matches
+
+
+def _aiem_watch_scan_sql_metric(cur, crits: list, metric_name: str, latest_date) -> list:
+    """eod_range_position / volume_buildup_x: ONE broad SQL pass over the
+    full polygon_market_daily universe for the latest trading day,
+    deliberately NOT gated by MIN_GAP_PCT (a grind-streak or volume-buildup
+    setup often has little or no gap). Price-banded to the system's
+    tradable range so results stay relevant to the live candidate universe."""
+    computed = []
+    if metric_name == 'eod_range_position':
+        cur.execute("""
+            SELECT ticker, close_price, high_price, low_price
+            FROM polygon_market_daily
+            WHERE scan_date = %s AND close_price BETWEEN %s AND %s
+              AND high_price > low_price
+        """, (latest_date, MIN_PRICE, MAX_PRICE))
+        for ticker, close, high, low in cur.fetchall():
+            if not (close and high and low) or high <= low:
+                continue
+            computed.append((ticker, (float(close) - float(low)) / (float(high) - float(low))))
+    elif metric_name == 'volume_buildup_x':
+        cur.execute("""
+            WITH daily AS (
+                SELECT ticker, scan_date, volume,
+                       AVG(volume) OVER (PARTITION BY ticker ORDER BY scan_date
+                                          ROWS BETWEEN 10 PRECEDING AND 1 PRECEDING) AS baseline_vol
+                FROM polygon_market_daily
+                WHERE scan_date >= %s - INTERVAL '20 days'
+                  AND close_price BETWEEN %s AND %s
+            )
+            SELECT ticker, volume, baseline_vol FROM daily
+            WHERE scan_date = %s AND baseline_vol > 0
+        """, (latest_date, MIN_PRICE, MAX_PRICE, latest_date))
+        for ticker, volume, baseline_vol in cur.fetchall():
+            if not baseline_vol or volume is None:
+                continue
+            computed.append((ticker, float(volume) / float(baseline_vol)))
+
+    matches = []
+    for crit in crits:
+        op  = crit['operator']
+        thr = float(crit['threshold_value'])
+        for ticker, val in computed:
+            passes = (val >= thr) if op == '>=' else (val <= thr)
+            if passes:
+                matches.append((crit, ticker, round(val, 4)))
+    return matches
+
+
+def _aiem_watch_scan_python_metric(cur, crits: list, metric_name: str, latest_date) -> list:
+    """rsi_14 / grind_streak_days: these need a per-ticker walk over recent
+    closes (same logic as _aiem_predictability_check / _calc_rsi), not a
+    single SQL aggregate. Bounded to the top-600-by-volume tickers in the
+    tradable price band on the latest day to keep this lightweight."""
+    cur.execute("""
+        SELECT ticker FROM polygon_market_daily
+        WHERE scan_date = %s AND close_price BETWEEN %s AND %s
+        ORDER BY volume DESC NULLS LAST LIMIT 600
+    """, (latest_date, MIN_PRICE, MAX_PRICE))
+    tickers = [r[0] for r in cur.fetchall()]
+
+    computed = []
+    for t in tickers:
+        cur.execute("""
+            SELECT close_price FROM polygon_market_daily
+            WHERE ticker = %s AND scan_date <= %s
+            ORDER BY scan_date DESC LIMIT 20
+        """, (t, latest_date))
+        closes = [float(r[0]) for r in cur.fetchall() if r[0]][::-1]
+        if len(closes) < 15:
+            continue
+        if metric_name == 'rsi_14':
+            val = _calc_rsi(closes, period=14)
+            if val is None:
+                continue
+        else:  # grind_streak_days
+            streak, j = 0, len(closes) - 1
+            while j > 0 and closes[j] > closes[j - 1]:
+                streak += 1
+                j -= 1
+            val = streak
+        computed.append((t, val))
+
+    matches = []
+    for crit in crits:
+        op  = crit['operator']
+        thr = float(crit['threshold_value'])
+        for ticker, val in computed:
+            passes = (val >= thr) if op == '>=' else (val <= thr)
+            if passes:
+                matches.append((crit, ticker, val))
+    return matches
+
+
+def _aiem_send_watch_alert_telegram(new_alerts: list, job_name: str):
+    """One combined Telegram message per scan run, clearly separated from
+    the normal ranked trading picks — this is a 'we've seen this exact
+    setup before and it just reappeared' flag, never blended into
+    confidence_score / the trading ranking."""
+    lines = [f"🧠 Yesterday's Miss Pattern Match ({job_name})"]
+    for a in new_alerts[:15]:
+        crit = a['criteria']
+        ov   = a['observed_value']
+        val_str = f"{ov:.2f}" if isinstance(ov, (int, float)) else str(ov)
+        n_val = crit.get('validation_n') or 0
+        tag   = "validated" if n_val >= _WATCH_VALIDATION_MIN_N else "experimental"
+        wr    = crit.get('validation_win_rate')
+        wr_str = f", hist WR {float(wr):.0%} n={n_val}" if wr is not None else ""
+        mv = crit.get('origin_move_pct')
+        mv_str = f"{float(mv):+.1f}%" if mv is not None else "?"
+        lines.append(
+            f"• {a['ticker']}: {crit['metric_name']} {crit['operator']} {crit['threshold_value']} "
+            f"(now {val_str}) — same setup as {crit['origin_ticker']} {mv_str} on "
+            f"{crit['discovered_date']} [{tag}{wr_str}]"
+        )
+    if len(new_alerts) > 15:
+        lines.append(f"...and {len(new_alerts) - 15} more")
+    _tg_send("\n".join(lines))
+
+
+def _aiem_scan_watch_criteria(conn, cur, job_name: str, candidates: list = None) -> list:
+    """
+    Prospective scan: for every still-active watch criterion (a concrete
+    pattern extracted from a missed runner in the EOD report), re-screen
+    TODAY's live universe for tickers matching it RIGHT NOW. This is what
+    turns the EOD "lesson learned" into AIEM actually looking for the same
+    setup again, instead of only describing it in a postmortem.
+
+    New matches are deduped via aiem_watch_alerts (UNIQUE criteria_id+
+    ticker+alert_date) BEFORE the Telegram send, so a crash mid-send can
+    never cause the same match to be re-alerted on the next 15-min run.
+    """
+    active = _aiem_load_active_watch_criteria(conn, cur)
+    if not active:
+        return []
+
+    today = date.today()
+    try:
+        cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+        latest_date = cur.fetchone()[0]
+    except Exception as e:
+        log.warning(f"[watch_scan] latest_date lookup failed: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        latest_date = None
+
+    by_metric: dict = {}
+    for crit in active:
+        by_metric.setdefault(crit['metric_name'], []).append(crit)
+
+    new_alerts = []
+    for metric_name, crits in by_metric.items():
+        try:
+            if metric_name == 'premarket_gap_pct':
+                matches = _aiem_watch_scan_premarket_gap(crits, candidates)
+            elif metric_name in ('eod_range_position', 'volume_buildup_x') and latest_date:
+                matches = _aiem_watch_scan_sql_metric(cur, crits, metric_name, latest_date)
+            elif metric_name in ('rsi_14', 'grind_streak_days') and latest_date:
+                matches = _aiem_watch_scan_python_metric(cur, crits, metric_name, latest_date)
+            else:
+                matches = []
+        except Exception as m_e:
+            log.warning(f"[watch_scan] {metric_name} scan failed: {m_e}")
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            matches = []
+
+        for crit, ticker, observed in matches:
+            try:
+                cur.execute("""
+                    INSERT INTO aiem_watch_alerts (criteria_id, ticker, alert_date, job_name, observed_value)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (criteria_id, ticker, alert_date) DO NOTHING
+                    RETURNING id
+                """, (crit['id'], ticker, today, job_name, observed))
+                inserted = cur.fetchone()
+                conn.commit()
+                if inserted:
+                    new_alerts.append({'criteria': crit, 'ticker': ticker, 'observed_value': observed})
+            except Exception as ins_e:
+                log.warning(f"[watch_scan] dedupe insert failed {ticker}/{metric_name}: {ins_e}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+    if new_alerts:
+        try:
+            _aiem_send_watch_alert_telegram(new_alerts, job_name)
+        except Exception as tg_e:
+            log.warning(f"[watch_scan] telegram send failed: {tg_e}")
+        log.info(f"[watch_scan] {job_name}: {len(new_alerts)} new pattern-match alert(s) sent")
+    else:
+        log.info(f"[watch_scan] {job_name}: 0 new matches across {len(active)} active criteria")
+
+    return new_alerts
 
 
 def _aiem_find_missed_runners(conn, cur, today) -> dict:
@@ -1992,10 +2519,10 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
                     reason_cat = "premarket volume+gap (same morning)"
                     premkt_n += 1
                 elif predictability.get('grind_streak_days', 0) >= 3 and any('slow grinder' in r for r in predictability['reasons']):
-                    reason_cat = "multi-day slow grinder (5-day lookback)"
+                    reason_cat = "multi-day slow grinder (7-day lookback)"
                     grind_n += 1
-                elif predictability.get('eod_range_position') is not None and any('closed yesterday' in r for r in predictability['reasons']):
-                    reason_cat = "strong/weak EOD close (yesterday)"
+                elif any('closed top' in r or 'closed bottom' in r for r in predictability['reasons']):
+                    reason_cat = "strong/weak EOD close (1-7 day lookback)"
                     eod_n += 1
                 elif why.get('matched'):
                     reason_cat = "behavioral fingerprint match"
@@ -2014,6 +2541,18 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
                     reason_cat, ("no clear takeaway from this one", "no model change triggered")
                 )
 
+                # Save the concrete, re-screenable criteria behind today's miss so
+                # tomorrow's premarket scan can actually look for this setup again
+                # — not just narrate it. Errors here must never break the report.
+                try:
+                    watch_rows = _aiem_extract_watch_criteria(predictability, runner, premkt, today)
+                    n_saved = _aiem_save_watch_criteria(conn, cur, watch_rows, runner, bucket, reason_cat, today)
+                    if n_saved:
+                        log.info(f"[watch_criteria] saved {n_saved} criteria from {ticker} miss (expires "
+                                 f"{_aiem_add_trading_days(today, _WATCH_CRITERIA_EXPIRY_TRADING_DAYS)})")
+                except Exception as wc_e:
+                    log.warning(f"[watch_criteria] extraction/save failed for {ticker}: {wc_e}")
+
                 verdict_str = (
                     f"PREDICTABLE — {'; '.join(predictability['reasons'])}"
                     if predictability['verdict'] == 'predictable'
@@ -2027,16 +2566,26 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
                     else "Premarket today: no data."
                 )
                 grind_str = (
-                    f"5-day grind: {predictability['grind_streak_days']}-day up-streak, "
+                    f"7-day grind: {predictability['grind_streak_days']}-day up-streak, "
                     f"+{predictability['grind_cum_pct']:.1f}% cumulative."
                     if predictability.get('grind_streak_days', 0) >= 3
                     else ""
                 )
+                # Day-by-day lookback string: which of the last 1-7 days actually
+                # carried a flag, so the report names the day, not just "yesterday".
+                lookback_parts = []
+                for d in predictability.get('daily_lookback', []):
+                    if not d['flags']:
+                        continue
+                    day_label = "y'day" if d['days_back'] == 1 else f"{d['days_back']}d ago"
+                    lookback_parts.append(f"{day_label}: {', '.join(d['flags'])}")
+                lookback_str = "; ".join(lookback_parts) or "no day in the last week showed a flagged metric"
                 discovery_text = (
                     f"TOP-10 REVIEW [{bucket.upper()}]: {ticker} moved +{move_pct:.1f}% today "
                     f"(MC ${runner['market_cap']/1e6:,.0f}M). Same-day pattern: {pattern_str}. "
                     f"Open=${runner['open']:.2f} Close=${runner['close']:.2f}. "
-                    f"Prior-day move {predictability['prior_day_move_pct']}%, "
+                    f"1-7 day lookback — {lookback_str}. "
+                    f"Yesterday specifically: move {predictability['prior_day_move_pct']}%, "
                     f"RSI(14)={predictability['rsi']}, "
                     f"vol buildup={predictability['volume_buildup_x']}x. "
                     f"{pm_str} {grind_str} "
@@ -2053,21 +2602,23 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
 
                 # Full per-ticker detail block for the bucket Telegram sends —
                 # the terse bucket_lines emoji-row was the "trash" version;
-                # this spells out exactly what was knowable and when (this
-                # morning's premarket / yesterday's close / the 5-day grind).
+                # this spells out exactly what was knowable and when, walking
+                # the FULL 1-7 day lookback (not just "yesterday") plus this
+                # morning's premarket and the 7-day grind streak.
                 detail_block = [
                     f"{'✅' if runner['was_flagged'] else '❌'} ${ticker} +{move_pct:.1f}%  (MC ${runner['market_cap']/1e6:,.0f}M, "
                     f"open ${runner['open']:.2f} → close ${runner['close']:.2f})",
                     f"   {flag_str}",
                     f"   Same-day signals: {pattern_str}",
-                    f"   Prior-day move {predictability['prior_day_move_pct']}% | "
-                    f"RSI(14)={predictability['rsi']} | vol buildup={predictability['volume_buildup_x']}x",
+                    f"   1-7 day lookback: {lookback_str}",
                     f"   {pm_str}",
                 ]
                 if grind_str:
                     detail_block.append(f"   {grind_str}")
-                if predictability.get('eod_range_position') is not None:
-                    detail_block.append(f"   Yesterday's EOD range position: {predictability['eod_range_position']:.2f} (0=low, 1=high of day)")
+                if predictability.get('strongest_day'):
+                    sd = predictability['strongest_day']
+                    label = "yesterday" if sd['days_back'] == 1 else f"{sd['days_back']} days ago"
+                    detail_block.append(f"   🎯 Strongest precursor was {label}: {'; '.join(sd['flags'])}")
                 detail_block.append(f"   Verdict: {verdict_str}")
                 detail_block.append(f"   📖 Lesson: {lesson}")
                 detail_block.append(f"   🔧 Next time: {action}")
@@ -2104,6 +2655,36 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
             conn.rollback()
 
     log.info(f"Logged {discoveries} missed runner findings across 4 cap tiers")
+
+    # ── T003: lightweight local validation of today's freshly-extracted
+    # watch criteria. One backtest per UNIQUE (metric, operator, threshold)
+    # combo — not per ticker — since the same combo (e.g. rsi_14 >= 70) can
+    # come from several misses today and only needs validating once.
+    try:
+        cur.execute("""
+            SELECT DISTINCT metric_name, operator, threshold_value
+            FROM aiem_watch_criteria WHERE discovered_date = %s
+        """, (today,))
+        combos = cur.fetchall()
+        for metric_name, operator, threshold_value in combos:
+            stats = _aiem_validate_watch_criterion(conn, cur, metric_name, operator, float(threshold_value))
+            cur.execute("""
+                UPDATE aiem_watch_criteria
+                SET validation_n = %s, validation_win_rate = %s, validation_avg_next_day = %s
+                WHERE discovered_date = %s AND metric_name = %s AND operator = %s AND threshold_value = %s
+            """, (stats['n'], stats['win_rate'], stats['avg_next_day'],
+                  today, metric_name, operator, threshold_value))
+            tag = "experimental" if stats['n'] < _WATCH_VALIDATION_MIN_N else "validated"
+            log.info(f"[watch_validate] {metric_name} {operator} {threshold_value}: "
+                      f"n={stats['n']} win_rate={stats['win_rate']} avg_next_day={stats['avg_next_day']} ({tag})")
+        if combos:
+            conn.commit()
+    except Exception as v_e:
+        log.warning(f"[watch_validate] batch validation pass failed: {v_e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
 
     result.update({
         'buckets': buckets, 'bucket_lines': bucket_lines,
@@ -2185,16 +2766,16 @@ def _aiem_build_narrative(grade: dict, missed: dict, today) -> str:
                 f"the bell — that's the earliest possible catch and AIEM missed it live; going forward: {pm_action}"
             )
         if eod_n:
-            _, eod_action = _REASON_LESSONS["strong/weak EOD close (yesterday)"]
+            _, eod_action = _REASON_LESSONS["strong/weak EOD close (1-7 day lookback)"]
             parts.append(
-                f"{eod_n} closed yesterday at the top/bottom of their range on elevated volume — "
-                f"a classic 'coiled' close; going forward: {eod_action}"
+                f"{eod_n} closed at the top/bottom of their range on elevated volume on some day "
+                f"in the last week (not always just yesterday) — a classic 'coiled' close; going forward: {eod_action}"
             )
         if grind_n:
-            _, grind_action = _REASON_LESSONS["multi-day slow grinder (5-day lookback)"]
+            _, grind_action = _REASON_LESSONS["multi-day slow grinder (7-day lookback)"]
             parts.append(
-                f"{grind_n} were quietly grinding higher for 3-5 straight days before today's breakout — "
-                f"yes, AIEM could have flagged these as far back as 5 days ago by watching the streak; "
+                f"{grind_n} were quietly grinding higher for 3-7 straight days before today's breakout — "
+                f"yes, AIEM could have flagged these as far back as 7 days ago by watching the streak; "
                 f"going forward: {grind_action}"
             )
         if not (premkt_n or eod_n or grind_n) and surprise_n:
@@ -2511,6 +3092,18 @@ def aiem_missed_morning_check():
             aiem_premarket_scan()
         else:
             log.info(f"Morning check OK — {count} predictions on file")
+
+        # ── T004: prospective miss-pattern scan ─────────────────────────────
+        # No premarket `candidates` list available at this point in the day,
+        # so only the broad (non-gap) metrics — eod_range_position,
+        # volume_buildup_x, rsi_14, grind_streak_days — get re-screened here;
+        # premarket_gap_pct criteria are covered by the 7:00-9:30 AM
+        # aiem_premarket_scan hook instead. Dedup via aiem_watch_alerts keeps
+        # this safe to run again at 9:45 even if premarket already alerted.
+        try:
+            _aiem_scan_watch_criteria(conn, cur, "missed_morning_check")
+        except Exception as _wc_e:
+            log.warning(f"[watch_scan] missed_morning_check hook failed: {_wc_e}")
     except Exception as e:
         log.error(f"missed_morning_check error: {e}")
     finally:
