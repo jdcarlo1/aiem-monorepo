@@ -23,6 +23,23 @@ _API_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 if _API_DIR not in _sys.path:
     _sys.path.insert(0, _API_DIR)
 
+try:
+    import telegram_charts as _tg_charts
+except Exception as _tg_charts_imp_err:
+    _tg_charts = None
+    print(f"[telegram_charts] unavailable, chart alerts disabled: {_tg_charts_imp_err}")
+
+def _aiem_send_chart(kind, title, tickers, caption=None):
+    """Best-effort chart-image companion to a text alert. Never raises,
+    never blocks/affects the text-alert flow it follows."""
+    if not _tg_charts or not tickers:
+        return False
+    try:
+        return _tg_charts.send_ticker_chart_alert(kind, title, tickers, caption=caption)
+    except Exception as e:
+        log.warning(f"[chart] {kind} send failed: {e}")
+        return False
+
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] [AIEM] %(message)s',
@@ -1178,6 +1195,7 @@ def aiem_open_watcher():
                     )
                     _aiem_send_sms(msg)
                     log.info(f"ALERT FIRED: {ticker} conf={blended:.0f}")
+                    _aiem_send_chart("open_watcher", f"${ticker} — AIEM Alert", [ticker])
 
                     # Log to signal_fire_log — unique on (signal_name, ticker, fire_date)
                     cur.execute("""
@@ -1295,6 +1313,10 @@ def aiem_grade_outcomes():
             msg += f"Trust weights updating 6PM → tomorrow's picks adjusted."
             _aiem_send_sms(msg)
             log.info(f"Self-analysis sent: {len(w_picks)}W/{len(l_picks)}L avg={avg_ret:+.1f}%")
+
+            chart_tickers = [t for t, _, _ in sorted(w_picks, key=lambda x: -x[1])[:3]]
+            chart_tickers += [t for t, _, _ in sorted(l_picks, key=lambda x: x[1])[:3]]
+            _aiem_send_chart("grade_outcomes", f"AIEM Outcomes — {today}", chart_tickers)
 
         # Also update T3/T5 for older predictions
         _grade_t3_t5(conn)
@@ -1435,6 +1457,8 @@ def aiem_missed_runner_analysis():
                 msg += f"  ${r['ticker']} +{r['move_pct']:.1f}%\n"
             msg += "AIEM analyzing to catch these tomorrow."
             _aiem_send_sms(msg)
+            _aiem_send_chart("missed_runners", f"AIEM Missed Runners — {today}",
+                              [r['ticker'] for r in top3])
 
     except Exception as e:
         log.error(f"missed_runner_analysis error: {e}")
@@ -1626,6 +1650,12 @@ def aiem_morning_brief():
 
         _aiem_send_sms("\n".join(lines))
         log.info(f"morning_brief sent: {len(picks)} picks")
+
+        _aiem_send_chart(
+            "morning_brief",
+            f"AIEM Morning Picks — {today.strftime('%a %b %d')}",
+            [p[0] for p in picks],
+        )
 
     except Exception as e:
         log.error(f"morning_brief error: {e}")

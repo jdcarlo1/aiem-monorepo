@@ -6108,6 +6108,8 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
             print("[smart_money_email] no 6+ signals - skipping (quiet window)")
             return
 
+        _send_owner_chart("smart_money", "🧠 Smart-money EOD", [r.get("ticker") for r in signals])
+
         date_str = _dt.now().strftime("%A, %B %d · %I:%M %p")
         cards_html, sms_lines = _smp_build_cards(signals)
 
@@ -6294,6 +6296,8 @@ def _send_smp_morning() -> None:
             try:
                 if _smp_send_morning_bucket(sigs, label, accent, date_str):
                     sent += 1
+                    _send_owner_chart("smp_morning", f"💡 Smart-money morning picks ({label})",
+                                       [s.get("ticker") for s in sigs])
             except Exception as _eb:
                 print(f"[smp_morning] {key} send error: {_eb}")
         print(f"[smp_morning] done - {sent} bucket email(s) sent from {len(results)} scored names")
@@ -6489,7 +6493,8 @@ def _build_market_brief_html() -> tuple:
         _tg_send(_tg_brief)
     except Exception:
         pass
-    return subject, html
+    chart_tickers = [r.get("ticker") for r in (gainers[:3] + losers[:3])]
+    return subject, html, chart_tickers
 
 
 def _send_market_brief_email() -> None:
@@ -6501,7 +6506,8 @@ def _send_market_brief_email() -> None:
         if not smtp_configured():
             print("[market_brief] SMTP not configured - skipping")
             return
-        subject, html = _build_market_brief_html()
+        subject, html, chart_tickers = _build_market_brief_html()
+        _send_owner_chart("market_brief", "📊 Morning market brief", chart_tickers)
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[market_brief] sent={ok}")
     except Exception as _e:
@@ -6551,6 +6557,8 @@ def _send_accumulation_watch_email() -> None:
         if not picks:
             print("[accumulation_email] no steady-accumulation names - skipping (quiet window)")
             return
+
+        _send_owner_chart("accumulation", "📦 Accumulation digest", [r.get("ticker") for r in picks])
 
         date_str = _dt.now(_ET_TZ).strftime("%A, %B %d · %I:%M %p ET")
 
@@ -7324,6 +7332,7 @@ def _send_nano_watch_email():
             send_email_raw(_OWNER_EMAIL, f"🌅 Nano Watchlist: nothing qualified · {date_str}", html)
             print("[nano_watch] no candidates - honest empty email sent")
             return
+        _send_owner_chart("nano_watch", "⚡ Nano-cap WATCH list", [r[0] for r in rows])
         cards = []
         for r in rows:
             (tk, rank, conv, price, mcap_m, avg_vol, accum, steady, volp, momp, nf, upd, meta) = r
@@ -7474,6 +7483,8 @@ def _send_nano_buy_email():
                              "rvol":     float(meta.get("rvol", 0)),
                              "explosive": float(meta.get("explosive", 0)),
                              "near_high": float(meta.get("near_high", 1))})
+
+        _send_owner_chart("nano_buy", "🚀 Nano-cap BUY signals", [b["ticker"] for b in buys])
 
         # Persist picks for track-record grading
         with _pg.connect(os.environ["DATABASE_URL"]) as c, c.cursor() as cur:
@@ -8510,6 +8521,7 @@ def _send_sc_watch_email():
             send_email_raw(_OWNER_EMAIL, f"WARNING Small-Cap Watchlist: scan didn't complete · {date_str}", html)
             print("[sc_watch] no candidates for today - scan-didn't-complete email sent")
             return
+        _send_owner_chart("sc_watch", "⚡ Small-cap WATCH list", [r[0] for r in rows])
         cards = []
         for r in rows:
             (tk, rank, conv, price, mcap_m, avg_vol, accum, steady, volp, momp,
@@ -8747,6 +8759,8 @@ def _send_sc_buy_email():
                           _json.dumps({k: b.get(k) for k in ("mcap_m", "avg_vol", "near_high",
                                        "reason", "blended", "eod_accum_score", "explosive")})))
                 c.commit()
+
+        _send_owner_chart("sc_buy", "🚀 Small-cap BUY signals", [b["ticker"] for b in buys])
 
         tr_html = _sc_tr_html(_sc_morning_track_record())
         base_url = os.getenv("PUBLIC_URL", "https://nclexai.org")
@@ -9771,6 +9785,8 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
             print("[microcap_calls_email] no qualifying picks - skipping")
             return
 
+        _send_owner_chart("microcap", "🔬 Micro-cap calls", [h.get("ticker") for h in top5])
+
         date_str = _dt.now().strftime("%B %d, %Y")
         base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
 
@@ -9967,6 +9983,7 @@ def _send_high_conviction_email(owner_only: bool = False) -> None:
             return
 
         top5 = signals[:5]
+        _send_owner_chart("high_conviction", "🎯 High-conviction picks", [s.get("ticker") for s in top5])
         date_str = _dt.now().strftime("%B %d, %Y")
         base_url = _os.getenv("PUBLIC_URL", "https://nclexai.org")
 
@@ -10464,6 +10481,29 @@ def _poll_trade_emails() -> None:
 
 
 _OWNER_PHONE = "+14013185787"
+
+
+try:
+    import telegram_charts as _tg_charts
+except Exception as _tg_charts_imp_err:
+    _tg_charts = None
+    print(f"[telegram_charts] unavailable, chart alerts disabled: {_tg_charts_imp_err}")
+
+
+def _send_owner_chart(kind: str, title: str, tickers, caption: str = None) -> bool:
+    """Best-effort chart-image companion to an owner email/Telegram alert.
+    DB-only (polygon_market_daily), never live API calls. Never raises and
+    never blocks the email-send flow it follows."""
+    if not _tg_charts or not tickers:
+        return False
+    try:
+        clean = [t for t in tickers if t]
+        if not clean:
+            return False
+        return _tg_charts.send_ticker_chart_alert(kind, title, clean, caption=caption)
+    except Exception as _e:
+        print(f"[chart] {kind} send failed: {_e}")
+        return False
 
 
 def _tg_send(text: str) -> bool:
@@ -14320,7 +14360,7 @@ def admin_send_market_brief():
     if not token or token != os.getenv("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     if str(request.args.get("dry", "")).lower() in ("1", "true", "yes"):
-        subject, html = _build_market_brief_html()
+        subject, html, _ct = _build_market_brief_html()
         return jsonify({"subject": subject, "html_len": len(html), "html": html})
     _send_market_brief_email()
     return jsonify({"status": "sent", "to": _OWNER_EMAIL})
@@ -44980,6 +45020,8 @@ def _send_multiday_intraday_email():
         md = len(results.get("mid",   []))
         sm = len(results.get("small", []))
         subject = f"📈 DAY 1 BUY SIGNAL - {total} runners ({lg}L/{md}M/{sm}S) · Enter now, exit D5"
+        _send_owner_chart("multiday_intraday", "📅 Multi-day intraday entry",
+                           [r.get("ticker") for r in results.get("all", [])])
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[multiday_runner] intraday email sent={ok} → {total} total ({lg}L/{md}M/{sm}S)")
     except Exception as e:
@@ -45000,6 +45042,7 @@ def _send_multiday_day1_email():
         html = build_day1_email_html(rows)
         strong_ct = sum(1 for r in rows if r.get("d1_strong"))
         subject = f"📋 EOD Watch List - {len(rows)} ignitions across cap tiers ({strong_ct} STRONG)"
+        _send_owner_chart("multiday_watch", "📅 Multi-day EOD watch", [r.get("ticker") for r in rows])
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[multiday_runner] day1 EOD email sent={ok} → {len(rows)} tickers ({strong_ct} strong)")
     except Exception as e:
@@ -45020,6 +45063,8 @@ def _send_multiday_day2_email():
         html = build_day2_email_html(confirmed)
         strong_ct = sum(1 for r in confirmed if r.get("d1_strong"))
         subject = f"🟢 D2 BUY SIGNAL - {len(confirmed)} confirmed ({strong_ct} STRONG) · Enter before 3:45 PM"
+        _send_owner_chart("multiday_confirm", "📅 Multi-day Day-2 confirm",
+                           [r.get("ticker") for r in confirmed])
         ok = send_email_raw(_OWNER_EMAIL, subject, html)
         print(f"[multiday_runner] day2 email sent={ok} → {len(confirmed)} confirmed entries")
     except Exception as e:
@@ -45303,6 +45348,9 @@ def _send_polygon_rvol_email() -> None:
         if not _mv:
             print("[polygon_rvol] no movers found - skipping email")
             return
+
+        _send_owner_chart("polygon_rvol", "🔍 Polygon RVOL scan (11K stocks)",
+                           [m.get("ticker") for m in _mv[:6]])
 
         _scan_date = _mv[0].get("scan_date", "")
         _n = len(_mv)
@@ -45872,6 +45920,9 @@ def _send_accum_leaders_email() -> None:
         if not results:
             print("[accum_leaders] no candidates — skipping email")
             return
+
+        _send_owner_chart("accum_leaders", "📈 Accumulation leaders",
+                           [r.get("ticker") for r in results])
 
         import datetime as _ae_dt
         _today = _ae_dt.date.today().strftime("%b %d, %Y")
