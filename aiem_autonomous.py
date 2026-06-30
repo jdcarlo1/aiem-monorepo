@@ -653,10 +653,34 @@ def aiem_premarket_scan():
         log.info(f"Multi-day context loaded for {len(multiday_ctx)} tickers")
 
         # Step 3: Deep score each candidate — adds ticker details + news from Polygon API
-        from staleness_filter import evaluate_signal_with_data as _eval_staleness
-        from aiem_verification_and_trading_brain import (
-            apply_wall_street_pattern_with_data as _apply_ws,
-        )
+        # Layer A+B: try consolidated master first, fall back to split modules
+        try:
+            from aiem_master_part1 import (
+                evaluate_signal_with_data           as _eval_staleness,
+                apply_wall_street_pattern_with_data as _apply_ws,
+            )
+            log.info("[scan] aiem_master_part1 loaded (layers A+B consolidated)")
+        except Exception as _mp1_err:
+            log.warning("[scan] aiem_master_part1 unavailable (%s) — using split modules", _mp1_err)
+            from staleness_filter import evaluate_signal_with_data as _eval_staleness
+            from aiem_verification_and_trading_brain import (
+                apply_wall_street_pattern_with_data as _apply_ws,
+            )
+        # Layer C: Intelligence upgrade (kill switch, news quality, sector heat,
+        #          float/SI, time-of-day danger zones)
+        try:
+            from aiem_intelligence_upgrade import (
+                is_kill_switch_active                   as _is_kill_switch,
+                score_news_source_with_data             as _score_news_src,
+                get_sector_conviction_penalty_with_data as _sector_penalty,
+                get_float_and_si_with_data              as _float_si,
+                apply_time_of_day                       as _time_of_day,
+            )
+            _INTEL_AVAILABLE = True
+            log.info("[scan] aiem_intelligence_upgrade loaded (layer C — 5 systems)")
+        except Exception as _iu_err:
+            log.warning("[scan] aiem_intelligence_upgrade unavailable (%s) — layer C skipped", _iu_err)
+            _INTEL_AVAILABLE = False
         _scan_ts = datetime.now(ZoneInfo("UTC"))
         scored = []
         for c in candidates[:50]:
@@ -736,6 +760,53 @@ def aiem_premarket_scan():
                           if t.startswith("PATTERN_")]
                 if ws_pat:
                     reasoning = f"[WS:{','.join(ws_pat)}] {reasoning}"
+
+                # ── Layer C: Intelligence upgrade ─────────────────────────────
+                # Kill switch, news source quality, sector heat, float/SI,
+                # time-of-day danger zones.  Runs after A+B; any SKIP/BLOCK
+                # removes the candidate before it reaches the final ranking.
+                if _INTEL_AVAILABLE:
+                    # 1. Kill switch — hard block if daily loss limit is active
+                    _killed, _kill_reason = _is_kill_switch(conn, date.today())
+                    if _killed:
+                        log.info(f"  {ticker}: 🛑 KILL SWITCH — {_kill_reason}")
+                        continue
+
+                    # 2. News source quality  (+5 SEC 8-K  /  −15 Reddit  etc.)
+                    _src_score, _src_name, _src_delta = _score_news_src(news)
+                    adj_conf = max(0.0, adj_conf + _src_delta)
+                    if _src_delta != 0:
+                        reasoning = f"[SRC:{_src_name}{_src_delta:+d}] {reasoning}"
+
+                    # 3. Sector heat penalty
+                    _sec_penalty, _sec_tag = _sector_penalty(details, conn)
+                    adj_conf = max(0.0, adj_conf + _sec_penalty)
+                    if _sec_tag not in ("SECTOR_NEUTRAL", "SECTOR_DATA_UNAVAILABLE"):
+                        reasoning = f"[{_sec_tag}] {reasoning}"
+
+                    # 4. Float + short interest  (squeeze candidate = +8)
+                    _fd = _float_si(details)
+                    adj_conf = max(0.0, adj_conf + _fd["conviction_delta"])
+                    if _fd.get("squeeze_candidate"):
+                        reasoning = f"[SQUEEZE] {reasoning}"
+
+                    # 5. Time-of-day danger zones
+                    adj_conf, _zone, _allow_entry, _threshold = _time_of_day(
+                        adj_conf, _scan_ts, premarket_mode=True,
+                    )
+                    if not _allow_entry:
+                        log.info(f"  {ticker}: ⛔ TIME ZONE {_zone} — entry not allowed")
+                        continue
+                    if adj_conf < 70:
+                        log.info(f"  {ticker}: ⛔ LAYER C DROP conviction={adj_conf:.1f} zone={_zone}")
+                        continue
+
+                    log.info(
+                        f"  {ticker}: ✅ Layer C  conviction={adj_conf:.1f}  zone={_zone}"
+                        f"  src={_src_name}({_src_delta:+d})  sec={_sec_tag}"
+                        f"  float={_fd['float_category']}"
+                        + ("  🔥SQUEEZE" if _fd.get('squeeze_candidate') else "")
+                    )
 
                 scored.append({
                     'ticker':    ticker,
