@@ -1,0 +1,107 @@
+# ============================================================
+# AIEM MORNING ROUTINE — Full Learning Loop
+# Drop into main.py
+# ============================================================
+
+import random
+from datetime import datetime, date, timedelta
+import pytz
+import requests
+import time as time_module
+
+ET = pytz.timezone('US/Eastern')
+
+# ─────────────────────────────────────────────
+# HELPER: Get signal trust weights from DB
+# ─────────────────────────────────────────────
+def aiem_get_trust_weights(conn):
+    """Load current signal trust weights so AIEM can weight its own scoring."""
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT signal_name, trust_weight, rolling_win_rate, n_outcomes_observed
+            FROM signal_trust_weights
+            ORDER BY trust_weight DESC
+        """)
+        rows = cur.fetchall()
+        weights = {}
+        for signal_name, trust_weight, win_rate, n in rows:
+            weights[signal_name] = {
+                'trust': float(trust_weight),
+                'win_rate': float(win_rate) if win_rate else 0.5,
+                'n': n
+            }
+        return weights
+    except Exception as e:
+        print(f"[AIEM] trust weight load error: {e}")
+        return {}
+
+
+# ─────────────────────────────────────────────
+# HELPER: Fetch premarket data for a ticker
+# ─────────────────────────────────────────────
+def aiem_fetch_premarket_data(ticker):
+    """
+    Pull premarket price, volume, float, short interest for a ticker.
+    Uses your existing data sources (Polygon primary, Yahoo fallback).
+    Returns dict or None on failure.
+    """
+    try:
+        # Use your existing get_stock_quote / polygon functions
+        # Adjust these calls to match your actual helper names
+        from_polygon = get_polygon_snapshot(ticker)  # your existing fn
+        if not from_polygon:
+            return None
+
+        return {
+            'ticker': ticker,
+            'premarket_price': from_polygon.get('preMarketPrice') or from_polygon.get('last_price'),
+            'prev_close': from_polygon.get('prev_close') or from_polygon.get('previous_close'),
+            'premarket_volume': from_polygon.get('premarket_volume', 0),
+            'avg_volume': from_polygon.get('avg_volume', 1),
+            'float_shares': from_polygon.get('float_shares'),
+            'short_interest_pct': from_polygon.get('short_interest_pct'),
+            'market_cap': from_polygon.get('market_cap'),
+            'sector': from_polygon.get('sector', 'Unknown'),
+        }
+    except Exception as e:
+        print(f"[AIEM] premarket fetch error {ticker}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────
+# HELPER: AIEM scores a single stock
+# ─────────────────────────────────────────────
+def aiem_score_premarket_candidate(ticker, data, trust_weights):
+    """
+    AIEM's autonomous scoring. Uses trust-weighted signals.
+    Returns confidence_score (0-100), signal_basis, reasoning, predicted_move.
+    AIEM learns which signals to trust more over time via trust_weights.
+    """
+    signals = {}
+    reasoning_parts = []
+
+    try:
+        premarket_price = data.get('premarket_price') or 0
+        prev_close = data.get('prev_close') or premarket_price
+        premarket_vol = data.get('premarket_volume') or 0
+        avg_vol = data.get('avg_volume') or 1
+        float_shares = data.get('float_shares') or 0
+        short_int = data.get('short_interest_pct') or 0
+
+        # ── Signal 1: Premarket gap
+        gap_pct = ((premarket_price - prev_close) / prev_close * 100) if prev_close else 0
+        if gap_pct >= 10:
+            signals['premarket_gap_large'] = 1.0
+            reasoning_parts.append(f"Large premarket gap +{gap_pct:.1f}%")
+        elif gap_pct >= 5:
+            signals['premarket_gap_moderate'] = 0.7
+            reasoning_parts.append(f"Moderate premarket gap +{gap_pct:.1f}%")
+        elif gap_pct >= 2:
+            signals['premarket_gap_small'] = 0.4
+            reasoning_parts.append(f"Small premarket gap +{gap_pct:.1f}%")
+
+        # ── Signal 2: Volume surge
+        vol_ratio = premarket_vol / avg_vol if avg_vol > 0 else 0
+        if vol_ratio >= 3:
+            signals['volume_surge_high
