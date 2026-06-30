@@ -14161,6 +14161,21 @@ def admin_set_telegram_token():
     })
 
 
+@app.route("/stock-api/admin/test-telegram", methods=["GET"])
+def admin_test_telegram():
+    """Send a test Telegram message to confirm the bot token + chat_id are wired up."""
+    key = request.args.get("key", "")
+    if not key or key != os.getenv("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    ok = _tg_send("🧪 Test from AIEM Stock Scanner — Telegram alerts are working ✅")
+    token = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
+    return jsonify({
+        "sent": ok,
+        "chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""),
+        "token_configured": bool(token),
+    })
+
+
 @app.route("/stock-api/admin/send-market-brief", methods=["GET", "POST"])
 def admin_send_market_brief():
     """Owner/admin: fire (or preview) the daily 8:30 ET premarket brief on demand.
