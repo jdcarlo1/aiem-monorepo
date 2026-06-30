@@ -101,7 +101,13 @@ def stealth_accumulation_score(
 
     # Normalize rvol_trend into 0-1 via simple clipping logic; tune thresholds
     # against your own backtest distribution once you have data.
-    rvol_component = (out["rvol_trend_5d"].clip(lower=0) / out["rvol_trend_5d"].clip(lower=0).rolling(60).max()).fillna(0)
+    # min_periods=20 (not 60) so this doesn't silently return all-zero scores
+    # until 60+ valid (non-warmup) rows exist -- with rvol_trend_5d needing
+    # ~15 days of warmup itself, a strict 60-row requirement could need 75+
+    # days of history before producing any nonzero score at all.
+    rvol_pos = out["rvol_trend_5d"].clip(lower=0)
+    rvol_rolling_max = rvol_pos.rolling(60, min_periods=20).max()
+    rvol_component = (rvol_pos / rvol_rolling_max.replace(0, np.nan)).fillna(0)
     tightness_component = (price_range_thresh / out["price_range_5d"].replace(0, np.nan)).clip(upper=1).fillna(0)
 
     out["stealth_score"] = (rvol_component * tightness_component).clip(0, 1)

@@ -1,0 +1,62 @@
+# Setup: enforced verification on every change
+
+This makes it so changes to `precursor_signals.py` or `event_study_backtest.py`
+CANNOT be saved to your project history unless `verify_signals.py` passes.
+This was tested directly (not just written) before being handed to you:
+a deliberately broken version of the code was committed and rejected;
+a clean version was committed and went through automatically.
+
+## One-time setup (run in your Replit shell)
+
+```bash
+chmod +x pre-commit
+cp pre-commit .git/hooks/pre-commit
+```
+
+If your Replit project isn't already a git repo, run `git init` first.
+
+## What happens after that
+
+Every time anyone (you or the agent) runs `git commit`, if the commit
+touches `precursor_signals.py`, `event_study_backtest.py`, or
+`verify_signals.py`, the hook automatically:
+
+1. Runs `verify_signals.py`
+2. If it passes (17/17): commit proceeds normally
+3. If it fails: commit is **rejected**, nothing is saved, and the full
+   failure output is printed
+
+No one has to remember to run it. It just happens.
+
+## Tell your agent this, explicitly
+
+Paste this into your project instructions / agent rules, or just say it
+directly in chat with the Replit agent:
+
+> Never use `git commit --no-verify` on this repo. The pre-commit hook
+> running `verify_signals.py` must pass before any change to
+> precursor_signals.py or event_study_backtest.py is committed. If it
+> fails, fix the code — don't bypass the check.
+
+## Honest limits (read this — it is not bulletproof)
+
+- **Only fires on `git commit`.** If the agent edits a file and just
+  runs it live in the shell without committing, this hook never sees it.
+  If you want changes tracked at all, make committing part of the
+  workflow, not optional.
+- **`--no-verify` bypasses it.** That's a real git flag. The instruction
+  above tells the agent not to use it, but a hook can't stop a flag from
+  being passed — only a habit (yours, or an instruction the agent
+  follows) can.
+- **It only catches what's actually tested.** If a new function gets
+  added to either file without a matching test added to
+  `verify_signals.py`, that new code passes the hook by default — it's
+  simply not checked. Ask for a new test alongside any new feature.
+- **Occasionally re-verify the verifier.** Every so often, deliberately
+  break something (like was done above) and confirm the hook still
+  catches it. That's the only way to know the gate still has teeth
+  rather than having quietly stopped working.
+
+This closes the "did they actually run it" gap as far as code is
+concerned. It doesn't replace asking to see raw output when something
+matters — for anything outside these three files, that's still on you.
