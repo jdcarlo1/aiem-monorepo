@@ -137,7 +137,14 @@ def build_universe_history_from_db(start_date: str, end_date: str, cache_path: s
           f"{df['date'].min().date() if not df.empty else 'n/a'} to "
           f"{df['date'].max().date() if not df.empty else 'n/a'})")
     if cache_path:
-        df.to_parquet(cache_path)
+        # Parquet caching is a nice-to-have, not load-bearing: this
+        # environment can't install pyarrow/fastparquet (Nix permission
+        # restrictions on the python site-packages dir), so a missing
+        # engine must never crash a real backtest run over a fresh DB pull.
+        try:
+            df.to_parquet(cache_path)
+        except ImportError as e:
+            print(f"Skipping parquet cache ({cache_path}): {e}")
     return df
 
 
@@ -230,8 +237,17 @@ def extract_precursor_window(feature_panel: pd.DataFrame, event_date, precursor_
     Pulls the trailing `precursor_days` of feature values BEFORE event_date
     and summarizes each as: latest value, mean over window, and trend slope.
     This is what gets compared against the control sample.
+
+    feature_panel is assumed already sorted ascending by "date" (which is
+    how compute_feature_panel builds it). We use searchsorted instead of a
+    full boolean mask (`feature_panel["date"] < event_date`) -- this is
+    O(log n) instead of O(n) per call, which matters a lot when this gets
+    invoked once per event/control row and a full-market multi-year pull
+    can produce tens of thousands of events.
     """
-    window = feature_panel[feature_panel["date"] < event_date].tail(precursor_days)
+    dates_arr = feature_panel["date"].values
+    pos = np.searchsorted(dates_arr, np.datetime64(event_date), side="left")
+    window = feature_panel.iloc[max(0, pos - precursor_days):pos]
     if window.empty:
         return {}
 
@@ -286,13 +302,25 @@ def run_event_study(history: pd.DataFrame, events_df: pd.DataFrame, precursor_da
     correlation) and p-value -- this is your real answer to "what actually
     predicts the move," not a guess from the indicator list.
     """
-    print("Building per-ticker feature panels (this is the slow part)...")
+    # Only build feature panels for tickers actually needed (event tickers +
+    # whatever ends up in the control sample) instead of every ticker in the
+    # full universe history. With ~11K tickers in history but only ~3-4K
+    # tickers carrying events/control rows, building panels for all of them
+    # was the dominant cost (full rolling-window feature computation per
+    # ticker) -- restricting the scope plus a single groupby (instead of an
+    # O(n) DataFrame filter per ticker) is what makes this tractable on a
+    # full-market multi-year pull.
+    print("Building control sample...")
+    control_sample = build_control_sample(history, events_df, n_samples=n_control)
+
+    needed_tickers = set(events_df["ticker"].unique()) | set(control_sample["ticker"].unique())
+    print(f"Building per-ticker feature panels for {len(needed_tickers):,} tickers "
+          f"(event + control universe, out of {history['ticker'].nunique():,} total)...")
     panels = {}
-    for ticker in pd.concat([events_df["ticker"], history["ticker"]]).unique():
-        ticker_hist = history[history["ticker"] == ticker]
-        if len(ticker_hist) < 30:
+    for ticker, g in history[history["ticker"].isin(needed_tickers)].groupby("ticker"):
+        if len(g) < 30:
             continue
-        panels[ticker] = compute_feature_panel(ticker_hist)
+        panels[ticker] = compute_feature_panel(g)
 
     print("Extracting precursor windows for events...")
     event_rows = []
@@ -307,7 +335,6 @@ def run_event_study(history: pd.DataFrame, events_df: pd.DataFrame, precursor_da
     event_features = pd.DataFrame(event_rows)
 
     print("Extracting precursor windows for control sample...")
-    control_sample = build_control_sample(history, events_df, n_samples=n_control)
     control_rows = []
     for _, row in control_sample.iterrows():
         if row["ticker"] not in panels:

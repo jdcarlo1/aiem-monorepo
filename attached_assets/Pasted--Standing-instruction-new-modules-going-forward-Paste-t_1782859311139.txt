@@ -1,0 +1,53 @@
+# Standing instruction: new modules going forward
+
+Paste this into Replit's persistent project/agent instructions (if your
+plan has that feature), or as a pinned message at the start of any new
+chat with the agent. This is the half of "automatic" that a hook can't
+do by itself: a hook can force the check to run, but only an instruction
+the agent actually follows makes it write good tests for new code.
+
+---
+
+**Standing rule for this project:**
+
+Every time you (the agent) add a new module, function, or significant
+change to this codebase:
+
+1. Add corresponding test cases to `verify_signals.py` in the SAME
+   commit as the new code. Tests must check actual correctness on
+   known-answer synthetic inputs (not just "doesn't crash"), and if the
+   module produces a backtest or prediction, include a no-lookahead-bias
+   check for it.
+2. Run `verify_signals.py` yourself and confirm it passes BEFORE telling
+   me the work is done.
+3. Show me the full raw terminal output of that run, not a summary or
+   paraphrase of the results.
+4. Never use `git commit --no-verify` on this repo.
+5. If a test fails, fix the underlying code — do not delete, weaken, or
+   skip the failing test to make the suite pass.
+
+I should never have to ask "did you verify this" — that step is assumed
+and required for every change, automatically.
+
+---
+
+## What this does and doesn't solve
+
+**Does:** The generalized `pre-commit` hook (in this same file set) now
+runs `verify_signals.py` on ANY commit that touches a `.py` file, not
+just the original three. So even if the agent forgets the instruction
+above, a broken NEW module still can't be committed if it breaks an
+EXISTING test — that part is enforced by the hook regardless of whether
+the agent remembers the rule.
+
+**Doesn't:** The hook cannot make the agent write a *new* test for a
+brand-new function. If a new module is added with zero corresponding
+tests, the hook has nothing to check it against and will pass cleanly
+even though the new code is completely unverified. That gap can only be
+closed by the agent actually following the standing instruction above —
+or by you, periodically, asking "show me the new test cases you added
+for this" the same way you'd review any other part of the work.
+
+A reasonable habit: every time you get a new module back, before moving
+on, ask to see the diff of `verify_signals.py` alongside it. If the test
+file didn't grow, the new code isn't actually covered yet.

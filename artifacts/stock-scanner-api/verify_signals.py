@@ -259,6 +259,73 @@ def test_find_events_detects_planted_move_and_no_false_positive():
 
 
 # ---------------------------------------------------------------------------
+# 6b. run_event_study -- restricted-ticker panel optimization correctness
+# ---------------------------------------------------------------------------
+def test_run_event_study_finds_planted_signal():
+    """
+    run_event_study only builds feature panels for tickers that appear in
+    events_df or the control sample (not the full universe) for performance.
+    This confirms that restriction doesn't drop or corrupt any tickers it
+    actually needs: a clean volume-buildup spike planted right before each
+    "event" ticker's event date must still surface as a significant,
+    correctly-signed feature versus unflagged control tickers.
+    """
+    # run_event_study drops any feature with fewer than 20 valid (non-NaN)
+    # samples on either side -- need at least 20 event tickers and a control
+    # sample of at least 20 to clear that gate and actually exercise the
+    # p_value/effect_size computation, not just panel-building.
+    n = 80
+    dates = pd.bdate_range("2023-01-01", periods=n)
+    rng = np.random.default_rng(7)
+    event_date = dates[70]
+    n_event_tickers = 25
+    n_control_tickers = 25
+
+    rows = []
+    event_records = []
+    for i in range(n_event_tickers):
+        ticker = f"EVT{i}"
+        close = 20 + np.cumsum(rng.normal(0, 0.1, n))
+        volume = rng.integers(100000, 150000, n).astype(float)
+        # planted buildup: volume ramps hard in the 5 days before event_date
+        idx = dates.get_loc(event_date)
+        volume[idx - 5:idx] = np.linspace(300000, 600000, 5)
+        rows.append(pd.DataFrame({
+            "date": dates, "ticker": ticker, "open": close,
+            "high": close + 0.3, "low": close - 0.3, "close": close, "volume": volume,
+        }))
+        event_records.append({"ticker": ticker, "event_start_date": event_date, "move_pct_actual": 0.20})
+
+    for i in range(n_control_tickers):
+        ticker = f"CTRL{i}"
+        close = 20 + np.cumsum(rng.normal(0, 0.1, n))
+        volume = rng.integers(100000, 150000, n).astype(float)
+        rows.append(pd.DataFrame({
+            "date": dates, "ticker": ticker, "open": close,
+            "high": close + 0.3, "low": close - 0.3, "close": close, "volume": volume,
+        }))
+
+    history = pd.concat(rows, ignore_index=True)
+    events_df = pd.DataFrame(event_records)
+
+    results = eb.run_event_study(history, events_df, precursor_days=5, n_control=n_control_tickers)
+
+    row = results[results["feature"] == "volume_buildup_latest"]
+    # NOTE on sign convention (this is existing, unmodified code -- not
+    # something this test is asserting should change): effect_size here is
+    # 1 - 2*U/(n1*n2) computed from mannwhitneyu(event_vals, control_vals).
+    # With event_mean clearly > control_mean by construction, that yields a
+    # NEGATIVE effect_size in this codebase's convention -- confirmed
+    # empirically (event_mean=2.09 vs control_mean=0.96 -> effect_size=-1.0).
+    check("run_event_study: restricted-panel scope still surfaces planted volume_buildup signal",
+          not row.empty
+          and bool((row["p_value"] < 0.05).iloc[0])
+          and bool((row["event_mean"] > row["control_mean"]).iloc[0])
+          and bool((row["effect_size"] < 0).iloc[0]),
+          f"got row={row.to_dict('records')}")
+
+
+# ---------------------------------------------------------------------------
 # 7. Edge cases -- should not crash
 # ---------------------------------------------------------------------------
 def test_edge_cases_do_not_crash():
@@ -306,6 +373,7 @@ if __name__ == "__main__":
     run_safely("stealth_accumulation bounds/direction", test_stealth_accumulation_bounds_and_direction)
     run_safely("NO LOOKAHEAD BIAS check", test_no_lookahead_bias)
     run_safely("find_events detection + false positive", test_find_events_detects_planted_move_and_no_false_positive)
+    run_safely("run_event_study restricted-panel scope", test_run_event_study_finds_planted_signal)
     run_safely("edge cases", test_edge_cases_do_not_crash)
 
     print("\n" + "=" * 70)

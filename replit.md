@@ -38,6 +38,18 @@ _Describe the high-level user-facing capabilities of this app once they exist._
   symbols, e.g. `score ASTS RKLB`), run each through the full 8-layer Smart Money
   Pressure engine via `GET /stock-api/conviction-stack/score/<ticker>` and report
   total points, tier, and which layers fired.
+- **Verification standing rule (precursor signal / backtest code):** any time a
+  module, function, or significant change is added under
+  `artifacts/stock-scanner-api/` (currently enforced for `precursor_signals.py`,
+  `event_study_backtest.py`, and any other `.py` file via the generalized
+  pre-commit hook), add corresponding test cases to
+  `artifacts/stock-scanner-api/verify_signals.py` in the SAME change. Tests must
+  check actual correctness on known-answer synthetic inputs (not just "doesn't
+  crash"), and any backtest/prediction code needs a no-lookahead-bias check.
+  Run `verify_signals.py` and show the full raw terminal output (not a summary)
+  before saying the work is done. Never use `git commit --no-verify` on this
+  repo. If a test fails, fix the underlying code — never delete, weaken, or
+  skip a failing test to make the suite pass.
 
 ## Gotchas
 
