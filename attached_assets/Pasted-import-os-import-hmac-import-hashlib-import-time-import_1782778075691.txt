@@ -1,0 +1,293 @@
+import os
+import hmac
+import hashlib
+import time
+import secrets
+import smtplib
+import subprocess
+from functools import wraps
+from threading import Thread
+from email.mime.text import MIMEText
+from datetime import datetime, timezone
+
+import requests
+from flask import request, abort, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CONFIGURATION — all values come from Replit Secrets, nothing hardcoded
+# ═════════════════════════════════════════════════════════════════════════════
+AIEM_TOKEN      = os.environ["AIEM_INTERNAL_TOKEN"]      # shared secret token
+AIEM_BASE_URL   = os.environ.get("AIEM_BASE_URL", "https://yourdomain.com")
+ALERT_EMAIL     = os.environ.get("ALERT_EMAIL", "")      # your email address
+SMTP_HOST       = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT       = int(os.environ.get("SMTP_PORT", 587))
+SMTP_USER       = os.environ.get("SMTP_USER", "")
+SMTP_PASS       = os.environ.get("SMTP_PASS", "")
+DATABASE_URL    = os.environ.get("DATABASE_URL", "")     # your Postgres URL
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 1. PROXYFIX — strips spoofed X-Forwarded-For headers automatically
+#    Call apply_proxy_fix(app) once after creating your Flask app
+# ═════════════════════════════════════════════════════════════════════════════
+def apply_proxy_fix(app):
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    return app
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 2. AUDIT LOGGER — writes every call to DB automatically
+# ═════════════════════════════════════════════════════════════════════════════
+def log_audit(verified: bool, ip: str, reason: str = None,
+              token_hint: str = None, job_id: str = None):
+    record = {
+        "at":       datetime.now(timezone.utc).isoformat(),
+        "ip":       ip,
+        "verified": verified,
+    }
+    if job_id:     record["job"]        = job_id
+    if token_hint: record["token_hint"] = f"...{token_hint}"
+    if reason:     record["reason"]     = reason
+    # Wire to your existing DB write here
+    print(f"AUDIT | {record}")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 3. SECURITY ALERTS — emails you automatically when attacks are detected
+# ═════════════════════════════════════════════════════════════════════════════
+def send_alert(subject: str, body: str):
+    if not all([ALERT_EMAIL, SMTP_USER, SMTP_PASS]):
+        return
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = f"[StockScanner Security] {subject}"
+        msg["From"]    = SMTP_USER
+        msg["To"]      = ALERT_EMAIL
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+    except Exception as e:
+        print(f"ALERT EMAIL FAILED | {e}")
+
+def alert_async(subject: str, body: str):
+    Thread(target=send_alert, args=(subject, body), daemon=True).start()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 4. IP BLOCKER — auto-bans IPs after 5 failed attempts for 5 minutes
+# ═════════════════════════════════════════════════════════════════════════════
+_failed_attempts: dict = {}
+MAX_FAILURES    = 5
+BLOCK_DURATION  = 300  # seconds
+
+def is_blocked(ip: str) -> bool:
+    record = _failed_attempts.get(ip)
+    if not record:
+        return False
+    if record["count"] >= MAX_FAILURES:
+        if time.time() - record["first"] < BLOCK_DURATION:
+            return True
+        del _failed_attempts[ip]
+    return False
+
+def record_failure(ip: str):
+    if ip not in _failed_attempts:
+        _failed_attempts[ip] = {"count": 0, "first": time.time()}
+    _failed_attempts[ip]["count"] += 1
+    count = _failed_attempts[ip]["count"]
+    if count == MAX_FAILURES:
+        alert_async(
+            f"IP Blocked: {ip}",
+            f"IP {ip} has been auto-blocked after {MAX_FAILURES} failed attempts.\n"
+            f"Time: {datetime.now(timezone.utc).isoformat()}"
+        )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 5. HMAC SIGNING — makes every request replay-proof automatically
+#    A stolen token can't be reused after 30 seconds
+# ═════════════════════════════════════════════════════════════════════════════
+def sign_request(question: str) -> tuple:
+    ts  = str(int(time.time()))
+    sig = hmac.new(AIEM_TOKEN.encode(), f"{ts}:{question}".encode(),
+                   hashlib.sha256).hexdigest()
+    return ts, sig
+
+def verify_signature(question: str, ts: str, sig: str, max_age: int = 30) -> bool:
+    try:
+        if abs(time.time() - int(ts)) > max_age:
+            return False
+        expected = hmac.new(AIEM_TOKEN.encode(), f"{ts}:{question}".encode(),
+                            hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, sig)
+    except Exception:
+        return False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 6. DECORATOR — blocks every request that didn't come from your AIEM
+#    Use @require_aiem_verification on any endpoint you want protected
+# ═════════════════════════════════════════════════════════════════════════════
+def require_aiem_verification(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        ip    = request.remote_addr
+        token = request.headers.get("X-AIEM-Token")
+        ts    = request.headers.get("X-AIEM-Timestamp")
+        sig   = request.headers.get("X-AIEM-Signature")
+
+        # Auto-block IPs that have failed too many times
+        if is_blocked(ip):
+            log_audit(verified=False, ip=ip, reason="ip_blocked")
+            abort(403)
+
+        # Check token
+        if token != AIEM_TOKEN:
+            record_failure(ip)
+            log_audit(verified=False, ip=ip, reason="bad_token")
+            abort(403)
+
+        # Check HMAC signature
+        question = request.json.get("question", "") if request.is_json else ""
+        if not verify_signature(question, ts or "", sig or ""):
+            record_failure(ip)
+            log_audit(verified=False, ip=ip, reason="bad_signature_or_replay")
+            abort(403)
+
+        log_audit(verified=True, ip=ip, token_hint=token[-4:])
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 7. AIEM CLIENT — sends signed token on every outbound question automatically
+# ═════════════════════════════════════════════════════════════════════════════
+def aiem_ask(question: str) -> dict:
+    ts, sig = sign_request(question)
+    response = requests.post(
+        f"{AIEM_BASE_URL}/stock-api/aiem/chat",
+        json={"question": question},
+        headers={
+            "X-AIEM-Token":     AIEM_TOKEN,
+            "X-AIEM-Timestamp": ts,
+            "X-AIEM-Signature": sig,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 8. TOKEN ROTATION — auto-generates a new token every 90 days
+#    Plug rotate_token_if_due() into one of your existing scheduled jobs
+# ═════════════════════════════════════════════════════════════════════════════
+_TOKEN_ROTATION_FILE = "/tmp/.last_token_rotation"
+TOKEN_ROTATION_DAYS  = 90
+
+def rotate_token_if_due():
+    now = time.time()
+    try:
+        with open(_TOKEN_ROTATION_FILE) as f:
+            last = float(f.read().strip())
+    except Exception:
+        last = 0
+
+    if now - last < TOKEN_ROTATION_DAYS * 86400:
+        return  # Not due yet
+
+    new_token = secrets.token_hex(32)
+    # Write back to Replit Secrets via environment (Replit agent must do the
+    # actual Secrets update — log it clearly so the agent can action it)
+    print(f"TOKEN ROTATION DUE | new_token={new_token}")
+    print("ACTION REQUIRED: Update AIEM_INTERNAL_TOKEN in Replit Secrets with the value above.")
+    alert_async(
+        "Token Rotation Due",
+        f"Your AIEM security token is due for rotation.\n\n"
+        f"New token: {new_token}\n\n"
+        f"Update AIEM_INTERNAL_TOKEN in Replit Secrets with this value."
+    )
+    with open(_TOKEN_ROTATION_FILE, "w") as f:
+        f.write(str(now))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 9. DATABASE BACKUP — dumps your Postgres DB automatically every night
+#    Plug run_backup_if_due() into one of your existing scheduled jobs
+# ═════════════════════════════════════════════════════════════════════════════
+_BACKUP_FILE     = "/tmp/.last_db_backup"
+BACKUP_INTERVAL  = 86400  # every 24 hours
+BACKUP_DIR       = "/tmp/db_backups"
+
+def run_backup_if_due():
+    if not DATABASE_URL:
+        return
+
+    now = time.time()
+    try:
+        with open(_BACKUP_FILE) as f:
+            last = float(f.read().strip())
+    except Exception:
+        last = 0
+
+    if now - last < BACKUP_INTERVAL:
+        return  # Not due yet
+
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    filename = f"{BACKUP_DIR}/backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.sql"
+
+    try:
+        result = subprocess.run(
+            ["pg_dump", DATABASE_URL, "-f", filename],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode == 0:
+            print(f"DB BACKUP SUCCESS | file={filename}")
+            with open(_BACKUP_FILE, "w") as f:
+                f.write(str(now))
+        else:
+            print(f"DB BACKUP FAILED | {result.stderr}")
+            alert_async("DB Backup Failed", f"pg_dump error:\n{result.stderr}")
+    except Exception as e:
+        print(f"DB BACKUP ERROR | {e}")
+        alert_async("DB Backup Error", str(e))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 10. BOOTSTRAP — call this once in your main app to wire everything in
+# ═════════════════════════════════════════════════════════════════════════════
+def init_security(app):
+    apply_proxy_fix(app)
+
+    # Debug route — remove after confirming ProxyFix works
+    @app.route("/stock-api/aiem/debug-ip")
+    def debug_ip():
+        return jsonify({
+            "ip":        request.remote_addr,
+            "forwarded": request.headers.get("X-Forwarded-For"),
+        })
+
+    print("SECURITY | aiem_security.py initialized — all protections active")
+    return app
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# HOW TO USE — paste these three lines into your main.py
+# ═════════════════════════════════════════════════════════════════════════════
+#
+#   from aiem_security import init_security, require_aiem_verification
+#   from aiem_security import run_backup_if_due, rotate_token_if_due
+#
+#   app = init_security(app)   ← add this right after you create your Flask app
+#
+#   Then add to one of your existing scheduled jobs (runs automatically):
+#   run_backup_if_due()        ← backs up DB every 24 hours
+#   rotate_token_if_due()      ← rotates token every 90 days, emails you the new one
+#
+#   Then protect any endpoint:
+#   @require_aiem_verification
+#   def your_endpoint():
+#       ...

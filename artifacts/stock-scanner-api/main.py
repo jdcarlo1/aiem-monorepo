@@ -110,10 +110,16 @@ from multiday_runner import (
 )
 
 app = Flask(__name__)
-from werkzeug.middleware.proxy_fix import ProxyFix
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-from aiem_verification import register_debug_route, verify_signature as _verify_req_sig, log_audit as _aiem_log_audit
-register_debug_route(app)
+from aiem_security import (
+    init_security as _init_security,
+    is_blocked as _aiem_is_blocked,
+    record_failure as _aiem_record_failure,
+    verify_signature as _verify_req_sig,
+    log_audit as _aiem_log_audit,
+    rotate_token_if_due as _rotate_token_if_due,
+    run_backup_if_due as _run_backup_if_due,
+)
+_init_security(app)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
 
@@ -2584,7 +2590,7 @@ try:
             _thr_mi.Thread(target=_send_morning_inflows_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] morning inflows email error: {e}")
-    for _mi_eh, _mi_em in [(9, 42), (13, 1)]:  # trimmed: dropped 10:01 (redundant — only 20 min after 9:42 wave)
+    for _mi_eh, _mi_em in [(9, 52), (13, 1)]:  # pushed 9:42→9:52: clears the 9:36 market-open scan window
         _scheduler.add_job(
             _run_morning_inflows_email,
             CronTrigger(day_of_week="mon-fri", hour=_mi_eh, minute=_mi_em, timezone=_ET),
@@ -4138,6 +4144,24 @@ try:
             print(f"[sched_alert] email error: {_ae}")
 
     _scheduler.add_listener(_sched_alert_listener, _APEV_MAX | _APEV_ERR)
+
+    # Security maintenance: token rotation check + DB backup (run at startup
+    # and then daily at 3:00 AM ET so /tmp state persists between checks).
+    def _run_security_maintenance():
+        try:
+            _rotate_token_if_due()
+            _run_backup_if_due()
+        except Exception as _e_sec:
+            print(f"[security] maintenance error: {_e_sec}")
+    _scheduler.add_job(
+        _run_security_maintenance,
+        CronTrigger(hour=3, minute=0, timezone=_ET),
+        id="security_maintenance_daily",
+        replace_existing=True,
+    )
+    import threading as _sec_boot_thr
+    _sec_boot_thr.Thread(target=_run_security_maintenance, daemon=True).start()
+
     _scheduler.start()
     # reconcile_orphaned_sessions is defined later in the file; defer so the
     # full module finishes loading before the function is looked up.
@@ -4150,7 +4174,7 @@ try:
           "nano: 8:00 AM ranking, 8:30 AM watch/buy | "
           "sc (stealth): 8:15 AM ranking, 9:53 watch, 9:57 buy | "
           "options warmer: 10:05 AM, 10:45 AM, 11:30 AM, 4:18 PM (moved from 9:45 to clear unusual-calls burst) | "
-          "morning inflows: 9:42 + 13:01 (email) | "
+          "morning inflows: 9:52 + 13:01 (email) | "
           "AIEM market-open: 9:55/10:00/10:05 AM (was 9:31/9:35/9:40 — burst staggered) | "
           "outcomes: 4:30-4:35 PM | cache warmer: every 90 min - Mon–Fri ET")
 
@@ -33936,6 +33960,11 @@ def darkpool():
         _dp_thr.Thread(target=_bg_dp, daemon=True).start()
     if _cache:
         return jsonify({**_cache, "stale": True})
+    # Try DB before returning empty — survives restarts and cold prod boots
+    _dp_db = _load_scan_cache("darkpool")
+    if _dp_db:
+        app._dp_cache = _dp_db; app._dp_cache_ts = datetime.now()
+        return jsonify({**_dp_db, "stale": True})
     return jsonify({"results": [], "date": None, "total_in_db": 0, "generating": True})
 
 
@@ -45507,9 +45536,14 @@ def aiem_chat_start():
     # ── Optional signed-request verification ─────────────────────────────
     # Programmatic callers send all three headers; the frontend sends none.
     # If X-AIEM-Token is present all three must be valid — partial headers = 403.
+    # IP blocker from aiem_security is applied first (auto-bans after 5 failures).
     _req_token = request.headers.get("X-AIEM-Token", "")
     if _req_token:
         import os as _aiem_os, hmac as _aiem_hmac
+        _client_ip   = request.remote_addr
+        if _aiem_is_blocked(_client_ip):
+            _aiem_log_audit(False, _client_ip, reason="ip_blocked")
+            return jsonify({"error": "Forbidden"}), 403
         _expected_tok = _aiem_os.environ.get("AIEM_INTERNAL_TOKEN", "")
         _req_ts  = request.headers.get("X-AIEM-Timestamp", "")
         _req_sig = request.headers.get("X-AIEM-Signature", "")
@@ -45517,10 +45551,11 @@ def aiem_chat_start():
         _tok_ok  = bool(_expected_tok) and _aiem_hmac.compare_digest(_expected_tok, _req_token)
         _sig_ok  = _verify_req_sig(_req_q, _req_ts, _req_sig) if _tok_ok else False
         if not _tok_ok or not _sig_ok:
-            _aiem_log_audit(False, request.remote_addr,
+            _aiem_record_failure(_client_ip)
+            _aiem_log_audit(False, _client_ip,
                             reason="bad_token" if not _tok_ok else "bad_signature_or_replay")
             return jsonify({"error": "Forbidden"}), 403
-        _aiem_log_audit(True, request.remote_addr, token_hint=_req_token[-4:])
+        _aiem_log_audit(True, _client_ip, token_hint=_req_token[-4:])
     # ─────────────────────────────────────────────────────────────────────
 
     data          = request.get_json(silent=True) or {}

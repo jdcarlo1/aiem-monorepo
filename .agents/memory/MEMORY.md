@@ -15,7 +15,6 @@
 - [Tradier migration complete](tradier-migration-complete.md) — Yahoo-only: ^VIX/market_cap/float/earnings/screener; everything else → _td_history/_td_intraday/_td_quotes
 - [Tradier circuit breaker](tradier-circuit-breaker.md) — _TD_BREAKER trips after 3 timeouts in 30s, cools 90s; wired into _td_history + _td_intraday fail-fast guards; _td_note_timeout() in exception handlers
 - [Yahoo breaker cooldown](yf-breaker-cooldown.md) — must be ≥300s; 60s caused trip→probe→trip spiral all morning; do not reduce
-- [Market-open tab spinners](market-open-spinners.md) — _yahoo_breaker NameError killed market_overview+squeeze_setup; 5 endpoints missing breaker guard; breaker conventions
 - [NCLEX Prep project state](nclex-prep-state.md) — question bank counts, categories, next question number, stack, and key constraints
 - [NCLEX always-B root cause](nclex-always-b.md) — 72% of questions had correct_letter="B" in DB (generation bug); fix = PL/pgSQL Fisher-Yates shuffle of options + correct_letter update; also clean explanation texts of letter refs
 - [Payment flow fixes](payment-flow-fixes.md) — three critical bugs fixed: webhook URL, success/cancel URL, webhook handler crash
@@ -98,3 +97,4 @@
 - [Decision logging wiring](decision-logging-wiring.md) — decision_logging_helper.py wires 4 signals; charm had silent ROUND(float8,int) bug fixed with ::numeric; decision_type must be trade/no_trade/hold/exit NOT signal_fire
 - [Premarket-to-open paper trading module](premarket-open-module.md) — opening_snapshot_tracker + premarket_open_trader; regime_detector has 15-min cache; scheduler starts at 9:45 not 9:30; decision_type must use _DECISION_TYPE_MAP
 - [AIEM speed fixes](aiem-speed-fixes.md) — fast-path(1-iter casual), 45s snapshot cache, parallel tool dispatch; tool_choice=none when max_iters==1
+- [Market-open tab spinners](market-open-spinners.md) — 9:36 burst fix: max_workers=4+coalesce; 9:52 morning-inflows; DB fallback on cold cache

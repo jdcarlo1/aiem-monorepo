@@ -1,33 +1,39 @@
 ---
-name: Market-open tab spinners root causes
-description: Why market_overview and squeeze_setup spun forever; circuit-breaker gaps across 5 endpoints
+name: Market-open tab spinners — root causes and fixes
+description: Why tabs spin at 9:30 AM market open and the layered fixes applied
 ---
 
-## The _yahoo_breaker NameError bug
-`_yahoo_breaker.allow()` / `.record_success()` / `.record_failure()` were called in
-the background threads of `market_overview` (line ~12461) and `squeeze_setup` (~19309)
-but the object was **never defined** anywhere in main.py. The background threads crashed
-with a silent `NameError`, the scans never completed, and the tabs showed the spinner
-indefinitely.
+## Root causes (confirmed June 2026)
+1. **Scheduler burst**: many jobs fire 9:30-9:45 when Reserved VM (always-on) actually
+   runs all of them. APScheduler default config (max_workers=10, misfire_grace_time=1s,
+   coalesce=False) lets jobs stack. Fixed to: ThreadPool(max_workers=4), coalesce=True,
+   max_instances=1, misfire_grace_time=600.
 
-**Fix:** Added `_YFBreakerCompat` class right after `_yf_breaker_open()` that routes
-all three methods through the existing `_YF_BREAKER` / `_yf_breaker_trip()` / 
-`_yf_breaker_probe_success()` machinery. Defined as `_yahoo_breaker = _YFBreakerCompat()`.
+2. **Inline live fetches**: endpoints that do synchronous yfinance inside the HTTP worker
+   thread hang 8-18s when Yahoo throttles. Fixed by: bg-thread pattern (start scan, return
+   stale cache immediately) + _yf_breaker_open() guard before any live fetch.
 
-**Why:** The two endpoints were written with a slightly different breaker API before the
-main `_YF_BREAKER` dict pattern was standardized. The class was never created.
+3. **No DB fallback on cold cache**: after a restart the in-memory cache is empty and the
+   bg thread hasn't finished yet → blank tab. Fixed by loading _load_scan_cache("tab-id")
+   before returning the empty generating:True response.
 
-## 5 endpoints missing breaker guard
-`convergence`, `composite-score`, `52week-breakout`, `earnings-calendar`, `multi-signal`
-all used the correct background-thread pattern (return immediately, scan in daemon thread)
-but launched background scans even when `_yf_breaker_open()` was True — burning Yahoo
-quota during throttle windows. Each got a `_yf_breaker_open()` early-exit added.
+## Morning burst schedule (as of 2026-06-30)
+Critical window: 9:36 AM ET (market_open_unusual_calls — heaviest daily yfinance scan)
+- 9:35 AM: aiem_paper_execute (Tradier + DB only — safe)
+- 9:36 AM: market_open_unusual_calls ← DO NOT add jobs near this slot
+- 9:45-9:59/5: premarket_open_tracker
+- 9:52 AM: morning_inflows_email (was 9:42 → moved to clear the scan window)
+- 10:00 AM+: ai_trades_auto, top_pick_email, sms_alert_scan, ai_short_calls_auto, etc.
 
-**Pattern:** Place the breaker check BEFORE `threading.Thread(target=_bg_*).start()`,
-not inside the background function, so the scan is never launched when throttled.
+**Why:** 9:42 job competed for yfinance token bucket during the heaviest scan;
+pushing to 9:52 gives 16 min of headroom.
 
-## Breaker conventions across the file
-- `_yf_breaker_open()` → True when breaker is NOT closed (use this for endpoint guards)
-- `_yf_breaker_trip()` → force-open the breaker (on 429/401 burst detection)  
-- `_yf_breaker_probe_success()` → close the breaker (on successful half-open probe)
-- `_yahoo_breaker` → compat shim, same semantics, for the two legacy call sites
+## Breaker cooldown
+_YF_BREAKER_COOLDOWN = 300s. Do not reduce. After any test that trips the breaker,
+wait 5 min or call POST /stock-api/admin/reset-breaker (requires X-Admin-Token header).
+
+## Endpoints safe without Yahoo breaker guard
+- 52week-breakout: _td_quotes (Tradier) only
+- morning-runners: _td_quotes + _pg_market_cap_batch (Tradier + Polygon) only
+- daily-top10: memory → DB → bg refresh pattern, no live fetch in HTTP thread
+- outcomes: pure DB query (_get_signal_outcomes)
