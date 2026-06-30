@@ -54,7 +54,8 @@ _HEALTH_PORT    = int(os.environ.get('AIEM_HEALTH_PORT', '5051'))
 # DATABASE POOL
 # ─────────────────────────────────────────────────────────────
 _AIEM_POOL     = None
-_scheduler_ref = None   # set in main() so health endpoint can read .running
+_scheduler_ref        = None   # set in main() so health endpoint can read .running
+_polygon_retry_fired: set = set()  # dates (str) where a retry was already queued
 
 def _init_pool():
     global _AIEM_POOL
@@ -269,6 +270,74 @@ def _aiem_get_grouped_daily(for_date: date = None) -> list:
                     {'adjusted': 'true'}, timeout=45).get('results', [])
     log.info(f"Grouped daily {d}: {len(results)} stocks")
     return results
+
+def _try_fetch_and_store_daily(conn, for_date: date) -> int:
+    """
+    Live fallback: fetch Polygon grouped-daily for `for_date` and upsert into
+    polygon_market_daily.  Called when the nightly job missed a day (Polygon
+    was briefly down).  Returns the number of new rows written.
+    """
+    results = _aiem_get_grouped_daily(for_date)
+    if not results:
+        log.warning(f"[polygon_retry] Polygon returned 0 rows for {for_date} — still down?")
+        return 0
+    cur  = conn.cursor()
+    rows = 0
+    for r in results:
+        t = r.get('T', '')
+        if not t or len(t) > 10:
+            continue
+        o, c   = r.get('o') or 0, r.get('c') or 0
+        h, l   = r.get('h') or 0, r.get('l') or 0
+        v, vw  = r.get('v') or 0, r.get('vw') or 0
+        pc     = r.get('pc') or 0
+        gap    = round(((c - pc) / pc * 100), 4) if pc > 0 else 0
+        try:
+            cur.execute("""
+                INSERT INTO polygon_market_daily
+                    (scan_date, ticker, close_price, open_price, high_price,
+                     low_price, vwap, volume, prev_close, gap_pct)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (scan_date, ticker) DO NOTHING
+            """, (for_date, t, c, o, h, l, vw, v, pc, gap))
+            rows += cur.rowcount
+        except Exception:
+            pass
+    conn.commit()
+    log.info(f"[polygon_retry] ✅ stored {rows} rows for {for_date}")
+    return rows
+
+
+def _schedule_polygon_retry(label: str = ""):
+    """
+    Schedule a one-shot re-run of aiem_premarket_scan 15 minutes from now.
+    Only fires once per calendar date so quiet market days don't loop forever.
+    """
+    today_str = str(date.today())
+    if today_str in _polygon_retry_fired:
+        log.info("[polygon_retry] retry already queued for today — skipping")
+        return
+    if _scheduler_ref is None:
+        log.warning("[polygon_retry] scheduler not available — cannot queue retry")
+        return
+    _polygon_retry_fired.add(today_str)
+    retry_dt = datetime.now(ET) + timedelta(minutes=15)
+    try:
+        _scheduler_ref.add_job(
+            _logged_job(aiem_premarket_scan),
+            'date',
+            run_date=retry_dt,
+            id='aiem_premarket_retry',
+            replace_existing=True,
+            misfire_grace_time=600,
+        )
+        log.warning(
+            f"[polygon_retry] 🔄 retry scheduled for {retry_dt.strftime('%H:%M ET')}"
+            + (f" — reason: {label}" if label else "")
+        )
+    except Exception as e:
+        log.error(f"[polygon_retry] could not schedule retry: {e}")
+
 
 def _aiem_get_ticker_details(ticker: str) -> dict:
     """Float, market cap, shares outstanding from Polygon reference."""
@@ -618,8 +687,33 @@ def aiem_premarket_scan():
         cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
         latest_date = cur.fetchone()[0]
         if not latest_date:
-            log.warning("polygon_market_daily is empty — backfill may not have run yet")
-            return
+            log.warning("polygon_market_daily is empty — attempting live Polygon fetch")
+            # Polygon may have been down during the nightly backfill; try now.
+            _yesterday = date.today() - timedelta(days=1)
+            _rows = _try_fetch_and_store_daily(conn, _yesterday)
+            if _rows == 0:
+                _schedule_polygon_retry("DB empty + live fetch also returned 0")
+                return
+            cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+            latest_date = cur.fetchone()[0]
+            if not latest_date:
+                _schedule_polygon_retry("DB still empty after fetch attempt")
+                return
+
+        # If the DB is more than 2 calendar days stale on a weekday, try to
+        # backfill the missing date rather than scanning on stale data.
+        _today = date.today()
+        if _today.weekday() < 5 and (_today - latest_date).days > 2:
+            log.warning(f"[polygon_retry] DB stale: latest={latest_date}, today={_today} "
+                        f"({(_today - latest_date).days}d gap) — fetching missing data")
+            _missing = latest_date + timedelta(days=1)
+            _rows = _try_fetch_and_store_daily(conn, _missing)
+            if _rows > 0:
+                cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+                latest_date = cur.fetchone()[0]
+            else:
+                _schedule_polygon_retry(f"stale DB ({(_today - latest_date).days}d) + fetch returned 0")
+                return
 
         cur.execute("""
             SELECT ticker, close_price, open_price, high_price, volume,
@@ -640,6 +734,7 @@ def aiem_premarket_scan():
                  f"(gap≥{MIN_GAP_PCT}%, vol≥{MIN_PREMARKET_VOLUME:,}, price ${MIN_PRICE}-${MAX_PRICE})")
         if not candidates:
             log.warning("No candidates from polygon_market_daily — market may have been quiet")
+            _schedule_polygon_retry("0 candidates in DB for latest_date")
             return
 
         # Step 2: Load trust weights
@@ -825,6 +920,10 @@ def aiem_premarket_scan():
 
         if not scored:
             log.warning("No tickers survived deep scoring")
+            # All candidates were filtered out — could be Polygon returning bad
+            # data (empty details/news) during an outage, causing scoring to fail.
+            # Schedule one retry 15 min later (once per day).
+            _schedule_polygon_retry("0 tickers survived deep scoring")
             return
 
         scored.sort(key=lambda x: x['conf'], reverse=True)
