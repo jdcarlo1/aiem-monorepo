@@ -29390,7 +29390,7 @@ def _aiem_tool_run_level2(symbol: str = "AAPL", days_back: int = 200) -> dict:
     Uses real polygon_market_daily data.
     """
     try:
-        from aiem_level2 import AIEM_Level2 as _L2
+        from aiem_level2 import AEIM_Level2 as _L2
         return _L2().run(symbol.upper().strip(), days_back=int(days_back))
     except Exception as _e:
         return {"error": str(_e)}
@@ -29454,7 +29454,7 @@ def _aiem_tool_run_level3(symbol: str = "AAPL",
     Uses real Polygon data and live AIEM modules.
     """
     try:
-        from aiem_level3 import AIEM_Level3 as _L3
+        from aiem_level3 import AEIM_Level3 as _L3
         return _L3().run(
             symbol.upper().strip(),
             days_back=int(days_back),
