@@ -1,0 +1,235 @@
+from datetime import datetime, date, timezone
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────
+# HELPER STUBS — replace with your Polygon/DB calls
+# ─────────────────────────────────────────────
+
+def get_gap_open_price(ticker: str) -> float:
+    """Return the price at which the stock gapped up (today's open or yesterday's open)."""
+    raise NotImplementedError
+
+def get_current_price(ticker: str) -> float:
+    """Return the latest trade price."""
+    raise NotImplementedError
+
+def get_gap_date(ticker: str) -> date:
+    """Return the date the gap originated."""
+    raise NotImplementedError
+
+def get_vwap(ticker: str) -> float:
+    """Return today's VWAP."""
+    raise NotImplementedError
+
+def get_volume_trend(ticker: str) -> str:
+    """Return 'increasing' or 'decreasing' based on intraday volume bars."""
+    raise NotImplementedError
+
+def get_catalyst_timestamp(ticker: str) -> datetime:
+    """Return the UTC datetime of the most recent catalyst (PR, 8-K, etc.)."""
+    raise NotImplementedError
+
+
+# ─────────────────────────────────────────────
+# 1. IS STALE GAP?
+# ─────────────────────────────────────────────
+
+def is_stale_gap(ticker: str, scan_timestamp: datetime) -> tuple[bool, str | None]:
+    """
+    Returns (True, reason) if the gap is stale, (False, None) if it's still fresh.
+    """
+    gap_open        = get_gap_open_price(ticker)
+    current_price   = get_current_price(ticker)
+    gap_origin_date = get_gap_date(ticker)
+    today           = scan_timestamp.date()
+
+    # Gap happened on a prior session
+    if gap_origin_date < today:
+        return True, "GAP_IS_YESTERDAY"
+
+    # Already extended 30%+ beyond the gap open price
+    if gap_open and gap_open > 0:
+        extension = (current_price - gap_open) / gap_open
+        if extension > 0.30:
+            return True, f"EXTENDED_FROM_GAP ({extension:.1%})"
+
+    return False, None
+
+
+# ─────────────────────────────────────────────
+# 2. CATALYST DECAY PENALTY
+# ─────────────────────────────────────────────
+
+def catalyst_conviction_penalty(ticker: str, scan_timestamp: datetime) -> int:
+    """
+    Returns a negative integer to subtract from conviction score based on
+    how old the catalyst is.
+    """
+    try:
+        catalyst_ts = get_catalyst_timestamp(ticker)
+    except Exception:
+        logger.warning(f"[{ticker}] No catalyst timestamp found — applying max penalty.")
+        return -4
+
+    # Make both timestamps offset-aware for safe comparison
+    if catalyst_ts.tzinfo is None:
+        catalyst_ts = catalyst_ts.replace(tzinfo=timezone.utc)
+    if scan_timestamp.tzinfo is None:
+        scan_timestamp = scan_timestamp.replace(tzinfo=timezone.utc)
+
+    age_hours = (scan_timestamp - catalyst_ts).total_seconds() / 3600
+
+    if age_hours > 48:
+        penalty = -4   # Near-disqualifying
+    elif age_hours > 24:
+        penalty = -2   # Significant dock
+    else:
+        penalty = 0    # Fresh catalyst, no penalty
+
+    logger.info(f"[{ticker}] Catalyst age: {age_hours:.1f}h → conviction penalty: {penalty}")
+    return penalty
+
+
+# ─────────────────────────────────────────────
+# 3. VWAP POSITION AWARENESS
+# ─────────────────────────────────────────────
+
+def vwap_day2_tag(ticker: str, move_day: int) -> str | None:
+    """
+    On day 2+ of a move, checks if price is extended above VWAP on fading volume.
+    Returns a tag string if bearish, None if neutral/bullish.
+    """
+    if move_day < 2:
+        return None
+
+    current_price  = get_current_price(ticker)
+    vwap           = get_vwap(ticker)
+    volume_trend   = get_volume_trend(ticker)   # 'increasing' or 'decreasing'
+
+    if vwap and vwap > 0:
+        vwap_position = (current_price - vwap) / vwap
+        if volume_trend == "decreasing" and vwap_position > 0.05:
+            tag = "DAY2_EXTENDED_ABOVE_VWAP"
+            logger.warning(f"[{ticker}] {tag} — {vwap_position:.1%} above VWAP with fading volume")
+            return tag
+
+    return None
+
+
+# ─────────────────────────────────────────────
+# 4. MOVE DAY CALCULATOR
+# ─────────────────────────────────────────────
+
+def get_move_day(ticker: str, scan_date: date) -> int:
+    """
+    Returns how many sessions old this move is.
+    Day 1 = gap originated today.
+    Day 2+ = prior session(s).
+
+    In production, query your signals table:
+        SELECT gap_origin_date FROM signals WHERE ticker = %s ORDER BY ts DESC LIMIT 1
+    """
+    gap_origin_date = get_gap_date(ticker)
+    delta = (scan_date - gap_origin_date).days
+
+    # Simple calendar-day proxy; swap for trading-day count if needed
+    move_day = max(1, delta + 1)
+    logger.info(f"[{ticker}] Move day: {move_day}")
+    return move_day
+
+
+# ─────────────────────────────────────────────
+# MASTER EVALUATION FUNCTION
+# ─────────────────────────────────────────────
+
+def evaluate_signal(ticker: str, base_conviction: int, scan_timestamp: datetime) -> dict:
+    """
+    Runs all four staleness checks against a signal and returns a verdict dict.
+
+    Args:
+        ticker:           Stock symbol
+        base_conviction:  Raw conviction score from your 9-layer engine (0–100)
+        scan_timestamp:   UTC datetime of the scan
+
+    Returns:
+        {
+            "ticker": str,
+            "action": "PASS" | "SKIP",
+            "final_conviction": int,
+            "tags": list[str],
+            "reason": str
+        }
+    """
+    tags   = []
+    reason = ""
+    scan_date = scan_timestamp.date()
+
+    # ── Check 1: Stale gap ──────────────────────────────────────────────
+    stale, stale_reason = is_stale_gap(ticker, scan_timestamp)
+    if stale:
+        return {
+            "ticker":           ticker,
+            "action":           "SKIP",
+            "final_conviction": 0,
+            "tags":             [stale_reason],
+            "reason":           f"Stale gap detected: {stale_reason}",
+        }
+
+    # ── Check 2: Catalyst decay penalty ────────────────────────────────
+    penalty = catalyst_conviction_penalty(ticker, scan_timestamp)
+    adjusted_conviction = base_conviction + penalty
+    if penalty < 0:
+        tags.append(f"CATALYST_PENALTY({penalty})")
+
+    # ── Check 3: Move day ───────────────────────────────────────────────
+    move_day = get_move_day(ticker, scan_date)
+    if move_day >= 2:
+        tags.append(f"MOVE_DAY_{move_day}")
+
+    # ── Check 4: VWAP day-2 awareness ──────────────────────────────────
+    vwap_tag = vwap_day2_tag(ticker, move_day)
+    if vwap_tag:
+        tags.append(vwap_tag)
+        adjusted_conviction -= 3  # Additional penalty for exhaustion pattern
+
+    # ── Final verdict ───────────────────────────────────────────────────
+    CONVICTION_THRESHOLD = 70  # Tune to your system
+
+    if adjusted_conviction < CONVICTION_THRESHOLD:
+        action = "SKIP"
+        reason = f"Conviction {adjusted_conviction} below threshold {CONVICTION_THRESHOLD} after staleness adjustments"
+    else:
+        action = "PASS"
+        reason = f"Signal cleared all staleness checks. Conviction: {adjusted_conviction}"
+
+    logger.info(f"[{ticker}] {action} | Conviction: {base_conviction} → {adjusted_conviction} | Tags: {tags}")
+
+    return {
+        "ticker":           ticker,
+        "action":           action,
+        "final_conviction": adjusted_conviction,
+        "tags":             tags,
+        "reason":           reason,
+    }
+
+
+# ─────────────────────────────────────────────
+# EXAMPLE USAGE
+# ─────────────────────────────────────────────
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    tickers = ["TNMG", "DCOY", "CNET", "KNDI", "JATT"]
+    now     = datetime.now(timezone.utc)
+
+    for symbol in tickers:
+        result = evaluate_signal(
+            ticker           = symbol,
+            base_conviction  = 95,   # Your scanner's raw score
+            scan_timestamp   = now,
+        )
+        print(result)

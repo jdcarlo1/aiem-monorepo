@@ -501,6 +501,105 @@ def _aiem_score_microcap(ticker: str, snap: dict, details: dict,
 
 
 # ─────────────────────────────────────────────────────────────
+# MULTI-DAY CONTEXT — continuation vs exhaustion classifier
+# This is the core of AIEM's self-learning: it must distinguish
+# a stock that is BUILDING (buy) from one that already EXPLODED (fade).
+# ─────────────────────────────────────────────────────────────
+def _get_multiday_context(tickers: list, conn) -> dict:
+    """Batch-fetch last 10 trading days for all candidates in one query."""
+    if not tickers:
+        return {}
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ticker, scan_date, close_price, open_price, volume, gap_pct, rvol
+            FROM polygon_market_daily
+            WHERE ticker = ANY(%s)
+              AND scan_date >= (SELECT MAX(scan_date) FROM polygon_market_daily)
+                              - INTERVAL '12 days'
+            ORDER BY ticker, scan_date ASC
+        """, (tickers,))
+        cols = ['ticker', 'scan_date', 'close_price', 'open_price',
+                'volume', 'gap_pct', 'rvol']
+        result: dict = {}
+        for row in cur.fetchall():
+            d = dict(zip(cols, row))
+            result.setdefault(d['ticker'], []).append(d)
+        return result
+    except Exception as e:
+        log.error(f"multiday_context error: {e}")
+        return {}
+
+
+def _score_multiday(history: list) -> dict:
+    """
+    Given N days of OHLCV history (sorted oldest→newest), classify the most
+    recent day's move as CONTINUATION (reward) or EXHAUSTION (penalise + cap).
+
+    Returns dict: bonus (int), penalty (int), cap (0-100), label (str)
+
+    AIEM calls this for every candidate. Over time, as outcomes grade out
+    and trust weights update, the signals here gain/lose influence — but the
+    exhaustion cap is a hard rule that overrides low trust because a stock
+    that gapped 107% yesterday almost never continues the next day.
+    """
+    out = {'bonus': 0, 'penalty': 0, 'cap': 100, 'label': ''}
+    if len(history) < 2:
+        return out
+
+    yesterday  = history[-1]
+    prior      = history[:-1]
+
+    yesterday_gap = float(yesterday.get('gap_pct') or 0)
+    prior_gaps    = [abs(float(d.get('gap_pct') or 0)) for d in prior]
+    avg_prior_gap = sum(prior_gaps) / len(prior_gaps) if prior_gaps else 0
+
+    # Count consecutive up-closes ending on yesterday
+    up_days = 0
+    for i in range(len(history) - 1, 0, -1):
+        c = float(history[i].get('close_price') or 0)
+        p = float(history[i-1].get('close_price') or 0)
+        if c > 0 and p > 0 and c > p:
+            up_days += 1
+        else:
+            break
+
+    # Volume trend: is vol building day over day? (last 3 days)
+    vols = [float(d.get('volume') or 0) for d in history[-3:]]
+    vol_rising = (len(vols) == 3 and vols[0] > 0 and vols[2] > vols[0] * 1.15)
+
+    # Spike test: yesterday's gap is 3× the average of prior days
+    # → single-day explosion, not a trend
+    is_spike = (yesterday_gap > 15 and
+                yesterday_gap > max(avg_prior_gap * 3.0, 8.0))
+
+    # ── CONTINUATION: quiet multi-day buildup — exactly what AIEM should buy
+    if up_days >= 3 and not is_spike:
+        out['bonus'] = 20
+        out['label'] = f"CONTINUATION {up_days}d buildup"
+        if vol_rising:
+            out['bonus'] += 8
+            out['label'] += "+vol"
+    elif up_days == 2 and not is_spike:
+        out['bonus'] = 10
+        out['label'] = "2d buildup"
+
+    # ── EXHAUSTION: single-day explosion, overextended — AIEM should avoid
+    if is_spike:
+        out['penalty'] = 30
+        out['label']   = (f"EXHAUSTION {yesterday_gap:.0f}% spike "
+                          f"(prior avg {avg_prior_gap:.1f}%)")
+        if yesterday_gap >= 50:
+            out['cap']    = 55   # hard cap: never rank these as top picks
+            out['label'] += " ← FADE RISK"
+        elif yesterday_gap >= 30:
+            out['cap']    = 65
+            out['label'] += " ← HIGH FADE RISK"
+
+    return out
+
+
+# ─────────────────────────────────────────────────────────────
 # JOB 1: PREMARKET SCAN — every 15 min 7:00–9:30 AM ET
 # ─────────────────────────────────────────────────────────────
 def aiem_premarket_scan():
@@ -545,6 +644,13 @@ def aiem_premarket_scan():
         # Step 2: Load trust weights
         trust_weights = _load_trust_weights(conn)
 
+        # Step 2.5: Batch-fetch multi-day context for all candidates in ONE query.
+        # This is what lets AIEM distinguish a 3-day buildup (buy) from a
+        # single-day explosion (fade). TNMG +107% in one day = exhaustion.
+        top_tickers  = [c['ticker'] for c in candidates[:100]]
+        multiday_ctx = _get_multiday_context(top_tickers, conn)
+        log.info(f"Multi-day context loaded for {len(multiday_ctx)} tickers")
+
         # Step 3: Deep score each candidate — adds ticker details + news from Polygon API
         scored = []
         for c in candidates[:50]:
@@ -579,9 +685,21 @@ def aiem_premarket_scan():
                 conf, sig_basis, reasoning, predicted = _aiem_score_microcap(
                     ticker, snap, details, news, trust_weights
                 )
+
+                # Apply multi-day adjustment: penalise exhaustion, reward buildup
+                md       = _score_multiday(multiday_ctx.get(ticker, []))
+                adj_conf = max(0.0, min(float(md['cap']),
+                                        conf + md['bonus'] - md['penalty']))
+                adj_conf = round(adj_conf, 1)
+                if md['label']:
+                    reasoning = f"[{md['label']}] {reasoning}"
+                log.info(f"  {ticker}: raw={conf:.1f}→adj={adj_conf:.1f} "
+                         f"gap={c['gap_pct']:.1f}% rvol={c.get('rvol') or 0:.1f}x"
+                         + (f" ({md['label']})" if md['label'] else ""))
+
                 scored.append({
                     'ticker':    ticker,
-                    'conf':      conf,
+                    'conf':      adj_conf,
                     'sig_basis': sig_basis,
                     'reasoning': reasoning,
                     'predicted': predicted,
@@ -589,8 +707,6 @@ def aiem_premarket_scan():
                     'volume':    c['volume'],
                     'rvol':      c.get('rvol') or 1.0,
                 })
-                log.info(f"  {ticker}: conf={conf:.1f} gap={c['gap_pct']:.1f}% "
-                         f"vol={c['volume']:,} rvol={c.get('rvol') or 0:.1f}x")
                 time.sleep(0.1)
             except Exception as e:
                 log.error(f"Deep score error {ticker}: {e}")
@@ -739,7 +855,7 @@ def aiem_grade_outcomes():
         cur  = conn.cursor()
 
         cur.execute("""
-            SELECT p.ticker, p.confidence_score
+            SELECT p.ticker, p.confidence_score, p.signal_basis
             FROM aiem_predictions p
             LEFT JOIN aiem_prediction_outcomes o
                 ON p.ticker = o.ticker AND p.prediction_date = o.prediction_date
@@ -751,8 +867,9 @@ def aiem_grade_outcomes():
             log.info("Nothing to grade today")
             return
 
-        graded = wins = 0
-        for ticker, conf in ungraded:
+        graded        = wins = 0
+        graded_details = []   # (ticker, t1_return, signal_basis)
+        for ticker, conf, sig_basis in ungraded:
             try:
                 snap        = _aiem_get_snapshot(ticker)
                 day         = snap.get('day', {})
@@ -777,6 +894,7 @@ def aiem_grade_outcomes():
                 graded += 1
                 if win_t1:
                     wins += 1
+                graded_details.append((ticker, t1_return, sig_basis or ''))
                 log.info(f"  {ticker}: {t1_return:+.1f}% {'WIN' if win_t1 else 'LOSS'}")
                 time.sleep(0.1)
 
@@ -786,6 +904,36 @@ def aiem_grade_outcomes():
         conn.commit()
         wr = (wins / graded * 100) if graded > 0 else 0
         log.info(f"Graded {graded} predictions — win rate today: {wr:.1f}%")
+
+        # ── AIEM Self-Analysis: figure out what went wrong and say so
+        if graded_details:
+            w_picks = [(t, r, s) for t, r, s in graded_details if r  > 0]
+            l_picks = [(t, r, s) for t, r, s in graded_details if r <= 0]
+            avg_ret = sum(r for _, r, _ in graded_details) / len(graded_details)
+
+            # Which signals appeared most on losers?
+            loss_sig_freq: dict = {}
+            for _, _, sb in l_picks:
+                for sig in sb.split(','):
+                    sig = sig.strip()
+                    if sig:
+                        loss_sig_freq[sig] = loss_sig_freq.get(sig, 0) + 1
+            top_loss_sigs = sorted(loss_sig_freq.items(), key=lambda x: -x[1])[:3]
+
+            msg  = f"🤖 AIEM SELF-ANALYSIS — {today}\n"
+            msg += f"{'✅' if len(w_picks) > len(l_picks) else '❌'} "
+            msg += f"{len(w_picks)}W / {len(l_picks)}L  avg: {avg_ret:+.1f}%\n"
+            if l_picks:
+                worst = min(l_picks, key=lambda x: x[1])
+                msg += f"Worst: {worst[0]} {worst[1]:+.1f}%\n"
+                if top_loss_sigs:
+                    msg += f"Loss signals: {', '.join(s for s, _ in top_loss_sigs)}\n"
+            if w_picks:
+                best = max(w_picks, key=lambda x: x[1])
+                msg += f"Best: {best[0]} {best[1]:+.1f}%\n"
+            msg += f"Trust weights updating 6PM → tomorrow's picks adjusted."
+            _aiem_send_sms(msg)
+            log.info(f"Self-analysis sent: {len(w_picks)}W/{len(l_picks)}L avg={avg_ret:+.1f}%")
 
         # Also update T3/T5 for older predictions
         _grade_t3_t5(conn)
