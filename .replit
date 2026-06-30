@@ -39,12 +39,12 @@ outputType = "console"
 name = "artifacts/stock-scanner: aiem-process"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python /home/runner/workspace/artifacts/stock-scanner-api/aiem_process.py"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 /home/runner/workspace/aiem_autonomous.py"
 
 [agent]
 stack = "PNPM_WORKSPACE"

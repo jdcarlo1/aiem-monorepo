@@ -1,3 +1,5 @@
+- [AIEM autonomous engine](aiem-autonomous-engine.md) — aiem_autonomous.py at project root; BlockingScheduler; Polygon bulk_snapshot 8K tickers; signal_fire_log uses fire_date not fired_at; aiem_research_insights not aiem_signal_discoveries for missed runners
+- [9:30 burst fixes](burst-fixes.md) — iv-rank 500 = threading.ThreadError during burst (wrap Thread() in try/except); standout-track NaN = always use Response(json.dumps(_scrub(), allow_nan=False)) not jsonify; morning-inflows breaker before EquityQuery live scan
 - [AIEM chat latency profile](aiem-chat-latency.md) — DB tools 0-10ms (not bottleneck); OpenAI gpt-5.4 = 1.5-52s jitter (all the time); image questions need min 3 iters; review_own_accuracy now conditional
 - [Flask thread saturation](flask-thread-saturation.md) — 120+ threads from concurrent scan endpoints starves Flask; pure-DB endpoints appear to "hang" (000); fix = wait for startup preload before testing
 - [Grinder-scan DB indexes](grinder-scan-indexes.md) — two CONCURRENT indexes cut query 18s→0.49s; also statement_timeout must match thread deadline

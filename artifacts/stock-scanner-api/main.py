@@ -1935,12 +1935,12 @@ try:
         except Exception as _e:
             print(f"[scheduler] premarket_open_tracker error: {_e}")
 
-    # Starts at 9:45 (not 9:30) so the first 3 slots of the critical open burst
-    # (9:30, 9:35, 9:40) are free for the unusual-calls market-open scan and other
-    # heavy jobs. Options data isn't reliable until ~9:40 anyway.
+    # Pushed from 9:45 → 9:52 so it doesn't compete with the 9:36 unusual-calls
+    # market-open scan (~12 min runtime ends ~9:48). One slot at 9:52 is enough;
+    # the 10:30 AM morning-scan continues coverage after that.
     _scheduler.add_job(
         _run_premarket_open_tracker,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute="45-59/5", timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=52, timezone=_ET),
         id="premarket_open_tracker",
         replace_existing=True,
     )
@@ -10314,7 +10314,7 @@ def _send_sms(message: str, to: str = None) -> None:
     to = to or _OWNER_PHONE
     sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
     token = os.environ.get("TWILIO_AUTH_TOKEN", "")
-    from_num = os.environ.get("TWILIO_PHONE_NUMBER", "")
+    from_num = os.environ.get("TWILIO_FROM_NUMBER", "") or os.environ.get("TWILIO_PHONE_NUMBER", "")
 
     if sid and token and from_num:
         try:
@@ -11800,9 +11800,11 @@ except Exception as _e_fp_sched:
 # AIEM autonomous paper trading scheduler jobs
 # Use lambdas so the name lookup happens at call-time (functions defined later in file)
 try:
+    # Pushed from 9:35 → 9:42 so it doesn't fire simultaneously with the
+    # 9:36 unusual-calls market-open scan (heaviest Yahoo job of the day).
     _scheduler.add_job(
         lambda: _aiem_paper_execute_today(),
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=35, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=42, timezone=_ET),
         id="aiem_paper_execute",
         replace_existing=True,
     )
@@ -40812,9 +40814,14 @@ def iv_rank():
     def _iv_runner():
         try: _iv_out[0] = _compute()
         except Exception as _ive: print(f"[iv_rank] runner error: {_ive}")
-    _t = _iv_thr_mod.Thread(target=_iv_runner, daemon=True)
-    _t.start()
-    _t.join(timeout=4)
+    try:
+        # ThreadError can fire during burst if thread pool is saturated —
+        # catch it here so Flask never sees an unhandled exception → 500.
+        _t = _iv_thr_mod.Thread(target=_iv_runner, daemon=True)
+        _t.start()
+        _t.join(timeout=4)
+    except Exception as _iv_terr:
+        print(f"[iv_rank] thread error: {_iv_terr}")
     try:
         data = _iv_out[0] if _iv_out[0] is not None else _iv_empty
         return jsonify(data)
@@ -41830,6 +41837,17 @@ def morning_inflows():
                 return jsonify(_db_mi_payload)
         except Exception as _dbe_mi:
             print(f"[morning_inflows] db load error: {_dbe_mi}")
+
+    # T003: fail-fast when Yahoo circuit breaker is tripped — return stale cache
+    # immediately rather than hanging 18s+ on throttled yfinance calls.
+    if _yf_breaker_open():
+        print("[morning_inflows] Yahoo breaker open — returning stale cache")
+        _mi_stale = getattr(app, '_mi_cache', None)
+        if _mi_stale:
+            _mi_out = dict(_mi_stale)
+            _mi_out['stale'] = True
+            return jsonify(_mi_out)
+        return jsonify({"standouts": [], "stale": True, "reason": "Yahoo throttled"})
 
     import pytz as _pytz_mi2
     _et2       = _pytz_mi2.timezone("America/New_York")
