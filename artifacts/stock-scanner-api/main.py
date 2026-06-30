@@ -46459,6 +46459,54 @@ def all_code_text():
         }
     )
 
+@app.route("/stock-api/aiem/verification/challenge", methods=["GET"])
+def _aiem_verification_challenge():
+    """
+    Issue a signed HMAC challenge for a given question ID.
+    GET ?q=<1-6>&token=<ADMIN_TOKEN>
+    Returns a challenge dict AIEM can answer; pass it back to /verify.
+    """
+    tok = request.args.get("token", "")
+    if not tok or tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        qid = int(request.args.get("q", 1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "q must be 1–6"}), 400
+    try:
+        from aiem_verification_and_trading_brain import issue_challenge
+        ch = issue_challenge(qid)
+        return jsonify(ch)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/aiem/verification/verify", methods=["POST"])
+def _aiem_verification_verify():
+    """
+    Verify AIEM's answer against a previously issued challenge.
+    POST JSON: {"challenge": {...}, "answer": "..."}
+    Requires ?token=<ADMIN_TOKEN> in the query string.
+    Returns {"valid": bool, "verdict": str, "missing_keys": [...], "explanation": str}
+    """
+    tok = request.args.get("token", "")
+    if not tok or tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    challenge   = body.get("challenge")
+    aiem_answer = body.get("answer", "")
+    if not challenge or not aiem_answer:
+        return jsonify({"error": "body must contain 'challenge' and 'answer'"}), 400
+    try:
+        from aiem_verification_and_trading_brain import verify_response
+        result = verify_response(challenge, aiem_answer)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/__debug/threads")
 def _debug_threads():
     import sys, traceback, io, threading

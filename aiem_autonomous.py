@@ -654,6 +654,9 @@ def aiem_premarket_scan():
 
         # Step 3: Deep score each candidate — adds ticker details + news from Polygon API
         from staleness_filter import evaluate_signal_with_data as _eval_staleness
+        from aiem_verification_and_trading_brain import (
+            apply_wall_street_pattern_with_data as _apply_ws,
+        )
         _scan_ts = datetime.now(ZoneInfo("UTC"))
         scored = []
         for c in candidates[:50]:
@@ -717,6 +720,22 @@ def aiem_premarket_scan():
                 if verdict["tags"]:
                     reasoning = (f"[STALENESS:{','.join(verdict['tags'])}] "
                                  f"{reasoning}")
+
+                # Wall Street pattern layer — PIPE fade, delisting squeeze,
+                # sympathy play, day-2 distribution, SPAC merger pop.
+                # Runs after staleness filter; may reduce conviction further.
+                ws = _apply_ws(ticker, verdict,
+                               multiday_ctx.get(ticker, []), news)
+                adj_conf = ws["final_conviction"]
+                if adj_conf < 70:
+                    ws_note = "; ".join(ws.get("ws_notes", []))
+                    log.info(f"  {ticker}: ⛔ WS PATTERN SKIP "
+                             f"conviction={adj_conf} | {ws_note}")
+                    continue
+                ws_pat = [t for t in ws.get("tags", [])
+                          if t.startswith("PATTERN_")]
+                if ws_pat:
+                    reasoning = f"[WS:{','.join(ws_pat)}] {reasoning}"
 
                 scored.append({
                     'ticker':    ticker,
