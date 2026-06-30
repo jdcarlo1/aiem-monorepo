@@ -25403,19 +25403,11 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
     import json as _fsj, time as _fst
     print(f"[aiem_24h] starting session: {session_name}")
 
-    try:
-        from openai import OpenAI as _OAIFS
-        _oai = _OAIFS(
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
-            timeout=25.0,
-            max_retries=1,
-        )
-    except Exception as _oe:
-        return "", [], f"OpenAI init error: {_oe}"
+    import anthropic as _anth
+    _oai = None  # OpenAI removed
 
     _fs_tool_map = _build_aiem_tool_map()
-    _fs_schema   = _AIEM_AGENT_TOOLS[:128]  # OpenAI hard-caps at 128 tools
+    _fs_schema = _AIEM_AGENT_TOOLS  # Claude has no 128-tool cap — use ALL tools
 
     session_system = (
         _AIEM_AGENT_SYSTEM +
