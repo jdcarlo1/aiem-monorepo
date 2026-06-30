@@ -512,7 +512,8 @@ def _get_multiday_context(tickers: list, conn) -> dict:
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT ticker, scan_date, close_price, open_price, volume, gap_pct, rvol
+            SELECT ticker, scan_date, close_price, open_price, volume,
+                   gap_pct, rvol, vwap
             FROM polygon_market_daily
             WHERE ticker = ANY(%s)
               AND scan_date >= (SELECT MAX(scan_date) FROM polygon_market_daily)
@@ -520,7 +521,7 @@ def _get_multiday_context(tickers: list, conn) -> dict:
             ORDER BY ticker, scan_date ASC
         """, (tickers,))
         cols = ['ticker', 'scan_date', 'close_price', 'open_price',
-                'volume', 'gap_pct', 'rvol']
+                'volume', 'gap_pct', 'rvol', 'vwap']
         result: dict = {}
         for row in cur.fetchall():
             d = dict(zip(cols, row))
@@ -652,6 +653,8 @@ def aiem_premarket_scan():
         log.info(f"Multi-day context loaded for {len(multiday_ctx)} tickers")
 
         # Step 3: Deep score each candidate — adds ticker details + news from Polygon API
+        from staleness_filter import evaluate_signal_with_data as _eval_staleness
+        _scan_ts = datetime.now(ZoneInfo("UTC"))
         scored = []
         for c in candidates[:50]:
             ticker = c['ticker']
@@ -696,6 +699,24 @@ def aiem_premarket_scan():
                 log.info(f"  {ticker}: raw={conf:.1f}→adj={adj_conf:.1f} "
                          f"gap={c['gap_pct']:.1f}% rvol={c.get('rvol') or 0:.1f}x"
                          + (f" ({md['label']})" if md['label'] else ""))
+
+                # Staleness filter: stale gap extension, catalyst decay,
+                # move-day awareness, and VWAP day-2 exhaustion check.
+                # Any SKIP verdict means the candidate is removed before ranking.
+                verdict = _eval_staleness(
+                    ticker, adj_conf,
+                    multiday_ctx.get(ticker, []),
+                    news, _scan_ts,
+                    premarket_mode=True,
+                )
+                if verdict["action"] == "SKIP":
+                    log.info(f"  {ticker}: ⛔ STALENESS SKIP — "
+                             f"{verdict['reason']} | tags={verdict['tags']}")
+                    continue
+                adj_conf  = verdict["final_conviction"]
+                if verdict["tags"]:
+                    reasoning = (f"[STALENESS:{','.join(verdict['tags'])}] "
+                                 f"{reasoning}")
 
                 scored.append({
                     'ticker':    ticker,
