@@ -25404,10 +25404,27 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
     print(f"[aiem_24h] starting session: {session_name}")
 
     import anthropic as _anth
+    _claude = _anth.Anthropic(
+        api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+    )
     _oai = None  # OpenAI removed
 
     _fs_tool_map = _build_aiem_tool_map()
-    _fs_schema = _AIEM_AGENT_TOOLS  # Claude has no 128-tool cap — use ALL tools
+    _fs_schema = _AIEM_AGENT_TOOLS  # No 128 cap - Claude supports all tools
+
+    def _convert_tools_to_claude(openai_tools):
+        claude_tools = []
+        for t in openai_tools:
+            if t.get("type") == "function":
+                fn = t["function"]
+                claude_tools.append({
+                    "name": fn["name"],
+                    "description": fn.get("description", ""),
+                    "input_schema": fn.get("parameters", {"type": "object", "properties": {}})
+                })
+        return claude_tools
+
+    _claude_tools = _convert_tools_to_claude(_fs_schema)
 
     session_system = (
         _AIEM_AGENT_SYSTEM +
@@ -25427,6 +25444,16 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         {"role": "system", "content": session_system},
         {"role": "user",   "content": _first_user_content},
     ]
+
+    # Extract system prompt from messages (Claude takes it as a separate param)
+    _system_prompt = ""
+    _filtered_messages = []
+    for _m in messages:
+        if _m.get("role") == "system":
+            _system_prompt += _m.get("content", "")
+        else:
+            _filtered_messages.append(_m)
+    messages = _filtered_messages
 
     _last_text      = ""
     _last_openai_id = ""
@@ -25511,7 +25538,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                 _tc_r, _fn_r, _args_r, _res_r, _t_tool_r = _fut.result()
                 _tool_results[_tc_r.id] = (_fn_r, _args_r, _res_r, _t_tool_r)
 
-        # Merge in original order — OpenAI requires tool messages to match tool_calls order
+        # Merge in original order — collect per-tc, then batch into one user message (Claude format)
+        _batch_results = []
         for tc in msg.tool_calls:
             fn, args, result, _t_tool_s = _tool_results[tc.id]
 
@@ -25536,9 +25564,17 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                 except Exception:
                     pass
 
-            messages.append({
-                "role": "tool", "tool_call_id": tc.id,
+            _batch_results.append({
+                "type": "tool_result",
+                "tool_use_id": tc.id,
                 "content": result_str,
+            })
+
+        # Append tool results in Claude format (all results in one user message)
+        if _batch_results:
+            messages.append({
+                "role": "user",
+                "content": _batch_results,
             })
 
     print(f"[aiem_24h:{session_name}] complete ({_i+1} iters, {len(trace)} tool calls, {round(_fst.time()-_t_session_start,1)}s total)")
