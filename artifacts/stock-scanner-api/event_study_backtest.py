@@ -23,6 +23,7 @@ Usage:
 
 import argparse
 import os
+import pickle
 import time
 from datetime import datetime, timedelta
 
@@ -115,6 +116,13 @@ def build_universe_history_from_db(start_date: str, end_date: str, cache_path: s
     """
     if not DATABASE_URL:
         raise SystemExit("DATABASE_URL environment variable not set.")
+
+    pickle_path = cache_path + ".pkl" if cache_path else None
+    if pickle_path and os.path.exists(pickle_path):
+        print(f"Loading cached universe history from {pickle_path}")
+        with open(pickle_path, "rb") as f:
+            return pickle.load(f)
+
     import psycopg2
 
     conn = psycopg2.connect(DATABASE_URL)
@@ -141,10 +149,16 @@ def build_universe_history_from_db(start_date: str, end_date: str, cache_path: s
         # environment can't install pyarrow/fastparquet (Nix permission
         # restrictions on the python site-packages dir), so a missing
         # engine must never crash a real backtest run over a fresh DB pull.
+        # Pickle is the load-bearing cache here -- it needs no extra
+        # dependency and lets a multi-year full-market pull (~1.5M rows)
+        # be reused across resumed runs instead of re-querying every time.
         try:
             df.to_parquet(cache_path)
         except ImportError as e:
             print(f"Skipping parquet cache ({cache_path}): {e}")
+        with open(pickle_path, "wb") as f:
+            pickle.dump(df, f)
+        print(f"Saved history cache to {pickle_path}")
     return df
 
 
@@ -258,14 +272,40 @@ def extract_precursor_window(feature_panel: pd.DataFrame, event_date, precursor_
     for col in feature_cols:
         if col not in window.columns:
             continue
-        vals = window[col].dropna()
-        if vals.empty:
+        vals = window[col].dropna().values
+        if len(vals) == 0:
             continue
-        summary[f"{col}_latest"] = vals.iloc[-1]
+        summary[f"{col}_latest"] = vals[-1]
         summary[f"{col}_mean_{precursor_days}d"] = vals.mean()
-        summary[f"{col}_slope"] = ps.rolling_slope(vals, window=min(5, len(vals))).iloc[-1] if len(vals) >= 2 else np.nan
+        summary[f"{col}_slope"] = _last_window_slope(vals, tail=5)
 
     return summary
+
+
+def _last_window_slope(vals: np.ndarray, tail: int = 5) -> float:
+    """
+    One-shot OLS slope of the last `tail` values of `vals` (numpy array).
+
+    Equivalent to `ps.rolling_slope(series, window=tail).iloc[-1]` but skips
+    pandas' `Series.rolling().apply()` machinery, which recomputes the slope
+    at every position in the series even though only the final value is
+    needed here. That overhead is negligible once, but this function is
+    called per feature per event/control row -- tens to hundreds of
+    thousands of times in a full-market multi-year backtest -- where it
+    dominates total runtime (~3ms/call measured, ~85% of it inside
+    rolling().apply()).
+    """
+    n = min(tail, len(vals))
+    if n < 2:
+        return np.nan
+    y = vals[-n:]
+    x = np.arange(n)
+    x_mean = x.mean()
+    y_mean = y.mean()
+    denom = ((x - x_mean) ** 2).sum()
+    if denom == 0:
+        return np.nan
+    return float(((x - x_mean) * (y - y_mean)).sum() / denom)
 
 
 # ---------------------------------------------------------------------------
@@ -290,8 +330,72 @@ def build_control_sample(history: pd.DataFrame, events_df: pd.DataFrame, n_sampl
     return sample.reset_index(drop=True)
 
 
+def _build_or_load_panels(history: pd.DataFrame, needed_tickers: set, cache_path: str = None,
+                           time_budget_seconds: float = None, checkpoint_every: int = 300):
+    """
+    Builds {ticker: feature_panel_df} for `needed_tickers`, optionally
+    checkpointing to `cache_path` (pickle) as it goes and stopping once
+    `time_budget_seconds` of wall time has elapsed.
+
+    Why this exists: compute_feature_panel costs ~20ms/ticker, so a
+    full-market multi-year event study (thousands of tickers) can take
+    longer than a single sandbox tool call allows. Without a checkpoint,
+    a process killed mid-run loses all panel-building progress. With one,
+    you can just rerun the exact same command and it picks up where it
+    left off -- each call processes another time_budget_seconds worth of
+    tickers until the cache is complete.
+
+    Tickers with too little history (<30 rows) are cached as None so they
+    are never needlessly retried on resume.
+
+    Returns (panels_dict, is_complete: bool).
+    """
+    panels = {}
+    if cache_path and os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            panels = pickle.load(f)
+        print(f"Resuming panel cache: {sum(1 for v in panels.values() if v is not None):,} "
+              f"tickers already built, {len(panels):,} total cache entries.")
+
+    remaining = [t for t in needed_tickers if t not in panels]
+    if not remaining:
+        return panels, True
+
+    print(f"Building per-ticker feature panels for {len(remaining):,} remaining tickers "
+          f"(of {len(needed_tickers):,} needed, out of {history['ticker'].nunique():,} total)...")
+
+    t0 = time.time()
+    sub = history[history["ticker"].isin(remaining)]
+    processed_since_checkpoint = 0
+    for ticker, g in sub.groupby("ticker"):
+        panels[ticker] = compute_feature_panel(g) if len(g) >= 30 else None
+        processed_since_checkpoint += 1
+
+        if cache_path and processed_since_checkpoint >= checkpoint_every:
+            with open(cache_path, "wb") as f:
+                pickle.dump(panels, f)
+            processed_since_checkpoint = 0
+
+        if time_budget_seconds is not None and (time.time() - t0) > time_budget_seconds:
+            if cache_path:
+                with open(cache_path, "wb") as f:
+                    pickle.dump(panels, f)
+            done = sum(1 for t in needed_tickers if t in panels)
+            print(f"Time budget ({time_budget_seconds:.0f}s) reached: {done:,}/{len(needed_tickers):,} "
+                  f"tickers cached so far. Rerun the same command to resume.")
+            return panels, False
+
+    if cache_path:
+        with open(cache_path, "wb") as f:
+            pickle.dump(panels, f)
+
+    is_complete = all(t in panels for t in needed_tickers)
+    return panels, is_complete
+
+
 def run_event_study(history: pd.DataFrame, events_df: pd.DataFrame, precursor_days: int = 10,
-                     n_control: int = 2000) -> pd.DataFrame:
+                     n_control: int = 2000, panel_cache: str = None,
+                     panel_time_budget: float = None) -> pd.DataFrame:
     """
     Main driver: for each event, computes the precursor feature window.
     For the control sample, does the same. Then runs a Mann-Whitney U
@@ -314,18 +418,15 @@ def run_event_study(history: pd.DataFrame, events_df: pd.DataFrame, precursor_da
     control_sample = build_control_sample(history, events_df, n_samples=n_control)
 
     needed_tickers = set(events_df["ticker"].unique()) | set(control_sample["ticker"].unique())
-    print(f"Building per-ticker feature panels for {len(needed_tickers):,} tickers "
-          f"(event + control universe, out of {history['ticker'].nunique():,} total)...")
-    panels = {}
-    for ticker, g in history[history["ticker"].isin(needed_tickers)].groupby("ticker"):
-        if len(g) < 30:
-            continue
-        panels[ticker] = compute_feature_panel(g)
+    panels, is_complete = _build_or_load_panels(
+        history, needed_tickers, cache_path=panel_cache, time_budget_seconds=panel_time_budget)
+    if not is_complete:
+        return None
 
     print("Extracting precursor windows for events...")
     event_rows = []
     for _, ev in events_df.iterrows():
-        if ev["ticker"] not in panels:
+        if panels.get(ev["ticker"]) is None:
             continue
         feats = extract_precursor_window(panels[ev["ticker"]], ev["event_start_date"], precursor_days)
         if feats:
@@ -337,7 +438,7 @@ def run_event_study(history: pd.DataFrame, events_df: pd.DataFrame, precursor_da
     print("Extracting precursor windows for control sample...")
     control_rows = []
     for _, row in control_sample.iterrows():
-        if row["ticker"] not in panels:
+        if panels.get(row["ticker"]) is None:
             continue
         feats = extract_precursor_window(panels[row["ticker"]], row["date"], precursor_days)
         if feats:
@@ -394,6 +495,15 @@ if __name__ == "__main__":
                          help="db = read from polygon_market_daily (fast, no rate limits); "
                               "api = live Polygon grouped-daily pull (requires a plan with "
                               "grouped-daily access)")
+    parser.add_argument("--panel-cache", default="panel_cache.pkl",
+                         help="Pickle checkpoint for per-ticker feature panels. A full-market "
+                              "multi-year run can take longer than one process lifetime; rerun "
+                              "the exact same command and it resumes from this file instead of "
+                              "starting over.")
+    parser.add_argument("--panel-time-budget", type=float, default=None,
+                         help="Seconds to spend building panels before checkpointing and exiting "
+                              "cleanly (exit code 0) so the same command can be rerun to resume. "
+                              "Omit for no limit (run to completion in one process).")
     args = parser.parse_args()
 
     if args.source == "api" and not API_KEY:
@@ -412,7 +522,11 @@ if __name__ == "__main__":
     events_df.to_csv("events_found.csv", index=False)
 
     print("Step 3: running event study (event vs control feature comparison)...")
-    results_df = run_event_study(history, events_df, precursor_days=args.precursor_days)
+    results_df = run_event_study(history, events_df, precursor_days=args.precursor_days,
+                                  panel_cache=args.panel_cache, panel_time_budget=args.panel_time_budget)
+    if results_df is None:
+        print("\nPanel cache not yet complete -- rerun this exact command to continue.")
+        raise SystemExit(0)
     results_df.to_csv("event_study_results.csv", index=False)
 
     print("\nTop precursor features ranked by statistical significance:")

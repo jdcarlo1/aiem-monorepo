@@ -48,3 +48,10 @@ Thumbs.db
 .cache/
 .local/
 backups/
+
+# stock-scanner-api event-study backtest: large generated caches/outputs, rebuildable from DB
+artifacts/stock-scanner-api/*.pkl
+artifacts/stock-scanner-api/grouped_daily_cache.parquet*
+artifacts/stock-scanner-api/panel_cache.pkl
+artifacts/stock-scanner-api/events_found.csv
+artifacts/stock-scanner-api/event_study_results.csv
