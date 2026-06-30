@@ -1342,112 +1342,99 @@ def aiem_open_watcher():
 
 
 # ─────────────────────────────────────────────────────────────
-# JOB 3: GRADE OUTCOMES — 4:30 PM ET
+# JOB 3: GRADE PREDICTIONS — compute only, no Telegram sends.
+# Called by the combined 4:30 PM aiem_eod_report() job below.
 # ─────────────────────────────────────────────────────────────
-def aiem_grade_outcomes():
-    today = date.today()
+def _aiem_grade_predictions(conn, cur, today) -> dict:
+    result = {
+        'graded': 0, 'wins': 0, 'graded_details': [],
+        'w_picks': [], 'l_picks': [], 'avg_ret': 0.0,
+        'top_loss_sigs': [], 'chart_tickers': [],
+    }
     log.info(f"=== GRADING OUTCOMES {today} ===")
 
-    conn = None
-    try:
-        conn = _get_conn()
-        cur  = conn.cursor()
+    cur.execute("""
+        SELECT p.ticker, p.confidence_score, p.signal_basis
+        FROM aiem_predictions p
+        LEFT JOIN aiem_prediction_outcomes o
+            ON p.ticker = o.ticker AND p.prediction_date = o.prediction_date
+        WHERE p.prediction_date = %s AND o.id IS NULL
+    """, (today,))
+    ungraded = cur.fetchall()
 
-        cur.execute("""
-            SELECT p.ticker, p.confidence_score, p.signal_basis
-            FROM aiem_predictions p
-            LEFT JOIN aiem_prediction_outcomes o
-                ON p.ticker = o.ticker AND p.prediction_date = o.prediction_date
-            WHERE p.prediction_date = %s AND o.id IS NULL
-        """, (today,))
-        ungraded = cur.fetchall()
-
-        if not ungraded:
-            log.info("Nothing to grade today")
-            return
-
-        graded        = wins = 0
-        graded_details = []   # (ticker, t1_return, signal_basis)
-        for ticker, conf, sig_basis in ungraded:
-            try:
-                snap        = _aiem_get_snapshot(ticker)
-                day         = snap.get('day', {})
-                entry_price = day.get('o') or 0
-                t1_price    = day.get('c') or 0
-                if not entry_price or not t1_price:
-                    continue
-
-                t1_return = (t1_price - entry_price) / entry_price * 100
-                win_t1    = t1_return > 0
-
-                cur.execute("""
-                    INSERT INTO aiem_prediction_outcomes
-                        (prediction_date, ticker, entry_price, t1_price, t1_return, graded_at)
-                    VALUES (%s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (prediction_date, ticker) DO UPDATE
-                        SET t1_price  = EXCLUDED.t1_price,
-                            t1_return = EXCLUDED.t1_return,
-                            graded_at = NOW()
-                """, (today, ticker, entry_price, t1_price, round(t1_return, 4)))
-
-                graded += 1
-                if win_t1:
-                    wins += 1
-                graded_details.append((ticker, t1_return, sig_basis or ''))
-                log.info(f"  {ticker}: {t1_return:+.1f}% {'WIN' if win_t1 else 'LOSS'}")
-                time.sleep(0.1)
-
-            except Exception as e:
-                log.error(f"Grade error {ticker}: {e}")
-
-        conn.commit()
-        wr = (wins / graded * 100) if graded > 0 else 0
-        log.info(f"Graded {graded} predictions — win rate today: {wr:.1f}%")
-
-        # ── AIEM Self-Analysis: figure out what went wrong and say so
-        if graded_details:
-            w_picks = [(t, r, s) for t, r, s in graded_details if r  > 0]
-            l_picks = [(t, r, s) for t, r, s in graded_details if r <= 0]
-            avg_ret = sum(r for _, r, _ in graded_details) / len(graded_details)
-
-            # Which signals appeared most on losers?
-            loss_sig_freq: dict = {}
-            for _, _, sb in l_picks:
-                for sig in sb.split(','):
-                    sig = sig.strip()
-                    if sig:
-                        loss_sig_freq[sig] = loss_sig_freq.get(sig, 0) + 1
-            top_loss_sigs = sorted(loss_sig_freq.items(), key=lambda x: -x[1])[:3]
-
-            msg  = f"🤖 AIEM SELF-ANALYSIS — {today}\n"
-            msg += f"{'✅' if len(w_picks) > len(l_picks) else '❌'} "
-            msg += f"{len(w_picks)}W / {len(l_picks)}L  avg: {avg_ret:+.1f}%\n"
-            if l_picks:
-                worst = min(l_picks, key=lambda x: x[1])
-                msg += f"Worst: {worst[0]} {worst[1]:+.1f}%\n"
-                if top_loss_sigs:
-                    msg += f"Loss signals: {', '.join(s for s, _ in top_loss_sigs)}\n"
-            if w_picks:
-                best = max(w_picks, key=lambda x: x[1])
-                msg += f"Best: {best[0]} {best[1]:+.1f}%\n"
-            msg += f"Trust weights updating 6PM → tomorrow's picks adjusted."
-            _aiem_send_sms(msg)
-            log.info(f"Self-analysis sent: {len(w_picks)}W/{len(l_picks)}L avg={avg_ret:+.1f}%")
-
-            chart_tickers = [t for t, _, _ in sorted(w_picks, key=lambda x: -x[1])[:3]]
-            chart_tickers += [t for t, _, _ in sorted(l_picks, key=lambda x: x[1])[:3]]
-            _aiem_send_chart("grade_outcomes", f"AIEM Outcomes — {today}", chart_tickers)
-
-        # Also update T3/T5 for older predictions
+    if not ungraded:
+        log.info("Nothing to grade today")
         _grade_t3_t5(conn)
+        return result
 
-    except Exception as e:
-        log.error(f"grade_outcomes error: {e}")
-        if conn:
-            try: conn.rollback()
-            except Exception: pass
-    finally:
-        _put_conn(conn)
+    graded        = wins = 0
+    graded_details = []   # (ticker, t1_return, signal_basis)
+    for ticker, conf, sig_basis in ungraded:
+        try:
+            snap        = _aiem_get_snapshot(ticker)
+            day         = snap.get('day', {})
+            entry_price = day.get('o') or 0
+            t1_price    = day.get('c') or 0
+            if not entry_price or not t1_price:
+                continue
+
+            t1_return = (t1_price - entry_price) / entry_price * 100
+            win_t1    = t1_return > 0
+
+            cur.execute("""
+                INSERT INTO aiem_prediction_outcomes
+                    (prediction_date, ticker, entry_price, t1_price, t1_return, graded_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (prediction_date, ticker) DO UPDATE
+                    SET t1_price  = EXCLUDED.t1_price,
+                        t1_return = EXCLUDED.t1_return,
+                        graded_at = NOW()
+            """, (today, ticker, entry_price, t1_price, round(t1_return, 4)))
+
+            graded += 1
+            if win_t1:
+                wins += 1
+            graded_details.append((ticker, t1_return, sig_basis or ''))
+            log.info(f"  {ticker}: {t1_return:+.1f}% {'WIN' if win_t1 else 'LOSS'}")
+            time.sleep(0.1)
+
+        except Exception as e:
+            log.error(f"Grade error {ticker}: {e}")
+
+    conn.commit()
+    wr = (wins / graded * 100) if graded > 0 else 0
+    log.info(f"Graded {graded} predictions — win rate today: {wr:.1f}%")
+
+    result['graded'] = graded
+    result['wins']   = wins
+    result['graded_details'] = graded_details
+
+    if graded_details:
+        w_picks = [(t, r, s) for t, r, s in graded_details if r  > 0]
+        l_picks = [(t, r, s) for t, r, s in graded_details if r <= 0]
+        avg_ret = sum(r for _, r, _ in graded_details) / len(graded_details)
+
+        # Which signals appeared most on losers?
+        loss_sig_freq: dict = {}
+        for _, _, sb in l_picks:
+            for sig in sb.split(','):
+                sig = sig.strip()
+                if sig:
+                    loss_sig_freq[sig] = loss_sig_freq.get(sig, 0) + 1
+        top_loss_sigs = sorted(loss_sig_freq.items(), key=lambda x: -x[1])[:3]
+
+        chart_tickers = [t for t, _, _ in sorted(w_picks, key=lambda x: -x[1])[:3]]
+        chart_tickers += [t for t, _, _ in sorted(l_picks, key=lambda x: x[1])[:3]]
+
+        result.update({
+            'w_picks': w_picks, 'l_picks': l_picks, 'avg_ret': avg_ret,
+            'top_loss_sigs': top_loss_sigs, 'chart_tickers': chart_tickers,
+        })
+        log.info(f"Grading computed: {len(w_picks)}W/{len(l_picks)}L avg={avg_ret:+.1f}%")
+
+    # Also update T3/T5 for older predictions
+    _grade_t3_t5(conn)
+    return result
 
 
 def _grade_t3_t5(conn):
@@ -1485,159 +1472,326 @@ def _grade_t3_t5(conn):
 
 
 # ─────────────────────────────────────────────────────────────
-# JOB 4: MISSED RUNNER ANALYSIS — 4:45 PM ET
+# JOB 4: MISSED RUNNER ANALYSIS — compute only, no Telegram sends.
+# Called by the combined 4:30 PM aiem_eod_report() job below.
 # The most important learning job: what did AIEM miss and why?
 # ─────────────────────────────────────────────────────────────
 _MISSED_RUNNER_CAP_LOOKUP_LIMIT = 150  # safety cap on Polygon cap-bucketing calls/day
 
-def aiem_missed_runner_analysis():
-    today = date.today()
+def _aiem_get_today_movers_yahoo() -> list:
+    """
+    Same-day fallback full-market mover feed.
+
+    Polygon's grouped-daily endpoint (`_aiem_get_grouped_daily`) returns
+    403 NOT_AUTHORIZED for the *current* calendar day on this account's
+    plan tier — historical dates work fine (confirmed by direct testing),
+    only `today` is blocked. That silently starved the missed-runner job
+    of any candidates every single day (big_movers always == []), which
+    is why no EOD Telegram report was ever sent — not a one-off outage.
+
+    Yahoo's predefined screeners return live regularMarketChangePercent/
+    Open/PreviousClose/Volume directly from the quotes payload (no
+    per-ticker calls needed), normalized here to Polygon's {T,o,c,v}
+    shape so the rest of the pipeline doesn't need to change.
+    """
+    import requests as _r
+    out, seen = [], set()
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; StockScannerBot/1.0)"}
+    for scr in ("day_gainers", "day_losers", "most_actives",
+                "small_cap_gainers", "aggressive_small_caps"):
+        try:
+            url = (f"https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
+                   f"?formatted=false&lang=en-US&region=US&scrIds={scr}&count=100")
+            resp   = _r.get(url, headers=hdrs, timeout=8)
+            quotes = (resp.json().get("finance", {}).get("result", [{}])[0].get("quotes", []))
+            for q in quotes:
+                sym = q.get("symbol", "")
+                if not sym or sym in seen or "^" in sym or "/" in sym or "." in sym:
+                    continue
+                prev_close = q.get("regularMarketPreviousClose") or 0
+                close      = q.get("regularMarketPrice") or 0
+                vol        = q.get("regularMarketVolume") or 0
+                open_px    = q.get("regularMarketOpen") or prev_close
+                if not close or not open_px:
+                    continue
+                seen.add(sym)
+                out.append({'T': sym, 'o': open_px, 'c': close, 'v': vol})
+        except Exception as e:
+            log.warning(f"[movers_fallback] {scr} failed: {e}")
+    log.info(f"[movers_fallback] Yahoo screeners returned {len(out)} same-day candidates")
+    return out
+
+
+def _aiem_find_missed_runners(conn, cur, today) -> dict:
+    result = {
+        'big_movers': [], 'buckets': {'micro': [], 'small': [], 'mid': [], 'large': []},
+        'bucket_lines': {'micro': [], 'small': [], 'mid': [], 'large': []},
+        'discoveries': 0, 'all_discovery_texts': [], 'reason_freq': {},
+    }
     log.info(f"=== MISSED RUNNER ANALYSIS {today} (4 cap-tier buckets) ===")
+
+    # What did AIEM flag today?
+    cur.execute("SELECT ticker FROM aiem_predictions WHERE prediction_date = %s", (today,))
+    flagged = {row[0] for row in cur.fetchall()}
+
+    # Get all stocks that moved 20%+ today. Polygon's same-day grouped-daily
+    # is plan-restricted (see _aiem_get_today_movers_yahoo docstring) — fall
+    # back to the Yahoo screener feed whenever Polygon comes back empty.
+    daily_data = _aiem_get_grouped_daily(today)
+    if not daily_data:
+        log.warning("[missed_runner] Polygon grouped-daily empty for today — using Yahoo fallback")
+        daily_data = _aiem_get_today_movers_yahoo()
+
+    big_movers = []
+    for stock in daily_data:
+        ticker   = stock.get('T', '')
+        o, c, v  = stock.get('o') or 0, stock.get('c') or 0, stock.get('v') or 0
+        if o > 0 and c > 0:
+            move_pct = (c - o) / o * 100
+            if move_pct >= 20 and ticker not in flagged:
+                big_movers.append({'ticker': ticker, 'open': o,
+                                   'close': c, 'volume': v, 'move_pct': move_pct})
+
+    big_movers.sort(key=lambda x: x['move_pct'], reverse=True)
+    result['big_movers'] = big_movers
+    log.info(f"{len(big_movers)} missed runners (20%+ AIEM didn't flag)")
+
+    if not big_movers:
+        return result
+
+    # ── Step 1: bucket candidates by market cap (cached lookups) ───────────
+    buckets   = {'micro': [], 'small': [], 'mid': [], 'large': []}
+    unknown_n = 0
+    for runner in big_movers[:_MISSED_RUNNER_CAP_LOOKUP_LIMIT]:
+        ref     = _aiem_get_ticker_reference_cached(conn, runner['ticker'])
+        mkt_cap = ref.get('market_cap') or 0
+        bucket  = _aiem_cap_bucket(mkt_cap)
+        if bucket is None:
+            unknown_n += 1
+            continue
+        runner['market_cap']   = mkt_cap
+        runner['float_shares'] = ref.get('float_shares') or 0
+        buckets[bucket].append(runner)
+
+    for b in buckets:
+        buckets[b].sort(key=lambda x: x['move_pct'], reverse=True)
+        buckets[b] = buckets[b][:20]
+
+    if unknown_n:
+        log.info(f"{unknown_n} candidates had no resolvable market cap — omitted from buckets")
+
+    # ── Step 2: deep "why" per bucketed candidate ───────────────────────────
+    discoveries  = 0
+    bucket_lines = {b: [] for b in buckets}
+    all_discovery_texts = []
+    reason_freq: dict = {}
+    for bucket, runners in buckets.items():
+        for runner in runners:
+            ticker   = runner['ticker']
+            move_pct = runner['move_pct']
+            try:
+                news  = _aiem_get_news(ticker)
+                ohlcv = _aiem_get_ohlcv(ticker, days=2)
+
+                gap_pct = None
+                if ohlcv and len(ohlcv) >= 2:
+                    prev_close = ohlcv[-2].get('c') or 0
+                    if prev_close > 0:
+                        gap_pct = (runner['open'] - prev_close) / prev_close * 100
+
+                vol_ratio = 0
+                if ohlcv and len(ohlcv) >= 2:
+                    prev_vol  = ohlcv[-2].get('v', 1)
+                    vol_ratio = runner['volume'] / prev_vol if prev_vol > 0 else 0
+
+                why = _aiem_behavioral_why(conn, ticker, today)
+
+                patterns = []
+                if why.get('matched'):
+                    patterns.append(f"fingerprint_match_sim{why['similarity']:.2f}_like_{why.get('matched_ticker')}")
+                if gap_pct is not None and abs(gap_pct) >= 5:
+                    patterns.append(f"gap_{gap_pct:+.1f}pct_at_open")
+                if news:
+                    patterns.append("had_catalyst")
+                if runner['float_shares'] and runner['float_shares'] < 10_000_000:
+                    patterns.append(f"low_float_{runner['float_shares']/1e6:.1f}M")
+                if vol_ratio >= 3:
+                    patterns.append(f"vol_surge_{vol_ratio:.1f}x")
+
+                pattern_str = " | ".join(patterns) if patterns else "quiet_move_no_clear_precursor"
+                lead_reason = patterns[0] if patterns else "no clear precursor found"
+                # Bucket the lead reason into a coarse category for the narrative
+                if why.get('matched'):
+                    reason_cat = "behavioral fingerprint match"
+                elif gap_pct is not None and abs(gap_pct) >= 5:
+                    reason_cat = "pre-market gap"
+                elif news:
+                    reason_cat = "news catalyst"
+                elif vol_ratio >= 3:
+                    reason_cat = "volume surge"
+                else:
+                    reason_cat = "no clear precursor"
+                reason_freq[reason_cat] = reason_freq.get(reason_cat, 0) + 1
+
+                discovery_text = (
+                    f"MISSED RUNNER [{bucket.upper()}]: {ticker} moved +{move_pct:.1f}% today "
+                    f"(MC ${runner['market_cap']/1e6:,.0f}M). Pattern: {pattern_str}. "
+                    f"Open=${runner['open']:.2f} Close=${runner['close']:.2f}. "
+                    f"AIEM did not flag this — learn from it."
+                )
+                all_discovery_texts.append(discovery_text)
+
+                bucket_lines[bucket].append(
+                    f"${ticker} +{move_pct:.1f}% | MC ${runner['market_cap']/1e6:,.0f}M | {lead_reason}"
+                )
+                discoveries += 1
+                log.info(f"  MISSED [{bucket}]: {ticker} +{move_pct:.1f}% — {pattern_str}")
+                time.sleep(0.1)
+
+            except Exception as e:
+                log.error(f"Missed runner analysis error {ticker}: {e}")
+                continue
+
+    # aiem_research_insights.research_date is UNIQUE across the WHOLE table
+    # (one row per calendar day, shared by every job/process that writes here —
+    # not per session_name). A loop of per-ticker INSERTs would abort the
+    # transaction after the first row every single day. Write ONE combined
+    # row instead, and on conflict APPEND rather than overwrite so we never
+    # clobber another job's insight already saved for today.
+    if all_discovery_texts:
+        combined_findings = "\n".join(all_discovery_texts)
+        top_move = max(r['move_pct'] for runners in buckets.values() for r in runners) if discoveries else 0
+        try:
+            cur.execute("""
+                INSERT INTO aiem_research_insights
+                    (research_date, findings, confidence, session_name)
+                VALUES (%s, %s, %s, 'AIEM_MISSED_RUNNER')
+                ON CONFLICT (research_date) DO UPDATE
+                    SET findings = aiem_research_insights.findings || E'\\n' || EXCLUDED.findings
+            """, (today, combined_findings, min(99, int(round(top_move)))))
+            conn.commit()
+        except Exception as e:
+            log.error(f"missed_runner findings upsert failed: {e}")
+            conn.rollback()
+
+    log.info(f"Logged {discoveries} missed runner findings across 4 cap tiers")
+
+    result.update({
+        'buckets': buckets, 'bucket_lines': bucket_lines,
+        'discoveries': discoveries, 'all_discovery_texts': all_discovery_texts,
+        'reason_freq': reason_freq,
+    })
+    return result
+
+
+def _aiem_build_narrative(grade: dict, missed: dict, today) -> str:
+    """
+    Plain-English "what we learned / how we'll improve" paragraph, synthesized
+    from today's grading results + missed-runner findings. Appended to the
+    combined 4:30 PM EOD report so the report explains itself instead of just
+    listing numbers.
+    """
+    graded   = grade.get('graded', 0)
+    big_movers = missed.get('big_movers', [])
+
+    if not graded and not big_movers:
+        return ("📚 What we learned: nothing to grade and no qualifying missed runners today — "
+                "a quiet day for the learning loop. No model changes triggered.")
+
+    parts = []
+    if graded:
+        wins = grade.get('wins', 0)
+        wr   = wins / graded * 100
+        avg_ret = grade.get('avg_ret', 0.0)
+        if wr >= 60:
+            parts.append(f"today's {graded} picks ran at a strong {wr:.0f}% win rate (avg {avg_ret:+.1f}%)")
+        elif wr >= 45:
+            parts.append(f"today's {graded} picks ran about even ({wr:.0f}% win rate, avg {avg_ret:+.1f}%)")
+        else:
+            parts.append(f"today's {graded} picks struggled ({wr:.0f}% win rate, avg {avg_ret:+.1f}%)")
+        top_loss_sigs = grade.get('top_loss_sigs', [])
+        if top_loss_sigs:
+            sig_str = ", ".join(s for s, _ in top_loss_sigs)
+            parts.append(f"the losers leaned on {sig_str} — those signals get a trust-weight haircut tonight at 6 PM")
+    else:
+        parts.append("no predictions were open to grade today")
+
+    if big_movers:
+        n = len(big_movers)
+        buckets  = missed.get('buckets', {})
+        cap_str  = ", ".join(f"{len(v)} {k}" for k, v in buckets.items() if v)
+        parts.append(f"AIEM missed {n} mover(s) that ran 20%+ without a flag ({cap_str or 'cap unresolved'})")
+        reason_freq = missed.get('reason_freq') or {}
+        if reason_freq:
+            top_reason = max(reason_freq.items(), key=lambda x: x[1])[0]
+            parts.append(f"the most common reason was '{top_reason}' — that pattern gets added to tomorrow's watch list")
+    else:
+        parts.append("no qualifying missed runners today — AIEM caught everything that mattered")
+
+    return "📚 What we learned: " + "; ".join(parts) + "."
+
+
+# ─────────────────────────────────────────────────────────────
+# JOB 3+4 COMBINED: EOD REPORT — 4:30 PM ET
+# Grades today's predictions AND finds missed runners in ONE job,
+# then sends ONE combined Telegram report (with a narrated
+# "what we learned / how we'll improve" paragraph) instead of the
+# old separate 4:30 PM grade + 4:45 PM missed-runner sends.
+# ─────────────────────────────────────────────────────────────
+def aiem_eod_report():
+    today = date.today()
+    log.info(f"=== EOD REPORT {today} (grading + missed runners, combined) ===")
 
     conn = None
     try:
         conn = _get_conn()
         cur  = conn.cursor()
 
-        # What did AIEM flag today?
-        cur.execute("SELECT ticker FROM aiem_predictions WHERE prediction_date = %s", (today,))
-        flagged = {row[0] for row in cur.fetchall()}
+        grade  = _aiem_grade_predictions(conn, cur, today)
+        missed = _aiem_find_missed_runners(conn, cur, today)
+        narrative = _aiem_build_narrative(grade, missed, today)
 
-        # Get all stocks that moved 20%+ today
-        daily_data = _aiem_get_grouped_daily(today)
-        big_movers = []
-        for stock in daily_data:
-            ticker   = stock.get('T', '')
-            o, c, v  = stock.get('o') or 0, stock.get('c') or 0, stock.get('v') or 0
-            if o > 0 and c > 0:
-                move_pct = (c - o) / o * 100
-                if move_pct >= 20 and ticker not in flagged:
-                    big_movers.append({'ticker': ticker, 'open': o,
-                                       'close': c, 'volume': v, 'move_pct': move_pct})
+        msg = f"🤖 AIEM EOD REPORT — {today}\n\n"
 
-        big_movers.sort(key=lambda x: x['move_pct'], reverse=True)
-        log.info(f"{len(big_movers)} missed runners (20%+ AIEM didn't flag)")
+        if grade['graded']:
+            wr = grade['wins'] / grade['graded'] * 100
+            msg += f"📊 GRADING: {grade['wins']}W / {grade['graded']-grade['wins']}L  ({wr:.0f}% WR, avg {grade['avg_ret']:+.1f}%)\n"
+            if grade['l_picks']:
+                worst = min(grade['l_picks'], key=lambda x: x[1])
+                msg += f"   Worst: ${worst[0]} {worst[1]:+.1f}%\n"
+            if grade['w_picks']:
+                best = max(grade['w_picks'], key=lambda x: x[1])
+                msg += f"   Best: ${best[0]} {best[1]:+.1f}%\n"
+        else:
+            msg += "📊 GRADING: nothing to grade today\n"
 
-        # ── Step 1: bucket candidates by market cap (cached lookups) ───────────
-        buckets    = {'micro': [], 'small': [], 'mid': [], 'large': []}
-        unknown_n  = 0
-        for runner in big_movers[:_MISSED_RUNNER_CAP_LOOKUP_LIMIT]:
-            ref     = _aiem_get_ticker_reference_cached(conn, runner['ticker'])
-            mkt_cap = ref.get('market_cap') or 0
-            bucket  = _aiem_cap_bucket(mkt_cap)
-            if bucket is None:
-                unknown_n += 1
-                continue
-            runner['market_cap']   = mkt_cap
-            runner['float_shares'] = ref.get('float_shares') or 0
-            buckets[bucket].append(runner)
+        n_missed = len(missed['big_movers'])
+        b = missed['buckets']
+        msg += "\n"
+        if n_missed:
+            msg += (f"🔍 MISSED RUNNERS: {n_missed} "
+                    f"(micro={len(b['micro'])} small={len(b['small'])} mid={len(b['mid'])} large={len(b['large'])})\n")
+            for r in missed['big_movers'][:3]:
+                msg += f"   ${r['ticker']} +{r['move_pct']:.1f}%\n"
+        else:
+            msg += "🔍 MISSED RUNNERS: none today\n"
 
-        for b in buckets:
-            buckets[b].sort(key=lambda x: x['move_pct'], reverse=True)
-            buckets[b] = buckets[b][:20]
+        msg += f"\n{narrative}\n\nTrust weights update 6 PM → tomorrow's picks adjusted."
 
-        if unknown_n:
-            log.info(f"{unknown_n} candidates had no resolvable market cap — omitted from buckets")
+        _aiem_send_sms(msg)
+        log.info("Combined EOD report sent")
 
-        # ── Step 2: deep "why" per bucketed candidate ───────────────────────────
-        discoveries  = 0
-        bucket_lines = {b: [] for b in buckets}
-        all_discovery_texts = []
-        for bucket, runners in buckets.items():
-            for runner in runners:
-                ticker   = runner['ticker']
-                move_pct = runner['move_pct']
-                try:
-                    news  = _aiem_get_news(ticker)
-                    ohlcv = _aiem_get_ohlcv(ticker, days=2)
+        # ── Supplementary visuals/detail — kept as separate sends (charts are
+        # images; bucket breakdowns can be long) but all part of this one job ──
+        if grade.get('chart_tickers'):
+            _aiem_send_chart("eod_report", f"AIEM Outcomes — {today}", grade['chart_tickers'])
 
-                    gap_pct = None
-                    if ohlcv and len(ohlcv) >= 2:
-                        prev_close = ohlcv[-2].get('c') or 0
-                        if prev_close > 0:
-                            gap_pct = (runner['open'] - prev_close) / prev_close * 100
-
-                    vol_ratio = 0
-                    if ohlcv and len(ohlcv) >= 2:
-                        prev_vol  = ohlcv[-2].get('v', 1)
-                        vol_ratio = runner['volume'] / prev_vol if prev_vol > 0 else 0
-
-                    why = _aiem_behavioral_why(conn, ticker, today)
-
-                    patterns = []
-                    if why.get('matched'):
-                        patterns.append(f"fingerprint_match_sim{why['similarity']:.2f}_like_{why.get('matched_ticker')}")
-                    if gap_pct is not None and abs(gap_pct) >= 5:
-                        patterns.append(f"gap_{gap_pct:+.1f}pct_at_open")
-                    if news:
-                        patterns.append("had_catalyst")
-                    if runner['float_shares'] and runner['float_shares'] < 10_000_000:
-                        patterns.append(f"low_float_{runner['float_shares']/1e6:.1f}M")
-                    if vol_ratio >= 3:
-                        patterns.append(f"vol_surge_{vol_ratio:.1f}x")
-
-                    pattern_str = " | ".join(patterns) if patterns else "quiet_move_no_clear_precursor"
-                    lead_reason = patterns[0] if patterns else "no clear precursor found"
-
-                    discovery_text = (
-                        f"MISSED RUNNER [{bucket.upper()}]: {ticker} moved +{move_pct:.1f}% today "
-                        f"(MC ${runner['market_cap']/1e6:,.0f}M). Pattern: {pattern_str}. "
-                        f"Open=${runner['open']:.2f} Close=${runner['close']:.2f}. "
-                        f"AIEM did not flag this — learn from it."
-                    )
-                    all_discovery_texts.append(discovery_text)
-
-                    bucket_lines[bucket].append(
-                        f"${ticker} +{move_pct:.1f}% | MC ${runner['market_cap']/1e6:,.0f}M | {lead_reason}"
-                    )
-                    discoveries += 1
-                    log.info(f"  MISSED [{bucket}]: {ticker} +{move_pct:.1f}% — {pattern_str}")
-                    time.sleep(0.1)
-
-                except Exception as e:
-                    log.error(f"Missed runner analysis error {ticker}: {e}")
-                    continue
-
-        # aiem_research_insights.research_date is UNIQUE across the WHOLE table
-        # (one row per calendar day, shared by every job/process that writes here —
-        # not per session_name). A loop of per-ticker INSERTs would abort the
-        # transaction after the first row every single day. Write ONE combined
-        # row instead, and on conflict APPEND rather than overwrite so we never
-        # clobber another job's insight already saved for today.
-        if all_discovery_texts:
-            combined_findings = "\n".join(all_discovery_texts)
-            top_move = max(r['move_pct'] for runners in buckets.values() for r in runners) if discoveries else 0
-            try:
-                cur.execute("""
-                    INSERT INTO aiem_research_insights
-                        (research_date, findings, confidence, session_name)
-                    VALUES (%s, %s, %s, 'AIEM_MISSED_RUNNER')
-                    ON CONFLICT (research_date) DO UPDATE
-                        SET findings = aiem_research_insights.findings || E'\\n' || EXCLUDED.findings
-                """, (today, combined_findings, min(99, int(round(top_move)))))
-                conn.commit()
-            except Exception as e:
-                log.error(f"missed_runner findings upsert failed: {e}")
-                conn.rollback()
-
-        log.info(f"Logged {discoveries} missed runner findings across 4 cap tiers")
-
-        # ── Step 3: deliver — overview + one detail message per non-empty bucket ──
-        if big_movers:
-            top3 = big_movers[:3]
-            overview = (f"🤖 AIEM EOD — {today}\n"
-                        f"Missed runners: {len(big_movers)} "
-                        f"(micro={len(buckets['micro'])} small={len(buckets['small'])} "
-                        f"mid={len(buckets['mid'])} large={len(buckets['large'])})\n")
-            for r in top3:
-                overview += f"  ${r['ticker']} +{r['move_pct']:.1f}%\n"
-            overview += "Full cap-tier breakdown follows."
-            _aiem_send_sms(overview)
+        if n_missed:
+            top3 = missed['big_movers'][:3]
             _aiem_send_chart("missed_runners", f"AIEM Missed Runners — {today}",
                               [r['ticker'] for r in top3])
-
             for bucket in ('micro', 'small', 'mid', 'large'):
-                lines = bucket_lines[bucket]
+                lines = missed['bucket_lines'][bucket]
                 if not lines:
                     continue
                 detail = f"🤖 {_CAP_BUCKET_LABELS[bucket]} — {today}\n" + "\n".join(lines)
@@ -1645,7 +1799,7 @@ def aiem_missed_runner_analysis():
                 time.sleep(0.3)
 
     except Exception as e:
-        log.error(f"missed_runner_analysis error: {e}")
+        log.error(f"eod_report error: {e}")
         if conn:
             try: conn.rollback()
             except Exception: pass
@@ -1920,15 +2074,12 @@ def main():
                       hour=9, minute=45,
                       id='aiem_morning_check', replace_existing=True)
 
-    # Grade T1 outcomes: 4:30 PM
-    scheduler.add_job(_logged_job(aiem_grade_outcomes),       'cron',
+    # Combined EOD report (grading + missed runners + narrative): 4:30 PM
+    # Replaces the old separate 4:30 PM grade + 4:45 PM missed-runner jobs
+    # so the user gets ONE Telegram report instead of two staggered ones.
+    scheduler.add_job(_logged_job(aiem_eod_report),           'cron',
                       hour=16, minute=30,
-                      id='aiem_grade', replace_existing=True)
-
-    # Missed runner analysis: 4:45 PM
-    scheduler.add_job(_logged_job(aiem_missed_runner_analysis), 'cron',
-                      hour=16, minute=45,
-                      id='aiem_missed', replace_existing=True)
+                      id='aiem_eod_report', replace_existing=True)
 
     # Nightly learn + weight update: 6:00 PM
     scheduler.add_job(_logged_job(aiem_nightly_learn),        'cron',
@@ -1940,8 +2091,7 @@ def main():
     log.info("  8:00 AM       morning_brief     (Telegram picks — always fires)")
     log.info("  9:30–10:30 AM open_watcher      (every 5 min)")
     log.info("  9:45 AM       missed_morning_check")
-    log.info("  4:30 PM       grade_outcomes")
-    log.info("  4:45 PM       missed_runner_analysis")
+    log.info("  4:30 PM       eod_report        (grading + missed runners + narrative, combined)")
     log.info("  6:00 PM       nightly_learn")
 
     global _scheduler_ref

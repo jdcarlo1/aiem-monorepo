@@ -1,15 +1,24 @@
 ---
-name: Missed-runner cap-bucket report (4:45 PM job)
-description: How aiem_missed_runner_analysis buckets missed movers by market cap and explains why each was missed; shared fingerprint module; ticker-cap cache.
+name: Missed-runner cap-bucket report (now part of 4:30 PM combined EOD report)
+description: How the missed-runner compute logic buckets missed movers by market cap and explains why each was missed; shared fingerprint module; ticker-cap cache; merged into aiem_eod_report.
 ---
 
-The 4:45 PM ET `aiem_missed_runner_analysis()` job in `aiem_autonomous.py` now groups missed 20%+
-movers into 4 market-cap tiers (micro <$300M, small $300M-$2B, mid $2B-$10B, large >$10B), top 20
-per tier, with a per-ticker "why missed" reason chosen by priority: behavioral-fingerprint match
-(sim>=0.92 vs `pre_move_templates`) > opening-gap proxy (>=5%) > news catalyst > volume surge (>=3x)
-> "no clear precursor". Delivery is Telegram-only for this process (one overview + one message per
-non-empty tier, well under the 4096-char cap) — `aiem_autonomous.py` has no email channel; that only
-exists in `main.py`'s web app.
+As of 2026-06-30, the old separate 4:30 PM `aiem_grade_outcomes()` + 4:45 PM
+`aiem_missed_runner_analysis()` jobs were retired and merged into ONE 4:30 PM job,
+`aiem_eod_report()`, because the user never reliably got the 4:45 PM report (see
+`polygon-403-today-snapshot.md` for the root cause). The two compute paths were split into
+pure functions — `_aiem_grade_predictions(conn, cur, today)` and
+`_aiem_find_missed_runners(conn, cur, today)` — that return dicts instead of sending Telegram
+directly; `aiem_eod_report()` calls both, builds `_aiem_build_narrative(grade, missed, today)`
+("what we learned / how we'll improve" paragraph synthesized from win-rate + top missed reason),
+and sends ONE combined Telegram message + supplementary chart/bucket-detail messages.
+
+The cap-bucket logic itself is unchanged: missed 20%+ movers are grouped into 4 market-cap tiers
+(micro <$300M, small $300M-$2B, mid $2B-$10B, large >$10B), top 20 per tier, with a per-ticker
+"why missed" reason chosen by priority: behavioral-fingerprint match (sim>=0.92 vs
+`pre_move_templates`) > opening-gap proxy (>=5%) > news catalyst > volume surge (>=3x) > "no clear
+precursor". Delivery is Telegram-only for this process — `aiem_autonomous.py` has no email channel;
+that only exists in `main.py`'s web app.
 
 `artifacts/stock-scanner-api/behavioral_fingerprint.py` is a new pure-function module
 (`compute_fingerprint`, `cosine_similarity`, `best_template_match`) extracted so both `main.py` and
