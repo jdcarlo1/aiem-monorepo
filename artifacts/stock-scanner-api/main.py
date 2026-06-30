@@ -3801,7 +3801,7 @@ try:
 
     _scheduler.add_job(
         _run_eod_accum_outcomes,
-        CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=8, timezone=_ET),
         id="eod_accum_outcomes_fetcher",
         replace_existing=True,
     )

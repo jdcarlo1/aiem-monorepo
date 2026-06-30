@@ -1,0 +1,740 @@
+# ============================================================
+# AIEM MORNING ROUTINE — Full Learning Loop
+# Add to main.py or import and wire into APScheduler
+# ============================================================
+# SCHEDULER WIRING (add to your existing APScheduler setup):
+#
+# scheduler.add_job(aiem_premarket_scan,   'cron', hour='7-9',  minute='*/15', id='aiem_premarket')
+# scheduler.add_job(aiem_open_watcher,     'cron', hour=9,      minute='30-59', second=0, id='aiem_open_watch')
+# scheduler.add_job(aiem_open_watcher,     'cron', hour=10,     minute='*/5',  id='aiem_open_watch2')
+# scheduler.add_job(aiem_grade_outcomes,   'cron', hour=16,     minute=30,     id='aiem_grade')
+# scheduler.add_job(aiem_nightly_learn,    'cron', hour=18,     minute=0,      id='aiem_learn')
+# ============================================================
+
+import pytz
+import time as time_module
+from datetime import datetime, date, timedelta
+
+ET = pytz.timezone('US/Eastern')
+
+# ─────────────────────────────────────────────────────────────
+# CONSTANTS
+# ─────────────────────────────────────────────────────────────
+AIEM_CONFIDENCE_ALERT_THRESHOLD = 72   # Fire SMS when score >= this
+AIEM_MIN_PREMARKET_VOLUME       = 50000
+AIEM_MIN_GAP_PCT                = 2.0
+AIEM_CANDIDATE_LIMIT            = 30   # Max tickers to evaluate each scan cycle
+JOEL_PHONE                      = "+1YOURNUMBERHERE"  # Replace with real number
+
+# ─────────────────────────────────────────────────────────────
+# HELPER: Load signal trust weights from DB
+# ─────────────────────────────────────────────────────────────
+def aiem_get_trust_weights(conn):
+    """Load current signal trust weights so AIEM can self-weight its scoring."""
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT signal_name, trust_weight, rolling_win_rate, n_outcomes_observed
+            FROM signal_trust_weights
+            ORDER BY trust_weight DESC
+        """)
+        rows = cur.fetchall()
+        weights = {}
+        for signal_name, trust_weight, win_rate, n in rows:
+            weights[signal_name] = {
+                'trust':    float(trust_weight) if trust_weight else 1.0,
+                'win_rate': float(win_rate)     if win_rate     else 0.5,
+                'n':        n or 0
+            }
+        return weights
+    except Exception as e:
+        print(f"[AIEM] trust weight load error: {e}")
+        return {}
+
+
+# ─────────────────────────────────────────────────────────────
+# HELPER: Score a single ticker using trust-weighted signals
+# ─────────────────────────────────────────────────────────────
+def aiem_score_ticker(ticker, data, trust_weights):
+    """
+    AIEM autonomously scores a premarket candidate.
+    Returns: (confidence_score, signal_basis, reasoning, predicted_move)
+
+    Signals are weighted by their historical trust scores.
+    Over time, as aiem_nightly_learn() updates signal_trust_weights,
+    AIEM's scoring becomes increasingly calibrated to what actually works.
+    """
+    signals    = {}
+    reasoning  = []
+    raw_score  = 0.0
+    max_score  = 0.0
+
+    premarket_price = data.get('premarket_price') or 0
+    prev_close      = data.get('prev_close')      or premarket_price or 1
+    premarket_vol   = data.get('premarket_volume')or 0
+    avg_vol         = data.get('avg_volume')      or 1
+    float_shares    = data.get('float_shares')    or 999_000_000
+    short_int       = data.get('short_interest_pct') or 0
+    spread_pct      = data.get('bid_ask_spread_pct') or 999
+    consolidating   = data.get('consolidating')   or False  # tight range last 30min
+    catalyst        = data.get('has_catalyst')    or False  # news/PR/earnings
+
+    gap_pct   = ((premarket_price - prev_close) / prev_close * 100) if prev_close else 0
+    vol_ratio = premarket_vol / avg_vol if avg_vol > 0 else 0
+
+    def add_signal(name, base_weight, condition, description):
+        """Apply signal, boosted or reduced by historical trust weight."""
+        nonlocal raw_score, max_score
+        t = trust_weights.get(name, {}).get('trust', 1.0)
+        effective_weight = base_weight * t
+        max_score += effective_weight
+        if condition:
+            signals[name] = effective_weight
+            raw_score    += effective_weight
+            reasoning.append(description)
+
+    # ── Signal 1: Premarket Gap
+    if gap_pct >= 15:
+        add_signal('gap_explosive', 18, True,  f"Explosive gap +{gap_pct:.1f}% premarket")
+    elif gap_pct >= 10:
+        add_signal('gap_large',     14, True,  f"Large gap +{gap_pct:.1f}% premarket")
+    elif gap_pct >= 5:
+        add_signal('gap_moderate',  10, True,  f"Moderate gap +{gap_pct:.1f}%")
+    elif gap_pct >= 2:
+        add_signal('gap_small',      5, True,  f"Small gap +{gap_pct:.1f}%")
+    else:
+        add_signal('gap_small',      5, False, "")
+
+    # ── Signal 2: Premarket Volume Surge
+    if vol_ratio >= 5:
+        add_signal('volume_surge_extreme', 20, True,  f"Volume {vol_ratio:.1f}x avg — extreme surge")
+    elif vol_ratio >= 3:
+        add_signal('volume_surge_high',    15, True,  f"Volume {vol_ratio:.1f}x avg — strong surge")
+    elif vol_ratio >= 1.5:
+        add_signal('volume_surge_moderate', 8, True,  f"Volume {vol_ratio:.1f}x avg — elevated")
+    else:
+        add_signal('volume_surge_moderate', 8, False, "")
+
+    # ── Signal 3: Low Float (fuel for squeeze)
+    if float_shares and float_shares < 5_000_000:
+        add_signal('float_micro',  18, True,  f"Micro float {float_shares/1e6:.1f}M — explosive potential")
+    elif float_shares and float_shares < 15_000_000:
+        add_signal('float_low',    12, True,  f"Low float {float_shares/1e6:.1f}M")
+    elif float_shares and float_shares < 50_000_000:
+        add_signal('float_medium',  6, True,  f"Mid float {float_shares/1e6:.1f}M")
+    else:
+        add_signal('float_medium',  6, False, "")
+
+    # ── Signal 4: Short Interest (squeeze fuel)
+    if short_int >= 25:
+        add_signal('short_squeeze_high',   16, True,  f"Short interest {short_int:.1f}% — squeeze setup")
+    elif short_int >= 15:
+        add_signal('short_squeeze_moderate', 10, True, f"Short interest {short_int:.1f}%")
+    elif short_int >= 8:
+        add_signal('short_squeeze_low',     5, True,  f"Short interest {short_int:.1f}%")
+    else:
+        add_signal('short_squeeze_low',     5, False, "")
+
+    # ── Signal 5: Catalyst (news/PR/earnings beat)
+    add_signal('catalyst_present', 15, catalyst, "Catalyst detected (news/PR/filing)")
+
+    # ── Signal 6: Tight bid/ask spread premarket (institutional interest)
+    add_signal('tight_spread', 8, spread_pct < 0.5, f"Tight spread {spread_pct:.2f}% — clean price action")
+
+    # ── Signal 7: Consolidation pattern (coiling before breakout)
+    add_signal('consolidating', 12, consolidating, "Consolidating in tight range — coiling setup")
+
+    # ── Signal 8: Price in ideal breakout range ($1–$20)
+    in_breakout_range = 1.0 <= premarket_price <= 20.0
+    add_signal('price_breakout_range', 6, in_breakout_range, f"Price ${premarket_price:.2f} in breakout range")
+
+    # ── Signal 9: High gap + high volume combo (strongest setup)
+    combo = gap_pct >= 8 and vol_ratio >= 3
+    add_signal('gap_volume_combo', 20, combo, f"COMBO: gap {gap_pct:.1f}% + volume {vol_ratio:.1f}x")
+
+    # ── Normalize to 0-100
+    confidence = (raw_score / max_score * 100) if max_score > 0 else 0
+    confidence = min(100, round(confidence, 1))
+
+    # ── Predicted move
+    if confidence >= 80:
+        predicted_move = "Strong breakout likely — high conviction long"
+    elif confidence >= 65:
+        predicted_move = "Moderate breakout setup — watch open behavior"
+    elif confidence >= 50:
+        predicted_move = "Possible setup — needs open confirmation"
+    else:
+        predicted_move = "Low conviction — monitor only"
+
+    signal_basis = ", ".join(signals.keys())
+    reasoning_text = " | ".join(reasoning) if reasoning else "No strong signals detected"
+
+    return confidence, signal_basis, reasoning_text, predicted_move
+
+
+# ─────────────────────────────────────────────────────────────
+# FUNCTION 1: AIEM PREMARKET SCAN
+# Runs every 15 min from 7:00–9:30 AM ET
+# ─────────────────────────────────────────────────────────────
+def aiem_premarket_scan():
+    """
+    AIEM scans for premarket breakout candidates.
+    Writes top picks to aiem_predictions with full reasoning.
+    Replaces today's predictions each run (refreshes as data improves).
+    """
+    now_et = datetime.now(ET)
+    print(f"[AIEM] premarket_scan started at {now_et.strftime('%H:%M ET')}")
+
+    conn = None
+    try:
+        conn = get_db_connection()  # your existing pool fn
+        trust_weights = aiem_get_trust_weights(conn)
+
+        # ── Get candidate tickers to evaluate
+        # Pull from your existing unusual_calls / sc_morning_picks / ai_stock_picks
+        # as your starting universe — AIEM then re-scores them with its own logic
+        cur = conn.cursor()
+
+        # Get today's unusual call tickers as candidate universe
+        cur.execute("""
+            SELECT DISTINCT ticker FROM unusual_calls
+            WHERE created_at >= NOW() - INTERVAL '24 hours'
+            LIMIT %s
+        """, (AIEM_CANDIDATE_LIMIT,))
+        tickers = [row[0] for row in cur.fetchall()]
+
+        if not tickers:
+            print("[AIEM] No candidate tickers found — skipping scan")
+            return
+
+        print(f"[AIEM] Evaluating {len(tickers)} candidates: {tickers[:10]}...")
+
+        scored = []
+        for ticker in tickers:
+            try:
+                # Fetch premarket data using your existing helpers
+                # Adjust these calls to match your actual function names
+                data = {}
+
+                # Try to get snapshot from Polygon (your primary source)
+                try:
+                    snap = get_polygon_quote(ticker)  # adjust to your fn name
+                    if snap:
+                        data['premarket_price'] = snap.get('preMarketPrice') or snap.get('last')
+                        data['prev_close']       = snap.get('prevClose') or snap.get('previous_close')
+                        data['premarket_volume'] = snap.get('preMarketVolume') or snap.get('volume', 0)
+                        data['avg_volume']       = snap.get('avgVolume') or snap.get('avg_volume', 1)
+                except:
+                    pass
+
+                # Try to get float/short from Finviz (your existing fn)
+                try:
+                    fv = get_finviz_data(ticker)  # adjust to your fn name
+                    if fv:
+                        data['float_shares']       = fv.get('float_shares')
+                        data['short_interest_pct'] = fv.get('short_float_pct')
+                        data['has_catalyst']       = bool(fv.get('news_count', 0) > 0)
+                except:
+                    pass
+
+                # Skip if no price data
+                if not data.get('premarket_price'):
+                    continue
+
+                # Skip if below minimum thresholds
+                gap = 0
+                if data.get('prev_close') and data.get('premarket_price'):
+                    gap = (data['premarket_price'] - data['prev_close']) / data['prev_close'] * 100
+
+                if gap < AIEM_MIN_GAP_PCT:
+                    continue
+                if (data.get('premarket_volume') or 0) < AIEM_MIN_PREMARKET_VOLUME:
+                    continue
+
+                # AIEM scores this ticker
+                confidence, signal_basis, reasoning, predicted_move = aiem_score_ticker(
+                    ticker, data, trust_weights
+                )
+
+                scored.append({
+                    'ticker':         ticker,
+                    'confidence':     confidence,
+                    'signal_basis':   signal_basis,
+                    'reasoning':      reasoning,
+                    'predicted_move': predicted_move,
+                })
+
+            except Exception as e:
+                print(f"[AIEM] score error {ticker}: {e}")
+                continue
+
+        if not scored:
+            print("[AIEM] No candidates passed filters")
+            return
+
+        # Sort by confidence descending
+        scored.sort(key=lambda x: x['confidence'], reverse=True)
+        top_picks = scored[:10]
+
+        # Write to aiem_predictions (replace today's entries)
+        today = date.today()
+        cur.execute("DELETE FROM aiem_predictions WHERE prediction_date = %s", (today,))
+
+        for rank, pick in enumerate(top_picks, 1):
+            cur.execute("""
+                INSERT INTO aiem_predictions
+                    (prediction_date, ticker, rank, confidence_score,
+                     signal_basis, reasoning, predicted_move, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            """, (
+                today,
+                pick['ticker'],
+                rank,
+                pick['confidence'],
+                pick['signal_basis'],
+                pick['reasoning'],
+                pick['predicted_move'],
+            ))
+
+        conn.commit()
+        print(f"[AIEM] Wrote {len(top_picks)} predictions for {today}")
+        for p in top_picks[:3]:
+            print(f"  #{p['ticker']} conf={p['confidence']} — {p['reasoning'][:80]}")
+
+    except Exception as e:
+        print(f"[AIEM] premarket_scan error: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            release_db_connection(conn)  # your existing pool release fn
+
+
+# ─────────────────────────────────────────────────────────────
+# FUNCTION 2: AIEM OPEN WATCHER
+# Runs every 5 min from 9:30–10:30 AM ET
+# Fires SMS when AIEM is confident enough — on ITS schedule
+# ─────────────────────────────────────────────────────────────
+def aiem_open_watcher():
+    """
+    AIEM monitors its premarket picks at open.
+    Re-scores using live open behavior.
+    Fires Twilio SMS to Joel the moment confidence crosses threshold.
+    AIEM decides WHEN to alert — not a fixed schedule.
+    """
+    now_et = datetime.now(ET)
+    hour   = now_et.hour
+    minute = now_et.minute
+
+    # Only run during open watch window
+    if not ((hour == 9 and minute >= 30) or (hour == 10)):
+        return
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        today = date.today()
+
+        # Load today's predictions
+        cur.execute("""
+            SELECT ticker, rank, confidence_score, signal_basis, reasoning, predicted_move
+            FROM aiem_predictions
+            WHERE prediction_date = %s
+            ORDER BY rank ASC
+        """, (today,))
+        picks = cur.fetchall()
+
+        if not picks:
+            return
+
+        # Check which tickers already alerted today (don't double-alert)
+        cur.execute("""
+            SELECT ticker FROM signal_fire_log
+            WHERE DATE(fired_at) = %s AND signal_name = 'AIEM_OPEN_ALERT'
+        """, (today,))
+        already_alerted = set(row[0] for row in cur.fetchall())
+
+        trust_weights = aiem_get_trust_weights(conn)
+
+        alerts_fired = 0
+        for pick in picks:
+            ticker, rank, base_conf, signal_basis, reasoning, predicted_move = pick
+
+            if ticker in already_alerted:
+                continue
+
+            # Re-fetch live price to see open behavior
+            try:
+                live_data = {}
+                snap = get_polygon_quote(ticker)  # your existing fn
+                if snap:
+                    live_data['premarket_price'] = snap.get('last') or snap.get('price')
+                    live_data['prev_close']       = snap.get('prevClose')
+                    live_data['premarket_volume'] = snap.get('volume', 0)
+                    live_data['avg_volume']       = snap.get('avgVolume', 1)
+
+                # Re-score with fresh data
+                live_conf, live_signals, live_reason, live_move = aiem_score_ticker(
+                    ticker, live_data, trust_weights
+                )
+
+                # Blend premarket confidence with live confidence
+                blended_conf = (base_conf * 0.4) + (live_conf * 0.6)
+
+                print(f"[AIEM] {ticker} blended_conf={blended_conf:.1f} "
+                      f"(pre={base_conf:.1f} live={live_conf:.1f}) at {now_et.strftime('%H:%M')}")
+
+                # AIEM decides: am I confident enough to alert Joel RIGHT NOW?
+                if blended_conf >= AIEM_CONFIDENCE_ALERT_THRESHOLD:
+                    minutes_since_open = (hour - 9) * 60 + max(0, minute - 30)
+                    time_label = (
+                        "PREMARKET" if hour < 9
+                        else f"{minutes_since_open}min after open"
+                    )
+
+                    msg = (
+                        f"🤖 AIEM ALERT — {ticker}\n"
+                        f"Confidence: {blended_conf:.0f}/100\n"
+                        f"Time: {now_et.strftime('%H:%M ET')} ({time_label})\n"
+                        f"Setup: {predicted_move}\n"
+                        f"Signals: {live_reason[:120]}\n"
+                        f"Rank: #{rank} today"
+                    )
+
+                    # Fire SMS via your existing Twilio helper
+                    try:
+                        send_sms_alert(JOEL_PHONE, msg)  # your existing fn
+                        print(f"[AIEM] ✅ SMS fired for {ticker} at confidence {blended_conf:.0f}")
+                    except Exception as sms_err:
+                        print(f"[AIEM] SMS error: {sms_err}")
+
+                    # Log the alert so we don't double-fire
+                    cur.execute("""
+                        INSERT INTO signal_fire_log
+                            (signal_name, ticker, fired_at, metadata)
+                        VALUES ('AIEM_OPEN_ALERT', %s, NOW(), %s)
+                        ON CONFLICT DO NOTHING
+                    """, (ticker, f"conf={blended_conf:.1f}"))
+
+                    alerts_fired += 1
+
+            except Exception as e:
+                print(f"[AIEM] open_watcher score error {ticker}: {e}")
+                continue
+
+        conn.commit()
+        if alerts_fired:
+            print(f"[AIEM] open_watcher fired {alerts_fired} alerts at {now_et.strftime('%H:%M')}")
+
+    except Exception as e:
+        print(f"[AIEM] open_watcher error: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+# ─────────────────────────────────────────────────────────────
+# FUNCTION 3: AIEM GRADE OUTCOMES
+# Runs at 4:30 PM ET — grades today's picks with real prices
+# ─────────────────────────────────────────────────────────────
+def aiem_grade_outcomes():
+    """
+    EOD grading: fetch T1/T3/T5 prices for today's predictions.
+    Writes to aiem_prediction_outcomes so AIEM can learn tomorrow.
+    """
+    today = date.today()
+    print(f"[AIEM] grading outcomes for {today}")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+
+        # Get today's predictions not yet graded
+        cur.execute("""
+            SELECT p.ticker, p.confidence_score
+            FROM aiem_predictions p
+            LEFT JOIN aiem_prediction_outcomes o
+                ON p.ticker = o.ticker AND p.prediction_date = o.prediction_date
+            WHERE p.prediction_date = %s
+              AND o.id IS NULL
+        """, (today,))
+        ungraded = cur.fetchall()
+
+        if not ungraded:
+            print("[AIEM] No ungraded predictions for today")
+            return
+
+        graded = 0
+        for ticker, confidence in ungraded:
+            try:
+                # Get EOD price (T1 = today close)
+                snap = get_polygon_quote(ticker)
+                if not snap:
+                    continue
+
+                entry_price = snap.get('open') or snap.get('last')
+                t1_price    = snap.get('close') or snap.get('last')
+
+                if not entry_price or not t1_price:
+                    continue
+
+                t1_return = ((t1_price - entry_price) / entry_price * 100) if entry_price else 0
+                win_t1    = t1_return > 0
+
+                # T3/T5 will be null today — updated by a follow-up job on day 3 and day 5
+                cur.execute("""
+                    INSERT INTO aiem_prediction_outcomes
+                        (prediction_date, ticker, entry_price,
+                         t1_price, t1_return,
+                         graded_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (prediction_date, ticker) DO UPDATE
+                        SET t1_price  = EXCLUDED.t1_price,
+                            t1_return = EXCLUDED.t1_return,
+                            graded_at = NOW()
+                """, (today, ticker, entry_price, t1_price, round(t1_return, 4)))
+
+                graded += 1
+                result_label = "WIN ✅" if win_t1 else "LOSS ❌"
+                print(f"[AIEM] {ticker}: entry={entry_price:.2f} T1={t1_price:.2f} "
+                      f"({t1_return:+.1f}%) {result_label}")
+
+            except Exception as e:
+                print(f"[AIEM] grade error {ticker}: {e}")
+                continue
+
+        conn.commit()
+        print(f"[AIEM] Graded {graded} predictions for {today}")
+
+    except Exception as e:
+        print(f"[AIEM] grade_outcomes error: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+# ─────────────────────────────────────────────────────────────
+# FUNCTION 3B: GRADE T3 / T5 (runs on day 3 and day 5)
+# ─────────────────────────────────────────────────────────────
+def aiem_grade_t3_t5():
+    """
+    Updates T3 and T5 returns for predictions 3 and 5 days old.
+    Run daily at 4:30 PM alongside aiem_grade_outcomes.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        today = date.today()
+
+        # Grade T3: predictions from 3 trading days ago with no T3 yet
+        t3_date = today - timedelta(days=3)
+        cur.execute("""
+            SELECT ticker, entry_price FROM aiem_prediction_outcomes
+            WHERE prediction_date = %s AND t3_price IS NULL AND entry_price IS NOT NULL
+        """, (t3_date,))
+        t3_rows = cur.fetchall()
+
+        for ticker, entry_price in t3_rows:
+            try:
+                snap    = get_polygon_quote(ticker)
+                t3_price = snap.get('close') or snap.get('last') if snap else None
+                if t3_price and entry_price:
+                    t3_ret = (t3_price - entry_price) / entry_price * 100
+                    cur.execute("""
+                        UPDATE aiem_prediction_outcomes
+                        SET t3_price = %s, t3_return = %s, win_t3 = %s
+                        WHERE prediction_date = %s AND ticker = %s
+                    """, (t3_price, round(t3_ret, 4), t3_ret > 0, t3_date, ticker))
+                    print(f"[AIEM] T3 graded {ticker}: {t3_ret:+.1f}%")
+            except Exception as e:
+                print(f"[AIEM] T3 grade error {ticker}: {e}")
+
+        # Grade T5: predictions from 5 trading days ago with no T5 yet
+        t5_date = today - timedelta(days=5)
+        cur.execute("""
+            SELECT ticker, entry_price FROM aiem_prediction_outcomes
+            WHERE prediction_date = %s AND t5_price IS NULL AND entry_price IS NOT NULL
+        """, (t5_date,))
+        t5_rows = cur.fetchall()
+
+        for ticker, entry_price in t5_rows:
+            try:
+                snap     = get_polygon_quote(ticker)
+                t5_price = snap.get('close') or snap.get('last') if snap else None
+                if t5_price and entry_price:
+                    t5_ret = (t5_price - entry_price) / entry_price * 100
+                    cur.execute("""
+                        UPDATE aiem_prediction_outcomes
+                        SET t5_price = %s, t5_return = %s, win_t5 = %s
+                        WHERE prediction_date = %s AND ticker = %s
+                    """, (t5_price, round(t5_ret, 4), t5_ret > 0, t5_date, ticker))
+                    print(f"[AIEM] T5 graded {ticker}: {t5_ret:+.1f}%")
+            except Exception as e:
+                print(f"[AIEM] T5 grade error {ticker}: {e}")
+
+        conn.commit()
+
+    except Exception as e:
+        print(f"[AIEM] grade_t3_t5 error: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+# ─────────────────────────────────────────────────────────────
+# FUNCTION 4: AIEM NIGHTLY LEARN
+# Runs at 6:00 PM ET — updates signal trust weights from outcomes
+# THIS IS WHERE AIEM GETS SMARTER EVERY DAY
+# ─────────────────────────────────────────────────────────────
+def aiem_nightly_learn():
+    """
+    AIEM's learning engine. Reviews today's outcomes vs predictions.
+    Updates signal_trust_weights based on what signals actually predicted wins.
+    Over weeks, AIEM discovers which signals are most predictive.
+    """
+    today = date.today()
+    print(f"[AIEM] nightly_learn running for {today}")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+
+        # Join predictions to outcomes for the last 30 days
+        cur.execute("""
+            SELECT
+                p.signal_basis,
+                p.confidence_score,
+                o.t1_return,
+                o.win_t3,
+                o.win_t5,
+                o.t3_return
+            FROM aiem_predictions p
+            JOIN aiem_prediction_outcomes o
+                ON p.ticker = o.ticker AND p.prediction_date = o.prediction_date
+            WHERE p.prediction_date >= %s
+              AND o.t1_return IS NOT NULL
+        """, (today - timedelta(days=30),))
+        rows = cur.fetchall()
+
+        if not rows:
+            print("[AIEM] No graded outcomes to learn from yet — check back tomorrow")
+            return
+
+        # Tally wins/losses per signal name
+        signal_tallies = {}  # signal_name -> {'wins': n, 'total': n, 'total_return': f}
+
+        for signal_basis, confidence, t1_ret, win_t3, win_t5, t3_ret in rows:
+            if not signal_basis:
+                continue
+            signals = [s.strip() for s in signal_basis.split(',') if s.strip()]
+            # Use T3 win as primary learning target (3-day return most reliable)
+            win = bool(win_t3) if win_t3 is not None else (t1_ret > 0 if t1_ret else False)
+            ret = float(t3_ret or t1_ret or 0)
+
+            for signal in signals:
+                if signal not in signal_tallies:
+                    signal_tallies[signal] = {'wins': 0, 'total': 0, 'total_return': 0.0}
+                signal_tallies[signal]['total']        += 1
+                signal_tallies[signal]['total_return'] += ret
+                if win:
+                    signal_tallies[signal]['wins'] += 1
+
+        # Update signal_trust_weights for each signal
+        updated = 0
+        for signal_name, tally in signal_tallies.items():
+            n         = tally['total']
+            wins      = tally['wins']
+            win_rate  = wins / n if n > 0 else 0.5
+            avg_ret   = tally['total_return'] / n if n > 0 else 0
+
+            # Trust weight: 1.0 = neutral, >1 = AIEM trusts this signal more
+            # Formula: boosted by win rate above 50%, penalized below 50%
+            # Dampened by sample size (low n = conservative)
+            sample_confidence = min(1.0, n / 20)  # full confidence at 20+ samples
+            raw_trust = 0.5 + (win_rate - 0.5) * 2  # 0 to 1 scale
+            trust_weight = 1.0 + (raw_trust - 0.5) * sample_confidence  # 0.5 to 1.5
+
+            cur.execute("""
+                INSERT INTO signal_trust_weights
+                    (signal_name, context_bucket, rolling_win_rate,
+                     n_outcomes_observed, trust_weight, last_updated_at)
+                VALUES (%s, 'AIEM_PREMARKET', %s, %s, %s, NOW())
+                ON CONFLICT (signal_name, context_bucket) DO UPDATE
+                    SET rolling_win_rate      = EXCLUDED.rolling_win_rate,
+                        n_outcomes_observed   = EXCLUDED.n_outcomes_observed,
+                        trust_weight          = EXCLUDED.trust_weight,
+                        last_updated_at       = NOW()
+            """, (signal_name, round(win_rate, 4), n, round(trust_weight, 4)))
+
+            updated += 1
+            print(f"[AIEM] signal '{signal_name}': win_rate={win_rate:.1%} "
+                  f"n={n} trust={trust_weight:.3f} avg_ret={avg_ret:+.1f}%")
+
+        conn.commit()
+        print(f"[AIEM] ✅ nightly_learn updated {updated} signal weights")
+
+        # Log a research insight summarizing what AIEM learned today
+        top_signals = sorted(signal_tallies.items(),
+                             key=lambda x: x[1]['wins']/max(x[1]['total'],1),
+                             reverse=True)[:3]
+        insight = "Top signals today: " + ", ".join(
+            f"{s}({d['wins']}/{d['total']})" for s, d in top_signals
+        )
+        cur.execute("""
+            INSERT INTO aiem_research_insights
+                (created_at, insight_type, summary, confidence_score)
+            VALUES (NOW(), 'SIGNAL_LEARNING', %s, %s)
+        """, (insight, round(updated / max(len(signal_tallies), 1) * 100, 1)))
+        conn.commit()
+        print(f"[AIEM] insight logged: {insight}")
+
+    except Exception as e:
+        print(f"[AIEM] nightly_learn error: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+# ─────────────────────────────────────────────────────────────
+# SCHEDULER WIRING — paste near your existing scheduler.add_job calls
+# ─────────────────────────────────────────────────────────────
+#
+# scheduler.add_job(
+#     aiem_premarket_scan,
+#     'cron', hour='7-9', minute='*/15',
+#     id='aiem_premarket_scan', replace_existing=True,
+#     misfire_grace_time=300
+# )
+# scheduler.add_job(
+#     aiem_open_watcher,
+#     'cron', hour='9,10', minute='*/5',
+#     id='aiem_open_watcher', replace_existing=True,
+#     misfire_grace_time=60
+# )
+# scheduler.add_job(
+#     aiem_grade_outcomes,
+#     'cron', hour=16, minute=30,
+#     id='aiem_grade_outcomes', replace_existing=True
+# )
+# scheduler.add_job(
+#     aiem_grade_t3_t5,
+#     'cron', hour=16, minute=35,
+#     id='aiem_grade_t3_t5', replace_existing=True
+# )
+# scheduler.add_job(
+#     aiem_nightly_learn,
+#     'cron', hour=18, minute=0,
+#     id='aiem_nightly_learn', replace_existing=True
+# )
