@@ -31,11 +31,11 @@ ET = ZoneInfo('America/New_York')
 
 MAX_MARKET_CAP          = 500_000_000
 MAX_FLOAT_SHARES        = 20_000_000
-MIN_PREMARKET_VOLUME    = 25_000
+MIN_PREMARKET_VOLUME    = 25_000   # applies to prevDay.v (premarket proxy)
 MIN_GAP_PCT             = 2.0
 MAX_PRICE               = 20.0
 MIN_PRICE               = 0.50
-CONFIDENCE_ALERT_THRESHOLD = 72
+CONFIDENCE_ALERT_THRESHOLD = 50    # lowered: volume signals can't fire premarket
 
 # ─────────────────────────────────────────────────────────────
 # ENVIRONMENT VARIABLES
@@ -511,51 +511,43 @@ def aiem_premarket_scan():
     try:
         conn = _get_conn()
 
-        # Step 1: Bulk scan entire market (8K+ tickers, ~3 seconds)
-        all_tickers = _aiem_bulk_snapshot()
-        if not all_tickers:
-            log.warning("Bulk snapshot empty — Polygon may be down")
+        # Step 1: Pull candidates from polygon_market_daily (no snapshot API needed).
+        # The Polygon Starter tier doesn't support bulk snapshots; the DB is populated
+        # nightly from the grouped-daily endpoint which IS included in Starter.
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+        latest_date = cur.fetchone()[0]
+        if not latest_date:
+            log.warning("polygon_market_daily is empty — backfill may not have run yet")
             return
 
-        # Step 2: Filter to microcap universe (price, gap, volume)
-        candidates = []
-        for t in all_tickers:
-            try:
-                day    = t.get('day', {})
-                prev   = t.get('prevDay', {})
-                ticker = t.get('ticker', '')
-                if not ticker or len(ticker) > 5:
-                    continue
-                price   = t.get('lastTrade', {}).get('p') or day.get('c') or 0
-                prev_cl = prev.get('c') or price or 1
-                volume  = day.get('v') or 0
-                gap_pct = ((price - prev_cl) / prev_cl * 100) if prev_cl else 0
-                if price < MIN_PRICE or price > MAX_PRICE:
-                    continue
-                if gap_pct < MIN_GAP_PCT:
-                    continue
-                if volume < MIN_PREMARKET_VOLUME:
-                    continue
-                candidates.append({'ticker': ticker, 'snap': t,
-                                   'gap': gap_pct, 'volume': volume})
-            except Exception:
-                continue
+        cur.execute("""
+            SELECT ticker, close_price, open_price, high_price, volume,
+                   vwap, gap_pct, rvol, close_strength, range_pct, prev_close
+            FROM polygon_market_daily
+            WHERE scan_date = %s
+              AND close_price BETWEEN %s AND %s
+              AND gap_pct    >= %s
+              AND volume     >= %s
+            ORDER BY gap_pct * COALESCE(rvol, 1) DESC
+            LIMIT 200
+        """, (latest_date, MIN_PRICE, MAX_PRICE, MIN_GAP_PCT, MIN_PREMARKET_VOLUME))
+        _cols = ['ticker','close_price','open_price','high_price','volume',
+                 'vwap','gap_pct','rvol','close_strength','range_pct','prev_close']
+        candidates = [dict(zip(_cols, r)) for r in cur.fetchall()]
 
-        log.info(f"Universe: {len(all_tickers)} → {len(candidates)} microcap candidates")
+        log.info(f"DB scan {latest_date}: {len(candidates)} microcap candidates "
+                 f"(gap≥{MIN_GAP_PCT}%, vol≥{MIN_PREMARKET_VOLUME:,}, price ${MIN_PRICE}-${MAX_PRICE})")
         if not candidates:
-            log.warning("No microcap candidates passed filters")
+            log.warning("No candidates from polygon_market_daily — market may have been quiet")
             return
 
-        # Step 3: Sort by gap×volume signal strength; take top 50 for deep score
-        candidates.sort(key=lambda x: x['gap'] * (x['volume'] / 100_000), reverse=True)
-        top_candidates = candidates[:50]
-
-        # Step 4: Load trust weights
+        # Step 2: Load trust weights
         trust_weights = _load_trust_weights(conn)
 
-        # Step 5: Deep score each finalist (adds Polygon ticker-details + news)
+        # Step 3: Deep score each candidate — adds ticker details + news from Polygon API
         scored = []
-        for c in top_candidates:
+        for c in candidates[:50]:
             ticker = c['ticker']
             try:
                 details  = _aiem_get_ticker_details(ticker)
@@ -567,8 +559,25 @@ def aiem_premarket_scan():
                     continue
 
                 news = _aiem_get_news(ticker)
+
+                # Build a synthetic snapshot from DB fields for the scorer
+                snap = {
+                    'day': {
+                        'c':  c['close_price'],
+                        'o':  c['open_price'],
+                        'h':  c['high_price'],
+                        'v':  c['volume'],
+                        'vw': c['vwap'],
+                    },
+                    'prevDay': {
+                        'c': c['prev_close'],
+                        'v': c['volume'],
+                    },
+                    'lastTrade': {'p': c['close_price']},
+                    'lastQuote': {},
+                }
                 conf, sig_basis, reasoning, predicted = _aiem_score_microcap(
-                    ticker, c['snap'], details, news, trust_weights
+                    ticker, snap, details, news, trust_weights
                 )
                 scored.append({
                     'ticker':    ticker,
@@ -576,11 +585,13 @@ def aiem_premarket_scan():
                     'sig_basis': sig_basis,
                     'reasoning': reasoning,
                     'predicted': predicted,
-                    'gap':       c['gap'],
+                    'gap':       c['gap_pct'],
                     'volume':    c['volume'],
+                    'rvol':      c.get('rvol') or 1.0,
                 })
-                log.info(f"  {ticker}: conf={conf:.1f} gap={c['gap']:.1f}% vol={c['volume']:,}")
-                time.sleep(0.1)  # be nice to Polygon
+                log.info(f"  {ticker}: conf={conf:.1f} gap={c['gap_pct']:.1f}% "
+                         f"vol={c['volume']:,} rvol={c.get('rvol') or 0:.1f}x")
+                time.sleep(0.1)
             except Exception as e:
                 log.error(f"Deep score error {ticker}: {e}")
                 continue
@@ -1054,6 +1065,66 @@ def aiem_nightly_learn():
 
 
 # ─────────────────────────────────────────────────────────────
+# JOB 5b: MORNING BRIEF — 8:00 AM ET
+# Always fires. Sends today's top premarket picks to Telegram.
+# If the DB is empty (scan hasn't run yet), triggers a scan first.
+# ─────────────────────────────────────────────────────────────
+def aiem_morning_brief():
+    conn = None
+    try:
+        conn  = _get_conn()
+        cur   = conn.cursor()
+        today = date.today()
+
+        cur.execute("""
+            SELECT ticker, rank, confidence_score, signal_basis, reasoning, predicted_move
+            FROM aiem_predictions
+            WHERE prediction_date = %s
+            ORDER BY rank ASC LIMIT 5
+        """, (today,))
+        picks = cur.fetchall()
+
+        if not picks:
+            log.info("No picks in DB at 8 AM — running emergency premarket scan now")
+            _put_conn(conn)
+            conn = None
+            aiem_premarket_scan()
+            conn = _get_conn()
+            cur  = conn.cursor()
+            cur.execute("""
+                SELECT ticker, rank, confidence_score, signal_basis, reasoning, predicted_move
+                FROM aiem_predictions
+                WHERE prediction_date = %s
+                ORDER BY rank ASC LIMIT 5
+            """, (today,))
+            picks = cur.fetchall()
+
+        if not picks:
+            _aiem_send_sms("🤖 AIEM 8 AM: No picks found today — market may be quiet or data unavailable.")
+            log.warning("morning_brief: no picks after emergency scan")
+            return
+
+        lines = [f"🤖 AIEM Morning Picks — {today.strftime('%a %b %d')}",
+                 "━━━━━━━━━━━━━━━━━━━━"]
+        for ticker, rank, conf, sig_basis, reasoning, predicted in picks:
+            lines.append(f"#{rank} ${ticker}  {conf:.0f}/100")
+            lines.append(f"   {predicted}")
+            short_reason = (reasoning or '')[:80]
+            if short_reason:
+                lines.append(f"   {short_reason}")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
+        lines.append("🔔 Watch open at 9:30 AM ET")
+
+        _aiem_send_sms("\n".join(lines))
+        log.info(f"morning_brief sent: {len(picks)} picks")
+
+    except Exception as e:
+        log.error(f"morning_brief error: {e}")
+    finally:
+        _put_conn(conn)
+
+
+# ─────────────────────────────────────────────────────────────
 # JOB 6: MISSED MORNING CHECK — 9:45 AM ET
 # Safety net: if AIEM has zero predictions by 9:45, run emergency scan
 # ─────────────────────────────────────────────────────────────
@@ -1111,6 +1182,11 @@ def main():
                       hour='7-9', minute='0,15,30,45',
                       id='aiem_premarket', replace_existing=True)
 
+    # Morning brief: 8:00 AM — always sends top picks to Telegram
+    scheduler.add_job(_logged_job(aiem_morning_brief),        'cron',
+                      day_of_week='mon-fri', hour=8, minute=0,
+                      id='aiem_morning_brief', replace_existing=True)
+
     # Open watcher: every 5 min 9:30–10:30 AM
     scheduler.add_job(_logged_job(aiem_open_watcher),         'cron',
                       hour='9,10', minute='*/5',
@@ -1138,6 +1214,7 @@ def main():
 
     log.info("Scheduler jobs registered:")
     log.info("  7:00–9:30 AM  premarket_scan    (every 15 min)")
+    log.info("  8:00 AM       morning_brief     (Telegram picks — always fires)")
     log.info("  9:30–10:30 AM open_watcher      (every 5 min)")
     log.info("  9:45 AM       missed_morning_check")
     log.info("  4:30 PM       grade_outcomes")
