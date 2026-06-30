@@ -1,0 +1,869 @@
+"""
+aiem_standalone_scanner.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AIEM STANDALONE AUTONOMOUS SCANNER
+
+This process runs 100% independently of Flask / your website.
+If your site goes down, this keeps running.
+If this crashes, supervisord or systemd restarts it automatically.
+
+It connects DIRECTLY to Polygon.io — no routing through your web app.
+Picks are written directly to your database.
+
+ARCHITECTURE
+─────────────
+  Flask / Website  ←── completely separate, can be dead
+  │
+  Database  ←─────────────────────────────────────────┐
+  │                                                    │
+  aiem_standalone_scanner.py  ──→  Polygon.io          │
+       │                                               │
+       └── writes picks, signals, logs ───────────────┘
+
+SETUP (one time)
+─────────────────
+  1. Set environment variables (see REQUIRED ENV VARS below)
+  2. Install dependencies:
+       pip install apscheduler psycopg2-binary requests python-dotenv --break-system-packages
+  3. Run standalone:
+       python aiem_standalone_scanner.py
+  4. OR install as a system service (see bottom of file for supervisord + systemd configs)
+
+SCHEDULE
+─────────
+  Premarket scan  : 4:00 AM ET daily (Mon-Fri)
+  Morning scan    : 9:15 AM ET daily (Mon-Fri)  ← 15 min before open
+  EOD feedback    : 4:30 PM ET daily (Mon-Fri)
+  Health check    : Every 5 minutes
+"""
+
+import logging
+import os
+import signal
+import sys
+import time
+from datetime import date, datetime, timezone
+from typing import Any
+
+import requests
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+# ── Optional: load .env file if present ──────────────────────────────────────
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGGING
+# ─────────────────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("/tmp/aiem_scanner.log", mode="a"),
+    ],
+)
+logger = logging.getLogger("AIEM_SCANNER")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REQUIRED ENV VARS
+# Set these in your Replit Secrets or .env file — never hardcode them
+# ─────────────────────────────────────────────────────────────────────────────
+POLYGON_API_KEY   = os.environ.get("POLYGON_API_KEY", "")
+TRADIER_API_KEY   = os.environ.get("TRADIER_API_KEY", "")
+DATABASE_URL      = os.environ.get("DATABASE_URL", "")       # postgres://...
+AIEM_HMAC_SECRET  = os.environ.get("AIEM_HMAC_SECRET", "")
+
+# Validate on startup
+def validate_env() -> None:
+    missing = []
+    if not POLYGON_API_KEY:
+        missing.append("POLYGON_API_KEY")
+    if not DATABASE_URL:
+        missing.append("DATABASE_URL")
+    if missing:
+        logger.error("MISSING REQUIRED ENV VARS: %s", missing)
+        logger.error("Set these in Replit Secrets or your .env file.")
+        sys.exit(1)
+    logger.info("✓ Environment variables validated.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATABASE — direct psycopg2 connection, no Flask dependency
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    import psycopg2
+    import psycopg2.extras
+    DB_AVAILABLE = True
+except ImportError:
+    logger.warning("psycopg2 not installed. DB writes disabled.")
+    DB_AVAILABLE = False
+
+
+def get_db_connection():
+    """Open a fresh DB connection. Always close after use."""
+    if not DB_AVAILABLE:
+        raise RuntimeError("psycopg2 not available")
+    return psycopg2.connect(DATABASE_URL)
+
+
+def db_write_signal(signal: dict) -> None:
+    """Write a signal to the aiem_signals table directly."""
+    if not DB_AVAILABLE:
+        logger.warning("[DB] psycopg2 not available — signal not persisted: %s", signal.get("ticker"))
+        return
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO aiem_signals (
+                ticker, scan_dt, action, base_conviction, final_conviction,
+                tags, notes, signal_date, created_at
+            ) VALUES (
+                %(ticker)s, %(scan_dt)s, %(action)s, %(base_conviction)s,
+                %(final_conviction)s, %(tags)s, %(notes)s, %(signal_date)s,
+                NOW()
+            )
+            ON CONFLICT DO NOTHING;
+        """, {
+            **signal,
+            "tags":        str(signal.get("tags", [])),
+            "notes":       str(signal.get("notes", [])),
+            "signal_date": date.today(),
+        })
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info("[DB] Signal written for %s  action=%s", signal.get("ticker"), signal.get("action"))
+    except Exception as e:
+        logger.error("[DB] Write failed for %s: %s", signal.get("ticker"), e)
+
+
+def db_write_health_check(status: str, detail: str = "") -> None:
+    """Write a health check ping so you can monitor the scanner from your site."""
+    if not DB_AVAILABLE:
+        return
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO aiem_health_log (status, detail, checked_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT DO NOTHING;
+        """, (status, detail))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error("[DB] Health check write failed: %s", e)
+
+
+def ensure_tables_exist() -> None:
+    """Create required tables if they don't exist yet."""
+    if not DB_AVAILABLE:
+        return
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS aiem_signals (
+                id               SERIAL PRIMARY KEY,
+                ticker           VARCHAR(20)  NOT NULL,
+                scan_dt          TIMESTAMP,
+                action           VARCHAR(20),
+                base_conviction  INTEGER,
+                final_conviction INTEGER,
+                tags             TEXT,
+                notes            TEXT,
+                signal_date      DATE,
+                entry_price      NUMERIC(12,4),
+                close_price      NUMERIC(12,4),
+                outcome          VARCHAR(20),
+                pct_move         NUMERIC(8,4),
+                created_at       TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS aiem_health_log (
+                id         SERIAL PRIMARY KEY,
+                status     VARCHAR(20),
+                detail     TEXT,
+                checked_at TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS aiem_scan_log (
+                id          SERIAL PRIMARY KEY,
+                scan_type   VARCHAR(50),
+                tickers_found INTEGER,
+                tickers_passed INTEGER,
+                scan_dt     TIMESTAMP DEFAULT NOW()
+            );
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info("✓ Database tables verified.")
+    except Exception as e:
+        logger.error("[DB] Table creation failed: %s", e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POLYGON.IO — direct API calls, no Flask intermediary
+# ─────────────────────────────────────────────────────────────────────────────
+POLYGON_BASE = "https://api.polygon.io"
+SESSION       = requests.Session()
+SESSION.params = {"apiKey": POLYGON_API_KEY}   # type: ignore
+
+
+def polygon_get(endpoint: str, params: dict | None = None) -> dict | None:
+    """Direct GET to Polygon. Returns JSON or None on failure."""
+    url = f"{POLYGON_BASE}{endpoint}"
+    try:
+        resp = SESSION.get(url, params=params or {}, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.RequestException as e:
+        logger.error("[POLYGON] Request failed %s: %s", endpoint, e)
+        return None
+
+
+def get_premarket_gainers() -> list[dict]:
+    """
+    Fetch today's top premarket gainers from Polygon snapshot.
+    Filters for micro/small-cap gap plays (gap > 10%, rvol > 5x).
+    """
+    data = polygon_get("/v2/snapshot/locale/us/markets/stocks/gainers")
+    if not data or "tickers" not in data:
+        logger.warning("[POLYGON] No gainer data returned.")
+        return []
+
+    candidates = []
+    for t in data["tickers"]:
+        try:
+            ticker      = t.get("ticker", "")
+            day         = t.get("day", {})
+            prev_day    = t.get("prevDay", {})
+            details     = t.get("details", {})
+
+            prev_close  = prev_day.get("c", 0)
+            open_price  = day.get("o", 0)
+            volume      = day.get("v", 0)
+            avg_volume  = details.get("shareClassSharesOutstanding", 0)  # fallback
+
+            if not prev_close or not open_price:
+                continue
+
+            gap_pct = (open_price - prev_close) / prev_close
+
+            # Basic filters — tune these to your strategy
+            if gap_pct < 0.10:   # Less than 10% gap — skip
+                continue
+            if open_price > 20:  # Price too high for micro-cap scanner
+                continue
+            if open_price < 0.10:  # Too cheap — likely broken
+                continue
+
+            candidates.append({
+                "ticker":       ticker,
+                "gap_pct":      round(gap_pct, 4),
+                "open_price":   open_price,
+                "prev_close":   prev_close,
+                "volume":       volume,
+                "price":        day.get("c", open_price),
+            })
+
+        except Exception as e:
+            logger.warning("[POLYGON] Error parsing ticker %s: %s", t.get("ticker"), e)
+            continue
+
+    logger.info("[POLYGON] Found %d gap candidates", len(candidates))
+    return sorted(candidates, key=lambda x: -x["gap_pct"])[:20]  # Top 20 by gap %
+
+
+def get_ticker_details(ticker: str) -> dict:
+    """Fetch market cap, float, share count from Polygon."""
+    data = polygon_get(f"/v3/reference/tickers/{ticker}")
+    if not data or "results" not in data:
+        return {}
+    return data["results"]
+
+
+def get_previous_close(ticker: str) -> float:
+    """Get yesterday's close price for staleness check."""
+    data = polygon_get(f"/v2/aggs/ticker/{ticker}/prev")
+    if not data or not data.get("results"):
+        return 0.0
+    return data["results"][0].get("c", 0.0)
+
+
+def get_vwap_from_polygon(ticker: str) -> float:
+    """Get today's VWAP from Polygon snapshot."""
+    data = polygon_get(f"/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}")
+    if not data or "ticker" not in data:
+        return 0.0
+    return data["ticker"].get("day", {}).get("vw", 0.0)
+
+
+def get_news_items(ticker: str, limit: int = 3) -> list[dict]:
+    """Fetch recent news for a ticker to determine catalyst age and source."""
+    data = polygon_get(
+        "/v2/reference/news",
+        params={"ticker": ticker, "limit": limit, "order": "desc"},
+    )
+    if not data or "results" not in data:
+        return []
+    return data["results"]
+
+
+def get_catalyst_info(ticker: str) -> tuple[datetime | None, str]:
+    """
+    Returns (catalyst_datetime, source_name) from most recent news item.
+    Source mapped to our quality scoring system.
+    """
+    news = get_news_items(ticker, limit=1)
+    if not news:
+        return None, "UNKNOWN"
+
+    item       = news[0]
+    published  = item.get("published_utc", "")
+    publisher  = item.get("publisher", {}).get("name", "UNKNOWN").upper()
+
+    try:
+        cat_dt = datetime.fromisoformat(published.replace("Z", "+00:00"))
+    except Exception:
+        cat_dt = None
+
+    # Map publisher name to our source quality system
+    source_map = {
+        "BUSINESS WIRE":  "BUSINESSWIRE",
+        "PR NEWSWIRE":    "PR_NEWSWIRE",
+        "GLOBE NEWSWIRE": "GLOBE_NEWSWIRE",
+        "ACCESSWIRE":     "ACCESSWIRE",
+        "SEC":            "SEC_8K",
+        "NASDAQ":         "NASDAQ_OFFICIAL",
+    }
+    source = "UNKNOWN"
+    for key, val in source_map.items():
+        if key in publisher:
+            source = val
+            break
+
+    return cat_dt, source
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CORE SCANNER LOGIC
+# ─────────────────────────────────────────────────────────────────────────────
+
+def is_weekend_or_holiday() -> bool:
+    """Skip weekends. Add holiday dates as needed."""
+    today     = date.today()
+    weekday   = today.weekday()
+
+    # 0=Mon ... 4=Fri, 5=Sat, 6=Sun
+    if weekday >= 5:
+        return True
+
+    # Add US market holidays here
+    holidays = {
+        date(2026, 7, 3),   # Independence Day observed
+        date(2026, 9, 7),   # Labor Day
+        date(2026, 11, 26), # Thanksgiving
+        date(2026, 12, 25), # Christmas
+    }
+    return today in holidays
+
+
+def score_signal(ticker: str, gap_pct: float, price: float, scan_dt: datetime) -> dict:
+    """
+    Score a single ticker using all available data from Polygon.
+    This is the standalone version — no Flask, no web app dependency.
+    """
+    now          = scan_dt
+    today        = now.date()
+    tags         = []
+    notes        = []
+    conviction   = 70  # Base conviction
+
+    # ── Gap size scoring ──────────────────────────────────────────────────
+    if gap_pct >= 1.00:       # 100%+ gap
+        conviction += 15
+        tags.append("MEGA_GAP")
+    elif gap_pct >= 0.50:     # 50-100%
+        conviction += 10
+        tags.append("LARGE_GAP")
+    elif gap_pct >= 0.20:     # 20-50%
+        conviction += 5
+        tags.append("MEDIUM_GAP")
+    else:
+        tags.append("SMALL_GAP")
+
+    # ── Catalyst age check (System 1 from staleness filter) ──────────────
+    cat_dt, source = get_catalyst_info(ticker)
+
+    if cat_dt:
+        if cat_dt.tzinfo is None:
+            cat_dt = cat_dt.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+
+        age_hours = (now - cat_dt).total_seconds() / 3600
+
+        if age_hours > 48:
+            conviction -= 4
+            tags.append("CATALYST_STALE_48H")
+            notes.append(f"Catalyst is {age_hours:.0f}h old — near-disqualifying")
+        elif age_hours > 24:
+            conviction -= 2
+            tags.append("CATALYST_STALE_24H")
+            notes.append(f"Catalyst is {age_hours:.0f}h old — penalty applied")
+        else:
+            tags.append("CATALYST_FRESH")
+            notes.append(f"Catalyst is {age_hours:.1f}h old — fresh")
+
+        # Gap happened yesterday check
+        if cat_dt.date() < today:
+            tags.append("GAP_IS_YESTERDAY")
+            conviction -= 20
+            notes.append("Catalyst from a prior session — Day 2 play, high risk")
+    else:
+        tags.append("NO_CATALYST_FOUND")
+        conviction -= 5
+        notes.append("No catalyst found via Polygon news — proceed with caution")
+
+    # ── News source quality (System 3) ───────────────────────────────────
+    source_deltas = {
+        "SEC_8K": +5, "NASDAQ_OFFICIAL": +3, "GLOBE_NEWSWIRE": 0,
+        "PR_NEWSWIRE": 0, "BUSINESSWIRE": 0, "ACCESSWIRE": -2,
+        "UNKNOWN": -5,
+    }
+    src_delta = source_deltas.get(source, -5)
+    conviction += src_delta
+    tags.append(f"SOURCE_{source}")
+    if src_delta != 0:
+        notes.append(f"Source '{source}' → conviction {src_delta:+d}")
+
+    # ── Ticker details from Polygon (float proxy) ─────────────────────────
+    details      = get_ticker_details(ticker)
+    market_cap   = details.get("market_cap", 0) or 0
+    share_count  = details.get("weighted_shares_outstanding", 0) or 0
+
+    if market_cap > 0:
+        if market_cap < 10_000_000:          # Under $10M micro-cap
+            tags.append("FLOAT_MICRO")
+            conviction -= 5
+            notes.append("Market cap < $10M — ultra micro-cap, extreme caution")
+        elif market_cap < 50_000_000:
+            tags.append("FLOAT_SMALL")
+        elif market_cap < 300_000_000:
+            tags.append("FLOAT_MEDIUM")
+        else:
+            tags.append("FLOAT_LARGE")
+            conviction -= 10
+            notes.append("Large cap gap — scanner not optimized for this size")
+
+    # ── VWAP check ────────────────────────────────────────────────────────
+    vwap = get_vwap_from_polygon(ticker)
+    if vwap and vwap > 0 and price > 0:
+        vwap_pct = (price - vwap) / vwap
+        if vwap_pct > 0.10:
+            tags.append("EXTENDED_ABOVE_VWAP")
+            conviction -= 5
+            notes.append(f"Price {vwap_pct:.1%} above VWAP — extended, fade risk")
+        elif price < vwap:
+            tags.append("BELOW_VWAP")
+            conviction -= 3
+            notes.append("Price below VWAP — losing momentum")
+        else:
+            tags.append("NEAR_VWAP")
+
+    # ── Time of day (System 5) ────────────────────────────────────────────
+    hour   = now.hour
+    minute = now.minute
+    et_hour = hour - 4  # Rough UTC to ET (adjust for DST)
+
+    if 4 <= et_hour < 9 or (et_hour == 9 and minute < 30):
+        tags.append("ZONE_PREMARKET")
+        notes.append("Premarket scan — signal logged, no execution until 9:30 ET")
+        allow_entry = False
+    elif et_hour == 9 and 30 <= minute < 45:
+        tags.append("ZONE_DANGER")
+        conviction -= 20
+        notes.append("DANGER ZONE 9:30-9:45 — conviction must be 85+ to act")
+        allow_entry = conviction >= 85
+    elif (et_hour == 9 and minute >= 45) or (et_hour == 10):
+        tags.append("ZONE_POWER_HOUR_OPEN")
+        allow_entry = True
+    elif 11 <= et_hour < 14:
+        tags.append("ZONE_MIDDAY_CHOP")
+        conviction -= 10
+        notes.append("Midday chop — no new entries")
+        allow_entry = False
+    elif 15 <= et_hour < 16:
+        tags.append("ZONE_POWER_HOUR_CLOSE")
+        conviction += 5
+        allow_entry = True
+    else:
+        tags.append("ZONE_AFTER_HOURS")
+        allow_entry = False
+
+    # ── Final verdict ─────────────────────────────────────────────────────
+    conviction = max(0, conviction)
+    threshold  = 85 if "ZONE_DANGER" in tags else 70
+
+    action = "PASS" if (conviction >= threshold and allow_entry) else "SKIP"
+
+    signal = {
+        "ticker":           ticker,
+        "scan_dt":          scan_dt.isoformat(),
+        "signal_date":      today.isoformat(),
+        "action":           action,
+        "base_conviction":  70,
+        "final_conviction": conviction,
+        "gap_pct":          round(gap_pct * 100, 2),
+        "price":            price,
+        "vwap":             vwap,
+        "market_cap":       market_cap,
+        "catalyst_source":  source,
+        "catalyst_age_h":   round(age_hours, 1) if cat_dt else None,
+        "tags":             list(set(tags)),
+        "notes":            notes,
+        "allow_entry":      allow_entry,
+    }
+
+    logger.info(
+        "[SIGNAL] %s  %s  conviction=%d  gap=%.1f%%  tags=%s",
+        ticker, action, conviction, gap_pct * 100, tags,
+    )
+
+    return signal
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCHEDULED JOBS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def job_premarket_scan() -> None:
+    """
+    4:00 AM ET — Early premarket scan.
+    Finds gap candidates before the market opens.
+    Logs them to DB. No execution at this stage.
+    """
+    if is_weekend_or_holiday():
+        logger.info("[PREMARKET] Weekend/holiday — skipping scan.")
+        return
+
+    logger.info("=" * 60)
+    logger.info("[PREMARKET SCAN] Starting — %s", datetime.now().isoformat())
+    logger.info("=" * 60)
+
+    candidates = get_premarket_gainers()
+    if not candidates:
+        logger.warning("[PREMARKET] No candidates found from Polygon.")
+        db_write_health_check("PREMARKET_EMPTY", "No gap candidates returned")
+        return
+
+    passed  = 0
+    skipped = 0
+
+    for c in candidates[:10]:  # Evaluate top 10
+        try:
+            signal = score_signal(
+                ticker  = c["ticker"],
+                gap_pct = c["gap_pct"],
+                price   = c["price"],
+                scan_dt = datetime.now(timezone.utc),
+            )
+            db_write_signal(signal)
+
+            if signal["action"] == "PASS":
+                passed += 1
+            else:
+                skipped += 1
+
+        except Exception as e:
+            logger.error("[PREMARKET] Error scoring %s: %s", c["ticker"], e)
+
+    logger.info(
+        "[PREMARKET SCAN] Complete — %d passed, %d skipped",
+        passed, skipped,
+    )
+
+    # Log scan summary to DB
+    if DB_AVAILABLE:
+        try:
+            conn = get_db_connection()
+            cur  = conn.cursor()
+            cur.execute("""
+                INSERT INTO aiem_scan_log (scan_type, tickers_found, tickers_passed)
+                VALUES (%s, %s, %s)
+            """, ("PREMARKET", len(candidates), passed))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logger.error("[DB] Scan log write failed: %s", e)
+
+    db_write_health_check("PREMARKET_OK", f"found={len(candidates)} passed={passed}")
+
+
+def job_morning_scan() -> None:
+    """
+    9:15 AM ET — Final scan before market open.
+    Re-evaluates premarket candidates with updated Polygon data.
+    This is AIEM's primary pick generation for the day.
+    """
+    if is_weekend_or_holiday():
+        logger.info("[MORNING SCAN] Weekend/holiday — skipping.")
+        return
+
+    logger.info("=" * 60)
+    logger.info("[MORNING SCAN] Starting — %s", datetime.now().isoformat())
+    logger.info("=" * 60)
+
+    candidates = get_premarket_gainers()
+    if not candidates:
+        logger.warning("[MORNING SCAN] No candidates from Polygon.")
+        db_write_health_check("MORNING_EMPTY", "No candidates at 9:15")
+        return
+
+    picks = []
+    for c in candidates[:15]:
+        try:
+            signal = score_signal(
+                ticker  = c["ticker"],
+                gap_pct = c["gap_pct"],
+                price   = c["price"],
+                scan_dt = datetime.now(timezone.utc),
+            )
+            db_write_signal(signal)
+
+            if signal["action"] == "PASS":
+                picks.append(signal)
+
+        except Exception as e:
+            logger.error("[MORNING SCAN] Error on %s: %s", c["ticker"], e)
+
+    logger.info("[MORNING SCAN] %d picks generated:", len(picks))
+    for p in picks:
+        logger.info(
+            "  ★ %s  conviction=%d  gap=%.1f%%  source=%s",
+            p["ticker"], p["final_conviction"],
+            p["gap_pct"], p["catalyst_source"],
+        )
+
+    db_write_health_check("MORNING_OK", f"picks={len(picks)}")
+
+
+def job_eod_feedback() -> None:
+    """
+    4:30 PM ET — End of day feedback loop.
+    Scores all of today's signals against actual close prices.
+    """
+    if is_weekend_or_holiday():
+        return
+
+    logger.info("=" * 60)
+    logger.info("[EOD FEEDBACK] Starting — %s", datetime.now().isoformat())
+    logger.info("=" * 60)
+
+    if not DB_AVAILABLE:
+        logger.warning("[EOD] DB not available — skipping feedback loop.")
+        return
+
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, ticker, action, price as entry_price, signal_date
+            FROM aiem_signals
+            WHERE signal_date = %s AND outcome IS NULL
+        """, (date.today(),))
+        signals = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error("[EOD] Could not fetch today's signals: %s", e)
+        return
+
+    logger.info("[EOD] Scoring %d signals from today", len(signals))
+
+    wins = losses = neutrals = 0
+
+    for s in signals:
+        ticker      = s["ticker"]
+        entry_price = s.get("entry_price") or 0
+
+        close_data = polygon_get(f"/v2/aggs/ticker/{ticker}/prev")
+        if not close_data or not close_data.get("results"):
+            continue
+
+        close_price = close_data["results"][0].get("c", 0)
+
+        if not entry_price or entry_price <= 0:
+            outcome  = "UNKNOWN"
+            pct_move = None
+        else:
+            pct_move = (close_price - entry_price) / entry_price
+            if pct_move > 0.02:
+                outcome = "WINNER"
+                wins   += 1
+            elif pct_move < -0.02:
+                outcome = "LOSER"
+                losses += 1
+            else:
+                outcome  = "NEUTRAL"
+                neutrals += 1
+
+        try:
+            conn = get_db_connection()
+            cur  = conn.cursor()
+            cur.execute("""
+                UPDATE aiem_signals
+                SET close_price = %s, outcome = %s, pct_move = %s
+                WHERE id = %s
+            """, (close_price, outcome, pct_move, s["id"]))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logger.error("[EOD] Update failed for %s: %s", ticker, e)
+
+    total = wins + losses + neutrals
+    win_rate = wins / total if total > 0 else 0
+
+    logger.info(
+        "[EOD SUMMARY] Total=%d  Wins=%d  Losses=%d  Neutral=%d  WinRate=%.1f%%",
+        total, wins, losses, neutrals, win_rate * 100,
+    )
+    db_write_health_check(
+        "EOD_OK",
+        f"total={total} wins={wins} losses={losses} win_rate={win_rate:.2f}",
+    )
+
+
+def job_health_check() -> None:
+    """Every 5 minutes — confirm scanner is alive and Polygon is reachable."""
+    data = polygon_get("/v1/marketstatus/now")
+    status = data.get("market", "unknown") if data else "polygon_unreachable"
+    db_write_health_check("ALIVE", f"market_status={status}")
+    logger.debug("[HEALTH] Scanner alive — market=%s", status)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GRACEFUL SHUTDOWN
+# ─────────────────────────────────────────────────────────────────────────────
+
+scheduler: BlockingScheduler | None = None
+
+def handle_shutdown(signum, frame):
+    logger.info("[SHUTDOWN] Signal %d received — shutting down scanner gracefully.", signum)
+    if scheduler:
+        scheduler.shutdown(wait=False)
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, handle_shutdown)
+signal.signal(signal.SIGINT,  handle_shutdown)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN — starts the scheduler, completely independent of Flask
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    logger.info("━" * 60)
+    logger.info("  AIEM STANDALONE SCANNER STARTING")
+    logger.info("  Flask / website status: IRRELEVANT")
+    logger.info("  Polygon connection:     DIRECT")
+    logger.info("  Database connection:    DIRECT")
+    logger.info("━" * 60)
+
+    validate_env()
+    ensure_tables_exist()
+
+    global scheduler
+    scheduler = BlockingScheduler(timezone="America/New_York")
+
+    # ── Schedule all jobs (Eastern Time) ─────────────────────────────────
+    scheduler.add_job(
+        job_premarket_scan,
+        CronTrigger(day_of_week="mon-fri", hour=4, minute=0),
+        id="premarket_scan",
+        name="Premarket Gap Scan (4:00 AM ET)",
+    )
+    scheduler.add_job(
+        job_morning_scan,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=15),
+        id="morning_scan",
+        name="Morning Scan / Pick Generation (9:15 AM ET)",
+    )
+    scheduler.add_job(
+        job_eod_feedback,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=30),
+        id="eod_feedback",
+        name="EOD Feedback Loop (4:30 PM ET)",
+    )
+    scheduler.add_job(
+        job_health_check,
+        CronTrigger(minute="*/5"),
+        id="health_check",
+        name="Health Check (every 5 min)",
+    )
+
+    logger.info("✓ Jobs scheduled:")
+    for job in scheduler.get_jobs():
+        logger.info("    • %s", job.name)
+
+    logger.info("✓ Scanner running. Flask can be up, down, or dead — doesn't matter.")
+    logger.info("━" * 60)
+
+    scheduler.start()
+
+
+if __name__ == "__main__":
+    main()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUPERVISORD CONFIG — paste into /etc/supervisor/conf.d/aiem_scanner.conf
+# ─────────────────────────────────────────────────────────────────────────────
+SUPERVISORD_CONFIG = """
+[program:aiem_scanner]
+command=python /path/to/aiem_standalone_scanner.py
+directory=/path/to/your/project
+autostart=true
+autorestart=true
+startretries=10
+stderr_logfile=/var/log/aiem_scanner.err.log
+stdout_logfile=/var/log/aiem_scanner.out.log
+environment=
+    POLYGON_API_KEY="%(ENV_POLYGON_API_KEY)s",
+    DATABASE_URL="%(ENV_DATABASE_URL)s",
+    AIEM_HMAC_SECRET="%(ENV_AIEM_HMAC_SECRET)s"
+"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SYSTEMD SERVICE — paste into /etc/systemd/system/aiem_scanner.service
+# then run: sudo systemctl enable aiem_scanner && sudo systemctl start aiem_scanner
+# ─────────────────────────────────────────────────────────────────────────────
+SYSTEMD_CONFIG = """
+[Unit]
+Description=AIEM Standalone Scanner
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/your/project
+ExecStart=/usr/bin/python3 /path/to/aiem_standalone_scanner.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/path/to/.env
+
+[Install]
+WantedBy=multi-user.target
+"""

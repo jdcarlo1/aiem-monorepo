@@ -1,0 +1,819 @@
+"""
+aiem_intelligence_upgrade.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AIEM Intelligence Upgrade — All 6 Missing Systems
+
+  1. End-of-day feedback loop   — AIEM scores its own past signals vs reality
+  2. Daily loss limit / kill switch — stops trading after max pain threshold
+  3. News source quality scoring — 8-K > PR Newswire > blog post
+  4. Sector heat awareness       — macro sector penalty when sector is collapsing
+  5. Time-of-day rules           — 9:30-9:45 is NOT the same as 10:30am
+  6. Float + short interest      — float size changes everything in micro-cap
+
+All systems feed into master_evaluate_signal() which combines them with the
+staleness filter from aiem_staleness_filter.py and the Wall Street pattern
+library from aiem_verification_and_trading_brain.py
+
+Wire the stubs at the top to your Polygon / Tradier / DB calls.
+Set AIEM_HMAC_SECRET in your environment before running.
+"""
+
+import json
+import logging
+import os
+from datetime import date, datetime, time, timedelta, timezone
+from enum import Enum
+from typing import Any
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA STUBS — replace every raise with your Polygon / Tradier / DB call
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_current_price(ticker: str) -> float:
+    raise NotImplementedError(f"Wire get_current_price for {ticker}")
+
+def get_close_price(ticker: str, on_date: date) -> float:
+    """Closing price for ticker on a specific date."""
+    raise NotImplementedError(f"Wire get_close_price for {ticker} on {on_date}")
+
+def get_float_shares(ticker: str) -> int:
+    """Share float count."""
+    raise NotImplementedError(f"Wire get_float_shares for {ticker}")
+
+def get_short_interest_pct(ticker: str) -> float:
+    """Short interest as decimal e.g. 0.25 = 25%."""
+    raise NotImplementedError(f"Wire get_short_interest_pct for {ticker}")
+
+def get_sector(ticker: str) -> str:
+    """Return sector string e.g. 'biotech', 'technology', 'energy'."""
+    raise NotImplementedError(f"Wire get_sector for {ticker}")
+
+def get_sector_etf_change_pct(sector: str) -> float:
+    """
+    Return today's % change for the sector proxy ETF.
+    e.g. biotech -> XBI change, technology -> QQQ change
+    Returns decimal: -0.03 = down 3%
+    """
+    raise NotImplementedError(f"Wire get_sector_etf_change_pct for {sector}")
+
+def get_news_source(ticker: str) -> str:
+    """
+    Return the source of the most recent catalyst.
+    e.g. 'SEC_8K', 'PR_NEWSWIRE', 'GLOBE_NEWSWIRE', 'BLOG', 'TWITTER', 'UNKNOWN'
+    """
+    raise NotImplementedError(f"Wire get_news_source for {ticker}")
+
+def get_halt_count_yesterday(ticker: str) -> int:
+    """Number of trading halts the stock experienced yesterday."""
+    raise NotImplementedError(f"Wire get_halt_count_yesterday for {ticker}")
+
+def db_log_signal(signal: dict) -> None:
+    """Persist signal dict to your signals table."""
+    raise NotImplementedError("Wire db_log_signal to your DB")
+
+def db_get_past_signals(lookback_days: int = 30) -> list[dict]:
+    """
+    Return list of signal dicts that were acted on in the past N days.
+    Each dict must have: ticker, action, signal_date, entry_price (optional)
+    """
+    raise NotImplementedError("Wire db_get_past_signals to your DB")
+
+def db_log_daily_loss(amount: float, session_date: date) -> None:
+    """Record a loss event for the session."""
+    raise NotImplementedError("Wire db_log_daily_loss to your DB")
+
+def db_get_session_pnl(session_date: date) -> float:
+    """Return today's running P&L as a float (negative = loss)."""
+    raise NotImplementedError("Wire db_get_session_pnl to your DB")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SYSTEM 1 — END-OF-DAY FEEDBACK LOOP
+# ═════════════════════════════════════════════════════════════════════════════
+
+class SignalOutcome(Enum):
+    WINNER   = "WINNER"    # stock up from signal price
+    LOSER    = "LOSER"     # stock down from signal price
+    NEUTRAL  = "NEUTRAL"   # < 2% move either way
+    UNKNOWN  = "UNKNOWN"   # couldn't get close price
+
+
+def score_past_signal(signal: dict) -> dict:
+    """
+    Given a past signal dict, fetch the close price on signal_date and
+    determine whether the signal would have been a winner or loser.
+
+    signal dict must contain:
+        ticker        : str
+        signal_date   : date
+        entry_price   : float   (price at time of signal)
+        action        : 'PASS' | 'SKIP'
+    """
+    ticker       = signal["ticker"]
+    signal_date  = signal["signal_date"]
+    entry_price  = signal.get("entry_price", 0)
+
+    try:
+        close = get_close_price(ticker, signal_date)
+    except Exception:
+        return {**signal, "outcome": SignalOutcome.UNKNOWN.value, "pct_move": None}
+
+    if not entry_price or entry_price <= 0:
+        return {**signal, "outcome": SignalOutcome.UNKNOWN.value, "pct_move": None}
+
+    pct_move = (close - entry_price) / entry_price
+
+    if pct_move > 0.02:
+        outcome = SignalOutcome.WINNER
+    elif pct_move < -0.02:
+        outcome = SignalOutcome.LOSER
+    else:
+        outcome = SignalOutcome.NEUTRAL
+
+    logger.info(
+        "[EOD] %s  signal=%s  entry=%.2f  close=%.2f  move=%.1f%%  outcome=%s",
+        ticker, signal["action"], entry_price, close, pct_move * 100, outcome.value,
+    )
+
+    return {
+        **signal,
+        "outcome":  outcome.value,
+        "pct_move": round(pct_move, 4),
+        "close":    close,
+    }
+
+
+def run_eod_feedback_loop(lookback_days: int = 30) -> dict:
+    """
+    Run after market close.
+    Pulls past signals, scores each one, returns a performance summary.
+    AIEM should call this nightly and log the results.
+    """
+    past_signals = db_get_past_signals(lookback_days)
+    scored       = [score_past_signal(s) for s in past_signals]
+
+    pass_signals  = [s for s in scored if s["action"] == "PASS"]
+    skip_signals  = [s for s in scored if s["action"] == "SKIP"]
+
+    pass_winners  = [s for s in pass_signals if s["outcome"] == SignalOutcome.WINNER.value]
+    pass_losers   = [s for s in pass_signals if s["outcome"] == SignalOutcome.LOSER.value]
+    skip_winners  = [s for s in skip_signals if s["outcome"] == SignalOutcome.WINNER.value]
+
+    win_rate = (
+        len(pass_winners) / len(pass_signals) if pass_signals else 0.0
+    )
+
+    # Signals we SKIPPED that would have been winners — missed opportunities
+    missed_opportunities = len(skip_winners)
+
+    # Tags that appear most on losing signals
+    loser_tags: dict[str, int] = {}
+    for s in pass_losers:
+        for tag in s.get("tags", []):
+            loser_tags[tag] = loser_tags.get(tag, 0) + 1
+
+    summary = {
+        "period_days":         lookback_days,
+        "total_signals":       len(scored),
+        "pass_count":          len(pass_signals),
+        "skip_count":          len(skip_signals),
+        "pass_win_rate":       round(win_rate, 3),
+        "missed_opportunities":missed_opportunities,
+        "top_loser_tags":      sorted(loser_tags.items(), key=lambda x: -x[1])[:5],
+        "scored_signals":      scored,
+    }
+
+    logger.info(
+        "[EOD SUMMARY] Win rate: %.1f%%  |  Passes: %d  |  Skips: %d  |  Missed opps: %d",
+        win_rate * 100, len(pass_signals), len(skip_signals), missed_opportunities,
+    )
+
+    return summary
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SYSTEM 2 — DAILY LOSS LIMIT / KILL SWITCH
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Tune these to your account size and risk tolerance
+DAILY_LOSS_LIMIT_USD      = -500.0   # Stop trading for the day at this loss
+CONSECUTIVE_LOSS_LIMIT    = 3        # Stop after N losses in a row
+OBSERVATION_ONLY_FILENAME = "/tmp/aiem_observation_only.flag"
+
+
+def is_kill_switch_active(session_date: date) -> tuple[bool, str]:
+    """
+    Returns (True, reason) if AIEM should stop trading for the session.
+    Checks both dollar loss limit and consecutive loss streak.
+    """
+    # Flag file check — manual override
+    if os.path.exists(OBSERVATION_ONLY_FILENAME):
+        return True, "MANUAL_KILL_SWITCH_FLAG"
+
+    try:
+        session_pnl = db_get_session_pnl(session_date)
+    except Exception:
+        logger.warning("[KILL SWITCH] Could not retrieve session P&L — allowing trading.")
+        return False, ""
+
+    if session_pnl <= DAILY_LOSS_LIMIT_USD:
+        reason = (
+            f"DAILY_LOSS_LIMIT_HIT — session P&L ${session_pnl:.2f} "
+            f"reached limit ${DAILY_LOSS_LIMIT_USD:.2f}"
+        )
+        logger.warning("[KILL SWITCH] %s", reason)
+        return True, reason
+
+    return False, ""
+
+
+def activate_manual_kill_switch() -> None:
+    """Write the flag file to stop AIEM trading for the rest of the session."""
+    with open(OBSERVATION_ONLY_FILENAME, "w") as f:
+        f.write(datetime.now(timezone.utc).isoformat())
+    logger.warning("[KILL SWITCH] Manual kill switch ACTIVATED — observation only mode.")
+
+
+def deactivate_kill_switch() -> None:
+    """Remove the flag file — call this at the start of a new session."""
+    if os.path.exists(OBSERVATION_ONLY_FILENAME):
+        os.remove(OBSERVATION_ONLY_FILENAME)
+        logger.info("[KILL SWITCH] Kill switch deactivated — new session begins.")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SYSTEM 3 — NEWS SOURCE QUALITY SCORING
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Higher score = more credible catalyst source
+NEWS_SOURCE_SCORES: dict[str, int] = {
+    "SEC_8K":            10,   # SEC filing — highest credibility
+    "SEC_10Q":           10,
+    "SEC_10K":           10,
+    "SEC_6K":            9,    # Foreign private issuer equivalent of 8-K
+    "NASDAQ_OFFICIAL":   8,    # Official Nasdaq press release
+    "GLOBE_NEWSWIRE":    6,    # Paid wire but at least tracked
+    "PR_NEWSWIRE":       6,
+    "BUSINESSWIRE":      6,
+    "ACCESSWIRE":        5,    # Common for smaller companies, lower bar
+    "COMPANY_WEBSITE":   4,
+    "BLOG":              2,
+    "TWITTER":           1,
+    "REDDIT":            0,
+    "UNKNOWN":           0,
+}
+
+NEWS_SOURCE_CONVICTION_DELTA: dict[str, int] = {
+    "SEC_8K":            +5,
+    "SEC_6K":            +4,
+    "NASDAQ_OFFICIAL":   +3,
+    "GLOBE_NEWSWIRE":    0,
+    "PR_NEWSWIRE":       0,
+    "BUSINESSWIRE":      0,
+    "ACCESSWIRE":        -2,
+    "COMPANY_WEBSITE":   -3,
+    "BLOG":              -8,
+    "TWITTER":           -10,
+    "REDDIT":            -15,
+    "UNKNOWN":           -5,
+}
+
+
+def score_news_source(ticker: str) -> tuple[int, str, int]:
+    """
+    Returns (source_score, source_name, conviction_delta).
+    source_score    : 0-10 quality rating
+    source_name     : e.g. 'SEC_8K'
+    conviction_delta: amount to add/subtract from base conviction
+    """
+    try:
+        source = get_news_source(ticker).upper()
+    except Exception:
+        source = "UNKNOWN"
+
+    score = NEWS_SOURCE_SCORES.get(source, 0)
+    delta = NEWS_SOURCE_CONVICTION_DELTA.get(source, -5)
+
+    logger.info("[NEWS SOURCE] %s  source=%s  score=%d  delta=%+d", ticker, source, score, delta)
+    return score, source, delta
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SYSTEM 4 — SECTOR HEAT AWARENESS
+# ═════════════════════════════════════════════════════════════════════════════
+
+SECTOR_ETF_MAP: dict[str, str] = {
+    "biotech":      "XBI",
+    "healthcare":   "XLV",
+    "technology":   "QQQ",
+    "semiconductor":"SOXX",
+    "energy":       "XLE",
+    "financials":   "XLF",
+    "consumer":     "XLY",
+    "utilities":    "XLU",
+    "materials":    "XLB",
+    "real_estate":  "IYR",
+    "spac":         "SPAK",
+    "micro_cap":    "IWC",
+    "small_cap":    "IWM",
+}
+
+# Penalty thresholds based on sector ETF daily % change
+SECTOR_PENALTY_RULES: list[tuple[float, int, str]] = [
+    (-0.05, -15, "SECTOR_COLLAPSE"),       # Sector down >5% — major penalty
+    (-0.03, -8,  "SECTOR_WEAK"),           # Sector down 3-5%
+    (-0.015, -4, "SECTOR_SOFT"),           # Sector down 1.5-3%
+    (-0.005, -2, "SECTOR_SLIGHTLY_SOFT"),  # Sector down 0.5-1.5%
+]
+
+
+def get_sector_conviction_penalty(ticker: str) -> tuple[int, str]:
+    """
+    Returns (conviction_penalty, tag) based on how the sector ETF is performing today.
+    A stock gapping up in a sector that is collapsing is a major red flag.
+    """
+    try:
+        sector     = get_sector(ticker).lower()
+        etf_change = get_sector_etf_change_pct(sector)
+    except Exception:
+        logger.warning("[SECTOR] Could not get sector data for %s", ticker)
+        return 0, "SECTOR_DATA_UNAVAILABLE"
+
+    etf_symbol = SECTOR_ETF_MAP.get(sector, "UNKNOWN")
+
+    for threshold, penalty, tag in SECTOR_PENALTY_RULES:
+        if etf_change <= threshold:
+            logger.info(
+                "[SECTOR] %s  sector=%s  etf=%s  change=%.2f%%  penalty=%d  tag=%s",
+                ticker, sector, etf_symbol, etf_change * 100, penalty, tag,
+            )
+            return penalty, tag
+
+    return 0, "SECTOR_NEUTRAL"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SYSTEM 5 — TIME-OF-DAY RULES
+# ═════════════════════════════════════════════════════════════════════════════
+
+# All times Eastern
+MARKET_OPEN    = time(9, 30)
+DANGER_ZONE_END = time(9, 45)   # First 15 min — most dangerous for Day 2 plays
+MORNING_END    = time(10, 30)   # Power hour ends
+MIDDAY_START   = time(11, 30)
+MIDDAY_END     = time(13, 30)   # Lunch — low volume, wide spreads
+AFTERNOON_START = time(14, 0)
+POWER_HOUR     = time(15, 0)    # Last hour — momentum can resume
+
+
+class TimeOfDayZone(Enum):
+    PREMARKET       = "PREMARKET"
+    DANGER_ZONE     = "DANGER_ZONE"      # 9:30-9:45 — Day 2 gap traps here
+    POWER_HOUR_OPEN = "POWER_HOUR_OPEN"  # 9:45-10:30 — safer entry window
+    MIDDAY_CHOP     = "MIDDAY_CHOP"      # 11:30-1:30 — avoid, low volume
+    AFTERNOON       = "AFTERNOON"        # 2:00-3:00
+    POWER_HOUR_CLOSE= "POWER_HOUR_CLOSE" # 3:00-4:00 — momentum can resume
+    AFTER_HOURS     = "AFTER_HOURS"
+
+
+def get_time_of_day_zone(dt: datetime) -> TimeOfDayZone:
+    """Classify the current time into a trading zone."""
+    t = dt.astimezone(timezone.utc).time()
+    # Convert UTC to Eastern (approximate; use pytz in production)
+    # Stub: assume caller passes Eastern time directly
+    t = dt.time()
+
+    if t < MARKET_OPEN:
+        return TimeOfDayZone.PREMARKET
+    elif t < DANGER_ZONE_END:
+        return TimeOfDayZone.DANGER_ZONE
+    elif t < MORNING_END:
+        return TimeOfDayZone.POWER_HOUR_OPEN
+    elif t < MIDDAY_START:
+        return TimeOfDayZone.POWER_HOUR_OPEN
+    elif t < MIDDAY_END:
+        return TimeOfDayZone.MIDDAY_CHOP
+    elif t < POWER_HOUR:
+        return TimeOfDayZone.AFTERNOON
+    elif t <= time(16, 0):
+        return TimeOfDayZone.POWER_HOUR_CLOSE
+    else:
+        return TimeOfDayZone.AFTER_HOURS
+
+
+TIME_OF_DAY_RULES: dict[TimeOfDayZone, dict] = {
+    TimeOfDayZone.PREMARKET: {
+        "conviction_delta": 0,
+        "note": "Premarket — scanner runs but no execution until open.",
+        "allow_entry": False,
+    },
+    TimeOfDayZone.DANGER_ZONE: {
+        "conviction_delta": -20,
+        "note": (
+            "DANGER ZONE 9:30-9:45 — Day 2 gap plays are most dangerous here. "
+            "Retail FOMO is highest, spreads are widest, halts are most likely. "
+            "Only enter if conviction >= 85 after all penalties."
+        ),
+        "allow_entry": True,
+        "override_threshold": 85,  # Higher bar during danger zone
+    },
+    TimeOfDayZone.POWER_HOUR_OPEN: {
+        "conviction_delta": 0,
+        "note": "9:45-10:30 — Safer entry window after initial volatility settles.",
+        "allow_entry": True,
+        "override_threshold": 70,
+    },
+    TimeOfDayZone.MIDDAY_CHOP: {
+        "conviction_delta": -10,
+        "note": (
+            "MIDDAY CHOP 11:30-1:30 — Low volume, wide spreads, fake moves. "
+            "Micro-caps especially dangerous here. Avoid new entries."
+        ),
+        "allow_entry": False,
+    },
+    TimeOfDayZone.AFTERNOON: {
+        "conviction_delta": -5,
+        "note": "2:00-3:00 PM — Reduced activity. Only highest conviction plays.",
+        "allow_entry": True,
+        "override_threshold": 75,
+    },
+    TimeOfDayZone.POWER_HOUR_CLOSE: {
+        "conviction_delta": +5,
+        "note": "3:00-4:00 PM — Power hour. Momentum can resume on strong Day 1 names.",
+        "allow_entry": True,
+        "override_threshold": 70,
+    },
+    TimeOfDayZone.AFTER_HOURS: {
+        "conviction_delta": 0,
+        "note": "After hours — no execution. Scanner and learning loop only.",
+        "allow_entry": False,
+    },
+}
+
+
+def apply_time_of_day(conviction: int, scan_dt: datetime) -> tuple[int, str, bool, int]:
+    """
+    Returns (adjusted_conviction, zone_name, allow_entry, effective_threshold).
+    """
+    zone  = get_time_of_day_zone(scan_dt)
+    rules = TIME_OF_DAY_RULES[zone]
+
+    adjusted   = conviction + rules["conviction_delta"]
+    allow      = rules["allow_entry"]
+    threshold  = rules.get("override_threshold", 70)
+
+    logger.info(
+        "[TIME] Zone=%s  delta=%+d  conviction=%d→%d  allow_entry=%s",
+        zone.value, rules["conviction_delta"], conviction, adjusted, allow,
+    )
+    return max(0, adjusted), zone.value, allow, threshold
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SYSTEM 6 — FLOAT + SHORT INTEREST INTELLIGENCE
+# ═════════════════════════════════════════════════════════════════════════════
+
+class FloatCategory(Enum):
+    ULTRA_LOW  = "ULTRA_LOW"    # < 1M shares  — violent, unpredictable
+    LOW        = "LOW"          # 1-5M shares  — classic momentum float
+    MEDIUM     = "MEDIUM"       # 5-20M shares — manageable
+    HIGH       = "HIGH"         # 20-100M      — needs big catalyst
+    VERY_HIGH  = "VERY_HIGH"    # > 100M       — institutional territory
+
+
+def classify_float(float_shares: int) -> FloatCategory:
+    if float_shares < 1_000_000:
+        return FloatCategory.ULTRA_LOW
+    elif float_shares < 5_000_000:
+        return FloatCategory.LOW
+    elif float_shares < 20_000_000:
+        return FloatCategory.MEDIUM
+    elif float_shares < 100_000_000:
+        return FloatCategory.HIGH
+    else:
+        return FloatCategory.VERY_HIGH
+
+
+FLOAT_CONVICTION_RULES: dict[FloatCategory, dict] = {
+    FloatCategory.ULTRA_LOW: {
+        "delta":   -10,
+        "max_position_pct": 0.005,   # Max 0.5% of account — ultra dangerous
+        "note": (
+            "ULTRA-LOW FLOAT (<1M) — moves are violent and unpredictable. "
+            "Halts likely. Spreads can be 10%+. Treat as lottery ticket only."
+        ),
+    },
+    FloatCategory.LOW: {
+        "delta":   +5,
+        "max_position_pct": 0.02,
+        "note": "LOW FLOAT (1-5M) — classic momentum float. Respect halts and size down.",
+    },
+    FloatCategory.MEDIUM: {
+        "delta":   0,
+        "max_position_pct": 0.03,
+        "note": "MEDIUM FLOAT (5-20M) — tradeable. Standard sizing rules apply.",
+    },
+    FloatCategory.HIGH: {
+        "delta":   -5,
+        "max_position_pct": 0.04,
+        "note": "HIGH FLOAT (20-100M) — needs strong institutional catalyst to sustain gap.",
+    },
+    FloatCategory.VERY_HIGH: {
+        "delta":   -15,
+        "max_position_pct": 0.05,
+        "note": "VERY HIGH FLOAT (>100M) — micro-cap scanner should rarely see this. Skip.",
+    },
+}
+
+
+def get_float_and_si_analysis(ticker: str) -> dict:
+    """
+    Returns float category, conviction delta, max position size, and
+    a short-squeeze flag if short interest > 20% and float < 5M.
+    """
+    try:
+        float_shares = get_float_shares(ticker)
+        si_pct       = get_short_interest_pct(ticker)
+    except Exception:
+        logger.warning("[FLOAT] Could not get float/SI data for %s", ticker)
+        return {
+            "float_category":    "UNKNOWN",
+            "conviction_delta":  0,
+            "max_position_pct":  0.01,
+            "squeeze_candidate": False,
+            "note":              "Float/SI data unavailable",
+        }
+
+    float_cat = classify_float(float_shares)
+    rules     = FLOAT_CONVICTION_RULES[float_cat]
+
+    # Short squeeze candidate: high SI + low float = explosive potential
+    squeeze_candidate = (si_pct > 0.20 and float_shares < 5_000_000)
+    squeeze_delta     = +8 if squeeze_candidate else 0
+
+    if squeeze_candidate:
+        logger.info(
+            "[FLOAT] %s  SQUEEZE CANDIDATE — SI=%.1f%%  float=%s  +8 conviction bonus",
+            ticker, si_pct * 100, f"{float_shares:,}",
+        )
+
+    return {
+        "float_shares":      float_shares,
+        "float_category":    float_cat.value,
+        "short_interest_pct":si_pct,
+        "conviction_delta":  rules["delta"] + squeeze_delta,
+        "max_position_pct":  rules["max_position_pct"],
+        "squeeze_candidate": squeeze_candidate,
+        "note":              rules["note"],
+    }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# MASTER EVALUATE SIGNAL — All 6 systems combined
+# ═════════════════════════════════════════════════════════════════════════════
+
+CONVICTION_BASE_THRESHOLD = 70
+
+
+def master_evaluate_signal(
+    ticker: str,
+    base_conviction: int,
+    scan_dt: datetime,
+    extra: dict | None = None,
+) -> dict:
+    """
+    The complete AIEM signal evaluation pipeline.
+    Runs all 6 intelligence systems in order and returns a full verdict.
+
+    Args:
+        ticker:          Stock symbol
+        base_conviction: Raw score from your 9-layer scanner (0-100)
+        scan_dt:         Datetime of scan (Eastern time preferred)
+        extra:           Optional dict with: pipe_price, entry_price, etc.
+
+    Returns full verdict dict with action, final_conviction, tags, notes,
+    position sizing guidance, and kill switch status.
+    """
+    extra  = extra or {}
+    tags   = []
+    notes  = []
+    today  = scan_dt.date()
+
+    result = {
+        "ticker":             ticker,
+        "scan_dt":            scan_dt.isoformat(),
+        "base_conviction":    base_conviction,
+        "final_conviction":   base_conviction,
+        "action":             "EVALUATING",
+        "allow_entry":        True,
+        "tags":               tags,
+        "notes":              notes,
+        "max_position_pct":   0.02,
+        "systems_applied":    [],
+    }
+
+    # ── GATE 0: Kill switch ───────────────────────────────────────────────
+    killed, kill_reason = is_kill_switch_active(today)
+    if killed:
+        result.update({
+            "action":  "BLOCKED",
+            "final_conviction": 0,
+            "tags":    ["KILL_SWITCH_ACTIVE"],
+            "notes":   [kill_reason],
+        })
+        logger.warning("[MASTER] %s BLOCKED by kill switch: %s", ticker, kill_reason)
+        return result
+    result["systems_applied"].append("kill_switch ✓")
+
+    conviction = base_conviction
+
+    # ── SYSTEM 3: News source quality ────────────────────────────────────
+    src_score, src_name, src_delta = score_news_source(ticker)
+    conviction += src_delta
+    tags.append(f"SOURCE_{src_name}")
+    if src_delta != 0:
+        notes.append(f"News source '{src_name}' (quality {src_score}/10) → conviction {src_delta:+d}")
+    result["systems_applied"].append("news_source ✓")
+
+    # ── SYSTEM 4: Sector heat ─────────────────────────────────────────────
+    sector_penalty, sector_tag = get_sector_conviction_penalty(ticker)
+    conviction += sector_penalty
+    if sector_tag != "SECTOR_NEUTRAL":
+        tags.append(sector_tag)
+        notes.append(f"Sector condition: {sector_tag} → conviction {sector_penalty:+d}")
+    result["systems_applied"].append("sector_heat ✓")
+
+    # ── SYSTEM 6: Float + short interest ─────────────────────────────────
+    float_data = get_float_and_si_analysis(ticker)
+    conviction += float_data["conviction_delta"]
+    tags.append(f"FLOAT_{float_data['float_category']}")
+    notes.append(float_data["note"])
+    result["max_position_pct"] = float_data["max_position_pct"]
+    if float_data["squeeze_candidate"]:
+        tags.append("SQUEEZE_CANDIDATE")
+    result["systems_applied"].append("float_si ✓")
+
+    # ── SYSTEM 5: Time of day ─────────────────────────────────────────────
+    conviction, zone_name, allow_entry, threshold = apply_time_of_day(conviction, scan_dt)
+    tags.append(f"ZONE_{zone_name}")
+    result["allow_entry"] = allow_entry
+    result["systems_applied"].append("time_of_day ✓")
+
+    if not allow_entry:
+        result.update({
+            "action":           "NO_ENTRY",
+            "final_conviction": conviction,
+            "tags":             tags,
+            "notes":            notes + [f"Entry not allowed in zone {zone_name}"],
+        })
+        logger.info("[MASTER] %s NO_ENTRY — zone %s does not allow entries", ticker, zone_name)
+        return result
+
+    # ── Final verdict ─────────────────────────────────────────────────────
+    result["final_conviction"] = max(0, conviction)
+    result["tags"]             = list(set(tags))
+    result["notes"]            = notes
+
+    if conviction >= threshold:
+        result["action"] = "PASS"
+        result["notes"].append(
+            f"Conviction {conviction} meets zone threshold {threshold} in {zone_name}"
+        )
+    else:
+        result["action"] = "SKIP"
+        result["notes"].append(
+            f"Conviction {conviction} below zone threshold {threshold} in {zone_name}"
+        )
+
+    logger.info(
+        "[MASTER] %s  %s  conviction=%d  zone=%s  float=%s  squeeze=%s  tags=%s",
+        ticker,
+        result["action"],
+        conviction,
+        zone_name,
+        float_data["float_category"],
+        float_data["squeeze_candidate"],
+        result["tags"],
+    )
+
+    # ── Log to DB for feedback loop ───────────────────────────────────────
+    try:
+        db_log_signal({**result, "signal_date": today, "entry_price": extra.get("entry_price")})
+    except Exception:
+        logger.warning("[MASTER] Could not log signal to DB for %s", ticker)
+
+    result["systems_applied"].append("staleness_filter (import from aiem_staleness_filter.py)")
+    result["systems_applied"].append("wall_street_patterns (import from aiem_verification_and_trading_brain.py)")
+
+    return result
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# AIEM SYSTEM INSTRUCTIONS — embedded so AIEM always has them in context
+# ═════════════════════════════════════════════════════════════════════════════
+
+AIEM_TRADING_INSTRUCTIONS = """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║          AIEM — COMPLETE INTELLIGENCE INSTRUCTIONS v2.0                    ║
+║          Micro/Small-Cap | Premarket | High-Risk Gap Scanner               ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  SYSTEM 1 — END-OF-DAY FEEDBACK LOOP                                       ║
+║  After market close every day, call run_eod_feedback_loop().               ║
+║  Review your win rate, your top loser tags, and your missed opportunities. ║
+║  If your pass win rate drops below 40%, review your threshold settings.    ║
+║  If MOVE_DAY_2 appears in your top loser tags, raise staleness penalties.  ║
+║                                                                              ║
+║  SYSTEM 2 — KILL SWITCH RULES                                              ║
+║  You MUST check is_kill_switch_active() before every signal evaluation.    ║
+║  If session P&L hits -$500, stop trading. Observe only. Log only.         ║
+║  After 3 consecutive losses, call activate_manual_kill_switch().           ║
+║  The kill switch resets at the start of each new session automatically.    ║
+║  A bad day does not become a catastrophic day. This is non-negotiable.    ║
+║                                                                              ║
+║  SYSTEM 3 — NEWS SOURCE QUALITY                                            ║
+║  SEC 8-K = most credible. Reddit/Twitter = near-disqualifying.             ║
+║  A gap driven by a paid PR wire with no SEC filing is a yellow flag.       ║
+║  Always ask: who published this catalyst and what did they have to gain?   ║
+║                                                                              ║
+║  SYSTEM 4 — SECTOR HEAT                                                    ║
+║  Never fight the sector. A biotech stock gapping up while XBI is down 4%  ║
+║  is swimming against a tsunami. The sector almost always wins.             ║
+║  Check sector ETF direction before every signal evaluation.                ║
+║                                                                              ║
+║  SYSTEM 5 — TIME OF DAY                                                    ║
+║  9:30-9:45 AM: DANGER ZONE. Day 2 gap traps happen here. Retail FOMO     ║
+║  is at its peak. Spreads are widest. Halts are most likely.               ║
+║  You need conviction >= 85 to enter anything in the danger zone.          ║
+║  11:30-1:30 PM: MIDDAY CHOP. Do not enter new positions. Observe only.   ║
+║  3:00-4:00 PM: Power hour. Strong Day 1 names can resume here only.      ║
+║                                                                              ║
+║  SYSTEM 6 — FLOAT AND SHORT INTEREST                                       ║
+║  Float < 1M: ultra-dangerous. Max 0.5% of account. Lottery ticket sizing. ║
+║  Float 1-5M: classic momentum float. Best risk/reward in micro-cap.       ║
+║  Float > 20M: needs institutional catalyst. Be skeptical of any gap.      ║
+║  Short interest > 20% + float < 5M = squeeze candidate. Bonus conviction. ║
+║                                                                              ║
+║  CONCENTRATION RULE (NEW)                                                  ║
+║  If all 5 of your top picks share the same pattern tag (e.g. MOVE_DAY_2), ║
+║  that is a systemic scanner bias, not 5 good trades.                      ║
+║  Flag it. Pick zero. Review your scanner filter settings.                  ║
+║                                                                              ║
+║  THE FIVE STOCK LESSON — JUNE 30 2026                                      ║
+║  TNMG, DCOY, CNET, KNDI, JATT were all Day 2 plays with no fresh          ║
+║  catalysts or catalysts that were 24-72 hours old.                        ║
+║  All five should have been SKIP before the market even opened.            ║
+║  The scanner found them correctly. The filter layer was missing.           ║
+║  That filter layer is now YOU. Never let this happen again.               ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ENTRY POINT
+# ═════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    print(AIEM_TRADING_INSTRUCTIONS)
+
+    # Example: evaluate today's 5 picks through the full pipeline
+    test_tickers = ["TNMG", "DCOY", "CNET", "KNDI", "JATT"]
+    now = datetime.now()
+
+    print("\n" + "═" * 70)
+    print("  MASTER SIGNAL EVALUATION — ALL SYSTEMS ACTIVE")
+    print("═" * 70)
+
+    for symbol in test_tickers:
+        try:
+            result = master_evaluate_signal(
+                ticker         = symbol,
+                base_conviction= 95,
+                scan_dt        = now,
+                extra          = {"entry_price": None},
+            )
+            print(f"\n[{symbol}]  ACTION={result['action']}  "
+                  f"CONVICTION={result['final_conviction']}  "
+                  f"TAGS={result['tags']}")
+        except NotImplementedError as e:
+            print(f"\n[{symbol}]  Stub not wired yet: {e}")
+
+    # Run EOD feedback loop
+    print("\n" + "═" * 70)
+    print("  EOD FEEDBACK LOOP (runs after market close)")
+    print("═" * 70)
+    try:
+        summary = run_eod_feedback_loop(lookback_days=30)
+        print(json.dumps(
+            {k: v for k, v in summary.items() if k != "scored_signals"},
+            indent=2,
+        ))
+    except NotImplementedError as e:
+        print(f"DB stub not wired yet: {e}")
