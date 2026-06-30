@@ -5288,7 +5288,7 @@ def _check_whale_hc_crossover() -> None:
                        expiry,
                        days_out
                 FROM unusual_calls_log
-                WHERE log_date = %s
+                WHERE last_seen::date = %s
                   AND vol_oi  >= 5
                   AND prem    >= 500000
                 ORDER BY ticker, vol_oi DESC
@@ -43879,22 +43879,20 @@ def standout_track():
             "standard": _st_stats([r for r in _rows if 5 <= (r.get("standout_score") or 0) < 10]),
         }
 
-        # Final safety: round-trip through json to catch any remaining NaN/Inf
+        # Final safety: always use json.dumps(allow_nan=False) not jsonify —
+        # Flask's jsonify encoder can still emit NaN for Python float NaN values.
         import json as _json_st
+        import math as _mst2
+        def _scrub(obj):
+            if isinstance(obj, list):   return [_scrub(x) for x in obj]
+            if isinstance(obj, dict):   return {k: _scrub(v) for k, v in obj.items()}
+            if isinstance(obj, float) and (_mst2.isnan(obj) or _mst2.isinf(obj)): return None
+            return obj
+        _payload = {"picks": _rows, "summary": _summary,
+                    "as_of": _dt_st.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")}
         try:
-            _payload = {"picks": _rows, "summary": _summary,
-                        "as_of": _dt_st.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")}
-            _json_st.dumps(_payload, allow_nan=False)  # raises ValueError if NaN remains
-            return jsonify(_payload)
-        except (ValueError, TypeError):
-            # Brute-force: walk every value and null out non-JSON-safe floats
-            import math as _mst2
-            def _scrub(obj):
-                if isinstance(obj, list):   return [_scrub(x) for x in obj]
-                if isinstance(obj, dict):   return {k: _scrub(v) for k, v in obj.items()}
-                if isinstance(obj, float) and (_mst2.isnan(obj) or _mst2.isinf(obj)): return None
-                return obj
-            return jsonify(_scrub(_payload))
+            _body = _json_st.dumps(_scrub(_payload), allow_nan=False)
+            return Response(_body, mimetype="application/json")
 
     except Exception as _e_st:
         print(f"[standout_track] error: {_e_st}")

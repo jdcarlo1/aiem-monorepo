@@ -24,6 +24,10 @@ args = "artifacts/stock-scanner: uptime-monitor"
 task = "workflow.run"
 args = "artifacts/stock-scanner: aiem-process"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/stock-scanner: aiem-standalone"
+
 [[workflows.workflow]]
 name = "artifacts/stock-scanner: uptime-monitor"
 author = "agent"
@@ -45,6 +49,17 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python3 /home/runner/workspace/aiem_autonomous.py"
+
+[[workflows.workflow]]
+name = "artifacts/stock-scanner: aiem-standalone"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 /home/runner/workspace/aiem_standalone_scanner.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 stack = "PNPM_WORKSPACE"
