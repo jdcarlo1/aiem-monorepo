@@ -41827,39 +41827,28 @@ def morning_inflows():
     except Exception as _eq_err:
         print(f"[morning_inflows] yf.screen fallback: {_eq_err}")
 
-    # ── PHASE 1b: Supplementary predefined screeners ──────────────────────────
-    # Catches high-volume names that may not yet be ≥5% (most_actives) and
-    # small-cap momentum names (aggressive_small_caps, small_cap_gainers).
-    _yf_headers = {"User-Agent": "Mozilla/5.0 (compatible)"}
-    from concurrent.futures import ThreadPoolExecutor as _TPE_src
-
-    def _fetch_screener(scr_id, count=100, start=0):
-        try:
-            r = _req_mi.get(
-                "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
-                f"?formatted=false&scrIds={scr_id}&count={count}&start={start}",
-                headers=_yf_headers, timeout=8
-            )
-            if r.ok:
-                quotes = r.json().get("finance", {}).get("result", [{}])[0].get("quotes", [])
-                return [q["symbol"] for q in quotes
-                        if q.get("symbol") and "." not in q["symbol"] and len(q["symbol"]) <= 5]
-        except Exception as _e:
-            print(f"[morning_inflows] screener {scr_id}: {_e}")
-        return []
-
-    _supp_tasks = [
-        ("most_actives",          100,  0),
-        ("most_actives",          100, 50),
-        ("aggressive_small_caps", 100,  0),
-        ("small_cap_gainers",     100,  0),
-        ("day_gainers",           100,  0),   # top % gainers - catches CRVO-type catalysts
-        ("day_gainers",           100, 50),   # page 2 - large moves can stack up
-    ]
+    # ── PHASE 1b: Supplementary universe from polygon_rvol_scan ──────────────
+    # Replaces Yahoo predefined screeners (most_actives, day_gainers, etc.).
+    # polygon_rvol_scan is populated daily at 8:35 AM ET via Polygon grouped-daily.
     _supp_syms = []
-    with _TPE_src(max_workers=4) as _src_ex:
-        for _syms in _src_ex.map(lambda a: _fetch_screener(*a), _supp_tasks):
-            _supp_syms.extend(_syms)
+    try:
+        import psycopg2 as _ps_mi, os as _os_mi
+        with _ps_mi.connect(_os_mi.environ["DATABASE_URL"], connect_timeout=3) as _c_mi, \
+             _c_mi.cursor() as _cur_mi:
+            _cur_mi.execute("""
+                SELECT ticker FROM polygon_rvol_scan
+                WHERE scan_date = (
+                    SELECT MAX(scan_date) FROM polygon_rvol_scan
+                    WHERE scan_date >= CURRENT_DATE - 1
+                )
+                AND rvol >= 2.0
+                ORDER BY volume DESC
+                LIMIT 300
+            """)
+            _supp_syms = [r[0] for r in _cur_mi.fetchall()]
+        print(f"[morning_inflows] polygon_rvol_scan: {len(_supp_syms)} tickers (rvol≥2×)")
+    except Exception as _prs_e:
+        print(f"[morning_inflows] polygon_rvol_scan fallback: {_prs_e}")
 
     # ── PHASE 1c: Our tracked tickers (options signals + morning watchlist) ──
     # morning_watchlist = hand-curated stocks that have shown big intraday moves
