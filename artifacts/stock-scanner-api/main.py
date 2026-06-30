@@ -12418,73 +12418,7 @@ def _run_microcap_options_scan_impl() -> list:
                         pass
                 _cbump("scanned_ok")
             else:
-                # ── yfinance fallback (Polygon key missing or request failed) ─
-                tk = yf.Ticker(ticker)
-                opts = tk.options
-                if not opts:
-                    _cbump("no_options")
-                    _yf_note_silent_throttle()
-                    return hits
-                _n_exp = 0
-                for exp in opts:
-                    days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
-                    if not (1 <= days <= 90):
-                        continue
-                    _n_exp += 1
-                    if _n_exp > 6:
-                        break
-                    try:
-                        chain = tk.option_chain(exp).calls
-                        for _, row in chain.iterrows():
-                            try:
-                                vol = _si(row.get("volume"))
-                                oi  = _si(row.get("openInterest"))
-                                if oi < 5 or vol < min_vol:
-                                    continue
-                                voi = vol / oi
-                                if voi < min_voi:
-                                    continue
-                                strike  = _sf(row.get("strike"))
-                                if not strike: continue
-                                otm_pct = round((strike - price) / price * 100, 2)
-                                if otm_pct < -10:
-                                    continue
-                                bid  = _sf(row.get("bid"))
-                                ask  = _sf(row.get("ask"))
-                                if bid <= 0 or ask <= 0:
-                                    continue
-                                spread_pct = (ask - bid) / ask
-                                if spread_pct > 0.40:
-                                    continue
-                                mid  = (bid + ask) / 2
-                                prem = int(mid * vol * 100)
-                                far_otm_sweep = False
-                                if otm_pct > 40:
-                                    if voi < 5.0 or prem < 200_000:
-                                        continue
-                                    far_otm_sweep = True
-                                else:
-                                    if days > max_exp:
-                                        continue
-                                    if prem < min_prem:
-                                        continue
-                                iv      = round(float(row.get("impliedVolatility") or 0) * 100, 1)
-                                urgency = ("EXPIRING" if days <= 3 else
-                                           "SHORT"    if days <= 7 else
-                                           "NEAR"     if days <= 21 else
-                                           "MEDIUM"   if days <= 60 else "FAR")
-                                hits.append({
-                                    "ticker": ticker, "price": price, "strike": strike,
-                                    "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
-                                    "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
-                                    "iv": iv, "urgency": urgency, "cap_tier": cap_tier,
-                                    "far_otm_sweep": far_otm_sweep,
-                                })
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-                _cbump("scanned_ok")
+                _cbump("no_options")  # Polygon failed — skip Yahoo to avoid blocking hang
         except Exception as _e_scan:
             _msg = str(_e_scan).lower()
             if "rate" in _msg or "too many" in _msg or "429" in _msg:
@@ -37731,35 +37665,6 @@ def admin_run_eod_scan():
                                                   "last_trade": ""})
                                 except Exception: pass
                             return _hits
-                        # Yahoo fallback
-                        _YF_RATE_LIMITER.acquire()
-                        tk = yf.Ticker(ticker)
-                        price = float(getattr(tk.fast_info, "last_price", 0) or 0)
-                        if not price: return _hits
-                        for exp in (tk.options or []):
-                            days = (_dt2.strptime(exp, "%Y-%m-%d") - _dt2.now()).days + 1
-                            if not (1 <= days <= max_exp): continue
-                            chain = tk.option_chain(exp).calls
-                            for _, row in chain.iterrows():
-                                try:
-                                    vol = int(row.get("volume") or 0); oi = int(row.get("openInterest") or 0)
-                                    if oi < 10 or vol < 10: continue
-                                    voi = vol / oi
-                                    if voi < min_voi: continue
-                                    strike = float(row["strike"])
-                                    otm_pct = round((strike - price) / price * 100, 2)
-                                    if otm_pct < -15 or otm_pct > 40: continue
-                                    bid = float(row.get("bid") or 0); ask = float(row.get("ask") or 0)
-                                    mid = (bid + ask) / 2 if bid and ask else float(row.get("lastPrice") or 0)
-                                    prem = int(mid * vol * 100)
-                                    if prem < min_prem: continue
-                                    iv = round(float(row.get("impliedVolatility") or 0) * 100, 1)
-                                    urgency = "EXPIRING" if days <= 3 else "SHORT" if days <= 7 else "NEAR"
-                                    _hits.append({"ticker": ticker, "price": price, "strike": strike,
-                                                  "expiry": exp, "days_out": days, "volume": vol, "oi": oi,
-                                                  "vol_oi": round(voi, 2), "prem": prem, "otm_pct": otm_pct,
-                                                  "iv": iv, "urgency": urgency})
-                                except Exception: pass
                     except Exception: pass
                     return _hits
                 all_hits = []
