@@ -14825,16 +14825,17 @@ def _update_ai_short_call_outcomes():
                         return float(_h["Close"].iloc[0])
                 except Exception:
                     pass
-                # Fallback: yfinance historical (slower but broader coverage)
-                try:
-                    import yfinance as _yf_sc
-                    end_dt = target_dt + _td3(days=7)
-                    _tkr = _yf_sc.Ticker(ticker)
-                    _hf = _tkr.history(start=str(target_dt), end=str(end_dt), timeout=8)
-                    if _hf is not None and not _hf.empty:
-                        return float(_hf["Close"].iloc[0])
-                except Exception:
-                    pass
+                # Fallback: yfinance historical — skip if breaker tripped to avoid 8s hang
+                if not _yf_breaker_open():
+                    try:
+                        import yfinance as _yf_sc
+                        end_dt = target_dt + _td3(days=7)
+                        _tkr = _yf_sc.Ticker(ticker)
+                        _hf = _tkr.history(start=str(target_dt), end=str(end_dt), timeout=8)
+                        if _hf is not None and not _hf.empty:
+                            return float(_hf["Close"].iloc[0])
+                    except Exception:
+                        pass
                 return None
 
             def _scwin(close, p0, bkeven):
