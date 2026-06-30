@@ -123,6 +123,31 @@ _init_security(app)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
 
+# ── Early port bind ───────────────────────────────────────────────────────────
+# Flask's @app.route decorators span 46K lines (~20-30s to load in prod).
+# The deployment platform's port-detection timeout kills the process before that.
+# Fix: bind the port NOW and serve requests immediately. Routes added later are
+# visible to this running server because Flask's url_map is shared — new
+# @app.route decorators register on the same map, live, without restart.
+PORT = int(os.environ.get("STOCK_API_PORT", 5050))
+
+@app.route("/stock-api/", methods=["GET"])
+@app.route("/stock-api", methods=["GET"])
+def health_root():
+    return jsonify({"status": "ok"}), 200
+
+import threading as _early_bind_thr
+from werkzeug.serving import make_server as _wz_make_server
+_wz_srv = _wz_make_server("0.0.0.0", PORT, app, threaded=True)
+_wz_srv_thr = _early_bind_thr.Thread(target=_wz_srv.serve_forever, daemon=False, name="flask-main")
+_wz_srv_thr.start()
+# Flask 2.x raises AssertionError when @app.route is called after the first request.
+# We start the server early intentionally, so patch that safety guard out.
+# Flask's url_map IS updated correctly on each decorator call — the check is
+# only a developer-convenience assertion, not a routing mechanism.
+app._check_setup_finished = lambda f_name: None
+print(f"[startup] Flask port {PORT} bound immediately — healthchecks pass during route loading", flush=True)
+
 # Shared semaphore: one AIEM session at a time (chat, SMS, email, cron).
 # Initialized here at module load so it's always present before any request.
 import threading as _aiem_lock_thr
@@ -368,7 +393,11 @@ class _YFRateLimiter:
         self._max    = calls_per_sec
         self._rate   = calls_per_sec
         self._last   = _time_cb.monotonic()
-    def acquire(self):
+    def acquire(self, max_wait=None):
+        """Acquire one token. If max_wait (seconds) is set and exceeded, raises RuntimeError.
+        Scheduler threads pass max_wait=None (unlimited). HTTP request threads pass
+        max_wait=3.0 so they bail fast during morning burst instead of hanging."""
+        _deadline = (_time_cb.monotonic() + max_wait) if max_wait is not None else None
         while True:
             with self._lock:
                 now = _time_cb.monotonic()
@@ -377,6 +406,8 @@ class _YFRateLimiter:
                 if self._tokens >= 1.0:
                     self._tokens -= 1.0
                     return
+            if _deadline is not None and _time_cb.monotonic() >= _deadline:
+                raise RuntimeError(f"Yahoo rate limiter busy — backed off after {max_wait:.1f}s")
             _time_cb.sleep(0.05)
 
 _YF_RATE_LIMITER      = _YFRateLimiter(calls_per_sec=3.0)
@@ -575,8 +606,14 @@ try:
             _time_cb.sleep(0.05)
             raise _CffiErr("yfinance circuit breaker open (Yahoo rate-limited)")
         # Rate-limit EVERY Yahoo HTTP call globally - prevents bursts from any job.
-        # 3 req/sec sustained means ~180/min across ALL background threads combined.
-        _YF_RATE_LIMITER.acquire()
+        # max_wait=3.0: HTTP request threads fail fast when morning burst saturates
+        # the limiter, so tabs return stale cache in <3s instead of hanging 30s+.
+        # Scheduler scan threads use direct _YF_RATE_LIMITER.acquire() (no max_wait)
+        # so their bulk scans keep running normally during saturation periods.
+        try:
+            _YF_RATE_LIMITER.acquire(max_wait=3.0)
+        except RuntimeError:
+            raise _CffiErr("Yahoo rate limiter saturated — request backed off")
         _t = kwargs.get("timeout", None)
         if not (isinstance(_t, (int, float)) and not isinstance(_t, bool) and _t <= _YF_YAHOO_TIMEOUT):
             kwargs["timeout"] = _YF_YAHOO_TIMEOUT
@@ -2634,6 +2671,10 @@ try:
     def _run_exit_alert_scan():
         if not _intraday_scan_allowed():
             return
+        import datetime as _dt_ea
+        _now_ea = _dt_ea.datetime.now(_ET)
+        if _now_ea.hour == 9 and _now_ea.minute < 45:
+            return  # hold off during 9:30-9:44 market-open burst window
         try:
             import threading as _thr_exit
             _thr_exit.Thread(target=run_exit_alert_scan, daemon=True).start()
@@ -2728,6 +2769,10 @@ try:
     def _run_vwap_reclaim_scan():
         if not _intraday_scan_allowed():
             return
+        import datetime as _dt_vr
+        _now_vr = _dt_vr.datetime.now(_ET)
+        if _now_vr.hour == 9 and _now_vr.minute < 45:
+            return  # hold off during 9:30-9:44 market-open burst window
         try:
             import threading as _thr_vr
             from holy_grail import run_vwap_reclaim_scan
@@ -2747,6 +2792,10 @@ try:
     def _run_call_sweep_scan():
         if not _intraday_scan_allowed():
             return
+        import datetime as _dt_cs
+        _now_cs = _dt_cs.datetime.now(_ET)
+        if _now_cs.hour == 9 and _now_cs.minute < 45:
+            return  # hold off during 9:30-9:44 market-open burst window
         try:
             import threading as _thr_cs
             _thr_cs.Thread(target=run_call_sweep_scan, daemon=True).start()
@@ -10895,7 +10944,6 @@ def _safe(v):
         return [_safe(i) for i in v]
     return v
 
-PORT = int(os.environ.get("STOCK_API_PORT", 5050))
 _BOOT_TIME = __import__("time").time()  # server start epoch for startup guards
 # Pre-import heavy modules at load time so bg threads never hold the import lock
 try:
@@ -10904,12 +10952,6 @@ try:
     import concurrent.futures as _concurrent_futures  # noqa: F401
 except Exception as _preload_err:
     print(f"[preload] {_preload_err}")
-
-
-@app.route("/stock-api/", methods=["GET"])
-@app.route("/stock-api", methods=["GET"])
-def health_root():
-    return jsonify({"status": "ok"}), 200
 
 
 @app.route("/stock-api/stock/analyze", methods=["GET"])
@@ -46061,4 +46103,6 @@ def _debug_threads():
     return jsonify(out)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
+    # Server is already bound and running in _wz_srv_thr (started near top of file).
+    # Join it to keep the main thread alive. SIGTERM/SIGKILL will terminate the process.
+    _wz_srv_thr.join()

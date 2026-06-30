@@ -98,3 +98,5 @@
 - [Premarket-to-open paper trading module](premarket-open-module.md) — opening_snapshot_tracker + premarket_open_trader; regime_detector has 15-min cache; scheduler starts at 9:45 not 9:30; decision_type must use _DECISION_TYPE_MAP
 - [AIEM speed fixes](aiem-speed-fixes.md) — fast-path(1-iter casual), 45s snapshot cache, parallel tool dispatch; tool_choice=none when max_iters==1
 - [Market-open tab spinners](market-open-spinners.md) — 9:36 burst fix: max_workers=4+coalesce; 9:52 morning-inflows; DB fallback on cold cache
+- [Flask early port bind](flask-early-port-bind.md) — make_server() in thread at top of file; Flask 2.x needs _check_setup_finished patched; eliminates prod restart loop
+- [Yahoo rate limiter max_wait](yf-ratelimiter-maxwait.md) — acquire(max_wait=3.0) in cffi patch; HTTP threads bail in ≤3s during morning burst; scheduler threads use unlimited acquire()
