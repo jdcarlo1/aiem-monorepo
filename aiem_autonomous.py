@@ -29,6 +29,12 @@ except Exception as _tg_charts_imp_err:
     _tg_charts = None
     print(f"[telegram_charts] unavailable, chart alerts disabled: {_tg_charts_imp_err}")
 
+try:
+    import behavioral_fingerprint as _bfp
+except Exception as _bfp_imp_err:
+    _bfp = None
+    print(f"[behavioral_fingerprint] unavailable, fingerprint-match reasons disabled: {_bfp_imp_err}")
+
 def _aiem_send_chart(kind, title, tickers, caption=None):
     """Best-effort chart-image companion to a text alert. Never raises,
     never blocks/affects the text-alert flow it follows."""
@@ -98,10 +104,18 @@ def _init_pool():
                     ran_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
                 )
             """)
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_ticker_reference_cache (
+                    ticker       TEXT PRIMARY KEY,
+                    market_cap   NUMERIC,
+                    float_shares NUMERIC,
+                    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
             _c.commit()
             _cur.close()
             _AIEM_POOL.putconn(_c)
-            log.info("job_log table ready")
+            log.info("job_log + aiem_ticker_reference_cache tables ready")
         except Exception as _jl_e:
             log.warning(f"job_log table init: {_jl_e}")
 
@@ -365,6 +379,112 @@ def _schedule_polygon_retry(label: str = ""):
 def _aiem_get_ticker_details(ticker: str) -> dict:
     """Float, market cap, shares outstanding from Polygon reference."""
     return _poly(f'/v3/reference/tickers/{ticker}', timeout=10).get('results', {})
+
+_TICKER_REF_CACHE_TTL_DAYS = 7
+
+def _aiem_get_ticker_reference_cached(conn, ticker: str) -> dict:
+    """Market cap + float for `ticker`, served from aiem_ticker_reference_cache
+    when fresh (<7d old); falls back to a live Polygon call on cache miss/stale
+    and upserts the result. Keeps cap-bucketing cheap even when the missed-mover
+    candidate pool is large."""
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT market_cap, float_shares, updated_at
+            FROM aiem_ticker_reference_cache WHERE ticker = %s
+        """, (ticker,))
+        row = cur.fetchone()
+        if row and row[2] and (datetime.now(row[2].tzinfo) - row[2]).days < _TICKER_REF_CACHE_TTL_DAYS:
+            return {'market_cap': float(row[0] or 0), 'float_shares': float(row[1] or 0)}
+
+        details  = _aiem_get_ticker_details(ticker)
+        mkt_cap  = float(details.get('market_cap') or 0)
+        float_sh = float(details.get('share_class_shares_outstanding') or 0)
+        cur.execute("""
+            INSERT INTO aiem_ticker_reference_cache (ticker, market_cap, float_shares, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (ticker) DO UPDATE
+                SET market_cap = EXCLUDED.market_cap,
+                    float_shares = EXCLUDED.float_shares,
+                    updated_at = NOW()
+        """, (ticker, mkt_cap or None, float_sh or None))
+        conn.commit()
+        return {'market_cap': mkt_cap, 'float_shares': float_sh}
+    except Exception as e:
+        log.warning(f"ticker_reference_cache({ticker}): {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return {'market_cap': 0, 'float_shares': 0}
+
+
+def _aiem_cap_bucket(market_cap: float):
+    """Bucket a market cap into micro/small/mid/large. None = unknown (omit from report)."""
+    if not market_cap or market_cap <= 0:
+        return None
+    if market_cap < 300_000_000:
+        return 'micro'
+    if market_cap < 2_000_000_000:
+        return 'small'
+    if market_cap < 10_000_000_000:
+        return 'mid'
+    return 'large'
+
+
+_CAP_BUCKET_LABELS = {
+    'micro': 'MICRO CAP (<$300M)',
+    'small': 'SMALL CAP ($300M-$2B)',
+    'mid':   'MID CAP ($2B-$10B)',
+    'large': 'LARGE CAP (>$10B)',
+}
+
+
+def _aiem_behavioral_why(conn, ticker: str, move_date: date) -> dict:
+    """Check whether `ticker`'s 14-dim behavioral fingerprint, computed from the
+    days BEFORE `move_date`, resembles a known pre-move template (reuses the
+    SAME fingerprint math + pre_move_templates library as main.py's behavioral
+    engine via the shared behavioral_fingerprint module — no separate process
+    call needed, both processes read the same DB table).
+    Returns {'matched': bool, 'similarity': float, 'matched_ticker': str|None}."""
+    if _bfp is None:
+        return {'matched': False, 'similarity': 0.0, 'matched_ticker': None}
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT close_price, open_price, high_price, low_price,
+                   vwap, volume, prev_close, gap_pct, rvol,
+                   close_strength, range_pct
+            FROM polygon_market_daily
+            WHERE ticker = %s AND scan_date < %s
+            ORDER BY scan_date DESC LIMIT 14
+        """, (ticker, move_date))
+        hist = cur.fetchall()
+        if len(hist) < 3:
+            return {'matched': False, 'similarity': 0.0, 'matched_ticker': None}
+
+        rows_pre = [
+            dict(close_price=r[0], open_price=r[1], high_price=r[2],
+                 low_price=r[3], vwap=r[4], volume=r[5],
+                 prev_close=r[6], gap_pct=r[7], rvol=r[8],
+                 close_strength=r[9], range_pct=r[10])
+            for r in hist
+        ]
+        fp = _bfp.compute_fingerprint(rows_pre)
+        if fp is None:
+            return {'matched': False, 'similarity': 0.0, 'matched_ticker': None}
+
+        sim, best_match = _bfp.best_template_match(
+            cur, fp, exclude_ticker=ticker, exclude_move_date=move_date
+        )
+        return {
+            'matched': sim >= 0.92,
+            'similarity': round(sim, 4),
+            'matched_ticker': best_match[0] if best_match else None,
+        }
+    except Exception as e:
+        log.warning(f"behavioral_why({ticker}): {e}")
+        return {'matched': False, 'similarity': 0.0, 'matched_ticker': None}
 
 def _aiem_get_news(ticker: str) -> list:
     """Recent news/catalyst for information-lag detection."""
@@ -1368,9 +1488,11 @@ def _grade_t3_t5(conn):
 # JOB 4: MISSED RUNNER ANALYSIS — 4:45 PM ET
 # The most important learning job: what did AIEM miss and why?
 # ─────────────────────────────────────────────────────────────
+_MISSED_RUNNER_CAP_LOOKUP_LIMIT = 150  # safety cap on Polygon cap-bucketing calls/day
+
 def aiem_missed_runner_analysis():
     today = date.today()
-    log.info(f"=== MISSED RUNNER ANALYSIS {today} ===")
+    log.info(f"=== MISSED RUNNER ANALYSIS {today} (4 cap-tier buckets) ===")
 
     conn = None
     try:
@@ -1396,69 +1518,131 @@ def aiem_missed_runner_analysis():
         big_movers.sort(key=lambda x: x['move_pct'], reverse=True)
         log.info(f"{len(big_movers)} missed runners (20%+ AIEM didn't flag)")
 
-        discoveries = 0
-        for runner in big_movers[:20]:
-            ticker   = runner['ticker']
-            move_pct = runner['move_pct']
-            try:
-                details  = _aiem_get_ticker_details(ticker)
-                news     = _aiem_get_news(ticker)
-                ohlcv    = _aiem_get_ohlcv(ticker, days=2)
+        # ── Step 1: bucket candidates by market cap (cached lookups) ───────────
+        buckets    = {'micro': [], 'small': [], 'mid': [], 'large': []}
+        unknown_n  = 0
+        for runner in big_movers[:_MISSED_RUNNER_CAP_LOOKUP_LIMIT]:
+            ref     = _aiem_get_ticker_reference_cached(conn, runner['ticker'])
+            mkt_cap = ref.get('market_cap') or 0
+            bucket  = _aiem_cap_bucket(mkt_cap)
+            if bucket is None:
+                unknown_n += 1
+                continue
+            runner['market_cap']   = mkt_cap
+            runner['float_shares'] = ref.get('float_shares') or 0
+            buckets[bucket].append(runner)
 
-                float_sh = details.get('share_class_shares_outstanding') or 0
-                mkt_cap  = details.get('market_cap') or 0
+        for b in buckets:
+            buckets[b].sort(key=lambda x: x['move_pct'], reverse=True)
+            buckets[b] = buckets[b][:20]
 
-                patterns = []
-                if float_sh and float_sh < 10_000_000:
-                    patterns.append(f"low_float_{float_sh/1e6:.1f}M")
-                if mkt_cap and mkt_cap < 100_000_000:
-                    patterns.append(f"nano_cap_{mkt_cap/1e6:.0f}M")
-                if news:
-                    patterns.append("had_catalyst")
-                if runner['volume'] > 1_000_000:
-                    patterns.append(f"high_vol_{runner['volume']/1e6:.1f}M_shares")
-                if ohlcv and len(ohlcv) >= 2:
-                    prev_vol  = ohlcv[-2].get('v', 1)
-                    vol_ratio = runner['volume'] / prev_vol if prev_vol > 0 else 0
+        if unknown_n:
+            log.info(f"{unknown_n} candidates had no resolvable market cap — omitted from buckets")
+
+        # ── Step 2: deep "why" per bucketed candidate ───────────────────────────
+        discoveries  = 0
+        bucket_lines = {b: [] for b in buckets}
+        all_discovery_texts = []
+        for bucket, runners in buckets.items():
+            for runner in runners:
+                ticker   = runner['ticker']
+                move_pct = runner['move_pct']
+                try:
+                    news  = _aiem_get_news(ticker)
+                    ohlcv = _aiem_get_ohlcv(ticker, days=2)
+
+                    gap_pct = None
+                    if ohlcv and len(ohlcv) >= 2:
+                        prev_close = ohlcv[-2].get('c') or 0
+                        if prev_close > 0:
+                            gap_pct = (runner['open'] - prev_close) / prev_close * 100
+
+                    vol_ratio = 0
+                    if ohlcv and len(ohlcv) >= 2:
+                        prev_vol  = ohlcv[-2].get('v', 1)
+                        vol_ratio = runner['volume'] / prev_vol if prev_vol > 0 else 0
+
+                    why = _aiem_behavioral_why(conn, ticker, today)
+
+                    patterns = []
+                    if why.get('matched'):
+                        patterns.append(f"fingerprint_match_sim{why['similarity']:.2f}_like_{why.get('matched_ticker')}")
+                    if gap_pct is not None and abs(gap_pct) >= 5:
+                        patterns.append(f"gap_{gap_pct:+.1f}pct_at_open")
+                    if news:
+                        patterns.append("had_catalyst")
+                    if runner['float_shares'] and runner['float_shares'] < 10_000_000:
+                        patterns.append(f"low_float_{runner['float_shares']/1e6:.1f}M")
                     if vol_ratio >= 3:
                         patterns.append(f"vol_surge_{vol_ratio:.1f}x")
 
-                pattern_str    = " | ".join(patterns) if patterns else "unknown_pattern"
-                discovery_text = (
-                    f"MISSED RUNNER: {ticker} moved +{move_pct:.1f}% today. "
-                    f"Pattern: {pattern_str}. "
-                    f"Open=${runner['open']:.2f} Close=${runner['close']:.2f}. "
-                    f"AIEM did not flag this — learn from it."
-                )
+                    pattern_str = " | ".join(patterns) if patterns else "quiet_move_no_clear_precursor"
+                    lead_reason = patterns[0] if patterns else "no clear precursor found"
 
-                # Write to aiem_research_insights (correct schema for this DB)
+                    discovery_text = (
+                        f"MISSED RUNNER [{bucket.upper()}]: {ticker} moved +{move_pct:.1f}% today "
+                        f"(MC ${runner['market_cap']/1e6:,.0f}M). Pattern: {pattern_str}. "
+                        f"Open=${runner['open']:.2f} Close=${runner['close']:.2f}. "
+                        f"AIEM did not flag this — learn from it."
+                    )
+                    all_discovery_texts.append(discovery_text)
+
+                    bucket_lines[bucket].append(
+                        f"${ticker} +{move_pct:.1f}% | MC ${runner['market_cap']/1e6:,.0f}M | {lead_reason}"
+                    )
+                    discoveries += 1
+                    log.info(f"  MISSED [{bucket}]: {ticker} +{move_pct:.1f}% — {pattern_str}")
+                    time.sleep(0.1)
+
+                except Exception as e:
+                    log.error(f"Missed runner analysis error {ticker}: {e}")
+                    continue
+
+        # aiem_research_insights.research_date is UNIQUE across the WHOLE table
+        # (one row per calendar day, shared by every job/process that writes here —
+        # not per session_name). A loop of per-ticker INSERTs would abort the
+        # transaction after the first row every single day. Write ONE combined
+        # row instead, and on conflict APPEND rather than overwrite so we never
+        # clobber another job's insight already saved for today.
+        if all_discovery_texts:
+            combined_findings = "\n".join(all_discovery_texts)
+            top_move = max(r['move_pct'] for runners in buckets.values() for r in runners) if discoveries else 0
+            try:
                 cur.execute("""
                     INSERT INTO aiem_research_insights
                         (research_date, findings, confidence, session_name)
                     VALUES (%s, %s, %s, 'AIEM_MISSED_RUNNER')
-                """, (today, discovery_text, min(99, int(round(move_pct)))))
-
-                discoveries += 1
-                log.info(f"  MISSED: {ticker} +{move_pct:.1f}% — {pattern_str}")
-                time.sleep(0.1)
-
+                    ON CONFLICT (research_date) DO UPDATE
+                        SET findings = aiem_research_insights.findings || E'\\n' || EXCLUDED.findings
+                """, (today, combined_findings, min(99, int(round(top_move)))))
+                conn.commit()
             except Exception as e:
-                log.error(f"Missed runner analysis error {ticker}: {e}")
-                continue
+                log.error(f"missed_runner findings upsert failed: {e}")
+                conn.rollback()
 
-        conn.commit()
-        log.info(f"Logged {discoveries} missed runner findings")
+        log.info(f"Logged {discoveries} missed runner findings across 4 cap tiers")
 
+        # ── Step 3: deliver — overview + one detail message per non-empty bucket ──
         if big_movers:
             top3 = big_movers[:3]
-            msg  = (f"🤖 AIEM EOD — {today}\n"
-                    f"Missed runners: {len(big_movers)}\n")
+            overview = (f"🤖 AIEM EOD — {today}\n"
+                        f"Missed runners: {len(big_movers)} "
+                        f"(micro={len(buckets['micro'])} small={len(buckets['small'])} "
+                        f"mid={len(buckets['mid'])} large={len(buckets['large'])})\n")
             for r in top3:
-                msg += f"  ${r['ticker']} +{r['move_pct']:.1f}%\n"
-            msg += "AIEM analyzing to catch these tomorrow."
-            _aiem_send_sms(msg)
+                overview += f"  ${r['ticker']} +{r['move_pct']:.1f}%\n"
+            overview += "Full cap-tier breakdown follows."
+            _aiem_send_sms(overview)
             _aiem_send_chart("missed_runners", f"AIEM Missed Runners — {today}",
                               [r['ticker'] for r in top3])
+
+            for bucket in ('micro', 'small', 'mid', 'large'):
+                lines = bucket_lines[bucket]
+                if not lines:
+                    continue
+                detail = f"🤖 {_CAP_BUCKET_LABELS[bucket]} — {today}\n" + "\n".join(lines)
+                _tg_send(detail)
+                time.sleep(0.3)
 
     except Exception as e:
         log.error(f"missed_runner_analysis error: {e}")
