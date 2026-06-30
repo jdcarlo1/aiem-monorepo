@@ -17,6 +17,12 @@ from zoneinfo        import ZoneInfo
 from http.server     import HTTPServer, BaseHTTPRequestHandler
 from apscheduler.schedulers.blocking import BlockingScheduler
 
+import sys as _sys
+_API_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "artifacts", "stock-scanner-api")
+if _API_DIR not in _sys.path:
+    _sys.path.insert(0, _API_DIR)
+
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] [AIEM] %(message)s',
@@ -680,6 +686,28 @@ def aiem_premarket_scan():
     try:
         conn = _get_conn()
 
+        # ── Layer D · RegimeDetector ─────────────────────────────────────────
+        # regime_detector.py: real SPY + VIX data, 15-min cache, never raises.
+        # sit_out → abort scan entirely.  reduce_exposure → apply multiplier.
+        _regime_conf_mult = 1.0
+        _regime_pos_mult  = 1.0
+        _regime_label     = "unknown"
+        try:
+            from regime_detector import get_current_regime as _get_regime
+            _reg = _get_regime("")   # db_url arg unused; module uses yfinance
+            _regime_label    = _reg.get("regime", "unknown")
+            _regime_conf_mult = _reg.get("multipliers", {}).get("confidence_multiplier", 1.0)
+            _regime_pos_mult  = _reg.get("multipliers", {}).get("position_size_multiplier", 1.0)
+            if _regime_label == "sit_out":
+                log.warning(f"[regime] 🛑 sit_out — "
+                            f"{_reg.get('note') or _reg.get('recommendation','')} "
+                            f"— aborting premarket scan")
+                return
+            log.info(f"[regime] {_regime_label}  "
+                     f"conf_mult={_regime_conf_mult}  pos_mult={_regime_pos_mult}")
+        except Exception as _rd_err:
+            log.warning(f"[regime] unavailable ({_rd_err}) — full exposure default")
+
         # Step 1: Pull candidates from polygon_market_daily (no snapshot API needed).
         # The Polygon Starter tier doesn't support bulk snapshots; the DB is populated
         # nightly from the grouped-daily endpoint which IS included in Starter.
@@ -747,6 +775,35 @@ def aiem_premarket_scan():
         multiday_ctx = _get_multiday_context(top_tickers, conn)
         log.info(f"Multi-day context loaded for {len(multiday_ctx)} tickers")
 
+        # ── Layer D · FeatureEngine ──────────────────────────────────────────
+        # feature_engineering.py: volume trends + MA-relative features.
+        # Batch-fetch 30 days of polygon_market_daily history for top 50 tickers
+        # in a single query so we don't loop-query inside the scoring loop.
+        _poly_hist: dict = {}
+        _FEAT_ENG_OK = False
+        try:
+            import pandas as _pd
+            from feature_engineering import build_feature_row as _build_feat
+            _feat_tickers = [c['ticker'] for c in candidates[:50]]
+            _fh_cur = conn.cursor()
+            _fh_cur.execute("""
+                SELECT ticker, scan_date, close_price, volume, rvol, gap_pct
+                FROM polygon_market_daily
+                WHERE ticker = ANY(%s)
+                  AND scan_date >= CURRENT_DATE - INTERVAL '30 days'
+                ORDER BY ticker, scan_date
+            """, (_feat_tickers,))
+            for _row in _fh_cur.fetchall():
+                _t = _row[0]
+                _poly_hist.setdefault(_t, []).append({
+                    'date': _row[1], 'close_price': _row[2],
+                    'volume': _row[3], 'rvol': _row[4], 'gap_pct': _row[5],
+                })
+            _FEAT_ENG_OK = True
+            log.info(f"[feat_eng] ✅ history loaded for {len(_poly_hist)} tickers")
+        except Exception as _fe_err:
+            log.warning(f"[feat_eng] feature_engineering unavailable ({_fe_err}) — skipping")
+
         # Step 3: Deep score each candidate — adds ticker details + news from Polygon API
         # Layer A+B: try consolidated master first, fall back to split modules
         try:
@@ -807,6 +864,22 @@ def aiem_premarket_scan():
                     'lastTrade': {'p': c['close_price']},
                     'lastQuote': {},
                 }
+
+                # ── Layer D · FeatureEngine ──────────────────────────────
+                # Compute volume trend (3d/5d) + MA-20 relative from history.
+                _feat_row = {}
+                if _FEAT_ENG_OK and ticker in _poly_hist:
+                    try:
+                        _mdf = _pd.DataFrame(_poly_hist[ticker])
+                        _mdf = _mdf.rename(columns={'close_price': 'close'})
+                        _feat_row = _build_feat(
+                            {'rvol': c.get('rvol'), 'gap_pct': c['gap_pct'],
+                             'vol_oi': None, 'otm_pct': None, 'days_out': None,
+                             'trade_date': latest_date, 'conviction': None},
+                            _mdf,
+                        )
+                    except Exception:
+                        _feat_row = {}
                 conf, sig_basis, reasoning, predicted = _aiem_score_microcap(
                     ticker, snap, details, news, trust_weights
                 )
@@ -903,15 +976,54 @@ def aiem_premarket_scan():
                         + ("  🔥SQUEEZE" if _fd.get('squeeze_candidate') else "")
                     )
 
+                # ── Layer D · Apply regime confidence multiplier ─────────────
+                if _regime_conf_mult != 1.0:
+                    adj_conf = round(adj_conf * _regime_conf_mult, 1)
+                    if adj_conf < 70:
+                        log.info(f"  {ticker}: ⛔ REGIME DROP "
+                                 f"conviction={adj_conf:.1f} regime={_regime_label}")
+                        continue
+                    reasoning = f"[REGIME:{_regime_label.upper()}] {reasoning}"
+
+                # ── Layer D · RiskEngine — Kelly position sizing ──────────────
+                # Maps conviction score to an approximate win rate, then uses
+                # Kelly criterion (1/4 fractional) to size the paper position.
+                # Multiplied by regime position_size_multiplier for risk parity.
+                _kelly_pct = 0.0
+                try:
+                    from position_sizing import kelly_position_size as _kelly_fn
+                    # Map 60–100 conviction → 40–68% win rate
+                    _mapped_wr = min(0.70, max(0.40,
+                                    0.40 + (adj_conf - 60) * 0.003))
+                    _kr = _kelly_fn(
+                        win_rate=_mapped_wr,
+                        avg_win_pct=4.0,
+                        avg_loss_pct=2.5,
+                        n_samples=50,
+                        fractional_multiplier=0.25,
+                    )
+                    _kelly_pct = round(
+                        float(_kr.recommended_fraction) * 100 * _regime_pos_mult, 2
+                    )
+                    log.info(f"  {ticker}: 💰 Kelly={_kelly_pct:.1f}%  "
+                             f"wr={_mapped_wr:.0%}  regime_pos={_regime_pos_mult}")
+                except Exception as _ks_err:
+                    log.debug(f"  {ticker}: Kelly unavailable ({_ks_err})")
+
                 scored.append({
-                    'ticker':    ticker,
-                    'conf':      adj_conf,
-                    'sig_basis': sig_basis,
-                    'reasoning': reasoning,
-                    'predicted': predicted,
-                    'gap':       c['gap_pct'],
-                    'volume':    c['volume'],
-                    'rvol':      c.get('rvol') or 1.0,
+                    'ticker':        ticker,
+                    'conf':          adj_conf,
+                    'sig_basis':     sig_basis,
+                    'reasoning':     reasoning,
+                    'predicted':     predicted,
+                    'gap':           c['gap_pct'],
+                    'volume':        c['volume'],
+                    'rvol':          c.get('rvol') or 1.0,
+                    'kelly_size_pct': _kelly_pct,
+                    'regime':        _regime_label,
+                    'vol_trend_3d':  _feat_row.get('volume_trend_3d'),
+                    'vol_trend_5d':  _feat_row.get('volume_trend_5d'),
+                    'ma20_relative': _feat_row.get('ma20_relative'),
                 })
                 time.sleep(0.1)
             except Exception as e:
@@ -928,6 +1040,45 @@ def aiem_premarket_scan():
 
         scored.sort(key=lambda x: x['conf'], reverse=True)
         top_picks = scored[:10]
+
+        # ── Layer D · PortfolioEngine — paper capital allocation ──────────────
+        # portfolio_allocator.py: risk-parity + fractional-Kelly + correlation.
+        # Derives signal stats from each pick's conviction score, splits a fixed
+        # paper budget across picks, and stamps paper_alloc_usd onto each pick.
+        try:
+            from portfolio_allocator import allocate_portfolio as _alloc_portfolio
+            import pandas as _pd_pa
+            _sig_stats = {}
+            for _p in top_picks:
+                _wr = min(0.70, max(0.40, 0.40 + (_p['conf'] - 60) * 0.003))
+                _sig_stats[_p['ticker']] = {
+                    'win_rate':     _wr,
+                    'avg_win_pct':  4.0,
+                    'avg_loss_pct': 2.5,
+                    'volatility':   max(0.05, 1.0 / max(_p.get('rvol') or 1.0, 0.1)),
+                }
+            _pa_budget = 10_000.0 * _regime_pos_mult
+            _pa_result = _alloc_portfolio(
+                _sig_stats,
+                returns_history=_pd_pa.DataFrame(),
+                total_paper_capital=_pa_budget,
+            )
+            _paper_alloc = _pa_result.get('dollar_allocation', {})
+            log.info(
+                f"[portfolio] PortfolioEngine  capital=${_pa_budget:,.0f}  "
+                f"regime={_regime_label}: "
+                + "  ".join(
+                    f"{t}=${v:.0f}" for t, v in list(_paper_alloc.items())[:6]
+                )
+            )
+            for _p in top_picks:
+                _p['paper_alloc_usd'] = round(
+                    _paper_alloc.get(_p['ticker'], 0.0), 2
+                )
+        except Exception as _pa_err:
+            log.warning(f"[portfolio] portfolio_allocator unavailable ({_pa_err})")
+            for _p in top_picks:
+                _p['paper_alloc_usd'] = 0.0
 
         # Step 6: Write to aiem_predictions (replace today's set)
         today = date.today()

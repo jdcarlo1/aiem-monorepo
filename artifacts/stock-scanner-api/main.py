@@ -25539,6 +25539,15 @@ def _build_aiem_tool_map():
         "deep_rl_get_paper_action": _aiem_tool_deep_rl_get_paper_action,
         "deep_rl_probe":            _aiem_tool_deep_rl_probe,
         "portfolio_allocate":       _aiem_tool_portfolio_allocate,
+        "get_current_regime":       _aiem_tool_get_current_regime,
+        "build_features":           _aiem_tool_build_features,
+        # ── Level 2 / Level 3 ────────────────────────────────────────────────
+        "run_level2":               _aiem_tool_run_level2,
+        "run_backtest":             _aiem_tool_run_backtest,
+        "analyze_metrics":          _aiem_tool_analyze_metrics,
+        "walk_forward_validate":    _aiem_tool_walk_forward_validate,
+        "run_level3":               _aiem_tool_run_level3,
+        "strategy_ensemble":        _aiem_tool_strategy_ensemble,
         "causal_discover":          _aiem_tool_causal_discover,
         "ensemble_combine_signals": _aiem_tool_ensemble_combine_signals,
         "execution_realistic_cost": _aiem_tool_execution_realistic_cost,
@@ -27239,6 +27248,72 @@ _AIEM_AGENT_TOOLS = [
             "signal_stats_json": {"type": "string", "description": "JSON list of signal stat dicts (signal_name, win_rate, avg_return, n_trades)"},
             "total_paper_capital": {"type": "number", "description": "Total paper capital to allocate in dollars"},
         }, "required": ["signal_stats_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "get_current_regime",
+        "description": "Fetch the live market regime (full_exposure / reduce_exposure / sit_out) using real SPY + VIX data via regime_detector.py. Returns regime label, recommendation, confidence, and position-size / confidence multipliers. Cached 15 min.",
+        "parameters": {"type": "object", "properties": {
+            "proxy_ticker": {"type": "string", "description": "ETF to use as market proxy (default: SPY)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "build_features",
+        "description": "Build the full feature vector for a ticker from its polygon_market_daily history: volume_trend_3d, volume_trend_5d, ma20_relative, rvol, gap_pct, and other model features used by the ML pipeline.",
+        "parameters": {"type": "object", "properties": {
+            "ticker":    {"type": "string",  "description": "Ticker symbol"},
+            "days_back": {"type": "integer", "description": "Days of polygon_market_daily history to use (default 30)"},
+        }, "required": ["ticker"]},
+    }},
+    {"type": "function", "function": {
+        "name": "run_level2",
+        "description": "Run the full AIEM Level 2 research-grade pipeline for a symbol using real Polygon data: MarketDataEngine → FeatureEngine → SignalEngine → BacktestEngine → MetricsEngine → ValidationEngine. Returns performance metrics, signal scores, and walk-forward validation results.",
+        "parameters": {"type": "object", "properties": {
+            "symbol":    {"type": "string",  "description": "Ticker symbol (e.g. AAPL)"},
+            "days_back": {"type": "integer", "description": "Days of polygon_market_daily history (default 200)"},
+        }, "required": ["symbol"]},
+    }},
+    {"type": "function", "function": {
+        "name": "run_backtest",
+        "description": "Run a full indicator-scored backtest for a symbol using BacktestEngine + backtest.py. Returns equity curve, trades, Sharpe, max drawdown, win rate.",
+        "parameters": {"type": "object", "properties": {
+            "symbol":         {"type": "string",  "description": "Ticker symbol"},
+            "days_back":      {"type": "integer", "description": "History window in days (default 252)"},
+            "buy_threshold":  {"type": "number",  "description": "Score threshold to enter a trade (default 6.5)"},
+            "sell_threshold": {"type": "number",  "description": "Score threshold to exit a trade (default 4.5)"},
+        }, "required": ["symbol"]},
+    }},
+    {"type": "function", "function": {
+        "name": "analyze_metrics",
+        "description": "Analyze an equity curve with MetricsEngine: Sharpe ratio, max drawdown %, win rate, total return. Pass a JSON list of float values representing the equity curve over time.",
+        "parameters": {"type": "object", "properties": {
+            "equity_curve_json": {"type": "string", "description": "JSON array of float equity values, e.g. [10000, 10050, 9980, ...]"},
+        }, "required": ["equity_curve_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "walk_forward_validate",
+        "description": "Walk-forward out-of-sample validation for a symbol using ValidationEngine + SignalEngine on real Polygon data. Returns mean/std signal across rolling windows — high consistency means the signal is robust across time.",
+        "parameters": {"type": "object", "properties": {
+            "symbol":    {"type": "string",  "description": "Ticker symbol"},
+            "days_back": {"type": "integer", "description": "Total history window in days (default 200)"},
+            "step":      {"type": "integer", "description": "Out-of-sample window size in bars (default 30)"},
+        }, "required": ["symbol"]},
+    }},
+    {"type": "function", "function": {
+        "name": "run_level3",
+        "description": "Run the full AIEM Level 3 multi-strategy institutional pipeline for a symbol: MarketDataEngine → FeatureEngine → RegimeDetector → StrategyEngine (Momentum + MeanReversion + StatArb, regime-weighted) → RiskEngine → PortfolioEngine → ExecutionEngine. Returns regime, strategy scores, trade decision, position size, and simulated fill.",
+        "parameters": {"type": "object", "properties": {
+            "symbol":        {"type": "string",  "description": "Ticker symbol"},
+            "days_back":     {"type": "integer", "description": "Days of polygon history (default 60)"},
+            "paper_capital": {"type": "number",  "description": "Paper capital budget in dollars (default 10000)"},
+        }, "required": ["symbol"]},
+    }},
+    {"type": "function", "function": {
+        "name": "strategy_ensemble",
+        "description": "Score a ticker with the Level 3 StrategyEngine: regime-weighted blend of MomentumStrategy, MeanReversionStrategy, and StatArbStrategy. Shows which strategy dominates and the composite score for the current bar.",
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol"},
+            "regime": {"type": "string", "description": "Market regime: trend_up / trend_down / high_volatility / chop / auto (default auto — detects from latest bar)"},
+        }, "required": ["ticker"]},
     }},
     {"type": "function", "function": {
         "name": "regime_overlay_check",
@@ -29252,6 +29327,166 @@ def _aiem_tool_portfolio_allocate(signal_stats_json: str,
     except Exception as _e:
         return {"error": str(_e)}
 
+# ── Regime Detector tool ──────────────────────────────────────────────────────
+def _aiem_tool_get_current_regime(proxy_ticker: str = "SPY") -> dict:
+    """
+    Call regime_detector.get_current_regime() — fetches real SPY + VIX
+    history from Yahoo Finance, runs the 6-indicator regime vote, and
+    returns full_exposure / reduce_exposure / sit_out with multipliers.
+    Result is cached for 15 min; safe to call frequently.
+    """
+    try:
+        from regime_detector import get_current_regime as _gcr
+        result = _gcr("", proxy_ticker=proxy_ticker)
+        return result
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── Feature Engineering tool ──────────────────────────────────────────────────
+def _aiem_tool_build_features(ticker: str, days_back: int = 30) -> dict:
+    """
+    Build the full feature vector for a ticker using polygon_market_daily
+    history: volume_trend_3d, volume_trend_5d, ma20_relative, rvol, gap_pct
+    and other model features.  Returns NaN for any feature that needs more
+    history than is available.
+    """
+    try:
+        import os as _os2, psycopg2 as _pg2, pandas as _pd2
+        from feature_engineering import build_feature_row as _bfr
+        _db2 = _os2.environ.get("DATABASE_URL")
+        with _pg2.connect(_db2) as _c2, _c2.cursor() as _cur2:
+            _cur2.execute("""
+                SELECT scan_date, close_price, volume, rvol, gap_pct
+                FROM polygon_market_daily
+                WHERE ticker = %s
+                  AND scan_date >= CURRENT_DATE - %s
+                ORDER BY scan_date
+            """, (ticker.upper(), int(days_back)))
+            _rows2 = _cur2.fetchall()
+        if not _rows2:
+            return {"error": "no_data", "ticker": ticker,
+                    "note": "No polygon_market_daily rows in window."}
+        _df2 = _pd2.DataFrame(
+            _rows2, columns=["date", "close_price", "volume", "rvol", "gap_pct"]
+        )
+        _df2 = _df2.rename(columns={"close_price": "close"})
+        _lat = _rows2[-1]
+        _pick2 = {
+            "rvol": _lat[3], "gap_pct": _lat[4],
+            "vol_oi": None, "otm_pct": None, "days_out": None,
+            "trade_date": _lat[0], "conviction": None,
+        }
+        _feat2 = _bfr(_pick2, _df2)
+        return {"ticker": ticker, "features": _feat2, "rows_used": len(_rows2)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── Level 2 Research-Grade tools ─────────────────────────────────────────────
+def _aiem_tool_run_level2(symbol: str = "AAPL", days_back: int = 200) -> dict:
+    """
+    Run the full AIEM Level 2 pipeline for a symbol:
+    MarketDataEngine → FeatureEngine → SignalEngine →
+    BacktestEngine → MetricsEngine → ValidationEngine.
+    Uses real polygon_market_daily data.
+    """
+    try:
+        from aiem_level2 import AIEM_Level2 as _L2
+        return _L2().run(symbol.upper().strip(), days_back=int(days_back))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_run_backtest(symbol: str = "AAPL",
+                            days_back: int = 252,
+                            buy_threshold: float = 6.5,
+                            sell_threshold: float = 4.5) -> dict:
+    """Run BacktestEngine via the full indicator-scored pipeline (backtest.py)."""
+    try:
+        from aiem_level2 import BacktestEngine as _BE
+        return _BE().run_backtest_via_module(
+            symbol.upper().strip(),
+            days_back=int(days_back),
+            buy_threshold=float(buy_threshold),
+            sell_threshold=float(sell_threshold),
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_analyze_metrics(equity_curve_json: str) -> dict:
+    """
+    Analyze an equity curve with MetricsEngine: Sharpe, max drawdown,
+    win rate, total return.  Pass equity_curve_json as a JSON list of floats.
+    """
+    try:
+        import json as _j
+        from aiem_level2 import MetricsEngine as _ME
+        curve = _j.loads(equity_curve_json) if isinstance(equity_curve_json, str) else equity_curve_json
+        return _ME().analyze(list(curve))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_walk_forward_validate(symbol: str = "AAPL",
+                                     days_back: int = 200,
+                                     step: int = 30) -> dict:
+    """
+    Walk-forward validation for a symbol using ValidationEngine + SignalEngine.
+    Returns mean/std signal score across rolling out-of-sample windows.
+    """
+    try:
+        from aiem_level2 import MarketDataEngine as _MD, FeatureEngine as _FE, \
+                                 SignalEngine as _SE, ValidationEngine as _VE
+        df = _MD().fetch_ohlcv(symbol.upper().strip(), days_back=int(days_back))
+        if df.empty:
+            return {"error": "no_data", "symbol": symbol}
+        df = _FE().add_features(df)
+        return _VE().walk_forward_test(df, _SE(), step=int(step))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── Level 3 Multi-Strategy Institutional tools ────────────────────────────────
+def _aiem_tool_run_level3(symbol: str = "AAPL",
+                          days_back: int = 60,
+                          paper_capital: float = 10_000.0) -> dict:
+    """
+    Run the full AIEM Level 3 pipeline for a symbol:
+    MarketDataEngine → FeatureEngine → RegimeDetector → StrategyEngine
+    (MomentumStrategy + MeanReversionStrategy + StatArbStrategy, regime-weighted)
+    → RiskEngine → PortfolioEngine → ExecutionEngine.
+    Uses real Polygon data and live AIEM modules.
+    """
+    try:
+        from aiem_level3 import AIEM_Level3 as _L3
+        return _L3().run(
+            symbol.upper().strip(),
+            days_back=int(days_back),
+            paper_capital=float(paper_capital),
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_strategy_ensemble(ticker: str,
+                                 regime: str = "auto") -> dict:
+    """
+    Score a ticker with the Level 3 StrategyEngine:
+    MomentumStrategy + MeanReversionStrategy + StatArbStrategy,
+    weighted by regime (trend_up / trend_down / high_volatility / chop / auto).
+    Pass regime='auto' to detect it from the latest polygon_market_daily bar.
+    """
+    try:
+        from aiem_level3 import (MarketDataEngine as _MD3, FeatureEngine as _FE3,
+                                  RegimeDetector as _RD3, StrategyEngine as _SE3)
+        df = _MD3().get_data(ticker.upper().strip(), days_back=30)
+        if df.empty:
+            return {"error": "no_data", "ticker": ticker}
+        df = _FE3().build(df)
+        latest = df.iloc[-1]
+        _rd = _RD3()
+        used_regime = _rd.detect(latest) if regime == "auto" else str(regime)
+        detail = _SE3().score_with_breakdown(latest, used_regime)
+        detail["ticker"] = ticker.upper()
+        return detail
+    except Exception as _e:
+        return {"error": str(_e)}
+
 # ── Causal Discovery tools ────────────────────────────────────────────────────
 def _aiem_tool_causal_discover(variables_json: str, lookback_days: int = 90) -> dict:
     try:
@@ -30336,6 +30571,15 @@ def _run_aiem_research_agent(max_iterations=None):
         "deep_rl_get_paper_action":    _aiem_tool_deep_rl_get_paper_action,
         "deep_rl_probe":               _aiem_tool_deep_rl_probe,
         "portfolio_allocate":          _aiem_tool_portfolio_allocate,
+        "get_current_regime":          _aiem_tool_get_current_regime,
+        "build_features":              _aiem_tool_build_features,
+        # ── Level 2 / Level 3 ────────────────────────────────────────────────
+        "run_level2":                  _aiem_tool_run_level2,
+        "run_backtest":                _aiem_tool_run_backtest,
+        "analyze_metrics":             _aiem_tool_analyze_metrics,
+        "walk_forward_validate":       _aiem_tool_walk_forward_validate,
+        "run_level3":                  _aiem_tool_run_level3,
+        "strategy_ensemble":           _aiem_tool_strategy_ensemble,
         "causal_discover":             _aiem_tool_causal_discover,
         "ensemble_combine_signals":    _aiem_tool_ensemble_combine_signals,
         "execution_realistic_cost":    _aiem_tool_execution_realistic_cost,

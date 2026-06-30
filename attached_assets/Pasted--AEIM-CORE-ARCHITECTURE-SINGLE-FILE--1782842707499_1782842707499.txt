@@ -1,0 +1,201 @@
+# ==============================
+# AEIM CORE ARCHITECTURE (SINGLE FILE)
+# ==============================
+
+import time
+import random
+from datetime import datetime
+
+# ==============================
+# 1. DATA LAYER
+# ==============================
+
+class MarketDataEngine:
+    def get_price_data(self, symbol):
+        # placeholder for Polygon API
+        return {
+            "symbol": symbol,
+            "price": random.uniform(100, 500),
+            "volume": random.uniform(1000, 100000),
+            "volatility": random.uniform(0, 1)
+        }
+
+
+# ==============================
+# 2. FEATURE ENGINE
+# ==============================
+
+class FeatureEngine:
+    def build_features(self, data):
+        return {
+            "momentum": random.uniform(-1, 1),
+            "volatility_score": data["volatility"],
+            "volume_strength": data["volume"] / 100000,
+            "trend": random.choice(["up", "down", "sideways"])
+        }
+
+
+# ==============================
+# 3. STRATEGY / SIGNAL ENGINE (AEIM BRAIN)
+# ==============================
+
+class SignalEngine:
+    def score(self, features):
+        score = (
+            features["momentum"] * 0.4 +
+            features["volume_strength"] * 0.3 +
+            features["volatility_score"] * 0.3
+        )
+        return max(0, min(1, score + 0.5))  # normalize 0–1
+
+
+# ==============================
+# 4. REGIME DETECTION
+# ==============================
+
+class RegimeDetector:
+    def detect(self, features):
+        if features["volatility_score"] > 0.7:
+            return "high_volatility"
+        elif features["trend"] == "up":
+            return "trend_up"
+        elif features["trend"] == "down":
+            return "trend_down"
+        return "chop"
+
+
+# ==============================
+# 5. RISK ENGINE (CRITICAL)
+# ==============================
+
+class RiskEngine:
+    def approve_trade(self, score, regime):
+        if score < 0.55:
+            return False
+
+        if regime == "high_volatility" and score < 0.7:
+            return False
+
+        return True
+
+    def position_size(self, score):
+        return round(score * 100, 2)  # simple sizing logic
+
+
+# ==============================
+# 6. PORTFOLIO ENGINE
+# ==============================
+
+class PortfolioEngine:
+    def construct(self, symbol, score, size):
+        return {
+            "symbol": symbol,
+            "position_size": size,
+            "confidence": score
+        }
+
+
+# ==============================
+# 7. EXECUTION ENGINE (PAPER TRADING PLACEHOLDER)
+# ==============================
+
+class ExecutionEngine:
+    def execute(self, trade):
+        print(f"[EXECUTION] BUY {trade['symbol']} SIZE={trade['position_size']}")
+        return {"status": "filled", "trade": trade}
+
+
+# ==============================
+# 8. LEARNING / FEEDBACK LOOP
+# ==============================
+
+class LearningEngine:
+    def log_trade(self, trade, result):
+        print(f"[LOG] {trade['symbol']} | {result['status']}")
+
+    def analyze_day(self):
+        print("[LEARNING] Analyzing daily performance...")
+        # placeholder for ML improvement logic
+        return {"insights": "adjust momentum weighting +0.05"}
+
+
+# ==============================
+# 9. GOVERNANCE LAYER (SAFETY)
+# ==============================
+
+class Governance:
+    def allow_system_change(self):
+        return True  # in real system: requires validation
+
+
+# ==============================
+# 10. AEIM MASTER ORCHESTRATOR
+# ==============================
+
+class AEIM:
+    def __init__(self):
+        self.data = MarketDataEngine()
+        self.features = FeatureEngine()
+        self.signal = SignalEngine()
+        self.regime = RegimeDetector()
+        self.risk = RiskEngine()
+        self.portfolio = PortfolioEngine()
+        self.exec = ExecutionEngine()
+        self.learn = LearningEngine()
+        self.gov = Governance()
+
+    def run_cycle(self, symbol):
+
+        # STEP 1: DATA
+        raw = self.data.get_price_data(symbol)
+
+        # STEP 2: FEATURES
+        features = self.features.build_features(raw)
+
+        # STEP 3: SIGNAL
+        score = self.signal.score(features)
+
+        # STEP 4: REGIME
+        regime = self.regime.detect(features)
+
+        print(f"\n[{symbol}] Score={score:.2f} Regime={regime}")
+
+        # STEP 5: RISK CHECK
+        if not self.risk.approve_trade(score, regime):
+            print("[RISK] Trade rejected")
+            return
+
+        # STEP 6: POSITION
+        size = self.risk.position_size(score)
+
+        trade = self.portfolio.construct(symbol, score, size)
+
+        # STEP 7: EXECUTION
+        result = self.exec.execute(trade)
+
+        # STEP 8: LEARNING
+        self.learn.log_trade(trade, result)
+
+    def daily_review(self):
+        return self.learn.analyze_day()
+
+
+# ==============================
+# MAIN LOOP (AUTONOMOUS SYSTEM)
+# ==============================
+
+if __name__ == "__main__":
+
+    aeim = AEIM()
+
+    watchlist = ["AAPL", "TSLA", "NVDA", "AMD", "META"]
+
+    while True:
+        print("\n=== AEIM SCAN CYCLE ===")
+
+        for symbol in watchlist:
+            aeim.run_cycle(symbol)
+
+        aeim.daily_review()
+
+        time.sleep(10)  # simulate market cycle delay

@@ -263,6 +263,56 @@ except Exception as e:
 # ─────────────────────────────────────────────────────────────
 # SUMMARY
 # ─────────────────────────────────────────────────────────────
+section("7 · Layer D — master file components (source wiring)")
+
+src = open("aiem_autonomous.py").read()
+
+check("sys.path inserts artifacts/stock-scanner-api",
+      "artifacts" in src and "stock-scanner-api" in src and "_API_DIR" in src)
+
+check("regime_detector imported (RegimeDetector)",
+      "from regime_detector import get_current_regime" in src)
+check("regime gate: sit_out aborts scan",
+      "sit_out" in src and "aborting premarket scan" in src)
+check("regime multiplier applied to conviction",
+      "_regime_conf_mult" in src and "_regime_pos_mult" in src)
+
+check("feature_engineering imported (FeatureEngine)",
+      "from feature_engineering import build_feature_row" in src)
+check("batch history query before scoring loop",
+      "polygon_market_daily" in src and "_poly_hist" in src and "30 days" in src)
+check("build_feat called per candidate in loop",
+      "_build_feat(" in src and "_feat_row" in src)
+check("vol_trend_3d/5d + ma20_relative in scored dict",
+      "vol_trend_3d" in src and "vol_trend_5d" in src and "ma20_relative" in src)
+
+check("position_sizing imported (RiskEngine Kelly)",
+      "from position_sizing import kelly_position_size" in src)
+check("Kelly sizing called per pick",
+      "_kelly_fn(" in src and "kelly_size_pct" in src)
+check("Kelly multiplied by regime position size",
+      "_regime_pos_mult" in src and "_kelly_pct" in src)
+
+# Smoke-import all 3 modules via the now-wired sys.path
+import sys as _sys_v
+_api_dir = os.path.join(os.path.dirname(os.path.abspath("aiem_autonomous.py")),
+                        "artifacts", "stock-scanner-api")
+if _api_dir not in _sys_v.path:
+    _sys_v.path.insert(0, _api_dir)
+
+for mod, cls_fn in [
+    ("regime_detector",    "get_current_regime"),
+    ("position_sizing",    "kelly_position_size"),
+    ("feature_engineering","build_feature_row"),
+]:
+    try:
+        import importlib
+        m = importlib.import_module(mod)
+        check(f"  import {mod} from sys.path", hasattr(m, cls_fn),
+              f"has {cls_fn}")
+    except Exception as e:
+        check(f"  import {mod} from sys.path", False, str(e)[:80])
+
 section("SUMMARY")
 
 total  = len(results)

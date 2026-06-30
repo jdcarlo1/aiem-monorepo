@@ -1,0 +1,243 @@
+# ======================================================
+# AEIM LEVEL 3 - MULTI-STRATEGY INSTITUTIONAL FRAMEWORK
+# (Regime + Portfolio + Risk + Strategy Ensemble Layer)
+# ======================================================
+
+import numpy as np
+import pandas as pd
+import random
+
+# ======================================================
+# 1. MARKET DATA LAYER
+# ======================================================
+
+class MarketDataEngine:
+
+    def get_data(self, symbol):
+        np.random.seed(7)
+
+        price = 100
+        data = []
+
+        for i in range(300):
+            price += np.random.normal(0, 1)
+
+            data.append({
+                "t": i,
+                "price": price,
+                "volume": np.random.randint(1000, 20000),
+                "volatility": abs(np.random.normal(0.01, 0.005))
+            })
+
+        return pd.DataFrame(data)
+
+
+# ======================================================
+# 2. FEATURE ENGINE
+# ======================================================
+
+class FeatureEngine:
+
+    def build(self, df):
+
+        df["return"] = df["price"].pct_change()
+        df["momentum"] = df["price"] - df["price"].shift(5)
+        df["vol_score"] = df["volatility"]
+        df["volume_z"] = (df["volume"] - df["volume"].mean()) / df["volume"].std()
+
+        df = df.fillna(0)
+        return df
+
+
+# ======================================================
+# 3. REGIME DETECTOR (KEY LEVEL 3 COMPONENT)
+# ======================================================
+
+class RegimeDetector:
+
+    def detect(self, row):
+
+        if row["vol_score"] > 0.015:
+            return "high_volatility"
+
+        if row["momentum"] > 1:
+            return "trend_up"
+
+        if row["momentum"] < -1:
+            return "trend_down"
+
+        return "chop"
+
+
+# ======================================================
+# 4. STRATEGY MODULES (MULTI-STRATEGY SYSTEM)
+# ======================================================
+
+class MomentumStrategy:
+
+    def signal(self, row):
+        return 1 if row["momentum"] > 0.5 else 0
+
+
+class MeanReversionStrategy:
+
+    def signal(self, row):
+        return 1 if row["momentum"] < -0.5 else 0
+
+
+class StatArbStrategy:
+
+    def signal(self, row):
+        # simplified proxy for spread deviation
+        return 1 if abs(row["volume_z"]) > 1.5 else 0
+
+
+# ======================================================
+# 5. STRATEGY ENSEMBLE (WEIGHTED DECISION ENGINE)
+# ======================================================
+
+class StrategyEngine:
+
+    def __init__(self):
+        self.momentum = MomentumStrategy()
+        self.meanrev = MeanReversionStrategy()
+        self.statarb = StatArbStrategy()
+
+    def score(self, row, regime):
+
+        scores = {
+            "momentum": self.momentum.signal(row),
+            "meanrev": self.meanrev.signal(row),
+            "statarb": self.statarb.signal(row)
+        }
+
+        # regime-based weighting (IMPORTANT LEVEL 3 CONCEPT)
+        if regime == "trend_up":
+            return 0.6 * scores["momentum"] + 0.2 * scores["statarb"]
+
+        if regime == "trend_down":
+            return 0.6 * scores["meanrev"] + 0.2 * scores["statarb"]
+
+        if regime == "high_volatility":
+            return 0.7 * scores["statarb"]
+
+        return 0.3 * sum(scores.values())
+
+
+# ======================================================
+# 6. RISK ENGINE (PORTFOLIO LEVEL CONTROL)
+# ======================================================
+
+class RiskEngine:
+
+    def position_size(self, score):
+
+        base = 10000
+
+        # volatility-adjusted sizing
+        size = base * score
+
+        return max(0, min(size, 5000))  # cap exposure
+
+    def allow_trade(self, score, regime):
+
+        if score < 0.55:
+            return False
+
+        if regime == "high_volatility" and score < 0.7:
+            return False
+
+        return True
+
+
+# ======================================================
+# 7. PORTFOLIO ENGINE (MULTI-ASSET ALLOCATION)
+# ======================================================
+
+class PortfolioEngine:
+
+    def __init__(self):
+        self.positions = {}
+
+    def update(self, symbol, size, price):
+
+        self.positions[symbol] = {
+            "size": size,
+            "entry": price
+        }
+
+
+# ======================================================
+# 8. EXECUTION ENGINE (SIMULATED BROKER)
+# ======================================================
+
+class ExecutionEngine:
+
+    def execute(self, symbol, size, price):
+
+        slippage = price * 0.001 * random.random()
+
+        fill_price = price + slippage
+
+        return {
+            "symbol": symbol,
+            "fill_price": fill_price,
+            "size": size
+        }
+
+
+# ======================================================
+# 9. AEIM LEVEL 3 ORCHESTRATOR
+# ======================================================
+
+class AEIM_Level3:
+
+    def __init__(self):
+
+        self.data = MarketDataEngine()
+        self.features = FeatureEngine()
+        self.regime = RegimeDetector()
+        self.strategy = StrategyEngine()
+        self.risk = RiskEngine()
+        self.portfolio = PortfolioEngine()
+        self.exec = ExecutionEngine()
+
+    def run(self, symbol):
+
+        df = self.data.get_data(symbol)
+        df = self.features.build(df)
+
+        equity = 10000
+
+        for i in range(10, len(df)):
+
+            row = df.iloc[i]
+
+            regime = self.regime.detect(row)
+            score = self.strategy.score(row, regime)
+
+            if not self.risk.allow_trade(score, regime):
+                continue
+
+            size = self.risk.position_size(score)
+
+            trade = self.exec.execute(symbol, size, row["price"])
+
+            self.portfolio.update(symbol, size, trade["fill_price"])
+
+            equity += (size * 0.001)  # simplified PnL proxy
+
+        print("\n=== LEVEL 3 SUMMARY ===")
+        print("Final equity:", equity)
+        print("Positions:", self.portfolio.positions)
+
+
+# ======================================================
+# RUN SYSTEM
+# ======================================================
+
+if __name__ == "__main__":
+
+    aeim = AEIM_Level3()
+
+    aeim.run("AAPL")
