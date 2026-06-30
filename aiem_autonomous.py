@@ -1885,6 +1885,32 @@ def _aiem_check_premarket_signal(ticker: str, prior_close: float) -> dict:
 
 
 _WATCH_CRITERIA_EXPIRY_TRADING_DAYS = 3   # per architect plan: criteria stay live ~3 trading days
+_WATCH_MAX_MATCHES_PER_CRITERION = 5      # per-criterion cap so a loose generic bar can't flood
+_WATCH_MAX_ALERTS_PER_RUN = 25            # global cap on inserted/alerted matches per scan run
+
+
+def _aiem_effective_watch_threshold(crit: dict) -> float:
+    """For non-gap metrics, threshold_value is a generic retrospective
+    detection bar (e.g. rsi_14 >= 70) used to EXPLAIN a missed runner —
+    it is common across a broad universe, not a rare/selective filter.
+    Tighten it to the missed-runner's own observed_value so the prospective
+    scan only fires when today's candidate is AT LEAST as extreme as what
+    actually happened, keeping matches rare and meaningful instead of
+    flooding on every name that barely clears the generic bar."""
+    op  = crit['operator']
+    thr = float(crit['threshold_value'])
+    obs = crit.get('observed_value')
+    if obs is None:
+        return thr
+    obs = float(obs)
+    return max(thr, obs) if op == '>=' else min(thr, obs)
+
+
+def _aiem_watch_match_margin(op: str, val: float, thr: float) -> float:
+    """How far past the threshold a match sits — used to rank matches so
+    only the most extreme (rarest) names get capped-in, not every name
+    that merely clears the bar."""
+    return (val - thr) if op == '>=' else (thr - val)
 
 
 def _aiem_add_trading_days(d, n: int):
@@ -2214,11 +2240,16 @@ def _aiem_watch_scan_sql_metric(cur, crits: list, metric_name: str, latest_date)
     matches = []
     for crit in crits:
         op  = crit['operator']
-        thr = float(crit['threshold_value'])
+        thr = _aiem_effective_watch_threshold(crit)
+        crit_matches = []
         for ticker, val in computed:
             passes = (val >= thr) if op == '>=' else (val <= thr)
             if passes:
-                matches.append((crit, ticker, round(val, 4)))
+                margin = _aiem_watch_match_margin(op, val, thr)
+                crit_matches.append((margin, ticker, round(val, 4)))
+        crit_matches.sort(key=lambda m: m[0], reverse=True)
+        for _margin, ticker, val in crit_matches[:_WATCH_MAX_MATCHES_PER_CRITERION]:
+            matches.append((crit, ticker, val))
     return matches
 
 
@@ -2259,11 +2290,16 @@ def _aiem_watch_scan_python_metric(cur, crits: list, metric_name: str, latest_da
     matches = []
     for crit in crits:
         op  = crit['operator']
-        thr = float(crit['threshold_value'])
+        thr = _aiem_effective_watch_threshold(crit)
+        crit_matches = []
         for ticker, val in computed:
             passes = (val >= thr) if op == '>=' else (val <= thr)
             if passes:
-                matches.append((crit, ticker, val))
+                margin = _aiem_watch_match_margin(op, val, thr)
+                crit_matches.append((margin, ticker, val))
+        crit_matches.sort(key=lambda m: m[0], reverse=True)
+        for _margin, ticker, val in crit_matches[:_WATCH_MAX_MATCHES_PER_CRITERION]:
+            matches.append((crit, ticker, val))
     return matches
 
 
@@ -2325,7 +2361,7 @@ def _aiem_scan_watch_criteria(conn, cur, job_name: str, candidates: list = None)
     for crit in active:
         by_metric.setdefault(crit['metric_name'], []).append(crit)
 
-    new_alerts = []
+    all_matches = []   # (crit, ticker, observed) across every metric, pre-coalesce
     for metric_name, crits in by_metric.items():
         try:
             if metric_name == 'premarket_gap_pct':
@@ -2343,25 +2379,50 @@ def _aiem_scan_watch_criteria(conn, cur, job_name: str, candidates: list = None)
             except Exception:
                 pass
             matches = []
+        all_matches.extend(matches)
 
-        for crit, ticker, observed in matches:
+    # ── Coalesce: several active criteria rows can independently match the
+    # SAME ticker on the SAME metric (e.g. two separate missed-runner days
+    # both produced a volume_buildup_x criterion). Keep only the strongest
+    # (highest-margin) match per (ticker, metric_name), then cap the total
+    # alerts for this run — a loose generic detection bar must never be able
+    # to flood Telegram/DB with near-universe-wide matches.
+    best_by_key: dict = {}
+    for crit, ticker, observed in all_matches:
+        op  = crit['operator']
+        thr = (float(crit['threshold_value']) if crit['metric_name'] == 'premarket_gap_pct'
+               else _aiem_effective_watch_threshold(crit))
+        margin = _aiem_watch_match_margin(op, float(observed), thr)
+        key = (ticker, crit['metric_name'])
+        prev = best_by_key.get(key)
+        if prev is None or margin > prev[0]:
+            best_by_key[key] = (margin, crit, ticker, observed)
+
+    ranked = sorted(best_by_key.values(), key=lambda m: m[0], reverse=True)
+    if len(ranked) > _WATCH_MAX_ALERTS_PER_RUN:
+        log.info(f"[watch_scan] {job_name}: {len(ranked)} coalesced matches, "
+                 f"capping to top {_WATCH_MAX_ALERTS_PER_RUN} by margin")
+    ranked = ranked[:_WATCH_MAX_ALERTS_PER_RUN]
+
+    new_alerts = []
+    for _margin, crit, ticker, observed in ranked:
+        try:
+            cur.execute("""
+                INSERT INTO aiem_watch_alerts (criteria_id, ticker, alert_date, job_name, observed_value)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (criteria_id, ticker, alert_date) DO NOTHING
+                RETURNING id
+            """, (crit['id'], ticker, today, job_name, observed))
+            inserted = cur.fetchone()
+            conn.commit()
+            if inserted:
+                new_alerts.append({'criteria': crit, 'ticker': ticker, 'observed_value': observed})
+        except Exception as ins_e:
+            log.warning(f"[watch_scan] dedupe insert failed {ticker}/{crit['metric_name']}: {ins_e}")
             try:
-                cur.execute("""
-                    INSERT INTO aiem_watch_alerts (criteria_id, ticker, alert_date, job_name, observed_value)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (criteria_id, ticker, alert_date) DO NOTHING
-                    RETURNING id
-                """, (crit['id'], ticker, today, job_name, observed))
-                inserted = cur.fetchone()
-                conn.commit()
-                if inserted:
-                    new_alerts.append({'criteria': crit, 'ticker': ticker, 'observed_value': observed})
-            except Exception as ins_e:
-                log.warning(f"[watch_scan] dedupe insert failed {ticker}/{metric_name}: {ins_e}")
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+                conn.rollback()
+            except Exception:
+                pass
 
     if new_alerts:
         try:

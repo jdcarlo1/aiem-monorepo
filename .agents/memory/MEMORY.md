@@ -3,6 +3,7 @@
 - [Event-study backtest findings](event-study-backtest-findings.md) — price_range_5d (volatility expansion) is the strongest validated >=15%/5d precursor; stealth_score is LOWER not higher before real movers, contradicting the quiet-accumulation hypothesis
 - [Bash call process lifetime](bash-call-process-lifetime.md) — backgrounded processes do NOT survive across separate bash tool calls; long jobs need on-disk checkpoint/resume, not backgrounding-and-poll
 - [Missed-runner cap-bucket report](missed-runner-cap-buckets.md) — top 10/tier deep-dive; predictability verdict checks premarket/EOD-close/5-day grind; each reason_cat maps to a fixed lesson+next-time-action via `_REASON_LESSONS`
+- [Watch-criteria prospective scan alert flood fix](watch-scan-alert-flood-fix.md) — retrospective explanatory thresholds flood when scanned prospectively over a broad universe; fix = tighten to observed_value + per-criterion/global caps + coalesce
 - [Polygon 403 on today/live endpoints](polygon-403-today-snapshot.md) — grouped-daily(today) + live single-snapshot both 403 permanently on current plan; Yahoo fallback fixes missed-runner feed AND (as of 2026-06-30) grading's stuck-prediction price lookup
 - [aiem_research_insights unique-date gotcha](aiem-research-insights-unique-date.md) — research_date is UNIQUE across whole table (not per session_name); per-finding insert loops silently lose rows; must upsert-append one combined row/day
 - [AIEM master part 1 architecture](aiem-master-part1.md) — aiem_master_part1.py consolidates staleness_filter + WS brain; all stubs wired to Polygon/DB; exports evaluate_signal_with_data + apply_wall_street_pattern_with_data; use this, not the split files
@@ -113,5 +114,6 @@
 - [Market-open tab spinners](market-open-spinners.md) — 9:36 burst fix: max_workers=4+coalesce; 9:52 morning-inflows; DB fallback on cold cache
 - [Flask early port bind](flask-early-port-bind.md) — make_server() in thread at top of file; Flask 2.x needs _check_setup_finished patched; eliminates prod restart loop
 - [Yahoo rate limiter max_wait](yf-ratelimiter-maxwait.md) — acquire(max_wait=3.0) in cffi patch; HTTP threads bail in ≤3s during morning burst; scheduler threads use unlimited acquire()
+- [Verification script pattern](verification-script-pattern.md) — "verification code" from this user means a standalone falsification-resistant shell script (real-time anchors + DB + log cross-checks), not an OTP; template in scripts/verify_*.sh
 - [Statistical Arbitrage Engine](stat-arb-engine.md) — stat_arb_engine.py; psycopg2 INTERVAL fix; lazy import; 7 wiring points; Sunday 3PM retest seeds pairs before Mon 9:10AM z-score scan
 - [Watch-criteria scan test safety](watch-criteria-test-safety.md) — manual tests of _aiem_scan_watch_criteria sweep in ALL active real criteria and commit per-row; mock Telegram + cleanup by job_name across all criteria_id
