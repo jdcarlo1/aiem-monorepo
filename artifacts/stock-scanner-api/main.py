@@ -25548,6 +25548,10 @@ def _build_aiem_tool_map():
         "walk_forward_validate":    _aiem_tool_walk_forward_validate,
         "run_level3":               _aiem_tool_run_level3,
         "strategy_ensemble":        _aiem_tool_strategy_ensemble,
+        "safe_learning_update":     _aiem_tool_safe_learning_update,
+        "safe_learning_weights":    _aiem_tool_safe_learning_weights,
+        "safe_learning_stats":      _aiem_tool_safe_learning_stats,
+        "safe_learning_log_trade":  _aiem_tool_safe_learning_log_trade,
         "causal_discover":          _aiem_tool_causal_discover,
         "ensemble_combine_signals": _aiem_tool_ensemble_combine_signals,
         "execution_realistic_cost": _aiem_tool_execution_realistic_cost,
@@ -27314,6 +27318,32 @@ _AIEM_AGENT_TOOLS = [
             "ticker": {"type": "string", "description": "Ticker symbol"},
             "regime": {"type": "string", "description": "Market regime: trend_up / trend_down / high_volatility / chop / auto (default auto — detects from latest bar)"},
         }, "required": ["ticker"]},
+    }},
+    {"type": "function", "function": {
+        "name": "safe_learning_update",
+        "description": "Run the full Safe Learning System update cycle: compute per-strategy performance stats from trade memory, check safety gate (≥30 samples, avg_pnl ≥ -5%), detect temporal drift between old and new stats, then update exponential-smoothed strategy weights (0.8/0.2 formula). Returns updated weights or a blocked-update message.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "safe_learning_weights",
+        "description": "Return current Safe Learning System strategy weights. Use normalized=true (default) to get weights that sum to 1.0, or normalized=false for raw smoothed weights.",
+        "parameters": {"type": "object", "properties": {
+            "normalized": {"type": "boolean", "description": "Return weights normalized to sum to 1.0 (default true)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "safe_learning_stats",
+        "description": "Return per-strategy performance stats from the Safe Learning System: avg_pnl, win_rate, volatility, sample_size for every strategy with ≥30 resolved trades. Also returns counts for strategies still below the threshold.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "safe_learning_log_trade",
+        "description": "Log a resolved trade to the Safe Learning System memory. Use after a trade closes to keep the system's stats current.",
+        "parameters": {"type": "object", "properties": {
+            "strategy": {"type": "string",  "description": "Strategy name: momentum / eod_swing / mean_reversion / stat_arb / ai_short"},
+            "pnl":      {"type": "number",  "description": "Net P&L as a fraction (e.g. 0.023 = +2.3%, -0.015 = -1.5%)"},
+            "regime":   {"type": "string",  "description": "Market regime at trade entry: trend_up / trend_down / chop / high_volatility / unknown"},
+        }, "required": ["strategy", "pnl"]},
     }},
     {"type": "function", "function": {
         "name": "regime_overlay_check",
@@ -29487,6 +29517,64 @@ def _aiem_tool_strategy_ensemble(ticker: str,
     except Exception as _e:
         return {"error": str(_e)}
 
+# ── Safe Learning Architecture tools ─────────────────────────────────────────
+def _aiem_tool_safe_learning_update() -> dict:
+    """Run the full SafeLearningSystem update cycle: compute strategy stats,
+    check safety gate, detect temporal drift, update exponential-smoothed weights.
+    Returns new strategy weights or a blocked-update message."""
+    try:
+        from safe_learning import get_safe_learning_system as _get_sls
+        sls = _get_sls(seed_db=True)
+        weights = sls.update()
+        return {"weights": weights, "status": sls.status()}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_safe_learning_weights(normalized: bool = True) -> dict:
+    """Return current SafeLearningSystem strategy weights.
+    normalized=True (default): weights sum to 1.0.
+    normalized=False: raw exponential-smoothed weights."""
+    try:
+        from safe_learning import get_safe_learning_system as _get_sls
+        sls = _get_sls(seed_db=True)
+        return {
+            "weights":    sls.get_weights(normalized=bool(normalized)),
+            "normalized": normalized,
+            "memory_size": sls.memory.size(),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_safe_learning_stats() -> dict:
+    """Return per-strategy performance stats from SafeLearningSystem:
+    avg_pnl, win_rate, volatility, sample_size for every strategy with ≥30 trades.
+    Also shows counts for strategies below the threshold."""
+    try:
+        from safe_learning import get_safe_learning_system as _get_sls
+        sls = _get_sls(seed_db=True)
+        return {
+            "strategy_stats": sls.get_strategy_stats(),
+            "all_counts":     sls.analyzer.all_strategy_counts(),
+            "memory_size":    sls.memory.size(),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_safe_learning_log_trade(strategy: str, pnl: float,
+                                        regime: str = "unknown") -> dict:
+    """Log a resolved trade to the SafeLearningSystem memory.
+    strategy: e.g. 'momentum', 'eod_swing', 'mean_reversion', 'stat_arb', 'ai_short'
+    pnl: fraction (e.g. 0.023 = +2.3%, -0.015 = -1.5%)
+    regime: e.g. 'trend_up', 'trend_down', 'chop', 'high_volatility'"""
+    try:
+        from safe_learning import get_safe_learning_system as _get_sls
+        sls = _get_sls(seed_db=True)
+        sls.log_trade({"strategy": str(strategy), "pnl": float(pnl),
+                       "regime": str(regime), "features": {}})
+        return {"logged": True, "memory_size": sls.memory.size()}
+    except Exception as _e:
+        return {"error": str(_e)}
+
 # ── Causal Discovery tools ────────────────────────────────────────────────────
 def _aiem_tool_causal_discover(variables_json: str, lookback_days: int = 90) -> dict:
     try:
@@ -30580,6 +30668,10 @@ def _run_aiem_research_agent(max_iterations=None):
         "walk_forward_validate":       _aiem_tool_walk_forward_validate,
         "run_level3":                  _aiem_tool_run_level3,
         "strategy_ensemble":           _aiem_tool_strategy_ensemble,
+        "safe_learning_update":        _aiem_tool_safe_learning_update,
+        "safe_learning_weights":       _aiem_tool_safe_learning_weights,
+        "safe_learning_stats":         _aiem_tool_safe_learning_stats,
+        "safe_learning_log_trade":     _aiem_tool_safe_learning_log_trade,
         "causal_discover":             _aiem_tool_causal_discover,
         "ensemble_combine_signals":    _aiem_tool_ensemble_combine_signals,
         "execution_realistic_cost":    _aiem_tool_execution_realistic_cost,

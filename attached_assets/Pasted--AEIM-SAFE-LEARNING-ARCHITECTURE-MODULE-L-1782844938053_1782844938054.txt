@@ -1,0 +1,226 @@
+# ======================================================
+# AEIM SAFE LEARNING ARCHITECTURE MODULE (LEVEL 3–5 SAFE UPGRADE)
+# ======================================================
+# Purpose:
+# - Allow learning from past trades
+# - Prevent overfitting
+# - Prevent live logic drift
+# - Separate research from execution
+# ======================================================
+
+import numpy as np
+from collections import deque, defaultdict
+import statistics
+
+
+# ======================================================
+# 1. TRADE MEMORY STORE (HISTORICAL RECORDS ONLY)
+# ======================================================
+
+class TradeMemory:
+
+    def __init__(self, max_size=5000):
+        self.trades = deque(maxlen=max_size)
+
+    def log_trade(self, trade):
+        """
+        trade format:
+        {
+            "strategy": str,
+            "pnl": float,
+            "regime": str,
+            "features": dict
+        }
+        """
+        self.trades.append(trade)
+
+    def get_all(self):
+        return list(self.trades)
+
+
+# ======================================================
+# 2. PERFORMANCE ANALYZER (LONG TERM ONLY)
+# ======================================================
+
+class PerformanceAnalyzer:
+
+    def __init__(self, memory: TradeMemory):
+        self.memory = memory
+
+    def strategy_stats(self):
+
+        stats = defaultdict(list)
+
+        for t in self.memory.get_all():
+            stats[t["strategy"]].append(t["pnl"])
+
+        summary = {}
+
+        for strat, pnls in stats.items():
+
+            if len(pnls) < 30:
+                continue  # ignore small samples
+
+            summary[strat] = {
+                "avg_pnl": statistics.mean(pnls),
+                "volatility": statistics.pstdev(pnls),
+                "win_rate": len([p for p in pnls if p > 0]) / len(pnls),
+                "sample_size": len(pnls)
+            }
+
+        return summary
+
+
+# ======================================================
+# 3. DRIFT DETECTOR (PREVENTS STRATEGY ROT)
+# ======================================================
+
+class DriftDetector:
+
+    def detect_drift(self, old_stats, new_stats, threshold=0.35):
+
+        drift_flags = {}
+
+        for strat in new_stats:
+
+            if strat not in old_stats:
+                continue
+
+            old = old_stats[strat]
+            new = new_stats[strat]
+
+            # compare win rate + avg pnl shift
+            win_rate_shift = abs(old["win_rate"] - new["win_rate"])
+            pnl_shift = abs(old["avg_pnl"] - new["avg_pnl"])
+
+            drift = (win_rate_shift + pnl_shift) / 2
+
+            drift_flags[strat] = drift > threshold
+
+        return drift_flags
+
+
+# ======================================================
+# 4. CAPITAL ALLOCATION ENGINE (SAFE LEARNING ONLY)
+# ======================================================
+
+class AllocationEngine:
+
+    def __init__(self):
+
+        self.weights = {}
+
+    def update_weights(self, performance_stats):
+
+        total_score = 0
+        scores = {}
+
+        for strat, stats in performance_stats.items():
+
+            score = stats["avg_pnl"] * stats["win_rate"]
+
+            # prevent overreaction
+            score = np.clip(score, -1, 1)
+
+            scores[strat] = score
+            total_score += abs(score)
+
+        if total_score == 0:
+            return self.weights
+
+        for strat in scores:
+
+            # SMOOTH UPDATES (prevents instability)
+            new_weight = abs(scores[strat]) / total_score
+
+            old_weight = self.weights.get(strat, 0.1)
+
+            # exponential smoothing (VERY important)
+            self.weights[strat] = (0.8 * old_weight) + (0.2 * new_weight)
+
+        return self.weights
+
+
+# ======================================================
+# 5. SAFETY GATE (PREVENTS OVERFITTING BEHAVIOR)
+# ======================================================
+
+class SafetyGate:
+
+    def __init__(self):
+
+        self.max_drawdown_limit = -0.05  # 5%
+        self.min_sample_size = 30
+
+    def allow_update(self, stats):
+
+        for strat, s in stats.items():
+
+            if s["sample_size"] < self.min_sample_size:
+                return False
+
+            if s["avg_pnl"] < self.max_drawdown_limit:
+                return False
+
+        return True
+
+
+# ======================================================
+# 6. SAFE LEARNING ORCHESTRATOR
+# ======================================================
+
+class SafeLearningSystem:
+
+    def __init__(self):
+
+        self.memory = TradeMemory()
+        self.analyzer = PerformanceAnalyzer(self.memory)
+        self.drift = DriftDetector()
+        self.alloc = AllocationEngine()
+        self.safety = SafetyGate()
+
+        self.previous_stats = {}
+
+    def log_trade(self, trade):
+        self.memory.log_trade(trade)
+
+    def update(self):
+
+        current_stats = self.analyzer.strategy_stats()
+
+        # SAFETY CHECK FIRST
+        if not self.safety.allow_update(current_stats):
+            print("[SAFE MODE] Update blocked due to insufficient or unstable data")
+            return self.alloc.weights
+
+        # DRIFT CHECK
+        drift_flags = self.drift.detect_drift(self.previous_stats, current_stats)
+
+        for strat, drifted in drift_flags.items():
+            if drifted:
+                print(f"[WARNING] Drift detected in strategy: {strat}")
+
+        # UPDATE ALLOCATION (SAFE LEARNING ONLY)
+        self.alloc.update_weights(current_stats)
+
+        self.previous_stats = current_stats
+
+        return self.alloc.weights
+
+
+# ======================================================
+# USAGE EXAMPLE
+# ======================================================
+
+if __name__ == "__main__":
+
+    system = SafeLearningSystem()
+
+    # simulate logging trades
+    system.log_trade({"strategy": "momentum", "pnl": 0.01, "regime": "trend", "features": {}})
+    system.log_trade({"strategy": "momentum", "pnl": -0.005, "regime": "chop", "features": {}})
+
+    weights = system.update()
+
+    print("\nCURRENT SAFE WEIGHTS:")
+    print(weights)
