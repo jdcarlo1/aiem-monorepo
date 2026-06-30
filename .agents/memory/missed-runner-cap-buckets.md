@@ -48,3 +48,22 @@ latency/coupling for no benefit since both processes share the same DB.
 **How to apply:** when adding more cap-tier-aware AIEM jobs, reuse `_aiem_cap_bucket()` /
 `_aiem_get_ticker_reference_cached()` / `_aiem_behavioral_why()` rather than re-deriving market cap
 or fingerprint logic locally.
+
+**Self-reflection extension (added 2026-06-30, same day):** `_aiem_predictability_check` now also
+checks THIS MORNING's premarket tape (`_aiem_get_premarket_minutes_yahoo` — Yahoo 1m chart with
+`includePrePost=true`, since Polygon blocks same-day minute aggs on this plan), YESTERDAY's EOD
+close position within its daily range (`eod_range_position`, top/bottom 15% on >=1.5x volume), and
+a multi-day "slow grinder" streak (3-5 consecutive up-days, no single day >10%, >=8% cumulative).
+`reason_cat` priority order is now: premarket > grind > EOD-close > fingerprint > gap > news >
+volume > RSI > none. Each `reason_cat` maps to a fixed `(lesson, corrective_action)` tuple in the
+module-level `_REASON_LESSONS` dict — both the per-ticker Telegram detail block and the aggregate
+`_aiem_build_narrative()` paragraph pull from this same dict so the "what we learned" text never
+drifts out of sync between the per-name view and the summary. User explicitly required the action
+line to be a concrete next-time fix, not just a restated pattern name.
+
+**Why:** the report was criticized as "trash"/too terse and as only logging patterns without saying
+what changes as a result — a fixed lookup table keeps the lesson/action text deterministic (no LLM
+call in this file) while still being genuinely per-pattern instead of generic boilerplate.
+
+**How to apply:** any new `reason_cat` value added to the priority chain MUST get a matching entry
+in `_REASON_LESSONS`, or it silently falls back to the generic "no clear takeaway" default.

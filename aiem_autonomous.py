@@ -1634,7 +1634,171 @@ def _aiem_predictability_check(ohlcv: list, runner: dict) -> dict:
     elif rsi is not None and rsi >= 70:
         out['reasons'].append(f"RSI(14) was {rsi:.0f} — already overbought, momentum continuation")
 
+    # ── Yesterday's EOD behavior: did it close strong into the bell on
+    # rising volume, the classic "quietly loading up the night before"
+    # tell? Uses the daily bar we already fetched — no extra API call.
+    prior_bar = ohlcv[-1]
+    o, h, l, c = (prior_bar.get('o') or 0, prior_bar.get('h') or 0,
+                  prior_bar.get('l') or 0, prior_bar.get('c') or 0)
+    if h > l:
+        range_pos = (c - l) / (h - l)
+        out['eod_range_position'] = round(range_pos, 2)
+        if range_pos >= 0.85 and buildup_x >= 1.5:
+            out['reasons'].append(
+                f"closed yesterday in the top {round((1-range_pos)*100)}% of its daily range "
+                f"on {buildup_x:.1f}x volume — strength going into the close"
+            )
+        elif range_pos <= 0.15 and buildup_x >= 1.5 and prior_day_move < 0:
+            out['reasons'].append(
+                f"closed yesterday at the bottom of its range on {buildup_x:.1f}x volume — "
+                f"capitulation/shakeout setup"
+            )
+
+    # ── "Slow grinder" multi-day climb: quietly up several days in a row
+    # BEFORE the headline move, each day modest on its own (so a single-day
+    # gap scan would miss it), but the cumulative climb was conspicuous.
+    # User-requested pattern — look back a few days, not just yesterday.
+    grind_days = min(5, len(closes) - 1)
+    if grind_days >= 3:
+        streak = 0
+        for i in range(-1, -grind_days - 1, -1):
+            if closes[i] > closes[i - 1]:
+                streak += 1
+            else:
+                break
+        if streak >= 3:
+            start_close = closes[-streak - 1]
+            cum_gain = (closes[-1] - start_close) / start_close * 100 if start_close > 0 else 0
+            daily_moves_ok = all(
+                abs((closes[i] - closes[i - 1]) / closes[i - 1] * 100) <= 10
+                for i in range(-1, -streak - 1, -1) if closes[i - 1] > 0
+            )
+            out['grind_streak_days'] = streak
+            out['grind_cum_pct'] = round(cum_gain, 1)
+            if cum_gain >= 8 and daily_moves_ok:
+                out['reasons'].append(
+                    f"was a slow grinder — up {streak} straight days into today "
+                    f"(+{cum_gain:.1f}% cumulative, no single day over 10%) — quietly building before the breakout"
+                )
+
     out['verdict'] = 'predictable' if out['reasons'] else 'no_precursor'
+    return out
+
+
+# ── Premarket threshold heuristics (first-pass; tune later via the
+# Signal Discovery Engine's test_new_signal backtester once enough
+# graded samples accumulate) ──
+_PREMARKET_VOL_BUILDUP_X  = 2.0   # premarket volume vs a "quiet" 25K floor
+_PREMARKET_GAP_PCT        = 3.0   # abs gap vs prior close, in %
+
+# ── "What we learned / what changes next time" per reason category.
+# User explicitly asked the EOD report explain the lesson AND the concrete
+# corrective action — not just log a pattern name. Kept as one dict so the
+# per-ticker detail blocks and the aggregate narrative both stay in sync.
+_REASON_LESSONS = {
+    "premarket volume+gap (same morning)": (
+        "the move was already visible in the premarket tape hours before the open",
+        "promote this premarket volume+gap check into the live pre-9:30 scan so it fires as a real-time alert instead of only showing up in this postmortem",
+    ),
+    "multi-day slow grinder (5-day lookback)": (
+        "it was quietly grinding higher for several days before the breakout, not a one-day surprise",
+        "add a rolling 5-day streak/cumulative-gain screen to the nightly watchlist builder so grinders get flagged before they break out, not after",
+    ),
+    "strong/weak EOD close (yesterday)": (
+        "yesterday's close already sat at the extreme of its daily range on elevated volume — a 'coiled' tell",
+        "add an EOD-range-position screen to the after-close job so tonight's coiled closes carry straight into tomorrow's watchlist",
+    ),
+    "behavioral fingerprint match": (
+        "it matched a known historical behavioral fingerprint",
+        "the fingerprint matched but didn't trigger a live alert — raise this fingerprint's trust weight now that it's confirmed predictive again",
+    ),
+    "pre-market gap (vs prior close)": (
+        "it gapped meaningfully versus the prior close",
+        "tighten the live gap-alert threshold so opens like this fire an alert at/before the bell instead of being caught in review",
+    ),
+    "news catalyst": (
+        "a news catalyst drove the move",
+        "speed up the news-to-alert pipeline so catalyst-driven names get flagged within minutes of the headline, not at 4:30 PM",
+    ),
+    "volume surge": (
+        "volume surged the same day as the move",
+        "same-day volume is reactive by nature — lean harder on the pre-move buildup signals (premarket, grind, EOD close) for an earlier catch",
+    ),
+    "pre-move setup (RSI/volume buildup)": (
+        "RSI and/or volume buildup already signaled a setup the day before",
+        "this RSI/volume pre-move pattern keeps recurring — promote it to a standing pre-market watchlist filter instead of a postmortem-only note",
+    ),
+    "no clear precursor": (
+        "there was no detectable precursor in price, volume, RSI, premarket, or multi-day history",
+        "no model change tonight — log it to the discovery pool in case a pattern emerges once more samples like this accumulate",
+    ),
+}
+
+
+def _aiem_get_premarket_minutes_yahoo(ticker: str) -> list:
+    """
+    Today's intraday 1-minute bars INCLUDING premarket, via Yahoo's chart
+    API. Polygon's minute aggs are 403 NOT_AUTHORIZED for the *current*
+    calendar day on this account's plan (same restriction documented in
+    `_aiem_get_today_movers_yahoo` for grouped-daily) — Yahoo has no such
+    same-day block, so it's the only way to see THIS MORNING's premarket
+    tape on the same day a stock actually runs.
+    """
+    import requests as _r
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; StockScannerBot/1.0)"}
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+           f"?interval=1m&range=1d&includePrePost=true")
+    try:
+        resp = _r.get(url, headers=hdrs, timeout=8)
+        result = resp.json().get("chart", {}).get("result") or []
+        if not result:
+            return []
+        r0 = result[0]
+        meta = r0.get("meta", {})
+        regular_start = (meta.get("currentTradingPeriod") or {}).get("regular", {}).get("start")
+        timestamps = r0.get("timestamp") or []
+        quote = (r0.get("indicators", {}).get("quote") or [{}])[0]
+        opens, highs, lows, closes, vols = (quote.get("open") or [], quote.get("high") or [],
+                                             quote.get("low") or [], quote.get("close") or [],
+                                             quote.get("volume") or [])
+        bars = []
+        for i, t in enumerate(timestamps):
+            if regular_start and t >= regular_start:
+                break   # stop at the open — premarket only
+            if i < len(closes) and closes[i] is not None:
+                bars.append({'t': t, 'o': opens[i] if i < len(opens) else None,
+                             'h': highs[i] if i < len(highs) else None,
+                             'l': lows[i] if i < len(lows) else None,
+                             'c': closes[i], 'v': vols[i] if i < len(vols) else 0})
+        return bars
+    except Exception as e:
+        log.warning(f"[premarket_yahoo] {ticker} failed: {e}")
+        return []
+
+
+def _aiem_check_premarket_signal(ticker: str, prior_close: float) -> dict:
+    """
+    Did THIS MORNING's premarket tape already show the move coming, before
+    the 9:30 open? Sums premarket volume and measures the gap off
+    yesterday's close. This is the literal "what did Polygon/Yahoo's
+    premarket data show earlier today" check.
+    """
+    out = {'has_data': False, 'premarket_volume': 0, 'premarket_gap_pct': None,
+           'flagged': False, 'reason': None}
+    bars = _aiem_get_premarket_minutes_yahoo(ticker)
+    if not bars or not prior_close:
+        return out
+    out['has_data'] = True
+    pm_vol = sum(b['v'] or 0 for b in bars)
+    last_px = next((b['c'] for b in reversed(bars) if b.get('c')), None)
+    out['premarket_volume'] = int(pm_vol)
+    if last_px and prior_close > 0:
+        gap_pct = (last_px - prior_close) / prior_close * 100
+        out['premarket_gap_pct'] = round(gap_pct, 1)
+        if pm_vol >= MIN_PREMARKET_VOLUME * _PREMARKET_VOL_BUILDUP_X and abs(gap_pct) >= _PREMARKET_GAP_PCT:
+            out['flagged'] = True
+            out['reason'] = (f"premarket volume was already {int(pm_vol):,} shares with a "
+                              f"{gap_pct:+.1f}% gap before the 9:30 bell — the move was visible hours early")
     return out
 
 
@@ -1650,35 +1814,46 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
     cur.execute("SELECT ticker FROM aiem_predictions WHERE prediction_date = %s", (today,))
     flagged = {row[0] for row in cur.fetchall()}
 
-    # Get all stocks that moved 20%+ today. Polygon's same-day grouped-daily
-    # is plan-restricted (see _aiem_get_today_movers_yahoo docstring) — fall
+    # Pull today's full mover list. Polygon's same-day grouped-daily is
+    # plan-restricted (see _aiem_get_today_movers_yahoo docstring) — fall
     # back to the Yahoo screener feed whenever Polygon comes back empty.
     daily_data = _aiem_get_grouped_daily(today)
     if not daily_data:
         log.warning("[missed_runner] Polygon grouped-daily empty for today — using Yahoo fallback")
         daily_data = _aiem_get_today_movers_yahoo()
 
-    big_movers = []
+    # ALL of today's movers, gainers first — this is the pool the daily
+    # top-10-per-cap-bucket review draws from. Deliberately NOT gated on a
+    # 20% threshold or "AIEM didn't flag it" here: the user wants the top 10
+    # biggest movers in EACH of the 4 cap tiers reviewed every single day,
+    # regardless of size or whether AIEM already caught them, so the
+    # predictability learning loop has a consistent daily sample instead of
+    # only firing on rare 20%+ misses (which can be 0-4 names on a quiet day).
+    all_movers = []
     for stock in daily_data:
         ticker   = stock.get('T', '')
         o, c, v  = stock.get('o') or 0, stock.get('c') or 0, stock.get('v') or 0
         if o > 0 and c > 0:
             move_pct = (c - o) / o * 100
-            if move_pct >= 20 and ticker not in flagged:
-                big_movers.append({'ticker': ticker, 'open': o,
-                                   'close': c, 'volume': v, 'move_pct': move_pct})
+            all_movers.append({'ticker': ticker, 'open': o, 'close': c,
+                               'volume': v, 'move_pct': move_pct,
+                               'was_flagged': ticker in flagged})
 
-    big_movers.sort(key=lambda x: x['move_pct'], reverse=True)
+    all_movers.sort(key=lambda x: x['move_pct'], reverse=True)
+
+    # Headline "missed runner" alert count — still the 20%+/unflagged subset,
+    # kept for the alerting language elsewhere in the report.
+    big_movers = [m for m in all_movers if m['move_pct'] >= 20 and not m['was_flagged']]
     result['big_movers'] = big_movers
-    log.info(f"{len(big_movers)} missed runners (20%+ AIEM didn't flag)")
+    log.info(f"{len(big_movers)} missed runners (20%+ AIEM didn't flag) out of {len(all_movers)} total movers today")
 
-    if not big_movers:
+    if not all_movers:
         return result
 
-    # ── Step 1: bucket candidates by market cap (cached lookups) ───────────
+    # ── Step 1: bucket the top movers by market cap (cached lookups) ───────
     buckets   = {'micro': [], 'small': [], 'mid': [], 'large': []}
     unknown_n = 0
-    for runner in big_movers[:_MISSED_RUNNER_CAP_LOOKUP_LIMIT]:
+    for runner in all_movers[:_MISSED_RUNNER_CAP_LOOKUP_LIMIT]:
         ref     = _aiem_get_ticker_reference_cached(conn, runner['ticker'])
         mkt_cap = ref.get('market_cap') or 0
         bucket  = _aiem_cap_bucket(mkt_cap)
@@ -1691,17 +1866,22 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
 
     for b in buckets:
         buckets[b].sort(key=lambda x: x['move_pct'], reverse=True)
-        buckets[b] = buckets[b][:10]   # deep-dive only the top 10/bucket per the daily review
+        buckets[b] = buckets[b][:10]   # always review the top 10/bucket, every day
 
     if unknown_n:
         log.info(f"{unknown_n} candidates had no resolvable market cap — omitted from buckets")
+    for b, names in buckets.items():
+        if len(names) < 10:
+            log.info(f"[missed_runner] {b} bucket only had {len(names)}/10 — fewer qualifying movers today")
 
     # ── Step 2: deep "why" per bucketed candidate ───────────────────────────
     discoveries  = 0
     bucket_lines = {b: [] for b in buckets}
+    bucket_detail_lines = {b: [] for b in buckets}
     all_discovery_texts = []
     reason_freq: dict = {}
     predictable_n = surprise_n = 0
+    premkt_n = grind_n = eod_n = 0
     for bucket, runners in buckets.items():
         for runner in runners:
             ticker   = runner['ticker']
@@ -1730,6 +1910,15 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
                 # what was knowable BEFORE the move happened.
                 prior_bars = ohlcv[:-1] if (ohlcv and ohlcv[-1].get('c') == runner['close']) else ohlcv
                 predictability = _aiem_predictability_check(prior_bars, runner)
+
+                # THIS MORNING's premarket tape, checked separately (Yahoo,
+                # since Polygon blocks same-day) — "could we have seen it
+                # before the 9:30 bell, not just in yesterday's bars?"
+                prior_close_for_pm = prior_bars[-1].get('c') if prior_bars else None
+                premkt = _aiem_check_premarket_signal(ticker, prior_close_for_pm)
+                if premkt.get('flagged'):
+                    predictability['reasons'].append(premkt['reason'])
+                    predictability['verdict'] = 'predictable'
                 if predictability['verdict'] == 'predictable':
                     predictable_n += 1
                 else:
@@ -1750,11 +1939,22 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
 
                 pattern_str = " | ".join(patterns) if patterns else "quiet_move_no_clear_precursor"
                 lead_reason = patterns[0] if patterns else "no clear precursor found"
-                # Bucket the lead reason into a coarse category for the narrative
-                if why.get('matched'):
+                # Bucket the lead reason into a coarse category for the narrative.
+                # Order matters — most "should-have-caught-it-earliest" signal wins,
+                # since that's the most actionable lesson for next time.
+                if premkt.get('flagged'):
+                    reason_cat = "premarket volume+gap (same morning)"
+                    premkt_n += 1
+                elif predictability.get('grind_streak_days', 0) >= 3 and any('slow grinder' in r for r in predictability['reasons']):
+                    reason_cat = "multi-day slow grinder (5-day lookback)"
+                    grind_n += 1
+                elif predictability.get('eod_range_position') is not None and any('closed yesterday' in r for r in predictability['reasons']):
+                    reason_cat = "strong/weak EOD close (yesterday)"
+                    eod_n += 1
+                elif why.get('matched'):
                     reason_cat = "behavioral fingerprint match"
                 elif gap_pct is not None and abs(gap_pct) >= 5:
-                    reason_cat = "pre-market gap"
+                    reason_cat = "pre-market gap (vs prior close)"
                 elif news:
                     reason_cat = "news catalyst"
                 elif vol_ratio >= 3:
@@ -1764,29 +1964,71 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
                 else:
                     reason_cat = "no clear precursor"
                 reason_freq[reason_cat] = reason_freq.get(reason_cat, 0) + 1
+                lesson, action = _REASON_LESSONS.get(
+                    reason_cat, ("no clear takeaway from this one", "no model change triggered")
+                )
 
                 verdict_str = (
                     f"PREDICTABLE — {'; '.join(predictability['reasons'])}"
                     if predictability['verdict'] == 'predictable'
                     else "TRUE SURPRISE — no precursor in price/volume/RSI history"
                 )
+                flag_str = "AIEM already flagged this one" if runner['was_flagged'] else "AIEM did NOT flag this — missed"
+                pm_str = (
+                    f"Premarket today: {premkt['premarket_volume']:,} shares, "
+                    f"gap {premkt['premarket_gap_pct']:+.1f}% vs prior close."
+                    if premkt.get('has_data') and premkt.get('premarket_gap_pct') is not None
+                    else "Premarket today: no data."
+                )
+                grind_str = (
+                    f"5-day grind: {predictability['grind_streak_days']}-day up-streak, "
+                    f"+{predictability['grind_cum_pct']:.1f}% cumulative."
+                    if predictability.get('grind_streak_days', 0) >= 3
+                    else ""
+                )
                 discovery_text = (
-                    f"MISSED RUNNER [{bucket.upper()}]: {ticker} moved +{move_pct:.1f}% today "
+                    f"TOP-10 REVIEW [{bucket.upper()}]: {ticker} moved +{move_pct:.1f}% today "
                     f"(MC ${runner['market_cap']/1e6:,.0f}M). Same-day pattern: {pattern_str}. "
                     f"Open=${runner['open']:.2f} Close=${runner['close']:.2f}. "
                     f"Prior-day move {predictability['prior_day_move_pct']}%, "
                     f"RSI(14)={predictability['rsi']}, "
                     f"vol buildup={predictability['volume_buildup_x']}x. "
-                    f"Verdict: {verdict_str}. AIEM did not flag this — learn from it."
+                    f"{pm_str} {grind_str} "
+                    f"Verdict: {verdict_str}. {flag_str}. "
+                    f"Lesson: {lesson}. Next time: {action}."
                 )
                 all_discovery_texts.append(discovery_text)
 
                 bucket_lines[bucket].append(
-                    f"${ticker} +{move_pct:.1f}% | MC ${runner['market_cap']/1e6:,.0f}M | "
-                    f"{'🟢 ' if predictability['verdict']=='predictable' else '🔴 '}{lead_reason}"
+                    f"{'✅' if runner['was_flagged'] else '❌'} ${ticker} +{move_pct:.1f}% | "
+                    f"MC ${runner['market_cap']/1e6:,.0f}M | "
+                    f"{'🟢' if predictability['verdict']=='predictable' else '🔴'} {lead_reason}"
                 )
+
+                # Full per-ticker detail block for the bucket Telegram sends —
+                # the terse bucket_lines emoji-row was the "trash" version;
+                # this spells out exactly what was knowable and when (this
+                # morning's premarket / yesterday's close / the 5-day grind).
+                detail_block = [
+                    f"{'✅' if runner['was_flagged'] else '❌'} ${ticker} +{move_pct:.1f}%  (MC ${runner['market_cap']/1e6:,.0f}M, "
+                    f"open ${runner['open']:.2f} → close ${runner['close']:.2f})",
+                    f"   {flag_str}",
+                    f"   Same-day signals: {pattern_str}",
+                    f"   Prior-day move {predictability['prior_day_move_pct']}% | "
+                    f"RSI(14)={predictability['rsi']} | vol buildup={predictability['volume_buildup_x']}x",
+                    f"   {pm_str}",
+                ]
+                if grind_str:
+                    detail_block.append(f"   {grind_str}")
+                if predictability.get('eod_range_position') is not None:
+                    detail_block.append(f"   Yesterday's EOD range position: {predictability['eod_range_position']:.2f} (0=low, 1=high of day)")
+                detail_block.append(f"   Verdict: {verdict_str}")
+                detail_block.append(f"   📖 Lesson: {lesson}")
+                detail_block.append(f"   🔧 Next time: {action}")
+                bucket_detail_lines[bucket].append("\n".join(detail_block))
+
                 discoveries += 1
-                log.info(f"  MISSED [{bucket}]: {ticker} +{move_pct:.1f}% — {pattern_str} — {verdict_str}")
+                log.info(f"  TOP10 [{bucket}]: {ticker} +{move_pct:.1f}% — {pattern_str} — {verdict_str} — {flag_str}")
                 time.sleep(0.1)
 
             except Exception as e:
@@ -1819,9 +2061,11 @@ def _aiem_find_missed_runners(conn, cur, today) -> dict:
 
     result.update({
         'buckets': buckets, 'bucket_lines': bucket_lines,
+        'bucket_detail_lines': bucket_detail_lines,
         'discoveries': discoveries, 'all_discovery_texts': all_discovery_texts,
         'reason_freq': reason_freq,
         'predictable_n': predictable_n, 'surprise_n': surprise_n,
+        'premkt_n': premkt_n, 'grind_n': grind_n, 'eod_n': eod_n,
     })
     return result
 
@@ -1833,11 +2077,12 @@ def _aiem_build_narrative(grade: dict, missed: dict, today) -> str:
     combined 4:30 PM EOD report so the report explains itself instead of just
     listing numbers.
     """
-    graded   = grade.get('graded', 0)
-    big_movers = missed.get('big_movers', [])
+    graded         = grade.get('graded', 0)
+    review_buckets = missed.get('buckets', {})
+    reviewed_n     = sum(len(v) for v in review_buckets.values())
 
-    if not graded and not big_movers:
-        return ("📚 What we learned: nothing to grade and no qualifying missed runners today — "
+    if not graded and not reviewed_n:
+        return ("📚 What we learned: nothing to grade and no movers to review today — "
                 "a quiet day for the learning loop. No model changes triggered.")
 
     parts = []
@@ -1858,24 +2103,59 @@ def _aiem_build_narrative(grade: dict, missed: dict, today) -> str:
     else:
         parts.append("no predictions were open to grade today")
 
-    if big_movers:
-        n = len(big_movers)
-        buckets  = missed.get('buckets', {})
-        cap_str  = ", ".join(f"{len(v)} {k}" for k, v in buckets.items() if v)
-        parts.append(f"AIEM missed {n} mover(s) that ran 20%+ without a flag ({cap_str or 'cap unresolved'})")
+    buckets  = missed.get('buckets', {})
+    reviewed = sum(len(v) for v in buckets.values())
+    if reviewed:
+        cap_str   = ", ".join(f"{len(v)} {k}" for k, v in buckets.items())
+        missed_n  = sum(1 for v in buckets.values() for r in v if not r.get('was_flagged'))
+        parts.append(f"reviewed the day's top movers across all 4 cap tiers ({cap_str}) — "
+                     f"{missed_n} of those {reviewed} weren't on AIEM's radar at all")
         reason_freq = missed.get('reason_freq') or {}
         if reason_freq:
             top_reason = max(reason_freq.items(), key=lambda x: x[1])[0]
-            parts.append(f"the most common reason was '{top_reason}' — that pattern gets added to tomorrow's watch list")
+            top_lesson, top_action = _REASON_LESSONS.get(
+                top_reason, ("no clear takeaway", "no model change triggered")
+            )
+            parts.append(f"the most common reason was '{top_reason}' ({top_lesson}) — going forward: {top_action}")
         predictable_n = missed.get('predictable_n', 0)
         surprise_n    = missed.get('surprise_n', 0)
         if predictable_n or surprise_n:
             parts.append(
-                f"of those, {predictable_n} showed a precursor in yesterday's volume/price/RSI history "
-                f"(should have been caught) vs {surprise_n} that were genuine surprises with no warning"
+                f"of all {reviewed} reviewed, {predictable_n} showed a precursor in yesterday's "
+                f"volume/price/RSI history (should have been caught) vs {surprise_n} that were "
+                f"genuine surprises with no warning"
             )
+        # Self-critique, broken out by WHEN the warning was actually available —
+        # this morning's premarket tape, yesterday's close, or a multi-day grind
+        # — so the lesson is "we could have caught it at point X, and here's the
+        # fix" not just a count.
+        premkt_n = missed.get('premkt_n', 0)
+        grind_n  = missed.get('grind_n', 0)
+        eod_n    = missed.get('eod_n', 0)
+        if premkt_n:
+            _, pm_action = _REASON_LESSONS["premarket volume+gap (same morning)"]
+            parts.append(
+                f"{premkt_n} of them flashed a premarket volume+gap buildup THIS MORNING before "
+                f"the bell — that's the earliest possible catch and AIEM missed it live; going forward: {pm_action}"
+            )
+        if eod_n:
+            _, eod_action = _REASON_LESSONS["strong/weak EOD close (yesterday)"]
+            parts.append(
+                f"{eod_n} closed yesterday at the top/bottom of their range on elevated volume — "
+                f"a classic 'coiled' close; going forward: {eod_action}"
+            )
+        if grind_n:
+            _, grind_action = _REASON_LESSONS["multi-day slow grinder (5-day lookback)"]
+            parts.append(
+                f"{grind_n} were quietly grinding higher for 3-5 straight days before today's breakout — "
+                f"yes, AIEM could have flagged these as far back as 5 days ago by watching the streak; "
+                f"going forward: {grind_action}"
+            )
+        if not (premkt_n or eod_n or grind_n) and surprise_n:
+            parts.append("none of today's true surprises had a premarket, prior-close, or multi-day tell — "
+                         "these were genuinely unpredictable from price/volume alone, so no model change triggered for them")
     else:
-        parts.append("no qualifying missed runners today — AIEM caught everything that mattered")
+        parts.append("no movers to review today — markets were closed or data was unavailable")
 
     return "📚 What we learned: " + "; ".join(parts) + "."
 
@@ -1914,18 +2194,20 @@ def aiem_eod_report():
         else:
             msg += "📊 GRADING: nothing to grade today\n"
 
-        n_missed = len(missed['big_movers'])
         b = missed['buckets']
+        n_reviewed = sum(len(v) for v in b.values())
+        n_missed_in_review = sum(1 for v in b.values() for r in v if not r.get('was_flagged'))
         msg += "\n"
-        if n_missed:
-            msg += (f"🔍 MISSED RUNNERS: {n_missed} "
+        if n_reviewed:
+            msg += (f"🔍 DAILY TOP-10 REVIEW: {n_reviewed} stocks "
                     f"(micro={len(b['micro'])} small={len(b['small'])} mid={len(b['mid'])} large={len(b['large'])})\n")
-            msg += (f"   Deep-dove top 10/bucket: {missed.get('predictable_n',0)} had a "
-                    f"pre-move precursor (predictable) | {missed.get('surprise_n',0)} true surprises\n")
+            msg += f"   {n_missed_in_review} were NOT on AIEM's radar (missed) | {n_reviewed-n_missed_in_review} already flagged\n"
+            msg += (f"   Predictability: {missed.get('predictable_n',0)} had a "
+                    f"pre-move precursor | {missed.get('surprise_n',0)} true surprises\n")
             for r in missed['big_movers'][:3]:
-                msg += f"   ${r['ticker']} +{r['move_pct']:.1f}%\n"
+                msg += f"   ${r['ticker']} +{r['move_pct']:.1f}% (missed, 20%+)\n"
         else:
-            msg += "🔍 MISSED RUNNERS: none today\n"
+            msg += "🔍 DAILY TOP-10 REVIEW: no movers today — market closed or data unavailable\n"
 
         msg += f"\n{narrative}\n\nTrust weights update 6 PM → tomorrow's picks adjusted."
 
@@ -1937,16 +2219,29 @@ def aiem_eod_report():
         if grade.get('chart_tickers'):
             _aiem_send_chart("eod_report", f"AIEM Outcomes — {today}", grade['chart_tickers'])
 
-        if n_missed:
+        if n_reviewed:
             top3 = missed['big_movers'][:3]
-            _aiem_send_chart("missed_runners", f"AIEM Missed Runners — {today}",
-                              [r['ticker'] for r in top3])
+            if top3:
+                _aiem_send_chart("missed_runners", f"AIEM Missed Runners — {today}",
+                                  [r['ticker'] for r in top3])
             for bucket in ('micro', 'small', 'mid', 'large'):
-                lines = missed['bucket_lines'][bucket]
+                lines = missed.get('bucket_detail_lines', {}).get(bucket) or missed['bucket_lines'][bucket]
                 if not lines:
                     continue
-                detail = f"🤖 {_CAP_BUCKET_LABELS[bucket]} — {today}\n" + "\n".join(lines)
-                _tg_send(detail)
+                header = f"🤖 {_CAP_BUCKET_LABELS[bucket]} — Daily Top-10 Review — {today}\n\n"
+                # Telegram caps messages at 4096 chars — these detailed blocks
+                # (premarket + EOD + grind + RSI per ticker) can blow past that
+                # for a full 10-name bucket, so chunk on ticker boundaries
+                # instead of letting Telegram silently drop an oversized send.
+                chunk = header
+                for line in lines:
+                    if len(chunk) + len(line) + 2 > 3800:
+                        _tg_send(chunk.rstrip())
+                        time.sleep(0.3)
+                        chunk = header
+                    chunk += line + "\n\n"
+                if chunk.strip() and chunk != header:
+                    _tg_send(chunk.rstrip())
                 time.sleep(0.3)
 
     except Exception as e:
