@@ -1,0 +1,637 @@
+"""
+stat_arb_engine.py
+------------------
+Statistical Arbitrage Engine for AIEM / StockScanner AI.
+
+WHAT THIS DOES
+--------------
+Finds pairs of stocks that are cointegrated (historically move together),
+monitors the current spread between them, and fires a signal when the spread
+deviates beyond a z-score threshold — implying a mean-reversion trade.
+
+This is designed as a CONVICTION BOOSTER on top of your existing 9-layer
+scoring. When AIEM already has a sweep or dark-pool signal on a ticker AND
+that ticker's stat-arb spread is at 2σ+, that's a materially higher-conviction
+setup than either signal alone.
+
+INTEGRATION POINTS
+------------------
+1. Standalone: run stat_arb_daily_scan() at market open — gives you a ranked
+   list of live divergence opportunities.
+2. AIEM tool: expose _aiem_tool_stat_arb_check(ticker) so the agent can call it
+   during its signal synthesis loop.
+3. Conviction layer: the spread z-score feeds into your existing scoring table
+   as a new column (stat_arb_zscore, stat_arb_signal).
+
+WIRING REMINDER (from your tool-map audit):
+   Add _aiem_tool_stat_arb_check to BOTH the tool schema list AND the dispatch
+   dict or it will be invisible to the agent.
+
+DATA SOURCE
+-----------
+polygon_market_daily table (same as _fetch_price_history in your codebase).
+No new data dependencies required.
+
+DEPENDENCIES
+------------
+psycopg2, numpy, pandas, statsmodels (for cointegration test).
+Install statsmodels if not present: pip install statsmodels
+
+DB TABLES CREATED
+-----------------
+stat_arb_pairs        — registered cointegrated pairs + their parameters
+stat_arb_signals      — daily signal log (spread, z-score, direction)
+"""
+
+import os
+import json
+import logging
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Tuple, Any
+
+import numpy as np
+import pandas as pd
+import psycopg2
+import psycopg2.extras
+from statsmodels.tsa.stattools import coint, adfuller
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIG
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Pairs to monitor. Organized by sector — add/remove freely.
+# These are the natural cointegrated pairs in your tracked universe.
+DEFAULT_PAIRS: List[Tuple[str, str]] = [
+    # Semiconductors
+    ("NVDA", "AMD"),
+    ("NVDA", "MRVL"),
+    ("AMAT", "LRCX"),
+    ("AMAT", "KLAC"),
+    ("MU",   "SNDK"),
+    ("CRDO", "MRVL"),
+    # AI Infrastructure
+    ("NVDA", "AMAT"),
+    ("AMD",  "INTC"),
+    # Broad semi ETF vs leaders
+    ("SMH",  "NVDA"),
+    ("SOXX", "AMD"),
+]
+
+# Signal thresholds
+ZSCORE_ENTRY   = 2.0   # fire signal when |z| >= this
+ZSCORE_EXIT    = 0.5   # signal resolves when |z| <= this
+LOOKBACK_DAYS  = 252   # 1 year of daily closes for cointegration test
+MIN_PVALUE     = 0.05  # cointegration p-value threshold to accept a pair
+HEDGE_WINDOW   = 60    # rolling window (days) for hedge ratio (OLS beta)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATABASE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _connect() -> psycopg2.extensions.connection:
+    url = os.environ.get("AIEM_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError("No database URL found (set AIEM_DATABASE_URL or DATABASE_URL).")
+    return psycopg2.connect(url)
+
+
+DDL = """
+CREATE TABLE IF NOT EXISTS stat_arb_pairs (
+    id               SERIAL PRIMARY KEY,
+    ticker_a         TEXT NOT NULL,
+    ticker_b         TEXT NOT NULL,
+    coint_pvalue     FLOAT,
+    hedge_ratio      FLOAT,        -- beta: spread = price_a - beta * price_b
+    spread_mean      FLOAT,
+    spread_std       FLOAT,
+    last_tested      TIMESTAMPTZ DEFAULT NOW(),
+    is_active        BOOLEAN DEFAULT TRUE,
+    UNIQUE(ticker_a, ticker_b)
+);
+
+CREATE TABLE IF NOT EXISTS stat_arb_signals (
+    id               SERIAL PRIMARY KEY,
+    ticker_a         TEXT NOT NULL,
+    ticker_b         TEXT NOT NULL,
+    signal_date      DATE DEFAULT CURRENT_DATE,
+    price_a          FLOAT,
+    price_b          FLOAT,
+    spread           FLOAT,
+    zscore           FLOAT,
+    direction        TEXT,   -- 'LONG_A_SHORT_B' or 'SHORT_A_LONG_B' or 'NEUTRAL'
+    signal_strength  TEXT,   -- 'STRONG' (|z|>2.5), 'MODERATE' (|z|>2.0)
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stat_arb_signals_date
+    ON stat_arb_signals(signal_date DESC);
+CREATE INDEX IF NOT EXISTS idx_stat_arb_signals_tickers
+    ON stat_arb_signals(ticker_a, ticker_b);
+"""
+
+
+def _init_tables() -> None:
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL)
+        conn.commit()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRICE DATA  (uses your existing polygon_market_daily table)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fetch_closes(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> Optional[pd.Series]:
+    """
+    Pull daily closes from polygon_market_daily.
+    Returns a pd.Series indexed by date, or None if insufficient data.
+    """
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT date::date AS date, close_price AS close
+                    FROM polygon_market_daily
+                    WHERE ticker = %s
+                      AND date >= NOW() - INTERVAL '%s days'
+                    ORDER BY date ASC
+                """, (ticker, lookback_days + 30))  # +30 buffer for missing trading days
+                rows = cur.fetchall()
+
+        if not rows or len(rows) < 60:
+            logger.warning(f"[stat_arb] Insufficient price history for {ticker}: {len(rows) if rows else 0} rows")
+            return None
+
+        df = pd.DataFrame([dict(r) for r in rows])
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date").sort_index()
+        return df["close"].dropna()
+
+    except Exception as e:
+        logger.error(f"[stat_arb] Price fetch failed for {ticker}: {e}")
+        return None
+
+
+def _align_series(s_a: pd.Series, s_b: pd.Series) -> Tuple[pd.Series, pd.Series]:
+    """Align two price series on shared dates."""
+    combined = pd.concat([s_a, s_b], axis=1).dropna()
+    combined.columns = ["a", "b"]
+    return combined["a"], combined["b"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COINTEGRATION TEST
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_cointegration(
+    ticker_a: str,
+    ticker_b: str,
+    lookback_days: int = LOOKBACK_DAYS
+) -> Dict[str, Any]:
+    """
+    Run Engle-Granger cointegration test on a pair.
+
+    Returns dict with:
+        is_cointegrated: bool
+        pvalue: float
+        hedge_ratio: float  (OLS beta, spread = A - beta*B)
+        spread_mean: float
+        spread_std: float
+        n_observations: int
+    """
+    s_a = _fetch_closes(ticker_a, lookback_days)
+    s_b = _fetch_closes(ticker_b, lookback_days)
+
+    if s_a is None or s_b is None:
+        return {"is_cointegrated": False, "error": "insufficient_data"}
+
+    s_a, s_b = _align_series(s_a, s_b)
+
+    if len(s_a) < 60:
+        return {"is_cointegrated": False, "error": "insufficient_overlap"}
+
+    try:
+        # Engle-Granger test: null hypothesis = NOT cointegrated
+        score, pvalue, _ = coint(s_a.values, s_b.values)
+
+        # OLS hedge ratio: regress A on B to get beta
+        # spread = A - beta * B
+        beta = np.polyfit(s_b.values, s_a.values, 1)[0]
+        spread = s_a.values - beta * s_b.values
+
+        # Use rolling window for mean/std (more robust than full-history)
+        spread_series = pd.Series(spread)
+        roll_mean = spread_series.rolling(HEDGE_WINDOW).mean().iloc[-1]
+        roll_std  = spread_series.rolling(HEDGE_WINDOW).std().iloc[-1]
+
+        return {
+            "is_cointegrated": pvalue < MIN_PVALUE,
+            "pvalue":          round(float(pvalue), 4),
+            "hedge_ratio":     round(float(beta), 4),
+            "spread_mean":     round(float(roll_mean), 4),
+            "spread_std":      round(float(roll_std), 4),
+            "n_observations":  len(s_a),
+            "score":           round(float(score), 4),
+        }
+
+    except Exception as e:
+        logger.error(f"[stat_arb] Cointegration test failed for {ticker_a}/{ticker_b}: {e}")
+        return {"is_cointegrated": False, "error": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPREAD Z-SCORE  (the live trading signal)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_current_zscore(
+    ticker_a: str,
+    ticker_b: str,
+    hedge_ratio: float,
+    spread_mean: float,
+    spread_std: float,
+) -> Dict[str, Any]:
+    """
+    Compute today's spread z-score for a known pair.
+
+    Returns:
+        zscore: float
+        direction: 'LONG_A_SHORT_B' | 'SHORT_A_LONG_B' | 'NEUTRAL'
+        signal_strength: 'STRONG' | 'MODERATE' | 'NONE'
+        price_a, price_b, spread: current values
+    """
+    s_a = _fetch_closes(ticker_a, lookback_days=5)
+    s_b = _fetch_closes(ticker_b, lookback_days=5)
+
+    if s_a is None or s_b is None or len(s_a) == 0 or len(s_b) == 0:
+        return {"error": "no_recent_prices"}
+
+    # Get most recent aligned price
+    s_a, s_b = _align_series(s_a, s_b)
+    if len(s_a) == 0:
+        return {"error": "no_aligned_prices"}
+
+    price_a = float(s_a.iloc[-1])
+    price_b = float(s_b.iloc[-1])
+    spread  = price_a - hedge_ratio * price_b
+
+    if spread_std == 0:
+        return {"error": "zero_spread_std"}
+
+    zscore = (spread - spread_mean) / spread_std
+
+    if abs(zscore) >= 2.5:
+        strength = "STRONG"
+    elif abs(zscore) >= ZSCORE_ENTRY:
+        strength = "MODERATE"
+    else:
+        strength = "NONE"
+
+    # Direction: if spread > mean (A is expensive relative to B),
+    # short A / long B expecting reversion
+    if zscore > ZSCORE_ENTRY:
+        direction = "SHORT_A_LONG_B"
+    elif zscore < -ZSCORE_ENTRY:
+        direction = "LONG_A_SHORT_B"
+    else:
+        direction = "NEUTRAL"
+
+    return {
+        "ticker_a":        ticker_a,
+        "ticker_b":        ticker_b,
+        "price_a":         round(price_a, 2),
+        "price_b":         round(price_b, 2),
+        "spread":          round(spread, 4),
+        "spread_mean":     round(spread_mean, 4),
+        "spread_std":      round(spread_std, 4),
+        "zscore":          round(float(zscore), 3),
+        "direction":       direction,
+        "signal_strength": strength,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PAIR REGISTRY  (upsert tested pairs into DB)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def register_pair(ticker_a: str, ticker_b: str, test_result: Dict[str, Any]) -> None:
+    """Upsert a cointegration test result into stat_arb_pairs."""
+    if not test_result.get("is_cointegrated"):
+        return
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO stat_arb_pairs
+                    (ticker_a, ticker_b, coint_pvalue, hedge_ratio,
+                     spread_mean, spread_std, last_tested, is_active)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), TRUE)
+                ON CONFLICT (ticker_a, ticker_b) DO UPDATE SET
+                    coint_pvalue = EXCLUDED.coint_pvalue,
+                    hedge_ratio  = EXCLUDED.hedge_ratio,
+                    spread_mean  = EXCLUDED.spread_mean,
+                    spread_std   = EXCLUDED.spread_std,
+                    last_tested  = NOW(),
+                    is_active    = TRUE
+            """, (
+                ticker_a, ticker_b,
+                test_result["pvalue"],
+                test_result["hedge_ratio"],
+                test_result["spread_mean"],
+                test_result["spread_std"],
+            ))
+        conn.commit()
+    logger.info(f"[stat_arb] Registered pair {ticker_a}/{ticker_b} "
+                f"p={test_result['pvalue']} β={test_result['hedge_ratio']}")
+
+
+def log_signal(signal: Dict[str, Any]) -> None:
+    """Write a live spread signal to stat_arb_signals."""
+    if signal.get("error") or signal.get("direction") == "NEUTRAL":
+        return
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO stat_arb_signals
+                    (ticker_a, ticker_b, signal_date, price_a, price_b,
+                     spread, zscore, direction, signal_strength)
+                VALUES (%s, %s, CURRENT_DATE, %s, %s, %s, %s, %s, %s)
+            """, (
+                signal["ticker_a"], signal["ticker_b"],
+                signal["price_a"],  signal["price_b"],
+                signal["spread"],   signal["zscore"],
+                signal["direction"], signal["signal_strength"],
+            ))
+        conn.commit()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DAILY SCAN  (run this at market open or premarket)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def stat_arb_daily_scan(
+    pairs: List[Tuple[str, str]] = DEFAULT_PAIRS,
+    retest_pairs: bool = False,
+) -> List[Dict[str, Any]]:
+    """
+    Full daily stat-arb scan.
+
+    1. Optionally re-run cointegration test (weekly is fine; skip daily).
+    2. Load active pairs from DB.
+    3. Compute current z-score for each.
+    4. Return list of active signals sorted by |z-score| descending.
+
+    Args:
+        pairs: list of (ticker_a, ticker_b) to scan. Uses DEFAULT_PAIRS if omitted.
+        retest_pairs: if True, re-run cointegration tests (slow; do weekly not daily).
+
+    Returns:
+        List of signal dicts with zscore, direction, signal_strength, etc.
+    """
+    _init_tables()
+    active_signals = []
+
+    if retest_pairs:
+        logger.info(f"[stat_arb] Running cointegration tests on {len(pairs)} pairs...")
+        for ticker_a, ticker_b in pairs:
+            result = test_cointegration(ticker_a, ticker_b)
+            if result.get("is_cointegrated"):
+                register_pair(ticker_a, ticker_b, result)
+                logger.info(f"[stat_arb] ✓ {ticker_a}/{ticker_b} cointegrated "
+                            f"(p={result['pvalue']}, β={result['hedge_ratio']})")
+            else:
+                logger.info(f"[stat_arb] ✗ {ticker_a}/{ticker_b} not cointegrated "
+                            f"(p={result.get('pvalue', 'N/A')})")
+
+    # Load active pairs from DB
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT ticker_a, ticker_b, hedge_ratio, spread_mean, spread_std
+                FROM stat_arb_pairs
+                WHERE is_active = TRUE
+            """)
+            db_pairs = cur.fetchall()
+
+    if not db_pairs:
+        logger.warning("[stat_arb] No active pairs in DB. Run with retest_pairs=True first.")
+        return []
+
+    logger.info(f"[stat_arb] Scoring {len(db_pairs)} active pairs...")
+
+    for row in db_pairs:
+        signal = compute_current_zscore(
+            ticker_a    = row["ticker_a"],
+            ticker_b    = row["ticker_b"],
+            hedge_ratio = row["hedge_ratio"],
+            spread_mean = row["spread_mean"],
+            spread_std  = row["spread_std"],
+        )
+
+        if signal.get("error"):
+            logger.warning(f"[stat_arb] Skipping {row['ticker_a']}/{row['ticker_b']}: {signal['error']}")
+            continue
+
+        log_signal(signal)
+
+        if signal["signal_strength"] != "NONE":
+            active_signals.append(signal)
+
+    # Sort by absolute z-score descending
+    active_signals.sort(key=lambda x: abs(x.get("zscore", 0)), reverse=True)
+
+    logger.info(f"[stat_arb] Scan complete. {len(active_signals)} active signals.")
+    return active_signals
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AIEM TOOL  (expose to the agent's dispatch loop)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _aiem_tool_stat_arb_check(ticker: str) -> Dict[str, Any]:
+    """
+    AIEM tool: given a ticker AIEM is analyzing, find any active stat-arb
+    signals involving that ticker and return their z-scores.
+
+    Use this during signal synthesis to boost conviction when a sweep or
+    dark-pool signal on a ticker coincides with a 2σ+ spread divergence.
+
+    Args:
+        ticker: e.g. "NVDA"
+
+    Returns:
+        dict with:
+            ticker: str
+            pairs_found: int
+            signals: list of signal dicts
+            top_zscore: float (highest |z| among all pairs for this ticker)
+            conviction_boost: str — 'HIGH' | 'MODERATE' | 'NONE'
+            summary: str — human-readable summary for the agent
+    """
+    _init_tables()
+
+    # Pull all active pairs involving this ticker
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT ticker_a, ticker_b, hedge_ratio, spread_mean, spread_std
+                FROM stat_arb_pairs
+                WHERE is_active = TRUE
+                  AND (ticker_a = %s OR ticker_b = %s)
+            """, (ticker, ticker))
+            rows = cur.fetchall()
+
+    if not rows:
+        return {
+            "ticker":           ticker,
+            "pairs_found":      0,
+            "signals":          [],
+            "top_zscore":       0.0,
+            "conviction_boost": "NONE",
+            "summary":          f"No active stat-arb pairs found for {ticker}.",
+        }
+
+    signals = []
+    for row in rows:
+        sig = compute_current_zscore(
+            ticker_a    = row["ticker_a"],
+            ticker_b    = row["ticker_b"],
+            hedge_ratio = row["hedge_ratio"],
+            spread_mean = row["spread_mean"],
+            spread_std  = row["spread_std"],
+        )
+        if not sig.get("error"):
+            signals.append(sig)
+
+    signals.sort(key=lambda x: abs(x.get("zscore", 0)), reverse=True)
+
+    top_z = max((abs(s.get("zscore", 0)) for s in signals), default=0.0)
+
+    if top_z >= 2.5:
+        boost = "HIGH"
+    elif top_z >= ZSCORE_ENTRY:
+        boost = "MODERATE"
+    else:
+        boost = "NONE"
+
+    # Build readable summary for AIEM
+    if signals:
+        top = signals[0]
+        direction_str = (
+            f"LONG {top['ticker_a']} / SHORT {top['ticker_b']}"
+            if top["direction"] == "LONG_A_SHORT_B"
+            else f"SHORT {top['ticker_a']} / LONG {top['ticker_b']}"
+            if top["direction"] == "SHORT_A_LONG_B"
+            else "NEUTRAL"
+        )
+        summary = (
+            f"{ticker} stat-arb: top pair {top['ticker_a']}/{top['ticker_b']} "
+            f"z={top['zscore']:.2f} ({top['signal_strength']}) → {direction_str}. "
+            f"Conviction boost: {boost}."
+        )
+    else:
+        summary = f"{ticker}: stat-arb pairs found but no current spread data."
+
+    return {
+        "ticker":           ticker,
+        "pairs_found":      len(rows),
+        "signals":          signals,
+        "top_zscore":       round(top_z, 3),
+        "conviction_boost": boost,
+        "summary":          summary,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOOL SCHEMA  (paste into your AIEM_AGENT_TOOLS schema list)
+# ─────────────────────────────────────────────────────────────────────────────
+
+STAT_ARB_TOOL_SCHEMA = {
+    "name": "stat_arb_check",
+    "description": (
+        "Statistical arbitrage signal check for a ticker. Looks up whether any "
+        "cointegrated pair involving this ticker has a spread z-score >= 2.0σ, "
+        "indicating a mean-reversion opportunity. Use during signal synthesis to "
+        "boost conviction when sweep/dark-pool signals coincide with spread "
+        "divergence. Returns top z-score and conviction_boost level."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "ticker": {
+                "type": "string",
+                "description": "The ticker symbol to check (e.g. 'NVDA')"
+            }
+        },
+        "required": ["ticker"]
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DISPATCH ENTRY  (add this line to your agent dispatch dict)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   "stat_arb_check": _aiem_tool_stat_arb_check,
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RECENT SIGNALS QUERY  (for dashboard / daily report)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_recent_signals(days_back: int = 5) -> pd.DataFrame:
+    """Return recent stat-arb signals for review or dashboard display."""
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT ticker_a, ticker_b, signal_date,
+                       price_a, price_b, spread, zscore,
+                       direction, signal_strength, created_at
+                FROM stat_arb_signals
+                WHERE signal_date >= CURRENT_DATE - INTERVAL '%s days'
+                ORDER BY signal_date DESC, ABS(zscore) DESC
+            """, (days_back,))
+            rows = cur.fetchall()
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame([dict(r) for r in rows])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN  (quick smoke test / manual trigger)
+# ─────────────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import sys
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s [%(levelname)s] %(message)s")
+
+    # First run: initialize tables and test cointegration
+    # Subsequent runs: just score spreads (fast)
+    retest = "--retest" in sys.argv
+
+    print("=" * 60)
+    print("STAT ARB ENGINE — Daily Scan")
+    print(f"Mode: {'RETEST PAIRS' if retest else 'SCORE ONLY'}")
+    print("=" * 60)
+
+    signals = stat_arb_daily_scan(retest_pairs=retest)
+
+    if not signals:
+        print("No active signals today.")
+    else:
+        print(f"\n{'PAIR':<20} {'Z-SCORE':>8} {'STRENGTH':<10} {'DIRECTION'}")
+        print("-" * 70)
+        for s in signals:
+            pair = f"{s['ticker_a']}/{s['ticker_b']}"
+            print(f"{pair:<20} {s['zscore']:>+8.2f} {s['signal_strength']:<10} {s['direction']}")
+
+    # Test the AIEM tool interface
+    print("\n--- AIEM Tool Test: NVDA ---")
+    result = _aiem_tool_stat_arb_check("NVDA")
+    print(result["summary"])

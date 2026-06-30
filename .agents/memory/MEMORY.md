@@ -103,3 +103,4 @@
 - [Market-open tab spinners](market-open-spinners.md) — 9:36 burst fix: max_workers=4+coalesce; 9:52 morning-inflows; DB fallback on cold cache
 - [Flask early port bind](flask-early-port-bind.md) — make_server() in thread at top of file; Flask 2.x needs _check_setup_finished patched; eliminates prod restart loop
 - [Yahoo rate limiter max_wait](yf-ratelimiter-maxwait.md) — acquire(max_wait=3.0) in cffi patch; HTTP threads bail in ≤3s during morning burst; scheduler threads use unlimited acquire()
+- [Statistical Arbitrage Engine](stat-arb-engine.md) — stat_arb_engine.py; psycopg2 INTERVAL fix; lazy import; 7 wiring points; Sunday 3PM retest seeds pairs before Mon 9:10AM z-score scan

@@ -3071,6 +3071,42 @@ try:
         replace_existing=True,
     )
 
+    # ── Stat-arb daily z-score scan: 9:10 AM ET Mon-Fri ──────────────────
+    # Polygon daily bars are populated at 8:35 AM — 9:10 gives them time to settle.
+    # Pure SQL on polygon_market_daily, no Yahoo/Tradier calls.
+    def _run_stat_arb_scan():
+        try:
+            import threading as _sa_thr, stat_arb_engine as _sae
+            _sa_thr.Thread(target=_sae.stat_arb_daily_scan, daemon=True).start()
+            print("[scheduler] stat_arb daily z-score scan started")
+        except Exception as _e:
+            print(f"[scheduler] stat_arb scan error: {_e}")
+    _scheduler.add_job(
+        _run_stat_arb_scan,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=10, timezone=_ET),
+        id="stat_arb_daily_scan",
+        replace_existing=True,
+    )
+    # ── Stat-arb weekly cointegration retest: Sunday 3 PM ET ─────────────
+    # Re-runs Engle-Granger tests on all DEFAULT_PAIRS to catch pairs that
+    # have broken down or new ones that have formed. Takes ~60s total.
+    def _run_stat_arb_retest():
+        try:
+            import threading as _sar_thr, stat_arb_engine as _sae
+            _sar_thr.Thread(
+                target=lambda: _sae.stat_arb_daily_scan(retest_pairs=True),
+                daemon=True,
+            ).start()
+            print("[scheduler] stat_arb weekly cointegration retest started")
+        except Exception as _e:
+            print(f"[scheduler] stat_arb retest error: {_e}")
+    _scheduler.add_job(
+        _run_stat_arb_retest,
+        CronTrigger(day_of_week="sun", hour=15, minute=0, timezone=_ET),
+        id="stat_arb_weekly_retest",
+        replace_existing=True,
+    )
+
     # ══════════════════════════════════════════════════════════════════════
     # 24/7 AIEM RESEARCH SCHEDULE — the machine never sleeps.
     # Each session has a distinct focus question so it's not repeating itself.
@@ -25260,6 +25296,19 @@ def _aiem_tool_get_daily_candidates(limit: int = 10, min_conviction_pct: int = 6
         return {"status": "error", "error": str(e)}
 
 
+# ── Stat-arb AIEM tool wrapper ────────────────────────────────────────────────
+def _aiem_tool_stat_arb_check_wrapper(ticker: str):
+    """AIEM conviction booster: check stat-arb z-score for a ticker.
+    Returns top z-score, direction, and conviction_boost level.
+    Use during signal synthesis when AIEM has a sweep/dark-pool signal."""
+    try:
+        import stat_arb_engine as _sae
+        return _sae._aiem_tool_stat_arb_check(ticker)
+    except Exception as _e:
+        return {"ticker": ticker, "pairs_found": 0, "signals": [], "top_zscore": 0.0,
+                "conviction_boost": "NONE", "summary": f"stat_arb unavailable: {_e}"}
+
+
 def _build_aiem_tool_map():
     """Build full merged tool map — all tools available to both focused sessions and chat tab.
     Merged from _run_aiem_research_agent._tool_map (135 entries) plus focused-session-specific tools.
@@ -25423,6 +25472,8 @@ def _build_aiem_tool_map():
         # ── New tools: daily picks + live intraday data ───────────────────────
         "get_daily_candidates": _aiem_tool_get_daily_candidates,
         "get_live_snapshot":    _aiem_tool_get_live_snapshot,
+        # ── Statistical arbitrage conviction booster ──────────────────────────
+        "stat_arb_check":       _aiem_tool_stat_arb_check_wrapper,
     }
 
 
@@ -27198,6 +27249,20 @@ _AIEM_AGENT_TOOLS = [
             "weeks": {"type": "integer", "description": "Shadow window duration in weeks (default 4)"},
             "min_trades_required": {"type": "integer", "description": "Minimum trades needed before promotion eligibility (default 10)"},
         }, "required": ["signal_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "stat_arb_check",
+        "description": (
+            "Statistical arbitrage conviction booster. Given a ticker AIEM is analyzing, "
+            "checks whether any cointegrated pair involving that ticker has a spread "
+            "z-score >= 2.0σ, indicating a mean-reversion opportunity. Use during signal "
+            "synthesis when you already have a sweep or dark-pool signal — a 2σ+ divergence "
+            "on the same name is a materially higher-conviction setup. Returns top_zscore, "
+            "direction (LONG_A_SHORT_B / SHORT_A_LONG_B), and conviction_boost (HIGH/MODERATE/NONE)."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol to check (e.g. 'NVDA')"},
+        }, "required": ["ticker"]},
     }},
 ]
 
@@ -39577,6 +39642,7 @@ def _init_ai_early_movers_table():
         print(f"[ai_early_movers] table init error: {_e}")
 
 _DEFERRED_INITS.append(lambda: _init_ai_early_movers_table())
+_DEFERRED_INITS.append(lambda: __import__("stat_arb_engine")._init_tables())
 
 
 def _save_ai_early_movers_to_log(picks, trade_date):
@@ -45484,6 +45550,32 @@ def _send_accum_leaders_email() -> None:
         print(f"[accum_leaders] email sent={_ok} → {_n_conf} confirmed + {len(watch_list)} watch")
     except Exception as _e:
         print(f"[accum_leaders] email error: {_e}")
+
+
+@app.route("/stock-api/stat-arb/signals", methods=["GET"])
+def stat_arb_signals_endpoint():
+    """Return recent stat-arb spread signals. GET ?days=5 (default)."""
+    import math as _sam
+    days_back = min(int(request.args.get("days", 5)), 30)
+    try:
+        import stat_arb_engine as _sae
+        df = _sae.get_recent_signals(days_back=days_back)
+        if df.empty:
+            return jsonify({"signals": [], "count": 0, "days_back": days_back})
+        rows = []
+        for r in df.to_dict("records"):
+            clean = {}
+            for k, v in r.items():
+                if hasattr(v, "isoformat"):
+                    v = v.isoformat()
+                elif isinstance(v, float) and (_sam.isnan(v) or _sam.isinf(v)):
+                    v = None
+                clean[k] = v
+            rows.append(clean)
+        return jsonify({"signals": rows, "count": len(rows), "days_back": days_back})
+    except Exception as _e:
+        print(f"[stat_arb] signals endpoint error: {_e}")
+        return jsonify({"signals": [], "count": 0, "days_back": days_back, "error": str(_e)})
 
 
 @app.route("/stock-api/grinder-scan", methods=["GET"])
