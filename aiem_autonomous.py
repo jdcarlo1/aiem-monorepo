@@ -7,11 +7,14 @@
 import os
 import time
 import logging
+import json        as _json_h
+import threading   as _health_thr
 import psycopg2
 import psycopg2.pool
 import requests
-from datetime  import datetime, date, timedelta
-from zoneinfo  import ZoneInfo
+from datetime        import datetime, date, timedelta
+from zoneinfo        import ZoneInfo
+from http.server     import HTTPServer, BaseHTTPRequestHandler
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 logging.basicConfig(
@@ -45,11 +48,13 @@ TWILIO_FROM     = (os.environ.get('TWILIO_FROM_NUMBER', '')
                    or os.environ.get('TWILIO_PHONE_NUMBER', ''))
 TWILIO_TO       = os.environ.get('TWILIO_TO_NUMBER', '')
 DATABASE_URL    = os.environ.get('DATABASE_URL', '')
+_HEALTH_PORT    = int(os.environ.get('AIEM_HEALTH_PORT', '5051'))
 
 # ─────────────────────────────────────────────────────────────
 # DATABASE POOL
 # ─────────────────────────────────────────────────────────────
-_AIEM_POOL = None
+_AIEM_POOL     = None
+_scheduler_ref = None   # set in main() so health endpoint can read .running
 
 def _init_pool():
     global _AIEM_POOL
@@ -58,6 +63,23 @@ def _init_pool():
             minconn=1, maxconn=5, dsn=DATABASE_URL
         )
         log.info("DB pool initialized (min=1 max=5)")
+        # Ensure job_log table exists
+        try:
+            _c = _AIEM_POOL.getconn()
+            _cur = _c.cursor()
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS job_log (
+                    id       BIGSERIAL    PRIMARY KEY,
+                    job_name TEXT         NOT NULL,
+                    ran_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+                )
+            """)
+            _c.commit()
+            _cur.close()
+            _AIEM_POOL.putconn(_c)
+            log.info("job_log table ready")
+        except Exception as _jl_e:
+            log.warning(f"job_log table init: {_jl_e}")
 
 def _get_conn():
     global _AIEM_POOL
@@ -69,6 +91,101 @@ def _put_conn(conn):
     global _AIEM_POOL
     if _AIEM_POOL and conn:
         _AIEM_POOL.putconn(conn)
+
+
+def _log_job(name: str):
+    """Insert one row into job_log after each scheduler job completes."""
+    conn = None
+    try:
+        conn = _get_conn()
+        cur  = conn.cursor()
+        cur.execute("INSERT INTO job_log (job_name) VALUES (%s)", (name,))
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        log.warning(f"_log_job({name}): {e}")
+    finally:
+        if conn:
+            _put_conn(conn)
+
+
+def _logged_job(fn):
+    """Decorator: call _log_job after every scheduler job run, success or not."""
+    def _w(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            try:
+                _log_job(fn.__name__)
+            except Exception:
+                pass
+    _w.__name__ = fn.__name__
+    return _w
+
+
+# ─────────────────────────────────────────────────────────────
+# HEALTH SERVER — lightweight stdlib HTTPServer on _HEALTH_PORT
+# GET /api/health → {"status","scheduler","db","jobs_fired_today","last_job"}
+# ─────────────────────────────────────────────────────────────
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != '/api/health':
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        health = {
+            "status":          "ok",
+            "timestamp":       datetime.utcnow().isoformat(),
+            "scheduler":       "unknown",
+            "db":              "unknown",
+            "jobs_fired_today": None,
+            "last_job":        None,
+        }
+
+        # Scheduler state
+        try:
+            health["scheduler"] = "running" if (_scheduler_ref and _scheduler_ref.running) else "stopped"
+        except Exception:
+            health["scheduler"] = "error"
+
+        # DB check + job_log query
+        try:
+            conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+            cur  = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*), MAX(ran_at)
+                FROM job_log
+                WHERE ran_at::date = CURRENT_DATE
+            """)
+            row = cur.fetchone()
+            if row:
+                health["jobs_fired_today"] = row[0]
+                health["last_job"] = row[1].isoformat() if row[1] else None
+            cur.close()
+            conn.close()
+            health["db"] = "connected"
+        except Exception as e:
+            health["db"]     = f"error: {e}"
+            health["status"] = "degraded"
+
+        body = _json_h.dumps(health).encode()
+        self.send_response(200)
+        self.send_header("Content-Type",   "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        pass  # suppress per-request noise from stdlib logging
+
+
+def _start_health_server():
+    srv = HTTPServer(("0.0.0.0", _HEALTH_PORT), _HealthHandler)
+    t = _health_thr.Thread(target=srv.serve_forever, daemon=True, name="aiem-health")
+    t.start()
+    log.info(f"Health endpoint: http://0.0.0.0:{_HEALTH_PORT}/api/health")
+
 
 # ─────────────────────────────────────────────────────────────
 # SMS — standalone (no dependency on main.py _send_sms)
@@ -969,32 +1086,32 @@ def main():
     )
 
     # Premarket scan: every 15 min 7:00–9:30 AM
-    scheduler.add_job(aiem_premarket_scan,       'cron',
+    scheduler.add_job(_logged_job(aiem_premarket_scan),       'cron',
                       hour='7-9', minute='0,15,30,45',
                       id='aiem_premarket', replace_existing=True)
 
     # Open watcher: every 5 min 9:30–10:30 AM
-    scheduler.add_job(aiem_open_watcher,         'cron',
+    scheduler.add_job(_logged_job(aiem_open_watcher),         'cron',
                       hour='9,10', minute='*/5',
                       id='aiem_open_watch', replace_existing=True)
 
     # Missed morning safety net: 9:45 AM
-    scheduler.add_job(aiem_missed_morning_check, 'cron',
+    scheduler.add_job(_logged_job(aiem_missed_morning_check), 'cron',
                       hour=9, minute=45,
                       id='aiem_morning_check', replace_existing=True)
 
     # Grade T1 outcomes: 4:30 PM
-    scheduler.add_job(aiem_grade_outcomes,       'cron',
+    scheduler.add_job(_logged_job(aiem_grade_outcomes),       'cron',
                       hour=16, minute=30,
                       id='aiem_grade', replace_existing=True)
 
     # Missed runner analysis: 4:45 PM
-    scheduler.add_job(aiem_missed_runner_analysis, 'cron',
+    scheduler.add_job(_logged_job(aiem_missed_runner_analysis), 'cron',
                       hour=16, minute=45,
                       id='aiem_missed', replace_existing=True)
 
     # Nightly learn + weight update: 6:00 PM
-    scheduler.add_job(aiem_nightly_learn,        'cron',
+    scheduler.add_job(_logged_job(aiem_nightly_learn),        'cron',
                       hour=18, minute=0,
                       id='aiem_learn', replace_existing=True)
 
@@ -1005,6 +1122,11 @@ def main():
     log.info("  4:30 PM       grade_outcomes")
     log.info("  4:45 PM       missed_runner_analysis")
     log.info("  6:00 PM       nightly_learn")
+
+    global _scheduler_ref
+    _scheduler_ref = scheduler
+    _start_health_server()
+
     log.info("AIEM is live. Watching markets autonomously.")
 
     try:
