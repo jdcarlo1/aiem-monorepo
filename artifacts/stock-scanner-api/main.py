@@ -5359,14 +5359,36 @@ def _send_eod_accum_email() -> None:
 
         def _get_earnings_flag(ticker):
             try:
-                info = _yf_earn.Ticker(ticker).info
-                ts = info.get("earningsTimestamp") or info.get("earningsDate")
-                if not ts:
+                import datetime as _dtt, urllib.request as _ur_e1, json as _js_e1, os as _os_e1
+                _earn_dt = None
+                # ── Primary: Polygon events (no Yahoo rate-limit risk) ────────
+                _pg_key_e1 = _os_e1.environ.get("POLYGON_API_KEY", "")
+                if _pg_key_e1:
+                    try:
+                        _ev_r = _ur_e1.urlopen(
+                            f"https://api.polygon.io/vX/reference/tickers/{ticker}/events"
+                            f"?types=earnings&apiKey={_pg_key_e1}", timeout=4)
+                        for _ev in (_js_e1.loads(_ev_r.read()).get("results", {}).get("events") or []):
+                            if _ev.get("type") == "earnings" and _ev.get("date"):
+                                _c = _dtt.datetime.strptime(_ev["date"], "%Y-%m-%d").date()
+                                if _c >= _et_today():
+                                    _earn_dt = _c
+                                    break
+                    except Exception:
+                        pass
+                # ── Fallback: Yahoo .info (breaker-gated) ────────────────────
+                if _earn_dt is None and not _yf_breaker_open():
+                    try:
+                        info = _yf_earn.Ticker(ticker).info
+                        ts = info.get("earningsTimestamp") or info.get("earningsDate")
+                        if ts:
+                            _earn_dt = _dtt.datetime.fromtimestamp(ts).date()
+                    except Exception:
+                        pass
+                if _earn_dt is None:
                     return ticker, None
-                import datetime as _dtt
-                ed = _dtt.datetime.fromtimestamp(ts).date()
                 today = _et_today()
-                days = (ed - today).days
+                days = (_earn_dt - today).days
                 if days == 0:
                     return ticker, "TODAY"
                 elif days == 1:
@@ -43630,12 +43652,29 @@ def insider_radar():
             )
     
             def _earn_90d(ticker):
-                if _yf_breaker_open():
-                    return None
-                import datetime as _d2
-                import yfinance as _yf2
+                import datetime as _d2, urllib.request as _ur_e2, json as _js_e2, os as _os_e2
                 today  = _et_today()
                 cutoff = today + _d2.timedelta(days=90)
+                # ── Primary: Polygon events endpoint ─────────────────────────
+                _pg_key_e2 = _os_e2.environ.get("POLYGON_API_KEY", "")
+                if _pg_key_e2:
+                    try:
+                        _ev2_r = _ur_e2.urlopen(
+                            f"https://api.polygon.io/vX/reference/tickers/{ticker}/events"
+                            f"?types=earnings&apiKey={_pg_key_e2}", timeout=4)
+                        for _ev2 in (_js_e2.loads(_ev2_r.read()).get("results", {}).get("events") or []):
+                            if _ev2.get("type") == "earnings" and _ev2.get("date"):
+                                _ed2 = _d2.datetime.strptime(_ev2["date"], "%Y-%m-%d").date()
+                                if today <= _ed2 <= cutoff:
+                                    return {"ticker": ticker,
+                                            "earnings_date": _ed2.isoformat(),
+                                            "days_until":    (_ed2 - today).days}
+                    except Exception:
+                        pass
+                # ── Fallback: Yahoo .calendar (breaker-gated) ─────────────────
+                if _yf_breaker_open():
+                    return None
+                import yfinance as _yf2
                 try:
                     tk  = _yf2.Ticker(ticker)
                     cal = tk.calendar
