@@ -107,20 +107,30 @@ _WS_AVAILABLE        = False
 _INTEL_AVAILABLE     = False
 
 try:
-    from staleness_filter import evaluate_signal_with_data as _eval_staleness
-    _STALENESS_AVAILABLE = True
-    logger.info("✓ staleness_filter loaded")
-except Exception as _e:
-    logger.warning("staleness_filter not loaded (%s) — skipping layer A", _e)
-
-try:
-    from aiem_verification_and_trading_brain import (
+    from aiem_master_part1 import (
+        evaluate_signal_with_data          as _eval_staleness,
         apply_wall_street_pattern_with_data as _apply_ws,
     )
-    _WS_AVAILABLE = True
-    logger.info("✓ aiem_verification_and_trading_brain loaded")
+    _STALENESS_AVAILABLE = True
+    _WS_AVAILABLE        = True
+    logger.info("✓ aiem_master_part1 loaded (layers A + B)")
 except Exception as _e:
-    logger.warning("aiem_verification_and_trading_brain not loaded (%s) — skipping layer B", _e)
+    logger.warning("aiem_master_part1 not loaded (%s) — falling back to legacy modules", _e)
+    # Legacy fallback: try original split files
+    try:
+        from staleness_filter import evaluate_signal_with_data as _eval_staleness
+        _STALENESS_AVAILABLE = True
+        logger.info("✓ staleness_filter loaded (legacy)")
+    except Exception as _e2:
+        logger.warning("staleness_filter not loaded (%s) — skipping layer A", _e2)
+    try:
+        from aiem_verification_and_trading_brain import (
+            apply_wall_street_pattern_with_data as _apply_ws,
+        )
+        _WS_AVAILABLE = True
+        logger.info("✓ aiem_verification_and_trading_brain loaded (legacy)")
+    except Exception as _e3:
+        logger.warning("aiem_verification_and_trading_brain not loaded (%s) — skipping layer B", _e3)
 
 try:
     from aiem_intelligence_upgrade import (

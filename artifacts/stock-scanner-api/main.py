@@ -24657,8 +24657,11 @@ def _run_behavioral_comparison_scan():
                 templates.append({
                     'ticker': r[0], 'move_date': r[1], 'move_pct': float(r[2] or 0),
                     'days_before': r[3], 'vec': vec,
-                    'features': dict(avg_gap=r[4], avg_rvol=r[5], avg_cs=r[6],
-                                     cs_accel=r[7], vol_accel_5d=r[8], price_mom_5d=r[10])
+                    'features': dict(
+                        avg_gap=float(r[4] or 0), avg_rvol=float(r[5] or 1),
+                        avg_cs=float(r[6] or 0.5), cs_accel=float(r[7] or 0),
+                        vol_accel_5d=float(r[8] or 0), price_mom_5d=float(r[10] or 0),
+                    )
                 })
 
             if not templates:
@@ -43890,9 +43893,8 @@ def standout_track():
             return obj
         _payload = {"picks": _rows, "summary": _summary,
                     "as_of": _dt_st.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")}
-        try:
-            _body = _json_st.dumps(_scrub(_payload), allow_nan=False)
-            return Response(_body, mimetype="application/json")
+        _body = _json_st.dumps(_scrub(_payload), allow_nan=False)
+        return Response(_body, mimetype="application/json")
 
     except Exception as _e_st:
         print(f"[standout_track] error: {_e_st}")
