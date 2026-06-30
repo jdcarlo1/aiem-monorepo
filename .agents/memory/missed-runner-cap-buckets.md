@@ -13,12 +13,23 @@ directly; `aiem_eod_report()` calls both, builds `_aiem_build_narrative(grade, m
 ("what we learned / how we'll improve" paragraph synthesized from win-rate + top missed reason),
 and sends ONE combined Telegram message + supplementary chart/bucket-detail messages.
 
-The cap-bucket logic itself is unchanged: missed 20%+ movers are grouped into 4 market-cap tiers
-(micro <$300M, small $300M-$2B, mid $2B-$10B, large >$10B), top 20 per tier, with a per-ticker
-"why missed" reason chosen by priority: behavioral-fingerprint match (sim>=0.92 vs
-`pre_move_templates`) > opening-gap proxy (>=5%) > news catalyst > volume surge (>=3x) > "no clear
-precursor". Delivery is Telegram-only for this process — `aiem_autonomous.py` has no email channel;
-that only exists in `main.py`'s web app.
+Missed 20%+ movers are grouped into 4 market-cap tiers (micro <$300M, small $300M-$2B, mid
+$2B-$10B, large >$10B), **top 10 per tier as of 2026-06-30** (was top 20 — narrowed for genuine
+deep-dive review rather than a long flat list), with a per-ticker "why missed" reason chosen by
+priority: behavioral-fingerprint match (sim>=0.92 vs `pre_move_templates`) > opening-gap proxy
+(>=5%) > news catalyst > volume surge (>=3x) > pre-move RSI/volume setup > "no clear precursor".
+Delivery is Telegram-only for this process — `aiem_autonomous.py` has no email channel; that only
+exists in `main.py`'s web app.
+
+**Predictability check (added 2026-06-30):** same-day pattern tags above only explain what was
+visible the day it happened. `_aiem_predictability_check(prior_bars, runner)` (pure function, pairs
+with `_calc_rsi`) instead looks ONLY at bars strictly before today — 30-day OHLCV window — for: a
+volume build-up (>=2x a 10-day baseline) the day before, the stock already moving >=5% the prior
+day, or RSI(14) at an oversold (<=30) or overbought (>=70) extreme. Verdict is `predictable` (has a
+precursor — AIEM arguably should have caught it) vs `no_precursor` (a true surprise, no warning in
+the daily history). Counts are tallied per EOD run (`predictable_n`/`surprise_n`) and surfaced in
+both the Telegram report and the learning narrative — first live run found all 4 missed runners
+were `predictable` (e.g. 27x volume buildup, RSI 94 extreme, already-in-motion prior day).
 
 `artifacts/stock-scanner-api/behavioral_fingerprint.py` is a new pure-function module
 (`compute_fingerprint`, `cosine_similarity`, `best_template_match`) extracted so both `main.py` and

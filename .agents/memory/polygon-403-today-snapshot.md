@@ -26,9 +26,10 @@ pattern already used in `artifacts/stock-scanner-api/main.py`'s `_fetch_market_m
 assume a 403 means "transient/down" — for these two endpoints it is a permanent plan gate that
 will recur every single day until the plan is upgraded or the call is removed.
 
-**Open item (not yet fixed):** `_aiem_get_snapshot` is still called unguarded inside
-`_aiem_grade_predictions` / `_grade_t3_t5` for T1 grading price lookups and will 403 every time
-it's invoked on a still-open prediction. It silently logs `Polygon error ... 403` and the ticker
-is skipped (graded=0 for that ticker), so grading quietly under-counts rather than crashing — but
-it means daily P&L grading may be missing rows. Needs the same Yahoo/Tradier-quote fallback as the
-missed-runner job; out of scope for the 4:30 PM retime/merge task that discovered it.
+**Fixed 2026-06-30:** added `_aiem_get_quote_fallback(ticker)` (Yahoo `v8/finance/chart` endpoint,
+returns the same `{day:{o,c}}` shape as `_aiem_get_snapshot`) and wired it as a fallback inside both
+`_aiem_grade_predictions` and `_grade_t3_t5` whenever the Polygon snapshot 403s/returns no price.
+Confirmed live: all 5 of a day's predictions that were previously stuck ungraded (misleadingly
+logged as "nothing to grade today") graded correctly via the fallback on first run. Apply the same
+pattern to any other unguarded `_aiem_get_snapshot()` call site before assuming Polygon will ever
+return live same-day data on this plan.
