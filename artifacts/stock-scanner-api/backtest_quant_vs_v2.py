@@ -213,8 +213,13 @@ def build_cache():
 # ── Regime filter ─────────────────────────────────────────────────────────────
 
 def iwm_stats(iwm_c: pd.Series, sig_date: date):
-    """Return (day%, 5d%, 20d%) for IWM as of sig_date."""
-    sub = iwm_c[iwm_c.index.date <= sig_date]
+    """Return (day%, 5d%, 20d%) for IWM using only T-1 data.
+
+    Signals form at 9:30-9:45 AM on sig_date; same-day close is not
+    yet known.  We use strictly-less-than to cap at T-1 close, which
+    is always available before market open.
+    """
+    sub = iwm_c[iwm_c.index.date < sig_date]
     if len(sub) < 2:
         return 0.0, 0.0, 0.0
     d1  = (sub.iloc[-1] / sub.iloc[-2] - 1) * 100
