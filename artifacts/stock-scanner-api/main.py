@@ -12512,19 +12512,21 @@ def _get_float_shares(ticker: str) -> int:
                 return shares
     except Exception:
         pass
-    # Fallback: Yahoo (kept for Polygon key missing or 404)
-    try:
-        import yfinance as yf
-        tk     = yf.Ticker(ticker)
-        shares = int(getattr(tk.fast_info, "shares", 0) or 0)
-        if not shares:
-            info   = tk.info
-            shares = int(info.get("floatShares") or info.get("sharesOutstanding") or 0)
-        if shares > 0:
-            _float_cache[ticker] = (shares, _dtnow.now())
-        return shares
-    except Exception:
-        return 0
+    # Fallback: Yahoo (Polygon key missing or 404) — skip when breaker tripped
+    if not _yf_breaker_open():
+        try:
+            import yfinance as yf
+            tk     = yf.Ticker(ticker)
+            shares = int(getattr(tk.fast_info, "shares", 0) or 0)
+            if not shares:
+                info   = tk.info
+                shares = int(info.get("floatShares") or info.get("sharesOutstanding") or 0)
+            if shares > 0:
+                _float_cache[ticker] = (shares, _dtnow.now())
+            return shares
+        except Exception:
+            pass
+    return 0
 
 
 def _init_gamma_pressure_table() -> None:
@@ -42784,12 +42786,50 @@ def eod_accumulation():
 
             def _score_eod_ticker(ticker):
                 try:
-                    tk = _yf_ea.Ticker(ticker)
-                    fi = tk.fast_info
-                    prev_close = float(getattr(fi, "previous_close", 0) or 0)
-                    avg_vol    = float(getattr(fi, "three_month_average_volume", 1) or 1)
-                    mkt_cap    = float(getattr(fi, "market_cap", 0) or 0)
-                    if prev_close <= 0 or avg_vol <= 0: return None
+                    import urllib.request as _ur_ea, json as _js_ea, os as _os_ea
+                    import psycopg2 as _ps_ea
+                    # ── prev_close: Polygon prev-day agg (no Yahoo) ──────────────
+                    prev_close = 0.0
+                    _pg_key_ea = _os_ea.environ.get("POLYGON_API_KEY", "")
+                    if _pg_key_ea:
+                        try:
+                            _pg_r = _ur_ea.urlopen(
+                                f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
+                                f"?adjusted=true&apiKey={_pg_key_ea}", timeout=5)
+                            prev_close = float((_js_ea.loads(_pg_r.read()).get("results") or [{}])[0].get("c") or 0)
+                        except Exception:
+                            pass
+                    if prev_close <= 0:
+                        try:
+                            _h_pc = _td_history(ticker, "1d")
+                            if _h_pc is not None and not _h_pc.empty:
+                                prev_close = float(_h_pc["Close"].iloc[-1])
+                        except Exception:
+                            pass
+                    if prev_close <= 0: return None
+                    # ── avg_vol: 90-day mean from polygon_market_daily (no Yahoo) ─
+                    avg_vol = 0.0
+                    try:
+                        with _ps_ea.connect(_os_ea.environ["DATABASE_URL"], connect_timeout=3) as _c_ea, \
+                             _c_ea.cursor() as _cur_ea:
+                            _cur_ea.execute(
+                                "SELECT AVG(volume) FROM polygon_market_daily "
+                                "WHERE ticker=%s AND scan_date >= CURRENT_DATE - 90",
+                                (ticker,))
+                            _rv = _cur_ea.fetchone()
+                            if _rv and _rv[0]:
+                                avg_vol = float(_rv[0])
+                    except Exception:
+                        pass
+                    if avg_vol <= 0: return None
+                    # ── mkt_cap: shares × prev_close via Polygon reference ────────
+                    mkt_cap = 0.0
+                    try:
+                        _shr = _get_float_shares(ticker)
+                        if _shr > 0:
+                            mkt_cap = _shr * prev_close
+                    except Exception:
+                        pass
 
                     hist = _td_intraday(ticker, "1min")
                     if hist is None or hist.empty or len(hist) < 10: return None
