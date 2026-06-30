@@ -6971,21 +6971,26 @@ def _run_nano_morning_ranking():
                 try:
                     # Float: Polygon primary (fast, no rate-limit) via shared helper
                     r["_q_float"] = _get_float_shares(r["ticker"]) or None
-                    # Short interest: no Polygon Starter alternative - Yahoo only path
-                    try:
-                        if not _yahoo_breaker.allow():
+                    # Short interest: Finviz first → Yahoo fallback → None
+                    _fv_fi = _finviz_short_float(r["ticker"])
+                    if _fv_fi:
+                        r["_q_short_pct"]   = _fv_fi["si_pct"] / 100.0  # fraction to match Yahoo
+                        r["_q_short_ratio"] = _fv_fi["dtc"]
+                    else:
+                        try:
+                            if not _yahoo_breaker.allow():
+                                r["_q_short_pct"] = None; r["_q_short_ratio"] = None
+                            else:
+                                _si_info = _yf.Ticker(r["ticker"]).info
+                                r["_q_short_pct"]   = (_si_info.get("shortPercentOfFloat") or
+                                                        _si_info.get("sharesPercentSharesOut"))
+                                r["_q_short_ratio"] = _si_info.get("shortRatio")
+                                _yahoo_breaker.record_success()
+                        except Exception as _e_si:
+                            _err_si = str(_e_si).lower()
+                            if any(x in _err_si for x in ["401", "crumb", "429", "unauthorized", "rate"]):
+                                _yahoo_breaker.record_failure()
                             r["_q_short_pct"] = None; r["_q_short_ratio"] = None
-                        else:
-                            _si_info = _yf.Ticker(r["ticker"]).info
-                            r["_q_short_pct"]   = (_si_info.get("shortPercentOfFloat") or
-                                                    _si_info.get("sharesPercentSharesOut"))
-                            r["_q_short_ratio"] = _si_info.get("shortRatio")
-                            _yahoo_breaker.record_success()
-                    except Exception as _e_si:
-                        _err_si = str(_e_si).lower()
-                        if any(x in _err_si for x in ["401", "crumb", "429", "unauthorized", "rate"]):
-                            _yahoo_breaker.record_failure()
-                        r["_q_short_pct"] = None; r["_q_short_ratio"] = None
                 except Exception:
                     r["_q_float"] = None; r["_q_short_pct"] = None; r["_q_short_ratio"] = None
                 return r
@@ -33345,16 +33350,30 @@ def squeeze_detector():
 
     def _get_squeeze_row(ticker):
         try:
-            tkr  = yf.Ticker(ticker)
-            info = tkr.info
-            sfp  = _f(info.get("shortPercentOfFloat", 0)) * 100
+            # ── Short interest: Finviz first → Yahoo fallback → 0 ────────────
+            sfp, sr = 0.0, 0.0
+            _fv_sq = _finviz_short_float(ticker)
+            if _fv_sq:
+                sfp = float(_fv_sq["si_pct"])   # already in % (e.g. 15.1)
+                sr  = float(_fv_sq["dtc"])
+            elif not _yf_breaker_open():
+                try:
+                    _info_sq = yf.Ticker(ticker).info
+                    sfp = _f(_info_sq.get("shortPercentOfFloat", 0)) * 100
+                    sr  = _f(_info_sq.get("shortRatio", 0))
+                except Exception:
+                    pass
             if sfp < 5:
                 return None
-            sr   = _f(info.get("shortRatio", 0))
+            # ── Price: Tradier fast_info ──────────────────────────────────────
+            price = 0.0
+            try:
+                price = _f(getattr(_TdTicker(ticker).fast_info, "last_price", 0) or 0)
+            except Exception:
+                pass
             opts = fetch_options_data(ticker)
             cpr  = _f(opts.get("call_put_ratio", 0)) if opts else 0
             pk   = _f(opts.get("top_prem_value", 0)) if opts else 0
-            price = _f(getattr(tkr.fast_info, "last_price", 0) or 0)
             short_score   = min(sfp * 2, 50)
             flow_score    = min(cpr * 10, 50)
             squeeze_score = round(short_score + flow_score, 1)
@@ -41217,26 +41236,39 @@ def squeeze_setup():
 
             def _scan_sq(ticker):
                 try:
-                    if not _yahoo_breaker.allow():
-                        return None
-                    tkr  = yf.Ticker(ticker)
-                    fi   = tkr.fast_info
-                    info = tkr.info
+                    # ── Short interest: Finviz first → Yahoo fallback ─────────
+                    _fv_f3 = _finviz_short_float(ticker)
+                    if not _fv_f3 and not _yahoo_breaker.allow():
+                        return None  # no si data + Yahoo throttled
 
-                    price = float(getattr(fi, "last_price", 0) or 0)
+                    if _yahoo_breaker.allow():
+                        tkr  = yf.Ticker(ticker)
+                        fi   = tkr.fast_info
+                        info = tkr.info
+                        price    = float(getattr(fi, "last_price", 0) or 0)
+                        sfp      = float(_fv_f3["si_pct"]) if _fv_f3 else float(info.get("shortPercentOfFloat", 0) or 0) * 100
+                        dtc      = float(_fv_f3["dtc"])    if _fv_f3 else float(info.get("shortRatio",          0) or 0)
+                        float_sh = float(info.get("floatShares",         0) or 0)
+                        mkt_cap  = float(info.get("marketCap",           0) or 0) or float(getattr(fi, "market_cap", 0) or 0)
+                        avg_vol  = float(getattr(fi, "three_month_average_volume", 1) or 1)
+                        today_vol = float(getattr(fi, "last_volume", 0) or 0)
+                        _yahoo_breaker.record_success()
+                    else:
+                        # Finviz has si/dtc; Yahoo throttled — Tradier/Polygon for rest
+                        sfp = float(_fv_f3["si_pct"])
+                        dtc = float(_fv_f3["dtc"])
+                        price = 0.0
+                        try: price = float(getattr(_TdTicker(ticker).fast_info, "last_price", 0) or 0)
+                        except Exception: pass
+                        float_sh = float(_get_float_shares(ticker) or 0)
+                        mkt_cap  = float_sh * price if float_sh and price else 0.0
+                        avg_vol, today_vol = 1.0, 0.0
+
                     if price <= 0:
                         return None
 
-                    sfp      = float(info.get("shortPercentOfFloat", 0) or 0) * 100
-                    dtc      = float(info.get("shortRatio",          0) or 0)
-                    float_sh = float(info.get("floatShares",         0) or 0)
-                    mkt_cap  = float(info.get("marketCap",           0) or 0) or float(getattr(fi, "market_cap", 0) or 0)
                     mkt_cap_b = round(mkt_cap / 1e9, 2) if mkt_cap else None
-
-                    avg_vol   = float(getattr(fi, "three_month_average_volume", 1) or 1)
-                    today_vol = float(getattr(fi, "last_volume", 0) or 0)
                     rel_vol   = round(today_vol / avg_vol, 2) if avg_vol > 0 else 0
-
                     vol_pct_float = round(today_vol / float_sh * 100, 2) if float_sh > 0 else None
                     float_m       = round(float_sh / 1e6, 2) if float_sh > 0 else None
 
@@ -41251,7 +41283,6 @@ def squeeze_setup():
                     lf_comp = min((vol_pct_float or 0) * rel_vol * 5, 200) if is_low_float else 0
                     score   = round(sq_comp + lf_comp, 1)
 
-                    _yahoo_breaker.record_success()
                     return {
                         "ticker":          ticker,
                         "price":           round(price, 2),
@@ -42330,10 +42361,19 @@ def _get_short_data(ticker):
     / cross-scanner card enrichment (short float + AVWAP badges).
     """
     try:
-        _tk_sd  = yf.Ticker(ticker)
-        _fi_sd  = _tk_sd.info
-        _sf_sd  = _fi_sd.get("shortPercentOfFloat")
-        _dtc_sd = _fi_sd.get("shortRatio")
+        # ── Short interest: Finviz first → Yahoo fallback → None ─────────────
+        _sf_sd, _dtc_sd = None, None
+        _fv_sd = _finviz_short_float(ticker)
+        if _fv_sd:
+            _sf_sd  = _fv_sd["si_pct"] / 100.0  # fraction to match Yahoo format
+            _dtc_sd = _fv_sd["dtc"]
+        elif not _yf_breaker_open():
+            try:
+                _fi_sd  = yf.Ticker(ticker).info
+                _sf_sd  = _fi_sd.get("shortPercentOfFloat")
+                _dtc_sd = _fi_sd.get("shortRatio")
+            except Exception:
+                pass
 
         # 60 days of daily OHLCV - enough for MACD(26), OBV(10), BB(20), SMA(20), RSI(14)
         _h = _td_history(ticker, days=60)
