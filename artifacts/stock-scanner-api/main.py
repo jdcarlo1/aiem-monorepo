@@ -10006,10 +10006,31 @@ def _owner_claim_slot(kind: str, slot: str) -> bool:
         return False
 
 
+_TG_KIND_LABEL = {
+    "market_brief":      "📊 Morning market brief",
+    "polygon_rvol":      "🔍 Polygon RVOL scan (11K stocks)",
+    "accum_leaders":     "📈 Accumulation leaders",
+    "smp_morning":       "💡 Smart-money morning picks",
+    "nano_watch":        "⚡ Nano-cap WATCH list",
+    "nano_buy":          "🚀 Nano-cap BUY signals",
+    "sc_watch":          "⚡ Small-cap WATCH list",
+    "sc_buy":            "🚀 Small-cap BUY signals",
+    "unusual_calls":     "🎯 Unusual calls flow",
+    "high_conviction":   "🎯 High-conviction picks",
+    "microcap":          "🔬 Micro-cap calls",
+    "multiday_intraday": "📅 Multi-day intraday entry",
+    "multiday_watch":    "📅 Multi-day EOD watch",
+    "multiday_confirm":  "📅 Multi-day Day-2 confirm",
+    "smart_money":       "🧠 Smart-money EOD",
+    "accumulation":      "📦 Accumulation digest",
+    "aiem_digest":       "🤖 AIEM evening digest",
+}
+
 def _owner_send_now(kind: str) -> None:
     """Send ONE owner email of the given kind right now. Micro-cap and
     high-conviction are cheap DB reads; smart-money runs the L1-L8 engine, so it is
     serialized through the conviction scan lock to avoid yfinance rate limits."""
+    _tg_send(f"{_TG_KIND_LABEL.get(kind, f'📧 {kind}')} sending now...")
     if kind == "microcap":
         _send_microcap_calls_email(owner_only=True)
     elif kind == "high_conviction":
@@ -10309,8 +10330,34 @@ def _poll_trade_emails() -> None:
 
 _OWNER_PHONE = "+14013185787"
 
+
+def _tg_send(text: str) -> bool:
+    """Send a Telegram message to the owner chat. Returns True on success.
+    Reads TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID from env; strips whitespace from
+    the token automatically (guards against mobile-keyboard space corruption).
+    Silent no-op when credentials are not configured."""
+    import urllib.request as _ulr, json as _jmod
+    token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN",  "").split())
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return False
+    try:
+        payload = _jmod.dumps({"chat_id": chat_id, "text": text}).encode()
+        req = _ulr.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload, headers={"Content-Type": "application/json"}
+        )
+        with _ulr.urlopen(req, timeout=8) as r:
+            return _jmod.loads(r.read()).get("ok", False)
+    except Exception as _e:
+        print(f"[telegram] send error: {_e}")
+        return False
+
+
 def _send_sms(message: str, to: str = None) -> None:
-    """Send SMS to owner via Twilio (primary) or T-Mobile gateway (fallback)."""
+    """Send SMS to owner via Twilio (primary) or T-Mobile gateway (fallback).
+    Always mirrors to Telegram when configured."""
+    _tg_send(f"📱 {message}")
     to = to or _OWNER_PHONE
     sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
     token = os.environ.get("TWILIO_AUTH_TOKEN", "")
@@ -14070,6 +14117,47 @@ def far_otm_sweeps_endpoint():
         "total":  len(rows),
         "filter": "otm_pct > 40% AND vol_oi > 5× AND prem > $200K",
         "note":   "These are directional conviction bets, not hedges. Probability of innocence <3%.",
+    })
+
+
+@app.route("/stock-api/admin/set-telegram-token", methods=["GET"])
+def admin_set_telegram_token():
+    """Browser-friendly one-time endpoint to save Telegram credentials without
+    typing them on mobile. Navigate to this URL with ?key=ADMIN_TOKEN&token=...
+    The endpoint validates the token against Telegram, saves to env, and fires
+    a test message. Use from the same browser where getMe already works."""
+    key = request.args.get("key", "")
+    if not key or key != os.getenv("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    raw_token = request.args.get("token", "").strip()
+    chat_id   = request.args.get("chat_id", os.environ.get("TELEGRAM_CHAT_ID", "")).strip()
+    if not raw_token:
+        return jsonify({"error": "missing token param"}), 400
+    token = "".join(raw_token.split())  # strip any stray spaces
+    # Validate against Telegram
+    import urllib.request as _ulr2, json as _jmod2
+    try:
+        with _ulr2.urlopen(f"https://api.telegram.org/bot{token}/getMe", timeout=8) as r:
+            me = _jmod2.loads(r.read()).get("result", {})
+    except Exception as e:
+        return jsonify({"error": f"Telegram rejected token: {e}"}), 400
+    # Persist for this process lifetime
+    os.environ["TELEGRAM_BOT_TOKEN"] = token
+    if chat_id:
+        os.environ["TELEGRAM_CHAT_ID"] = chat_id
+    # Fire test message
+    sent = _tg_send(
+        f"✅ AIEM Stock Scanner connected!\n\n"
+        f"Bot: @{me.get('username')}\n"
+        f"All owner alerts routing here — morning brief, picks, RVOL, signals, digest.\n"
+        f"System live June 30 2026."
+    )
+    return jsonify({
+        "status": "ok",
+        "bot":    me.get("username"),
+        "chat_id": chat_id,
+        "test_message_sent": sent,
+        "note": "Token saved for this process. Also save it in Replit Secrets to survive restarts."
     })
 
 

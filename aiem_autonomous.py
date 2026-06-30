@@ -190,7 +190,28 @@ def _start_health_server():
 # ─────────────────────────────────────────────────────────────
 # SMS — standalone (no dependency on main.py _send_sms)
 # ─────────────────────────────────────────────────────────────
+def _tg_send(text: str) -> bool:
+    """Mirror a message to Telegram owner chat. Silent no-op when not configured."""
+    import urllib.request as _ulr, json as _jmod
+    token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return False
+    try:
+        payload = _jmod.dumps({"chat_id": chat_id, "text": text}).encode()
+        req = _ulr.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload, headers={"Content-Type": "application/json"}
+        )
+        with _ulr.urlopen(req, timeout=8) as r:
+            return _jmod.loads(r.read()).get("ok", False)
+    except Exception as _e:
+        log.warning(f"[telegram] {_e}")
+        return False
+
+
 def _aiem_send_sms(message: str):
+    _tg_send(f"🤖 {message}")
     if not (TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM and TWILIO_TO):
         log.info(f"[SMS disabled] {message[:80]}")
         return
