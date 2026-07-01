@@ -29993,6 +29993,34 @@ def _aiem_tool_send_discovery_alert(
     import datetime as _dt
     global _aiem_discovery_state
 
+    if not risk_gate_passed:
+        # Hard code-level block: risk_gate_passed=False must prevent the
+        # email send and any other downstream action here, in code — not
+        # be left to the calling model's discretion. This does not consume
+        # the daily send quota / cooldown, since nothing is actually sent.
+        try:
+            import decision_logger as _dl
+            _dl.log_decision(
+                signal_name   = signal_name,
+                ticker        = ticker,
+                decision_type = "no_trade",
+                reasoning     = f"Risk gate did not pass — discovery alert blocked in code before send. Original reasoning: {reasoning}",
+                confidence    = confidence,
+                input_state_snapshot = {
+                    "oos_accuracy": oos_accuracy, "risk_gate_passed": risk_gate_passed,
+                    "divergence_flags": divergence_flags, "key_features": key_features,
+                    "email_sent": False,
+                },
+            )
+        except Exception as _exc:
+            print(f"[silent_except:L_send_discovery_alert_gate] {type(_exc).__name__}: {_exc}")
+        return {
+            "sent": False,
+            "reason": "risk_gate_failed",
+            "ticker": ticker.upper(),
+            "note": "risk_gate_passed=False — email send blocked in code, not left to model discretion. This pick is still logged in decision_logger for the track record.",
+        }
+
     today = _dt.date.today().isoformat()
     if _aiem_discovery_state["date"] != today:
         _aiem_discovery_state = {"date": today, "count": 0, "last_ts": 0.0}
