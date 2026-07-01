@@ -31,3 +31,23 @@ generation pipeline for the Probability Engine, decoupled from
 `ai_short_calls_log`. Not yet built as of 2026-07-01 — was deliberately
 deferred until after the current re-ranking version proves itself over a
 multi-week live track record (started 2026-07-01, 10:30 AM ET daily job).
+
+## Does the current re-ranking phase's learning transfer to it later?
+
+Partially — flagged this to the user on 2026-07-01, worth being consistent
+with when Autonomous Scan Mode is eventually built:
+
+- The learned relationships between the 9 conviction layers and forward
+  returns ARE general market-behavior signal, not specific to how a stock
+  got selected — that part transfers.
+- BUT all training examples so far come from stocks that already passed
+  the existing scanner's filters (i.e. already-interesting-looking stocks).
+  The model has never seen feature values typical of "boring"/unflagged
+  stocks, which will dominate a true full-market scan. This is a selection-
+  bias / distribution-shift gap, not a bug.
+- **Implication for whoever builds Autonomous Scan Mode:** treat the
+  current model as a warm-start / head-start, not a drop-in brain for
+  full-market use. Plan for a recalibration or retraining pass once it's
+  actually scoring the full ~11,000-stock universe rather than the
+  scanner's ~20/day shortlist, or probabilities on never-before-seen
+  "boring stock" feature combinations will likely be poorly calibrated.
