@@ -1,0 +1,164 @@
+# AIEM Multi-Horizon Directional Probability Model — Spec
+
+## Goal
+Combine existing conviction layers (OI Build, Gamma, Charm, Vanna, Squeeze Fuel,
+Dark Pool, Sweep, Sector Heat, GEX/dealer positioning) into a single
+**calibrated probability** that price moves up over the next 1, 2, 3, and 4
+trading days — not just a composite "score."
+
+A raw weighted score (e.g. sum of 9 layers) is NOT a probability. It has no
+defined 0–1 scale, no guarantee that "higher = more likely," and no way to
+know if it's actually predictive. The steps below convert score → real
+probability.
+
+---
+
+## 1. Standardize every layer into a comparable feature
+Each layer currently outputs different scales/units. Before combining:
+- Z-score or percentile-rank each layer's raw output against its own trailing
+  history (e.g. last 60–90 trading days) per ticker or per sector.
+- This makes "Gamma = 0.8" and "Dark Pool = 0.8" mean the same relative thing
+  (80th percentile for that signal), which raw scores don't guarantee.
+
+## 2. Don't hand-weight the layers — learn the weights
+Arbitrary weights (e.g. "Gamma is worth 20%, Sweep is worth 15%") are guesses.
+Instead:
+- Build a labeled training dataset: for each historical (ticker, date), record
+  the 9 standardized layer values as features, and label whether price was
+  up/down at horizons of +1, +2, +3, +4 trading days.
+- Train a **separate logistic regression (or gradient-boosted tree, e.g.
+  XGBoost/LightGBM) model per horizon** — 1-day movement and 4-day movement
+  are different phenomena with different dominant signals (e.g. Gamma/Charm
+  decay fastest, Dark Pool accumulation shows up later). One model per
+  horizon, not one model reused across horizons.
+- The model's coefficients (or feature importances) become your real,
+  data-derived "weights" — replacing guesswork.
+
+## 3. Calibrate the output into a true probability
+Raw logistic regression output is *approximately* a probability but is often
+overconfident or skewed with small/imbalanced data. Apply:
+- **Platt scaling** or **isotonic regression** on a held-out calibration set.
+- Result: when the model says "68% probability of up-move in 2 days," that
+  should actually happen ~68% of the time historically. Check this with a
+  **calibration curve** (predicted probability bucket vs. actual outcome rate).
+
+## 4. Validate out-of-sample — this is the "prove it" step
+- Use **walk-forward validation**: train on data up to date X, test on
+  X+1 → X+N, roll forward. Never train and test on overlapping time windows.
+- Track: AUC-ROC, Brier score (calibration quality), and precision at high-
+  confidence thresholds (e.g. "when model says >75% up, what's the real hit
+  rate?").
+- Compare against a naive baseline (e.g. random walk / coin flip, or simple
+  put-call ratio alone) — the composite model must beat this baseline
+  out-of-sample, not just in-sample, to be worth trusting.
+
+## 5. Output format for AIEM
+For each ticker, per day, produce:
+```
+{
+  "ticker": "XYZ",
+  "prob_up_1d": 0.62,
+  "prob_up_2d": 0.58,
+  "prob_up_3d": 0.55,
+  "prob_up_4d": 0.51,
+  "confidence": "high | medium | low",   // based on calibration bucket sample size
+  "top_contributing_layers": ["Gamma", "Sweep", "Dark Pool"]
+}
+```
+
+## 6. Ongoing checks
+- Re-calibrate monthly/quarterly — options market regimes shift (vol regime
+  changes, gamma flip behavior changes), so a static model decays.
+- Log every prediction vs. actual outcome (you're already doing this with
+  paper trading) and periodically re-run the calibration curve check — this
+  is your real-time "prove it" audit trail.
+
+---
+
+## Key distinction to keep in your instructions to Replit
+Tell the agent explicitly: **do not just sum/average the 9 layer scores and
+call it a probability.** The probability must come from a model that was
+*trained and validated* against historical outcomes, then calibrated. This is
+the difference between an ad hoc conviction score (what AIEM has now) and an
+actual statistically grounded probability (what you're asking for here).
+
+---
+
+## 7. Regime detection
+A model trained across all market conditions blended together will underperform.
+- Add a **regime feature/classifier**: e.g. VIX level/trend (low-vol grind vs.
+  high-vol stress), or a simple trend/chop classifier (ADX, realized vol vs.
+  implied vol spread).
+- Either (a) train separate models per regime bucket (calm / stressed /
+  trending), or (b) include regime as an input feature to a single model so it
+  can learn different behavior per regime.
+- Track model performance **broken out by regime**, not just in aggregate —
+  a model can look great overall while quietly failing badly in one regime.
+
+## 8. Cross-asset / macro context
+Single-ticker options data alone misses broad market context that can override
+a stock-specific signal.
+- Add features for: VIX level and term structure (contango/backwardation),
+  sector ETF relative strength, overall market breadth (e.g. % of S&P above
+  50-day MA), and correlation of the ticker to its sector/market that day.
+- A bullish options setup on one name can still lose if the whole tape is
+  rolling over — these features let the model down-weight signals during
+  broad-market stress.
+
+## 9. Order flow quality / toxicity filtering
+Not all sweeps and dark pool prints are equally informative — some reflect
+genuine directional conviction, others are hedging, market-making, or
+deliberately structured to obscure intent.
+- Add filters/features for trade size relative to average daily volume,
+  aggressiveness (at ask vs. at bid vs. midpoint), and whether flow clusters
+  (multiple correlated prints) vs. isolated one-off prints.
+- Where possible, weight flow signals higher when they cluster with other
+  independent signals (e.g. sweep + rising OI + dark pool same direction) and
+  lower when isolated.
+
+## 10. Transaction cost / liquidity realism
+A statistically "correct" probability isn't automatically tradeable.
+- Before acting on a probability output, layer in: bid-ask spread at the
+  relevant strikes, expected slippage at your position size, and available
+  liquidity/open interest at the strikes involved.
+- Report an "edge after cost" alongside the raw probability, not just the raw
+  probability — a 55% edge can be negative after realistic costs.
+
+## 11. Ensemble modeling / model-risk management
+Relying on a single model family is a common failure point.
+- Train at least two model types per horizon (e.g. logistic regression +
+  gradient-boosted trees) and only treat a signal as high-confidence when
+  they **agree**.
+- Use model disagreement as a feature itself — high disagreement between
+  model families should reduce position size or confidence tier, not just be
+  averaged away.
+
+## 12. Lookahead bias / data leakage protection — the most important item
+This is the single most common way solo-built systems get falsely confident
+backtest results.
+- Audit every feature: could this value have actually been known at the
+  timestamp used for prediction? (e.g. end-of-day OI data sometimes isn't
+  finalized/available until the next morning — using it as "same day" data is
+  leakage.)
+- Ensure train/test splits are strictly chronological — never shuffle data
+  randomly across time when splitting, since that lets future information
+  leak into training.
+- Re-verify walk-forward validation uses only data available *as of* each
+  prediction date, including any data revisions/restatements that happened
+  after the fact.
+- If backtest performance looks unusually good (e.g. >70% win rate
+  consistently), treat that as a red flag to re-audit for leakage before
+  trusting it, not as a reason to celebrate.
+
+---
+
+## Updated note on completeness
+This spec now covers the core statistical/structural methodology that
+quantitative shops use: standardization, learned weights, calibration, regime
+awareness, macro context, order flow quality, transaction cost realism,
+ensemble validation, and leakage auditing. It's still simplified relative to
+a large fund's full infrastructure — it doesn't include proprietary
+low-latency order flow data feeds, colocated execution infrastructure, or
+alternative data (satellite imagery, credit card data, etc.) that some funds
+use. For a solo-built system, this covers what actually matters most for
+getting a trustworthy probability output.
