@@ -152,6 +152,19 @@ _wz_srv_thr.start()
 app._check_setup_finished = lambda f_name: None
 print(f"[startup] Flask port {PORT} bound immediately — healthchecks pass during route loading", flush=True)
 
+# ── Fix #11: staleness guard (restart-on-commit gap) ─────────────────────────
+# Detects when this running process's source file has changed on disk since
+# it was loaded (i.e. this process is serving stale bytecode after a commit
+# with no accompanying restart) and auto-restarts in place. Isolated module,
+# started here (early) so it's active even during the 46K-line route-loading
+# phase. See staleness_guard.py for full rationale.
+from staleness_guard import start_watchdog as _start_staleness_watchdog, get_process_info as _get_process_info
+_start_staleness_watchdog()
+
+@app.route("/stock-api/process-info", methods=["GET"])
+def process_info():
+    return jsonify(_get_process_info())
+
 # Shared semaphore: one AIEM session at a time (chat, SMS, email, cron).
 # Initialized here at module load so it's always present before any request.
 import threading as _aiem_lock_thr
