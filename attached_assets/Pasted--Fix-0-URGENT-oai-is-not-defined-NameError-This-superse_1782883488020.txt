@@ -1,0 +1,78 @@
+# Fix #0 — URGENT — `_oai is not defined` NameError
+
+**This supersedes the fix order. Do this before continuing to Fix #2.**
+
+Reason: this isn't a hypothetical failure mode like the other 8 items — it's a live
+`NameError` inside `_aiem_paper_mark_to_market`'s own scope (that function never
+assigns `_oai` locally), meaning the AI HOLD/EXIT decision call has likely never
+successfully executed. Every position has probably been running on price-only
+fallback since this feature launched, not real conviction-based reasoning.
+
+---
+
+## What I need — in order
+
+### 1. Root cause
+- Where does `_oai` get assigned/initialized elsewhere in `main.py`?
+- Why is it not in scope inside `_aiem_paper_mark_to_market`? Missing import,
+  wrong variable name, a leftover reference from a refactor, a client that's
+  supposed to be passed in or instantiated locally but isn't?
+- Paste the relevant surrounding code (not just the failing line) so I can see
+  the actual gap.
+
+### 2. How long has this been broken?
+- Find the commit/timestamp where `_aiem_paper_mark_to_market` was introduced or
+  last modified in a way that could have caused this.
+- Tell me plainly: since approximately what date has every mark-to-market cycle
+  been running on price-only fallback instead of real AI decisions?
+- This matters because it affects how I interpret any paper trading performance
+  data collected before today.
+
+### 3. The fix
+- Isolated to this function/scope only — same isolation rules as the other fixes.
+  No renames, no refactors elsewhere, no touching unrelated call sites.
+- Show the diff.
+
+### 4. Proof it actually works now — not just that it doesn't crash
+- Re-run `force-mtm` against the same 40 live positions you flagged before.
+- Run this query again and paste the raw output:
+
+```sql
+SELECT id, ticker, status, needs_review, review_reason, updated_at
+FROM aiem_paper_trades
+WHERE needs_review = TRUE;
+```
+
+- I expect this to now return fewer (ideally zero, if all 40 positions successfully
+  get a real AI decision) rows than before — if it still returns all 40, the fix
+  didn't actually restore the AI call, it just changed the error.
+- For at least one position that clears, show me the actual AI decision output
+  (HOLD/EXIT + reasoning) that got returned, to confirm it's coming from a real
+  model call and not another silent fallback path.
+
+### 5. Verification package (same format as before)
+- Diff (changed lines only)
+- Before/after proof (the query output above, both runs)
+- Blast-radius check (`grep` for other `_oai` references, confirm nothing else
+  touched, `git status --porcelain`)
+- Completion token: `VERIFY-FIX-0-<8-char-random-hex>`, generated fresh
+
+---
+
+## Also answer directly, in plain language (not code)
+
+1. Does this mean conviction scores and HOLD/EXIT decisions in the paper trading
+   performance data collected up to today were never actually AI-driven? Yes or no,
+   and explain if it's more nuanced than that.
+2. If historical performance data was generated entirely on price-only fallback,
+   should that data be treated as a valid baseline going forward, or should I
+   consider it a separate "pre-fix" period when comparing future results?
+3. Are there any other functions in the codebase with the same pattern — a variable
+   referenced but never assigned in that scope — that could be silently failing the
+   same way? A quick grep for similar patterns would be worth doing, but don't fix
+   anything else found without flagging it to me first.
+
+---
+
+**Do not proceed to Fix #2 (fail-open on missing DATABASE_URL) until all of the
+above is answered with actual output, not summaries.**

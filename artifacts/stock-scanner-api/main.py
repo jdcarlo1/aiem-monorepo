@@ -31898,6 +31898,10 @@ def _aiem_paper_mark_to_market():
         _ai_call_ok = True
         _ai_call_error = None
         try:
+            _oai = _OpenAI(
+                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
+                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
+            )
             _ai_prompt = (
                 f"You are AIEM, an autonomous paper trading AI. Today is {_today}.\n"
                 f"You have {len(_positions_for_ai)} open paper positions. Analyze each one "
