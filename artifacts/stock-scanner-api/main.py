@@ -14895,6 +14895,11 @@ def _compute_pick_layer_scores(tickers: list, trade_date: str) -> dict:
             for _stk in _hs.get("sympathy_plays", []):
                 if _stk not in _ticker_heat or _heat > _ticker_heat[_stk]:
                     _ticker_heat[_stk] = _heat
+            # Primary/leading tickers ARE the reason the sector is hot —
+            # they must be scored too, not just their sympathy plays.
+            for _lead in _hs.get("lead_tickers", []):
+                if _lead not in _ticker_heat or _heat > _ticker_heat[_lead]:
+                    _ticker_heat[_lead] = _heat
         for _tk in tickers:
             if _tk in result and _tk in _ticker_heat:
                 result[_tk]["sector_heat_score"] = float(_ticker_heat[_tk])
@@ -15075,6 +15080,11 @@ def _backfill_pick_scores():
                         for _stk2 in _hs2.get("sympathy_plays", []):
                             if _stk2 not in sh_by_ticker or _heat2 > sh_by_ticker[_stk2]:
                                 sh_by_ticker[_stk2] = float(_heat2)
+                        # Primary/leading tickers ARE the reason the sector is hot —
+                        # they must be scored too, not just their sympathy plays.
+                        for _lead2 in _hs2.get("lead_tickers", []):
+                            if _lead2 not in sh_by_ticker or _heat2 > sh_by_ticker[_lead2]:
+                                sh_by_ticker[_lead2] = float(_heat2)
                 except Exception as _she2:
                     summary["errors"].append(f"sector_heat {date_str}: {_she2}")
 
