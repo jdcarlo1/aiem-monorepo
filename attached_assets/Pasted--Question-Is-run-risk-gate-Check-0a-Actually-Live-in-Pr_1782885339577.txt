@@ -1,0 +1,22 @@
+# Question: Is `run_risk_gate` Check 0a Actually Live in Production?
+
+## Context / the contradiction
+
+Two of your own statements conflict and I need this resolved before I trust either claim:
+
+1. Earlier, you told me `run_risk_gate` is **only reachable as an optional tool the AI can choose to call**, that nothing forces it, and that it has **never been successfully run end-to-end** in this system's history.
+
+2. Just now, while verifying Fix #2, you said `risk_gate_decisions` is "**already live-wired into** `run_risk_gate` (check 0a...)" and that the stale row "**would already block the very next real gate call**, independent of Fix #3."
+
+These can't both be true. Either check 0a is genuinely reachable in a live trading path right now, or it isn't. I need to know which.
+
+## What I need — verification, not description
+
+1. **Call site proof**: Show me the actual code path — file, function, and line — that calls `run_risk_gate` (or `pre_decision_risk_gate.py` check 0a specifically) during real trading operation. Not "the AI can call it as a tool" — show where it's invoked automatically/unconditionally, if anywhere.
+2. **Production reachability**: Is this function ever invoked by the scheduler, the autonomous scanner process, or any code path that runs without a human or AI agent choosing to call it as an optional tool? Show me the trigger — cron entry, scheduler registration, or calling function — or confirm there isn't one.
+3. **Historical evidence**: Query whatever table `run_risk_gate` completing would write to (you referenced `risk_gate_decisions` before, which you said has zero rows ever). Show me the query and the row count, current as of right now.
+4. **Direct answer**: Given 1–3, was your "would already block the very next real gate call" claim accurate, or was that an overstatement? If it was an overstatement, say so plainly and correct it.
+
+## Standard
+
+I want the actual query output and the actual code, not a paraphrase or a confident-sounding summary. If you can't produce the call site or the trigger, say that directly instead of restating the claim.
