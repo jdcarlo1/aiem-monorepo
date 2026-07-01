@@ -117,3 +117,4 @@
 - [Verification script pattern](verification-script-pattern.md) — "verification code" from this user means a standalone falsification-resistant shell script (real-time anchors + DB + log cross-checks), not an OTP; template in scripts/verify_*.sh
 - [Statistical Arbitrage Engine](stat-arb-engine.md) — stat_arb_engine.py; psycopg2 INTERVAL fix; lazy import; 7 wiring points; Sunday 3PM retest seeds pairs before Mon 9:10AM z-score scan
 - [Watch-criteria scan test safety](watch-criteria-test-safety.md) — manual tests of _aiem_scan_watch_criteria sweep in ALL active real criteria and commit per-row; mock Telegram + cleanup by job_name across all criteria_id
+- [Heartbeat fire-and-forget anti-pattern](heartbeat-fire-and-forget.md) — job_heartbeats "success" can be logged right after spawning a bg thread, before real work runs; not proof of completion
