@@ -1,4 +1,23 @@
 """
+DEPRECATED -- DO NOT WIRE IN.
+
+This file's model_versions table schema (version_label / deployed_at /
+is_active / notes / rolled_back_at) conflicts with the LIVE model_versions
+table owned by online_learning.py (model_name / version / is_live).
+
+online_learning.py already provides full equivalent functionality:
+  get_live_model()        <- equivalent of get_active_version()
+  propose_update()        <- equivalent of deploy_new_version()
+  rollback_to_version()   <- equivalent of rollback_to_previous()
+  version_history()
+
+Wiring this file in as-is will silently no-op on CREATE TABLE (table
+already exists under the other schema) and then crash or corrupt data
+on INSERT (columns do not match). Superseded -- kept for reference only.
+"""
+
+
+"""
 model_swap_patches.py
 ====================================================================
 Safe versioning/rollback for AIEM's underlying scoring model. When you
