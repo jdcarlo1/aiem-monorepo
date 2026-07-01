@@ -11,7 +11,7 @@ decision is acted on.
 
 import datetime as dt
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import psycopg2
 import psycopg2.extras
@@ -22,14 +22,34 @@ import psycopg2.extras
 DEFAULT_LOSS_LIMIT_PCT = float(os.environ.get("DAILY_LOSS_LIMIT_PCT", "2.0"))
 
 
-def get_account_value(db_url: str) -> float:
+def get_account_value(db_url: str) -> Optional[float]:
     """
-    Placeholder — replace with a real query against wherever your
-    system tracks account equity. Until a broker is wired in, this
-    can return a manually-set baseline value to test the logic.
+    STATUS (as of 2026-07-01): there is NO real broker/account integration
+    anywhere in this codebase (see position_reconciler.py's STATUS block —
+    Tradier tokens here are market-data-only, no account/positions access).
+    This function therefore has no real account equity to query.
+
+    It returns the value of ACCOUNT_VALUE_BASELINE ONLY if that env var is
+    explicitly set (e.g. for deliberately testing this module against a
+    manually-chosen paper-trading baseline). If it is NOT set, this returns
+    None — it does NOT fall back to a hardcoded number like 10000.
+
+    Why this matters: check_daily_loss_limit() divides today's P&L by this
+    value to get a real-looking loss percentage. A silent fake baseline
+    (e.g. "10000") produces a loss_pct that LOOKS like a real, trustworthy
+    computed number but is actually meaningless — and worse, it can mask a
+    real breach or report a false one. Returning None forces the caller to
+    fail closed (halt) instead of gating live decisions on a fabricated
+    number. Do not reintroduce a hardcoded fallback here.
     """
-    baseline = float(os.environ.get("ACCOUNT_VALUE_BASELINE", "10000"))
-    return baseline
+    raw = os.environ.get("ACCOUNT_VALUE_BASELINE")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 def get_todays_realized_pnl(db_url: str) -> float:
@@ -63,11 +83,38 @@ def check_daily_loss_limit(
 
     Call this FIRST, before any order-placement logic runs, the same
     way assert_simulation_mode() is called first in simulation_lock.py.
+
+    Fail-closed: if ACCOUNT_VALUE_BASELINE has not been explicitly
+    configured (get_account_value() returns None), there is no real or
+    intentionally-set number to compute a percentage against. Rather than
+    silently skip this check or divide against a hardcoded placeholder,
+    this treats the check as breached (halt_trading=True) so trading is
+    blocked until a real account value is configured — mirroring the
+    "fail closed, not open" DATABASE_URL handling in
+    pre_decision_risk_gate.py's run_risk_gate().
     """
     account_value = get_account_value(db_url)
-    realized_pnl = get_todays_realized_pnl(db_url)
 
-    loss_pct = (realized_pnl / account_value) * 100 if account_value else 0
+    if account_value is None:
+        result = {
+            "checked_at": dt.datetime.utcnow().isoformat(),
+            "account_value": None,
+            "todays_realized_pnl": None,
+            "loss_pct": None,
+            "loss_limit_pct": loss_limit_pct,
+            "halt_trading": True,
+            "reason": (
+                "ACCOUNT_VALUE_BASELINE is not configured (or is invalid) — "
+                "cannot compute a meaningful daily loss percentage without a "
+                "real account value. Failing closed: trading halted until a "
+                "real account value is configured."
+            ),
+        }
+        _log_breach(db_url, result)
+        return result
+
+    realized_pnl = get_todays_realized_pnl(db_url)
+    loss_pct = (realized_pnl / account_value) * 100
     halt = loss_pct <= -abs(loss_limit_pct)
 
     result = {
@@ -77,6 +124,7 @@ def check_daily_loss_limit(
         "loss_pct": round(loss_pct, 3),
         "loss_limit_pct": loss_limit_pct,
         "halt_trading": halt,
+        "reason": None,
     }
 
     if halt:
