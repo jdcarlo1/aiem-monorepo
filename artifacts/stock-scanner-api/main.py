@@ -119,6 +119,10 @@ from aiem_security import (
     rotate_token_if_due as _rotate_token_if_due,
     run_backup_if_due as _run_backup_if_due,
 )
+from aiem_provenance import (
+    sign_payload as _aiem_sign_payload,
+    verify_payload as _aiem_verify_payload,
+)
 _init_security(app)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
@@ -14233,6 +14237,52 @@ def _get_sector_heat(days_back: int = 2) -> dict:
         "sector_tickers_fired":  {t: _TICKER_TO_SECTORS.get(t, []) for t in fired if t in _TICKER_TO_SECTORS},
         "total_sectors_hot":     len(results),
     }
+
+
+@app.route("/stock-api/admin/aiem-signed-proof")
+def admin_aiem_signed_proof():
+    """
+    Computes a live result INSIDE this process (currently: _get_sector_heat)
+    and signs it with AIEM_SIGNING_KEY before returning — so the caller
+    receives a payload whose provenance can be independently checked via
+    /stock-api/admin/aiem-verify-proof, instead of trusting a paraphrase.
+    """
+    tok = request.args.get("token", "")
+    if not tok or tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+
+    target = request.args.get("target", "sector_heat")
+    if target != "sector_heat":
+        return jsonify({"error": f"unknown target '{target}'"}), 400
+
+    days_back = int(request.args.get("days_back", 2))
+    live_result = _get_sector_heat(days_back=days_back)
+
+    try:
+        envelope = _aiem_sign_payload({"target": target, "days_back": days_back, "result": live_result})
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify(envelope)
+
+
+@app.route("/stock-api/admin/aiem-verify-proof", methods=["POST"])
+def admin_aiem_verify_proof():
+    """
+    Independently verifies a signed envelope produced by aiem-signed-proof.
+    Runs the same HMAC check regardless of who or what produced the envelope —
+    it will reject a tampered payload even if the tamperer is this same process.
+    """
+    tok = request.args.get("token", "")
+    if not tok or tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+
+    envelope = request.get_json(silent=True)
+    if not isinstance(envelope, dict):
+        return jsonify({"error": "expected a JSON envelope body"}), 400
+
+    verdict = _aiem_verify_payload(envelope)
+    return jsonify(verdict)
 
 
 # ── API endpoints for L6 / L7 / L8 ───────────────────────────────────────────
