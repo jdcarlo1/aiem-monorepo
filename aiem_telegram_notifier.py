@@ -24,6 +24,27 @@ SCHEDULE (Eastern Time)
                    (9:15 leaves a 10-minute buffer after the 9:05 canonical
                    write so the read never races the write.)
 
+IDEMPOTENCY (no duplicate sends across restarts/redeploys)
+  Owns one dedicated table it created itself, `aiem_notifier_log`
+  (send_date DATE PRIMARY KEY). Before sending, it does an atomic
+  INSERT ... ON CONFLICT DO NOTHING claim for today's ET date. Only the
+  process that wins the claim sends. If a redeploy overlap causes two
+  instances to be alive at 9:15 AM ET simultaneously, only one will
+  successfully claim the row and send; the other logs "already sent
+  today, skipping" and does nothing. This table is owned solely by this
+  script — it is NOT aiem_predictions, so this does not reintroduce the
+  two-writer collision the notifier exists to avoid.
+
+FAILURE VISIBILITY
+  If the Telegram send fails (bad token, network error) or the DB read
+  fails, this is recorded in `aiem_notifier_log` (status column) and in
+  /api/health's `last_run`. This process has no secondary delivery
+  channel of its own — the existing uptime-monitor.py (SMTP-based) has
+  been extended to check this service's /api/health after 9:20 AM ET on
+  weekdays and email the owner if the day's send did not succeed, since
+  a healthy HTTP 200 from this service does not by itself prove today's
+  message actually reached Telegram.
+
 HEALTH CHECK
   GET /api/health  → {"status","scheduler","db","last_run","mode"}
   Bound to AIEM_HEALTH_PORT (default 5051).
@@ -34,7 +55,10 @@ REQUIRED ENV VARS
 
 MANUAL TEST
   python3 aiem_telegram_notifier.py --once   # sends one brief immediately,
-                                              # does not start the scheduler
+                                              # does not start the scheduler,
+                                              # still goes through the same
+                                              # claim-before-send idempotency
+                                              # gate as the real 9:15 job
 """
 
 import os
@@ -113,14 +137,87 @@ def _fetch_todays_picks():
             conn.close()
 
 
+# ─────────────────────────────────────────────────────────────
+# IDEMPOTENCY — this notifier owns this ONE small table itself.
+# It is NOT aiem_predictions, so writing here does not reintroduce
+# the two-writer collision this whole notifier exists to avoid.
+# ─────────────────────────────────────────────────────────────
+def _ensure_notifier_log_table(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS aiem_notifier_log (
+            send_date  DATE PRIMARY KEY,
+            claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            status     TEXT,
+            updated_at TIMESTAMPTZ
+        )
+    """)
+    conn.commit()
+
+
+def _claim_todays_send(send_date) -> bool:
+    """Atomic claim: returns True only if THIS call won the right to send today.
+    Prevents duplicate sends if two process instances are alive at once
+    (e.g. during a redeploy overlap)."""
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        _ensure_notifier_log_table(conn)
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO aiem_notifier_log (send_date, status) VALUES (%s, 'in_progress') "
+            "ON CONFLICT (send_date) DO NOTHING",
+            (send_date,)
+        )
+        conn.commit()
+        won = cur.rowcount == 1
+        return won
+    finally:
+        if conn:
+            conn.close()
+
+
+def _record_send_result(send_date, status: str):
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE aiem_notifier_log SET status = %s, updated_at = now() WHERE send_date = %s",
+            (status, send_date)
+        )
+        conn.commit()
+    except Exception as e:
+        log.warning(f"_record_send_result failed (non-fatal, claim already held): {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
 def send_morning_brief():
-    """09:15 AM ET Mon-Fri. Read-only; sends what main.py already computed."""
+    """09:15 AM ET Mon-Fri. Read-only w.r.t. aiem_predictions; sends what
+    main.py already computed. Claim-before-send guarantees at most one
+    send per ET calendar date even if two instances are alive at once."""
     today = date.today()
+
+    try:
+        won_claim = _claim_todays_send(today)
+    except Exception as e:
+        log.error(f"morning_brief: idempotency claim failed (DB unreachable): {e}")
+        _last_run.update(status=f"claim_db_error: {e}", timestamp=datetime.utcnow().isoformat())
+        return
+
+    if not won_claim:
+        log.info(f"morning_brief: {today} already sent (or in progress) by another instance - skipping duplicate")
+        _last_run.update(status="skipped_duplicate", timestamp=datetime.utcnow().isoformat())
+        return
+
     try:
         picks = _fetch_todays_picks()
     except Exception as e:
         log.error(f"morning_brief: DB read failed: {e}")
         _last_run.update(status=f"db_error: {e}", timestamp=datetime.utcnow().isoformat())
+        _record_send_result(today, f"failed_db_error: {e}")
         return
 
     if not picks:
@@ -129,7 +226,9 @@ def send_morning_brief():
             f"data not ready or market quiet. (Read-only notifier - did not run a scan.)"
         )
         log.warning(f"morning_brief: no picks found in aiem_predictions for today (telegram sent={ok})")
-        _last_run.update(status=f"sent_empty ok={ok}", timestamp=datetime.utcnow().isoformat())
+        status = f"sent_empty ok={ok}"
+        _last_run.update(status=status, timestamp=datetime.utcnow().isoformat())
+        _record_send_result(today, status)
         return
 
     lines = [f"AIEM Morning Picks - {today.strftime('%a %b %d')}",
@@ -145,12 +244,38 @@ def send_morning_brief():
 
     ok = _tg_send("\n".join(lines))
     log.info(f"morning_brief: sent={ok} picks={len(picks)}")
-    _last_run.update(status=f"sent_ok={ok}", timestamp=datetime.utcnow().isoformat())
+    status = f"sent_ok={ok}"
+    _last_run.update(status=status, timestamp=datetime.utcnow().isoformat())
+    _record_send_result(today, status)
 
 
 # ─────────────────────────────────────────────────────────────
 # HEALTH SERVER — stdlib HTTPServer, GET-only, read-only DB probe
 # ─────────────────────────────────────────────────────────────
+def _fetch_today_notifier_log_status():
+    """Cross-instance source of truth for 'did today's send actually happen',
+    read from the shared DB row rather than this process's own in-memory
+    _last_run (which would be wrong if a *different* instance won the claim
+    and sent, e.g. during a redeploy overlap)."""
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT status, updated_at FROM aiem_notifier_log WHERE send_date = %s",
+            (date.today(),)
+        )
+        row = cur.fetchone()
+        if not row:
+            return {"status": "not_run_yet", "updated_at": None}
+        return {"status": row[0], "updated_at": row[1].isoformat() if row[1] else None}
+    except Exception as e:
+        return {"status": f"log_lookup_error: {e}", "updated_at": None}
+    finally:
+        if conn:
+            conn.close()
+
+
 class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.path.rstrip('/').endswith('/api/health'):
@@ -159,12 +284,13 @@ class _HealthHandler(BaseHTTPRequestHandler):
             return
 
         health = {
-            "status":    "ok",
-            "timestamp": datetime.utcnow().isoformat(),
-            "scheduler": "unknown",
-            "db":        "unknown",
-            "last_run":  _last_run,
-            "mode":      "read_only_notifier",
+            "status":       "ok",
+            "timestamp":    datetime.utcnow().isoformat(),
+            "scheduler":    "unknown",
+            "db":           "unknown",
+            "last_run":     _last_run,                          # this process's own memory
+            "today_status": _fetch_today_notifier_log_status(), # shared DB truth - use this for monitoring
+            "mode":         "read_only_notifier",
         }
         try:
             health["scheduler"] = "running" if (_scheduler_ref and _scheduler_ref.running) else "stopped"
@@ -201,6 +327,17 @@ def main():
     if not DATABASE_URL:
         log.error("DATABASE_URL not set - exiting")
         return
+
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        _ensure_notifier_log_table(conn)
+        log.info("aiem_notifier_log table ready")
+    except Exception as e:
+        log.error(f"could not ensure aiem_notifier_log table at startup: {e}")
+    finally:
+        if conn:
+            conn.close()
 
     _start_health_server()
 
