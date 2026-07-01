@@ -14183,12 +14183,18 @@ def _get_far_otm_sweeps(days_back: int = 3) -> list:
     return sorted(best_by_ticker.values(), key=lambda x: (x["prem"] or 0) * (x["vol_oi"] or 0), reverse=True)[:25]
 
 
-def _get_sector_heat(days_back: int = 2) -> dict:
+def _get_sector_heat(days_back: int = 2, reference_date=None) -> dict:
     """
     Layer 8 - Sector Theme Correlation.
     When a "lead" ticker in a theme fires unusual call activity, ALL smaller-float
     names in the same sector become sympathy plays. Hedge funds monitor sector
     momentum: one quantum stock moves → scan all quantum micro-floats.
+
+    reference_date: the date to compute heat "as of". Defaults to today (live use).
+      Pass the trade_date/date_str being scored or backfilled — otherwise this
+      always reflects the CURRENT moment regardless of what date you're asking
+      about, which silently corrupts any historical/backfilled use of this data
+      with lookahead bias.
 
     Returns {
       "hot_sectors": [{"sector": str, "lead_tickers": [...], "sympathy_plays": [...]}],
@@ -14196,14 +14202,22 @@ def _get_sector_heat(days_back: int = 2) -> dict:
     }
     """
     import psycopg2 as _pg8, os as _os8
-    from datetime import date as _d8, timedelta as _td8
-    cutoff = _d8.today() - _td8(days=days_back)
+    from datetime import date as _d8, datetime as _dt8, timedelta as _td8
+    if reference_date is None:
+        as_of = _d8.today()
+    elif isinstance(reference_date, str):
+        as_of = _dt8.strptime(reference_date, "%Y-%m-%d").date()
+    elif isinstance(reference_date, _dt8):
+        as_of = reference_date.date()
+    else:
+        as_of = reference_date  # already a date
+    cutoff = as_of - _td8(days=days_back)
     try:
         with _pg8.connect(_os8.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT DISTINCT ticker FROM unusual_calls_microcap_log
-                WHERE last_seen >= %s AND prem >= 5000
-            """, (cutoff,))
+                WHERE last_seen >= %s AND last_seen <= %s AND prem >= 5000
+            """, (cutoff, as_of + _td8(days=1)))
             fired = {r[0] for r in cur.fetchall()}
     except Exception:
         fired = set()
@@ -14938,7 +14952,7 @@ def _compute_pick_layer_scores(tickers: list, trade_date: str) -> dict:
 
     # ── sector_heat_score: heat score for ticker's sector ────────────────────
     try:
-        _sh = _get_sector_heat(days_back=2)
+        _sh = _get_sector_heat(days_back=2, reference_date=trade_date)
         _ticker_heat: dict = {}
         for _hs in _sh.get("hot_sectors", []):
             _heat = _hs.get("heat_score", 0)
@@ -15124,7 +15138,7 @@ def _backfill_pick_scores():
                 # ── sector_heat: recompute from polygon_market_daily ──────────
                 sh_by_ticker = {}
                 try:
-                    _sh2 = _get_sector_heat(days_back=2)
+                    _sh2 = _get_sector_heat(days_back=2, reference_date=date_str)
                     for _hs2 in _sh2.get("hot_sectors", []):
                         _heat2 = _hs2.get("heat_score", 0)
                         for _stk2 in _hs2.get("sympathy_plays", []):
