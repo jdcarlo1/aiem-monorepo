@@ -40905,6 +40905,39 @@ def admin_backfill_pick_scores():
     })
 
 
+@app.route("/stock-api/admin/null-sector-heat-scores", methods=["POST"])
+def admin_null_sector_heat_scores():
+    """
+    One-time admin endpoint: NULL out sector_heat_score on ai_short_calls_log
+    so /stock-api/admin/backfill-pick-scores recomputes it using the fixed
+    reference_date-aware _get_sector_heat(). Needed because every row currently
+    populated with sector_heat_score was computed using TODAY's sector heat
+    instead of that row's own trade_date (the date-blindness bug), so the
+    stored values are wrong for any trade_date other than the day they were
+    backfilled on.
+
+    gamma_score and dark_pool_score are left untouched — this bug only
+    affected sector_heat_score.
+
+    Returns the count of rows nulled.
+    """
+    _tok_nsh = request.headers.get("X-Admin-Token", "")
+    if not _tok_nsh or _tok_nsh != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                UPDATE ai_short_calls_log
+                SET sector_heat_score = NULL
+                WHERE sector_heat_score IS NOT NULL
+            """)
+            _n_nulled = cur.rowcount
+            conn.commit()
+        return jsonify({"status": "ok", "rows_nulled": _n_nulled})
+    except Exception as _nshe:
+        return jsonify({"status": "error", "error": str(_nshe)}), 500
+
+
 @app.route("/stock-api/multi-signal", methods=["GET"])
 def multi_signal_convergence():
     """Multi-signal convergence scanner - 25 signal conditions including cross-referenced caches."""
