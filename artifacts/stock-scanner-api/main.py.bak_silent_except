@@ -179,8 +179,8 @@ def _json_sanitize(o):
                 return None if (_math_san.isnan(f) or _math_san.isinf(f)) else f
             except Exception:
                 return None
-    except Exception as _exc:
-        print(f"[silent_except:L182] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     if isinstance(o, dict):
         return {k: _json_sanitize(v) for k, v in o.items()}
     if isinstance(o, (list, tuple)):
@@ -191,8 +191,8 @@ class _SafeJSONProvider(_DefaultJSONProvider):
     def dumps(self, obj, **kwargs):
         try:
             obj = _json_sanitize(obj)
-        except Exception as _exc:
-            print(f"[silent_except:L194] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         return super().dumps(obj, **kwargs)
 
 app.json = _SafeJSONProvider(app)
@@ -208,8 +208,8 @@ def _no_store_api(resp):
             resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             resp.headers["Pragma"] = "no-cache"
             resp.headers["Expires"] = "0"
-    except Exception as _exc:
-        print(f"[silent_except:L211] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     return resp
 
 
@@ -236,8 +236,8 @@ def _owner_catchup_on_wake():
         _last_owner_catchup_ts = _now_bw
         import threading as _th_bw
         _th_bw.Thread(target=_owner_run_due_emails, daemon=True).start()
-    except Exception as _exc:
-        print(f"[silent_except:L239] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
 
 _last_news_catchup_ts = 0.0
@@ -273,8 +273,8 @@ def _news_catchup_on_wake():
         _last_news_catchup_ts = _now_ts
         import threading as _th_nw
         _th_nw.Thread(target=_news_run_due_scan, daemon=True).start()
-    except Exception as _exc:
-        print(f"[silent_except:L276] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
 
 _ADMIN_LOG_PREFIXES = (
@@ -570,8 +570,8 @@ try:
                         _yf_note_auth_throttle()
                     elif _state == "half-open" and _sc < 400:
                         _yf_breaker_probe_success()
-            except Exception as _exc:
-                print(f"[silent_except:L573] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
             return _resp
 
     _orig_session_init = _req_patch.Session.__init__
@@ -640,8 +640,8 @@ try:
                     _YF_BREAKER["probing"] = False
             elif _sc in (401, 403):
                 _yf_note_auth_throttle()
-        except Exception as _exc:
-            print(f"[silent_except:L643] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         return _resp
 
     _cffi_req.Session.request = _cffi_patched_request
@@ -999,8 +999,8 @@ def _pg_market_cap_batch(tickers: list) -> dict:
                 t, v = f.result()
                 if v > 0:
                     out[t] = v
-            except Exception as _exc:
-                print(f"[silent_except:L1002] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
     return out
 
@@ -1138,8 +1138,8 @@ def _save_td_intraday_bars(ticker: str, df) -> int:
                 int(  row.get("Volume") or 0) or None,
                 float(row.get("VWAP")   or 0) or None,
             ))
-        except Exception as _exc:
-            print(f"[silent_except:L1141] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     if not rows:
         return 0
     try:
@@ -1175,14 +1175,14 @@ def _run_td_intraday_capture():
         _uc = getattr(app, "_unusual_calls_cache", None)
         if _uc:
             _live_extra += [h["ticker"] for h in (_uc.get("hits") or [])[:20]]
-    except Exception as _exc:
-        print(f"[silent_except:L1178] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     try:
         _cs = getattr(app, "_cs_cache", None)
         if _cs:
             _live_extra += [r["ticker"] for r in (_cs.get("results") or [])[:10]]
-    except Exception as _exc:
-        print(f"[silent_except:L1184] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     universe = list(dict.fromkeys(_TD_INTRADAY_WATCHLIST + _live_extra))
 
@@ -1199,8 +1199,8 @@ def _run_td_intraday_capture():
             for fut in _tdie_asc(futs, timeout=90):
                 try:
                     total_bars += fut.result()
-                except Exception as _exc:
-                    print(f"[silent_except:L1202] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
         except TimeoutError:
             for f in futs:
                 f.cancel()
@@ -2160,8 +2160,8 @@ try:
                                         "pre_positioned": _tpp, "last_trade": "",
                                         "source": "tradier",
                                     })
-                                except Exception as _exc:
-                                    print(f"[silent_except:L2163] {type(_exc).__name__}: {_exc}")
+                                except Exception:
+                                    pass
                             return hits
 
                     pg_rows = _polygon_fetch_calls(ticker, max_exp_days=max_exp)
@@ -2190,8 +2190,8 @@ try:
                                 if _pr.status_code == 200:
                                     _res = (_pr.json().get("results") or [{}])[0]
                                     price = float(_res.get("c") or _res.get("vw") or 0)
-                            except Exception as _exc:
-                                print(f"[silent_except:L2193] {type(_exc).__name__}: {_exc}")
+                            except Exception:
+                                pass
                         if not price:
                             return hits
                         for row in pg_rows:
@@ -2328,8 +2328,8 @@ try:
                         try:
                             all_hits.extend(fut.result() or [])
                             _uc_done += 1
-                        except Exception as _exc:
-                            print(f"[silent_except:L2331] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
                 except TimeoutError:
                     # Cancel queued (not-yet-started) futures so executor.shutdown()
                     # only waits for the ≤4 currently-running workers (≤32s),
@@ -2348,8 +2348,8 @@ try:
                         strike=_h.get("strike", 0.0), expiry=_h.get("expiry", ""),
                         prem=_h.get("prem", 0), otm_pct=_h.get("otm_pct", 0.0),
                     )
-            except Exception as _exc:
-                print(f"[silent_except:L2351] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
             # Refresh the in-memory cache with ALL of today's accumulated sweeps so
             # that earlier scans' results stay visible - not just this scan's slice.
             from datetime import datetime as _dt_sch
@@ -4301,8 +4301,8 @@ try:
                         )
                         if _cur.fetchone():
                             _need_uc = False
-                except Exception as _exc:
-                    print(f"[silent_except:L4304] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
                 if _need_uc:
                     print(f"[startup_catchup] no qualifying unusual-calls data for {_today_et} - running catch-up scan")
                     try:
@@ -4323,8 +4323,8 @@ try:
                         )
                         if _cur2.fetchone():
                             _need_mc = False
-                except Exception as _exc:
-                    print(f"[silent_except:L4326] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
                 if _need_mc:
                     print(f"[startup_catchup] no microcap data for {_today_et} - running catch-up scan")
                     _time_su.sleep(30)   # stagger after unusual-calls to avoid concurrent Yahoo calls
@@ -4349,8 +4349,8 @@ try:
                         )
                         if _cur_pt.fetchone():
                             _need_paper = False
-                except Exception as _exc:
-                    print(f"[silent_except:L4352] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
                 if _need_paper:
                     print(f"[startup_catchup] no paper trades for {_today_et} — running catch-up pick session")
                     _time_su.sleep(20)   # let other catch-ups settle first
@@ -5414,8 +5414,8 @@ def _send_eod_accum_email() -> None:
                                 if _c >= _et_today():
                                     _earn_dt = _c
                                     break
-                    except Exception as _exc:
-                        print(f"[silent_except:L5417] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
                 # ── Fallback: Yahoo .info (breaker-gated) ────────────────────
                 if _earn_dt is None and not _yf_breaker_open():
                     try:
@@ -5423,8 +5423,8 @@ def _send_eod_accum_email() -> None:
                         ts = info.get("earningsTimestamp") or info.get("earningsDate")
                         if ts:
                             _earn_dt = _dtt.datetime.fromtimestamp(ts).date()
-                    except Exception as _exc:
-                        print(f"[silent_except:L5426] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
                 if _earn_dt is None:
                     return ticker, None
                 today = _et_today()
@@ -5446,8 +5446,8 @@ def _send_eod_accum_email() -> None:
                 for _tkr, _flag in _pool.map(_get_earnings_flag, all_tickers):
                     if _flag:
                         earnings_map[_tkr] = _flag
-        except Exception as _exc:
-            print(f"[silent_except:L5449] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         def _row_html(r, rank, earnings_flag=None):
             ticker, score, close, chg, vol, lf, cr, cap, sig = r
@@ -5988,17 +5988,17 @@ def _scan_best_call(ticker: str, price: float, target_weeks: int = None):
                             prem=prem, otm_pct=round(otm_pct, 1), iv=iv,
                             score_c=voi * prem, in_window=in_window,
                         ))
-                    except Exception as _exc:
-                        print(f"[silent_except:L5991] {type(_exc).__name__}: {_exc}")
-            except Exception as _exc:
-                print(f"[silent_except:L5993] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             _time.sleep(0.15)
         if candidates:
             # Prefer expirations inside the score-based week window, then liquidity.
             candidates.sort(key=lambda x: (0 if x["in_window"] else 1, -x["score_c"]))
             best = candidates[0]
-    except Exception as _exc:
-        print(f"[silent_except:L6000] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     _BEST_CALL_CACHE[cache_key] = (_time.time(), best)
     return best
 
@@ -6149,8 +6149,8 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
                     _lbl = "EXTREME" if _pts >= 8 else "HIGH"
                     _tg_lines.append(f"  {_sig.get('ticker','')}  {_pts:.1f}/10 {_lbl}")
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L6152] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
         try:
             _send_ntfy(
@@ -6159,8 +6159,8 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
                 priority="urgent" if n_ext else "high",
                 tags="fire,money_with_wings",
             )
-        except Exception as _exc:
-            print(f"[silent_except:L6162] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     except Exception as _e:
         import traceback
         print(f"[smart_money_email] error: {_e}\n{traceback.format_exc()}")
@@ -6263,8 +6263,8 @@ def _smp_send_morning_bucket(signals: list, label: str, accent: str, date_str: s
                 _lbl = "EXTREME" if _pts >= 8 else "HIGH" if _pts >= 6 else "MOD"
                 _tg_lines.append(f"  {_s.get('ticker','')}  {_pts:.1f}/10 {_lbl}")
             _tg_send("\n".join(_tg_lines))
-        except Exception as _exc:
-            print(f"[silent_except:L6266] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     return bool(ok)
 
 
@@ -6495,8 +6495,8 @@ def _build_market_brief_html() -> tuple:
     try:
         _tg_brief = f"📊 Premarket Brief · {date_str}\n" + "\n".join(f"• {b}" for b in bottom_bits[:6])
         _tg_send(_tg_brief)
-    except Exception as _exc:
-        print(f"[silent_except:L6498] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     chart_tickers = [r.get("ticker") for r in (gainers[:3] + losers[:3])]
     return subject, html, chart_tickers
 
@@ -6648,8 +6648,8 @@ def _send_accumulation_watch_email() -> None:
                 priority="high",
                 tags="chart_with_upwards_trend",
             )
-        except Exception as _exc:
-            print(f"[silent_except:L6651] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     except Exception as _e:
         import traceback
         print(f"[accumulation_email] error: {_e}\n{traceback.format_exc()}")
@@ -6889,8 +6889,8 @@ def _run_nano_morning_ranking():
                 try:
                     fi = tk.fast_info
                     mcap_m = round(float(getattr(fi, "market_cap", 0) or 0) / 1e6, 1)
-                except Exception as _exc:
-                    print(f"[silent_except:L6892] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
                 # "Explosive Potential" = net flow ($M) divided by distance from 20d
                 # high. Names with massive buying pressure AND lots of headroom
@@ -7179,8 +7179,8 @@ def _run_nano_morning_ranking():
         if _lock is not None:
             try:
                 _lock.release()
-            except Exception as _exc:
-                print(f"[silent_except:L7182] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
 
 def _nano_intraday_confirm(cand):
@@ -7203,8 +7203,8 @@ def _nano_intraday_confirm(cand):
                 idx = idx.tz_convert("America/New_York")
             intr = intr.copy()
             intr.index = idx
-        except Exception as _exc:
-            print(f"[silent_except:L7206] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         win = intr.between_time("09:30", "09:45")
         if win is None or len(win) == 0:
             out["reason"] = "no 9:30-9:45 bars yet"
@@ -7393,8 +7393,8 @@ def _send_nano_watch_email():
                     _gr = str(_rm.get("quant_grade", "")) if _rm else ""
                     _tg_lines.append(f"  #{_r[1]} {_r[0]}  ${float(_r[3] or 0):.2f}  z={_qz:+.2f} {_gr}")
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L7396] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         try:
             top = rows[0]
             _top_meta = top[12] if isinstance(top[12], dict) else (json.loads(top[12]) if top[12] else {})
@@ -7402,8 +7402,8 @@ def _send_nano_watch_email():
             _send_ntfy(f"Nano Quant watchlist: {len(rows)} names",
                        f"#1 {top[0]} (z={_top_qz}). Buy at the open - 5% stop.",
                        priority="high", tags="rocket")
-        except Exception as _exc:
-            print(f"[silent_except:L7405] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     except Exception as _e:
         import traceback
         print(f"[nano_watch] error: {_e}\n{traceback.format_exc()}")
@@ -7604,15 +7604,15 @@ def _send_nano_buy_email():
                         f"  {_b['ticker']}  entry ${_entry:.2f}  stop ${_stop:.2f}  z={float(_b.get('quant_z',0)):+.2f}"
                     )
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L7607] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         try:
             names = ", ".join(b["ticker"] for b in buys[:6])
             _send_ntfy(f"{len(buys)} Nano Quant buys",
                        f"{names}{'…' if len(buys) > 6 else ''} - Buy at open, 5% stop.",
                        priority="high", tags="rocket")
-        except Exception as _exc:
-            print(f"[silent_except:L7614] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     except Exception as _e:
         import traceback
         print(f"[nano_buy] error: {_e}\n{traceback.format_exc()}")
@@ -8297,8 +8297,8 @@ def _run_sc_morning_ranking():
                         prev_close_pm = float(hist["Close"].iloc[-2])
                         if prev_close_pm > 0:
                             _gap_pct = (price - prev_close_pm) / prev_close_pm * 100
-                except Exception as _exc:
-                    print(f"[silent_except:L8300] {type(_exc).__name__}: {_exc}")
+                except:
+                    pass
 
                 _gap_pts = 0.0
                 if   2.0 <= _gap_pct < 8.0:  _gap_pts = 8
@@ -8313,8 +8313,8 @@ def _run_sc_morning_ranking():
                         _rng_pts = [(highs[i] - lows[i]) / lows[i] * 100
                                     for i in range(-20, 0) if lows[i] > 0]
                         range20 = sum(_rng_pts) / len(_rng_pts) if _rng_pts else 0.0
-                except Exception as _exc:
-                    print(f"[silent_except:L8316] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
                 # Risk penalty
                 _risk = 0.0
@@ -8385,8 +8385,8 @@ def _run_sc_morning_ranking():
                 _r = _score(_sc_t)
                 if _r:
                     results.append(_r)
-            except Exception as _exc:
-                print(f"[silent_except:L8388] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
             # Brief pause to keep the call rate below Yahoo's threshold
             if len(results) % 5 == 0:
                 import time as _sc_ti
@@ -8437,8 +8437,8 @@ def _run_sc_morning_ranking():
         if _lock is not None:
             try:
                 _lock.release()
-            except Exception as _exc:
-                print(f"[silent_except:L8440] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
 
 def _sc_morning_track_record(days=45):
@@ -8608,15 +8608,15 @@ def _send_sc_watch_email():
                     _op = "📈calls " if (_r[10] and float(_r[10]) > 0) else ""
                     _tg_lines.append(f"  #{_rk} {_tk}  ${_pr:.2f}  {_ds}{_op}conv {_r[2]}")
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L8611] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         try:
             top = rows[0]
             _send_ntfy(f"Small-cap watchlist: {len(rows)} names",
                        f"#1 {top[0]} (conv {top[2]}). Confirmed BUY list at 9:47.",
                        priority="default", tags="bar_chart")
-        except Exception as _exc:
-            print(f"[silent_except:L8618] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     except Exception as _e:
         import traceback
         print(f"[sc_watch] error: {_e}\n{traceback.format_exc()}")
@@ -8696,8 +8696,8 @@ def _send_sc_buy_email():
                 try:
                     cf = _nano_intraday_confirm(ca)
                     confirms[cf["ticker"]] = cf
-                except Exception as _exc:
-                    print(f"[silent_except:L8699] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
         buys, avoids, data_missing = [], [], []
         for ca in cands:
@@ -8784,8 +8784,8 @@ def _send_sc_buy_email():
             try:
                 _send_ntfy("No small-cap buys today", "Nothing confirmed above VWAP. Capital preserved.",
                            priority="default", tags="no_entry")
-            except Exception as _exc:
-                print(f"[silent_except:L8787] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
             return
 
         buy_cards = []
@@ -8884,15 +8884,15 @@ def _send_sc_buy_email():
                         f"  {_vd}{_b['ticker']}  entry ${_entry:.2f}  stop ${_stop:.2f}  blend {float(_b.get('blended',0)):.0f}"
                     )
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L8887] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         try:
             names = ", ".join(b["ticker"] for b in buys[:6])
             _send_ntfy(f"{len(buys)} confirmed small-cap buys",
                        f"{names}{'…' if len(buys) > 6 else ''} - ${_SC_DOLLARS_PER_BUY:,} each, 5% stop.",
                        priority="high", tags="white_check_mark")
-        except Exception as _exc:
-            print(f"[silent_except:L8894] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     except Exception as _e:
         import traceback
         print(f"[sc_buy] error: {_e}\n{traceback.format_exc()}")
@@ -9001,8 +9001,8 @@ def sc_morning_candidates():
                     for key in ["tql", "tct", "tac", "tsm", "tpa", "tcg", "tpd", "tap", "tres", "secret_boost", "tql_fired"]:
                         if key in meta:
                             r[key] = meta[key]
-                except Exception as _exc:
-                    print(f"[silent_except:L9004] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
         return jsonify({"count": len(rows), "candidates": rows}), 200
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
@@ -9145,11 +9145,11 @@ def _send_morning_inflows_email() -> None:
                 try:
                     info = tk_obj.info
                     name = info.get("shortName") or info.get("longName")
-                except Exception as _exc:
-                    print(f"[silent_except:L9148] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
                 return ticker, (float(pre) if pre else None), chg, name
-            except Exception as _exc:
-                print(f"[silent_except:L9151] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
             return ticker, None, None, None
 
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _asc2
@@ -9486,8 +9486,8 @@ def _send_ai_trades_email(trades: list) -> None:
                 try:
                     from datetime import datetime as _dtx
                     expiry_str = _dtx.strptime(expiry, "%Y-%m-%d").strftime("%b %d, %Y")
-                except Exception as _exc:
-                    print(f"[silent_except:L9489] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             signals_html = "".join(
                 f'<span style="display:inline-block;background:#1e293b;color:#94a3b8;font-size:9px;padding:2px 6px;border-radius:4px;margin:2px 2px 0 0;">{s}</span>'
                 for s in (signals[:4] if signals else [])
@@ -9613,8 +9613,8 @@ def _send_unusual_calls_email() -> None:
                 cols = ["ticker","price","strike","expiry","days_out","volume","oi","vol_oi","prem","otm_pct","iv","urgency"]
                 hits = [dict(zip(cols, r)) for r in cur.fetchall()]
                 cur.close(); con.close()
-            except Exception as _exc:
-                print(f"[silent_except:L9616] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
         if not hits:
             print("[unusual_calls_email] no data - skipping")
@@ -9668,8 +9668,8 @@ def _send_unusual_calls_email() -> None:
             try:
                 from datetime import datetime as _dx
                 expiry_fmt = _dx.strptime(expiry, "%Y-%m-%d").strftime("%b %d")
-            except Exception as _exc:
-                print(f"[silent_except:L9671] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             cards_html += f"""
             <div style="background:#111827;border:1px solid #1e293b;border-radius:10px;margin-bottom:12px;overflow:hidden;">
@@ -9825,8 +9825,8 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
             try:
                 from datetime import datetime as _dx
                 expiry_fmt = _dx.strptime(expiry, "%Y-%m-%d").strftime("%b %d")
-            except Exception as _exc:
-                print(f"[silent_except:L9828] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             cards_html += f"""
             <div style="background:#111827;border:1px solid #1e293b;border-radius:10px;margin-bottom:12px;overflow:hidden;">
@@ -9901,8 +9901,8 @@ def _send_microcap_calls_email(owner_only: bool = False) -> None:
                         f"  {str(_h.get('expiry',''))[:7]}  {float(_h.get('vol_oi',0)):.0f}×  {_ps}"
                     )
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L9904] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
     except Exception as _e:
         import traceback
         print(f"[microcap_calls_email] error: {_e}\n{traceback.format_exc()}")
@@ -10096,8 +10096,8 @@ def _send_high_conviction_email(owner_only: bool = False) -> None:
                         f"  {_s.get('num_strikes',1)}× sweeps  ${float(_s.get('total_prem_m',0)):.1f}M  {_s.get('urgency','')}"
                     )
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L10099] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         top_ticker = top5[0]["ticker"] if top5 else "-"
         _send_ntfy(
             f"🔥 High Conviction Calls: Top 5 · {date_str}",
@@ -10666,13 +10666,13 @@ def _poll_ask_sms() -> None:
                             try:
                                 body_text = part.get_payload(decode=True).decode("utf-8", errors="ignore")
                                 break
-                            except Exception as _exc:
-                                print(f"[silent_except:L10669] {type(_exc).__name__}: {_exc}")
+                            except Exception:
+                                pass
                 else:
                     try:
                         body_text = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
-                    except Exception as _exc:
-                        print(f"[silent_except:L10674] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
 
                 # Strip quoted reply lines, "wrote:" attribution, and "On Fri/Mon/..." date lines
                 body_clean = "\n".join(
@@ -10857,10 +10857,10 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
                             raise StopIteration
                 except StopIteration:
                     break
-                except Exception as _exc:
-                    print(f"[silent_except:L10860] {type(_exc).__name__}: {_exc}")
-    except Exception as _exc:
-        print(f"[silent_except:L10862] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     # ── 2. Call flow disappeared from unusual_calls_log (+2 pts) ─────────────
     try:
@@ -10879,8 +10879,8 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
                 f"institutional interest evaporated"
             )
             score += 2
-    except Exception as _exc:
-        print(f"[silent_except:L10882] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # ── 3 & 4. MACD bearish cross + RSI overbought ───────────────────────────
     try:
@@ -10920,8 +10920,8 @@ def _check_exit_signals(ticker: str, entry_price: float | None,
                             f"of yesterday's range - sellers controlled the close (distribution)"
                         )
                         score += 1
-    except Exception as _exc:
-        print(f"[silent_except:L10923] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     return score, signals
 
@@ -11128,8 +11128,8 @@ def _monitor_open_positions() -> None:
                                 + "; ".join(_suppress_why)
                             )
 
-                except Exception as _exc:
-                    print(f"[silent_except:L11131] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
                 if not _suppressed:
                     _send_exit_alert_email(pos, signals, score)
@@ -11179,8 +11179,8 @@ def _fetch_market_movers(count=75):
                     sym = q.get("symbol", "")
                     if sym and "^" not in sym and "/" not in sym and "." not in sym:
                         tickers.append(sym)
-            except Exception as _exc:
-                print(f"[silent_except:L11182] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         # Barchart micro-cap + small-cap advances (catches tiny movers Yahoo lags on)
         _bc_hdrs = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -11200,10 +11200,10 @@ def _fetch_market_movers(count=75):
                         sym = (_row.get("symbol") or "").strip().upper()
                         if sym and len(sym) <= 5 and "." not in sym:
                             tickers.append(sym)
-            except Exception as _exc:
-                print(f"[silent_except:L11203] {type(_exc).__name__}: {_exc}")
-    except Exception as _exc:
-        print(f"[silent_except:L11205] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
+    except Exception:
+        pass
     seen: set = set()
     out: list = []
     for t in tickers:
@@ -11289,8 +11289,8 @@ class _PoolConn:
             self.__dict__["_returned"] = True
             try:
                 self.__dict__["_pool"].putconn(self.__dict__["_conn"])
-            except Exception as _exc:
-                print(f"[silent_except:L11292] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
     def close(self):
         self._put_back()
@@ -11298,8 +11298,8 @@ class _PoolConn:
     def __del__(self):
         try:
             self._put_back()
-        except Exception as _exc:
-            print(f"[silent_except:L11301] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
 try:
     import psycopg2.pool as _pg_pool_mod
@@ -11433,10 +11433,10 @@ def _refresh_daily_top10_bg(today: str):
                 import yfinance as yf
                 try:
                     yf.utils.get_crumb(reuse_session=False)
-                except Exception as _exc:
-                    print(f"[silent_except:L11436] {type(_exc).__name__}: {_exc}")
-            except Exception as _exc:
-                print(f"[silent_except:L11438] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
+            except Exception:
+                pass
             results = scan_tickers(DEFAULT_LEADERBOARD)
             scored  = [r for r in results if not r.get("error") and r.get("score") is not None and (r.get("score") or 0) >= 8]
             scored.sort(key=lambda r: r["score"], reverse=True)
@@ -12323,8 +12323,8 @@ def _update_eod_sweep_outcomes():
                         WHERE id=%s
                     """, (t1, t3, t5, ret(t1), ret(t3), ret(t5), row_id))
                     updated += 1
-                except Exception as _exc:
-                    print(f"[silent_except:L12326] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             conn.commit()
         print(f"[eod_sweep_outcomes] updated {updated} signals")
     except Exception as e:
@@ -12669,8 +12669,8 @@ def _run_microcap_options_scan_impl() -> list:
                             "iv": iv, "urgency": urgency, "cap_tier": cap_tier,
                             "far_otm_sweep": far_otm_sweep,
                         })
-                    except Exception as _exc:
-                        print(f"[silent_except:L12672] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
                 _cbump("scanned_ok")
             else:
                 _cbump("no_options")  # Polygon failed — skip Yahoo to avoid blocking hang
@@ -12765,8 +12765,8 @@ def _get_float_shares(ticker: str) -> int:
             if shares > 0:
                 _float_cache[ticker] = (shares, _dtnow.now())
                 return shares
-    except Exception as _exc:
-        print(f"[silent_except:L12768] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     # Fallback: Yahoo (Polygon key missing or 404) — skip when breaker tripped
     if not _yf_breaker_open():
         try:
@@ -12779,8 +12779,8 @@ def _get_float_shares(ticker: str) -> int:
             if shares > 0:
                 _float_cache[ticker] = (shares, _dtnow.now())
             return shares
-        except Exception as _exc:
-            print(f"[silent_except:L12782] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     return 0
 
 
@@ -13020,8 +13020,8 @@ def _run_gamma_pressure_scan() -> list:
             for (t,) in cur.fetchall():
                 if t not in universe:
                     universe.append(t)
-    except Exception as _exc:
-        print(f"[silent_except:L13023] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     def _scan_one(ticker):
         try:
@@ -13083,8 +13083,8 @@ def _run_gamma_pressure_scan() -> list:
                     ticker=ticker, fir=fir, vol_oi=vol_oi,
                     score=score, price_change_pct=chg, top_strike=best_strike,
                 )
-            except Exception as _exc:
-                print(f"[silent_except:L13086] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             return {
                 "ticker": ticker, "price": round(price, 2),
@@ -13105,8 +13105,8 @@ def _run_gamma_pressure_scan() -> list:
                 r = fut.result()
                 if r:
                     results.append(r)
-            except Exception as _exc:
-                print(f"[silent_except:L13108] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
     results.sort(key=lambda x: x["score"], reverse=True)
 
@@ -13248,8 +13248,8 @@ def _run_oi_snapshot() -> None:
             """)
             _prev_tickers = [r[0] for r in cur.fetchall()]
             priority = list(dict.fromkeys(priority + _prev_tickers))
-    except Exception as _exc:
-        print(f"[silent_except:L13251] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # Priority 2: static universe (fill remaining slots up to 150 total)
     static_pool = [t for t in _MICRO_CAP_UNIVERSE if t not in priority]
@@ -13291,8 +13291,8 @@ def _run_oi_snapshot() -> None:
                         rows.append((ticker, price, strike, exp, oi, otm_pct, days, iv))
                 except Exception:
                     continue
-        except Exception as _exc:
-            print(f"[silent_except:L13294] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         return rows
 
     # 2 workers max - YF allows ~1 req/sec per IP; 2 workers + 1.5-2.5s sleep ≈ safe
@@ -13301,8 +13301,8 @@ def _run_oi_snapshot() -> None:
         for fut in _ascf(futs):
             try:
                 snapshots.extend(fut.result())
-            except Exception as _exc:
-                print(f"[silent_except:L13304] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
     print(f"[oi_snapshot] captured {len(snapshots)} strikes across {len(universe)} tickers")
 
@@ -13619,8 +13619,8 @@ def _get_charm_cascade_signals(min_oi: int = 100) -> list:
                     days_out=int(_r[6]), oi=int(_r[4]), otm_pct=float(_r[5]),
                     charm_score=float(_r[7]),
                 )
-        except Exception as _exc:
-            print(f"[silent_except:L13622] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         return rows
     except Exception:
         return []
@@ -13647,8 +13647,8 @@ def _finviz_short_float(ticker: str) -> dict:
             dtc = round(float(m2.group(1)), 1)
         if si_pct is not None:
             return {"si_pct": si_pct, "dtc": dtc or 0.0}
-    except Exception as _exc:
-        print(f"[silent_except:L13650] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     return None
 
 
@@ -13672,8 +13672,8 @@ def _get_short_interest(tickers: list) -> dict:
                 si   = round(float(info.get("shortPercentOfFloat", 0) or 0) * 100, 1)
                 dtc  = round(float(info.get("shortRatio",          0) or 0), 1)
                 return ticker, {"si_pct": si, "dtc": dtc}
-            except Exception as _exc:
-                print(f"[silent_except:L13675] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         return ticker, {"si_pct": 0.0, "dtc": 0.0}
 
     result = {}
@@ -13683,8 +13683,8 @@ def _get_short_interest(tickers: list) -> dict:
             try:
                 t, d = fut.result()
                 result[t] = d
-            except Exception as _exc:
-                print(f"[silent_except:L13686] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
     return result
 
 
@@ -13748,8 +13748,8 @@ def _get_dark_pool_convergence(tickers: list) -> dict:
                                 off_exchange_pct=result[ticker]["off_exchange_pct"],
                                 volume=tv,
                             )
-                        except Exception as _exc:
-                            print(f"[silent_except:L13751] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
             break
     return result
 
@@ -13776,8 +13776,8 @@ def _get_conviction_seed_accum(days_back: int = 3) -> list:
             """, (cutoff,))
             for _tk, _acc in cur.fetchall():
                 out.append((str(_tk).upper(), 400.0 + float(_acc or 0)))
-    except Exception as _exc:
-        print(f"[silent_except:L13779] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     return out
 
 
@@ -13850,8 +13850,8 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
                     scores[ticker] = {"price": 0, "pts": {}, "meta": {}}
                 scores[ticker]["pts"]["gamma_fir"] = pts
                 scores[ticker]["meta"]["fir"]      = round(fir, 2)
-    except Exception as _exc:
-        print(f"[silent_except:L13853] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # ── Widen the discovery funnel ────────────────────────────────────────────
     # Beyond OI / charm / gamma, pull candidates from the OTHER deterministic daily
@@ -13890,8 +13890,8 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
             seed_priority[_tk] = max(seed_priority.get(_tk, 0.0), _prio)
             if "accum" not in scores[_tk]["meta"].setdefault("seed_src", []):
                 scores[_tk]["meta"]["seed_src"].append("accum")
-    except Exception as _exc:
-        print(f"[silent_except:L13893] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # Force-scored tickers (on-demand single lookup) must get FULL heavy-layer
     # coverage, so give them TOP priority - L4 (first 50) and L6 (first 30) only
@@ -14063,8 +14063,8 @@ def _get_float_pressure_signals(tickers: list) -> dict:
                 try:
                     calls = tk.option_chain(exp).calls
                     total_oi += int(calls["openInterest"].fillna(0).sum())
-                except Exception as _exc:
-                    print(f"[silent_except:L14066] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             if total_oi <= 0:
                 return ticker, None
             delta_demand = total_oi * 100 * 0.40
@@ -14091,8 +14091,8 @@ def _get_float_pressure_signals(tickers: list) -> dict:
                 tk, data = f.result()
                 if data:
                     result[tk] = data
-            except Exception as _exc:
-                print(f"[silent_except:L14094] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
     return result
 
 
@@ -14615,8 +14615,8 @@ def _init_ai_trade_log_table():
             for m in migrate_sql:
                 try:
                     cur.execute(m)
-                except Exception as _exc:
-                    print(f"[silent_except:L14618] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             conn.commit()
     except Exception as e:
         print(f"[ai_trade_log] init table error: {e}")
@@ -14899,8 +14899,8 @@ def _init_ai_short_calls_log_table():
             for _col, _type in [("rec_type","TEXT DEFAULT 'BUY_CALL'"),("day_ret","FLOAT"),("confirmed_2d","BOOL")]:
                 try:
                     conn.cursor().execute(f"ALTER TABLE ai_short_calls_log ADD COLUMN IF NOT EXISTS {_col} {_type}")
-                except Exception as _exc:
-                    print(f"[silent_except:L14902] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             conn.commit()
     except Exception as e:
         print(f"[ai_short_calls_log] init error: {e}")
@@ -15206,8 +15206,8 @@ def _update_ai_short_call_outcomes():
                     _h = _td_history(ticker, start_date=str(target_dt))
                     if _h is not None and not _h.empty:
                         return float(_h["Close"].iloc[0])
-                except Exception as _exc:
-                    print(f"[silent_except:L15209] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
                 # Fallback: yfinance historical — skip if breaker tripped to avoid 8s hang
                 if not _yf_breaker_open():
                     try:
@@ -15217,8 +15217,8 @@ def _update_ai_short_call_outcomes():
                         _hf = _tkr.history(start=str(target_dt), end=str(end_dt), timeout=8)
                         if _hf is not None and not _hf.empty:
                             return float(_hf["Close"].iloc[0])
-                    except Exception as _exc:
-                        print(f"[silent_except:L15220] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
                 return None
 
             def _scwin(close, p0, bkeven):
@@ -15392,8 +15392,8 @@ def _detect_aisc_misses():
                 _cur_uc2.execute(
                     f"SELECT DISTINCT ticker FROM unusual_calls_log WHERE last_seen >= {_et_sql}")
                 _uc_tickers = {r[0] for r in _cur_uc2.fetchall()}
-        except Exception as _exc:
-            print(f"[silent_except:L15395] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         # 4. Find significant movers AI missed (5%+ from open, vol >= 80K, price $3-$600)
         _misses = []
@@ -15429,8 +15429,8 @@ def _detect_aisc_misses():
                                 price=EXCLUDED.price, has_uc=EXCLUDED.has_uc
                     """, _row)
                     _saved_count += 1
-                except Exception as _exc:
-                    print(f"[silent_except:L15432] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             _cm2.commit()
 
         print(f"[aisc_misses] {_today_str}: AI picked {len(_picked)}, missed {len(_misses)} movers 5%+, saved top {_saved_count}")
@@ -15582,8 +15582,8 @@ def _detect_aiem_misses():
                     f"SELECT DISTINCT ticker FROM unusual_calls_log WHERE last_seen >= {_et_sql_am}"
                 )
                 _uc_am = {r[0] for r in _cu_uc.fetchall()}
-        except Exception as _exc:
-            print(f"[silent_except:L15585] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         # 3. Fetch today's Polygon grouped daily (complete after market close)
         _url_am = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/"
@@ -15639,8 +15639,8 @@ def _detect_aiem_misses():
                                 has_uc=EXCLUDED.has_uc
                     """, _row)
                     _saved_am += 1
-                except Exception as _exc:
-                    print(f"[silent_except:L15642] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             _c_sv.commit()
 
         print(
@@ -19033,8 +19033,8 @@ def _mkt_init_tables():
                 )
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ledger_date ON aiem_test_ledger (session_date)")
-        except Exception as _exc:
-            print(f"[silent_except:L19036] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         print("[mkt_init] polygon_market_daily + aiem_signal_discoveries + aiem_test_ledger ready")
     except Exception as _e:
         print(f"[mkt_init] table init error: {_e}")
@@ -19246,7 +19246,7 @@ def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad",
                         col = _MKT_SAFE_COLS[field]
                         try:
                             v = float(val)
-                        except Exception:
+                        except:
                             continue
                         # Tight baseline: value within 50% below threshold
                         tight_parts.append(f"({col} >= %s AND {col} < %s)")
@@ -19258,7 +19258,7 @@ def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad",
                         col = _MKT_SAFE_COLS[field]
                         try:
                             v = float(val)
-                        except Exception:
+                        except:
                             continue
                         tight_parts.append(f"({col} > %s AND {col} <= %s)")
                         tight_params.extend([v, v * 1.5])
@@ -19297,8 +19297,8 @@ def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad",
                 "mkt_test_signal", conditions,
                 broad_res.get("p_value"), broad_res.get("signal_n")
             )
-        except Exception as _exc:
-            print(f"[silent_except:L19300] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         return result
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -19888,8 +19888,8 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
                 "verdict": _rdx.get("verdict", ""),
                 "note": "Call mkt_load_discoveries to review existing signals and build on them instead.",
             }
-    except Exception as _exc:
-        print(f"[silent_except:L19891] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # ── All gates passed — save ───────────────────────────────────────────────
     try:
@@ -22183,8 +22183,8 @@ def _send_aiem_daily_digest() -> None:
         if conf and conf != "LOW" and not scoring_model and raw_adj:
             try:
                 scoring_model = raw_adj if isinstance(raw_adj, dict) else _dj.loads(raw_adj)
-            except Exception as _exc:
-                print(f"[silent_except:L22186] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         if tools and int(tools) > agent_tools:
             agent_conf  = conf or "–"
             agent_tools = int(tools)
@@ -22502,8 +22502,8 @@ def _mkt_refresh_ticker_meta_bg(tickers=None):
                 sector = data.get("sic_description")
                 shares = data.get("share_class_shares_outstanding")
                 rows.append((t, sector, mc, _cap_tier(mc), shares))
-            except Exception as _exc:
-                print(f"[silent_except:L22505] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
             _t_tm.sleep(0.25)
 
         if rows:
@@ -25490,8 +25490,8 @@ def _aiem_tool_get_daily_candidates(limit: int = 10, min_conviction_pct: int = 6
                     for c in candidates:
                         c["live_snapshot"] = _live_by_ticker.get(c["ticker"])
                     _data_status = _live.get("data_status", "unavailable")
-            except Exception as _exc:
-                print(f"[silent_except:L25493] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
         return {
             "status":               "ok",
@@ -25915,8 +25915,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
             if on_step:
                 try:
                     on_step(step)
-                except Exception as _exc:
-                    print(f"[silent_except:L25918] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
             messages.append({
                 "role": "tool", "tool_call_id": tc.id,
@@ -30097,8 +30097,8 @@ def _aiem_tool_send_discovery_alert(
                     "email_sent": ok,
                 },
             )
-        except Exception as _exc:
-            print(f"[silent_except:L30100] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         return {
             "sent":           ok,
@@ -31370,8 +31370,8 @@ def portfolio():
                 last = (_q.get(t) or {}).get("last") or 0
                 if last > 0:
                     prices[t] = float(last)
-        except Exception as _exc:
-            print(f"[silent_except:L31373] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     result = get_portfolio_value(prices)
     return jsonify(result)
 
@@ -31763,8 +31763,8 @@ def _aiem_paper_execute_today():
                             _pg_row = _cu2.fetchone()
                         if _pg_row:
                             _price = float(_pg_row[0])
-                    except Exception as _exc:
-                        print(f"[silent_except:L31766] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
                 if _price <= 0:
                     continue
 
@@ -32346,8 +32346,8 @@ def smart_money_detail(ticker):
         if spy_df is not None and len(spy_df) > 21:
             sc = spy_df["Close"].squeeze().astype(float).dropna()
             spy_ret = float((sc.iloc[-1] - sc.iloc[-21]) / sc.iloc[-21])
-    except Exception as _exc:
-        print(f"[silent_except:L32349] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     from smart_money import fetch_options_data
     opts = fetch_options_data(ticker)
     result = compute_smart_money(ticker, df, spy_ret, opts)
@@ -32528,12 +32528,12 @@ def bull_flow_top10():
         def _refresh_crumb():
             try:
                 yf.utils.get_crumb(reuse_session=False)
-            except Exception as _exc:
-                print(f"[silent_except:L32531] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
         _crumb_t = _bf_thr.Thread(target=_refresh_crumb, daemon=True)
         _crumb_t.start(); _crumb_t.join(timeout=2)
-    except Exception as _exc:
-        print(f"[silent_except:L32535] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     def _get_row(ticker):
         try:
@@ -32577,8 +32577,8 @@ def bull_flow_top10():
                     diff = (earn - today).days
                     if 0 <= diff <= 365:
                         days_to_earnings = diff
-            except Exception as _exc:
-                print(f"[silent_except:L32580] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # Short float %
             short_float_pct = None
@@ -32587,8 +32587,8 @@ def bull_flow_top10():
                 sfp  = float(info.get("shortPercentOfFloat") or 0) * 100
                 if 0 < sfp < 100:
                     short_float_pct = round(sfp, 1)
-            except Exception as _exc:
-                print(f"[silent_except:L32590] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             return {
                 "ticker":           ticker,
@@ -32615,8 +32615,8 @@ def bull_flow_top10():
                 r = fut.result(timeout=1)
                 if r:
                     rows.append(r)
-            except Exception as _exc:
-                print(f"[silent_except:L32618] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
     except Exception:
         pass  # timeout - fall through to DB merge below
     _bf_ex.shutdown(wait=False, cancel_futures=True)  # don't block on slow yf calls
@@ -33172,8 +33172,8 @@ def _get_microcap_tickers() -> list:
                 if new_this_page == 0:
                     break
                 time.sleep(0.3)  # be polite to Finviz
-        except Exception as _exc:
-            print(f"[silent_except:L33175] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         return found
 
     def _yahoo(scrId: str, start: int) -> list:
@@ -33234,8 +33234,8 @@ def _get_microcap_tickers() -> list:
         for future in _asc_mc(tasks):
             try:
                 _absorb(tasks[future], future.result())
-            except Exception as _exc:
-                print(f"[silent_except:L33237] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
     # ── Finviz fetched SEQUENTIALLY (single stream) ──────────────────────────
     # Finviz blocks CONCURRENT scraping from one IP, but a single sequential
@@ -33328,8 +33328,8 @@ def _run_microcap_flow_scan() -> dict:
             try:
                 _mc_r = _pg_market_cap_batch([ticker])
                 market_cap = _mc_r.get(ticker.upper()) or None
-            except Exception as _exc:
-                print(f"[silent_except:L33331] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             inflow = outflow = 0.0
             for _, row in hist.iterrows():
@@ -33527,8 +33527,8 @@ def _run_multiday_flow_scan(n_days: int = 40) -> dict:
             try:
                 _mc_r = _pg_market_cap_batch([ticker])
                 market_cap = _mc_r.get(ticker.upper()) or None
-            except Exception as _exc:
-                print(f"[silent_except:L33530] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # Build per-day flow list (oldest → newest)
             # Track vol_series to compute rolling 20-day avg volume for rvol
@@ -34083,16 +34083,16 @@ def squeeze_detector():
                     _info_sq = yf.Ticker(ticker).info
                     sfp = _f(_info_sq.get("shortPercentOfFloat", 0)) * 100
                     sr  = _f(_info_sq.get("shortRatio", 0))
-                except Exception as _exc:
-                    print(f"[silent_except:L34086] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             if sfp < 5:
                 return None
             # ── Price: Tradier fast_info ──────────────────────────────────────
             price = 0.0
             try:
                 price = _f(getattr(_TdTicker(ticker).fast_info, "last_price", 0) or 0)
-            except Exception as _exc:
-                print(f"[silent_except:L34094] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
             opts = fetch_options_data(ticker)
             cpr  = _f(opts.get("call_put_ratio", 0)) if opts else 0
             pk   = _f(opts.get("top_prem_value", 0)) if opts else 0
@@ -34461,10 +34461,10 @@ def convergence():
                         r = fut.result()
                         if r:
                             _res.append(r)
-                    except Exception as _exc:
-                        print(f"[silent_except:L34464] {type(_exc).__name__}: {_exc}")
-            except Exception as _exc:
-                print(f"[silent_except:L34466] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             finally:
                 _ex_cv.shutdown(wait=False, cancel_futures=True)
             _res.sort(key=lambda x: x["convergence_score"], reverse=True)
@@ -34795,10 +34795,10 @@ def gamma_wall():
                 r = fut.result()
                 if r is not None:
                     rows.append(r)
-            except Exception as _exc:
-                print(f"[silent_except:L34798] {type(_exc).__name__}: {_exc}")
-    except Exception as _exc:
-        print(f"[silent_except:L34800] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
+    except Exception:
+        pass
     finally:
         _ex_gw.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda x: x["ticker"])
@@ -34893,8 +34893,8 @@ def _enrich_technical_signals(tickers_data):
                 v["tech_macd"] = macd_status
                 if macd_div:
                     v["tech_macd_div"] = macd_div
-            except Exception as _exc:
-                print(f"[silent_except:L34896] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # ── Support / Resistance (swing highs/lows, 60-day window) ────────
             try:
@@ -34926,8 +34926,8 @@ def _enrich_technical_signals(tickers_data):
                     sr_parts.append(f"BELOW_RESISTANCE({res_dist}%_above)")
                 if sr_parts:
                     v["tech_sr_context"] = "_".join(sr_parts)
-            except Exception as _exc:
-                print(f"[silent_except:L34929] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # ── Volume Profile / Point of Control (90-day) ───────────────────
             try:
@@ -34954,8 +34954,8 @@ def _enrich_technical_signals(tickers_data):
                             f"ABOVE_POC({poc_dist:+.1f}%)" if poc_dist > 0 else
                             f"BELOW_POC({poc_dist:+.1f}%)"
                         )
-            except Exception as _exc:
-                print(f"[silent_except:L34957] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # ── VWAP (20-day volume-weighted average price) ───────────────────
             try:
@@ -34974,8 +34974,8 @@ def _enrich_technical_signals(tickers_data):
                             "BELOW_VWAP(sellers_in_control)" if vwap_dist < -1.5 else
                             "AT_VWAP(decision_point)"
                         )
-            except Exception as _exc:
-                print(f"[silent_except:L34977] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
         except Exception:
             continue
@@ -35009,8 +35009,8 @@ def _enrich_layer9_signals(tickers_data: dict) -> None:
             df = _td_history(t, days=120)
             if df is not None and not df.empty and len(df) >= 30:
                 histories[t] = df
-        except Exception as _exc:
-            print(f"[silent_except:L35012] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
     if not histories:
         print("[layer9] no valid histories fetched — skipping", file=_l9sys.stderr)
@@ -35353,8 +35353,8 @@ def _ai_trades_worker():
             for _ph_t, _ph_days, _ph_avg in _ph_rows:
                 _add(_ph_t, "persistence_days", int(_ph_days))
                 _add(_ph_t, "persistence_avg_score", round(float(_ph_avg or 0), 1))
-    except Exception as _exc:
-        print(f"[silent_except:L35356] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # 14b. Sector ETF flow confirmation - institutional call buying confirmed at the sector level
     _sector_etf_bullish: set = set()
@@ -35369,8 +35369,8 @@ def _ai_trades_worker():
             """)
             for (_se_etf,) in _se_cur.fetchall():
                 _sector_etf_bullish.add(_se_etf)
-    except Exception as _exc:
-        print(f"[silent_except:L35372] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     _TICKER_TO_ETF_MAP = {
         "AAPL":"XLK","MSFT":"XLK","NVDA":"XLK","GOOGL":"XLK","META":"XLK","AMD":"XLK",
@@ -35425,8 +35425,8 @@ def _ai_trades_worker():
                         _dp_tag = "STEADY"
                     _add(_dpt_t, "dp_trend", _dp_tag)
                     _add(_dpt_t, "dp_3d_avg_m", round(_dp_prior_v, 2))
-    except Exception as _exc:
-        print(f"[silent_except:L35428] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # 14d. Multi-day UC flow streak - same unusual call contract returning on 3+ distinct days
     try:
@@ -35447,8 +35447,8 @@ def _ai_trades_worker():
             for _us_t, _us_days, _us_contracts in _uc_streak_rows:
                 _add(_us_t, "uc_streak_days", round(float(_us_days), 1))
                 _add(_us_t, "uc_streak_contracts", int(_us_contracts))
-    except Exception as _exc:
-        print(f"[silent_except:L35450] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # 15. Market regime detection - VIX level + SPY 5d/20d trend
     market_regime = "UNKNOWN"
@@ -35542,8 +35542,8 @@ def _ai_trades_worker():
                             _cstats[_tag][1] += 1
                             if _oc == "WIN":
                                 _cstats[_tag][0] += 1
-                    except Exception as _exc:
-                        print(f"[silent_except:L35545] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
             _cparts = []
             for _tag, _ in _combo_tags:
                 _w, _tot = _cstats[_tag]
@@ -36175,8 +36175,8 @@ JSON array only. No markdown. Start immediately with ["""
                 tr["smp_score"]  = smp.get("smp_score", 0.0)
                 tr["smp_label"]  = smp.get("smp_label", "NO DATA")
                 tr["smp_layers"] = smp.get("smp_layers", [])
-        except Exception as _exc:
-            print(f"[silent_except:L36178] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         # Stock picks: 3 pure equity buys ranked by stat9 + composite score
         # Isolated second LLM call — does not alter the call_picks output above
@@ -36507,10 +36507,10 @@ def composite_score():
                             r = f.result()
                             if r is not None:
                                 _rows.append(r)
-                        except Exception as _exc:
-                            print(f"[silent_except:L36510] {type(_exc).__name__}: {_exc}")
-                except Exception as _exc:
-                    print(f"[silent_except:L36512] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             _rows.sort(key=lambda x: x["score"], reverse=True)
             _out = {"results": _rows, "scanned": len(DEFAULT_LEADERBOARD)}
             app._cs_cache = _out; app._cs_cache_ts = now
@@ -36757,8 +36757,8 @@ def whale_activity():
             """)
             cols = ["ticker","direction","strike","expiry","days_out","prem_m","volume","otm_pct","category","tier","price"]
             db_blocks = [dict(zip(cols, row)) for row in cur.fetchall()]
-    except Exception as _exc:
-        print(f"[silent_except:L36760] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
 
     # Kick off live scan in background (only one at a time)
     if not getattr(app, "_whale_scan_running", False):
@@ -37296,8 +37296,8 @@ def unusual_calls():
                 app._unusual_calls_cache    = out
                 app._unusual_calls_cache_ts = _dt.now()
                 return jsonify(out)
-        except Exception as _exc:
-            print(f"[silent_except:L37299] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         # Live scan - movers first so earnings/catalyst stocks are always caught,
         # then fill with the core leaderboard. Stocks up 5%+ (like CBRL +24%)
@@ -37362,8 +37362,8 @@ def unusual_calls():
                         _d["first_seen"] = _fs.isoformat() if _fs else None
                         _d["last_seen"]  = _ls.isoformat() if _ls else None
                         all_hits.append(_d)
-            except Exception as _exc:
-                print(f"[silent_except:L37365] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
         # Save FIRST so each hit dict is stamped in-place with first_seen /
         # detected_label, THEN build + cache out - otherwise a concurrent request
@@ -37461,8 +37461,8 @@ def unusual_calls_microcap():
                 )
                 if _most_recent_str < _today_et_str:
                     rows = []   # force the stale-fallback path below to re-fetch
-            except Exception as _exc:
-                print(f"[silent_except:L37464] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
         # Stale fallback: if the requested window is empty, return the most
         # recent scan from up to 14 days ago with stale=True so the tab shows
@@ -37740,8 +37740,8 @@ def conviction_stack_endpoint():
                                      "stale": True, "source": "db_inline"}
                 app._cs_stk_ts    = _stk_dt.now()
                 _cs_stk_cache     = app._cs_stk_cache
-        except Exception as _exc:
-            print(f"[silent_except:L37743] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
     # ── end inline fallback ──────────────────────────────────────────────────
 
     def _bg_stk():
@@ -39295,10 +39295,10 @@ def _build_ai_stock_picks():
                     if _l9df is not None and not _l9df.empty and len(_l9df) >= 30:
                         res = compute_layer9_score(_l9t, _l9df)
                         l9_scores[_l9t] = res
-                except Exception as _exc:
-                    print(f"[silent_except:L39298] {type(_exc).__name__}: {_exc}")
-        except Exception as _exc:
-            print(f"[silent_except:L39300] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # ── Build final picks ─────────────────────────────────────────────────
         today = _spdate.today()
@@ -39318,8 +39318,8 @@ def _build_ai_stock_picks():
             try:
                 from layer9_statistical_edge import format_layer9_signal
                 l9_sig = format_layer9_signal(l9)
-            except Exception as _exc:
-                print(f"[silent_except:L39321] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # Skip very low Layer 9 quality when we have enough picks
             if len(picks) >= 5 and l9_scores and l9_score < 38:
@@ -39595,8 +39595,8 @@ def ai_short_calls():
             if _pr2:
                 return jsonify({"picks": _pr2, "count": len(_pr2), "stale": True,
                                 "note": "cached - Yahoo rate limited"})
-        except Exception as _exc:
-            print(f"[silent_except:L39598] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         return jsonify({"picks": [], "count": 0, "stale": True,
                         "note": "Yahoo rate limited - try again shortly"})
 
@@ -39875,8 +39875,8 @@ def ai_short_calls():
                             _pr_val = float(_mp_r.get("price") or 0)
                             if _pr_val > 0 and _pr_val < _mp_val * 1.03:
                                 _hits_list.append("max_pain_pull")
-                        except Exception as _exc:
-                            print(f"[silent_except:L39878] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
                     _ms_count_map[_t] = {"count": len(_hits_list), "labels": _hits_list}
             except Exception as _mse:
                 print(f"[ai_short_calls] multi_signal cache error: {_mse}", file=_sys.stderr)
@@ -40097,8 +40097,8 @@ Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no m
                     p["smp_score"]  = smp.get("smp_score", 0.0)
                     p["smp_label"]  = smp.get("smp_label", "NO DATA")
                     p["smp_layers"] = smp.get("smp_layers", [])
-            except Exception as _exc:
-                print(f"[silent_except:L40100] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # Layer 9: enrich each short-call pick with statistical edge score
             try:
@@ -40431,8 +40431,8 @@ def ai_early_movers():
             _fb_em = ""
             try:
                 _fb_em = _get_aiem_feedback()
-            except Exception as _exc:
-                print(f"[silent_except:L40434] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # ── Build prompt lines ────────────────────────────────────────────
             def _enrich_em(i, m):
@@ -41191,8 +41191,8 @@ def multi_signal_convergence():
                         _pc  = float(_cl.iloc[-22]) or 1
                         if float(_obv.iloc[-1]) > float(_obv.iloc[-22]) and (_n - _pc) / _pc >= -0.03:
                             fired.append("OBV_DIVERGE")
-            except Exception as _exc:
-                print(f"[silent_except:L41194] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # ── Info-based signals ────────────────────────────────────────────
             try:
@@ -41209,8 +41209,8 @@ def multi_signal_convergence():
                     fired.append("PRICE_TARGET_UP")
                 if (_info.get("returnOnEquity") or 0) > 0.15 and (_info.get("debtToEquity") or 999) < 150:
                     fired.append("HIGH_QUALITY")
-            except Exception as _exc:
-                print(f"[silent_except:L41212] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # ── Analyst upgrades (last 15 recommendations) ───────────────────
             try:
@@ -41219,8 +41219,8 @@ def multi_signal_convergence():
                     _buys = {"buy", "strong buy", "outperform", "overweight", "positive", "add"}
                     if _recs.tail(15)["To Grade"].str.lower().str.strip().isin(_buys).any():
                         fired.append("ANALYST_UPGRADE")
-            except Exception as _exc:
-                print(f"[silent_except:L41222] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # ── Earnings beat rate (≥75% of recent quarters) ─────────────────
             try:
@@ -41229,8 +41229,8 @@ def multi_signal_convergence():
                     _sc = next((c for c in _eh.columns if "surprise" in c.lower()), None)
                     if _sc and (_eh[_sc] > 0).mean() >= 0.75:
                         fired.append("EARNINGS_BEAT")
-            except Exception as _exc:
-                print(f"[silent_except:L41232] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             # ── Revenue acceleration + Gross margin expansion ─────────────────
             try:
@@ -41246,8 +41246,8 @@ def multi_signal_convergence():
                         _rv = _qis.loc["Total Revenue"].iloc[:4].astype(float).values
                         if _rv[0] > 0 and _rv[2] > 0 and _gp[0]/_rv[0] > _gp[2]/_rv[2] + 0.01:
                             fired.append("MARGIN_EXPAND")
-            except Exception as _exc:
-                print(f"[silent_except:L41249] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
             if len(fired) < 2:
                 return None
@@ -41279,10 +41279,10 @@ def multi_signal_convergence():
                             r = fut.result()
                             if r:
                                 _res.append(r)
-                        except Exception as _exc:
-                            print(f"[silent_except:L41282] {type(_exc).__name__}: {_exc}")
-                except Exception as _exc:
-                    print(f"[silent_except:L41284] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             _res.sort(key=lambda x: (x["score"], x["rel_vol"]), reverse=True)
             signal_defs_map = {s[0]: {"id": s[0], "label": s[1], "desc": s[2]} for s in SIGNAL_DEFS}
             _out = {
@@ -41368,8 +41368,8 @@ WARNING  EARNINGS EVENT: {ticker} reports in {earn['days_until']} day(s) on {ear
     Options market pricing {imp_str}
     {eps_str}
 """
-        except Exception as _exc:
-            print(f"[silent_except:L41371] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         prompt = f"""You are a professional quantitative trader analyzing a convergence signal alert.
 
@@ -41470,8 +41470,8 @@ def iv_rank():
                     if diff < best_diff and (exp_dt - _now_iv).days >= 7:
                         best_diff = diff
                         best_exp = exp
-                except Exception as _exc:
-                    print(f"[silent_except:L41473] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
             if best_exp:
                 try:
@@ -41492,8 +41492,8 @@ def iv_rank():
                             iv30 = round((iv30_call + iv30_put) / 2, 1)
                         elif iv30_call:
                             iv30 = round(iv30_call, 1)
-                except Exception as _exc:
-                    print(f"[silent_except:L41495] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
             iv_hv_ratio = round(iv30 / hv30, 2) if iv30 and hv30 else None
             fi    = tkr.fast_info
@@ -41608,8 +41608,8 @@ def iv_rank_scan():
                     if diff < best_diff and (exp_dt - now_dt).days >= 7:
                         best_diff = diff
                         best_exp = exp
-                except Exception as _exc:
-                    print(f"[silent_except:L41611] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
             if best_exp:
                 try:
@@ -41622,8 +41622,8 @@ def iv_rank_scan():
                         atm = calls.nsmallest(1, "dist")
                         if not atm.empty:
                             iv30 = round(float(atm["impliedVolatility"].iloc[0]) * 100, 1)
-                except Exception as _exc:
-                    print(f"[silent_except:L41625] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
 
             fi    = tkr.fast_info
             price = float(getattr(fi, "last_price", 0) or 0)
@@ -41674,10 +41674,10 @@ def iv_rank_scan():
                             r = _fut.result()
                             if r:
                                 _bg_results.append(r)
-                        except Exception as _exc:
-                            print(f"[silent_except:L41677] {type(_exc).__name__}: {_exc}")
-                except Exception as _exc:
-                    print(f"[silent_except:L41679] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             _bg_results.sort(key=lambda x: (x.get("iv_rank") or 50), reverse=True)
             _out = {"rows": _bg_results, "scanned": len(_tickers_dedup)}
             app._ivs_cache    = _out
@@ -41770,10 +41770,10 @@ def breakout_52week():
                             r = fut.result()
                             if r:
                                 _res.append(r)
-                        except Exception as _exc:
-                            print(f"[silent_except:L41773] {type(_exc).__name__}: {_exc}")
-                except Exception as _exc:
-                    print(f"[silent_except:L41775] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             _res.sort(key=lambda x: x["score"], reverse=True)
             _out = {"hits": _res[:40], "total": len(_res), "scanned": len(DEFAULT_LEADERBOARD)}
             app._bk_cache    = _out
@@ -41887,8 +41887,8 @@ def sector_rotation():
                         })
                     except Exception:
                         continue
-            except Exception as _exc:
-                print(f"[silent_except:L41890] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
             _results.sort(key=lambda x: x["day_chg"], reverse=True)
             _out = {"sectors": _results, "scanned": len(SECTORS)}
             app._sr_cache    = _out
@@ -42300,8 +42300,8 @@ def _fetch_rss_feed(feed_info):
                 "age":          age,
                 "summary":      desc,
             })
-    except Exception as _exc:
-        print(f"[silent_except:L42303] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass
     return items
 
 @app.route("/stock-api/market-press", methods=["GET"])
@@ -42409,8 +42409,8 @@ def _check_earnings(ticker):
                             return m if m > 0 else row.iloc[0].get("lastPrice", 0)
                         straddle = _mid(c_row, "call") + _mid(p_row, "put")
                         implied_move_pct = round(straddle / price * 100, 1)
-        except Exception as _exc:
-            print(f"[silent_except:L42412] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         # EPS estimate
         eps_est = None
@@ -42420,8 +42420,8 @@ def _check_earnings(ticker):
                 eps_est = ea[0] if ea else None
             elif "Earnings Average" in cal.index:
                 eps_est = cal.loc["Earnings Average"].iloc[0]
-        except Exception as _exc:
-            print(f"[silent_except:L42423] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         # Short name + market cap
         mkt_cap_b, short_name = None, ticker
@@ -42429,12 +42429,12 @@ def _check_earnings(ticker):
             mc = getattr(info, "market_cap", None)
             if mc:
                 mkt_cap_b = round(mc / 1e9, 1)
-        except Exception as _exc:
-            print(f"[silent_except:L42432] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
         try:
             short_name = (tk.info.get("shortName") or ticker)[:30]
-        except Exception as _exc:
-            print(f"[silent_except:L42436] {type(_exc).__name__}: {_exc}")
+        except Exception:
+            pass
 
         return {
             "ticker":           ticker,
@@ -42474,8 +42474,8 @@ def earnings_calendar():
                     for r in ex.map(_check_earnings, _EC_WATCHLIST, timeout=25):
                         if r:
                             _res.append(r)
-                except Exception as _exc:
-                    print(f"[silent_except:L42477] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             _res.sort(key=lambda x: (x["earnings_date"], -(x["mkt_cap_b"] or 0)))
             _out = {"earnings": _res, "count": len(_res),
                     "as_of": _et_today().isoformat(), "window_days": 30}
@@ -43111,8 +43111,8 @@ def _get_short_data(ticker):
                 _fi_sd  = yf.Ticker(ticker).info
                 _sf_sd  = _fi_sd.get("shortPercentOfFloat")
                 _dtc_sd = _fi_sd.get("shortRatio")
-            except Exception as _exc:
-                print(f"[silent_except:L43114] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
 
         # 60 days of daily OHLCV - enough for MACD(26), OBV(10), BB(20), SMA(20), RSI(14)
         _h = _td_history(ticker, days=60)
@@ -43587,15 +43587,15 @@ def eod_accumulation():
                                 f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
                                 f"?adjusted=true&apiKey={_pg_key_ea}", timeout=5)
                             prev_close = float((_js_ea.loads(_pg_r.read()).get("results") or [{}])[0].get("c") or 0)
-                        except Exception as _exc:
-                            print(f"[silent_except:L43590] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
                     if prev_close <= 0:
                         try:
                             _h_pc = _td_history(ticker, "1d")
                             if _h_pc is not None and not _h_pc.empty:
                                 prev_close = float(_h_pc["Close"].iloc[-1])
-                        except Exception as _exc:
-                            print(f"[silent_except:L43597] {type(_exc).__name__}: {_exc}")
+                        except Exception:
+                            pass
                     if prev_close <= 0: return None
                     # ── avg_vol: 90-day mean from polygon_market_daily (no Yahoo) ─
                     avg_vol = 0.0
@@ -43609,8 +43609,8 @@ def eod_accumulation():
                             _rv = _cur_ea.fetchone()
                             if _rv and _rv[0]:
                                 avg_vol = float(_rv[0])
-                    except Exception as _exc:
-                        print(f"[silent_except:L43612] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
                     if avg_vol <= 0: return None
                     # ── mkt_cap: shares × prev_close via Polygon reference ────────
                     mkt_cap = 0.0
@@ -43618,8 +43618,8 @@ def eod_accumulation():
                         _shr = _get_float_shares(ticker)
                         if _shr > 0:
                             mkt_cap = _shr * prev_close
-                    except Exception as _exc:
-                        print(f"[silent_except:L43621] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
 
                     hist = _td_intraday(ticker, "1min")
                     if hist is None or hist.empty or len(hist) < 10: return None
@@ -43769,8 +43769,8 @@ def eod_accumulation():
                         has_news = news_today_cnt > 0
                         if not has_news:
                             news_type = "none"
-                    except Exception as _exc:
-                        print(f"[silent_except:L43772] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
 
                     return {
                         "ticker":          ticker,
@@ -44288,8 +44288,8 @@ def standout_track():
                         if isinstance(_v, float) and (_math_st.isnan(_v) or _math_st.isinf(_v)):
                             _v = None
                         _r[_k] = _v
-                    except Exception as _exc:
-                        print(f"[silent_except:L44291] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
             # Also scrub any NaN values from the dict itself (if _rows had floats already)
             # Includes Decimal('NaN') which slips through `isinstance(v, float)` check.
             import decimal as _dec_st
@@ -44445,8 +44445,8 @@ def insider_radar():
                                     return {"ticker": ticker,
                                             "earnings_date": _ed2.isoformat(),
                                             "days_until":    (_ed2 - today).days}
-                    except Exception as _exc:
-                        print(f"[silent_except:L44448] {type(_exc).__name__}: {_exc}")
+                    except Exception:
+                        pass
                 # ── Fallback: Yahoo .calendar (breaker-gated) ─────────────────
                 if _yf_breaker_open():
                     return None
@@ -45486,8 +45486,8 @@ def _send_polygon_rvol_email() -> None:
                 for _mi in _mv[:8]:
                     _tg_lines.append(f"  {_mi['ticker']}  +{_mi['gap_pct']:.1f}%  {_mi['rvol']:.0f}x vol  ${_mi['price']:.2f}")
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L45489] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
     except Exception as _e5:
         print(f"[polygon_rvol] email error: {_e5}\n{traceback.format_exc()}")
 
@@ -45699,8 +45699,8 @@ def aiem_discoveries_endpoint():
             if isinstance(r.get("conditions_json"), str):
                 try:
                     r["conditions_json"] = _dj.loads(r["conditions_json"])
-                except Exception as _exc:
-                    print(f"[silent_except:L45702] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
             for k, v in list(r.items()):
                 if hasattr(v, "isoformat"):
                     r[k] = str(v)
@@ -46125,8 +46125,8 @@ def _send_accum_leaders_email() -> None:
                     for _r in watch_list[:4]:
                         _tg_lines.append(f"  👁 {_r['ticker']}  ${_r['price']:.2f}  score {_r['score']:.0f}")
                 _tg_send("\n".join(_tg_lines))
-            except Exception as _exc:
-                print(f"[silent_except:L46128] {type(_exc).__name__}: {_exc}")
+            except Exception:
+                pass
     except Exception as _e:
         print(f"[accum_leaders] email error: {_e}")
 
@@ -46282,8 +46282,8 @@ def admin_backfill_iv():
                           "_eod_sweeps_cache", "_eod_sweeps_cache_ts"):
                 try:
                     setattr(app, _attr, None)
-                except Exception as _exc:
-                    print(f"[silent_except:L46285] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
         except Exception as _e:
             print(f"[backfill-iv] fatal error: {_e}")
 
@@ -46907,8 +46907,8 @@ def all_code_text():
                     lines_out.append("=" * 60)
                     lines_out.append(code)
                     lines_out.append("")
-                except Exception as _exc:
-                    print(f"[silent_except:L46910] {type(_exc).__name__}: {_exc}")
+                except Exception:
+                    pass
     output = "\n".join(lines_out)
     from flask import Response
     return Response(
