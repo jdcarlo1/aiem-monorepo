@@ -31891,6 +31891,7 @@ def _aiem_paper_mark_to_market():
         # ── 3. Build position snapshot ─────────────────────────────────────
         _price_map = {}
         _positions_for_ai = []
+        _stale_quote_ids = set()   # Fix #4: positions whose live quote fetch failed this cycle
 
         for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail) in _open:
             _q        = _quotes.get(_t) or {}
@@ -31899,10 +31900,25 @@ def _aiem_paper_mark_to_market():
             _qty_f    = float(_qty)
             _not_f    = float(_notional)
             _days     = (_today - _trade_date).days
-            if _last <= 0:
+
+            # Fix #4: a failed quote fetch (_last <= 0) must not be silently
+            # masked as a flat 0% P&L as if it were a real observed price.
+            # _entry_f is kept only as an internal computational placeholder
+            # for the 14-day safety-cap math in step 5 below — this position
+            # is excluded from what's shown to the LLM this cycle (see the
+            # `continue` below), not treated as a real, flat-moving quote.
+            _stale_quote = _last <= 0
+            if _stale_quote:
+                _stale_quote_ids.add(_id)
                 _last = _entry_f
 
             _price_map[_id] = (_last, _entry_f, _qty_f, _not_f, _ttype, _trade_date)
+
+            if _stale_quote:
+                # Excluded from feeding the LLM's HOLD/EXIT reasoning as if
+                # it were real. The 14-day safety cap in step 5 still applies
+                # to this position regardless of the missing quote.
+                continue
 
             if _ttype == "CALL_OPTION":
                 _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
@@ -31983,6 +31999,7 @@ def _aiem_paper_mark_to_market():
                 _ai      = _ai_decisions.get(_id, {})
                 _exit    = _ai.get("decision", "HOLD") == "EXIT"
                 _reason  = _ai.get("reason", "")
+                _stale   = _id in _stale_quote_ids
 
                 # 14-day absolute safety net only
                 if _days >= 14:
@@ -31994,17 +32011,38 @@ def _aiem_paper_mark_to_market():
                 else:
                     _status = "OPEN"
 
+                # Fix #4: if a forced exit (currently only the 14-day cap)
+                # happens while the live quote was stale/unavailable this
+                # cycle, the exit price is only a placeholder (=_entry_f) —
+                # label it explicitly instead of silently recording it as if
+                # it were a real flat-price close.
+                if _stale and _status != "OPEN":
+                    _reason = (f"{_reason} [STALE QUOTE AT EXIT — live price "
+                               f"unavailable, entry price used as placeholder]").strip()
+
                 # Fix #1: LLM outage/malformed-JSON must not silently masquerade as a normal
                 # HOLD decision. Flag as NEEDS_REVIEW (distinct, alert-worthy) instead, while
                 # still letting the 14-day safety cap above force a real exit as backstop.
+                # Fix #4: a stale/failed quote fetch this cycle also needs review — and must
+                # not have masked last_price/pnl/pnl_pct with a fabricated flat-P&L value.
                 _needs_review  = False
                 _review_reason = None
-                if not _ai_call_ok and _status == "OPEN":
-                    _needs_review  = True
-                    _review_reason = (f"AIEM decision call failed this MTM cycle "
-                                       f"({_ai_call_error}); held open on price-only fallback, "
-                                       f"pending manual review. 14-day cap still applies.")
-                    print(f"[aiem_paper][NEEDS_REVIEW] {_t} — {_review_reason}")
+                if _status == "OPEN":
+                    _review_bits = []
+                    if _stale:
+                        _review_bits.append(
+                            "Live quote fetch failed this MTM cycle (stale/unknown price); "
+                            "last_price/P&L left unchanged rather than masked as flat."
+                        )
+                    if not _ai_call_ok:
+                        _review_bits.append(
+                            f"AIEM decision call failed this MTM cycle ({_ai_call_error}); "
+                            f"held open on price-only fallback."
+                        )
+                    if _review_bits:
+                        _needs_review  = True
+                        _review_reason = " ".join(_review_bits) + " Pending manual review. 14-day cap still applies."
+                        print(f"[aiem_paper][NEEDS_REVIEW] {_t} — {_review_reason}")
 
                 if _status != "OPEN":
                     _cu.execute("""
@@ -32018,6 +32056,16 @@ def _aiem_paper_mark_to_market():
                           round(_pnl, 2), round(_pnl_pct, 4),
                           _last, _reason, _id))
                     print(f"[aiem_paper] EXIT {_t} {_pnl_pct:+.1f}% — {_reason}")
+                elif _stale:
+                    # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
+                    # masked flat-price placeholder — leave the previously
+                    # stored (real) values untouched, only flag for review.
+                    _cu.execute("""
+                        UPDATE aiem_paper_trades
+                        SET updated_at=NOW(),
+                            needs_review=%s, review_reason=%s
+                        WHERE id=%s
+                    """, (_needs_review, _review_reason, _id))
                 else:
                     _cu.execute("""
                         UPDATE aiem_paper_trades
