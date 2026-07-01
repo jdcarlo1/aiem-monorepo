@@ -1,0 +1,148 @@
+# Fix: sector_heat_score is date-blind (main.py)
+
+## The bug
+
+`_get_sector_heat()` has no way to compute heat "as of" a historical date — it
+always uses `date.today()`, even when called from a backfill loop over old
+dates. This makes `sector_heat_score` wrong for every backfilled row (it gets
+today's heat instead of that date's heat). It also has no upper bound on the
+date filter, so even live calls have no time ceiling on the query.
+
+Two callers are affected:
+- `_compute_pick_layer_scores(tickers, trade_date)` — receives `trade_date`
+  but never forwards it to `_get_sector_heat()`.
+- `_backfill_pick_scores()` — loops over historical `date_str` values but
+  calls `_get_sector_heat()` with no date, so every historical row gets
+  today's sector heat baked in as if it were historical.
+
+## Fix — three edits to main.py
+
+### 1. Replace the function definition
+
+Find:
+```python
+def _get_sector_heat(days_back: int = 2) -> dict:
+    """
+    Layer 8 - Sector Theme Correlation.
+    When a "lead" ticker in a theme fires unusual call activity, ALL smaller-float
+    names in the same sector become sympathy plays. Hedge funds monitor sector
+    momentum: one quantum stock moves → scan all quantum micro-floats.
+
+    Returns {
+      "hot_sectors": [{"sector": str, "lead_tickers": [...], "sympathy_plays": [...]}],
+      "sector_tickers_fired": {ticker: [sectors]},
+    }
+    """
+    import psycopg2 as _pg8, os as _os8
+    from datetime import date as _d8, timedelta as _td8
+    cutoff = _d8.today() - _td8(days=days_back)
+    try:
+        with _pg8.connect(_os8.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_microcap_log
+                WHERE last_seen >= %s AND prem >= 5000
+            """, (cutoff,))
+            fired = {r[0] for r in cur.fetchall()}
+```
+
+Replace with:
+```python
+def _get_sector_heat(days_back: int = 2, reference_date=None) -> dict:
+    """
+    Layer 8 - Sector Theme Correlation.
+    When a "lead" ticker in a theme fires unusual call activity, ALL smaller-float
+    names in the same sector become sympathy plays. Hedge funds monitor sector
+    momentum: one quantum stock moves → scan all quantum micro-floats.
+
+    reference_date: the date to compute heat "as of". Defaults to today (live use).
+      Pass the trade_date/date_str being scored or backfilled — otherwise this
+      always reflects the CURRENT moment regardless of what date you're asking
+      about, which silently corrupts any historical/backfilled use of this data
+      with lookahead bias.
+
+    Returns {
+      "hot_sectors": [{"sector": str, "lead_tickers": [...], "sympathy_plays": [...]}],
+      "sector_tickers_fired": {ticker: [sectors]},
+    }
+    """
+    import psycopg2 as _pg8, os as _os8
+    from datetime import date as _d8, datetime as _dt8, timedelta as _td8
+    if reference_date is None:
+        as_of = _d8.today()
+    elif isinstance(reference_date, str):
+        as_of = _dt8.strptime(reference_date, "%Y-%m-%d").date()
+    elif isinstance(reference_date, _dt8):
+        as_of = reference_date.date()
+    else:
+        as_of = reference_date  # already a date
+    cutoff = as_of - _td8(days=days_back)
+    try:
+        with _pg8.connect(_os8.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_microcap_log
+                WHERE last_seen >= %s AND last_seen <= %s AND prem >= 5000
+            """, (cutoff, as_of + _td8(days=1)))
+            fired = {r[0] for r in cur.fetchall()}
+```
+
+### 2. In `_compute_pick_layer_scores`, update the call site
+
+Find:
+```python
+    # ── sector_heat_score: heat score for ticker's sector ────────────────────
+    try:
+        _sh = _get_sector_heat(days_back=2)
+        _ticker_heat: dict = {}
+```
+
+Replace with:
+```python
+    # ── sector_heat_score: heat score for ticker's sector ────────────────────
+    try:
+        _sh = _get_sector_heat(days_back=2, reference_date=trade_date)
+        _ticker_heat: dict = {}
+```
+
+### 3. In `_backfill_pick_scores`, update the call site
+
+Find:
+```python
+                # ── sector_heat: recompute from polygon_market_daily ──────────
+                sh_by_ticker = {}
+                try:
+                    _sh2 = _get_sector_heat(days_back=2)
+                    for _hs2 in _sh2.get("hot_sectors", []):
+```
+
+Replace with:
+```python
+                # ── sector_heat: recompute from polygon_market_daily ──────────
+                sh_by_ticker = {}
+                try:
+                    _sh2 = _get_sector_heat(days_back=2, reference_date=date_str)
+                    for _hs2 in _sh2.get("hot_sectors", []):
+```
+
+## Do NOT change
+
+Two other call sites of `_get_sector_heat()` are correct as-is and should be
+left alone — they mean "right now" and have no historical dimension:
+- The `/stock-api/sector-heat` endpoint
+- The live composite scan path
+
+## After applying
+
+1. Run `python -m py_compile main.py` to confirm no syntax errors.
+2. Rows already written by `_backfill_pick_scores()` before this fix have
+   wrong `sector_heat_score` values (all showing "today's" heat regardless of
+   trade_date). Null those out and re-run the backfill:
+   ```sql
+   UPDATE ai_short_calls_log SET sector_heat_score = NULL;
+   ```
+   Then re-trigger `_backfill_pick_scores()`.
+
+## Verified
+
+- All three edits applied to the extracted copy of main.py and confirmed
+  with `python -m py_compile main.py` — no syntax errors.
+- Confirmed via grep that the two live-only call sites were left untouched.
