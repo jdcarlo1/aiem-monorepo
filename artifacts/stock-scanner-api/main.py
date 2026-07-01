@@ -158,12 +158,35 @@ print(f"[startup] Flask port {PORT} bound immediately — healthchecks pass duri
 # with no accompanying restart) and auto-restarts in place. Isolated module,
 # started here (early) so it's active even during the 46K-line route-loading
 # phase. See staleness_guard.py for full rationale.
-from staleness_guard import start_watchdog as _start_staleness_watchdog, get_process_info as _get_process_info
+from staleness_guard import (
+    start_watchdog as _start_staleness_watchdog,
+    get_process_info as _get_process_info,
+    mark_request_start as _staleness_mark_start,
+    mark_request_end as _staleness_mark_end,
+)
+from flask import g as _staleness_g
 _start_staleness_watchdog()
 
 @app.route("/stock-api/process-info", methods=["GET"])
 def process_info():
     return jsonify(_get_process_info())
+
+# Registered as early as possible (before any other before_request/
+# teardown_request hooks below) so it counts as close to every real request
+# as possible. Normal operation: mark_request_start() always returns True and
+# this is a no-op pair of lock/increment + lock/decrement. It only ever
+# rejects (503) during the rare graceful-drain window right before an
+# auto-restart — see staleness_guard.py.
+@app.before_request
+def _staleness_guard_before_request():
+    _staleness_g._sg_counted = _staleness_mark_start()
+    if not _staleness_g._sg_counted:
+        return jsonify({"error": "server restarting, please retry"}), 503
+
+@app.teardown_request
+def _staleness_guard_teardown_request(exc=None):
+    if getattr(_staleness_g, "_sg_counted", False):
+        _staleness_mark_end()
 
 # Shared semaphore: one AIEM session at a time (chat, SMS, email, cron).
 # Initialized here at module load so it's always present before any request.
