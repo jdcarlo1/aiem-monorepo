@@ -2330,6 +2330,7 @@ export interface AiemPaperTrade {
   last_price: number | null;
   pnl: number | null;
   pnl_pct: number | null;
+  pnl_is_synthetic_proxy: boolean;
   status: string;
   created_at: string;
 }
@@ -2348,6 +2349,7 @@ export interface AiemPaperClosedTrade {
   exit_date: string | null;
   pnl: number | null;
   pnl_pct: number | null;
+  pnl_is_synthetic_proxy: boolean;
   status: string;
 }
 

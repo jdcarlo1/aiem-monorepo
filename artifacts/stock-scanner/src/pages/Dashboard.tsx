@@ -15570,9 +15570,12 @@ export default function Dashboard() {
                                 </td>
                                 <td className="text-right py-2.5 px-3 text-slate-400">${fmt(pos.entry_price)}</td>
                                 <td className="text-right py-2.5 px-3 text-slate-300">{pos.last_price ? `$${fmt(pos.last_price)}` : "—"}</td>
-                                <td className={`text-right py-2.5 px-3 font-medium ${(pos.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                <td
+                                  className={`text-right py-2.5 px-3 font-medium ${(pos.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}
+                                  title={pos.pnl_is_synthetic_proxy ? "Synthetic 2x underlying-move proxy — NOT real options pricing (no strike/IV/theta)." : undefined}
+                                >
                                   {pos.pnl != null
-                                    ? `${pos.pnl >= 0 ? "+" : ""}$${Math.abs(pos.pnl).toFixed(2)} (${pos.pnl_pct != null ? `${pos.pnl_pct >= 0 ? "+" : ""}${pos.pnl_pct.toFixed(1)}%` : "—"})`
+                                    ? `${pos.pnl_is_synthetic_proxy ? "~" : ""}${pos.pnl >= 0 ? "+" : ""}$${Math.abs(pos.pnl).toFixed(2)} (${pos.pnl_pct != null ? `${pos.pnl_pct >= 0 ? "+" : ""}${pos.pnl_pct.toFixed(1)}%` : "—"})`
                                     : "—"}
                                 </td>
                                 <td className="py-2.5 px-3 text-slate-500 text-xs max-w-[140px] truncate" title={pos.signal_detail}>{pos.signal_source?.replace(/_/g," ")}</td>
@@ -15620,8 +15623,11 @@ export default function Dashboard() {
                                 </td>
                                 <td className="text-right py-2 px-3 text-slate-400">${fmt(t.entry_price)}</td>
                                 <td className="text-right py-2 px-3 text-slate-400">{t.exit_price ? `$${fmt(t.exit_price)}` : "—"}</td>
-                                <td className={`text-right py-2 px-3 font-medium text-xs ${(t.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                  {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)} (${t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(1)}%` : ""})` : "—"}
+                                <td
+                                  className={`text-right py-2 px-3 font-medium text-xs ${(t.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}
+                                  title={t.pnl_is_synthetic_proxy ? "Synthetic 2x underlying-move proxy — NOT real options pricing (no strike/IV/theta)." : undefined}
+                                >
+                                  {t.pnl != null ? `${t.pnl_is_synthetic_proxy ? "~" : ""}${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)} (${t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(1)}%` : ""})` : "—"}
                                 </td>
                                 <td className="py-2 px-3">
                                   <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
@@ -15739,8 +15745,11 @@ export default function Dashboard() {
                               </td>
                               <td className="text-right py-2.5 px-3 text-slate-400">${fmt(pos.entry_price)}</td>
                               <td className="text-right py-2.5 px-3 text-slate-300">{pos.last_price ? `$${fmt(pos.last_price)}` : "—"}</td>
-                              <td className={`text-right py-2.5 px-3 font-medium ${(pos.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                {pos.pnl != null ? `${pos.pnl >= 0 ? "+" : ""}$${Math.abs(pos.pnl).toFixed(2)} (${pos.pnl_pct != null ? `${pos.pnl_pct >= 0 ? "+" : ""}${pos.pnl_pct.toFixed(1)}%` : "—"})` : "—"}
+                              <td
+                                className={`text-right py-2.5 px-3 font-medium ${(pos.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}
+                                title={pos.pnl_is_synthetic_proxy ? "Synthetic 2x underlying-move proxy — NOT real options pricing (no strike/IV/theta)." : undefined}
+                              >
+                                {pos.pnl != null ? `${pos.pnl_is_synthetic_proxy ? "~" : ""}${pos.pnl >= 0 ? "+" : ""}$${Math.abs(pos.pnl).toFixed(2)} (${pos.pnl_pct != null ? `${pos.pnl_pct >= 0 ? "+" : ""}${pos.pnl_pct.toFixed(1)}%` : "—"})` : "—"}
                               </td>
                               <td className="py-2.5 px-3 text-slate-500 text-xs max-w-[140px] truncate" title={pos.signal_detail}>{pos.signal_source?.replace(/_/g," ")}</td>
                             </tr>
@@ -15787,8 +15796,11 @@ export default function Dashboard() {
                               </td>
                               <td className="text-right py-2 px-3 text-slate-400">${fmt(t.entry_price)}</td>
                               <td className="text-right py-2 px-3 text-slate-400">{t.exit_price ? `$${fmt(t.exit_price)}` : "—"}</td>
-                              <td className={`text-right py-2 px-3 font-medium text-xs ${(t.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)} (${t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(1)}%` : ""})` : "—"}
+                              <td
+                                className={`text-right py-2 px-3 font-medium text-xs ${(t.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}
+                                title={t.pnl_is_synthetic_proxy ? "Synthetic 2x underlying-move proxy — NOT real options pricing (no strike/IV/theta)." : undefined}
+                              >
+                                {t.pnl != null ? `${t.pnl_is_synthetic_proxy ? "~" : ""}${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)} (${t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(1)}%` : ""})` : "—"}
                               </td>
                               <td className="py-2 px-3">
                                 <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${

@@ -31928,14 +31928,24 @@ def _aiem_paper_mark_to_market():
                 _pnl     = round((_last - _entry_f) * _qty_f, 2)
                 _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 2) if _entry_f > 0 else 0
 
-            _positions_for_ai.append({
+            _pos_entry = {
                 "id": _id, "ticker": _t, "trade_type": _ttype,
                 "entry_price": round(_entry_f, 2), "current_price": round(_last, 2),
-                "pnl_dollars": _pnl, "pnl_pct": _pnl_pct,
+                "pnl_dollars": _pnl,
                 "days_held": _days, "signal_source": _src,
                 "signal_detail": _detail or "",
                 "recent_sessions": _indicator_ctx.get(_t, [])[:5],
-            })
+            }
+            # Fix #8: CALL_OPTION "P&L" here is a synthetic 2x-underlying-move
+            # proxy (no strike/IV/theta modeled) — label it distinctly so it's
+            # never fed to / read by the LLM as if it were real option pricing.
+            if _ttype == "CALL_OPTION":
+                _pos_entry["synthetic_option_proxy_pct"] = _pnl_pct
+                _pos_entry["proxy_note"] = ("Synthetic 2x underlying move proxy — "
+                                             "NOT real options pricing (no strike/IV/theta).")
+            else:
+                _pos_entry["pnl_pct"] = _pnl_pct
+            _positions_for_ai.append(_pos_entry)
 
         # ── 4. Ask AIEM: hold or exit each position? ───────────────────────
         _ai_decisions = {}
@@ -31955,6 +31965,9 @@ def _aiem_paper_mark_to_market():
                 f"Consider: Is momentum fading or accelerating? Did it close strong or weak? "
                 f"Has the original signal played out? For calls: time decay — if the move is "
                 f"done, exit. For stocks: ride it if momentum supports it.\n\n"
+                f"Note: CALL_OPTION positions report 'synthetic_option_proxy_pct' (a 2x "
+                f"underlying-move proxy), not 'pnl_pct' — this is NOT real options pricing "
+                f"(no strike/IV/theta modeled), so treat it only as a directional-move signal.\n\n"
                 f"Return ONLY a JSON array, no other text:\n"
                 f'[{{"id":<int>,"ticker":"<str>","decision":"HOLD or EXIT","reason":"<one sentence>"}},...]\n\n'
                 f"Positions:\n{_mtmjson.dumps(_positions_for_ai, indent=2)}"
@@ -32055,7 +32068,10 @@ def _aiem_paper_mark_to_market():
                     """, (_status, _last, _today,
                           round(_pnl, 2), round(_pnl_pct, 4),
                           _last, _reason, _id))
-                    print(f"[aiem_paper] EXIT {_t} {_pnl_pct:+.1f}% — {_reason}")
+                    # Fix #8: CALL_OPTION P&L is a synthetic 2x proxy, not real
+                    # options pricing — tag it in the log so it's never misread.
+                    _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype == "CALL_OPTION" else ""
+                    print(f"[aiem_paper] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — {_reason}")
                 elif _stale:
                     # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
                     # masked flat-price placeholder — leave the previously
@@ -32112,6 +32128,11 @@ def aiem_paper_portfolio():
                 for _k in ["entry_price","quantity","notional","last_price","pnl","pnl_pct"]:
                     _d[_k] = float(_d[_k]) if _d[_k] is not None else None
                 _d["created_at"] = _d["created_at"].isoformat() if _d["created_at"] else None
+                # Fix #8: additive flag — pnl/pnl_pct columns are unchanged and
+                # shared across trade types; this only marks that, for
+                # CALL_OPTION, they are a synthetic 2x-underlying-move proxy,
+                # not real options pricing (no strike/IV/theta modeled).
+                _d["pnl_is_synthetic_proxy"] = (_d["trade_type"] == "CALL_OPTION")
                 _open_pos.append(_d)
 
             # Closed trades (last N days) — includes exit_reason so UI can show AIEM's judgment
@@ -32134,6 +32155,8 @@ def aiem_paper_portfolio():
                 _d = dict(zip(_closed_cols, _r))
                 for _k in ["entry_price","quantity","notional","exit_price","pnl","pnl_pct"]:
                     _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                # Fix #8: additive flag, mirrors open_positions above.
+                _d["pnl_is_synthetic_proxy"] = (_d["trade_type"] == "CALL_OPTION")
                 _closed.append(_d)
 
             # Summary stats
