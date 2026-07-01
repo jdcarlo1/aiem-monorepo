@@ -157,21 +157,40 @@ def _ensure_notifier_log_table(conn):
 
 def _claim_todays_send(send_date) -> bool:
     """Atomic claim: returns True only if THIS call won the right to send today.
+
     Prevents duplicate sends if two process instances are alive at once
-    (e.g. during a redeploy overlap)."""
+    (e.g. during a redeploy overlap) - via the 'in_progress' exclusion below,
+    which blocks a second claimant for as long as a first attempt could
+    plausibly still be in flight.
+
+    Also allows a RETRY the same day after a definitive failure (bad token,
+    Telegram API error, etc.) - a transient failure must not permanently
+    lock out the rest of the day. Only a *confirmed success*
+    ('sent_ok=True...' or 'sent_empty ok=True...') is treated as terminal."""
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         _ensure_notifier_log_table(conn)
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO aiem_notifier_log (send_date, status) VALUES (%s, 'in_progress') "
-            "ON CONFLICT (send_date) DO NOTHING",
+            """
+            INSERT INTO aiem_notifier_log (send_date, status, claimed_at)
+            VALUES (%s, 'in_progress', now())
+            ON CONFLICT (send_date) DO UPDATE
+                SET status = 'in_progress', claimed_at = now()
+                WHERE aiem_notifier_log.status NOT LIKE 'sent_ok=True%%'
+                  AND aiem_notifier_log.status NOT LIKE 'sent_empty ok=True%%'
+                  AND (
+                        aiem_notifier_log.status <> 'in_progress'
+                        OR aiem_notifier_log.claimed_at < now() - interval '10 minutes'
+                      )
+            RETURNING send_date
+            """,
             (send_date,)
         )
+        row = cur.fetchone()
         conn.commit()
-        won = cur.rowcount == 1
-        return won
+        return row is not None
     finally:
         if conn:
             conn.close()

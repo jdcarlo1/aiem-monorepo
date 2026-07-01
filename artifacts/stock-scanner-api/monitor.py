@@ -9,10 +9,16 @@ Also checks the AIEM Telegram notifier's /api/health once per weekday
 after 9:20 AM ET. A plain HTTP 200 from that service does not prove
 today's Telegram message actually sent (e.g. Telegram API down, bad
 token, or the DB read failing) — so this reads the JSON body's
-`last_run.status` field and emails the owner if it does not start with
-"sent_ok" or "sent_empty" by then. This is the only failure-visibility
-channel for that notifier, since it has no delivery channel of its own
-besides Telegram.
+`today_status.status` field (DB-backed, true across process instances -
+NOT `last_run`, which is only in-memory for whichever instance happens
+to answer the request) and emails the owner unless it contains "=True"
+by then. This is the only failure-visibility channel for that notifier,
+since it has no delivery channel of its own besides Telegram.
+
+Run with `--once` to execute both checks a single time and exit,
+instead of the normal infinite loop - useful for manual verification.
+Set AIEM_HEALTH_URL env var to override the health endpoint checked
+(e.g. to point at a local dev instance instead of production).
 """
 import os
 import time
@@ -26,7 +32,7 @@ import pytz
 
 OWNER_EMAIL       = os.getenv("ALERT_EMAIL", "joeldcarlo@gmail.com")
 CHECK_URL         = "https://nclexai.org/stock-api/"
-AIEM_HEALTH_URL   = "https://nclexai.org/aiem-telegram/api/health"
+AIEM_HEALTH_URL   = os.getenv("AIEM_HEALTH_URL", "https://nclexai.org/aiem-telegram/api/health")
 CHECK_TIMEOUT     = 15         # seconds per ping
 SLEEP_TICK        = 60         # seconds between loop ticks
 CHECK_INTERVAL    = 30 * 60   # 30 minutes between checks
@@ -95,6 +101,16 @@ def _check_aiem_notifier():
     return False, status or "no status recorded for today"
 
 
+def _send_aiem_failure_alert(detail: str, when_str: str):
+    _smtp_send(
+        "🚨 AIEM Telegram morning brief did not send",
+        f"<p><strong>No confirmed send as of {when_str}.</strong></p>"
+        f"<p>Health check detail: {detail}</p>"
+        f"<p>Checked: <a href='{AIEM_HEALTH_URL}'>{AIEM_HEALTH_URL}</a></p>"
+        f"<p>You likely did NOT receive today's AIEM picks on Telegram.</p>"
+    )
+
+
 def run():
     print(f"[monitor] started — checking {CHECK_URL} every 30 min, 24/7")
     consecutive_failures  = 0
@@ -149,17 +165,33 @@ def run():
                     aiem_alert_sent_date = today_str  # don't re-check again today
                 else:
                     print(f"[monitor] {now_str} — AIEM notifier FAILED ({detail})")
-                    _smtp_send(
-                        "🚨 AIEM Telegram morning brief did not send",
-                        f"<p><strong>No confirmed send by {now_str}.</strong></p>"
-                        f"<p>Health check detail: {detail}</p>"
-                        f"<p>Checked: <a href='{AIEM_HEALTH_URL}'>{AIEM_HEALTH_URL}</a></p>"
-                        f"<p>You likely did NOT receive today's AIEM picks on Telegram.</p>"
-                    )
+                    _send_aiem_failure_alert(detail, now_str)
                     aiem_alert_sent_date = today_str  # one alert per day, not one per 30-min tick
 
         time.sleep(SLEEP_TICK)
 
 
+def run_once():
+    """Execute both checks a single time and exit. For manual verification -
+    not used by the production loop, which is `run()` above."""
+    now_et = datetime.now(ET)
+    now_str = now_et.strftime("%a %b %d %I:%M %p ET")
+
+    up = _ping()
+    print(f"[monitor] {now_str} — site ping: {'UP' if up else 'DOWN'} ({CHECK_URL})")
+
+    ok, detail = _check_aiem_notifier()
+    print(f"[monitor] {now_str} — AIEM notifier check against {AIEM_HEALTH_URL}: ok={ok} detail={detail!r}")
+    if ok:
+        print(f"[monitor] AIEM notifier OK — no alert sent")
+    else:
+        print(f"[monitor] AIEM notifier FAILED — sending alert email to {OWNER_EMAIL}")
+        _send_aiem_failure_alert(detail, now_str)
+
+
 if __name__ == "__main__":
-    run()
+    import sys
+    if "--once" in sys.argv:
+        run_once()
+    else:
+        run()
