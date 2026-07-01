@@ -28818,8 +28818,13 @@ def _run_aiem_morning_scan():
     import threading as _amt
     import datetime as _amdt
 
-    if not _intraday_scan_allowed():
-        print("[aiem_morning] skipped - outside market hours")
+    # FIX-12: was gated on _intraday_scan_allowed(), which requires the market
+    # to already be open (>=9:30 AM ET) and therefore ALWAYS returned False at
+    # this job's actual 9:05 AM cron time - the scan silently no-op'd every
+    # single day. _is_trading_day() does the correct check (weekday + NYSE
+    # holiday only, no time-of-day floor) for a job meant to run pre-open.
+    if not _is_trading_day():
+        print("[aiem_morning] skipped - market closed (holiday/weekend)")
         return
 
     def _morning_scan_thread():
