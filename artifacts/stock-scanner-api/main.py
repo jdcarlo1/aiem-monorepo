@@ -32160,19 +32160,39 @@ def aiem_paper_portfolio():
                 _closed.append(_d)
 
             # Summary stats
+            # Fix #10: avg_pnl_pct / total_pnl_pct (below) blend CALL_OPTION
+            # synthetic 2x-underlying-move proxy % with real STOCK/ETF % into
+            # one number. Left unchanged for backward compat, but the query
+            # now ALSO computes trade_type-split variants so the blended
+            # fields can be correctly labeled and a like-for-like figure is
+            # available per methodology. Purely additive — no existing column
+            # or value above is touched.
             _cu.execute("""
                 SELECT
                     COUNT(*) FILTER (WHERE status!='OPEN')           AS total_closed,
                     COUNT(*) FILTER (WHERE pnl>0 AND status!='OPEN') AS winners,
                     COALESCE(SUM(pnl) FILTER (WHERE status!='OPEN'),0) AS total_pnl,
                     COALESCE(AVG(pnl_pct) FILTER (WHERE status!='OPEN'),0) AS avg_pnl_pct,
+                    AVG(pnl_pct) FILTER (WHERE status!='OPEN' AND trade_type='CALL_OPTION') AS avg_pnl_pct_synthetic,
+                    AVG(pnl_pct) FILTER (WHERE status!='OPEN' AND trade_type!='CALL_OPTION') AS avg_pnl_pct_real,
                     COUNT(*) FILTER (WHERE status='OPEN')            AS open_count,
-                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN'),0) AS open_unrealized
+                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN'),0) AS open_unrealized,
+                    COALESCE(SUM(pnl) FILTER (WHERE status!='OPEN' AND trade_type='CALL_OPTION'),0) AS realized_pnl_synthetic,
+                    COALESCE(SUM(pnl) FILTER (WHERE status!='OPEN' AND trade_type!='CALL_OPTION'),0) AS realized_pnl_real,
+                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN' AND trade_type='CALL_OPTION'),0) AS open_unrealized_synthetic,
+                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN' AND trade_type!='CALL_OPTION'),0) AS open_unrealized_real,
+                    COALESCE(SUM(notional) FILTER (WHERE trade_type='CALL_OPTION'),0) AS notional_synthetic,
+                    COALESCE(SUM(notional) FILTER (WHERE trade_type!='CALL_OPTION'),0) AS notional_real
                 FROM aiem_paper_trades
                 WHERE trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
             """, (_days,))
             _sr = _cu.fetchone()
-            _total_closed, _winners, _total_pnl, _avg_pnl_pct, _open_count, _open_unreal = _sr
+            (_total_closed, _winners, _total_pnl, _avg_pnl_pct,
+             _avg_pnl_pct_synthetic, _avg_pnl_pct_real,
+             _open_count, _open_unreal,
+             _realized_pnl_synthetic, _realized_pnl_real,
+             _open_unreal_synthetic, _open_unreal_real,
+             _notional_synthetic, _notional_real) = _sr
 
             _win_rate = round(_winners / _total_closed * 100, 1) if _total_closed else None
 
@@ -32195,6 +32215,32 @@ def aiem_paper_portfolio():
         _unrealized    = float(_open_unreal or 0)
         _account_value = _account_start + _realized_pnl + _unrealized
 
+        # Fix #10: per-methodology return % — denominator is that segment's
+        # own invested notional (not the whole-account start), so a
+        # CALL_OPTION-only or STOCK/ETF-only return % is a like-for-like
+        # figure instead of blending two different P&L unit definitions.
+        _realized_synthetic = float(_realized_pnl_synthetic or 0)
+        _realized_real      = float(_realized_pnl_real or 0)
+        _unreal_synthetic   = float(_open_unreal_synthetic or 0)
+        _unreal_real        = float(_open_unreal_real or 0)
+        _notional_synth     = float(_notional_synthetic or 0)
+        _notional_real_v    = float(_notional_real or 0)
+
+        _total_pnl_pct_synthetic = (
+            round((_realized_synthetic + _unreal_synthetic) / _notional_synth * 100, 2)
+            if _notional_synth > 0 else None
+        )
+        _total_pnl_pct_real = (
+            round((_realized_real + _unreal_real) / _notional_real_v * 100, 2)
+            if _notional_real_v > 0 else None
+        )
+        _avg_pnl_pct_synthetic_out = (
+            round(float(_avg_pnl_pct_synthetic), 2) if _avg_pnl_pct_synthetic is not None else None
+        )
+        _avg_pnl_pct_real_out = (
+            round(float(_avg_pnl_pct_real), 2) if _avg_pnl_pct_real is not None else None
+        )
+
         return jsonify({
             "account_start":     _account_start,
             "account_value":     round(_account_value, 2),
@@ -32202,10 +32248,32 @@ def aiem_paper_portfolio():
             "unrealized_pnl":    round(_unrealized, 2),
             "total_pnl":         round(_realized_pnl + _unrealized, 2),
             "total_pnl_pct":     round((_realized_pnl + _unrealized) / _account_start * 100, 2),
+            # Fix #10: total_pnl_pct above blends CALL_OPTION synthetic-proxy $
+            # and real STOCK/ETF $ into one whole-account return %. These two
+            # are the per-methodology equivalents, each computed against that
+            # methodology's own invested notional.
+            "total_pnl_pct_is_blended": True,
+            "total_pnl_pct_synthetic":  _total_pnl_pct_synthetic,
+            "total_pnl_pct_real":       _total_pnl_pct_real,
             "win_rate":          _win_rate,
             "total_closed":      int(_total_closed or 0),
             "winners":           int(_winners or 0),
             "avg_pnl_pct":       round(float(_avg_pnl_pct or 0), 2),
+            # Fix #10: avg_pnl_pct above averages pnl_pct across all closed
+            # trades regardless of type, blending CALL_OPTION's synthetic 2x
+            # underlying-move % with real STOCK/ETF %. These are the
+            # per-methodology averages; null when no closed trades of that
+            # type exist in the window (never 0, so "no data" isn't
+            # misread as "0% average return").
+            "avg_pnl_pct_is_blended": True,
+            "avg_pnl_pct_synthetic":  _avg_pnl_pct_synthetic_out,
+            "avg_pnl_pct_real":       _avg_pnl_pct_real_out,
+            "pnl_methodology_note": (
+                "avg_pnl_pct and total_pnl_pct blend CALL_OPTION synthetic "
+                "2x-underlying-move proxy % with real STOCK/ETF %. Use the "
+                "_synthetic / _real variants for an apples-to-apples figure "
+                "per trade methodology."
+            ),
             "open_positions":    _open_pos,
             "open_count":        int(_open_count or 0),
             "closed_trades":     _closed,

@@ -15523,12 +15523,12 @@ export default function Dashboard() {
                   {/* Account Stats */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                     {[
-                      { label: "Account Value", value: `$${aiemPortfolio.account_value.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, sub: `Started $${aiemPortfolio.account_start.toLocaleString()}`, color: "text-white" },
-                      { label: "Total P&L", value: `${aiemPortfolio.total_pnl >= 0 ? "+" : ""}$${Math.abs(aiemPortfolio.total_pnl).toFixed(2)}`, sub: `${aiemPortfolio.total_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.total_pnl_pct.toFixed(2)}%`, color: aiemPortfolio.total_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
-                      { label: "Win Rate", value: aiemPortfolio.win_rate != null ? `${aiemPortfolio.win_rate}%` : "—", sub: `${aiemPortfolio.winners}/${aiemPortfolio.total_closed} closed`, color: (aiemPortfolio.win_rate ?? 0) >= 50 ? "text-emerald-400" : "text-slate-300" },
-                      { label: "Avg P&L/Trade", value: `${aiemPortfolio.avg_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.avg_pnl_pct.toFixed(2)}%`, sub: `${aiemPortfolio.open_count} open now`, color: aiemPortfolio.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-red-400" },
+                      { label: "Account Value", value: `$${aiemPortfolio.account_value.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, sub: `Started $${aiemPortfolio.account_start.toLocaleString()}`, color: "text-white", title: undefined as string | undefined },
+                      { label: `Total P&L${aiemPortfolio.total_pnl_pct_is_blended ? " (blended)" : ""}`, value: `${aiemPortfolio.total_pnl >= 0 ? "+" : ""}$${Math.abs(aiemPortfolio.total_pnl).toFixed(2)}`, sub: `${aiemPortfolio.total_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.total_pnl_pct.toFixed(2)}%`, color: aiemPortfolio.total_pnl >= 0 ? "text-emerald-400" : "text-red-400", title: aiemPortfolio.pnl_methodology_note },
+                      { label: "Win Rate", value: aiemPortfolio.win_rate != null ? `${aiemPortfolio.win_rate}%` : "—", sub: `${aiemPortfolio.winners}/${aiemPortfolio.total_closed} closed`, color: (aiemPortfolio.win_rate ?? 0) >= 50 ? "text-emerald-400" : "text-slate-300", title: undefined as string | undefined },
+                      { label: `Avg P&L/Trade${aiemPortfolio.avg_pnl_pct_is_blended ? " (blended)" : ""}`, value: `${aiemPortfolio.avg_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.avg_pnl_pct.toFixed(2)}%`, sub: `${aiemPortfolio.open_count} open now`, color: aiemPortfolio.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-red-400", title: aiemPortfolio.pnl_methodology_note },
                     ].map(item => (
-                      <div key={item.label} className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-4">
+                      <div key={item.label} className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-4" title={item.title}>
                         <div className="text-slate-500 text-xs mb-1">{item.label}</div>
                         <div className={`text-lg font-bold ${item.color}`}>{item.value}</div>
                         <div className="text-slate-600 text-xs mt-0.5">{item.sub}</div>
@@ -15701,12 +15701,12 @@ export default function Dashboard() {
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
-                    { label: "Account Value", value: `$${aiemPortfolio.account_value.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, sub: `Started $${aiemPortfolio.account_start.toLocaleString()}`, color: "text-white" },
-                    { label: "Total P&L", value: `${aiemPortfolio.total_pnl >= 0 ? "+" : ""}$${Math.abs(aiemPortfolio.total_pnl).toFixed(2)}`, sub: `${aiemPortfolio.total_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.total_pnl_pct.toFixed(2)}%`, color: aiemPortfolio.total_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
-                    { label: "Win Rate", value: aiemPortfolio.win_rate != null ? `${aiemPortfolio.win_rate}%` : "—", sub: `${aiemPortfolio.winners}/${aiemPortfolio.total_closed} closed`, color: (aiemPortfolio.win_rate ?? 0) >= 50 ? "text-emerald-400" : "text-slate-300" },
-                    { label: "Avg P&L/Trade", value: `${aiemPortfolio.avg_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.avg_pnl_pct.toFixed(2)}%`, sub: `${aiemPortfolio.open_count} open now`, color: aiemPortfolio.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-red-400" },
+                    { label: "Account Value", value: `$${aiemPortfolio.account_value.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, sub: `Started $${aiemPortfolio.account_start.toLocaleString()}`, color: "text-white", title: undefined as string | undefined },
+                    { label: `Total P&L${aiemPortfolio.total_pnl_pct_is_blended ? " (blended)" : ""}`, value: `${aiemPortfolio.total_pnl >= 0 ? "+" : ""}$${Math.abs(aiemPortfolio.total_pnl).toFixed(2)}`, sub: `${aiemPortfolio.total_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.total_pnl_pct.toFixed(2)}%`, color: aiemPortfolio.total_pnl >= 0 ? "text-emerald-400" : "text-red-400", title: aiemPortfolio.pnl_methodology_note },
+                    { label: "Win Rate", value: aiemPortfolio.win_rate != null ? `${aiemPortfolio.win_rate}%` : "—", sub: `${aiemPortfolio.winners}/${aiemPortfolio.total_closed} closed`, color: (aiemPortfolio.win_rate ?? 0) >= 50 ? "text-emerald-400" : "text-slate-300", title: undefined as string | undefined },
+                    { label: `Avg P&L/Trade${aiemPortfolio.avg_pnl_pct_is_blended ? " (blended)" : ""}`, value: `${aiemPortfolio.avg_pnl_pct >= 0 ? "+" : ""}${aiemPortfolio.avg_pnl_pct.toFixed(2)}%`, sub: `${aiemPortfolio.open_count} open now`, color: aiemPortfolio.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-red-400", title: aiemPortfolio.pnl_methodology_note },
                   ].map(item => (
-                    <div key={item.label} className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-4">
+                    <div key={item.label} className="bg-slate-900/70 border border-violet-900/30 rounded-xl p-4" title={item.title}>
                       <div className="text-slate-500 text-xs mb-1">{item.label}</div>
                       <div className={`text-lg font-bold ${item.color}`}>{item.value}</div>
                       <div className="text-slate-600 text-xs mt-0.5">{item.sub}</div>

@@ -1,0 +1,26 @@
+# Message to send to the Agent
+
+Please open a separate fix ticket for the blended-aggregate issue instead of leaving it as-is.
+
+---
+
+**Ticket: Fix blended aggregate P&L mixing synthetic and real percentages**
+
+**Location:** `main.py:32168`, `32175`, `32204`, `32208`
+
+**Problem:**
+`avg_pnl_pct` and `total_pnl_pct` currently average/sum `pnl_pct` values across all trade rows without separating rows where `pnl_is_synthetic_proxy = true` (CALL_OPTION synthetic 2x proxy math) from rows where it's `false` (real STOCK/ETF %). This means the aggregate blends two different units of measurement into one number — any dashboard or report that surfaces `avg_pnl_pct` / `total_pnl_pct` is currently misleading.
+
+**Requested fix:**
+1. Split the aggregate calculation into two separate metrics: one for synthetic-proxy trades, one for real-priced trades (e.g. `avg_pnl_pct_synthetic` and `avg_pnl_pct_real`, or equivalent naming).
+2. If a single blended number is still needed for a top-line summary, it must be clearly labeled as blended/mixed-methodology, or excluded from any table until it's fixed.
+3. Confirm which downstream dashboards/reports currently consume `avg_pnl_pct` / `total_pnl_pct` so we know what else needs to be re-labeled or recalculated once split.
+4. Please verify the fix the same way you verified F8 — against the actually-running process, not just a static diff, given what you found with the stale bytecode issue.
+
+**Priority context:** This needs to be resolved before drawing conclusions from the paper-trading performance data, since the current aggregate numbers are not trustworthy for that purpose.
+
+---
+
+# Separate note (not part of the ticket)
+
+Worth confirming with the agent: was the stale-process bug (old bytecode still running 90 minutes after the F8 fix was committed) caught only because you happened to check process start time vs. file edit time? If there isn't an automatic restart-on-deploy/commit step, that's a gap worth closing so this class of bug doesn't slip through again on future fixes — including this new aggregate ticket.

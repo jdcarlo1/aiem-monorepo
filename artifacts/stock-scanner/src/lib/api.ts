@@ -2366,10 +2366,21 @@ export interface AiemPaperPortfolio {
   unrealized_pnl: number;
   total_pnl: number;
   total_pnl_pct: number;
+  // Fix #10: total_pnl_pct / avg_pnl_pct above blend CALL_OPTION synthetic
+  // 2x-underlying-move proxy % with real STOCK/ETF % into one number.
+  // The *_synthetic / *_real variants below are the like-for-like figures
+  // per trade methodology; null when no trades of that type exist yet.
+  total_pnl_pct_is_blended?: boolean;
+  total_pnl_pct_synthetic?: number | null;
+  total_pnl_pct_real?: number | null;
   win_rate: number | null;
   total_closed: number;
   winners: number;
   avg_pnl_pct: number;
+  avg_pnl_pct_is_blended?: boolean;
+  avg_pnl_pct_synthetic?: number | null;
+  avg_pnl_pct_real?: number | null;
+  pnl_methodology_note?: string;
   open_positions: AiemPaperTrade[];
   open_count: number;
   closed_trades: AiemPaperClosedTrade[];
