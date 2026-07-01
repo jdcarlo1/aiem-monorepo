@@ -1862,7 +1862,16 @@ try:
 
     def _do_scan_and_save(session: str) -> None:
         """Run a Smart Money scan, save scores to history, then email subscribers."""
-        if not _intraday_scan_allowed():
+        # FIX-13: the "premarket" session runs at 9:00 AM ET, before the market
+        # opens at 9:30 - _intraday_scan_allowed() requires the market to
+        # already be open and therefore ALWAYS returned False for this session,
+        # silently skipping it every single day (identical bug class to
+        # FIX-12). _is_trading_day() (weekday + NYSE holiday only, no
+        # time-of-day floor) is the correct gate for this pre-open session.
+        # morning/preclose/eod all run after 9:30 AM, so their behavior is
+        # unchanged here.
+        _gate_ok = _is_trading_day() if session == "premarket" else _intraday_scan_allowed()
+        if not _gate_ok:
             print(f"[scheduler] {session} scan skipped - market closed (holiday/weekend)")
             return
         if _yf_breaker_open():
