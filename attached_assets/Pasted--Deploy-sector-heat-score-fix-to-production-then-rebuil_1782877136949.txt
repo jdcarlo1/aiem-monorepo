@@ -1,0 +1,60 @@
+# Deploy sector_heat_score fix to production, then rebuild the data
+
+You correctly caught that the reference_date fix only exists in dev main.py
+and has never been deployed to production — production booted Jun 30, 05:48
+AM UTC, before this fix was written, and is still running the old buggy
+_get_sector_heat(). Good catch. Here's the full sequence, in order:
+
+## Step 1 — Deploy dev to production
+
+Deploy the current dev main.py to the production (gce) target.
+
+## Step 2 — Verify the deploy actually landed
+
+Do NOT proceed to Step 3 until both of these are true:
+
+1. Production's boot/restart timestamp is AFTER this deploy (not still
+   Jun 30, 05:48 AM UTC).
+2. The reference_date parameter is confirmed present in the LIVE production
+   code — not just in dev. Check this via whatever means is reliable here
+   (e.g. an admin/debug endpoint that reflects the running code, or a
+   direct check against the deployed file if accessible).
+
+If either check fails, stop and report back rather than proceeding.
+
+## Step 3 — Only after Step 2 is confirmed: null out and rebuild
+
+Once the fix is confirmed live in production:
+
+1. Null out the corrupted sector_heat_score values:
+   ```sql
+   UPDATE ai_short_calls_log SET sector_heat_score = NULL;
+   ```
+   Run this through whatever path respects the production read-only
+   boundary (the admin endpoint pattern, since direct SQL writes to
+   production aren't available from dev).
+
+2. Re-run the backfill via the existing admin endpoint:
+   `/stock-api/admin/backfill-pick-scores` (protected by ADMIN_TOKEN),
+   which calls `_backfill_pick_scores()`.
+
+3. This endpoint processes up to 500 rows per call. Call it repeatedly
+   until the returned `rows_found` is 0 (or only rows where the underlying
+   source data genuinely isn't available).
+
+## Step 4 — Verify the fix took effect
+
+Spot check that sector_heat_score now varies by trade_date for a given
+ticker, instead of being identical across all dates (that "same value
+regardless of date" pattern was the signature of the old bug):
+
+```sql
+SELECT ticker, trade_date, sector_heat_score
+FROM ai_short_calls_log
+WHERE sector_heat_score IS NOT NULL
+ORDER BY ticker, trade_date
+LIMIT 50;
+```
+
+Report back with: deploy confirmation (new boot time), backfill summary
+(rows updated), and the verification query results.
