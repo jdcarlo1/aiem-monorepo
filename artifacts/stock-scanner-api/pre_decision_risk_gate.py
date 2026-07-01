@@ -105,17 +105,39 @@ def devils_advocate_pass(ticker: str, signal_name: str,
             "severity": "moderate",
         }
 
-    client  = anthropic.Anthropic()
-    payload = {"ticker": ticker, "signal_name": signal_name,
-               "reasoning": reasoning, "conviction_score": conviction_score}
+    try:
+        client  = anthropic.Anthropic()
+        payload = {"ticker": ticker, "signal_name": signal_name,
+                   "reasoning": reasoning, "conviction_score": conviction_score}
 
-    response = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=400,
-        system=DEVILS_ADVOCATE_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": json.dumps(payload)}],
-    )
-    text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+        response = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=400,
+            system=DEVILS_ADVOCATE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": json.dumps(payload)}],
+        )
+        text = "".join(b.text for b in response.content if hasattr(b, "text")).strip()
+    except Exception as e:
+        # Any failure calling the Anthropic API (timeout, rate limit, auth
+        # error, network error, SDK error, malformed response, etc.) must
+        # NOT propagate unguarded and must NOT be silently treated as "no
+        # objection found." Fail toward more caution, not less: this returns
+        # the most severe category this function supports ("high"), with an
+        # explicit error flag so callers can distinguish "the LLM raised a
+        # real objection" from "we don't actually know because the call
+        # failed." Do not downgrade this to "moderate" or swallow it silently.
+        return {
+            "strongest_objection": (
+                f"Devil's advocate LLM pass FAILED with an error "
+                f"({type(e).__name__}: {e}) — no evaluation was performed. "
+                f"Treat this pick as unreviewed, not as having passed a "
+                f"devil's advocate check."
+            ),
+            "what_would_invalidate_this": "N/A — API call errored before any evaluation ran",
+            "severity": "high",
+            "error": True,
+        }
+
     if text.startswith("```"):
         text = text.strip("`")
         if text.lower().startswith("json"):
