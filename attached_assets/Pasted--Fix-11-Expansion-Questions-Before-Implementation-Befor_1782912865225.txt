@@ -1,0 +1,27 @@
+# Fix #11 Expansion — Questions Before Implementation
+
+Before expanding Fix #11 to (1) watch all imported local modules and (2) add a graceful drain before restart, please answer these:
+
+## 1. Import watching scope
+
+- How will "all imported local modules" be determined — programmatically from the actual import graph (e.g. via `sys.modules` after `main.py` loads, filtered to paths under this repo), or a hand-maintained list / directory glob?
+- If it's a glob, how do we avoid picking up test files, scripts, or unrelated `.py` files that aren't actually imported by `main.py`?
+- Does this correctly handle transitive imports (a module that `main.py` imports, which itself imports another local module)?
+- What happens if a third-party dependency version changes (e.g. via `pip install`) — is that in scope, or only our own local files?
+
+## 2. Graceful drain mechanism
+
+- Since `os.execv` is atomic and can't wait mid-call, confirm the drain logic happens *before* `execv` is invoked: stop accepting new connections, then wait for in-flight request count to reach zero.
+- How is "in-flight request count" tracked — a counter incremented/decremented via WSGI middleware or before/after-request hooks? Show the actual counter logic, not just a fixed `sleep()`.
+- Is there a max wait timeout with a forced-exec fallback, so a hung/never-completing request doesn't block the restart indefinitely?
+- What happens to new incoming requests during the drain window — rejected, queued, or something else?
+
+## 3. Testing standard (same rigor as the original audit)
+
+- Live test: edit a module `main.py` imports (not `main.py` itself) and confirm the restart is now triggered.
+- Live test: fire a slow in-flight request, trigger a restart, and confirm the request completes successfully (no exit code 52 / "empty reply from server").
+- Live test: confirm the forced-exec timeout fallback actually fires if a request never finishes.
+
+## 4. Rollback plan
+
+- Before starting, confirm we can revert cleanly to the current committed Fix #11 state if the expanded version introduces a new bug.
