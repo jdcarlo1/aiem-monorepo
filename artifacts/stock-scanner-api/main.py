@@ -3073,6 +3073,40 @@ try:
         id="aiem_morning_scan",
         replace_existing=True,
     )
+    # Workstream D - AIEM independent Polygon-only grader: 8:50 AM ET Mon-Fri.
+    # Closes matured aiem_independent_picks positions before the day's new
+    # independent scan opens fresh ones. Runs before the 9:20 scan below.
+    def _run_aiem_independent_grade_job():
+        try:
+            import threading as _aigj_thr
+            _aigj_thr.Thread(target=_run_aiem_independent_grade, daemon=True).start()
+            record_job_success("aiem_independent_grade")
+        except Exception as e:
+            record_job_failure("aiem_independent_grade", str(e))
+            print(f"[scheduler] aiem independent grade error: {e}")
+    _scheduler.add_job(
+        _run_aiem_independent_grade_job,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=50, timezone=_ET),
+        id="aiem_independent_grade",
+        replace_existing=True,
+    )
+    # Workstream D - AIEM independent Polygon-only scan: 9:20 AM ET Mon-Fri.
+    # AIEM picks up to 20 stocks + 20 call options using ONLY raw Polygon data
+    # and its own reasoning - no website conviction/composite scores involved.
+    def _run_aiem_independent_scan_job():
+        try:
+            import threading as _aisj_thr
+            _aisj_thr.Thread(target=_run_aiem_independent_scan, daemon=True).start()
+            record_job_success("aiem_independent_scan")
+        except Exception as e:
+            record_job_failure("aiem_independent_scan", str(e))
+            print(f"[scheduler] aiem independent scan error: {e}")
+    _scheduler.add_job(
+        _run_aiem_independent_scan_job,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=20, timezone=_ET),
+        id="aiem_independent_scan",
+        replace_existing=True,
+    )
     # Loop B - prediction grader: 4:35 PM ET Mon-Fri
     # Grades T+1 / T+3 / T+5 outcomes for Loop B predictions using Tradier history.
     def _run_aiem_grader_job():
@@ -16455,6 +16489,430 @@ def _aiem_tool_save_daily_predictions(predictions):
         return {"error": str(e)}
 
 
+# ── Workstream D: AIEM independent Polygon-only picking ────────────────────
+# Fully separate pipeline from the above Loop B (which blends conviction_stack
+# / call_sweep_log's website-derived scores). These tools give AIEM ONLY raw
+# Polygon facts (price/volume bars, raw sweep/OI tape) so it forms its own
+# picks and reasoning, saved to aiem_independent_picks, then compared later
+# against website-sourced performance.
+
+def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150):
+    """
+    INDEPENDENT stock candidate pool - raw Polygon technical facts ONLY.
+    Source: polygon_market_daily (raw daily bars ingested straight from
+    Polygon's grouped-daily endpoint). Deliberately does NOT touch
+    conviction_stack_watchlist, unusual_calls_log, or any other
+    website-computed composite/conviction score.
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+            _row = _cu.fetchone()
+            latest = _row[0] if _row else None
+            if not latest:
+                return {"error": "polygon_market_daily has no data yet"}
+            _cu.execute("""
+                SELECT ticker, close_price, open_price, volume, gap_pct, rvol,
+                       close_strength, range_pct
+                FROM polygon_market_daily
+                WHERE scan_date = %s
+                  AND close_price BETWEEN 1.0 AND %s
+                  AND rvol >= %s
+                  AND volume * close_price >= 1000000
+                ORDER BY rvol DESC NULLS LAST
+                LIMIT %s
+            """, (latest, max_price, min_rvol, limit))
+            rows = _cu.fetchall()
+            tickers = [r[0] for r in rows]
+            hist = {}
+            if tickers:
+                _cu.execute("""
+                    SELECT ticker, scan_date, close_price FROM polygon_market_daily
+                    WHERE ticker = ANY(%s) AND scan_date <= %s
+                    ORDER BY ticker, scan_date DESC
+                """, (tickers, latest))
+                from collections import defaultdict as _isu_dd
+                hist = _isu_dd(list)
+                for t, d, c in _cu.fetchall():
+                    hist[t].append(float(c))
+            candidates = []
+            for (ticker, close, o, vol, gap_pct, rvol, cs, rng) in rows:
+                closes = hist.get(ticker, [])
+                mom5 = round((closes[0] / closes[5] - 1) * 100, 2) if len(closes) > 5 and closes[5] else None
+                mom20 = round((closes[0] / closes[19] - 1) * 100, 2) if len(closes) > 19 and closes[19] else None
+                candidates.append({
+                    "ticker": ticker, "close": float(close), "open": float(o) if o is not None else None,
+                    "volume": int(vol) if vol is not None else None,
+                    "gap_pct": float(gap_pct) if gap_pct is not None else None,
+                    "rvol": float(rvol) if rvol is not None else None,
+                    "close_strength": float(cs) if cs is not None else None,
+                    "range_pct": float(rng) if rng is not None else None,
+                    "momentum_5d_pct": mom5, "momentum_20d_pct": mom20,
+                })
+        return {
+            "scan_date": str(latest), "candidate_count": len(candidates),
+            "source": "polygon_market_daily raw bars only - NO website conviction/composite scores",
+            "candidates": candidates,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_indep_tool_options_universe(min_vol_oi=1.0, days_back=3, limit=150):
+    """
+    INDEPENDENT call-option candidate pool - raw options-tape facts ONLY.
+    Source: unusual_calls_log's raw columns (ticker, price, strike, expiry,
+    days_out, volume, oi, vol_oi, prem, otm_pct, iv, urgency, first_seen,
+    last_seen). NOTE: call_sweep_log (the originally-intended source) is a
+    narrow-scope table (only re-checks already-alerted tickers every 15 min)
+    that is effectively empty in practice - unusual_calls_log is the broad,
+    actively-populated raw sweep-detection table instead. `urgency` here is
+    just a time-to-expiry bucket (EXPIRING/SHORT/NEAR/MEDIUM derived solely
+    from days_out) - NOT a conviction/composite score - so it stays a raw fact.
+    This table has no conviction or signals_fired columns to exclude.
+    """
+    import datetime as _iou_dt
+    try:
+        cutoff = (_iou_dt.datetime.now(_iou_dt.timezone.utc) - _iou_dt.timedelta(days=int(days_back))).isoformat()
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT ticker, price, strike, expiry, days_out, volume, oi, vol_oi,
+                       prem, otm_pct, iv, urgency, first_seen, last_seen
+                FROM unusual_calls_log
+                WHERE last_seen >= %s AND vol_oi >= %s
+                ORDER BY vol_oi DESC NULLS LAST
+                LIMIT %s
+            """, (cutoff, min_vol_oi, limit))
+            rows = _cu.fetchall()
+            candidates = []
+            for (ticker, price, strike, expiry, days_out, vol, oi, vol_oi, prem, otm_pct, iv, urgency, fseen, lseen) in rows:
+                candidates.append({
+                    "ticker": ticker,
+                    "underlying_price": float(price) if price is not None else None,
+                    "strike": float(strike) if strike is not None else None,
+                    "expiry": str(expiry) if expiry is not None else None,
+                    "days_out": int(days_out) if days_out is not None else None,
+                    "call_volume": int(vol) if vol is not None else None,
+                    "open_interest": int(oi) if oi is not None else None,
+                    "vol_oi_ratio": float(vol_oi) if vol_oi is not None else None,
+                    "premium": float(prem) if prem is not None else None,
+                    "otm_pct": float(otm_pct) if otm_pct is not None else None,
+                    "iv": float(iv) if iv is not None else None,
+                    "urgency_bucket": urgency,
+                    "first_seen": str(fseen) if fseen is not None else None,
+                    "last_seen": str(lseen) if lseen is not None else None,
+                })
+        return {
+            "candidate_count": len(candidates),
+            "source": "unusual_calls_log raw sweep/OI facts only - no conviction/composite score present",
+            "candidates": candidates,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_indep_tool_save_independent_picks(stock_picks=None, option_picks=None):
+    """
+    Persist AIEM's own independent picks to aiem_independent_picks - a table
+    fully separate from aiem_predictions/aiem_paper_trades (which are sourced
+    from website signals). Caps at 20 of each type per day. Entry price for
+    stocks = today's polygon_market_daily close; for call_option picks the
+    entry reference is the underlying stock price at detection time (option
+    premium/greeks history is not tracked, so P&L on call_option picks is
+    graded on UNDERLYING price movement as a directional proxy - see
+    pnl_methodology - never presented as real option premium P&L).
+
+    IDEMPOTENT REPLACE SEMANTICS: each call fully deletes and replaces
+    today's existing rows for the given pick_type before inserting the new
+    list. This makes reruns safe - a same-day admin-triggered rerun (or a
+    scheduler retry) always produces exactly the latest run's <=20 picks,
+    never an accumulation on top of a prior run's rows, so the daily cap
+    holds regardless of how many times this is called on a given day.
+    call_option rows are one row per contract (ticker+strike+expiry), so
+    multiple distinct contracts on the same underlying ticker are expected
+    and will coexist rather than overwrite each other.
+    """
+    import datetime as _sip_dt, json as _sip_json
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_independent_picks (
+                    id SERIAL PRIMARY KEY,
+                    pick_date DATE NOT NULL,
+                    pick_type VARCHAR(20) NOT NULL,
+                    ticker VARCHAR(10) NOT NULL,
+                    rank INTEGER,
+                    confidence_score NUMERIC(5,2),
+                    rationale TEXT,
+                    features JSONB,
+                    entry_price NUMERIC(12,4),
+                    option_strike NUMERIC(10,2),
+                    option_expiry DATE,
+                    hold_days_max INTEGER DEFAULT 5,
+                    status VARCHAR(20) DEFAULT 'open',
+                    exit_price NUMERIC(12,4),
+                    exit_date DATE,
+                    pnl_pct NUMERIC(8,4),
+                    direction_correct BOOLEAN,
+                    pnl_methodology VARCHAR(40) DEFAULT 'underlying_close_pct',
+                    source VARCHAR(40) DEFAULT 'aiem_independent_polygon',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            # Drop the old ticker-only UNIQUE constraint if it exists from an earlier
+            # version of this table - it collapsed multiple option contracts on the
+            # same underlying into one row, and it didn't stop a same-day rerun from
+            # accumulating >20 rows via ON CONFLICT upsert. Replaced below with an
+            # explicit delete-then-insert per (pick_date, pick_type) so every save
+            # call is a clean full replacement of that day's list, never an accumulation.
+            _cu.execute("""
+                DO $$
+                DECLARE _cname text;
+                BEGIN
+                    SELECT tc.constraint_name INTO _cname
+                    FROM information_schema.table_constraints tc
+                    WHERE tc.table_name = 'aiem_independent_picks' AND tc.constraint_type = 'UNIQUE'
+                    LIMIT 1;
+                    IF _cname IS NOT NULL THEN
+                        EXECUTE format('ALTER TABLE aiem_independent_picks DROP CONSTRAINT %I', _cname);
+                    END IF;
+                END $$;
+            """)
+            _cu.execute("""
+                CREATE INDEX IF NOT EXISTS idx_aiem_independent_picks_date_type
+                ON aiem_independent_picks (pick_date, pick_type)
+            """)
+            _c.commit()
+            today = _sip_dt.date.today().isoformat()
+
+            _cu.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+            _latest = _cu.fetchone()[0]
+            close_map = {}
+            if _latest:
+                _cu.execute("SELECT ticker, close_price FROM polygon_market_daily WHERE scan_date = %s", (_latest,))
+                close_map = {r[0]: float(r[1]) for r in _cu.fetchall()}
+
+            saved = {"stock": [], "call_option": []}
+
+            # Full replace of today's stock picks (handles reruns/idempotency -
+            # never accumulates past the 20-pick cap across multiple runs same day).
+            _cu.execute("DELETE FROM aiem_independent_picks WHERE pick_date=%s AND pick_type='stock'", (today,))
+            for p in (stock_picks or [])[:20]:
+                ticker = str(p.get("ticker", "")).upper().strip()
+                if not ticker:
+                    continue
+                entry = close_map.get(ticker)
+                _cu.execute("""
+                    INSERT INTO aiem_independent_picks
+                        (pick_date, pick_type, ticker, rank, confidence_score,
+                         rationale, features, entry_price, hold_days_max, source)
+                    VALUES (%s,'stock',%s,%s,%s,%s,%s,%s,5,'aiem_independent_polygon')
+                """, (today, ticker, p.get("rank"), p.get("confidence_score"),
+                      p.get("rationale"), _sip_json.dumps(p.get("features") or {}), entry))
+                saved["stock"].append(ticker)
+
+            # Full replace of today's call_option picks - contract-level rows, so the
+            # same underlying can legitimately appear more than once with different
+            # strike/expiry (each row is one distinct contract-level pick).
+            _cu.execute("DELETE FROM aiem_independent_picks WHERE pick_date=%s AND pick_type='call_option'", (today,))
+            for p in (option_picks or [])[:20]:
+                ticker = str(p.get("ticker", "")).upper().strip()
+                if not ticker:
+                    continue
+                entry = p.get("underlying_price") or close_map.get(ticker)
+                expiry = p.get("expiry") or None
+                _cu.execute("""
+                    INSERT INTO aiem_independent_picks
+                        (pick_date, pick_type, ticker, rank, confidence_score,
+                         rationale, features, entry_price, option_strike, option_expiry,
+                         hold_days_max, source)
+                    VALUES (%s,'call_option',%s,%s,%s,%s,%s,%s,%s,%s,5,'aiem_independent_polygon')
+                """, (today, ticker, p.get("rank"), p.get("confidence_score"),
+                      p.get("rationale"), _sip_json.dumps(p.get("features") or {}), entry,
+                      p.get("strike"), expiry))
+                saved["call_option"].append(ticker)
+
+            _c.commit()
+        return {
+            "date": today, "stocks_saved": len(saved["stock"]), "options_saved": len(saved["call_option"]),
+            "stock_tickers": saved["stock"], "option_tickers": saved["call_option"],
+            "message": "Saved to aiem_independent_picks - fully separate from website-derived tables. "
+                       "This call fully replaces today's prior picks of each type (idempotent reruns).",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _run_aiem_independent_grade():
+    """
+    Closes out aiem_independent_picks positions once hold_days_max trading
+    days have elapsed, using polygon_market_daily close prices. Runs 8:50 AM
+    ET Mon-Fri, before the day's independent scan opens new picks.
+
+    IMPORTANT: for pick_type='call_option' this grades UNDERLYING price
+    movement only (pnl_methodology='underlying_close_pct') - a directional
+    proxy, NOT real option premium P&L (no historical per-contract option
+    pricing is available to mark-to-market against).
+    """
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT id, pick_date, ticker, entry_price, hold_days_max
+                FROM aiem_independent_picks WHERE status = 'open'
+            """)
+            open_rows = _cu.fetchall()
+            if not open_rows:
+                print("[aiem_independent] grade: no open positions")
+                return
+            _cu.execute("SELECT DISTINCT scan_date FROM polygon_market_daily ORDER BY scan_date")
+            all_dates = [r[0] for r in _cu.fetchall()]
+            closed = 0
+            for (pid, pick_date, ticker, entry_price, hold_days) in open_rows:
+                hd = hold_days or 5
+                future_dates = [d for d in all_dates if d > pick_date]
+                if len(future_dates) < hd:
+                    continue
+                exit_date = future_dates[hd - 1]
+                _cu.execute("""
+                    SELECT close_price FROM polygon_market_daily
+                    WHERE ticker = %s AND scan_date = %s
+                """, (ticker, exit_date))
+                _r = _cu.fetchone()
+                if not _r or not entry_price:
+                    _cu.execute("""
+                        UPDATE aiem_independent_picks SET status='no_data', updated_at=NOW()
+                        WHERE id = %s
+                    """, (pid,))
+                    continue
+                exit_price = float(_r[0])
+                pnl_pct = round((exit_price - float(entry_price)) / float(entry_price) * 100, 3)
+                direction_correct = pnl_pct > 0
+                _cu.execute("""
+                    UPDATE aiem_independent_picks
+                    SET status='closed', exit_price=%s, exit_date=%s,
+                        pnl_pct=%s, direction_correct=%s, updated_at=NOW()
+                    WHERE id = %s
+                """, (exit_price, exit_date, pnl_pct, direction_correct, pid))
+                closed += 1
+            _c.commit()
+        print("[aiem_independent] grade: closed {} matured picks".format(closed))
+    except Exception as e:
+        print("[aiem_independent] grade error: {}".format(e))
+
+
+def _aiem_tool_query_independent_picks(days_back=14, pick_type=None, ticker=None, limit=100):
+    """Chat tool: read AIEM's own independent Polygon-only picks (Workstream D)."""
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            clauses = ["pick_date >= CURRENT_DATE - (%s || ' days')::interval"]
+            params = [str(int(days_back))]
+            if pick_type in ("stock", "call_option"):
+                clauses.append("pick_type = %s")
+                params.append(pick_type)
+            if ticker:
+                clauses.append("ticker = %s")
+                params.append(str(ticker).upper())
+            where = " AND ".join(clauses)
+            params.append(int(limit))
+            _cu.execute("""
+                SELECT pick_date, pick_type, ticker, rank, confidence_score, rationale,
+                       entry_price, option_strike, option_expiry, status, exit_price,
+                       exit_date, pnl_pct, direction_correct
+                FROM aiem_independent_picks
+                WHERE {}
+                ORDER BY pick_date DESC, pick_type, rank
+                LIMIT %s
+            """.format(where), params)
+            cols = ["pick_date", "pick_type", "ticker", "rank", "confidence_score", "rationale",
+                    "entry_price", "option_strike", "option_expiry", "status", "exit_price",
+                    "exit_date", "pnl_pct", "direction_correct"]
+            rows = [dict(zip(cols, r)) for r in _cu.fetchall()]
+        return {"count": len(rows), "picks": rows}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_tool_analyze_independent_performance(days_back=60):
+    """Chat tool: AIEM's own win rate / avg P&L on its independent picks, by pick_type."""
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT pick_type,
+                       COUNT(*) FILTER (WHERE status='closed') AS n_closed,
+                       COUNT(*) FILTER (WHERE status='open') AS n_open,
+                       AVG(pnl_pct) FILTER (WHERE status='closed') AS avg_pnl_pct,
+                       AVG(CASE WHEN direction_correct THEN 1.0 ELSE 0.0 END)
+                           FILTER (WHERE status='closed') AS win_rate
+                FROM aiem_independent_picks
+                WHERE pick_date >= CURRENT_DATE - (%s || ' days')::interval
+                GROUP BY pick_type
+            """, (str(int(days_back)),))
+            out = {}
+            for pick_type, n_closed, n_open, avg_pnl, win_rate in _cu.fetchall():
+                out[pick_type] = {
+                    "closed": int(n_closed or 0), "open": int(n_open or 0),
+                    "avg_pnl_pct": round(float(avg_pnl), 3) if avg_pnl is not None else None,
+                    "win_rate_pct": round(float(win_rate) * 100, 1) if win_rate is not None else None,
+                }
+        return {
+            "days_back": days_back, "by_type": out,
+            "note": ("call_option pnl/win_rate are graded on UNDERLYING price movement "
+                      "(directional proxy), not real option premium P&L."),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _aiem_tool_compare_independent_vs_website_picks(days_back=30):
+    """Chat tool: side-by-side comparison of AIEM's independent Polygon-only
+    picks vs the website-sourced paper trades (aiem_paper_trades), same window."""
+    try:
+        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT COUNT(*) FILTER (WHERE status='closed') AS n_closed,
+                       AVG(pnl_pct) FILTER (WHERE status='closed') AS avg_pnl_pct,
+                       AVG(CASE WHEN direction_correct THEN 1.0 ELSE 0.0 END)
+                           FILTER (WHERE status='closed') AS win_rate
+                FROM aiem_independent_picks
+                WHERE pick_date >= CURRENT_DATE - (%s || ' days')::interval
+            """, (str(int(days_back)),))
+            _ic = _cu.fetchone()
+            independent = {
+                "closed": int(_ic[0] or 0),
+                "avg_pnl_pct": round(float(_ic[1]), 3) if _ic[1] is not None else None,
+                "win_rate_pct": round(float(_ic[2]) * 100, 1) if _ic[2] is not None else None,
+            }
+            website = {"note": "aiem_paper_trades not available yet"}
+            try:
+                _cu.execute("""
+                    SELECT COUNT(*) FILTER (WHERE status='closed') AS n_closed,
+                           AVG(pnl_pct) FILTER (WHERE status='closed') AS avg_pnl_pct,
+                           AVG(CASE WHEN pnl_pct > 0 THEN 1.0 ELSE 0.0 END)
+                               FILTER (WHERE status='closed') AS win_rate
+                    FROM aiem_paper_trades
+                    WHERE trade_date >= CURRENT_DATE - (%s || ' days')::interval
+                """, (str(int(days_back)),))
+                _wc = _cu.fetchone()
+                website = {
+                    "closed": int(_wc[0] or 0),
+                    "avg_pnl_pct": round(float(_wc[1]), 3) if _wc[1] is not None else None,
+                    "win_rate_pct": round(float(_wc[2]) * 100, 1) if _wc[2] is not None else None,
+                }
+            except Exception as _we:
+                website = {"error": str(_we)}
+        return {
+            "days_back": days_back,
+            "aiem_independent_polygon": independent,
+            "website_sourced_paper_trades": website,
+            "note": ("Independent picks reflect AIEM's own raw-Polygon reasoning only; "
+                     "website_sourced_paper_trades reflects the site's own scanner-derived "
+                     "signals. Both use close-price-based simulated exits, no real trading."),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _aiem_tool_query_own_prediction_performance(days_back=45):
     """
     Sunday agent tool: review Loop B's forward-looking prediction track record.
@@ -25582,6 +26040,10 @@ def _build_aiem_tool_map():
         "mkt_retrospective_backtest":   _mkt_retrospective_backtest,
         "mkt_ticker_deep_compare":      _mkt_ticker_deep_compare,
         "mkt_net_flow_db":              _mkt_net_flow_db,
+        # ── Workstream D: AIEM independent Polygon-only picks (read-only) ─────
+        "query_independent_picks":              _aiem_tool_query_independent_picks,
+        "analyze_independent_performance":       _aiem_tool_analyze_independent_performance,
+        "compare_independent_vs_website_picks":  _aiem_tool_compare_independent_vs_website_picks,
         # ── Pick-outcome / scoring research tools ─────────────────────────────
         "query_pick_outcomes":               _aiem_tool_query_pick_outcomes,
         "query_missed_movers":               _aiem_tool_query_missed_movers,
@@ -25973,6 +26435,43 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
 
 
 _AIEM_AGENT_TOOLS = [
+    {"type": "function", "function": {
+        "name": "query_independent_picks",
+        "description": (
+            "Read AIEM's own INDEPENDENT Polygon-only picks (Workstream D) - stocks and "
+            "call-option setups AIEM selected using ONLY raw Polygon data and its own "
+            "reasoning, with no website conviction/composite scoring involved. Separate "
+            "from your website-sourced picks."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Days to look back (default 14)"},
+            "pick_type": {"type": "string", "enum": ["stock", "call_option"]},
+            "ticker": {"type": "string"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "analyze_independent_performance",
+        "description": (
+            "Win rate and average P&L for AIEM's independent Polygon-only picks, "
+            "broken out by stock vs call_option. Use to see how AIEM's own "
+            "unaided judgment is performing."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Days to look back (default 60)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "compare_independent_vs_website_picks",
+        "description": (
+            "Side-by-side comparison: AIEM's independent Polygon-only picks vs the "
+            "website-sourced paper trades, over the same lookback window. Use to see "
+            "whether AIEM's own picking skill is catching up to or beating the site's "
+            "scanners."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "Days to look back (default 30)"}
+        }, "required": []}
+    }},
     {"type": "function", "function": {
         "name": "query_pick_outcomes",
         "description": (
@@ -28817,6 +29316,163 @@ Your confidence_score should reflect genuine conviction:
 - 1-4: Only 1 source, or setup type has mixed historical results
 
 Be specific in your reasoning. Explain the pattern, not just the signals."""
+
+
+_AIEM_INDEPENDENT_TOOLS = [
+    {"type": "function", "function": {
+        "name": "get_raw_stock_universe",
+        "description": (
+            "Get today's raw Polygon stock candidate pool (gap%, relative volume, "
+            "close strength, range%, 5d/20d momentum). This is RAW Polygon data only - "
+            "it contains NO conviction score, composite score, or any other website-computed "
+            "conclusion. You must apply your OWN judgment to rank/filter these."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_rvol": {"type": "number", "description": "Min relative volume (default 2.0)"},
+            "max_price": {"type": "number", "description": "Max stock price (default 150)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "get_raw_options_universe",
+        "description": (
+            "Get today's raw call-sweep tape (strike, expiry, days to expiry, call volume, "
+            "open interest, vol/OI ratio, premium, underlying price, OTM%, IV). RAW facts "
+            "only - no conviction/composite score is present on this data. Apply your OWN "
+            "reasoning about which sweeps look like genuine smart-money positioning."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_vol_oi": {"type": "number", "description": "Min vol/OI ratio (default 1.0)"},
+            "days_back": {"type": "integer", "description": "Lookback days (default 3)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "save_independent_picks",
+        "description": (
+            "Save your final independent picks. Call LAST. Up to 20 stock picks and up "
+            "to 20 call-option picks, each with your own rationale and confidence. Fewer "
+            "than 20 is fine - do not pad the list with weak ideas."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "stock_picks": {
+                "type": "array", "items": {"type": "object", "properties": {
+                    "ticker": {"type": "string"},
+                    "rank": {"type": "integer", "description": "1=highest conviction"},
+                    "confidence_score": {"type": "number", "description": "0-10 score"},
+                    "rationale": {"type": "string"},
+                }, "required": ["ticker", "rank", "confidence_score", "rationale"]}
+            },
+            "option_picks": {
+                "type": "array", "items": {"type": "object", "properties": {
+                    "ticker": {"type": "string", "description": "Underlying ticker"},
+                    "strike": {"type": "number"},
+                    "expiry": {"type": "string", "description": "YYYY-MM-DD"},
+                    "underlying_price": {"type": "number"},
+                    "rank": {"type": "integer", "description": "1=highest conviction"},
+                    "confidence_score": {"type": "number", "description": "0-10 score"},
+                    "rationale": {"type": "string"},
+                }, "required": ["ticker", "rank", "confidence_score", "rationale"]}
+            }
+        }, "required": ["stock_picks", "option_picks"]}
+    }},
+]
+
+_AIEM_INDEPENDENT_SYSTEM = """You are AIEM building your OWN independent stock-picking and \
+options-picking skill, completely separate from this website's scanners and composite scores.
+
+Ground rules:
+- You may ONLY use raw Polygon price/volume data (get_raw_stock_universe) and raw \
+options-tape facts (get_raw_options_universe). Both tools already exclude the website's own \
+conviction/composite scores - you are looking at the same kind of raw data a human analyst \
+would see on a market data terminal, nothing pre-scored for you.
+- Use your own reasoning, pattern recognition, and judgment about risk/reward. You are being \
+graded independently against the website's own picks over time, so the goal is to become a \
+better picker in your own right - not to reverse-engineer the website's formulas.
+- Pick up to 20 stocks and up to 20 call-option setups you independently believe are likely to \
+move favorably over the next 5 trading days. Fewer than 20 is fine if you don't see enough \
+genuine quality - do not pad the list with weak ideas just to hit 20.
+- Explain your rationale for each pick in your own words.
+
+PROTOCOL:
+1. Call get_raw_stock_universe and get_raw_options_universe to see today's raw candidates.
+2. Reason about each candidate independently - momentum, volume behavior, sweep positioning, \
+risk of chasing an extended move, liquidity.
+3. Call save_independent_picks with your final ranked lists.
+"""
+
+
+def _run_aiem_independent_scan():
+    """
+    AIEM's own independent daily pick generation - Workstream D. Runs 9:20 AM
+    ET Mon-Fri, after the 8:50 AM grading pass and the 8:35 AM Polygon
+    refresh. Saves to aiem_independent_picks - fully separate from
+    aiem_predictions / aiem_paper_trades (which are sourced from this
+    website's own scanners).
+    """
+    import threading as _aist
+
+    if not _is_trading_day():
+        print("[aiem_independent] skipped - market closed (holiday/weekend)")
+        return
+
+    def _indep_scan_thread():
+        import json as _aisj
+        try:
+            print("[aiem_independent] starting independent Polygon-only scan...")
+            _oai = _OpenAI(
+                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
+                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
+            )
+            _indep_tool_map = {
+                "get_raw_stock_universe":   _aiem_indep_tool_stock_universe,
+                "get_raw_options_universe": _aiem_indep_tool_options_universe,
+                "save_independent_picks":  _aiem_indep_tool_save_independent_picks,
+            }
+            messages = [
+                {"role": "system", "content": _AIEM_INDEPENDENT_SYSTEM},
+                {"role": "user", "content": "Run today's independent scan and save your picks."}
+            ]
+            saved = False
+            for _i in range(8):
+                _resp = _oai.chat.completions.create(
+                    model="gpt-5.4",
+                    messages=messages,
+                    tools=_AIEM_INDEPENDENT_TOOLS,
+                    tool_choice="auto",
+                    max_completion_tokens=2500,
+                )
+                _msg = _resp.choices[0].message
+                messages.append({
+                    "role": "assistant",
+                    "content": _msg.content,
+                    "tool_calls": [tc.model_dump() for tc in (_msg.tool_calls or [])]
+                })
+                if not _msg.tool_calls:
+                    break
+                for tc in _msg.tool_calls:
+                    fn_name = tc.function.name
+                    try:
+                        args = _aisj.loads(tc.function.arguments or "{}")
+                    except Exception:
+                        args = {}
+                    fn = _indep_tool_map.get(fn_name)
+                    result = fn(**args) if fn else {"error": "Unknown tool"}
+                    result_str = _aisj.dumps(result, default=str)
+                    if len(result_str) > 6000:
+                        result_str = result_str[:6000] + "...}"
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_str})
+                    if fn_name == "save_independent_picks":
+                        saved = True
+                        print("[aiem_independent] picks saved - loop complete")
+                        break
+                else:
+                    continue
+                break
+            if not saved:
+                print("[aiem_independent] agent didn't save picks this run")
+        except Exception as _e:
+            print("[aiem_independent] error: {}".format(_e))
+
+    _aist.Thread(target=_indep_scan_thread, daemon=True).start()
 
 
 def _run_aiem_morning_scan():
@@ -46025,6 +46681,35 @@ def admin_run_polygon_rvol():
         movers = _polygon_full_market_scan()
         return jsonify({"status": "ok", "movers_found": len(movers),
                         "scan_date": movers[0]["scan_date"] if movers else None})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/admin/run-aiem-independent-scan", methods=["POST"])
+def admin_run_aiem_independent_scan():
+    """Admin (dev testing): trigger AIEM's independent Polygon-only pick scan
+    (Workstream D) immediately instead of waiting for the 9:20 AM ET cron."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        _run_aiem_independent_scan()
+        return jsonify({"status": "started",
+                        "message": "Running in background - check logs for [aiem_independent]."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/admin/grade-aiem-independent-picks", methods=["POST"])
+def admin_grade_aiem_independent_picks():
+    """Admin (dev testing): trigger grading of matured aiem_independent_picks
+    immediately instead of waiting for the 8:50 AM ET cron."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        _run_aiem_independent_grade()
+        return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
