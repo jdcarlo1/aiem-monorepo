@@ -1,0 +1,58 @@
+# F8 Verification Checklist — CALL_OPTION P&L Mislabeling Fix
+
+Before closing F8, complete both parts below. Do not summarize results — show raw output for Part 1 and direct answers with file/line references for Part 2.
+
+---
+
+## Part 1: Repo-wide grep audit
+
+Run each command and paste the raw output.
+
+```bash
+# 1. Find every place pnl_pct is read or written across the whole repo
+grep -rn "pnl_pct" --include="*.py" --include="*.ts" --include="*.tsx" .
+
+# 2. Isolate reads specifically (attribute/key access, not just definitions)
+grep -rn "\.pnl_pct\|\[.pnl_pct.\]\|get(.pnl_pct" --include="*.py" --include="*.ts" --include="*.tsx" .
+
+# 3. Every consumer of the paper trade / closed trade structures, beyond the 3 files already confirmed (main.py, api.ts, Dashboard.tsx)
+grep -rln "AiemPaperTrade\|AiemPaperClosedTrade\|aiem_paper_portfolio\|fetchAiemPaperPortfolio" --include="*.py" --include="*.ts" --include="*.tsx" .
+
+# 4. Check alerting, stat-arb, and precursor modules specifically
+grep -rn "pnl_pct" telegram* sms* alert* stat_arb* precursor* 2>/dev/null
+```
+
+---
+
+## Part 2: Questions for the agent
+
+Answer each with direct evidence (file, line number, or "confirmed no match" with the grep command used to confirm it). No summaries — show the actual output backing each claim.
+
+1. For every match found in the Part 1 grep results, state:
+   - Which file/function it's in
+   - Whether that code path can ever receive a CALL_OPTION-type record
+   - If yes: what happens now that CALL_OPTION records no longer carry `pnl_pct` in the LLM-prompt dict — does it throw, silently return `None`, or is it unaffected because it reads from the DB column (which is untouched)?
+
+2. Specifically check the following modules and confirm whether any format or threshold on `pnl_pct` for options positions:
+   - Telegram alert formatter
+   - SMS alert formatter
+   - Statistical arbitrage module
+   - Precursor signal detection module
+
+3. Is `synthetic_option_proxy_pct` used **only** in the LLM prompt-building dict, or does anything else (alerts, exports, the stat arb engine) need to read it and currently doesn't?
+
+4. Does `AiemPaperTrade` (the open-position type, not just `AiemPaperClosedTrade`) need `pnl_is_synthetic_proxy` surfaced anywhere outside `Dashboard.tsx` — alerts, exports, or any API consumer that reads positions dynamically rather than via a static import the blast-radius grep would have caught?
+
+5. Confirm: does the DB column `pnl_pct` on `AiemPaperTrade`/`AiemPaperClosedTrade` remain populated with the same values as before F8 for CALL_OPTION rows (i.e., only the *outward-facing* LLM prompt dict and UI label changed, not the underlying stored data)?
+
+---
+
+## Part 3 (optional but recommended): End-to-end manual test
+
+Create one paper CALL_OPTION trade, let it close, and confirm it flows correctly through:
+- [ ] Dashboard render (shows `~` prefix + tooltip)
+- [ ] Telegram alert (if one fires on close)
+- [ ] SMS alert (if one fires on close)
+- [ ] Any downstream logging/export that touches closed trades
+
+Confirm no step silently drops or mis-renders the P&L value for this trade.
