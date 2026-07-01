@@ -1,0 +1,264 @@
+"""
+AEIM 6-LAYER ADAPTIVE TRADING ENGINE
+Single-file institutional architecture scaffold
+
+NOTE:
+- This is a production-grade STRUCTURE, not a fully trained ML system.
+- Designed for extension, not illusion of completeness.
+"""
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Any, Optional
+import random
+import numpy as np
+import datetime
+
+
+# =========================
+# LAYER 1: MARKET DATA
+# =========================
+
+class MarketDataEngine:
+    """
+    Handles data ingestion (price, volume, indicators)
+    Replace with Alpaca / Polygon / IBKR feeds.
+    """
+
+    def get_price_data(self, symbol: str):
+        # Placeholder simulation
+        return {
+            "symbol": symbol,
+            "price": random.uniform(50, 300),
+            "volume": random.randint(1000, 100000),
+            "volatility": random.uniform(0.1, 3.0)
+        }
+
+
+# =========================
+# LAYER 2: MARKET REGIME DETECTOR
+# =========================
+
+class MarketRegimeDetector:
+    """
+    Detects market condition:
+    trending, mean_reverting, volatile, breakout, risk_off
+    """
+
+    def detect(self, data: Dict[str, Any]) -> str:
+        v = data["volatility"]
+
+        if v > 2.0:
+            return "volatile"
+        elif v > 1.2:
+            return "trending"
+        elif v > 0.8:
+            return "mean_reverting"
+        else:
+            return "low_volatility"
+
+
+# =========================
+# LAYER 3: STRATEGY ENGINE
+# =========================
+
+class StrategyEngine:
+    """
+    Selects strategy based on regime
+    """
+
+    def select_strategy(self, regime: str) -> str:
+
+        strategies = {
+            "volatile": "gamma_scalp",
+            "trending": "momentum_breakout",
+            "mean_reverting": "mean_reversion",
+            "low_volatility": "range_scalp"
+        }
+
+        return strategies.get(regime, "neutral_hold")
+
+    def generate_signal(self, price_data: Dict, strategy: str) -> float:
+        """
+        Output signal strength (-1 to +1)
+        """
+
+        base = random.uniform(-1, 1)
+
+        if strategy == "momentum_breakout":
+            return base + 0.3
+        elif strategy == "mean_reversion":
+            return base * 0.6
+        elif strategy == "gamma_scalp":
+            return base * 1.2
+        else:
+            return base * 0.5
+
+
+# =========================
+# LAYER 4: RISK ENGINE
+# =========================
+
+class RiskEngine:
+
+    def calculate_position_size(self, confidence: float, capital: float) -> float:
+        """
+        Kelly-style simplified sizing
+        """
+
+        risk_factor = max(0.1, min(confidence, 1.0))
+        return capital * 0.02 * risk_factor  # 2% max risk baseline
+
+    def stop_loss(self, price: float) -> float:
+        return price * 0.97
+
+    def take_profit(self, price: float) -> float:
+        return price * 1.05
+
+
+# =========================
+# LAYER 5: PORTFOLIO ENGINE
+# =========================
+
+@dataclass
+class Position:
+    symbol: str
+    entry_price: float
+    size: float
+    strategy: str
+    timestamp: datetime.datetime
+
+
+class PortfolioEngine:
+
+    def __init__(self):
+        self.positions: List[Position] = []
+
+    def add_position(self, pos: Position):
+        self.positions.append(pos)
+
+    def summary(self):
+        return {
+            "positions": len(self.positions),
+            "exposure": sum(p.size for p in self.positions)
+        }
+
+
+# =========================
+# LAYER 6: EXECUTION ENGINE
+# =========================
+
+class ExecutionEngine:
+
+    def execute_trade(self, symbol: str, signal: float, size: float, price: float):
+        if abs(signal) < 0.2:
+            return None  # no trade zone
+
+        side = "BUY" if signal > 0 else "SELL"
+
+        return {
+            "symbol": symbol,
+            "side": side,
+            "size": size,
+            "price": price,
+            "confidence": abs(signal),
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        }
+
+
+# =========================
+# LAYER 7: LEARNING LOOP
+# =========================
+
+class LearningEngine:
+
+    def update(self, trade_result: Dict):
+        """
+        Placeholder for reinforcement learning / weighting adjustments
+        """
+
+        # In real system:
+        # - adjust strategy weights
+        # - update regime accuracy
+        # - optimize signal thresholds
+
+        return {
+            "updated": True,
+            "trade_result": trade_result
+        }
+
+
+# =========================
+# AEIM CORE ORCHESTRATOR
+# =========================
+
+class AEIMCore:
+
+    def __init__(self, capital: float = 100000):
+        self.data_engine = MarketDataEngine()
+        self.regime_engine = MarketRegimeDetector()
+        self.strategy_engine = StrategyEngine()
+        self.risk_engine = RiskEngine()
+        self.portfolio = PortfolioEngine()
+        self.execution_engine = ExecutionEngine()
+        self.learning_engine = LearningEngine()
+
+        self.capital = capital
+
+    def run_cycle(self, symbol: str):
+
+        # 1. Get data
+        data = self.data_engine.get_price_data(symbol)
+
+        # 2. Detect regime
+        regime = self.regime_engine.detect(data)
+
+        # 3. Select strategy
+        strategy = self.strategy_engine.select_strategy(regime)
+
+        # 4. Generate signal
+        signal = self.strategy_engine.generate_signal(data, strategy)
+
+        # 5. Risk sizing
+        size = self.risk_engine.calculate_position_size(abs(signal), self.capital)
+
+        # 6. Execute trade
+        trade = self.execution_engine.execute_trade(symbol, signal, size, data["price"])
+
+        if trade:
+            position = Position(
+                symbol=symbol,
+                entry_price=data["price"],
+                size=size,
+                strategy=strategy,
+                timestamp=datetime.datetime.utcnow()
+            )
+            self.portfolio.add_position(position)
+
+            # 7. Learning loop update
+            self.learning_engine.update(trade)
+
+        return {
+            "symbol": symbol,
+            "price": data["price"],
+            "regime": regime,
+            "strategy": strategy,
+            "signal": signal,
+            "trade": trade,
+            "portfolio": self.portfolio.summary()
+        }
+
+
+# =========================
+# MAIN LOOP (TEST RUN)
+# =========================
+
+if __name__ == "__main__":
+
+    aeim = AEIMCore(capital=100000)
+
+    symbols = ["AAPL", "TSLA", "NVDA", "SPY"]
+
+    for _ in range(5):
+        for s in symbols:
+            output = aeim.run_cycle(s)
+            print(output)
