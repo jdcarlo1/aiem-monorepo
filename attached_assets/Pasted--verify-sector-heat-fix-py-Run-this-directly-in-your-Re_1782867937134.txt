@@ -1,0 +1,98 @@
+"""
+verify_sector_heat_fix.py
+
+Run this directly in your Replit/production environment (same one that has
+_get_sector_heat importable). It does NOT trust the diff — it inspects the
+real payload and proves whether the fix is correct.
+
+Usage:
+    python verify_sector_heat_fix.py
+"""
+
+import json
+import sys
+
+def main():
+    try:
+        from your_module import _get_sector_heat  # <-- fix this import path
+    except ImportError:
+        print("!! Update the import above to point at wherever _get_sector_heat lives.")
+        sys.exit(1)
+
+    sh = _get_sector_heat(days_back=2)
+
+    hot_sectors = sh.get("hot_sectors", [])
+    print(f"=== RAW PAYLOAD SHAPE ===")
+    print(f"hot_sectors count: {len(hot_sectors)}")
+    if not hot_sectors:
+        print("No hot sectors returned for days_back=2 — try days_back=5 or 10 to get a non-empty sample.")
+        return
+
+    # 1. Confirm actual keys present on each sector entry
+    print("\n=== KEYS PRESENT ON FIRST 3 SECTOR ENTRIES ===")
+    for hs in hot_sectors[:3]:
+        print(json.dumps({k: (v if not isinstance(v, list) else f"[list len={len(v)}]")
+                           for k, v in hs.items()}, indent=2, default=str))
+        print("---")
+
+    # 2. Explicitly check whether 'lead_tickers' exists, and flag likely alt names
+    candidate_keys = ["lead_tickers", "leading_tickers", "primary_tickers",
+                       "leaders", "core_tickers", "driver_tickers"]
+    print("\n=== CANDIDATE KEY CHECK (across all hot_sectors) ===")
+    for key in candidate_keys:
+        count_present = sum(1 for hs in hot_sectors if key in hs)
+        print(f"  '{key}': present in {count_present}/{len(hot_sectors)} entries")
+
+    if not any("lead_tickers" in hs for hs in hot_sectors):
+        print("\n!! WARNING: 'lead_tickers' key not found in ANY sector entry.")
+        print("   The diff's fix is silently a no-op right now — it will never fire.")
+        print("   Find the correct key from the KEYS PRESENT section above and fix the diff.")
+        return
+    else:
+        print("\nOK: 'lead_tickers' key confirmed present.")
+
+    # 3. Check overlap between lead_tickers and sympathy_plays (sanity check on max-merge logic)
+    print("\n=== OVERLAP CHECK: lead_tickers vs sympathy_plays ===")
+    total_overlap = 0
+    for hs in hot_sectors:
+        leads = set(hs.get("lead_tickers", []))
+        symp = set(hs.get("sympathy_plays", []))
+        overlap = leads & symp
+        if overlap:
+            total_overlap += len(overlap)
+            print(f"  sector={hs.get('sector', '?')}: overlap={overlap}")
+    print(f"Total overlapping tickers across all sectors: {total_overlap}")
+
+    # 4. Build OLD (sympathy-only) vs NEW (sympathy+lead) ticker_heat dicts and diff them
+    print("\n=== BEFORE vs AFTER: sector_heat_score per ticker ===")
+    old_heat, new_heat = {}, {}
+    for hs in hot_sectors:
+        heat = hs.get("heat_score", 0)
+        for stk in hs.get("sympathy_plays", []):
+            if stk not in old_heat or heat > old_heat[stk]:
+                old_heat[stk] = float(heat)
+            if stk not in new_heat or heat > new_heat[stk]:
+                new_heat[stk] = float(heat)
+        for lead in hs.get("lead_tickers", []):
+            if lead not in new_heat or heat > new_heat[lead]:
+                new_heat[lead] = float(heat)
+
+    added_tickers = sorted(set(new_heat) - set(old_heat))
+    changed_tickers = sorted(t for t in set(new_heat) & set(old_heat) if new_heat[t] != old_heat[t])
+
+    print(f"Tickers with NO score before, now scored: {len(added_tickers)}")
+    for t in added_tickers[:20]:
+        print(f"  + {t}: {new_heat[t]}")
+    if len(added_tickers) > 20:
+        print(f"  ... and {len(added_tickers) - 20} more")
+
+    print(f"\nTickers whose score CHANGED (overlap case, took higher heat): {len(changed_tickers)}")
+    for t in changed_tickers[:20]:
+        print(f"  ~ {t}: {old_heat[t]} -> {new_heat[t]}")
+
+    print("\n=== DONE ===")
+    print("If 'added_tickers' is empty, the fix has zero effect on this sample —")
+    print("re-run with a larger days_back or check the key name again.")
+
+if __name__ == "__main__":
+    main()
