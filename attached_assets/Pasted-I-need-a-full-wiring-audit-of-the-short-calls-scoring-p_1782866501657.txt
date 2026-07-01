@@ -1,0 +1,42 @@
+I need a full wiring audit of the short-calls scoring pipeline, output as plain 
+text / code blocks — no summarizing, no "looks good," just raw evidence.
+
+For EACH of the 9 conviction layers (OI Build, Gamma, Charm, Squeeze Fuel, 
+Dark Pool, Float OD, Sweep, Sector Heat, and the Layer 9 quant engine):
+
+1. Show the function that computes that layer's score for the SHORT CALLS 
+   pipeline specifically (not the long/scanner pipeline, unless they share code — 
+   if they share code, say so explicitly).
+
+2. Show where that computed value gets attached to the `pick` dict/object 
+   before it's passed to `_save_ai_short_calls_to_log`. If a layer is NOT 
+   attached to the pick dict, say so explicitly instead of skipping it.
+
+3. Show the full `_save_ai_short_calls_to_log` function: complete column 
+   list in the INSERT, complete ON CONFLICT clause, complete DO UPDATE SET 
+   clause. Confirm which of the 9 layer columns actually appear there and 
+   which don't.
+
+4. Run this query and paste the raw output — for each of the 9 score 
+   columns, what % of rows in ai_short_calls_log are NULL/blank over the 
+   last 30 days:
+
+SELECT
+  COUNT(*) AS total_rows,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE oi_build_score IS NULL) / COUNT(*), 1) AS oi_build_null_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE gamma_score IS NULL) / COUNT(*), 1) AS gamma_null_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE charm_score IS NULL) / COUNT(*), 1) AS charm_null_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE squeeze_fuel_score IS NULL) / COUNT(*), 1) AS squeeze_fuel_null_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE dark_pool_score IS NULL) / COUNT(*), 1) AS dark_pool_null_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE float_od_score IS NULL) / COUNT(*), 1) AS float_od_null_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE sweep_score IS NULL) / COUNT(*), 1) AS sweep_null_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE sector_heat_score IS NULL) / COUNT(*), 1) AS sector_heat_null_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE layer9_score IS NULL) / COUNT(*), 1) AS layer9_null_pct
+FROM ai_short_calls_log
+WHERE trade_date >= CURRENT_DATE - INTERVAL '30 days';
+
+(Adjust column names in the query if any differ from what's actually in the schema — 
+show me the actual schema first if you're not sure of exact names.)
+
+Do not tell me it's "wired correctly" without showing steps 1-4 for every layer. 
+If any layer's computation function doesn't exist for short calls, say that plainly.
