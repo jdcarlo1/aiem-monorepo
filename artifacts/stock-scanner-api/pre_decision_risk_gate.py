@@ -167,14 +167,24 @@ def run_risk_gate(
 
     _db_url = os.environ.get("DATABASE_URL", "")
 
-    # 0a. Position reconciliation — unresolved broker/DB mismatch blocks all new orders
-    if _db_url and pr.has_unresolved_mismatch(_db_url):
+    if not _db_url:
+        # Fail CLOSED, not open: without DATABASE_URL we cannot verify position
+        # reconciliation, the daily loss limit, or order dedup — all three are
+        # safety-critical, so an unreachable DB blocks trading instead of
+        # silently skipping these checks.
         blocking_reasons.append(
-            "Unresolved position mismatch between broker and DB — trading blocked until resolved."
+            "DATABASE_URL is not set — position reconciliation, daily loss limit, "
+            "and order dedup checks cannot run. Failing closed: trading blocked "
+            "until DB configuration is fixed."
         )
+    else:
+        # 0a. Position reconciliation — unresolved broker/DB mismatch blocks all new orders
+        if pr.has_unresolved_mismatch(_db_url):
+            blocking_reasons.append(
+                "Unresolved position mismatch between broker and DB — trading blocked until resolved."
+            )
 
-    # 0b. Daily loss limit circuit breaker — pure math, no broker dependency
-    if _db_url:
+        # 0b. Daily loss limit circuit breaker — pure math, no broker dependency
         _dll_result = dll.check_daily_loss_limit(_db_url)
         if _dll_result["halt_trading"]:
             blocking_reasons.append(
@@ -182,11 +192,11 @@ def run_risk_gate(
                 f"(limit: -{_dll_result['loss_limit_pct']}%). Trading halted for today."
             )
 
-    # 0c. Order dedup — if this decision_id already placed an order, block the duplicate
-    if _db_url and decision_id is not None and not od.should_place_order(_db_url, decision_id):
-        blocking_reasons.append(
-            f"Decision ID {decision_id} already has an order in order_execution_log — duplicate blocked."
-        )
+        # 0c. Order dedup — if this decision_id already placed an order, block the duplicate
+        if decision_id is not None and not od.should_place_order(_db_url, decision_id):
+            blocking_reasons.append(
+                f"Decision ID {decision_id} already has an order in order_execution_log — duplicate blocked."
+            )
 
     # 1. Kill switch — hard block, no exceptions
     halt_reason = ks._is_currently_halted()
