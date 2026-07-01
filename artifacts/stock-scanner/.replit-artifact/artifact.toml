@@ -43,3 +43,20 @@ run = "python /home/runner/workspace/artifacts/stock-scanner-api/main.py"
 
 [services.env]
 STOCK_API_PORT = "5050"
+
+[[services]]
+name = "aiem-telegram"
+paths = [ "/aiem-telegram/" ]
+localPort = 5052
+
+[services.development]
+run = "python3 /home/runner/workspace/aiem_telegram_notifier.py"
+
+[services.production]
+run = "python3 /home/runner/workspace/aiem_telegram_notifier.py"
+
+[services.production.health.startup]
+path = "/aiem-telegram/api/health"
+
+[services.env]
+AIEM_HEALTH_PORT = "5052"
