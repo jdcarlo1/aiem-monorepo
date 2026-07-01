@@ -33050,6 +33050,201 @@ def aiem_paper_force_mtm():
     return jsonify({"status": "marking", "message": "Marking all open positions to market — refresh in 10s"})
 
 
+# ─────────────────────────────
+# AIEM Probability Engine — READ-ONLY surface.
+#
+# Isolation contract: this block never imports the aiem_probability_engine
+# package's internal modules into this process, and never touches any
+# table the live trading app owns. It only (a) runs plain SELECTs against
+# the two tables that package owns (aiem_probability_engine_daily_picks,
+# aiem_probability_engine_predictions — both created/written solely by
+# that package's own scripts, see reports.py / daily_picks.py docstrings),
+# and (b) for the admin force-run action, launches that package's script
+# as a completely separate OS subprocess (not a Python import, not a
+# thread in this process) so a bug or hang in the probability engine can
+# never block or crash the live scanner/scheduler/paper-trading app.
+# ─────────────────────────────
+
+@app.route("/stock-api/aiem-probability-engine/daily-picks", methods=["GET"])
+def aiem_probability_engine_daily_picks():
+    """Most recent day's top-N probability-engine picks (read-only)."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT to_regclass('public.aiem_probability_engine_daily_picks')
+            """)
+            if _cu.fetchone()[0] is None:
+                return jsonify({
+                    "pick_date": None, "picks": [],
+                    "note": "probability engine has not run yet — no picks logged",
+                })
+
+            _cu.execute("""
+                SELECT pick_date::text FROM aiem_probability_engine_daily_picks
+                ORDER BY pick_date DESC LIMIT 1
+            """)
+            _row = _cu.fetchone()
+            if not _row:
+                return jsonify({
+                    "pick_date": None, "picks": [],
+                    "note": "probability engine has not run yet — no picks logged",
+                })
+            _pick_date = _row[0]
+
+            _cu.execute("""
+                SELECT rank, ticker, model_version, score,
+                       prob_up_1d, prob_up_2d, prob_up_3d, prob_up_4d,
+                       confidence, edge_after_cost_prob_pts, regime_tag,
+                       top_contributing_layers_json, warnings_json
+                FROM aiem_probability_engine_daily_picks
+                WHERE pick_date = %s
+                ORDER BY rank ASC
+            """, (_pick_date,))
+            _cols = ["rank", "ticker", "model_version", "score",
+                     "prob_up_1d", "prob_up_2d", "prob_up_3d", "prob_up_4d",
+                     "confidence", "edge_after_cost_prob_pts", "regime_tag",
+                     "top_contributing_layers", "warnings"]
+            _picks = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_cols, _r))
+                for _k in ["score", "prob_up_1d", "prob_up_2d", "prob_up_3d",
+                           "prob_up_4d", "confidence", "edge_after_cost_prob_pts"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                _picks.append(_d)
+
+        return jsonify({
+            "pick_date": _pick_date,
+            "picks": _picks,
+            "methodology": (
+                "Re-ranks today's existing scanner candidates (ai_short_calls_log) "
+                "by calibrated 2d/3d up-move probability from the 9-layer conviction "
+                "model — it does not run its own independent market scan."
+            ),
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-probability-engine/track-record", methods=["GET"])
+def aiem_probability_engine_track_record():
+    """
+    Predicted-vs-actual history for the probability engine (read-only) —
+    the "did it learn from its mistakes" view. Every row here was logged
+    BEFORE its outcome was known (shadow_mode log, see reports.py), so
+    this is a genuine track record, not a backtest curve-fit after the fact.
+    """
+    _limit = min(int(request.args.get("limit", 100)), 500)
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT to_regclass('public.aiem_probability_engine_predictions')
+            """)
+            if _cu.fetchone()[0] is None:
+                return jsonify({
+                    "rows": [], "summary": {},
+                    "note": "probability engine has not logged any predictions yet",
+                })
+
+            _cu.execute("""
+                SELECT signal_date::text, ticker, model_version,
+                       prob_up_1d, prob_up_2d, prob_up_3d, prob_up_4d,
+                       confidence, regime_tag,
+                       outcome_ret_1d, outcome_ret_2d, outcome_ret_3d, outcome_ret_4d,
+                       outcome_label_1d, outcome_label_2d, outcome_label_3d, outcome_label_4d
+                FROM aiem_probability_engine_predictions
+                ORDER BY signal_date DESC, ticker ASC
+                LIMIT %s
+            """, (_limit,))
+            _cols = ["signal_date", "ticker", "model_version",
+                     "prob_up_1d", "prob_up_2d", "prob_up_3d", "prob_up_4d",
+                     "confidence", "regime_tag",
+                     "outcome_ret_1d", "outcome_ret_2d", "outcome_ret_3d", "outcome_ret_4d",
+                     "outcome_label_1d", "outcome_label_2d", "outcome_label_3d", "outcome_label_4d"]
+            _rows = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_cols, _r))
+                for _k in ["prob_up_1d", "prob_up_2d", "prob_up_3d", "prob_up_4d", "confidence",
+                           "outcome_ret_1d", "outcome_ret_2d", "outcome_ret_3d", "outcome_ret_4d"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                for _h in [1, 2, 3, 4]:
+                    _p, _l = _d.get(f"prob_up_{_h}d"), _d.get(f"outcome_label_{_h}d")
+                    if _p is None or _l is None:
+                        _d[f"correct_{_h}d"] = None  # not graded yet — horizon hasn't elapsed
+                    else:
+                        _pred_up = _p > 0.5
+                        _d[f"correct_{_h}d"] = bool((_pred_up and _l == 1) or (not _pred_up and _l == 0))
+                _rows.append(_d)
+
+            # Summary accuracy per horizon, over ALL graded rows in the table
+            # (not just this page), so the headline number doesn't drift
+            # with pagination/limit.
+            _summary = {}
+            for _h in [1, 2, 3, 4]:
+                _cu.execute(f"""
+                    SELECT
+                        COUNT(*) FILTER (WHERE outcome_label_{_h}d IS NOT NULL) AS n_graded,
+                        COUNT(*) FILTER (
+                            WHERE outcome_label_{_h}d IS NOT NULL AND (
+                                (prob_up_{_h}d > 0.5 AND outcome_label_{_h}d = 1) OR
+                                (prob_up_{_h}d <= 0.5 AND outcome_label_{_h}d = 0)
+                            )
+                        ) AS n_correct,
+                        AVG(outcome_ret_{_h}d) FILTER (WHERE outcome_label_{_h}d IS NOT NULL) AS avg_ret
+                    FROM aiem_probability_engine_predictions
+                """)
+                _n_graded, _n_correct, _avg_ret = _cu.fetchone()
+                _summary[f"{_h}d"] = {
+                    "n_graded": int(_n_graded or 0),
+                    "accuracy_pct": round(_n_correct / _n_graded * 100, 1) if _n_graded else None,
+                    "avg_outcome_ret_pct": round(float(_avg_ret), 2) if _avg_ret is not None else None,
+                }
+
+            _cu.execute("SELECT COUNT(*) FROM aiem_probability_engine_predictions")
+            _total_logged = _cu.fetchone()[0]
+
+        return jsonify({
+            "rows": _rows,
+            "summary": _summary,
+            "total_logged": int(_total_logged or 0),
+            "note": (
+                "correct_Nd is null until that horizon's outcome is known "
+                "(e.g. a 4d call made yesterday hasn't graded yet) — this is "
+                "expected, not missing data."
+            ),
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-probability-engine/force-run", methods=["POST"])
+def aiem_probability_engine_force_run():
+    """
+    Admin: run today's probability-engine job right now, for testing.
+    Launches aiem_probability_engine/daily_picks.py as an independent OS
+    subprocess (NOT an in-process import/thread) — a crash or long-running
+    scoring pass there can never affect this app.
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import subprocess as _ape_subproc
+        _pkg_dir = _os_env.path.join(_os_env.path.dirname(_os_env.path.abspath(__file__)), "aiem_probability_engine")
+        _ape_subproc.Popen(
+            ["python3", "daily_picks.py"],
+            cwd=_pkg_dir,
+            stdout=_ape_subproc.DEVNULL, stderr=_ape_subproc.DEVNULL,
+            start_new_session=True,
+        )
+        return jsonify({
+            "status": "started",
+            "message": "probability engine daily job launched as a separate process — check daily-picks in ~60-90s",
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
 @app.route("/stock-api/backtest", methods=["POST"])
 def backtest():
     body = request.get_json(silent=True) or {}

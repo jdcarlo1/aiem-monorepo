@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     prob_up_3d DOUBLE PRECISION,
     prob_up_4d DOUBLE PRECISION,
     confidence DOUBLE PRECISION,
+    regime_tag TEXT,
+    edge_after_cost_prob_pts DOUBLE PRECISION,
     top_contributing_layers_json JSONB,
     overlays_json JSONB,
     warnings_json JSONB,
@@ -78,6 +80,21 @@ def ensure_table() -> None:
     with psycopg2.connect(DB_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(_CREATE_SQL)
+            # Migration for tables created before regime_tag / edge_after_cost_prob_pts
+            # existed as their own columns (they used to only live inside
+            # overlays_json / be discarded entirely). Additive + idempotent.
+            cur.execute(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS regime_tag TEXT")
+            cur.execute(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS edge_after_cost_prob_pts DOUBLE PRECISION")
+            # Backfill regime_tag for already-logged rows from overlays_json - it was
+            # always computed, just not persisted as its own column until now.
+            # edge_after_cost_prob_pts has no such backfill source: it was never
+            # written anywhere in the old rows, so old rows stay NULL there (honest
+            # gap) and only newly-logged rows going forward will have it populated.
+            cur.execute(f"""
+                UPDATE {TABLE}
+                SET regime_tag = overlays_json -> 'regime' ->> 'regime_tag'
+                WHERE regime_tag IS NULL AND overlays_json IS NOT NULL
+            """)
         conn.commit()
 
 
@@ -134,11 +151,13 @@ def log_predictions(reports: list, model_version: str) -> int:
         INSERT INTO {TABLE} (
             signal_date, ticker, model_version, probability_source_json,
             prob_up_1d, prob_up_2d, prob_up_3d, prob_up_4d, confidence,
+            regime_tag, edge_after_cost_prob_pts,
             top_contributing_layers_json, overlays_json, warnings_json,
             feature_snapshot_json
         ) VALUES (
             %(signal_date)s, %(ticker)s, %(model_version)s, %(probability_source_json)s,
             %(prob_up_1d)s, %(prob_up_2d)s, %(prob_up_3d)s, %(prob_up_4d)s, %(confidence)s,
+            %(regime_tag)s, %(edge_after_cost_prob_pts)s,
             %(top_contributing_layers_json)s, %(overlays_json)s, %(warnings_json)s,
             %(feature_snapshot_json)s
         )
@@ -158,6 +177,8 @@ def log_predictions(reports: list, model_version: str) -> int:
             "prob_up_3d": d["prob_up_3d"],
             "prob_up_4d": d["prob_up_4d"],
             "confidence": d["confidence"],
+            "regime_tag": d.get("regime_tag"),
+            "edge_after_cost_prob_pts": d.get("edge_after_cost_prob_pts"),
             "top_contributing_layers_json": json.dumps(d["top_contributing_layers"]),
             "overlays_json": json.dumps(getattr(r, "_overlays", {}), default=_json_default),
             "warnings_json": json.dumps(d["warnings"]),

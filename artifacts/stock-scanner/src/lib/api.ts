@@ -2399,3 +2399,75 @@ export function forceAiemExecute(): Promise<{ status: string; message: string }>
 export function forceAiemMtm(): Promise<{ status: string; message: string }> {
   return fetchJson<{ status: string; message: string }>("/aiem-paper-portfolio/force-mtm", { method: "POST" });
 }
+
+export interface AiemProbabilityPick {
+  rank: number;
+  ticker: string;
+  model_version: string;
+  score: number;
+  prob_up_1d: number | null;
+  prob_up_2d: number | null;
+  prob_up_3d: number | null;
+  prob_up_4d: number | null;
+  confidence: number | null;
+  edge_after_cost_prob_pts: number | null;
+  regime_tag: string | null;
+  top_contributing_layers: string[] | null;
+  warnings: string[] | null;
+}
+
+export interface AiemProbabilityDailyPicks {
+  pick_date: string | null;
+  picks: AiemProbabilityPick[];
+  methodology?: string;
+  note?: string;
+}
+
+export function fetchAiemProbabilityDailyPicks(): Promise<AiemProbabilityDailyPicks> {
+  return fetchJson<AiemProbabilityDailyPicks>("/aiem-probability-engine/daily-picks");
+}
+
+export interface AiemProbabilityTrackRow {
+  signal_date: string;
+  ticker: string;
+  model_version: string;
+  prob_up_1d: number | null;
+  prob_up_2d: number | null;
+  prob_up_3d: number | null;
+  prob_up_4d: number | null;
+  confidence: number | null;
+  regime_tag: string | null;
+  outcome_ret_1d: number | null;
+  outcome_ret_2d: number | null;
+  outcome_ret_3d: number | null;
+  outcome_ret_4d: number | null;
+  outcome_label_1d: number | null;
+  outcome_label_2d: number | null;
+  outcome_label_3d: number | null;
+  outcome_label_4d: number | null;
+  correct_1d: boolean | null;
+  correct_2d: boolean | null;
+  correct_3d: boolean | null;
+  correct_4d: boolean | null;
+}
+
+export interface AiemProbabilityHorizonSummary {
+  n_graded: number;
+  accuracy_pct: number | null;
+  avg_outcome_ret_pct: number | null;
+}
+
+export interface AiemProbabilityTrackRecord {
+  rows: AiemProbabilityTrackRow[];
+  summary: Record<string, AiemProbabilityHorizonSummary>;
+  total_logged: number;
+  note?: string;
+}
+
+export function fetchAiemProbabilityTrackRecord(limit = 60): Promise<AiemProbabilityTrackRecord> {
+  return fetchJson<AiemProbabilityTrackRecord>(`/aiem-probability-engine/track-record?limit=${limit}`);
+}
+
+export function forceAiemProbabilityEngineRun(): Promise<{ status: string; message: string }> {
+  return fetchJson<{ status: string; message: string }>("/aiem-probability-engine/force-run", { method: "POST" });
+}

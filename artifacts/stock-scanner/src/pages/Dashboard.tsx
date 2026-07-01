@@ -67,6 +67,9 @@ import {
   HistSimEntry, HistSimRequest,
   fetchAiemPaperPortfolio, AiemPaperPortfolio, AiemPaperTrade,
   AiemPaperClosedTrade, AiemDailyPnl, forceAiemExecute, forceAiemMtm,
+  fetchAiemProbabilityDailyPicks, AiemProbabilityDailyPicks, AiemProbabilityPick,
+  fetchAiemProbabilityTrackRecord, AiemProbabilityTrackRecord,
+  forceAiemProbabilityEngineRun,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -14806,6 +14809,20 @@ export default function Dashboard() {
     refetchInterval: (tab === "portfolio" || tab === "papermoney") ? 60_000 : false,
   });
 
+  const { data: aiemProbPicks, isLoading: loadingAiemProbPicks, refetch: refetchAiemProbPicks } = useQuery({
+    queryKey: ["aiem-probability-daily-picks"],
+    queryFn: () => fetchAiemProbabilityDailyPicks(),
+    enabled: tab === "papermoney",
+    refetchInterval: tab === "papermoney" ? 60_000 : false,
+  });
+
+  const { data: aiemProbTrackRecord, isLoading: loadingAiemProbTrackRecord } = useQuery({
+    queryKey: ["aiem-probability-track-record"],
+    queryFn: () => fetchAiemProbabilityTrackRecord(60),
+    enabled: tab === "papermoney",
+    refetchInterval: tab === "papermoney" ? 120_000 : false,
+  });
+
   const tradeMutation = useMutation({
     mutationFn: ({ mode, t, shares, price }: { mode:"buy"|"sell"; t:string; shares:number; price:number }) =>
       mode === "buy" ? buyStock(t, shares, price) : sellStock(t, shares, price),
@@ -15691,6 +15708,158 @@ export default function Dashboard() {
                   title="Update all open positions to current price"
                 >Mark-to-Market</button>
               </div>
+            </div>
+
+            <div className="bg-slate-900/70 border border-cyan-900/40 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+                <div>
+                  <div className="text-white font-semibold text-sm flex items-center gap-2">
+                    <span className="text-cyan-400">🎯</span> Probability Engine — Today's Top 10
+                  </div>
+                  <div className="text-slate-500 text-xs mt-0.5">
+                    Calibrated 1d/2d/3d/4d up-move probability, ranked from 9 conviction layers{aiemProbPicks?.pick_date ? ` · ${aiemProbPicks.pick_date}` : ""}
+                  </div>
+                </div>
+                <button
+                  onClick={async () => { await forceAiemProbabilityEngineRun(); setTimeout(() => refetchAiemProbPicks(), 15000); }}
+                  className="px-3 py-1.5 bg-cyan-900/60 hover:bg-cyan-800/70 border border-cyan-700/50 text-cyan-300 text-xs rounded-lg transition-colors"
+                  title="Force today's probability ranking now"
+                >Run Now</button>
+              </div>
+
+              {loadingAiemProbPicks && !aiemProbPicks && (
+                <div className="flex items-center justify-center py-10 gap-3 text-slate-400"><Spinner /> Loading probability picks…</div>
+              )}
+
+              {aiemProbPicks && aiemProbPicks.picks.length === 0 && !loadingAiemProbPicks && (
+                <div className="text-center py-8 text-slate-500 text-sm">
+                  No picks scored yet today. Click <span className="text-cyan-400">Run Now</span> to score today's candidates.
+                </div>
+              )}
+
+              {aiemProbPicks && aiemProbPicks.picks.length > 0 && (
+                <div className="overflow-x-auto mt-3">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase">
+                        <th className="text-left py-2 px-3">#</th>
+                        <th className="text-left py-2 px-3">Ticker</th>
+                        <th className="text-right py-2 px-3">1d</th>
+                        <th className="text-right py-2 px-3">2d</th>
+                        <th className="text-right py-2 px-3">3d</th>
+                        <th className="text-right py-2 px-3">4d</th>
+                        <th className="text-right py-2 px-3">Confidence</th>
+                        <th className="text-right py-2 px-3">Edge (pts)</th>
+                        <th className="text-left py-2 px-3">Regime</th>
+                        <th className="text-left py-2 px-3">Top Layers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aiemProbPicks.picks.map(p => {
+                        const probColor = (v: number | null) => v == null ? "text-slate-500" : v >= 0.7 ? "text-emerald-400" : v >= 0.5 ? "text-slate-200" : "text-red-400";
+                        const warnTitle = p.warnings && p.warnings.length > 0 ? p.warnings.join("\n") : undefined;
+                        return (
+                          <tr key={p.ticker} className="border-b border-slate-800/50 hover:bg-slate-800/30" title={warnTitle}>
+                            <td className="py-2 px-3 text-slate-500">{p.rank}</td>
+                            <td className="py-2 px-3 font-bold text-white">{p.ticker}</td>
+                            <td className={`text-right py-2 px-3 ${probColor(p.prob_up_1d)}`}>{p.prob_up_1d != null ? `${(p.prob_up_1d * 100).toFixed(0)}%` : "—"}</td>
+                            <td className={`text-right py-2 px-3 ${probColor(p.prob_up_2d)}`}>{p.prob_up_2d != null ? `${(p.prob_up_2d * 100).toFixed(0)}%` : "—"}</td>
+                            <td className={`text-right py-2 px-3 ${probColor(p.prob_up_3d)}`}>{p.prob_up_3d != null ? `${(p.prob_up_3d * 100).toFixed(0)}%` : "—"}</td>
+                            <td className={`text-right py-2 px-3 ${probColor(p.prob_up_4d)}`}>{p.prob_up_4d != null ? `${(p.prob_up_4d * 100).toFixed(0)}%` : "—"}</td>
+                            <td className="text-right py-2 px-3 text-slate-400">{p.confidence != null ? `${(p.confidence * 100).toFixed(0)}%` : "—"}</td>
+                            <td className="text-right py-2 px-3 text-slate-400">{p.edge_after_cost_prob_pts != null ? p.edge_after_cost_prob_pts.toFixed(1) : "—"}</td>
+                            <td className="py-2 px-3 text-slate-500 text-xs">{p.regime_tag?.replace(/_/g, " ") || "—"}</td>
+                            <td className="py-2 px-3 text-slate-500 text-xs max-w-[220px] truncate">{(p.top_contributing_layers || []).join(", ")}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {aiemProbPicks.methodology && (
+                    <div className="text-slate-600 text-xs mt-3 italic">{aiemProbPicks.methodology}</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-slate-900/70 border border-amber-900/40 rounded-xl p-5">
+              <div className="text-white font-semibold text-sm flex items-center gap-2 mb-1">
+                <span className="text-amber-400">📊</span> Probability Engine — Track Record
+              </div>
+              <div className="text-slate-500 text-xs mb-3">Predicted probability vs actual outcome, per horizon — this is how the engine learns whether it's calibrated.</div>
+
+              {loadingAiemProbTrackRecord && !aiemProbTrackRecord && (
+                <div className="flex items-center justify-center py-10 gap-3 text-slate-400"><Spinner /> Loading track record…</div>
+              )}
+
+              {aiemProbTrackRecord && (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    {(["1d","2d","3d","4d"] as const).map(h => {
+                      const s = aiemProbTrackRecord.summary?.[h];
+                      return (
+                        <div key={h} className="bg-slate-950/50 border border-amber-900/20 rounded-lg p-3">
+                          <div className="text-slate-500 text-xs mb-1">{h.toUpperCase()} Accuracy</div>
+                          <div className={`text-lg font-bold ${s?.accuracy_pct != null && s.accuracy_pct >= 55 ? "text-emerald-400" : "text-slate-200"}`}>
+                            {s?.accuracy_pct != null ? `${s.accuracy_pct}%` : "—"}
+                          </div>
+                          <div className="text-slate-600 text-xs mt-0.5">
+                            {s?.n_graded ?? 0} graded{s?.avg_outcome_ret_pct != null ? ` · avg ${s.avg_outcome_ret_pct >= 0 ? "+" : ""}${s.avg_outcome_ret_pct}%` : ""}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {aiemProbTrackRecord.rows.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase">
+                            <th className="text-left py-2 px-3">Date</th>
+                            <th className="text-left py-2 px-3">Ticker</th>
+                            <th className="text-center py-2 px-3">1d</th>
+                            <th className="text-center py-2 px-3">2d</th>
+                            <th className="text-center py-2 px-3">3d</th>
+                            <th className="text-center py-2 px-3">4d</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {aiemProbTrackRecord.rows.slice(0, 60).map((r, i) => {
+                            const cell = (prob: number | null, ret: number | null, correct: boolean | null) => {
+                              if (correct == null) {
+                                return <span className="text-slate-600 text-xs">{prob != null ? `${(prob*100).toFixed(0)}% · pending` : "—"}</span>;
+                              }
+                              const icon = correct ? "✓" : "✗";
+                              const color = correct ? "text-emerald-400" : "text-red-400";
+                              return (
+                                <span className={`text-xs font-medium ${color}`} title={ret != null ? `Predicted ${prob != null ? (prob*100).toFixed(0) : "—"}% · Actual ${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%` : undefined}>
+                                  {icon} {prob != null ? `${(prob*100).toFixed(0)}%` : ""}
+                                </span>
+                              );
+                            };
+                            return (
+                              <tr key={`${r.signal_date}-${r.ticker}-${i}`} className="border-b border-slate-800/50 hover:bg-slate-800/20">
+                                <td className="py-2 px-3 text-slate-500 text-xs">{r.signal_date}</td>
+                                <td className="py-2 px-3 font-semibold text-slate-200">{r.ticker}</td>
+                                <td className="text-center py-2 px-3">{cell(r.prob_up_1d, r.outcome_ret_1d, r.correct_1d)}</td>
+                                <td className="text-center py-2 px-3">{cell(r.prob_up_2d, r.outcome_ret_2d, r.correct_2d)}</td>
+                                <td className="text-center py-2 px-3">{cell(r.prob_up_3d, r.outcome_ret_3d, r.correct_3d)}</td>
+                                <td className="text-center py-2 px-3">{cell(r.prob_up_4d, r.outcome_ret_4d, r.correct_4d)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <div className="text-slate-600 text-xs mt-3">
+                        {aiemProbTrackRecord.total_logged} predictions logged total. {aiemProbTrackRecord.note}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-slate-500 text-sm">No predictions logged yet.</div>
+                  )}
+                </>
+              )}
             </div>
 
             {loadingAiemPortfolio && !aiemPortfolio && (
