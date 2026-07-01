@@ -15895,6 +15895,8 @@ export default function Dashboard() {
                           <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase">
                             <th className="text-left py-2 px-3">Ticker</th>
                             <th className="text-left py-2 px-3">Type</th>
+                            <th className="text-left py-2 px-3">Strike</th>
+                            <th className="text-left py-2 px-3">Expiry</th>
                             <th className="text-right py-2 px-3">Entry</th>
                             <th className="text-right py-2 px-3">Last</th>
                             <th className="text-right py-2 px-3">P&L</th>
@@ -15911,6 +15913,12 @@ export default function Dashboard() {
                                   : pos.trade_type === "ETF" ? "bg-blue-900/60 text-blue-300"
                                   : "bg-slate-800 text-slate-300"
                                 }`}>{pos.trade_type === "CALL_OPTION" ? "CALL" : pos.trade_type}</span>
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-400">
+                                {pos.trade_type === "CALL_OPTION" ? (pos.strike != null ? `$${fmt(pos.strike)}` : "—") : ""}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-400 text-xs">
+                                {pos.trade_type === "CALL_OPTION" ? (pos.expiry || "—") : ""}
                               </td>
                               <td className="text-right py-2.5 px-3 text-slate-400">${fmt(pos.entry_price)}</td>
                               <td className="text-right py-2.5 px-3 text-slate-300">{pos.last_price ? `$${fmt(pos.last_price)}` : "—"}</td>
@@ -15947,6 +15955,8 @@ export default function Dashboard() {
                           <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase">
                             <th className="text-left py-2 px-3">Ticker</th>
                             <th className="text-left py-2 px-3">Type</th>
+                            <th className="text-left py-2 px-3">Strike</th>
+                            <th className="text-left py-2 px-3">Expiry</th>
                             <th className="text-right py-2 px-3">Entry</th>
                             <th className="text-right py-2 px-3">Exit</th>
                             <th className="text-right py-2 px-3">P&L</th>
@@ -15962,6 +15972,12 @@ export default function Dashboard() {
                                 <span className={`px-1.5 py-0.5 rounded text-xs ${t.trade_type === "CALL_OPTION" ? "bg-violet-900/50 text-violet-400" : "bg-slate-800 text-slate-400"}`}>
                                   {t.trade_type === "CALL_OPTION" ? "CALL" : t.trade_type}
                                 </span>
+                              </td>
+                              <td className="py-2 px-3 text-slate-400">
+                                {t.trade_type === "CALL_OPTION" ? (t.strike != null ? `$${fmt(t.strike)}` : "—") : ""}
+                              </td>
+                              <td className="py-2 px-3 text-slate-400 text-xs">
+                                {t.trade_type === "CALL_OPTION" ? (t.expiry || "—") : ""}
                               </td>
                               <td className="text-right py-2 px-3 text-slate-400">${fmt(t.entry_price)}</td>
                               <td className="text-right py-2 px-3 text-slate-400">{t.exit_price ? `$${fmt(t.exit_price)}` : "—"}</td>

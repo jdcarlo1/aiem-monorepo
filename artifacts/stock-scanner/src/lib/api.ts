@@ -2333,6 +2333,8 @@ export interface AiemPaperTrade {
   pnl_is_synthetic_proxy: boolean;
   status: string;
   created_at: string;
+  strike: number | null;
+  expiry: string | null;
 }
 
 export interface AiemPaperClosedTrade {
@@ -2351,6 +2353,9 @@ export interface AiemPaperClosedTrade {
   pnl_pct: number | null;
   pnl_is_synthetic_proxy: boolean;
   status: string;
+  strike: number | null;
+  expiry: string | null;
+  exit_reason: string | null;
 }
 
 export interface AiemDailyPnl {

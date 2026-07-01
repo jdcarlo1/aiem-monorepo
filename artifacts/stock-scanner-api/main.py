@@ -32169,6 +32169,12 @@ def _init_aiem_paper_trades_table():
             _cu.execute("CREATE INDEX IF NOT EXISTS aiem_pt_status_idx ON aiem_paper_trades(status)")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS needs_review BOOLEAN NOT NULL DEFAULT FALSE")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS review_reason TEXT")
+            # Strike/expiry for CALL_OPTION rows — sourced from the signal
+            # that picked the trade (call_sweep_log / unusual_calls_log /
+            # ai_trade_log all already carry these). NULL for STOCK/ETF rows
+            # and for any CALL_OPTION pick whose source didn't have them.
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS strike NUMERIC(10,2)")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS expiry TEXT")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
@@ -32218,7 +32224,7 @@ def _aiem_paper_pick_candidates() -> list:
         except Exception as _me:
             print(f"[aiem_paper] FRED macro check skipped: {_me}")
 
-    def _add(ticker, score, trade_type, source, detail=""):
+    def _add(ticker, score, trade_type, source, detail="", strike=None, expiry=None):
         t = ticker.upper().strip()
         if not t or len(t) > 6:
             return
@@ -32226,10 +32232,13 @@ def _aiem_paper_pick_candidates() -> list:
         if existing is None or score > existing["score"]:
             _candidates[t] = {"ticker": t, "score": score,
                                "trade_type": trade_type,
-                               "source": source, "detail": detail}
+                               "source": source, "detail": detail,
+                               "strike": strike, "expiry": expiry}
         elif trade_type == "CALL_OPTION" and existing["trade_type"] == "STOCK":
             existing["trade_type"] = "CALL_OPTION"
             existing["detail"] = detail or existing["detail"]
+            existing["strike"] = strike if strike is not None else existing.get("strike")
+            existing["expiry"] = expiry if expiry is not None else existing.get("expiry")
 
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=4,
@@ -32248,29 +32257,33 @@ def _aiem_paper_pick_candidates() -> list:
             # ── 2. Unusual call sweeps (options signal → buy calls) ────────────
             _cu.execute("""
                 SELECT ticker, premium, stock_price, expiry, vol_oi_ratio,
-                       conviction, signals_fired
+                       conviction, signals_fired, strike
                 FROM call_sweep_log
                 WHERE sweep_date >= CURRENT_DATE - INTERVAL '2 days'
                   AND premium >= 50000
                 ORDER BY premium DESC LIMIT 10
             """)
-            for _t, _prem, _sp, _exp, _voi, _conv, _sigs in _cu.fetchall():
+            for _t, _prem, _sp, _exp, _voi, _conv, _sigs, _strk in _cu.fetchall():
                 _score = (float(_prem or 0) / 100000) * (float(_voi or 1))
                 _add(_t, _score, "CALL_OPTION", "sweep",
-                     f"${int(_prem or 0):,} premium exp {_exp}")
+                     f"${int(_prem or 0):,} premium exp {_exp}",
+                     strike=float(_strk) if _strk is not None else None,
+                     expiry=_exp)
 
             # ── 3. Unusual calls log (intraday accumulation) ─────────────────
             _cu.execute("""
-                SELECT ticker, prem, vol_oi, urgency
+                SELECT ticker, prem, vol_oi, urgency, strike, expiry
                 FROM unusual_calls_log
                 WHERE last_seen >= NOW() - INTERVAL '2 days'
                   AND prem >= 75000
                 ORDER BY prem DESC LIMIT 10
             """)
-            for _t, _prem, _voi, _urg in _cu.fetchall():
+            for _t, _prem, _voi, _urg, _strk, _exp in _cu.fetchall():
                 _score = (float(_prem or 0) / 100000) * (float(_voi or 1))
                 _add(_t, _score, "CALL_OPTION", "unusual_calls",
-                     f"${int(_prem or 0):,} prem VOI={_voi}")
+                     f"${int(_prem or 0):,} prem VOI={_voi}",
+                     strike=float(_strk) if _strk is not None else None,
+                     expiry=_exp)
 
             # ── 4. Gap + Volume signal (Polygon RVOL scan) ───────────────────
             _cu.execute("""
@@ -32287,18 +32300,21 @@ def _aiem_paper_pick_candidates() -> list:
 
             # ── 5. Recent AIEM AI trade picks (high conviction) ───────────────
             _cu.execute("""
-                SELECT ticker, direction, setup_type, conviction, price_at_signal
+                SELECT ticker, direction, setup_type, conviction, price_at_signal,
+                       entry_strike, expiry
                 FROM ai_trade_log
                 WHERE trade_date >= CURRENT_DATE - INTERVAL '1 day'
                   AND conviction IN ('HIGH','EXTREME')
                   AND direction = 'BULLISH'
                 ORDER BY id DESC LIMIT 8
             """)
-            for _t, _dir, _setup, _conv, _pr in _cu.fetchall():
+            for _t, _dir, _setup, _conv, _pr, _strk, _exp in _cu.fetchall():
                 _score = 15.0 if _conv == "EXTREME" else 10.0
                 _type = "CALL_OPTION" if "CALL" in (_setup or "").upper() else "STOCK"
                 _add(_t, _score, _type, "aiem_ai",
-                     f"{_conv} {_setup or ''}")
+                     f"{_conv} {_setup or ''}",
+                     strike=float(_strk) if (_type == "CALL_OPTION" and _strk is not None) else None,
+                     expiry=_exp if _type == "CALL_OPTION" else None)
 
             # ── 6. Multi-signal hits (multiple confirmations) ─────────────────
             _cu.execute("""
@@ -32523,12 +32539,13 @@ def _aiem_paper_execute_today():
                     INSERT INTO aiem_paper_trades
                         (trade_date, ticker, trade_type, entry_price, quantity,
                          notional, signal_source, signal_detail, hold_days_max,
-                         last_price, status)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN')
+                         last_price, status, strike, expiry)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s)
                     ON CONFLICT DO NOTHING
                 """, (_today, _t, _trade_type, _price, _qty,
                       _notional, pick["source"], pick.get("detail",""),
-                      _hold_days, _price))
+                      _hold_days, _price,
+                      pick.get("strike"), pick.get("expiry")))
                 rows_inserted += 1
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
@@ -32820,18 +32837,20 @@ def aiem_paper_portfolio():
                 SELECT id, trade_date::text, ticker, trade_type,
                        entry_price, quantity, notional,
                        signal_source, signal_detail, hold_days_max,
-                       last_price, pnl, pnl_pct, status, created_at
+                       last_price, pnl, pnl_pct, status, created_at,
+                       strike, expiry
                 FROM aiem_paper_trades
                 WHERE status = 'OPEN'
                 ORDER BY created_at DESC
             """)
             _cols = ["id","trade_date","ticker","trade_type","entry_price",
                      "quantity","notional","signal_source","signal_detail",
-                     "hold_days_max","last_price","pnl","pnl_pct","status","created_at"]
+                     "hold_days_max","last_price","pnl","pnl_pct","status","created_at",
+                     "strike","expiry"]
             _open_pos = []
             for _r in _cu.fetchall():
                 _d = dict(zip(_cols, _r))
-                for _k in ["entry_price","quantity","notional","last_price","pnl","pnl_pct"]:
+                for _k in ["entry_price","quantity","notional","last_price","pnl","pnl_pct","strike"]:
                     _d[_k] = float(_d[_k]) if _d[_k] is not None else None
                 _d["created_at"] = _d["created_at"].isoformat() if _d["created_at"] else None
                 # Fix #8: additive flag — pnl/pnl_pct columns are unchanged and
@@ -32846,7 +32865,8 @@ def aiem_paper_portfolio():
                 SELECT id, trade_date::text, ticker, trade_type,
                        entry_price, quantity, notional,
                        signal_source, signal_detail,
-                       exit_price, exit_date::text, pnl, pnl_pct, status, exit_reason
+                       exit_price, exit_date::text, pnl, pnl_pct, status, exit_reason,
+                       strike, expiry
                 FROM aiem_paper_trades
                 WHERE status != 'OPEN'
                   AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
@@ -32855,11 +32875,12 @@ def aiem_paper_portfolio():
             """, (_days,))
             _closed_cols = ["id","trade_date","ticker","trade_type","entry_price",
                             "quantity","notional","signal_source","signal_detail",
-                            "exit_price","exit_date","pnl","pnl_pct","status","exit_reason"]
+                            "exit_price","exit_date","pnl","pnl_pct","status","exit_reason",
+                            "strike","expiry"]
             _closed = []
             for _r in _cu.fetchall():
                 _d = dict(zip(_closed_cols, _r))
-                for _k in ["entry_price","quantity","notional","exit_price","pnl","pnl_pct"]:
+                for _k in ["entry_price","quantity","notional","exit_price","pnl","pnl_pct","strike"]:
                     _d[_k] = float(_d[_k]) if _d[_k] is not None else None
                 # Fix #8: additive flag, mirrors open_positions above.
                 _d["pnl_is_synthetic_proxy"] = (_d["trade_type"] == "CALL_OPTION")

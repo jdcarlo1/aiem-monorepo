@@ -1,4 +1,5 @@
 - [Staleness-guard restart protocol](staleness-guard-restart-protocol.md) — dynamic sys.modules import watching + graceful drain (25s timeout) before execv restart; per-fix VERIFY-FIX-<n> package standard
+- [AIEM paper trading strike/expiry sourcing](aiem-paper-trading-strike-expiry.md) — CALL picks are a synthetic 2x-underlying proxy; strike/expiry are display-only, sourced per-signal; oi_daily_snapshot pick source is a dormant broken query
 - [AIEM Autonomous Scan Mode naming](aiem-autonomous-scan-mode-naming.md) — user's term for future full-market-independent Probability Engine (not yet built); use this exact name if user references it later
 - [Yahoo 1-min intraday 30-day retention limit](yahoo-30day-intraday-limit.md) — historical minute-bar lookups silently degrade as "today" advances past ~30 days; fall back to Polygon.io aggs (no such cutoff)
 - [aiem_predictions two-writer collision](aiem-predictions-two-writer-collision.md) — main.py + aiem_autonomous.py + aiem_standalone_scanner.py all write same table; deploy a read-only notifier instead, never aiem_autonomous.py verbatim
