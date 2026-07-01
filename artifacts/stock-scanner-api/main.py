@@ -29375,7 +29375,18 @@ _AIEM_INDEPENDENT_TOOLS = [
                     "rank": {"type": "integer", "description": "1=highest conviction"},
                     "confidence_score": {"type": "number", "description": "0-10 score"},
                     "rationale": {"type": "string"},
-                }, "required": ["ticker", "rank", "confidence_score", "rationale"]}
+                    "holding_period_days": {
+                        "type": "integer",
+                        "description": (
+                            "How many trading days you expect to need to hold THIS pick for "
+                            "your thesis to play out, based on the nature of the setup you just "
+                            "reasoned about - not a fixed default. Use 1 for a same-day/intraday "
+                            "move (e.g. a gap fade or exhaustion reversal), 2-3 for a short swing "
+                            "(e.g. momentum continuation), or up to 10 for a slower multi-day "
+                            "accumulation/basing thesis. Be honest and specific per pick."
+                        ),
+                    },
+                }, "required": ["ticker", "rank", "confidence_score", "rationale", "holding_period_days"]}
             },
             "option_picks": {
                 "type": "array", "items": {"type": "object", "properties": {
@@ -29386,7 +29397,18 @@ _AIEM_INDEPENDENT_TOOLS = [
                     "rank": {"type": "integer", "description": "1=highest conviction"},
                     "confidence_score": {"type": "number", "description": "0-10 score"},
                     "rationale": {"type": "string"},
-                }, "required": ["ticker", "rank", "confidence_score", "rationale"]}
+                    "holding_period_days": {
+                        "type": "integer",
+                        "description": (
+                            "How many trading days you expect to hold THIS contract for your "
+                            "thesis to play out (not just days until expiry - expiry is when the "
+                            "contract dies, holding_period_days is when YOU plan to have already "
+                            "exited). Use 1 for an intraday sweep-follow, 2-5 for a short swing "
+                            "riding sweep momentum, more only if the setup genuinely calls for it. "
+                            "Must be less than or equal to days to expiry."
+                        ),
+                    },
+                }, "required": ["ticker", "rank", "confidence_score", "rationale", "holding_period_days"]}
             }
         }, "required": ["stock_picks", "option_picks"]}
     }},
