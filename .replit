@@ -20,6 +20,10 @@ author = "agent"
 task = "workflow.run"
 args = "artifacts/stock-scanner: uptime-monitor"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/stock-scanner: probability-engine-scheduler"
+
 [[workflows.workflow]]
 name = "artifacts/stock-scanner: uptime-monitor"
 author = "agent"
@@ -27,6 +31,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python /home/runner/workspace/artifacts/stock-scanner-api/monitor.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "artifacts/stock-scanner: probability-engine-scheduler"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/stock-scanner-api/aiem_probability_engine && python3 daily_scheduler.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
