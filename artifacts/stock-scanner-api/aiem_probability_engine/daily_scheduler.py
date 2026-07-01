@@ -11,11 +11,22 @@ tables this package owns (aiem_probability_engine_predictions and
 aiem_probability_engine_daily_picks). If this process crashes or is stopped,
 nothing about live scanning, alerts, or paper trading is affected.
 
-Schedule: once daily at 9:20 AM ET (after the market-open scanners have had
-a few minutes to populate ai_short_calls_log for the day, before options
-picks would be actionable at 9:30 open) plus a daily outcome backfill pass
-right after. Also runs once immediately on startup so a fresh deploy /
-workflow restart doesn't wait until the next 9:20 AM to have data.
+Schedule: once daily at 10:30 AM ET plus a daily outcome backfill pass
+right after. Timing is deliberate, not arbitrary: the source data this
+engine ranks (ai_short_calls_log) is written once a day by main.py's
+"AI short calls" job at 10:15 AM ET - which itself waits until 45 minutes
+after the 9:30 AM open before scoring, because several of the 9
+conviction layers (rvol, dark_pool_score, gamma_score, vol_oi,
+sector_heat_score) are options/volume/dark-pool signals that are
+thin-to-nonexistent premarket and only become meaningful once real
+intraday trading volume and options order flow accumulate. Running this
+job any earlier (it used to be 9:20 AM, BEFORE that 10:15 AM source job)
+meant it would score an empty/yesterday's candidate list every morning.
+10:30 AM leaves a 15-minute buffer after 10:15 AM for that job to finish
+writing today's picks. Also runs once immediately on startup so a fresh
+deploy / workflow restart doesn't wait until the next 10:30 AM to have
+data (this startup run may legitimately find nothing if it happens
+before 10:15 AM that same day - that's expected, not a bug).
 """
 import datetime
 import os
@@ -33,8 +44,8 @@ try:
 except Exception:
     _ET = datetime.timezone.utc
 
-RUN_HOUR_ET = 9
-RUN_MINUTE_ET = 20
+RUN_HOUR_ET = 10
+RUN_MINUTE_ET = 30
 CHECK_INTERVAL_SEC = 60
 
 
