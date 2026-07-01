@@ -4,43 +4,48 @@ aiem_telegram_notifier.py
 AIEM TELEGRAM NOTIFIER — READ-ONLY, always-on production process (FIX B).
 
 PURPOSE
-  Sends the AIEM morning picks to Telegram by READING the aiem_predictions
-  table that main.py's _run_aiem_morning_scan() (Fix #12, 9:05 AM ET)
-  already wrote. This process NEVER scans and NEVER writes to
-  aiem_predictions (or any other table) — it is a pure notifier, so it
-  cannot race or collide with main.py, which remains the single canonical
-  writer of aiem_predictions.
+  Sends AIEM's own INDEPENDENT picks (Workstream D) to Telegram by READING
+  the aiem_independent_picks table that main.py's
+  _run_aiem_independent_scan() (9:20 AM ET) already wrote. These are picks
+  AIEM reasoned to on its own from RAW Polygon data only (no pre-computed
+  conviction/composite score is ever handed to AIEM for this run) - up to
+  30 picks TOTAL combined across stocks and call options, AIEM's own split.
+  This process NEVER scans and NEVER writes to aiem_independent_picks (or
+  any other table) — it is a pure notifier, so it cannot race or collide
+  with main.py, which remains the single canonical writer.
 
-  This intentionally does NOT reuse aiem_autonomous.py, because that file's
-  aiem_morning_brief() falls back to running its own aiem_premarket_scan()
-  (a second, independent writer to aiem_predictions) whenever it finds no
-  rows — that fallback is exactly the two-writer collision this notifier
-  exists to avoid. If no rows exist here, we fail closed: send a
-  "data not ready" message and stop. We do not scan.
+  Previously (through 2026-06-30) this process sent a 5-pick brief sourced
+  from aiem_predictions (the website-scored candidates handed to AIEM).
+  That was replaced on 2026-07-01 per explicit user direction: they want
+  AIEM's own independently-reasoned picks, not picks derived from the
+  website's pre-computed scores. If no rows exist in aiem_independent_picks
+  for today, we fail closed: send a "data not ready" message and stop. We
+  do not scan.
 
 SCHEDULE (Eastern Time)
-  09:15  Mon-Fri   Morning brief — reads today's aiem_predictions (written
-                   by main.py at 9:05 AM), sends the Telegram message.
-                   (9:15 leaves a 10-minute buffer after the 9:05 canonical
-                   write so the read never races the write.)
+  09:30  Mon-Fri   Independent picks brief — reads today's
+                   aiem_independent_picks (written by main.py's 9:20 AM
+                   independent scan), sends the Telegram message. (9:30
+                   leaves a 10-minute buffer after the 9:20 canonical write
+                   so the read never races the write.)
 
 IDEMPOTENCY (no duplicate sends across restarts/redeploys)
   Owns one dedicated table it created itself, `aiem_notifier_log`
   (send_date DATE PRIMARY KEY). Before sending, it does an atomic
   INSERT ... ON CONFLICT DO NOTHING claim for today's ET date. Only the
   process that wins the claim sends. If a redeploy overlap causes two
-  instances to be alive at 9:15 AM ET simultaneously, only one will
+  instances to be alive at 9:30 AM ET simultaneously, only one will
   successfully claim the row and send; the other logs "already sent
   today, skipping" and does nothing. This table is owned solely by this
-  script — it is NOT aiem_predictions, so this does not reintroduce the
-  two-writer collision the notifier exists to avoid.
+  script — it is NOT aiem_independent_picks, so this does not reintroduce
+  a two-writer collision.
 
 FAILURE VISIBILITY
   If the Telegram send fails (bad token, network error) or the DB read
   fails, this is recorded in `aiem_notifier_log` (status column) and in
   /api/health's `last_run`. This process has no secondary delivery
   channel of its own — the existing uptime-monitor.py (SMTP-based) has
-  been extended to check this service's /api/health after 9:20 AM ET on
+  been extended to check this service's /api/health after 9:35 AM ET on
   weekdays and email the owner if the day's send did not succeed, since
   a healthy HTTP 200 from this service does not by itself prove today's
   message actually reached Telegram.
@@ -58,7 +63,7 @@ MANUAL TEST
                                               # does not start the scheduler,
                                               # still goes through the same
                                               # claim-before-send idempotency
-                                              # gate as the real 9:15 job
+                                              # gate as the real 9:30 job
 """
 
 import os
@@ -120,16 +125,21 @@ def _tg_send(text: str) -> bool:
 # DB READ — SELECT ONLY. This process must never INSERT/UPDATE/DELETE
 # aiem_predictions; main.py is the single canonical writer.
 # ─────────────────────────────────────────────────────────────
-def _fetch_todays_picks():
+def _fetch_todays_independent_picks():
+    """Read-only: AIEM's own independent picks (Workstream D) for today,
+    both pick_types combined, ordered by AIEM's own confidence score so the
+    message shows its highest-conviction ideas first regardless of type."""
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         cur = conn.cursor()
         cur.execute("""
-            SELECT ticker, rank, confidence_score, signal_basis, reasoning, predicted_move
-            FROM aiem_predictions
-            WHERE prediction_date = %s
-            ORDER BY rank ASC LIMIT 5
+            SELECT pick_type, ticker, confidence_score, rationale,
+                   option_strike, option_expiry
+            FROM aiem_independent_picks
+            WHERE pick_date = %s
+            ORDER BY confidence_score DESC NULLS LAST
+            LIMIT 30
         """, (date.today(),))
         return cur.fetchall()
     finally:
@@ -213,57 +223,81 @@ def _record_send_result(send_date, status: str):
             conn.close()
 
 
-def send_morning_brief():
-    """09:15 AM ET Mon-Fri. Read-only w.r.t. aiem_predictions; sends what
-    main.py already computed. Claim-before-send guarantees at most one
+def send_independent_picks_brief():
+    """09:30 AM ET Mon-Fri. Read-only w.r.t. aiem_independent_picks; sends
+    AIEM's OWN independently-reasoned picks (Workstream D) - up to 30 total
+    combined across stocks and call options, AIEM's own split, ranked by
+    AIEM's own confidence score. Claim-before-send guarantees at most one
     send per ET calendar date even if two instances are alive at once."""
     today = date.today()
 
     try:
         won_claim = _claim_todays_send(today)
     except Exception as e:
-        log.error(f"morning_brief: idempotency claim failed (DB unreachable): {e}")
+        log.error(f"independent_picks_brief: idempotency claim failed (DB unreachable): {e}")
         _last_run.update(status=f"claim_db_error: {e}", timestamp=datetime.utcnow().isoformat())
         return
 
     if not won_claim:
-        log.info(f"morning_brief: {today} already sent (or in progress) by another instance - skipping duplicate")
+        log.info(f"independent_picks_brief: {today} already sent (or in progress) by another instance - skipping duplicate")
         _last_run.update(status="skipped_duplicate", timestamp=datetime.utcnow().isoformat())
         return
 
     try:
-        picks = _fetch_todays_picks()
+        picks = _fetch_todays_independent_picks()
     except Exception as e:
-        log.error(f"morning_brief: DB read failed: {e}")
+        log.error(f"independent_picks_brief: DB read failed: {e}")
         _last_run.update(status=f"db_error: {e}", timestamp=datetime.utcnow().isoformat())
         _record_send_result(today, f"failed_db_error: {e}")
         return
 
     if not picks:
         ok = _tg_send(
-            f"AIEM 9:15 AM: No picks found for {today.strftime('%a %b %d')} - "
-            f"data not ready or market quiet. (Read-only notifier - did not run a scan.)"
+            f"AIEM 9:30 AM: No independent picks found for {today.strftime('%a %b %d')} - "
+            f"data not ready, or AIEM found nothing genuinely convincing today. "
+            f"(Read-only notifier - did not run a scan.)"
         )
-        log.warning(f"morning_brief: no picks found in aiem_predictions for today (telegram sent={ok})")
+        log.warning(f"independent_picks_brief: no picks found in aiem_independent_picks for today (telegram sent={ok})")
         status = f"sent_empty ok={ok}"
         _last_run.update(status=status, timestamp=datetime.utcnow().isoformat())
         _record_send_result(today, status)
         return
 
-    lines = [f"AIEM Morning Picks - {today.strftime('%a %b %d')}",
-             "----------------------"]
-    for ticker, rank, conf, sig_basis, reasoning, predicted in picks:
-        lines.append(f"#{rank} ${ticker}  {(conf or 0):.0f}/100")
-        lines.append(f"   {predicted or ''}")
-        short_reason = (reasoning or '')[:80]
-        if short_reason:
-            lines.append(f"   {short_reason}")
-    lines.append("----------------------")
-    lines.append("Watch open at 9:30 AM ET")
+    header = f"AIEM Independent Picks - {today.strftime('%a %b %d')} ({len(picks)})"
+    sub = "AIEM's own reasoning on raw data - no pre-scored input"
+    lines = []
+    for i, (pick_type, ticker, conf, rationale, strike, expiry) in enumerate(picks, start=1):
+        conf_txt = f"{float(conf):.1f}/10" if conf is not None else "?/10"
+        short_reason = (rationale or "")[:55]
+        if pick_type == "call_option":
+            strike_txt = f"${float(strike):.2f}" if strike is not None else "?"
+            exp_txt = expiry.strftime("%m/%d") if hasattr(expiry, "strftime") else (str(expiry) if expiry else "?")
+            lines.append(f"#{i} ${ticker} CALL {strike_txt} exp {exp_txt} - {conf_txt} - {short_reason}")
+        else:
+            lines.append(f"#{i} ${ticker} STOCK - {conf_txt} - {short_reason}")
 
-    ok = _tg_send("\n".join(lines))
-    log.info(f"morning_brief: sent={ok} picks={len(picks)}")
-    status = f"sent_ok={ok}"
+    # Telegram caps a single message at 4096 chars - chunk defensively so a
+    # 30-pick list never silently truncates or fails to send.
+    chunks, cur_chunk = [], [header, sub, "----------------------"]
+    cur_len = sum(len(l) + 1 for l in cur_chunk)
+    for line in lines:
+        if cur_len + len(line) + 1 > 3500:
+            chunks.append(cur_chunk)
+            cur_chunk, cur_len = [], 0
+        cur_chunk.append(line)
+        cur_len += len(line) + 1
+    if cur_chunk:
+        chunks.append(cur_chunk)
+
+    all_ok = True
+    for idx, chunk in enumerate(chunks, start=1):
+        text = "\n".join(chunk)
+        if len(chunks) > 1:
+            text = f"(part {idx}/{len(chunks)})\n" + text
+        all_ok = _tg_send(text) and all_ok
+
+    log.info(f"independent_picks_brief: sent={all_ok} picks={len(picks)} parts={len(chunks)}")
+    status = f"sent_ok={all_ok}"
     _last_run.update(status=status, timestamp=datetime.utcnow().isoformat())
     _record_send_result(today, status)
 
@@ -364,13 +398,13 @@ def main():
     _scheduler_ref = scheduler
 
     scheduler.add_job(
-        send_morning_brief,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=15, timezone=ET),
-        id="aiem_morning_brief_notifier",
+        send_independent_picks_brief,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=30, timezone=ET),
+        id="aiem_independent_picks_notifier",
         replace_existing=True,
     )
 
-    log.info("AIEM Telegram Notifier started (read-only, sends 9:15 AM ET Mon-Fri)")
+    log.info("AIEM Telegram Notifier started (read-only, sends 9:30 AM ET Mon-Fri)")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
@@ -380,6 +414,6 @@ def main():
 if __name__ == "__main__":
     if "--once" in sys.argv:
         log.info("Manual test mode: sending one brief now, scheduler NOT started")
-        send_morning_brief()
+        send_independent_picks_brief()
     else:
         main()

@@ -16615,19 +16615,21 @@ def _aiem_indep_tool_save_independent_picks(stock_picks=None, option_picks=None)
     """
     Persist AIEM's own independent picks to aiem_independent_picks - a table
     fully separate from aiem_predictions/aiem_paper_trades (which are sourced
-    from website signals). Caps at 20 of each type per day. Entry price for
-    stocks = today's polygon_market_daily close; for call_option picks the
-    entry reference is the underlying stock price at detection time (option
-    premium/greeks history is not tracked, so P&L on call_option picks is
-    graded on UNDERLYING price movement as a directional proxy - see
-    pnl_methodology - never presented as real option premium P&L).
+    from website signals). Caps at 30 TOTAL combined across both types per day
+    (not 20+20) - if AIEM's lists exceed that, the lower-confidence picks are
+    dropped regardless of type. Entry price for stocks = today's
+    polygon_market_daily close; for call_option picks the entry reference is
+    the underlying stock price at detection time (option premium/greeks
+    history is not tracked, so P&L on call_option picks is graded on
+    UNDERLYING price movement as a directional proxy - see pnl_methodology -
+    never presented as real option premium P&L).
 
     IDEMPOTENT REPLACE SEMANTICS: each call fully deletes and replaces
     today's existing rows for the given pick_type before inserting the new
     list. This makes reruns safe - a same-day admin-triggered rerun (or a
-    scheduler retry) always produces exactly the latest run's <=20 picks,
-    never an accumulation on top of a prior run's rows, so the daily cap
-    holds regardless of how many times this is called on a given day.
+    scheduler retry) always produces exactly the latest run's <=30 combined
+    picks, never an accumulation on top of a prior run's rows, so the daily
+    cap holds regardless of how many times this is called on a given day.
     call_option rows are one row per contract (ticker+strike+expiry), so
     multiple distinct contracts on the same underlying ticker are expected
     and will coexist rather than overwrite each other.
@@ -16695,10 +16697,22 @@ def _aiem_indep_tool_save_independent_picks(stock_picks=None, option_picks=None)
 
             saved = {"stock": [], "call_option": []}
 
+            # Combined 30-pick cap across BOTH types together (not 20+20=40). If AIEM's
+            # own lists exceed 30 combined, keep the higher-confidence picks regardless
+            # of type rather than truncating each list independently.
+            _combined = (
+                [("stock", p) for p in (stock_picks or [])] +
+                [("call_option", p) for p in (option_picks or [])]
+            )
+            _combined.sort(key=lambda tp: float(tp[1].get("confidence_score") or 0), reverse=True)
+            _combined = _combined[:30]
+            stock_picks = [p for t, p in _combined if t == "stock"]
+            option_picks = [p for t, p in _combined if t == "call_option"]
+
             # Full replace of today's stock picks (handles reruns/idempotency -
-            # never accumulates past the 20-pick cap across multiple runs same day).
+            # never accumulates past the combined 30-pick cap across multiple runs same day).
             _cu.execute("DELETE FROM aiem_independent_picks WHERE pick_date=%s AND pick_type='stock'", (today,))
-            for p in (stock_picks or [])[:20]:
+            for p in stock_picks:
                 ticker = str(p.get("ticker", "")).upper().strip()
                 if not ticker:
                     continue
@@ -16716,7 +16730,7 @@ def _aiem_indep_tool_save_independent_picks(stock_picks=None, option_picks=None)
             # same underlying can legitimately appear more than once with different
             # strike/expiry (each row is one distinct contract-level pick).
             _cu.execute("DELETE FROM aiem_independent_picks WHERE pick_date=%s AND pick_type='call_option'", (today,))
-            for p in (option_picks or [])[:20]:
+            for p in option_picks:
                 ticker = str(p.get("ticker", "")).upper().strip()
                 if not ticker:
                     continue
@@ -29348,9 +29362,11 @@ _AIEM_INDEPENDENT_TOOLS = [
     {"type": "function", "function": {
         "name": "save_independent_picks",
         "description": (
-            "Save your final independent picks. Call LAST. Up to 20 stock picks and up "
-            "to 20 call-option picks, each with your own rationale and confidence. Fewer "
-            "than 20 is fine - do not pad the list with weak ideas."
+            "Save your final independent picks. Call LAST. Your TOTAL combined picks "
+            "(stocks + call options together) must not exceed 30 - split them however "
+            "you think is right based on what you find genuinely convincing today, each "
+            "with your own rationale and confidence. Fewer than 30 is fine - do not pad "
+            "the list with weak ideas."
         ),
         "parameters": {"type": "object", "properties": {
             "stock_picks": {
@@ -29387,9 +29403,10 @@ would see on a market data terminal, nothing pre-scored for you.
 - Use your own reasoning, pattern recognition, and judgment about risk/reward. You are being \
 graded independently against the website's own picks over time, so the goal is to become a \
 better picker in your own right - not to reverse-engineer the website's formulas.
-- Pick up to 20 stocks and up to 20 call-option setups you independently believe are likely to \
-move favorably over the next 5 trading days. Fewer than 20 is fine if you don't see enough \
-genuine quality - do not pad the list with weak ideas just to hit 20.
+- Pick a combined total of up to 30 stocks and/or call-option setups (across both types \
+together, split however you judge is right) you independently believe are likely to move \
+favorably over the next 5 trading days. Fewer than 30 is fine if you don't see enough \
+genuine quality - do not pad the list with weak ideas just to hit 30.
 - Explain your rationale for each pick in your own words.
 
 PROTOCOL:

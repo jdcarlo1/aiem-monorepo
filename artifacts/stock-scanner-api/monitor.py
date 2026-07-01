@@ -6,7 +6,7 @@ Sends email to owner if the site is down for 2 consecutive checks,
 and a recovery email when it comes back up.
 
 Also checks the AIEM Telegram notifier's /api/health once per weekday
-after 9:20 AM ET. A plain HTTP 200 from that service does not prove
+after 9:35 AM ET. A plain HTTP 200 from that service does not prove
 today's Telegram message actually sent (e.g. Telegram API down, bad
 token, or the DB read failing) — so this reads the JSON body's
 `today_status.status` field (DB-backed, true across process instances -
@@ -103,7 +103,7 @@ def _check_aiem_notifier():
 
 def _send_aiem_failure_alert(detail: str, when_str: str):
     _smtp_send(
-        "🚨 AIEM Telegram morning brief did not send",
+        "🚨 AIEM Telegram independent picks brief did not send",
         f"<p><strong>No confirmed send as of {when_str}.</strong></p>"
         f"<p>Health check detail: {detail}</p>"
         f"<p>Checked: <a href='{AIEM_HEALTH_URL}'>{AIEM_HEALTH_URL}</a></p>"
@@ -153,11 +153,11 @@ def run():
                         f"open this project → click <strong>Publish → Redeploy</strong>.</p>"
                     )
 
-            # AIEM Telegram notifier check: once per weekday, after 9:20 AM ET,
-            # confirm today's 9:15 AM brief actually went out.
+            # AIEM Telegram notifier check: once per weekday, after 9:35 AM ET,
+            # confirm today's 9:30 AM independent-picks brief actually went out.
             today_str = now_et.strftime("%Y-%m-%d")
             is_weekday = now_et.weekday() < 5
-            past_send_window = (now_et.hour, now_et.minute) >= (9, 20)
+            past_send_window = (now_et.hour, now_et.minute) >= (9, 35)
             if is_weekday and past_send_window and aiem_alert_sent_date != today_str:
                 ok, detail = _check_aiem_notifier()
                 if ok:
