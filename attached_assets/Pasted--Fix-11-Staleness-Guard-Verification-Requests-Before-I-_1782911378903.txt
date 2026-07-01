@@ -1,0 +1,30 @@
+# Fix #11 (Staleness Guard) — Verification Requests
+
+Before I approve this commit, please verify the following three points with actual code/output, not just a description. Show me the commands you ran and their raw results.
+
+## 1. In-flight request safety during self-restart
+
+Does `os.execv` interrupt any in-flight HTTP requests when it fires? Specifically:
+
+- Show me the `os.execv` call site and any surrounding code that drains connections, finishes in-flight requests, or waits for the current request to complete before restarting.
+- If there is no such handling, confirm that explicitly and tell me what happens to a request that's mid-flight on the socket at the exact moment `os.execv` runs.
+- Run a live test: fire a slow/long-running request against the API, trigger a stale-file restart while it's in progress, and show me the actual response (or error) the client receives.
+
+## 2. Independent verification of "zero other consumers"
+
+Don't just tell me the blast radius is zero — prove it. Run and paste the raw output of:
+
+```
+grep -rn "staleness_guard\|process-info\|start_watchdog\|get_process_info" --include="*.py" .
+```
+
+Confirm every match is either inside `staleness_guard.py` itself or the 13 lines added to `main.py`, and list each matching file/line so I can see it directly.
+
+## 3. Git SHA vs. mtime coverage gap
+
+The guard checks `main.py`'s mtime and records a git SHA at load time. Does it actually re-check the git SHA on each interval, or only the mtime of `main.py`?
+
+- If a deploy changes other files (e.g. imported modules, config, templates) without touching `main.py`'s mtime, will the guard detect staleness at all?
+- Show me the exact comparison logic (code snippet) that determines `is_stale`, and run a live test: edit a file *other than* `main.py` that `main.py` imports from, without touching `main.py` itself, and show whether the guard fires or misses it.
+
+Please respond with actual command output and code excerpts for each of these three items before I sign off on finalizing the commit.
