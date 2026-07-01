@@ -247,7 +247,16 @@ def run_risk_gate(
 
     # 4. Devil's advocate pass
     devils_advocate = devils_advocate_pass(ticker, signal_name, reasoning, conviction_score)
-    if devils_advocate.get("severity") == "high":
+    if devils_advocate.get("error"):
+        # A technical failure calling the API (timeout, rate limit, auth
+        # error, etc.) is NOT the same thing as a legitimate high-severity
+        # opinion from the LLM — this pick was never actually reviewed.
+        # Fail closed: block, don't just caution, so an API outage can't
+        # let an unreviewed pick through as merely "proceed with caution."
+        blocking_reasons.append(
+            f"Devil's advocate check could not run (API error): {devils_advocate.get('strongest_objection')}"
+        )
+    elif devils_advocate.get("severity") == "high":
         reasons.append(f"Devil's advocate (high severity): {devils_advocate.get('strongest_objection')}")
     elif devils_advocate.get("severity") == "moderate":
         reasons.append(f"Devil's advocate (moderate): {devils_advocate.get('strongest_objection')}")
