@@ -31433,6 +31433,8 @@ def _init_aiem_paper_trades_table():
             """)
             _cu.execute("CREATE INDEX IF NOT EXISTS aiem_pt_date_idx ON aiem_paper_trades(trade_date)")
             _cu.execute("CREATE INDEX IF NOT EXISTS aiem_pt_status_idx ON aiem_paper_trades(status)")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS needs_review BOOLEAN NOT NULL DEFAULT FALSE")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS review_reason TEXT")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
@@ -31893,6 +31895,8 @@ def _aiem_paper_mark_to_market():
 
         # ── 4. Ask AIEM: hold or exit each position? ───────────────────────
         _ai_decisions = {}
+        _ai_call_ok = True
+        _ai_call_error = None
         try:
             _ai_prompt = (
                 f"You are AIEM, an autonomous paper trading AI. Today is {_today}.\n"
@@ -31926,6 +31930,8 @@ def _aiem_paper_mark_to_market():
             print(f"[aiem_paper] AIEM decisions: {len(_ai_decisions)} positions — "
                   f"{_exit_ct} EXIT, {len(_ai_decisions)-_exit_ct} HOLD")
         except Exception as _ae:
+            _ai_call_ok = False
+            _ai_call_error = str(_ae)
             print(f"[aiem_paper] AIEM decision call failed (price-only fallback): {_ae}")
 
         # ── 5. Apply decisions ─────────────────────────────────────────────
@@ -31956,12 +31962,25 @@ def _aiem_paper_mark_to_market():
                 else:
                     _status = "OPEN"
 
+                # Fix #1: LLM outage/malformed-JSON must not silently masquerade as a normal
+                # HOLD decision. Flag as NEEDS_REVIEW (distinct, alert-worthy) instead, while
+                # still letting the 14-day safety cap above force a real exit as backstop.
+                _needs_review  = False
+                _review_reason = None
+                if not _ai_call_ok and _status == "OPEN":
+                    _needs_review  = True
+                    _review_reason = (f"AIEM decision call failed this MTM cycle "
+                                       f"({_ai_call_error}); held open on price-only fallback, "
+                                       f"pending manual review. 14-day cap still applies.")
+                    print(f"[aiem_paper][NEEDS_REVIEW] {_t} — {_review_reason}")
+
                 if _status != "OPEN":
                     _cu.execute("""
                         UPDATE aiem_paper_trades
                         SET status=%s, exit_price=%s, exit_date=%s,
                             pnl=%s, pnl_pct=%s, last_price=%s,
-                            exit_reason=%s, updated_at=NOW()
+                            exit_reason=%s, updated_at=NOW(),
+                            needs_review=FALSE, review_reason=NULL
                         WHERE id=%s
                     """, (_status, _last, _today,
                           round(_pnl, 2), round(_pnl_pct, 4),
@@ -31970,9 +31989,11 @@ def _aiem_paper_mark_to_market():
                 else:
                     _cu.execute("""
                         UPDATE aiem_paper_trades
-                        SET last_price=%s, pnl=%s, pnl_pct=%s, updated_at=NOW()
+                        SET last_price=%s, pnl=%s, pnl_pct=%s, updated_at=NOW(),
+                            needs_review=%s, review_reason=%s
                         WHERE id=%s
-                    """, (_last, round(_pnl, 2), round(_pnl_pct, 4), _id))
+                    """, (_last, round(_pnl, 2), round(_pnl_pct, 4),
+                          _needs_review, _review_reason, _id))
             _c.commit()
 
         _x = sum(1 for v in _ai_decisions.values() if v.get("decision") == "EXIT")

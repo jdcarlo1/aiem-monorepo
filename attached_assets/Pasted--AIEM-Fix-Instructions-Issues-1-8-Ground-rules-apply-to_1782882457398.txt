@@ -1,0 +1,52 @@
+# AIEM Fix Instructions — Issues #1–8
+
+## Ground rules (apply to ALL 8 fixes)
+
+1. **Isolation only.** Touch only the specific function(s)/file(s) named per item. No refactors, renames, reformatting, or "while I was in there" cleanup elsewhere. If a fix genuinely requires touching a second file, stop and tell me before proceeding — don't just do it.
+2. **No regressions on the rest of the site.** NCLEX AI and every other tab/route/page in StockScanner AI must behave identically before and after. Do not modify shared utilities, imports, or config in a way that could ripple outward. If a shared file must change, isolate the change to net-new code (new function/flag) rather than editing existing logic other callers depend on.
+3. **One fix per commit/checkpoint.** Do not batch fixes together. I want to be able to roll back any single one without touching the others.
+4. **Fail-closed, not fail-open**, unless a fix explicitly says otherwise — when in doubt on error handling, the safer failure mode is to block/halt, not silently proceed.
+5. **Prove it, don't tell me.** For each fix, no "should work now" — show the actual before/after evidence.
+
+---
+
+## The 8 fixes
+
+**1. LLM outage → zero risk management (mark-to-market HOLD/EXIT)**
+Fix: if the GPT-5.4 call throws or returns malformed JSON, do NOT silently default every position to HOLD indefinitely. Implement an explicit fallback state (e.g., flag position as `NEEDS_REVIEW`/alert-worthy) distinct from a normal HOLD, and make sure this fallback still respects the 14-day cap as a backstop, not the only backstop.
+
+**2. Fail-open on missing DATABASE_URL**
+Fix: if `DATABASE_URL` is empty, the three critical checks (position mismatch, daily loss limit, order dedup) must fail CLOSED — block/halt with a clear error — not silently skip.
+
+**3. `reconcile_positions()` never called in production**
+Fix: wire it into the actual production risk-gate cycle (not just the `__main__` test block) so `reconciliation_log` gets populated and `has_unresolved_mismatch()` reflects real state.
+
+**4. Stale quote masked as flat P&L**
+Fix: when `_last <= 0` (failed quote fetch), do not default to `_entry_f` (flat 0% P&L). Mark the data point as unknown/stale and exclude it from feeding the LLM's HOLD/EXIT reasoning as if it were real.
+
+**5. `risk_gate_passed` is cosmetic, not enforced**
+Fix: make the gate a real code-level block — if `risk_gate_passed` is false, `send_email_raw()` (and any downstream action) must be prevented in code, not left to the LLM agent's discretion.
+
+**6. `daily_loss_limit` uses hardcoded $10,000 baseline**
+Fix: pull real account equity via `get_account_value()` from an actual source (paper trade ledger or configured live value) instead of a static env-var default.
+
+**7. Unhandled Anthropic call in `devils_advocate_pass()`**
+Fix: wrap `anthropic.Anthropic().messages.create()` in try/except with a timeout, matching the pattern already used in `adversarial_critique.run_llm_critique()`.
+
+**8. "CALL_OPTION" P&L mislabeled as real options pricing**
+Fix: minimum viable fix is relabeling — rename the field/label so it's clearly a synthetic proxy (e.g., `synthetic_option_proxy_pct`) wherever it's displayed or logged, so paper-trading performance stats aren't misread as real option economics. (Full options-pricing math is a larger follow-up, not in scope here.)
+
+---
+
+## Required verification package — per fix, not batched
+
+For **each** of the 8 fixes, before marking it done, provide all of the following in one message:
+
+- **Diff**: the exact changed lines only (no surrounding refactor noise).
+- **Before/after behavior proof**: actual command/test output showing the old broken behavior and the new corrected behavior — not a description, the raw output.
+- **Blast-radius check**: confirm and show evidence (grep for callers, or a quick smoke test) that no other file/route/tab was touched or affected by this change.
+- **Verification code**: end each fix's writeup with a unique completion token in this exact format so I can track which fixes are confirmed done:
+  `VERIFY-FIX-<number>-<8-char-random-hex>` (e.g., `VERIFY-FIX-3-a91f7c2e`)
+  Generate this fresh per fix — it must not be reused or guessable, since it's my confirmation that this specific fix was actually completed and tested, not just claimed.
+
+Do not send me a summary without the diff and raw output. If you can't produce the raw output (e.g., no way to trigger the failure condition safely), say so explicitly instead of asserting it works.
