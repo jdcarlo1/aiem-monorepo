@@ -1,0 +1,57 @@
+# Fix #2 — Approved. Next steps before Fix #3.
+
+Fix #2 is verified and approved (`VERIFY-FIX-2-016203ad`). Before moving to
+Fix #3, two things from your own findings need to be addressed.
+
+---
+
+## 1. New Fix — add as Fix #9, do not fold into another fix
+
+You flagged that `_connect()` in this same file reads only `AIEM_DATABASE_URL`
+with no fallback to `DATABASE_URL`, and `AIEM_DATABASE_URL` is currently not set
+in this environment — meaning the decision-logging insert at the end of
+`run_risk_gate` would raise an error.
+
+Add this as its own numbered fix (**Fix #9**), separate commit, same isolation
+and verification rules as every other fix on the list:
+
+- Root cause: confirm why `_connect()` only checks `AIEM_DATABASE_URL` when
+  every other module in the codebase falls back to `DATABASE_URL`. Leftover
+  from a refactor, intentional separation, or an oversight?
+- Fix: add the same fallback pattern used elsewhere (`AIEM_DATABASE_URL` first,
+  fall back to `DATABASE_URL`).
+- Proof: show the decision-logging insert actually succeeding after the fix,
+  where it would have raised before.
+- Verification package: diff, before/after proof, blast-radius check,
+  `VERIFY-FIX-9-<8-char-random-hex>` token.
+
+---
+
+## 2. Before starting Fix #3 — explain the existing unresolved mismatch
+
+You found that `reconciliation_log` has exactly one row ever, from
+2026-06-28 19:38 UTC: a genuine unresolved AAPL broker/DB mismatch
+(`mismatch_found=TRUE`), never re-checked since.
+
+Answer these directly, in plain language, before touching any code for Fix #3:
+
+1. **What is the actual mismatch?** Pull the full row and show me: what did the
+   broker-side data say vs. what did the DB say for this AAPL position? Quantity,
+   price, status — whatever fields are captured.
+2. **Is this still relevant right now**, or has that position since closed/changed
+   in a way that makes the mismatch moot? Check current state of that position.
+3. **Was any real money or paper-trade decision affected by this mismatch going
+   undetected** for the ~3 days since it was found and not re-checked?
+4. **Once Fix #3 wires `reconcile_positions()` into production, will this same
+   AAPL mismatch immediately re-trigger and block trading** (assuming it's still
+   unresolved), or does something else need to happen first to clear/resolve it?
+
+I want to understand this specific real finding before you wire the reconciler
+into production — I don't want to flip it on and immediately get blocked by
+something I don't understand yet.
+
+---
+
+**Order of operations: Fix #9 first (small, isolated), then answer the 4
+questions above about the AAPL mismatch, then proceed to Fix #3 once I've
+reviewed both.**
