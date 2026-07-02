@@ -1,0 +1,57 @@
+# Follow-Up — Confirm the Runtime Guard Is Actually Live
+
+## Why this matters
+The static check (scanning the code for forbidden tokens) passed cleanly —
+13-function closure, zero forbidden references. That confirms the CODE is
+clean. It does not yet confirm the GUARD is actually running inside the
+live, restarted process. Those are two different things: a guard that
+exists in a file that never gets loaded protects nothing.
+
+Also: the first restart attempt hit the wrong service
+(artifacts/api-server, a separate Node.js app) before being corrected to
+the actual Python stock-scanner (artifacts/stock-scanner). Need to confirm
+the CORRECT service actually restarted clean with the guard active.
+
+---
+
+## Question 5 — Confirm the guard is active in the live running process
+
+Instruction to give the agent:
+
+> Show raw proof that the runtime guard is actually active inside the
+> correct, currently-running process (artifacts/stock-scanner /
+> stock-api) — not just that the static check passed.
+>
+> Specifically:
+>
+> 1. Confirm the correct workflow (stock-api / stock-scanner's main.py,
+>    NOT artifacts/api-server) is the one currently running. Show the
+>    process/workflow status directly.
+>
+> 2. Show the actual startup logs from this restart — confirm there are
+>    no import errors, no guard-related crashes, and that the guard module
+>    loaded successfully as part of normal startup.
+>
+> 3. Prove the guard is live, not just present in the file, by triggering
+>    it: temporarily add a single test line inside the guarded scope that
+>    attempts `import openai` (or calls a function that would), run it,
+>    and show the raw output confirming it actually throws
+>    OpenAIIsolationViolation (or whatever it was renamed to) and blocks
+>    execution. Then remove the test line and confirm the workflow is
+>    still running clean afterward.
+>
+> 4. Show the signed audit log entry (if logging is wired in) generated
+>    either by that test trigger or by normal operation, confirming the
+>    guard's activity is actually being recorded.
+>
+> Raw output only — logs, process status, and the actual
+> attempt-then-block sequence from step 3. Not a description of what the
+> guard is designed to do.
+
+## What "confirmed live" looks like
+- [ ] Correct service confirmed running (not the Node.js api-server)
+- [ ] Clean startup logs, no errors
+- [ ] A real triggered test showing the guard actually blocks an attempted
+      OpenAI import/call, with raw output
+- [ ] Workflow still running normally after the test line is removed
+- [ ] Signed log entry exists confirming the guard's activity is captured
