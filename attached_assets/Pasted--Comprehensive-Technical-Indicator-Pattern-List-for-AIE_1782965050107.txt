@@ -1,0 +1,71 @@
+# Comprehensive Technical Indicator & Pattern List for AIEM Pre-Computation
+
+Full list to give the agent so nothing gets missed. Organized by category — the agent can compute all of these in pandas before sending a summary to AIEM.
+
+## Trend
+- Simple Moving Average (SMA) — 20, 50, 200 period
+- Exponential Moving Average (EMA) — 9, 21, 50
+- MACD (Moving Average Convergence Divergence) + signal line + histogram
+- ADX (Average Directional Index) — trend strength
+- Parabolic SAR
+- Ichimoku Cloud components
+
+## Momentum
+- RSI (Relative Strength Index)
+- Stochastic Oscillator (%K, %D)
+- Williams %R
+- CCI (Commodity Channel Index)
+- Rate of Change (ROC)
+- Momentum indicator
+
+## Volatility
+- Bollinger Bands (upper/lower/width)
+- ATR (Average True Range)
+- Keltner Channels
+- Standard deviation of returns
+- Historical volatility (rolling window)
+
+## Volume
+- OBV (On-Balance Volume)
+- VWAP (Volume-Weighted Average Price)
+- Volume Profile (price levels with highest volume)
+- MFI (Money Flow Index)
+- Accumulation/Distribution Line
+- Unusual volume spike detection (relative to rolling average)
+
+## Support / Resistance & Price Structure
+- Pivot points (classic, Fibonacci, Camarilla)
+- Fibonacci retracement levels
+- Swing high/low detection
+- Key horizontal support/resistance zones
+
+## Chart Patterns (visual/structural)
+- Head and shoulders (regular and inverse)
+- Double top / double bottom
+- Triangles (ascending, descending, symmetrical)
+- Flags and pennants
+- Wedges (rising, falling)
+- Cup and handle
+- Channel (ascending, descending, horizontal)
+
+## Candlestick Patterns
+- Doji
+- Engulfing (bullish/bearish)
+- Hammer / hanging man
+- Shooting star
+- Morning star / evening star
+
+## Options-Specific (already in your 9-layer system — reuse, don't duplicate)
+- OI Build
+- Gamma exposure
+- Charm
+- Squeeze Fuel
+- Dark Pool flow
+- Float on Demand (Float OD)
+- Sweep detection
+- Sector Heat
+- Statistical Layer 9
+
+## Note on scope
+
+"Every possible indicator" is a good instinct for completeness, but not all of these will be equally useful for every ticker or timeframe — some (like Ichimoku) work better on longer timeframes, others (like VWAP) are more relevant intraday. Consider asking the agent to compute the full set but only surface the ones that are statistically significant or flagged for that specific ticker/period, rather than dumping all of them into every AIEM summary — that keeps the interpretation step focused and the token cost low.
