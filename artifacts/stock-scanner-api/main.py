@@ -48314,6 +48314,185 @@ def aiem_verify(job_id):
         return jsonify({"verified": False, "error": str(_e)}), 500
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Browser-tappable verify link: short-lived, job-scoped token (NOT ADMIN_TOKEN)
+# so a phone browser can hit /verify-link/<job_id>?token=... without headers.
+# ──────────────────────────────────────────────────────────────────────────
+_VERIFY_LINK_TTL_MINUTES = 20
+
+
+def _verify_link_ensure_table(_cu):
+    _cu.execute("""
+        CREATE TABLE IF NOT EXISTS aiem_verify_link_tokens (
+            token      TEXT PRIMARY KEY,
+            job_id     TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at TIMESTAMPTZ NOT NULL
+        )
+    """)
+
+
+@app.route("/stock-api/aiem/admin/mint-verify-link", methods=["POST"])
+def aiem_mint_verify_link():
+    """Admin-only: mint a short-lived, job-scoped token for the browser-tappable
+    verify link. SAME auth check as /stock-api/aiem/verify/<job_id> (X-API-Key
+    header or ?api_key= must match ADMIN_TOKEN) — kept identical on purpose so a
+    sibling GET/POST auth-consistency audit never finds this route unguarded.
+    """
+    import os as _mos, hmac as _mh, psycopg2 as _mp, secrets as _msec
+    from datetime import datetime as _mdt, timedelta as _mtd, timezone as _mtz
+
+    _expected_key = _mos.environ.get("ADMIN_TOKEN", "")
+    _provided_key = request.headers.get("X-API-Key") or request.args.get("api_key") or ""
+    if not _expected_key or not _mh.compare_digest(_expected_key, _provided_key):
+        return jsonify({"error": "Unauthorized — provide a valid X-API-Key header or ?api_key= param"}), 401
+
+    data = request.get_json(silent=True) or {}
+    job_id = (data.get("job_id") or request.args.get("job_id") or "").strip()
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+
+    token = _msec.token_urlsafe(24)
+    expires_at = _mdt.now(_mtz.utc) + _mtd(minutes=_VERIFY_LINK_TTL_MINUTES)
+
+    try:
+        with _mp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _verify_link_ensure_table(_cu)
+            _cu.execute(
+                "SELECT status FROM quant_agent_sessions WHERE job_id=%s",
+                (job_id,),
+            )
+            if not _cu.fetchone():
+                return jsonify({"error": f"job_id {job_id} not found"}), 404
+            _cu.execute(
+                "INSERT INTO aiem_verify_link_tokens (token, job_id, expires_at) VALUES (%s, %s, %s)",
+                (token, job_id, expires_at),
+            )
+            _c.commit()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+
+    _host = _mos.environ.get("REPLIT_DEV_DOMAIN", "")
+    _path = f"/stock-api/aiem/verify-link/{job_id}?token={token}"
+    return jsonify({
+        "verify_link_path": _path,
+        "verify_link_url":  (f"https://{_host}{_path}" if _host else None),
+        "job_id":           job_id,
+        "expires_at":       expires_at.isoformat(),
+        "ttl_minutes":      _VERIFY_LINK_TTL_MINUTES,
+        "note":             "Token is single-purpose: scoped to this job_id only, expires in "
+                             f"{_VERIFY_LINK_TTL_MINUTES} minutes, and is NOT the ADMIN_TOKEN.",
+    })
+
+
+@app.route("/stock-api/aiem/verify-link/<job_id>", methods=["GET"])
+def aiem_verify_link(job_id):
+    """Same HMAC verification as /stock-api/aiem/verify/<job_id>, but authenticated
+    via a short-lived ?token= query param instead of an X-API-Key header — so it can
+    be opened directly from a phone browser (e.g. Safari) with no other tooling.
+
+    The token is minted separately via POST /stock-api/aiem/admin/mint-verify-link
+    (ADMIN_TOKEN-gated). It is NOT the ADMIN_TOKEN itself, is scoped to exactly one
+    job_id, and expires after _VERIFY_LINK_TTL_MINUTES.
+    """
+    import os as _lvos, hmac as _lvh, psycopg2 as _lvp
+    from datetime import datetime as _lvdt, timezone as _lvtz
+
+    token = (request.args.get("token") or "").strip()
+    if not token:
+        return jsonify({"verified": False, "error": "token query param is required"}), 400
+
+    _client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    if _verify_check_rate_limit(_client_ip):
+        return jsonify({
+            "verified": False,
+            "error":    f"Rate limit exceeded — max {_VERIFY_RATE_MAX} requests per {_VERIFY_RATE_WINDOW}s",
+            "retry_after": _VERIFY_RATE_WINDOW,
+        }), 429
+
+    try:
+        with _lvp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _verify_link_ensure_table(_cu)
+
+            # ── 1. Validate token: exists, matches this job_id, not expired ──
+            _cu.execute(
+                "SELECT job_id, expires_at FROM aiem_verify_link_tokens WHERE token=%s",
+                (token,),
+            )
+            trow = _cu.fetchone()
+            if not trow:
+                return jsonify({"verified": False, "error": "invalid or unknown token"}), 403
+            _tok_job_id, expires_at = trow
+            if not _lvh.compare_digest(_tok_job_id, job_id):
+                return jsonify({"verified": False, "error": "token does not match this job_id"}), 403
+            if _lvdt.now(_lvtz.utc) > expires_at:
+                return jsonify({"verified": False, "error": "token expired", "expired_at": expires_at.isoformat()}), 403
+
+            # ── 2. Fetch record — identical logic to /aiem/verify ──
+            _cu.execute(
+                """SELECT answer, aiem_signature, signed_at, signed_ts,
+                          openai_response_id, status
+                   FROM quant_agent_sessions WHERE job_id=%s""",
+                (job_id,),
+            )
+            row = _cu.fetchone()
+            if not row:
+                return jsonify({"verified": False, "error": "job not found"}), 404
+            answer, stored_sig, signed_at, signed_ts, openai_id, status = row
+            if status != "done" or not answer or not stored_sig:
+                return jsonify({
+                    "verified": False,
+                    "job_id":   job_id,
+                    "status":   status,
+                    "reason":   "session not complete or unsigned",
+                })
+
+            secret = _lvos.environ.get("AIEM_SECRET", "")
+            if not secret:
+                return jsonify({"verified": False, "reason": "AIEM_SECRET not configured on server"}), 500
+
+            ts = signed_ts or ""
+            expected = _aiem_sign(job_id, ts, answer, openai_id or "")
+            verified = _lvh.compare_digest(expected, stored_sig)
+
+            # ── 3. Audit log — same table as /aiem/verify, tagged for this path ──
+            try:
+                _cu.execute(
+                    """
+                    INSERT INTO aiem_verification_log
+                        (job_id, unix_timestamp, openai_response_id,
+                         client_ip, verified, failure_reason)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (job_id, ts, openai_id or None, _client_ip or None,
+                     verified, None if verified else "HMAC mismatch (verify-link)"),
+                )
+                _c.commit()
+            except Exception:
+                pass
+
+            return jsonify({
+                "verified":           verified,
+                "job_id":             job_id,
+                "status":             status,
+                "answer":             answer,
+                "signed_at":          signed_at.isoformat() if signed_at else None,
+                "openai_response_id": openai_id or None,
+                "aiem_signature":     stored_sig,
+                "algorithm":          "HMAC-SHA256",
+                "payload_format":     "job_id:signed_ts:openai_response_id:response_text.strip()",
+                "model":              "gpt-5.4",
+                "reason": (
+                    "Signature matches — this response was produced by the AIEM pipeline"
+                    if verified else
+                    "Signature mismatch — response may have been tampered with"
+                ),
+                "link_expires_at":    expires_at.isoformat(),
+            })
+    except Exception as _e:
+        return jsonify({"verified": False, "error": str(_e)}), 500
+
+
 @app.route("/stock-api/aiem/chat/history", methods=["GET"])
 def aiem_chat_history():
     """Return the last 20 Quant Agent sessions (newest first)."""
