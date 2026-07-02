@@ -1,0 +1,46 @@
+# Before Module 2 or 3 — Need Question 9's Answer First
+
+**Instruction to agent:** Do not begin any work on Module 2 (Decay &
+Failure Analyzer) or Module 3 (Variant Generator) yet. Nothing for either
+module has been sent to you, and nothing should be built until this is
+resolved.
+
+## What's needed right now
+
+Provide your full answer to **Question 9** — the retestability gap
+question. Specifically:
+
+1. Explain the retestability gap in the current system (the same class of
+   issue surfaced in the AIEM audit: signals that can't be properly
+   re-tested out-of-sample, e.g. holdout windows inside training windows,
+   or `retestable=False` skip conditions with no structured backing).
+2. State clearly: **is this gap fixable**, and if so, what would fixing
+   it actually require (schema changes, new backtest logic, more data
+   collection time, etc.)?
+3. If it is not easily fixable, say so plainly — do not propose a
+   workaround that quietly lowers the evidence standard to make it look
+   fixed.
+
+## Why this matters before Module 2
+
+Module 2 is a Decay & Failure Analyzer — its entire job is to evaluate
+whether existing signals still hold up over time. If the retestability
+gap isn't resolved (or its limits aren't clearly understood), Module 2
+would be built on the same shaky foundation that caused the fabricated
+`oos_edge` values earlier in this audit. Whether the gap is fixable
+directly determines what Module 2 should actually check and how it
+should handle signals that can't be properly retested.
+
+## Standing rule
+
+Raw explanation only — no "handled," "resolved," or "not an issue"
+language without showing the actual mechanism. If the honest answer is
+"this can't be fully fixed with current data," say that directly. That
+answer changes Module 2's design; it does not block giving it.
+
+## After this
+
+Once your answer to Question 9 is received, Module 2 instructions
+(Question 10) will be finalized based on it and sent separately. Module 3
+instructions are not being sent until Module 2 is verified working, per
+the established build order.
