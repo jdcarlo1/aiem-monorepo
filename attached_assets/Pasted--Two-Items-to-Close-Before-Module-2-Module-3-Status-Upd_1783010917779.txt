@@ -1,0 +1,33 @@
+# Two Items to Close Before Module 2 / Module 3
+
+## Status Update
+
+- **Item 2 (skip_code fix): ✅ Done, verified.** `skip_code: "no_forward_data_yet"` confirmed returning correctly for id=2, diff matched intent (23 insertions/6 deletions, nothing stray), call sites and docstrings updated. Good — but see the new caveat below on id=9 before treating this as fully closed.
+- **Item 1 (h=20 empirical confirmation): ⏳ Still open.** Confirmed the bounded query runs in ~6s, but haven't seen the actual result/output yet — need the real number, not just proof it executes.
+- **New issue found during testing — id=9 window size:** id=9 was tested with a single-day window (07-02 to 07-02), which is too narrow for the 20-day trading-day state machine to even attempt firing. So `pattern_not_recurred` came back technically true but not meaningful — it doesn't tell us anything about whether the pattern actually works at h=20. **Ask:** re-test id=9 with a realistic wider window before treating this case as validated. This directly affects whether Item 1 (h=20) is genuinely confirmed or just technically non-erroring.
+
+---
+
+## 1. Confirm the h=20 date (2026-08-01) with an actual query, not extrapolation
+
+You flagged that the h=20 date for ids 7/8/9 is calendar arithmetic, not empirically verified — the direct query timed out because it scanned all 12K tickers without a date filter.
+
+**Ask:** Re-run the eligibility check for h=20 with a narrower, date-bounded query (e.g. filter to the relevant tickers and a bounded scan_date range) so we get the same kind of direct empirical confirmation you got for h=1/3/5. Please share the raw query and output, not just a confirmation that it ran.
+
+## 2. Fix the skip_reason conflation
+
+Right now `skip_reason` returns the same message ("chain adapter query returned no signal or baseline rows") whether:
+- the pattern genuinely hasn't fired since discovery, or
+- forward data simply hasn't been ingested yet.
+
+These are two different situations and downstream we have no way to tell them apart from the log alone.
+
+**Ask:** Update the skip_reason string (or add a separate field) so it explicitly distinguishes:
+- `no_forward_data_yet` (data-lag — expected, temporary)
+- `pattern_not_recurred` (genuinely no occurrence in the eligible window)
+
+This is a labeling/logic fix only — no change to the underlying retestability calculation itself. Please confirm with the updated skip_reason output for at least one id from each category (2/3/5 and 7/8/9) once done.
+
+---
+
+**Please complete and verify both of these — with raw output, not self-report — before we move on to Module 2 and Module 3.**
