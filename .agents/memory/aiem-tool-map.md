@@ -21,8 +21,18 @@ Prior `_build_aiem_tool_map()` had only 64 entries. The AIEM schema (`_AIEM_AGEN
 When adding a new AIEM tool (function + schema entry):
 1. Add the function to `_build_aiem_tool_map()` (used by focused sessions + chat)
 2. Add to `_run_aiem_research_agent._tool_map` (used by Sunday research agent)
-3. Add to `_AIEM_AGENT_TOOLS` schema list (what the model sees)
-All three must stay in sync or the model will call tools that silently 404.
+3. Add to `_build_market_tool_map()` (separate dict, also needs the new function)
+4. Add to `_AIEM_AGENT_TOOLS` schema list (what the model sees) — insert the new
+   schema block immediately after an existing one that's early in the list
+   (e.g. right after `mkt_compute_indicators`), NOT appended at the end.
+All four must stay in sync or the model will call tools that silently 404.
+
+## Schema truncation is not just one slice
+`_AIEM_AGENT_TOOLS[:128]` (OpenAI's 128-tool hard cap) is applied at **3 separate
+call sites** in main.py, not one shared variable — grep for `[:128]` to find them
+all. They all slice the same underlying list object, so a new schema entry only
+needs to land before index 128 once; verify with a quick Python index-count
+script rather than trusting line-number guesses after edits shift things.
 
 ## Session lock architecture
 All AIEM session entry points share ONE lock: `app._aiem_qa_lock` (threading.Semaphore(1)):

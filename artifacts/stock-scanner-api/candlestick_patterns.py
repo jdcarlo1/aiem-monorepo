@@ -61,11 +61,63 @@ def is_bearish_engulfing(prev: Dict[str, float], curr: Dict[str, float]) -> bool
     return prev_bullish and curr_bearish and engulfs
 
 
+def _preceding_trend(bars: List[Dict[str, float]], lookback: int = 5) -> str:
+    """Cheap trend read on the bars BEFORE the candle being classified —
+    needed to tell a hammer (downtrend) from a hanging man (uptrend), since
+    both share identical single-candle geometry."""
+    ctx = bars[-(lookback + 1):-1]
+    if len(ctx) < 2:
+        return "flat"
+    net = ctx[-1]["close"] - ctx[0]["close"]
+    if net > 0:
+        return "uptrend"
+    if net < 0:
+        return "downtrend"
+    return "flat"
+
+
+def is_hanging_man(o: float, h: float, l: float, c: float, preceding_trend: str) -> bool:
+    """Same geometry as a hammer, but bearish-reversal significance because
+    it appears after an uptrend rather than a downtrend."""
+    return is_hammer(o, h, l, c) and preceding_trend == "uptrend"
+
+
+def is_morning_star(bars: List[Dict[str, float]]) -> bool:
+    """3-candle bullish reversal: long bearish, small-bodied star, long
+    bullish closing back into the first candle's body."""
+    if len(bars) < 3:
+        return False
+    c1, c2, c3 = bars[-3], bars[-2], bars[-1]
+    c1_bearish = c1["close"] < c1["open"]
+    c1_body = _body(c1["open"], c1["close"])
+    c2_body = _body(c2["open"], c2["close"])
+    c3_bullish = c3["close"] > c3["open"]
+    small_star = c1_body > 0 and c2_body < c1_body * 0.5
+    deep_close = c3["close"] > (c1["open"] + c1["close"]) / 2
+    return bool(c1_bearish and small_star and c3_bullish and deep_close)
+
+
+def is_evening_star(bars: List[Dict[str, float]]) -> bool:
+    """3-candle bearish reversal: mirror of morning star."""
+    if len(bars) < 3:
+        return False
+    c1, c2, c3 = bars[-3], bars[-2], bars[-1]
+    c1_bullish = c1["close"] > c1["open"]
+    c1_body = _body(c1["open"], c1["close"])
+    c2_body = _body(c2["open"], c2["close"])
+    c3_bearish = c3["close"] < c3["open"]
+    small_star = c1_body > 0 and c2_body < c1_body * 0.5
+    deep_close = c3["close"] < (c1["open"] + c1["close"]) / 2
+    return bool(c1_bullish and small_star and c3_bearish and deep_close)
+
+
 def detect_patterns(ohlc_bars: List[Dict[str, float]]) -> Dict[str, Any]:
     """
     ohlc_bars: list of dicts with keys open/high/low/close, oldest first.
-    Returns patterns detected on the MOST RECENT bar (and prior bar for
-    two-candle patterns like engulfing).
+    Returns patterns detected on the MOST RECENT bar (single-candle),
+    the prior bar for two-candle patterns (engulfing, hanging man needs
+    trend context), and the prior two bars for three-candle patterns
+    (morning/evening star).
     """
     if len(ohlc_bars) < 2:
         return {"patterns": [], "error": "need at least 2 bars"}
@@ -74,16 +126,23 @@ def detect_patterns(ohlc_bars: List[Dict[str, float]]) -> Dict[str, Any]:
     prev = ohlc_bars[-2]
     patterns = []
 
+    trend = _preceding_trend(ohlc_bars)
     if is_doji(curr["open"], curr["high"], curr["low"], curr["close"]):
         patterns.append("doji")
-    if is_hammer(curr["open"], curr["high"], curr["low"], curr["close"]):
+    if is_hammer(curr["open"], curr["high"], curr["low"], curr["close"]) and trend != "uptrend":
         patterns.append("hammer")
+    if is_hanging_man(curr["open"], curr["high"], curr["low"], curr["close"], trend):
+        patterns.append("hanging_man")
     if is_shooting_star(curr["open"], curr["high"], curr["low"], curr["close"]):
         patterns.append("shooting_star")
     if is_bullish_engulfing(prev, curr):
         patterns.append("bullish_engulfing")
     if is_bearish_engulfing(prev, curr):
         patterns.append("bearish_engulfing")
+    if is_morning_star(ohlc_bars):
+        patterns.append("morning_star")
+    if is_evening_star(ohlc_bars):
+        patterns.append("evening_star")
 
     return {
         "patterns": patterns,

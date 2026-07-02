@@ -22094,6 +22094,181 @@ def _mkt_compute_indicators(ticker, start_date=None, end_date=None):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# mkt_price_structure — pivot points, Fibonacci retracement, S/R zones
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_price_structure(ticker, start_date=None, end_date=None):
+    """Support/resistance structure for any ticker: classic + Fibonacci + Camarilla
+    pivot points (from the last completed bar), Fibonacci retracement levels off the
+    dominant recent swing, and clustered support/resistance zones scored by touch
+    count + recency. Use for 'what's the support/resistance on X', 'key levels for X',
+    or 'where's the pivot/fib level on X' questions — including reading TradingView
+    chart screenshots that show horizontal S/R lines or fib retracement drawings."""
+    import psycopg2
+    import price_structure_patterns as _psp
+    try:
+        ticker = ticker.strip().upper()
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            where_parts = ["ticker = %s"]
+            params = [ticker]
+            if start_date:
+                where_parts.append("scan_date >= %s"); params.append(start_date)
+            if end_date:
+                where_parts.append("scan_date <= %s"); params.append(end_date)
+            cur.execute(f"""
+                SELECT scan_date, open_price, high_price, low_price, close_price, volume
+                FROM polygon_market_daily
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY scan_date ASC
+                LIMIT 1500
+            """, params)
+            rows = cur.fetchall()
+
+        if not rows or len(rows) < 10:
+            return {"status": "error", "error": f"Not enough data for {ticker} to compute price structure (need >=10 days)."}
+
+        dates  = [str(r[0]) for r in rows]
+        highs  = [float(r[2] or 0) for r in rows]
+        lows   = [float(r[3] or 0) for r in rows]
+        closes = [float(r[4] or 0) for r in rows]
+        n = len(closes)
+        current_price = closes[-1]
+
+        swing_highs, swing_lows, atr_val = _psp.find_swing_points(highs, lows, closes)
+        pivots = _psp.compute_pivot_points(highs[-2] if n >= 2 else highs[-1],
+                                            lows[-2] if n >= 2 else lows[-1],
+                                            closes[-2] if n >= 2 else closes[-1])
+        zones = _psp.compute_support_resistance_zones(swing_highs, swing_lows, atr_val, current_price, n)
+
+        fib = None
+        if swing_highs and swing_lows:
+            last_high = max(swing_highs, key=lambda p: p["idx"])
+            last_low = max(swing_lows, key=lambda p: p["idx"])
+            uptrend = last_low["idx"] < last_high["idx"]
+            hi = last_high["price"] if uptrend else max(p["price"] for p in swing_highs[-3:] or swing_highs)
+            lo = min(p["price"] for p in swing_lows[-3:] or swing_lows) if uptrend else last_low["price"]
+            fib = _psp.compute_fibonacci_retracement(hi, lo, uptrend=uptrend)
+
+        return {
+            "status": "ok",
+            "ticker": ticker,
+            "latest_close": round(current_price, 4),
+            "latest_date": dates[-1],
+            "data_days": n,
+            "pivot_points": pivots,
+            "fibonacci_retracement": fib,
+            "support_resistance_zones": zones,
+            "swing_highs": swing_highs[-6:],
+            "swing_lows": swing_lows[-6:],
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# mkt_chart_patterns — rule-based chart pattern detection
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_chart_patterns(ticker, start_date=None, end_date=None):
+    """Detect classic chart patterns for any ticker from stored daily OHLC: double
+    top/bottom, head & shoulders (regular/inverse), triangles (ascending/descending/
+    symmetrical), wedges (rising/falling), channels (ascending/descending/horizontal),
+    flags/pennants, and cup & handle. Each detected pattern includes direction
+    (bullish/bearish/neutral), status (forming/confirmed), a confidence score, and
+    key price levels. Returns an empty list (not an error) when nothing qualifies —
+    that itself is informative. Use this to corroborate or challenge a chart pattern
+    you think you see in a TradingView screenshot, or to answer 'does X have a
+    double top / head and shoulders / triangle forming' questions."""
+    import psycopg2
+    import price_structure_patterns as _psp
+    try:
+        ticker = ticker.strip().upper()
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            where_parts = ["ticker = %s"]
+            params = [ticker]
+            if start_date:
+                where_parts.append("scan_date >= %s"); params.append(start_date)
+            if end_date:
+                where_parts.append("scan_date <= %s"); params.append(end_date)
+            cur.execute(f"""
+                SELECT scan_date, open_price, high_price, low_price, close_price, volume
+                FROM polygon_market_daily
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY scan_date ASC
+                LIMIT 1500
+            """, params)
+            rows = cur.fetchall()
+
+        if not rows or len(rows) < 10:
+            return {"status": "error", "error": f"Not enough data for {ticker} to detect chart patterns (need >=10 days)."}
+
+        dates  = [str(r[0]) for r in rows]
+        highs  = [float(r[2] or 0) for r in rows]
+        lows   = [float(r[3] or 0) for r in rows]
+        closes = [float(r[4] or 0) for r in rows]
+        n = len(closes)
+
+        swing_highs, swing_lows, atr_val = _psp.find_swing_points(highs, lows, closes)
+        patterns = _psp.classify_chart_patterns(swing_highs, swing_lows, closes, highs, lows, atr_val)
+
+        return {
+            "status": "ok",
+            "ticker": ticker,
+            "latest_close": round(closes[-1], 4),
+            "latest_date": dates[-1],
+            "data_days": n,
+            "patterns_detected": patterns,
+            "pattern_count": len(patterns),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# mkt_candlestick_patterns — single/multi-bar candlestick pattern detection
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_candlestick_patterns(ticker, lookback=10):
+    """Detect candlestick patterns on the most recent bars for any ticker: doji,
+    hammer, hanging man, shooting star, bullish/bearish engulfing, morning star,
+    evening star. Returns patterns found on the latest completed daily bar (using
+    up to `lookback` prior bars for trend context and multi-candle patterns).
+    Use for 'is there a hammer/doji/engulfing on X' questions or to corroborate a
+    candlestick pattern visible in a TradingView chart screenshot."""
+    import psycopg2
+    import candlestick_patterns as _cp
+    try:
+        ticker = ticker.strip().upper()
+        lookback = max(int(lookback), 5)
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT scan_date, open_price, high_price, low_price, close_price
+                FROM polygon_market_daily
+                WHERE ticker = %s
+                ORDER BY scan_date DESC
+                LIMIT %s
+            """, (ticker, lookback + 5))
+            rows = cur.fetchall()
+
+        if not rows or len(rows) < 2:
+            return {"status": "error", "error": f"Not enough data for {ticker} to detect candlestick patterns."}
+
+        rows = list(reversed(rows))  # oldest first, as detect_patterns expects
+        bars = [{
+            "date": str(r[0]), "open": float(r[1] or 0), "high": float(r[2] or 0),
+            "low": float(r[3] or 0), "close": float(r[4] or 0),
+        } for r in rows]
+
+        result = _cp.detect_patterns(bars)
+        return {
+            "status": "ok",
+            "ticker": ticker,
+            "latest_date": bars[-1]["date"],
+            "latest_close": bars[-1]["close"],
+            "patterns_detected": result.get("patterns", []),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # mkt_screen_by_indicator — full-market screen by any technical indicator
 # Supports all Barchart-style indicators: RSI, Stochastic, Williams %R,
 # CCI, MACD, ADX, OBV, MFI, CMF, all MAs/EMAs, pct-from-MA, ROC, ATR.
@@ -26172,6 +26347,9 @@ def _build_aiem_tool_map():
         "mkt_screen_period":      _mkt_screen_period,
         "mkt_layer9_score":       _mkt_layer9_score,
         "mkt_compute_indicators": _mkt_compute_indicators,
+        "mkt_price_structure":    _mkt_price_structure,
+        "mkt_chart_patterns":     _mkt_chart_patterns,
+        "mkt_candlestick_patterns": _mkt_candlestick_patterns,
         "mkt_screen_by_indicator": _mkt_screen_by_indicator,
         "mkt_historical_study":   _mkt_historical_study,
         # ── AIEM Research Integrity / hypothesis tracking ─────────────────────
@@ -27273,6 +27451,56 @@ _AIEM_AGENT_TOOLS = [
             "ticker":     {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
             "start_date": {"type": "string", "description": "Optional start 'YYYY-MM-DD'."},
             "end_date":   {"type": "string", "description": "Optional end 'YYYY-MM-DD'."},
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_price_structure",
+        "description": (
+            "Support/resistance structure for any ticker: classic + Fibonacci + Camarilla "
+            "pivot points from the last completed bar, Fibonacci retracement levels off the "
+            "dominant recent swing, and clustered support/resistance zones scored by touch "
+            "count + recency. Use for 'what's the support/resistance on X', 'key levels for X', "
+            "'where's the pivot/fib level on X' — and to corroborate horizontal S/R lines or "
+            "fib retracement drawings you see in a TradingView chart screenshot."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":     {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
+            "start_date": {"type": "string", "description": "Optional start 'YYYY-MM-DD'."},
+            "end_date":   {"type": "string", "description": "Optional end 'YYYY-MM-DD'."},
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_chart_patterns",
+        "description": (
+            "Detect classic chart patterns for any ticker from stored daily OHLC: double "
+            "top/bottom, head & shoulders (regular/inverse), triangles (ascending/descending/"
+            "symmetrical), wedges (rising/falling), channels (ascending/descending/horizontal), "
+            "flags/pennants, and cup & handle. Each result includes direction (bullish/bearish/"
+            "neutral), status (forming/confirmed), a confidence score, and key price levels. "
+            "An empty list means nothing qualifies — that is itself informative, not an error. "
+            "Use this to corroborate or challenge a chart pattern you think you see in a "
+            "TradingView screenshot, or to answer 'does X have a double top / head and "
+            "shoulders / triangle forming' questions."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":     {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
+            "start_date": {"type": "string", "description": "Optional start 'YYYY-MM-DD'."},
+            "end_date":   {"type": "string", "description": "Optional end 'YYYY-MM-DD'."},
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_candlestick_patterns",
+        "description": (
+            "Detect candlestick patterns on the most recent daily bars for any ticker: doji, "
+            "hammer, hanging man, shooting star, bullish/bearish engulfing, morning star, "
+            "evening star. Returns patterns found on the latest completed bar, using prior "
+            "bars for trend context and multi-candle patterns. Use for 'is there a hammer/"
+            "doji/engulfing on X' questions or to corroborate a candlestick pattern visible "
+            "in a TradingView chart screenshot."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":   {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
+            "lookback": {"type": "integer", "description": "Prior bars to include for trend context (default 10)."},
         }, "required": ["ticker"]}
     }},
     {"type": "function", "function": {
@@ -31627,6 +31855,9 @@ def _run_aiem_research_agent(max_iterations=None):
         "mkt_screen_period":           _mkt_screen_period,
         "mkt_layer9_score":            _mkt_layer9_score,
         "mkt_compute_indicators":      _mkt_compute_indicators,
+        "mkt_price_structure":         _mkt_price_structure,
+        "mkt_chart_patterns":          _mkt_chart_patterns,
+        "mkt_candlestick_patterns":    _mkt_candlestick_patterns,
         "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
         "mkt_historical_study":        _mkt_historical_study,
         # ── AIEM Research Integrity Tools ─────────────────────────────────────
@@ -48079,6 +48310,7 @@ def aiem_chat_start():
             f"(Pass this session_id whenever you call log_prediction so your calls are linked back here.)\n\n"
             f"The user asks: '{question}'\n\n"
             f"{((f'NOTE: The user has attached {len(image_data_urls)} image(s). Look at each one carefully, compare them against each other, and describe what you see before answering their question.' if len(image_data_urls) > 1 else 'NOTE: The user has attached an image. Look at it carefully and describe what you see before answering their question.') + chr(10) + chr(10)) if image_data_urls else ''}"
+            f"{('For EVERY ticker you identify in the attached chart image(s), call ALL FOUR of these tools to ground your read of the chart in real computed data before you answer: mkt_compute_indicators (trend/momentum/volatility/volume indicators), mkt_price_structure (pivot points, Fibonacci retracement, support/resistance zones), mkt_chart_patterns (double top/bottom, head & shoulders, triangles, wedges, channels, flags/pennants, cup & handle), and mkt_candlestick_patterns (doji, hammer, hanging man, shooting star, engulfing, morning/evening star). Then compare what these tools return against what you visually see in the screenshot — call out agreement AND disagreement explicitly, since the tools use stored EOD data while the chart may show intraday or a different timeframe.' + chr(10) + chr(10)) if image_data_urls else ''}"
             f"{_review_instruction}"
             f"{_log_instruction}"
             f"Research this thoroughly using your tools. "
