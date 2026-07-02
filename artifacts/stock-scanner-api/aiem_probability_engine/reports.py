@@ -21,6 +21,16 @@ This mirrors the existing convention elsewhere in this codebase (see
 quant_agent_sessions' reconcile_orphaned_sessions()), where package-owned,
 non-ORM tables self-create on first use.
 
+KNOWN LEAKAGE GAP (see config.py "KNOWN LEAKAGE GAP" for full detail) —
+generate_and_log_predictions() always scores unlogged backlog rows with
+whatever model_horizon_{h}d.pkl is CURRENTLY on disk, no matter how old
+that row's signal_date is. Since train.py trains on the full dataset
+available at run time, a backfilled row's signal_date can predate data
+the model was actually trained on - the model has seen the future
+relative to that logged row. Treat rows here as model-health monitoring
+only, NOT as point-in-time-safe historical accuracy - use walk_forward.py
+for that.
+
 Run directly for a demo (creates the table if missing, logs today's new
 predictions, and prints them back):
     python reports.py

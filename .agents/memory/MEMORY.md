@@ -126,3 +126,4 @@
 - [Watch-criteria scan test safety](watch-criteria-test-safety.md) — manual tests of _aiem_scan_watch_criteria sweep in ALL active real criteria and commit per-row; mock Telegram + cleanup by job_name across all criteria_id
 - [Heartbeat fire-and-forget anti-pattern](heartbeat-fire-and-forget.md) — job_heartbeats "success" can be logged right after spawning a bg thread, before real work runs; not proof of completion
 - [Risk gate enforcement gaps](risk-gate-enforcement-gaps.md) — risk_gate_passed is cosmetic in email send; reconcile_positions() never called so mismatch check always passes; MTM LLM-outage → HOLD everything, no stop-loss besides 14-day cap
+- [Probability engine shadow-log leakage](probability-engine-shadow-log-leakage.md) — backfilled rows scored by current (future-trained) model, not PIT-safe; only walk_forward.py's backtest is trustworthy for historical accuracy

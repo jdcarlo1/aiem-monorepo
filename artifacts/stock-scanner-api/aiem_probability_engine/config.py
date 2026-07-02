@@ -75,6 +75,26 @@ MIN_UNIQUE_DATES_FOR_CV_TRUST = 20
 # absorbs more signal as Tier 2 history grows — no rebuild needed. Re-run
 # scripts/check_data_reality.py periodically; when Tier 2 row counts climb,
 # retrain and check feature_importance reports for Tier 2 contribution.
+#
+# KNOWN LEAKAGE GAP (found during 2026-07-02 audit, still open) — the
+# shadow-mode log (reports.py: aiem_probability_engine_predictions) always
+# scores backlog rows with whatever model_horizon_{h}d.pkl is CURRENTLY on
+# disk, regardless of how old that row's signal_date is. Because train.py
+# always trains on the full historical dataset available at run time, a
+# backfilled prediction for an old signal_date is scored by a model that
+# was trained on rows dated AFTER that signal_date — i.e. the model has
+# seen the future relative to that logged "prediction." This is fine for
+# model-health monitoring but it means historical rows in that table
+# (verified concretely: signal_date=2026-06-08 row logged with
+# created_at=2026-07-01, model_version=79adb318dcbe, n_training_samples=349
+# matching the FULL current dataset) must NOT be read as "what the model
+# would have called in real time on that date." Only walk_forward.py's
+# backtest (which enforces a real train/val date split, confirmed
+# overlap=False) is point-in-time trustworthy today. Fixing this properly
+# would require either (a) snapshotting/versioning a model artifact per
+# historical retrain date, or (b) marking shadow-log rows whose
+# created_at is far past signal_date as "monitoring-only, not PIT-safe."
+# Neither is implemented yet.
 
 TIER1_FEATURE_COLUMNS = [
     "vol_oi",
