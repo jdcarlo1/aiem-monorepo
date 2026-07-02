@@ -1,0 +1,48 @@
+# Question 12 — Why Can't the 6 Waiting Discoveries Resolve Now?
+
+## Context
+3 of 9 discoveries are retestable today (ids 1, 4, 6). The other 6 are
+explained as "waiting" — either their specific condition hasn't fired yet
+in the live window (ids 2, 3, 5), or they were only discovered today and
+need 1+ trading day of forward data (ids 7, 8, 9). Before trusting this
+as "self-resolving," get a direct explanation of why it can't just be
+checked right now.
+
+## Message to send the agent
+
+> For the 6 discoveries still showing retestable=false (ids 2, 3, 5, 7,
+> 8, 9), explain plainly, for each one individually:
+>
+> 1. What EXACTLY is it waiting on? Not "time" in general — the specific
+>    condition. For ids 2/3/5: what has to happen in the market (a
+>    specific pattern firing) before there's data to check? For ids
+>    7/8/9: what specific calendar date does the required "1+ trading
+>    day forward" become available?
+>
+> 2. Why can't this be checked right now using historical data instead of
+>    waiting for live data to accumulate? You proved the adapters work by
+>    testing them against a WIDER historical window in debug mode (e.g.
+>    id=2 → n=24 with a wider window). If the adapter can already see
+>    historical fires when given a wider window, why does the LIVE
+>    tracker only look at the narrow 3-6 day window since discovery
+>    instead of also counting historical fires from before discovery?
+>
+> 3. Is the "narrow window since discovery" restriction a deliberate
+>    design choice (e.g. only counting truly out-of-sample data going
+>    forward, to avoid any lookahead bias) or a limitation that could be
+>    loosened? If it's deliberate — confirm that explicitly, since that
+>    would mean "waiting" is correct and expected behavior, not something
+>    to fix.
+>
+> 4. Give me exact dates: for each of the 6, what specific date should I
+>    check back and expect retestable=true, assuming normal market
+>    conditions? I want concrete dates, not "soon" or "self-resolves
+>    daily."
+
+## Follow-up check-in (send in 2-3 days, or on the dates given above)
+
+> Re-run _mkt_run_discovery_outcome_check() again and show the raw
+> output for all 9 discoveries. Confirm: did the count of retestable=true
+> discoveries increase as predicted on [dates from above]? If any
+> predicted date passed without resolving, explain exactly why not before
+> we proceed to Module 2.
