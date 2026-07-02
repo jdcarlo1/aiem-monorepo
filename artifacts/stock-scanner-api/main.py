@@ -34138,16 +34138,23 @@ def _aiem_paper_pick_candidates() -> list:
                      f"OI +{_oip:.0f}% over {_days}d")
 
             # ── 8. Washout Ignition Signal (validated stacked reversal, rare/high-conviction) ──
-            _cu.execute("""
-                SELECT ticker, close_price, breakout_pct, vol_x, rsi_at_confirm
-                FROM washout_ignition_signal
-                WHERE scan_date >= CURRENT_DATE - INTERVAL '1 day'
-                ORDER BY breakout_pct DESC LIMIT 10
-            """)
-            for _t, _cp, _bp, _vx, _rsi in _cu.fetchall():
-                _score = float(_bp or 0) * 1.5 + float(_vx or 1) * 2.0 + 5.0  # +5 base: validated 68.3% WR signal
-                _add(_t, _score, "STOCK", "washout_ignition",
-                     f"Washout Ignition: +{float(_bp or 0):.1f}% breakout, {float(_vx or 1):.1f}x vol, RSI {float(_rsi or 0):.0f}")
+            # Gate: only include picks if discovery id=9 is currently 'validated'.
+            _cu.execute("SELECT status FROM aiem_signal_discoveries WHERE id = 9")
+            _wi_status_row = _cu.fetchone()
+            if _wi_status_row and _wi_status_row[0] == "validated":
+                _cu.execute("""
+                    SELECT ticker, close_price, breakout_pct, vol_x, rsi_at_confirm
+                    FROM washout_ignition_signal
+                    WHERE scan_date >= CURRENT_DATE - INTERVAL '1 day'
+                    ORDER BY breakout_pct DESC LIMIT 10
+                """)
+                for _t, _cp, _bp, _vx, _rsi in _cu.fetchall():
+                    _score = float(_bp or 0) * 1.5 + float(_vx or 1) * 2.0 + 5.0  # +5 base: validated 68.3% WR signal
+                    _add(_t, _score, "STOCK", "washout_ignition",
+                         f"Washout Ignition: +{float(_bp or 0):.1f}% breakout, {float(_vx or 1):.1f}x vol, RSI {float(_rsi or 0):.0f}")
+            else:
+                _wi_cur_status = _wi_status_row[0] if _wi_status_row else "not found"
+                print(f"[aiem_paper] washout_ignition SKIPPED: discovery id=9 status='{_wi_cur_status}' (not validated)")
 
     except Exception as _e:
         print(f"[aiem_paper] pick error: {_e}")
@@ -49582,6 +49589,26 @@ def _scan_washout_ignition_signal(save_to_db=True, backtest_range=None) -> list:
     """
     import psycopg2 as _wi_pg, numpy as _wi_np, datetime as _wi_dt
     from collections import defaultdict as _wi_dd
+
+    # ── Status gate (live path only) ─────────────────────────────────────
+    # Only run the live scan + send alerts if discovery id=9 is 'validated'.
+    # Backtest mode (backtest_range is not None) is exempt so the outcome-
+    # checker retest adapter can still evaluate historical fires regardless
+    # of current status.
+    if backtest_range is None:
+        try:
+            with _wi_pg.connect(os.environ["DATABASE_URL"], connect_timeout=3,
+                                 options="-c statement_timeout=2000") as _sg, _sg.cursor() as _sc:
+                _sc.execute("SELECT status FROM aiem_signal_discoveries WHERE id = 9")
+                _sg_row = _sc.fetchone()
+                if _sg_row is None or _sg_row[0] != "validated":
+                    _sg_status = _sg_row[0] if _sg_row else "not found"
+                    print(f"[washout_ignition] SKIPPED: discovery id=9 status='{_sg_status}'"
+                          " — live scan and alerts suppressed until re-validated")
+                    return []
+        except Exception as _sg_e:
+            print(f"[washout_ignition] status gate check failed: {_sg_e} — skipping for safety")
+            return []
 
     _bt_start = _bt_end = None
     if backtest_range is not None:

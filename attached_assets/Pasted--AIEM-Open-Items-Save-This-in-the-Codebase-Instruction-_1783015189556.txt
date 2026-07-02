@@ -1,0 +1,71 @@
+# AIEM Open Items — Save This in the Codebase
+
+**Instruction to agent:** Save this file as `AIEM_OPEN_ITEMS.md` (or add to
+your existing tracked docs) in the repo root. This is not a chat answer —
+it needs to persist across sessions so it isn't lost when this
+conversation ends. Confirm the file exists in the repo and show the path
+before doing anything else.
+
+These are open from the July 2 gate-integrity audit. Do not close any of
+these by re-deriving numbers from notes, in-sample data, or anything that
+isn't a genuinely realized, post-discovery outcome. If evidence doesn't
+exist yet, say so and leave the row as `hypothesis` — do not manufacture
+a pass.
+
+---
+
+## Question 1 — id 1's Gate 2 failure
+
+id 1 has a real, structured `oos_edge` (2.88) but fails Gate 2 on a
+separate, unrelated issue. Diagnose and report:
+- Which specific gate condition is failing (win-rate floor? sample size?
+  something else)?
+- What is the actual value vs. the required threshold?
+- Is this a data problem or a legitimate "not yet good enough" result?
+
+## Question 2 — id 4's negative backtest
+
+Structured backtest evidence for id 4 shows n=9, p=0.3936,
+avg_ret=-0.44% — negative, not just insufficient. Report:
+- Should id 4 be retired rather than left as `hypothesis`, given the only
+  real evidence available is evidence against it?
+- Confirm id 4 is not currently feeding any live alerts, Telegram
+  messages, or paper trades while this is unresolved.
+
+## Question 3 — ids 2, 3, 9 exclusion from live systems
+
+These have zero or invalid OOS evidence (no structured backing, or
+holdout inside the training window). Confirm explicitly, with code
+references, not a verbal assurance:
+- Are `hypothesis`-status rows excluded from live signal generation?
+- Are they excluded from Telegram/SMS/email alerts?
+- Are they excluded from paper-trading execution (AIEM)?
+If any of these are not currently gated by status, that is itself a bug —
+fix it and report the fix.
+
+## Question 4 — end-to-end wiring verification (before module 2/3)
+
+Before any new module work begins, run the full 7-step wiring check
+against one real signal (see `aiem-wiring-verification-question.md`):
+raw data pull → 9 layer scores → composite score → gate-check at write
+time → provenance/signing → alert text sent → paper-trade entry. Every
+value must reconcile end to end with raw output shown at each step. No
+step may be summarized, skipped, or reported as "working" without the
+underlying data.
+
+**Note:** Query 3 of the July 2 audit found no HMAC signing
+infrastructure exists in the schema at all (`provenance_hash` and
+`signed_at` do not exist as columns). This contradicts prior claims that
+cryptographic provenance signing was built. Resolve this discrepancy as
+part of Question 4 — either the signing code exists elsewhere and isn't
+wired to this table, or it does not exist and was reported as done in
+error.
+
+---
+
+## Standing rule for all four
+
+Raw output only. No "PASS," "confirmed," or "working correctly" language
+until the underlying data is shown. If something can't be verified yet
+because the evidence doesn't exist (e.g., not enough time has passed for
+real OOS outcomes), say that plainly instead of filling the gap.

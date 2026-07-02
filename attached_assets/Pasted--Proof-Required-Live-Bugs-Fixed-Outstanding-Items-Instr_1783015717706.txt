@@ -1,0 +1,70 @@
+# Proof Required — Live Bugs Fixed + Outstanding Items
+
+**Instruction to agent:** Do not proceed to module 2 or module 3 until
+every item below is confirmed with raw output. A written claim that
+something is "fixed" or "applied" is not sufficient — show the actual
+diff, the actual file contents, and a real commit hash for each.
+
+## 1. Prove Bug 1 is actually fixed — `_scan_washout_ignition_signal()`
+
+This function ran unconditionally at 8:45 AM ET with no check against
+id=9's status, meaning it would have sent live Telegram/email alerts for
+an unvalidated (`hypothesis`) signal.
+
+Show:
+```
+git diff HEAD~1 -- main.py | grep -A 20 "_scan_washout_ignition_signal"
+```
+or the equivalent diff covering line ~49544. I need to see the actual
+status check that was added, not a description of it.
+
+## 2. Prove Bug 2 is actually fixed — `_aiem_paper_pick_candidates()`
+
+This function read directly from `washout_ignition_signal` with no status
+gate, despite comments claiming it filtered for "validated."
+
+Show:
+```
+git diff HEAD~1 -- main.py | grep -A 20 "_aiem_paper_pick_candidates"
+```
+or the equivalent diff covering line ~34143. Confirm the fix actually
+checks `status='validated'` before generating a paper-trade candidate —
+show the exact condition.
+
+## 3. Confirm both fixes are committed, not just sitting in the workspace
+
+```
+git log --oneline -3 -- main.py
+```
+```
+git show --stat HEAD -- main.py
+```
+Paste raw output — real commit hash and timestamp required.
+
+## 4. Finish and show Q4 — HMAC/provenance signing scope
+
+Prior audit found no `provenance_hash` or `signed_at` columns anywhere in
+the schema. Q4 was left incomplete ("completing Q4 answer" with no answer
+shown). Provide the actual answer now:
+- Does HMAC signing infrastructure exist anywhere in this codebase, for
+  any table?
+- If yes: show the file and the exact table(s) it signs, with one real
+  signed row as proof.
+- If no: confirm explicitly that no cryptographic provenance signing
+  exists, so this stops being treated as already-built.
+
+## 5. id 1 — flag for decision, not autonomous action
+
+Real structured OOS data (n=905, post-discovery period) shows
+`realized_win_rate=46.96%` — below the 50% random baseline, p=0.0
+(statistically significant). id 1 is currently `status='validated'`.
+
+Do not change id 1's status without explicit instruction. Just confirm:
+is id 1 currently included in any live alert, live signal generation, or
+paper-trading path (since it's `validated` and therefore passes the
+`status='validated'` gates used elsewhere)? Show the code reference.
+
+## Standing rule
+
+Raw diff/terminal output only. No "fixed," "applied," "confirmed," or
+"done" language without the underlying output shown directly above it.
