@@ -1,0 +1,88 @@
+# Module 2 Build Spec — Decay & Failure Analyzer
+
+**Instruction to agent:** Build Module 2 per this spec. Do not begin
+Module 3 after this — Module 3 is sent separately, only after Module 2
+is verified working with raw proof, per the established build order
+(Module 2 → verified → Module 4 human approval gate exists → Module 3).
+
+## Purpose
+
+Module 2 evaluates whether existing signals in `aiem_signal_discoveries`
+still hold up over time (decay) or have already failed. It must not
+report a verdict for any signal that lacks genuine evidence — this is
+the same failure mode already caught twice in the July 2 audit
+(fabricated `oos_edge`, in-sample holdout misreported as OOS). Module 2
+is being built specifically to prevent a repeat of that pattern at
+scale, across all signals, going forward.
+
+## Core requirement: preserve the Category A / Category B distinction
+
+Do not merge signals into a single "pending" bucket. Every signal must
+get one of four explicit `evaluation_status` values:
+
+- `evaluable_now` — enough forward data and computable conditions exist;
+  Module 2 actively evaluates and reports a real decay/failure verdict.
+- `evaluable_pending_time` — conditions are computable, but not enough
+  forward trading days have elapsed yet. Report the specific gap: "N
+  trading days accumulated, need M."
+- `evaluable_pending_columns` — conditions require indicator columns
+  that don't exist yet but are computable retroactively from existing
+  OHLCV data. Report the specific missing columns by name.
+- `unevaluable_structural` — cannot be evaluated even after columns and
+  time exist, because the underlying detection logic is inherently
+  multi-row/sequential and can't be expressed as a per-signal condition
+  check (e.g. id 9's trough→cross→confirm pattern). Report the specific
+  structural reason and, where estimable, the real timeline (e.g. "~6.5
+  years at current fire rate").
+
+No signal may be silently skipped. No signal may be reported as
+"hypothesis, no verdict" without one of the four statuses and its
+specific reason attached.
+
+## Required indicator backfill (Category B columns)
+
+Before ids 5, 7, 8 can be evaluated, add these columns to
+`polygon_market_daily` (or an indicator table joined to it), computed
+retroactively from existing OHLCV data — no new data collection needed,
+confirmed zero nulls on all required inputs:
+
+| Column | Inputs (already in DB) | Lookback |
+|---|---|---|
+| `rsi14` | `close_price` | 14 prior closes |
+| `cmf20` | `close`, `high`, `low`, `volume` | 20 prior OHLCV rows |
+| `stoch_k` | `high`, `low`, `close` | 14 prior OHLCV rows |
+| `stoch_d` | `stoch_k` | 3 prior %K values |
+| `cmf20_lag15` | `cmf20` | +15 days lag |
+| `rsi14_lag15` | `rsi14` | +15 days lag |
+| `cmf_delta15` | `cmf20`, `cmf20_lag15` | same as above |
+| `rsi_delta15` | `rsi14`, `rsi14_lag15` | same as above |
+| `prev_close_strength` | `close_strength` via LAG(1) | 1 day |
+| `prev_gap_pct` | `gap_pct` via LAG(1) | 1 day |
+| `inside_day_flag` | `high`, `low`, prior high/low | 1 day |
+| `avg_vol_20d` | `volume` via 20-day rolling avg | 20 days |
+
+Run as a one-time batch job (SQL window functions or Python) over the
+existing 498 trading days / 13,989 tickers. Confirm actual row counts
+and null rates after backfill — do not assume it matched the estimate.
+
+id 9 is exempt from this backfill requirement — its detection logic is
+inherently sequential (trough → confirm cross within 10 days → confirm
+breakout within 10 more days) and cannot become a single-row condition
+regardless of which columns exist. It stays `unevaluable_structural`
+until enough real forward fires accumulate for its dedicated retest
+function (`_mkt_washout_ignition_retest`) to produce a result.
+
+## Standing rule
+
+Raw output only when reporting build progress — no "Module 2 built" or
+"working correctly" without showing: (1) the actual evaluation_status
+output for all 9 current signals, (2) the actual backfilled column data
+for a sample of rows, (3) confirmation that no signal received a verdict
+without genuine evidence behind it. Same standard as every prior item in
+this audit.
+
+## After this
+
+Do not proceed to Module 3 until Module 2 is verified working per the
+above, and a separate confirmation is given that Module 4 (human
+approval gate) exists.

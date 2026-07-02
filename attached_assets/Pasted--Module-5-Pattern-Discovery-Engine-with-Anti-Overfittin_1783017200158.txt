@@ -1,0 +1,109 @@
+# Module 5 — Pattern Discovery Engine (with Anti-Overfitting Guardrails)
+
+**Instruction to agent:** Do not begin this module until Modules 2, 3,
+and 4 (human approval gate) are built and verified, per the established
+build order. This module is the most dangerous one in the system to get
+wrong — read the full spec before writing any code.
+
+## Purpose
+
+Systematically search historical data for combinations of indicators and
+patterns that predict which stocks move higher, evaluate many candidate
+combinations, and surface the ones with genuinely strong, repeatable
+performance — not ones that merely look strong because enough
+combinations were tried.
+
+## The core risk this module must be built to prevent
+
+If a system searches enough combinations of indicators against the same
+historical data, some combinations will show a high win rate by chance
+alone — the same way flipping enough coins enough times produces some
+runs of 8 heads in a row. This is called data dredging / the multiple
+comparisons problem. The more combinations searched, the *more certain*
+it becomes that at least one fake winner will appear. This is the same
+failure mode already caught twice in the July 2 audit (ids 4 and 9 —
+numbers that looked like real edge but weren't backed by genuine
+out-of-sample evidence). This module must not become an automated,
+larger-scale version of that same mistake.
+
+**A result from this module is only real if it survives every one of the
+four guardrails below. A pattern that fails any guardrail is discarded,
+regardless of how good it looks in the search phase.**
+
+## Guardrail 1 — Strict walk-forward validation, not a single train/test split
+
+- Split history into sequential windows (e.g. train on data through
+  month N, test only on month N+1 — data the search never touched).
+- Roll this forward repeatedly (train through N+1, test on N+2, etc.)
+  and require the pattern to perform well across *multiple* forward
+  windows, not just one lucky one.
+- A pattern that only works in one out of several forward windows is
+  noise, not signal. Report the full window-by-window breakdown, not
+  just an average.
+- No pattern may be evaluated on the same data it was discovered on,
+  under any circumstance.
+
+## Guardrail 2 — Multiple comparisons correction
+
+- Track and report the total number of combinations tested in a given
+  search run.
+- Apply a statistical correction (e.g. Bonferroni, or a false discovery
+  rate method) so the significance bar rises with the number of things
+  tried. If 10,000 combinations are tested, the p-value bar for calling
+  something "significant" must be far stricter than if 10 were tested.
+- Report both the raw p-value and the corrected p-value for every
+  candidate pattern. A pattern that only clears the raw threshold, not
+  the corrected one, must be labeled as likely noise, not promoted.
+
+## Guardrail 3 — Continuous forward validation after discovery
+
+- A pattern that clears Guardrails 1 and 2 does not get promoted to
+  "validated" immediately. It enters the same `hypothesis` → gated
+  promotion pipeline as every other AIEM signal (real oos_edge, real
+  win-rate floor, real sample-size minimum, no shortcuts).
+- Module 2's decay/failure logic applies to patterns discovered here
+  exactly as it does to any other signal. A pattern that stops working
+  going forward gets flagged and retired the same way.
+
+## Guardrail 4 — Economic rationale check
+
+- Every candidate pattern must have a stated, testable rationale for
+  *why* it would predict price movement (e.g. "high volume + gap-up
+  measures crowd conviction," not just "these five indicators happened
+  to correlate"). Pure curve-fit combinations with no plausible causal
+  story should be flagged as higher-risk even if they pass Guardrails
+  1–3, and should require explicit human sign-off (via Module 4) before
+  being added to the live signal set.
+
+## Reporting requirements
+
+For every search run, report:
+1. Total combinations tested.
+2. Combinations that passed Guardrail 1 (walk-forward).
+3. Combinations that passed Guardrail 2 (corrected significance).
+4. Of those, which have a stated economic rationale (Guardrail 4).
+5. Full window-by-window performance for every surviving candidate —
+   never a single blended number.
+6. How many candidates were discarded and why, at each stage. A search
+   run that reports zero discards should be treated as suspicious and
+   re-audited, not treated as a good result.
+
+## Standing rule
+
+Raw output only. No "found a 70% success pattern" claim without the
+full guardrail breakdown above attached. If a search run produces
+nothing that survives all four guardrails, that is the correct and
+expected result of honest search most of the time — report it as "no
+surviving candidates this run," not as a reason to loosen the
+guardrails to manufacture a result.
+
+## What this module must never do
+
+- Never report a pattern's in-sample or search-phase performance as if
+  it were forward performance.
+- Never let a human-facing summary omit the corrected significance
+  value in favor of the more impressive raw value.
+- Never silently increase search breadth without correspondingly
+  tightening the significance bar.
+- Never promote a pattern to `validated` status directly from this
+  module — promotion only happens through the existing AIEM gates.
