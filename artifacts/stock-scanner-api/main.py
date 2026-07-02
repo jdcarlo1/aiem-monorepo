@@ -13732,7 +13732,8 @@ def _get_oi_accumulation_signals(days_back: int = 1) -> tuple:
                 LIMIT 10
             """, (day1, day2))
             return cur.fetchall(), str(day1), str(day2)
-    except Exception:
+    except Exception as _oi_exc:
+        print(f"[_get_oi_accumulation_signals] {type(_oi_exc).__name__}: {_oi_exc}")
         return [], None, None
 
 

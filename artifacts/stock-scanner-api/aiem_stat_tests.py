@@ -21,9 +21,14 @@ observation (by scan_date) is kept. This guarantees that any two retained observ
 for the same ticker are always ≥H trading days apart, so their H-day forward-return
 windows never share a day. The effective n is approximately n_overlapping / H.
 
+IMPORTANT — H=1 degenerate case: when horizon=1, bucket_id = (rn-1)/1 = rn-1, which
+is unique for every row. The DISTINCT ON step therefore removes nothing, and the query
+is functionally identical to a plain per-row scan. Non-overlapping deduplication only
+has real effect when H >= 2. Always use H >= 2 when claiming non-overlapping behaviour.
+
 Both methods are available for comparison via `run_fisher_test_overlapping` (legacy)
-and `run_fisher_test` (default, non-overlapping). Only the non-overlapping version
-should be used for promotion/validation decisions.
+and `run_fisher_test` (default, bucketed). Only the bucketed version (with H >= 2 for
+genuine non-overlapping semantics) should be used for promotion/validation decisions.
 
 LAG-aware extension
 --------------------
