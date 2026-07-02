@@ -33047,6 +33047,28 @@ def _aiem_paper_mark_to_market():
         except Exception as _ie:
             print(f"[aiem_paper] indicator fetch skipped: {_ie}")
 
+        # ── 2b. Full technical indicator suite + specialist judgment ────────
+        # Same stack used at entry (mkt_compute_indicators + fred_macro +
+        # social_sentiment + specialist_council) — now also consulted at exit
+        # so AIEM's sell judgment isn't limited to bare price action.
+        _tech_ctx = {}
+        for _tk in _tickers:
+            try:
+                _snap = _mkt_compute_indicators(_tk)
+                if _snap and not _snap.get("error"):
+                    _tech_ctx[_tk] = _snap
+            except Exception as _te:
+                print(f"[aiem_paper] indicator calc skipped for {_tk}: {_te}")
+
+        _exit_macro_bias = 0
+        if _fred_macro:
+            try:
+                _mac_votes = _fred_macro.get_fred_macro_votes()
+                _mac_sum   = sum(v.get("vote", 0) for v in _mac_votes)
+                _exit_macro_bias = 1 if _mac_sum >= 2 else (-1 if _mac_sum <= -2 else 0)
+            except Exception as _me:
+                print(f"[aiem_paper] exit macro check skipped: {_me}")
+
         # ── 3. Build position snapshot ─────────────────────────────────────
         _price_map = {}
         _positions_for_ai = []
@@ -33104,6 +33126,59 @@ def _aiem_paper_mark_to_market():
                                              "NOT real options pricing (no strike/IV/theta).")
             else:
                 _pos_entry["pnl_pct"] = _pnl_pct
+
+            # ── Technicals + specialist judgment (same stack used at entry) ──
+            _tsnap = _tech_ctx.get(_t) or {}
+            _ind   = _tsnap.get("snapshot") or {}
+            _sigs  = _ind.get("signal_summary") or {}
+            if _ind:
+                _pos_entry["technicals"] = {
+                    "rsi_14":         _ind.get("rsi_14"),
+                    "stoch_k":        _ind.get("stoch_k"),
+                    "cmf_20":         _ind.get("cmf_20"),
+                    "cmf_signal":     _ind.get("cmf_signal"),
+                    "macd_hist":      _ind.get("macd_hist"),
+                    "adx_14":         _ind.get("adx_14"),
+                    "overall_signal": _sigs.get("overall"),
+                }
+
+            _sent_snap = None
+            if _social_sentiment:
+                try:
+                    _sent_snap = _social_sentiment.compute_sentiment_snapshot(_t)
+                except Exception:
+                    pass
+            if _sent_snap and _sent_snap.get("bullish_pct") is not None:
+                _pos_entry["social_sentiment_bullish_pct"] = _sent_snap.get("bullish_pct")
+
+            _pos_entry["macro_bias"] = ("RISK-OFF" if _exit_macro_bias < 0
+                                         else "RISK-ON" if _exit_macro_bias > 0 else "NEUTRAL")
+
+            if _specialist_council and _ind:
+                try:
+                    _rsi_v = _ind.get("rsi_14")
+                    _opinions = [
+                        _specialist_council.SpecialistOpinion(
+                            specialist_name="technicals",
+                            vote=(-1.0 if (_rsi_v and _rsi_v > 70) else 1.0 if (_rsi_v and _rsi_v < 30) else 0.0),
+                            confidence=0.70,
+                            reasoning=f"RSI {_rsi_v}, CMF {_ind.get('cmf_20')}, overall {_sigs.get('overall')}",
+                            category="momentum",
+                        ),
+                        _specialist_council.SpecialistOpinion(
+                            specialist_name="fred_macro",
+                            vote=float(_exit_macro_bias) * 0.5,
+                            confidence=0.65,
+                            reasoning="FRED yield curve + credit spread macro state",
+                            category="macro",
+                        ),
+                    ]
+                    _wv = _specialist_council.compute_weighted_verdict(_opinions)
+                    # -1 = council leans EXIT/bearish, +1 = council leans HOLD/bullish
+                    _pos_entry["specialist_council_score"] = round(_wv.get("weighted_vote", 0), 3)
+                except Exception:
+                    pass
+
             _positions_for_ai.append(_pos_entry)
 
         # ── 4. Ask AIEM: hold or exit each position? ───────────────────────
@@ -33118,23 +33193,38 @@ def _aiem_paper_mark_to_market():
             _ai_prompt = (
                 f"You are AIEM, an autonomous paper trading AI. Today is {_today}.\n"
                 f"You have {len(_positions_for_ai)} open paper positions. Analyze each one "
-                f"using price action, momentum, and your own judgment. There are NO fixed hold "
-                f"periods or fixed targets — you decide when to exit based on what you see.\n\n"
+                f"using price action, momentum, technical indicators, and your own judgment. "
+                f"There are NO fixed hold periods or fixed targets — you decide when to exit "
+                f"based on what you see.\n\n"
                 f"For each position decide: HOLD or EXIT.\n"
                 f"Consider: Is momentum fading or accelerating? Did it close strong or weak? "
                 f"Has the original signal played out? For calls: time decay — if the move is "
                 f"done, exit. For stocks: ride it if momentum supports it.\n\n"
+                f"Each position also includes a 'technicals' block (RSI-14, Stochastic %K, "
+                f"CMF-20 + accumulation/distribution signal, MACD histogram, ADX-14, and an "
+                f"overall buy/sell/neutral signal from the full indicator suite), a "
+                f"'social_sentiment_bullish_pct' read (StockTwits, when available), a "
+                f"'macro_bias' (RISK-ON/RISK-OFF/NEUTRAL from FRED yield curve + credit "
+                f"spreads), and a 'specialist_council_score' from -1 (council leans EXIT) to "
+                f"+1 (council leans HOLD). Weigh these the same way you would at entry — e.g. "
+                f"RSI>70 with fading CMF/MACD after a big run is exhaustion (lean EXIT); RSI "
+                f"still climbing with rising CMF and a bullish overall signal is trend intact "
+                f"(lean HOLD); RISK-OFF macro should make you quicker to lock in gains. These "
+                f"are inputs to your judgment, not fixed rules — use them alongside price "
+                f"action and the original signal_source/signal_detail context.\n\n"
                 f"Note: CALL_OPTION positions report 'synthetic_option_proxy_pct' (a 2x "
                 f"underlying-move proxy), not 'pnl_pct' — this is NOT real options pricing "
                 f"(no strike/IV/theta modeled), so treat it only as a directional-move signal.\n\n"
-                f"Return ONLY a JSON array, no other text:\n"
-                f'[{{"id":<int>,"ticker":"<str>","decision":"HOLD or EXIT","reason":"<one sentence>"}},...]\n\n'
+                f"Return ONLY a JSON array, no other text. Keep 'reason' to <= 12 words so "
+                f"the full array always fits regardless of how many positions there are:\n"
+                f'[{{"id":<int>,"ticker":"<str>","decision":"HOLD or EXIT","reason":"<short phrase>"}},...]\n\n'
                 f"Positions:\n{_mtmjson.dumps(_positions_for_ai, indent=2)}"
             )
+            _mtm_max_tokens = max(4000, len(_positions_for_ai) * 120 + 1000)
             _ai_resp = _oai.chat.completions.create(
                 model="gpt-5.4",
                 messages=[{"role": "user", "content": _ai_prompt}],
-                max_completion_tokens=2000,
+                max_completion_tokens=_mtm_max_tokens,
             )
             _raw = (_ai_resp.choices[0].message.content or "").strip()
             if _raw.startswith("```"):
