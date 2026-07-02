@@ -26318,7 +26318,8 @@ def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM",
 
 def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                                max_iterations: int = 12, on_step=None,
-                               image_data_url: str | None = None):
+                               image_data_url: str | None = None,
+                               image_data_urls: list | None = None):
     """
     Parameterized research session. Returns (final_text, trace, error_str).
 
@@ -26354,11 +26355,13 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         "Start immediately with the most relevant tools for this session's focus. "
         "Be systematic. Every finding should be tested statistically before saving."
     )
-    # Build first user message — plain text or multimodal (text + image) for vision
-    if image_data_url:
-        _first_user_content = [
-            {"type": "text",      "text": focus_prompt},
-            {"type": "image_url", "image_url": {"url": image_data_url, "detail": "high"}},
+    # Build first user message — plain text or multimodal (text + N images) for vision.
+    # image_data_urls (list) takes priority; falls back to single image_data_url for
+    # backward compatibility with existing callers.
+    _fs_images = list(image_data_urls) if image_data_urls else ([image_data_url] if image_data_url else [])
+    if _fs_images:
+        _first_user_content = [{"type": "text", "text": focus_prompt}] + [
+            {"type": "image_url", "image_url": {"url": _u, "detail": "high"}} for _u in _fs_images
         ]
     else:
         _first_user_content = focus_prompt
@@ -47936,34 +47939,51 @@ def aiem_chat_start():
 
     data          = request.get_json(silent=True) or {}
     question      = (data.get("question") or "").strip()[:800]
-    image_data_url = (data.get("image_data_url") or "").strip()
+    image_data_url  = (data.get("image_data_url") or "").strip()
+    # image_data_urls (list) lets one session analyze several screenshots together
+    # (e.g. comparing 1-week/1-month charts across tickers for common indicators).
+    # Falls back to the single image_data_url field for backward compatibility.
+    _raw_image_urls = data.get("image_data_urls") or []
+    if not isinstance(_raw_image_urls, list):
+        _raw_image_urls = []
+    image_data_urls = [u.strip() for u in _raw_image_urls if isinstance(u, str) and u.strip()]
+    if not image_data_urls and image_data_url:
+        image_data_urls = [image_data_url]
     analysis_mode = bool(data.get("analysis_mode", False))
 
     # Allow image-only submissions — default question so OpenAI always gets text
-    if not question and image_data_url:
-        question = "Analyze this chart/screenshot."
-    if not question and not image_data_url:
+    if not question and image_data_urls:
+        question = "Analyze these charts/screenshots."
+    if not question and not image_data_urls:
         return jsonify({"error": "question is required"}), 400
 
     # ── Image validation (server-side) ────────────────────────────────────
-    if image_data_url:
+    _MAX_IMAGES = 8
+    if len(image_data_urls) > _MAX_IMAGES:
+        return jsonify({"error": f"Too many images — max {_MAX_IMAGES} per request."}), 400
+    if image_data_urls:
         _allowed_prefixes = (
             "data:image/png;base64,",
             "data:image/jpeg;base64,",
             "data:image/jpg;base64,",
             "data:image/webp;base64,",
         )
-        if not any(image_data_url.startswith(p) for p in _allowed_prefixes):
-            return jsonify({"error": "Image must be PNG, JPEG, or WebP."}), 400
-        # Estimate decoded byte size: base64 is ~4/3 of raw
-        _b64_part = image_data_url.split(",", 1)[-1]
-        _estimated_bytes = len(_b64_part) * 3 // 4
-        if _estimated_bytes > 10 * 1024 * 1024:
-            return jsonify({"error": "Image must be under 10 MB. Please compress or resize before uploading."}), 400
+        _total_estimated_bytes = 0
+        for _idx, _img_url in enumerate(image_data_urls):
+            if not any(_img_url.startswith(p) for p in _allowed_prefixes):
+                return jsonify({"error": f"Image {_idx + 1} must be PNG, JPEG, or WebP."}), 400
+            # Estimate decoded byte size: base64 is ~4/3 of raw
+            _b64_part = _img_url.split(",", 1)[-1]
+            _estimated_bytes = len(_b64_part) * 3 // 4
+            if _estimated_bytes > 10 * 1024 * 1024:
+                return jsonify({"error": f"Image {_idx + 1} must be under 10 MB. Please compress or resize before uploading."}), 400
+            _total_estimated_bytes += _estimated_bytes
+        if _total_estimated_bytes > 30 * 1024 * 1024:
+            return jsonify({"error": "Combined image size must be under 30 MB total. Please compress or send fewer images."}), 400
     # ─────────────────────────────────────────────────────────────────────
 
     job_id = str(_uuid.uuid4())
-    _has_image = bool(image_data_url)
+    _has_image = bool(image_data_urls)
     try:
         import psycopg2 as _qa_pg
         with _qa_pg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
