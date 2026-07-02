@@ -1,4 +1,5 @@
 - [signal-discoveries audit](signal-discoveries-audit.md) — oos_edge=NULL on a validated row = hard proof of write-path bypass; two write paths; 0-100 scale convention; DB CHECK constraint pattern; blast radius 7/9 rows
+- [AIEM Module 2 Decay Analyzer](aiem-module2-decay.md) — evaluation_status 4-value system; classification order (outcome-exists before key-check); all 9 signals current state
 - [Staleness-guard restart protocol](staleness-guard-restart-protocol.md) — dynamic sys.modules import watching + graceful drain (25s timeout) before execv restart; per-fix VERIFY-FIX-<n> package standard
 - [Washout Ignition wired into paper trading](washout-ignition-paper-trading.md) — pattern for adding any new validated signal as source #N in `_aiem_paper_pick_candidates()`; frontend needs zero changes
 - [AIEM paper exit uses full technical stack](aiem-paper-exit-technicals.md) — 4PM MTM now sees RSI/CMF/MACD/ADX + macro + council like entry does; N-items-in-N-out JSON LLM calls need token budget scaled to item count

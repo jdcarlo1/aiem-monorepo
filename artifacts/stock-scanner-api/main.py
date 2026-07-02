@@ -119,6 +119,12 @@ from aiem_security import (
     rotate_token_if_due as _rotate_token_if_due,
     run_backup_if_due as _run_backup_if_due,
 )
+try:
+    import aiem_module2_decay as _m2
+except Exception as _m2_e:
+    _m2 = None
+    print(f"[module2] load warning: {_m2_e}")
+
 from aiem_provenance import (
     sign_payload as _aiem_sign_payload,
     verify_payload as _aiem_verify_payload,
@@ -49948,6 +49954,50 @@ def admin_run_washout_ignition():
                         "tickers": [f["ticker"] for f in fires]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/admin/run-module2-decay", methods=["POST"])
+def admin_run_module2_decay():
+    """Admin: run Module 2 Decay & Failure Analyzer over all signals."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if _m2 is None:
+        return jsonify({"error": "aiem_module2_decay not loaded"}), 500
+    try:
+        import psycopg2 as _m2_pg
+        _m2_conn = _m2_pg.connect(os.environ["DATABASE_URL"])
+        _m2_conn.autocommit = False
+        results = _m2.run_module2(_m2_conn)
+        _m2_conn.close()
+        summary = {}
+        for r in results:
+            es = r["evaluation_status"]
+            summary[es] = summary.get(es, 0) + 1
+        return jsonify({
+            "status": "ok",
+            "signals_evaluated": len(results),
+            "status_counts": summary,
+            "results": results,
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem/module2-status", methods=["GET"])
+def aiem_module2_status():
+    """Return the latest Module 2 Decay & Failure Analyzer evaluation for all signals."""
+    if _m2 is None:
+        return jsonify({"error": "aiem_module2_decay not loaded"}), 500
+    try:
+        import psycopg2 as _m2_pg
+        _m2_conn = _m2_pg.connect(os.environ["DATABASE_URL"])
+        _m2_conn.autocommit = True
+        report = _m2.get_module2_report(_m2_conn)
+        _m2_conn.close()
+        return jsonify(report)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
 
 
 @app.route("/stock-api/stat-arb/signals", methods=["GET"])
