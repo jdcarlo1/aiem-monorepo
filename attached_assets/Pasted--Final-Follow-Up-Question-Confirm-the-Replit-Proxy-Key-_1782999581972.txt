@@ -1,0 +1,48 @@
+# Final Follow-Up Question — Confirm the Replit Proxy Key Is Also Absent
+
+## Why this matters
+OPENAI_API_KEY was confirmed dead (invalid credential, 401 from OpenAI's
+own server) and traced to only two on-demand chat-tools outside the loop.
+But AI_INTEGRATIONS_OPENAI_API_KEY is a SEPARATE, real, working credential
+that routes through Replit's own AI Integrations proxy — it's what
+actually gets billed (through Replit, not a personal OpenAI account) when
+any AI feature in this project runs. This key hasn't been checked against
+the 24/7 research loop's call graph yet. This closes that last gap.
+
+## Question 3 — Confirm AI_INTEGRATIONS_OPENAI_API_KEY is never used inside the research loop
+
+Instruction to give the agent:
+
+> Trace every reference to AI_INTEGRATIONS_OPENAI_API_KEY in the live
+> codebase, the same way you traced OPENAI_API_KEY:
+>
+> 1. Find every function that reads AI_INTEGRATIONS_OPENAI_API_KEY directly.
+> 2. For each one, trace every caller of that function.
+> 3. For each of those callers, trace their callers, until you reach either
+>    (a) an entry point that's clearly on-demand/human-triggered (e.g. the
+>    chat-assistant tool-dispatch map), or (b) the 24/7 research loop's own
+>    functions (_mkt_indicator_grid_battery, _mkt_continuous_research_loop,
+>    _mkt_research_loop_allowed, _mkt_start_continuous_loop).
+> 4. Explicitly state whether any path exists connecting
+>    AI_INTEGRATIONS_OPENAI_API_KEY to the 24/7 loop's call graph — yes or no.
+> 5. Show raw grep/search output for each step, not a summary.
+>
+> Example starting command:
+> ```bash
+> grep -rn "AI_INTEGRATIONS_OPENAI_API_KEY" . --exclude-dir=node_modules --exclude-dir=.git
+> ```
+>
+> Then re-run the same call-graph tracing method used for OPENAI_API_KEY
+> (find the reader function → find its callers → find their callers) until
+> every path is accounted for.
+
+## What a fully clean answer looks like
+- Every function that reads AI_INTEGRATIONS_OPENAI_API_KEY is identified.
+- Every one of those functions is traced up its full call chain.
+- None of those chains ever reach the 24/7 loop's functions.
+- Raw grep output is shown at each step — not "I checked and it's fine."
+
+If this comes back clean, that closes the last realistic gap: both the
+personal OpenAI key (dead credential) and the Replit-billed proxy key
+(live credential) have been shown to be unreachable from the 24/7 research
+loop.

@@ -1,0 +1,103 @@
+# AIEM 24/7 Research Loop — OpenAI Isolation Verification
+
+## Goal
+The 24/7 Polygon scanning / pattern-discovery / backtesting research loop
+must run 100% independently of OpenAI — no calls, no cost — even though
+OTHER parts of this project are allowed to use OpenAI. This is a
+task-specific isolation requirement, not a project-wide one.
+
+Important context: no single check proves this "100% forever." Code can
+change. What's below gets you to verified-clean-right-now, plus an ongoing
+system that catches it immediately if that ever changes.
+
+---
+
+## Part 1 — Identify the exact scope of this task
+
+- [ ] Agent: list every file and function involved in the 24/7 research loop,
+      including but not limited to:
+  - `_mkt_indicator_grid_battery`
+  - `_mkt_continuous_research_loop`
+  - `_mkt_research_loop_allowed`
+  - anything writing to `polygon_indicators_daily`
+  - anything writing to `aiem_research_insights` or `aiem_signal_discoveries`
+  - anything writing to `aiem_grid_test_state`
+- [ ] Confirm this list is complete — nothing involved in this task is left out.
+
+---
+
+## Part 2 — Check ONLY those files for OpenAI usage (not the whole project)
+
+```bash
+grep -n "openai" <file1> <file2> <file3> ...
+grep -n "OPENAI_API_KEY" <file1> <file2> <file3> ...
+grep -n "gpt-" <file1> <file2> <file3> ...
+grep -n "chat.completions\|responses.create" <file1> <file2> <file3> ...
+```
+
+- [ ] Do any of these files import or call OpenAI directly?
+- [ ] Do any of these files call a SHARED helper/utility function that itself
+      calls OpenAI? (This is the most common way isolation quietly breaks —
+      check every function these files call, not just the top level.)
+
+---
+
+## Part 3 — Add a runtime guard (not just an instruction)
+
+An instruction in a prompt can be forgotten or overridden by a future edit.
+A runtime guard cannot — ask the agent to implement one:
+
+- [ ] Wrap this task's execution context so that if `openai` is ever
+      imported or called from within it, the code throws an error and logs
+      it, rather than silently succeeding.
+- [ ] Confirm this guard has been tested — e.g., temporarily add a fake
+      OpenAI call inside the guarded scope and confirm it actually throws/blocks.
+
+---
+
+## Part 4 — Tag and verify this task's logs specifically
+
+- [ ] Every output from this specific research loop should be logged/signed
+      (using the existing HMAC signing) with a distinct job-type tag, e.g.
+      `job_type: "aiem_self_research"`.
+- [ ] Pull recent signed logs and filter to that tag only.
+- [ ] Confirm zero entries contain `openai_response_id`, `"model": "gpt-..."`,
+      or similar OpenAI-specific fields. (For comparison: a DIFFERENT task's
+      log legitimately showed `"model": "gpt-5.4"` and an
+      `openai_response_id` — that's fine for other tasks, but must never
+      appear in this task's tagged logs.)
+
+---
+
+## Part 5 — Independent, unfakeable confirmation
+
+- [ ] Check your OpenAI billing/usage dashboard (platform.openai.com/usage)
+      directly, yourself — not through the agent. Look at usage during hours
+      when ONLY the research loop should be running (e.g., overnight/weekend,
+      when you know no other feature was in use). Spend during that window
+      should be $0 if isolation is working.
+
+---
+
+## Part 6 — Ongoing monitoring, not a one-time check
+
+Since other parts of the project legitimately use OpenAI, isolation can
+break silently in a future edit (e.g., someone imports a shared utility that
+happens to touch OpenAI). To catch this automatically:
+
+- [ ] Ask the agent to set up an automated check that re-runs the Part 2 grep
+      against the Part 1 file list on every commit/deploy, and fails the
+      build or sends an alert if OpenAI references appear in those files.
+- [ ] Periodically (weekly) re-check your OpenAI billing dashboard during
+      research-loop-only windows as a second layer of confirmation.
+
+---
+
+## What "verified" should actually mean here
+
+Not: a single JSON blob saying `"verified": true` (that only confirms data
+wasn't tampered with after signing — it doesn't confirm the data's SOURCE
+was OpenAI-free).
+
+Instead: verified-clean-right-now = Parts 1–5 all pass, PLUS Part 6's
+ongoing check is in place so you'd know immediately if that ever changed.

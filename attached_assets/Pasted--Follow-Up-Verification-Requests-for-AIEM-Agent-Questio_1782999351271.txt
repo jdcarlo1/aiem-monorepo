@@ -1,0 +1,61 @@
+# Follow-Up Verification Requests for AIEM Agent
+
+## Question 1 — Confirm OpenAI usage directly from OpenAI's own servers
+## (alternative to manually checking the dashboard yourself every time)
+
+Instruction to give the agent:
+
+> Using the OPENAI_API_KEY already stored in Secrets, call OpenAI's usage
+> API endpoint directly (not the Replit AI Integrations proxy key — the
+> actual OPENAI_API_KEY) and paste the raw JSON response here. Do not
+> summarize or interpret it — show the exact response body.
+>
+> Example call:
+> ```bash
+> curl https://api.openai.com/v1/usage?date=2026-07-02 \
+>   -H "Authorization: Bearer $OPENAI_API_KEY"
+> ```
+> (Adjust the date/endpoint if OpenAI's current usage API differs — confirm
+> you're hitting the real OpenAI usage endpoint, not a placeholder or a
+> locally faked response.)
+
+Why this works: the response comes from OpenAI's own server, not something
+the agent can fabricate. If usage is $0 or shows no requests during the
+research loop's active hours, that's real evidence — not a self-report.
+
+Note: this is a good supplement, not a total replacement for checking
+platform.openai.com/usage yourself at least once — since it confirms the
+agent is actually hitting OpenAI's real endpoint and not a spoofed one.
+
+---
+
+## Question 2 — Confirm where else OPENAI_API_KEY (the personal one) is used
+
+Instruction to give the agent:
+
+> You confirmed OPENAI_API_KEY is set (separate from
+> AI_INTEGRATIONS_OPENAI_API_KEY, which routes through Replit's proxy).
+> Search the entire codebase for every place OPENAI_API_KEY specifically
+> (not the Replit proxy key) is referenced or used — not just within the
+> 24/7 research loop, but anywhere in the project.
+>
+> For each usage found:
+> - File name and line number
+> - The function it's used in
+> - Whether that function is ever called by, or shares any code path with,
+>   the 24/7 research loop (_mkt_indicator_grid_battery,
+>   _mkt_continuous_research_loop, _mkt_research_loop_allowed,
+>   _mkt_start_continuous_loop)
+>
+> Show raw grep/search output, not a summary.
+>
+> Example starting command:
+> ```bash
+> grep -rn "OPENAI_API_KEY" . --exclude-dir=node_modules --exclude-dir=.git
+> ```
+
+Why this matters: confirming the research loop's own functions don't call
+OpenAI isn't enough on its own — if some *other* function that happens to
+share a utility or helper with the research loop uses OPENAI_API_KEY, that
+could create an indirect path. This traces every use of that specific key
+project-wide so nothing is missed.
