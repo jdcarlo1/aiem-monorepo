@@ -1,0 +1,90 @@
+# Verifying AIEM Runs Independent of OpenAI (Zero Cost, Zero Dependency)
+
+Important context first: there is no single "cryptographic code" that can prove
+a running system never called an external API — that's not what cryptography
+does. What DOES work is checking sources the agent cannot control or fake.
+Below are those checks, ranked from "agent can't fake this" to "agent could
+misreport this if asked to summarize."
+
+---
+
+## Tier 1 — Sources the agent CANNOT fake or influence
+
+### 1. Your OpenAI account billing/usage dashboard
+This is the strongest proof available. If AIEM were calling OpenAI, this is
+where a charge would show up — and the agent has no ability to alter it.
+
+- Go to https://platform.openai.com/usage (log in with whatever account, if any,
+  might be linked)
+- [ ] Do you even have an OpenAI account/API key associated with this project?
+- [ ] If yes, does usage show $0 / no requests over the research period?
+- If you never created an OpenAI account or API key for this project, that
+  alone is close to definitive — there's no key for it to use.
+
+### 2. Replit Secrets panel (checked by YOU, not the agent)
+- Open your Repl → Tools → Secrets (the padlock icon)
+- [ ] Is there any key named `OPENAI_API_KEY`, `OPENAI_KEY`, or similar?
+- If there's no key stored, no code in the project can successfully call
+  OpenAI even if it tried — the call would fail with an auth error.
+
+---
+
+## Tier 2 — Direct raw output you can inspect yourself
+
+Ask the agent to run these and paste the **raw terminal output**, not a
+summary sentence. If it gives you a paraphrase instead of raw output, ask
+again and insist on the literal terminal text.
+
+### 3. Search the entire codebase for OpenAI references
+```bash
+grep -rin "openai" . --exclude-dir=node_modules --exclude-dir=.git
+grep -rin "OPENAI_API_KEY" . --exclude-dir=node_modules --exclude-dir=.git
+grep -rin "gpt-" . --exclude-dir=node_modules --exclude-dir=.git
+grep -rin "api.openai.com" . --exclude-dir=node_modules --exclude-dir=.git
+```
+- [ ] Does this return zero results? (If it returns hits only in comments or
+      unused/dead code, that's different from active calls — ask the agent to
+      point to exactly where each hit is used.)
+
+### 4. Check every outbound API call the code makes, project-wide
+```bash
+grep -rin "fetch(\|axios\|requests\.\|http\.\|https\." . --exclude-dir=node_modules --exclude-dir=.git | grep -i "http"
+```
+- [ ] List every distinct external domain this returns. Confirm each one is
+      Polygon, Tradier, your own DB, Telegram, etc. — not anything
+      OpenAI-related.
+
+### 5. Check package/dependency manifests
+```bash
+cat package.json | grep -i openai
+cat requirements.txt 2>/dev/null | grep -i openai
+```
+- [ ] Is the `openai` SDK even installed as a dependency? If not, calling
+      OpenAI would require extra code that isn't currently there.
+
+### 6. Check network/egress logs, if your environment logs them
+- [ ] If Replit or your hosting logs outbound requests, review the log for
+      the 24-hour research window and confirm no requests to `openai.com` or
+      `api.openai.com` appear.
+
+---
+
+## What "100% verified" actually looks like
+
+Realistically, "100% certainty forever" isn't achievable for any running
+software — code can change. What IS achievable and meaningful:
+
+- [ ] No OpenAI API key exists in Secrets → calls would fail even if attempted
+- [ ] No `openai` package installed → no working code path to call it
+- [ ] Zero grep hits for OpenAI-related strings in the active codebase
+- [ ] $0 usage on your OpenAI billing dashboard (or no account exists at all)
+
+If all four of these check out, you have about as close to definitive proof
+as exists — verified from sources the agent doesn't control, not from its
+self-report.
+
+## Going forward
+Re-run the grep checks (#3–#5) any time the agent makes a major commit, since
+new code could theoretically introduce a dependency that wasn't there before.
+This turns "trust the agent's word" into "verify with a 30-second command
+every time."
