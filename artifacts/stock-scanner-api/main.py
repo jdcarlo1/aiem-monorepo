@@ -32769,6 +32769,18 @@ def _aiem_paper_pick_candidates() -> list:
                 _add(_t, _score, "CALL_OPTION", "oi_buildup",
                      f"OI +{_oip:.0f}% over {_days}d")
 
+            # ── 8. Washout Ignition Signal (validated stacked reversal, rare/high-conviction) ──
+            _cu.execute("""
+                SELECT ticker, close_price, breakout_pct, vol_x, rsi_at_confirm
+                FROM washout_ignition_signal
+                WHERE scan_date >= CURRENT_DATE - INTERVAL '1 day'
+                ORDER BY breakout_pct DESC LIMIT 10
+            """)
+            for _t, _cp, _bp, _vx, _rsi in _cu.fetchall():
+                _score = float(_bp or 0) * 1.5 + float(_vx or 1) * 2.0 + 5.0  # +5 base: validated 68.3% WR signal
+                _add(_t, _score, "STOCK", "washout_ignition",
+                     f"Washout Ignition: +{float(_bp or 0):.1f}% breakout, {float(_vx or 1):.1f}x vol, RSI {float(_rsi or 0):.0f}")
+
     except Exception as _e:
         print(f"[aiem_paper] pick error: {_e}")
 
