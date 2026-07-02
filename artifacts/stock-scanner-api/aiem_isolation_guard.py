@@ -48,6 +48,8 @@ ENTRY_POINTS = [
     "_mkt_continuous_research_loop",
     "_mkt_research_loop_allowed",
     "_mkt_start_continuous_loop",
+    "_mkt_run_discovery_outcome_check",
+    "_mkt_check_discovery_outcomes",
 ]
 
 FORBIDDEN_TOKENS = (

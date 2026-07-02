@@ -2564,6 +2564,24 @@ try:
         id="daily_vol_snapshot",
         replace_existing=True,
     )
+    # Module 1 (Outcome Tracker): daily 2:00 AM ET, every day incl weekends -
+    # pure DB backtest against polygon_market_daily, no live scan/API cost, so
+    # it doesn't need to respect intraday-only gating. Re-checks every
+    # validated discovery's realized forward performance since it was found.
+    def _run_discovery_outcome_check():
+        try:
+            _res = _mkt_run_discovery_outcome_check()
+            print(f"[scheduler] discovery_outcome_check: {_res.get('status')} "
+                  f"checked={_res.get('checked')} retestable={_res.get('retestable')} "
+                  f"not_retestable={_res.get('not_retestable')}")
+        except Exception as e:
+            print(f"[scheduler] discovery outcome check error: {e}")
+    _scheduler.add_job(
+        _run_discovery_outcome_check,
+        CronTrigger(hour=2, minute=0, timezone=_ET),
+        id="discovery_outcome_check",
+        replace_existing=True,
+    )
     # Multi-Day Runner - Day 1 watch scan: Mon-Fri 4:05 PM ET
     # Scans large-cap universe for ≥3% ignitions, saves to DB, emails owner watchlist.
     def _run_multiday_day1():
@@ -23912,6 +23930,228 @@ def _mkt_tool_required_pvalue(lookback_days=7):
         return {"status": "error", "error": str(_e)}
 
 
+# ── Module 1: Outcome Tracker (Self-Improving Backtest & Pattern-Refinement Loop) ──
+def _mkt_ensure_discovery_outcomes_table():
+    """Create aiem_discovery_outcomes if missing. One row per (discovery, check
+    date): did the pattern's realized forward performance since discovery match
+    what it showed at discovery time? Some discoveries can't be mechanically
+    re-tested (see _mkt_check_discovery_outcomes docstring) - those get an honest
+    retestable=False row with a reason, never a faked result."""
+    import psycopg2 as _pg_do
+    try:
+        with _pg_do.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_discovery_outcomes (
+                    id                        SERIAL PRIMARY KEY,
+                    discovery_id              INTEGER NOT NULL REFERENCES aiem_signal_discoveries(id),
+                    date_checked              DATE NOT NULL DEFAULT CURRENT_DATE,
+                    horizon                   VARCHAR(20),
+                    retestable                BOOLEAN NOT NULL,
+                    skip_reason               TEXT,
+                    win_rate_at_discovery     DOUBLE PRECISION,
+                    realized_n                INTEGER,
+                    realized_win_rate         DOUBLE PRECISION,
+                    realized_avg_ret          DOUBLE PRECISION,
+                    realized_p_value          DOUBLE PRECISION,
+                    predicted_vs_actual_diff  DOUBLE PRECISION,
+                    checked_window_start      DATE,
+                    checked_window_end        DATE,
+                    created_at                TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_disc_outcomes_discovery_id ON aiem_discovery_outcomes (discovery_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_disc_outcomes_date_checked ON aiem_discovery_outcomes (date_checked)")
+    except Exception as _e:
+        print(f"[discovery_outcomes] table init error: {_e}")
+
+
+def _mkt_insert_discovery_outcome(conn, discovery_id, retestable, skip_reason=None,
+                                   win_rate_at_discovery=None, horizon=None,
+                                   realized_n=None, realized_win_rate=None,
+                                   realized_avg_ret=None, realized_p_value=None,
+                                   predicted_vs_actual_diff=None,
+                                   checked_window_start=None, checked_window_end=None):
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO aiem_discovery_outcomes
+                (discovery_id, horizon, retestable, skip_reason, win_rate_at_discovery,
+                 realized_n, realized_win_rate, realized_avg_ret, realized_p_value,
+                 predicted_vs_actual_diff, checked_window_start, checked_window_end)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (discovery_id, horizon, retestable, skip_reason, win_rate_at_discovery,
+              realized_n, realized_win_rate, realized_avg_ret, realized_p_value,
+              predicted_vs_actual_diff, checked_window_start, checked_window_end))
+
+
+def _mkt_check_discovery_outcomes():
+    """Module 1 - Outcome Tracker. For every currently-'validated' row in
+    aiem_signal_discoveries, re-run its stored conditions_json against FRESH
+    data only (the window from discovered_at forward to today - never the
+    original discovery-period data, so this is a genuine out-of-sample check,
+    not a re-read of the same numbers) using the exact same
+    _mkt_parse_conditions -> _mkt_tool_test_signal pipeline used at discovery
+    time, so signal_win_rate-then vs realized_win_rate-now is apples-to-apples.
+
+    Honesty guarantee: aiem_signal_discoveries holds findings from several
+    different discovery mechanisms built over time. Some use simple single-row
+    conditions (field_min/field_max on polygon_market_daily or
+    polygon_indicators_daily columns) that the generic parser can re-test
+    mechanically. Others (multi-day pattern definitions like 'prior day' /
+    'inside day', or indicator-lag/delta features) use condition schemas the
+    generic single-row WHERE-clause parser cannot express at all. Rather than
+    approximate or silently skip those, every discovery gets a row either way:
+    retestable=True with real realized numbers, or retestable=False with an
+    explicit skip_reason naming exactly which keys couldn't be mapped. Nothing
+    is faked."""
+    import psycopg2
+    import psycopg2.extras
+    import datetime as _dt
+
+    _mkt_ensure_discovery_outcomes_table()
+    checked = 0
+    retestable_count = 0
+    not_retestable_count = 0
+    rows_out = []
+
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, conditions_json, horizon, signal_win_rate, discovered_at
+                FROM aiem_signal_discoveries
+                WHERE status = 'validated'
+                ORDER BY id
+            """)
+            discoveries = cur.fetchall()
+
+        for d in discoveries:
+            checked += 1
+            conditions = d["conditions_json"] or {}
+            discovery_id = d["id"]
+            horizon = d["horizon"]
+            win_rate_at_discovery = d["signal_win_rate"]
+            discovered_date = d["discovered_at"].date() if d["discovered_at"] else None
+
+            unmappable_keys = []
+            for key in conditions.keys():
+                if key.endswith("_min") or key.endswith("_max"):
+                    field = key[:-4]
+                else:
+                    unmappable_keys.append(key)
+                    continue
+                if not (field in _MKT_SAFE_COLS or field in globals().get("_MKT_INDICATOR_COLS", {})):
+                    unmappable_keys.append(key)
+
+            row = {
+                "discovery_id": discovery_id, "horizon": horizon,
+                "win_rate_at_discovery": win_rate_at_discovery,
+                "checked_window_start": discovered_date.isoformat() if discovered_date else None,
+                "checked_window_end": _dt.date.today().isoformat(),
+            }
+
+            if not conditions or unmappable_keys:
+                not_retestable_count += 1
+                reason = ("conditions_json is empty" if not conditions else
+                          "condition keys not expressible via the generic single-row "
+                          f"parser (needs custom multi-day/lag-aware backtest logic): {unmappable_keys}")
+                _mkt_insert_discovery_outcome(
+                    conn, discovery_id, retestable=False, skip_reason=reason,
+                    win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
+                    checked_window_start=discovered_date, checked_window_end=_dt.date.today())
+                row.update({"retestable": False, "skip_reason": reason})
+                rows_out.append(row)
+                continue
+
+            if not discovered_date or discovered_date >= _dt.date.today():
+                not_retestable_count += 1
+                reason = "no fresh forward window yet (discovered today or discovered_at missing)"
+                _mkt_insert_discovery_outcome(
+                    conn, discovery_id, retestable=False, skip_reason=reason,
+                    win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
+                    checked_window_start=discovered_date, checked_window_end=_dt.date.today())
+                row.update({"retestable": False, "skip_reason": reason})
+                rows_out.append(row)
+                continue
+
+            test_result = _mkt_tool_test_signal(
+                conditions=conditions, horizon=horizon or "next_day",
+                baseline="broad", start_date=discovered_date.isoformat())
+
+            if test_result.get("status") != "ok":
+                not_retestable_count += 1
+                reason = f"re-test query failed: {test_result.get('error')}"
+                _mkt_insert_discovery_outcome(
+                    conn, discovery_id, retestable=False, skip_reason=reason,
+                    win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
+                    checked_window_start=discovered_date, checked_window_end=_dt.date.today())
+                row.update({"retestable": False, "skip_reason": reason})
+                rows_out.append(row)
+                continue
+
+            broad = test_result["vs_broad_market"]
+            realized_win_rate = broad["signal_win_rate"]
+            diff = (round(realized_win_rate - win_rate_at_discovery, 2)
+                    if win_rate_at_discovery is not None else None)
+            retestable_count += 1
+            _mkt_insert_discovery_outcome(
+                conn, discovery_id, retestable=True, skip_reason=None,
+                win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
+                realized_n=broad["signal_n"], realized_win_rate=realized_win_rate,
+                realized_avg_ret=broad["signal_avg_ret"], realized_p_value=broad["p_value"],
+                predicted_vs_actual_diff=diff,
+                checked_window_start=discovered_date, checked_window_end=_dt.date.today())
+            row.update({
+                "retestable": True, "realized_n": broad["signal_n"],
+                "realized_win_rate": realized_win_rate, "predicted_vs_actual_diff": diff,
+            })
+            rows_out.append(row)
+
+    return {
+        "status": "ok", "checked": checked,
+        "retestable": retestable_count, "not_retestable": not_retestable_count,
+        "rows": rows_out,
+    }
+
+
+def _mkt_run_discovery_outcome_check():
+    """Job wrapper for Module 1. Runs _mkt_check_discovery_outcomes() inside the
+    SAME isolated_research_scope() runtime guard used by the free 24/7 research
+    loop, and logs the run to aiem_verification_log (job_type='aiem_self_research',
+    openai_response_id=NULL) exactly like _mkt_continuous_research_loop does -
+    this new module inherits the identical zero-OpenAI audit trail, not a
+    separate weaker one."""
+    import uuid as _doc_uuid
+    from aiem_isolation_guard import isolated_research_scope, AIEMIsolationViolation
+    try:
+        from aiem_verification import log_research_loop_run
+    except Exception:
+        log_research_loop_run = None
+    _job_id = f"mkt_outcome_{_doc_uuid.uuid4().hex[:12]}"
+    try:
+        with isolated_research_scope():
+            result = _mkt_check_discovery_outcomes()
+        if log_research_loop_run:
+            log_research_loop_run(_job_id, verified=True,
+                                   reason=f"checked={result.get('checked')} "
+                                          f"retestable={result.get('retestable')} "
+                                          f"not_retestable={result.get('not_retestable')}")
+        result["job_id"] = _job_id
+        return result
+    except AIEMIsolationViolation as _oiv:
+        if log_research_loop_run:
+            log_research_loop_run(_job_id, verified=False, reason=str(_oiv))
+        return {"status": "error", "error": f"isolation violation: {_oiv}", "job_id": _job_id}
+    except Exception as _e:
+        if log_research_loop_run:
+            log_research_loop_run(_job_id, verified=False, reason=str(_e))
+        return {"status": "error", "error": str(_e), "job_id": _job_id}
+
+
+try:
+    _mkt_ensure_discovery_outcomes_table()
+except Exception as _mdo_e:
+    print(f"[discovery_outcomes] startup init error: {_mdo_e}")
+
+
 # ── Enhancement #6: Real sector + market cap data ─────────────────────────────
 def _mkt_ensure_ticker_meta_table():
     import psycopg2 as _pg_tm
@@ -34325,6 +34565,52 @@ def aiem_paper_force_mtm():
     import threading as _mtm_thr
     _mtm_thr.Thread(target=_aiem_paper_mark_to_market, daemon=True).start()
     return jsonify({"status": "marking", "message": "Marking all open positions to market — refresh in 10s"})
+
+
+@app.route("/stock-api/admin/run-discovery-outcome-check", methods=["POST"])
+def admin_run_discovery_outcome_check():
+    """Admin: manually trigger Module 1 (Outcome Tracker) immediately instead of
+    waiting for the daily 2:00 AM ET scheduled run. Synchronous - the check
+    itself is a handful of DB queries, fast enough to return inline."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        _result = _mkt_run_discovery_outcome_check()
+        return jsonify(_result)
+    except Exception as _e:
+        return jsonify({"status": "error", "error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/discovery-outcomes")
+def admin_discovery_outcomes():
+    """Admin: raw contents of aiem_discovery_outcomes, most recent first."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT o.id, o.discovery_id, d.hypothesis_text, o.date_checked, o.horizon,
+                       o.retestable, o.skip_reason, o.win_rate_at_discovery, o.realized_n,
+                       o.realized_win_rate, o.realized_avg_ret, o.realized_p_value,
+                       o.predicted_vs_actual_diff, o.checked_window_start, o.checked_window_end,
+                       o.created_at
+                FROM aiem_discovery_outcomes o
+                JOIN aiem_signal_discoveries d ON d.id = o.discovery_id
+                ORDER BY o.id DESC LIMIT 100
+            """)
+            _cols = [c.name for c in _cu.description]
+            _rows = [dict(zip(_cols, r)) for r in _cu.fetchall()]
+        for _r in _rows:
+            for _k, _v in _r.items():
+                if hasattr(_v, "isoformat"):
+                    _r[_k] = _v.isoformat()
+        return jsonify(_rows)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
 
 
 # ─────────────────────────────

@@ -1,0 +1,132 @@
+# Module Spec — Self-Improving Backtest & Pattern-Refinement Loop
+
+## Context
+Confirmed: no existing module does this. aiem_process.py is dormant,
+meta_learning_signal_trust.py has only fired once as a manual test, and
+nothing currently reads aiem_signal_discoveries back into future scanning
+behavior. This spec lays out what actually needs to be built, module by
+module, so the agent has a concrete blueprint instead of an open-ended ask.
+
+## The core loop, in plain terms
+1. Discoveries get made and stored (already exists — aiem_signal_discoveries)
+2. NEW: Track what actually happened to each discovery after it was found
+   (did the pattern hold up going forward, or decay/fail?)
+3. NEW: Analyze WHY the failed ones failed — which indicators, horizons,
+   or conditions were weakest
+4. NEW: Use that analysis to propose better variants (different indicator
+   combos, adjusted thresholds) for future scans
+5. NEW: Feed the winners back into the scanning rules; retire or
+   deprioritize the losers
+
+---
+
+## Module 1 — Outcome Tracker
+**Purpose:** Once a discovery is validated and stored, actually track how
+it performs going forward — not just whether it passed the initial gates.
+
+**What it needs to do:**
+- On a schedule (e.g. daily), pull each active discovery from
+  aiem_signal_discoveries
+- Re-run the discovery's original condition against fresh price/indicator
+  data for the days since it was found
+- Record actual forward performance: did the predicted move happen, what
+  was the realized win rate vs. the win rate at discovery time
+
+**New table needed:** something like `aiem_discovery_outcomes` —
+discovery_id, date_checked, realized_outcome, predicted_vs_actual_diff
+
+**Why this has to come first:** none of the later modules can work
+without this. You can't analyze "what didn't work" if nothing is tracking
+what actually happened after discovery.
+
+---
+
+## Module 2 — Decay & Failure Analyzer
+**Purpose:** Take the outcome data from Module 1 and identify which
+discoveries are decaying/failing, and look for patterns in WHY.
+
+**What it needs to do:**
+- Compare each discovery's realized win rate (from Module 1) against its
+  win rate at time of discovery
+- Flag discoveries that have decayed past a threshold (the existing
+  auto-retire logic already has a 3pp decay threshold — reuse that
+  concept here)
+- Group failures by shared characteristics: same indicator, same horizon,
+  same sector/context bucket, similar market conditions — to find WHY a
+  class of patterns is failing, not just that one row failed
+
+**Output:** a report/table of "what's failing and what they have in
+common" — this is the actual analytical step, not just bookkeeping
+
+---
+
+## Module 3 — Variant Generator
+**Purpose:** For patterns that failed or decayed, propose better variants
+— different indicator combos, adjusted thresholds, different horizons —
+rather than just discarding the failure.
+
+**What it needs to do:**
+- Take a failed/decayed discovery's original indicator combo
+- Generate nearby variants (swap one indicator for a related one, adjust
+  the threshold, try a different horizon) — this can reuse the existing
+  grid-battery logic, just seeded from failures instead of from scratch
+- Queue these variants to be tested through the EXISTING gates (n≥200,
+  Bonferroni, WR≥54%) — same rigor as original discoveries, no shortcuts
+
+**Important:** this does NOT mean lowering the bar for what counts as a
+valid discovery. Variants still have to clear the same statistical gates.
+This just makes the search smarter by starting near known failures
+instead of searching blind.
+
+---
+
+## Module 4 — Promotion Gate (human-in-the-loop)
+**Purpose:** Before anything found by Modules 1-3 actually changes live
+scanning behavior, a deliberate checkpoint — per the earlier
+recommendation against full automation.
+
+**What it needs to do:**
+- Surface variants that cleared the gates (from Module 3) as candidates
+- Show you: the original failed pattern, the new variant, and its
+  backtest performance, side by side
+- Wait for explicit approval (a flag you set, or a chat command) before
+  the variant gets added to the live grid-battery scan list
+- Log every promotion decision (who approved, when, what changed)
+
+**Why this matters:** this is the safety valve. Without it, a
+mis-generated variant could get promoted into live scanning based on a
+statistical fluke, and you'd be scanning for noise without knowing it.
+
+---
+
+## Module 5 — Performance Dashboard / Loopback Report
+**Purpose:** Let you actually see, over time, whether this whole system
+is working — closing the loop on "is it getting better."
+
+**What it needs to do:**
+- Track promoted variants' real performance over time vs. the original
+  patterns they replaced
+- Show a simple trend: are newly-promoted patterns outperforming retired
+  ones, on average, over the weeks since promotion
+- This is the concrete metric from Question 7 — pick one (e.g. average
+  win rate of active discoveries, tracked weekly) and chart it
+
+---
+
+## Build order (don't build all 5 at once)
+1. Module 1 first — nothing else works without outcome tracking
+2. Module 2 second — needs Module 1's data to analyze anything
+3. Module 4 (promotion gate) before Module 3 goes live — the safety
+   checkpoint should exist before there's anything to approve
+4. Module 3 — variant generation, gated by Module 4
+5. Module 5 last — once there's enough real promotion history to report on
+
+## What to ask the agent right now
+> Build Module 1 (Outcome Tracker) first. Show me:
+> - The new table schema
+> - The function that re-checks each active discovery's real performance
+> - What triggers it (schedule/job)
+> - Raw proof it ran once and produced real rows — same standard as
+>   everything else, actual output not a description
+>
+> Do not build Modules 2-5 yet. Confirm Module 1 works end-to-end first.
