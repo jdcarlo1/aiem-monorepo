@@ -1,0 +1,56 @@
+# Approval — Fix Retestability Gap (Categories A-D), Verify Before Module 2
+
+## Message to send the agent
+
+> Approved — build the fix across all 4 categories:
+>
+> - A. Multi-day sequential chains (IDs 2, 3, 4, 5)
+> - B. Indicator lag/delta (IDs 7, 8)
+> - C. Rolling-window vol/range (ID 1)
+> - D. Multi-stage state machine — relax "today only" to scan historical
+>   windows (ID 9)
+>
+> For IDs 2/3 and 9, reuse the existing working detectors
+> (_get_bigcat_gap_candidates, _scan_washout_ignition_signal) as you
+> proposed — parameterize the date window rather than rebuilding. For IDs
+> 1, 4, 5, 7, 8 with no live analog, build the new logic as scoped.
+>
+> Do NOT touch Module 2 or Module 3 yet. Build and verify this fix first.
+
+---
+
+## Question 11 — Verification once the fix is built
+
+Instruction to give the agent after it reports the fix is done:
+
+> Before I approve moving to Module 2, verify the fix with raw evidence
+> for each of the 9 discoveries:
+>
+> 1. Run _mkt_check_discovery_outcomes() again (or the updated version)
+>    against all 9 validated discoveries.
+> 2. Show the raw output for EACH discovery — id, retestable=True/False,
+>    and if still False, the specific reason why.
+> 3. Confirm the count: how many of the 9 are now retestable, up from 1?
+> 4. For at least 2 of the newly-retestable discoveries (e.g. one from
+>    category A, one from category D/Washout Ignition), show the actual
+>    realized_win_rate and predicted_vs_actual_diff it produced — real
+>    numbers, not just "it ran successfully."
+> 5. If any of the 9 remain permanently unretestable, confirm explicitly
+>    why (not just "still working on it") and whether that's a real
+>    structural limit or something still fixable.
+> 6. Re-run the static isolation check and confirm it still passes clean
+>    after these changes — same standard as every other change to this
+>    codebase.
+> 7. Confirm the daily scheduled job (discovery_outcome_check) still runs
+>    correctly with the updated logic — show the next scheduled run or
+>    trigger it manually and show raw output.
+>
+> Do not report this as "done" without raw evidence for all 7 points
+> above. If something is partially fixed, say so plainly and specify
+> exactly what remains.
+
+## Only after Question 11 passes
+
+> Once verified, THEN proceed to Module 2 (Decay & Failure Analyzer) —
+> per the original build spec, with real data from close to all 9
+> discoveries instead of 1.

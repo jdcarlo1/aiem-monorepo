@@ -19763,6 +19763,324 @@ def _mkt_run_two_group(conn, sig_where, sig_params, base_where, base_params,
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Module 1 retestability fix (2026-07-02): the generic _mkt_parse_conditions ->
+# _mkt_run_two_group pipeline above only expresses flat "t.col op value" checks
+# on a SINGLE row. Four categories of saved discoveries need more than that —
+# multi-day sequential chains (A), lagged/delta indicator comparisons (B),
+# rolling-window aggregates (C), and multi-stage state machines (D). Rather
+# than rebuild detection logic, these adapters share ONE derived-column CTE
+# (_mkt_v2_signal_forward_returns) that precomputes the specific lag/rolling
+# columns those discoveries actually need, or (Category D) reuse the existing
+# production detector directly via its new backtest_range parameter.
+# ──────────────────────────────────────────────────────────────────────────
+import re as _mkt_re_v2
+
+_MKT_FIELD_ALIAS_V2 = {
+    "cmf20": "cmf_20", "cmf": "cmf_20",
+    "rsi14": "rsi_14", "rsi": "rsi_14",
+    "stoch_k": "stoch_k", "stoch_d": "stoch_d",
+}
+_MKT_OP_RE_V2 = _mkt_re_v2.compile(r"^\s*(>=|<=|>|<|==)\s*(-?\d+\.?\d*)\s*$")
+
+# Every column name the derived CTE in _mkt_v2_signal_forward_returns actually
+# produces — adapters must only reference names in this set (fail loud, not
+# silent, if a discovery needs something outside it).
+_MKT_V2_KNOWN_DERIVED_COLS = {
+    "gap_pct", "gap_pct_lag1", "gap_pct_lag2",
+    "range_pct", "range_pct_lag1", "range_pct_lag2",
+    "move_pct", "move_pct_lag1", "move_pct_lag2",
+    "close_strength", "close_strength_lag1", "close_strength_lag2",
+    "volume", "volume_lag1", "volume_lag2", "volume_avg20",
+    "rvol", "rvol_lag1",
+    "close_price", "close_price_lag1", "close_price_lag2",
+    "cmf_20", "cmf_20_lag15", "cmf_20_delta15",
+    "rsi_14", "rsi_14_lag15", "rsi_14_delta15",
+    "stoch_k", "stoch_k_lag15", "stoch_d",
+    "high_5d", "low_5d",
+}
+
+_MKT_V2_BASE_CTE = """
+    WITH base AS (
+        SELECT m.ticker, m.scan_date, m.close_price, m.open_price, m.high_price, m.low_price,
+               m.volume, m.prev_close, m.gap_pct, m.rvol, m.close_strength, m.range_pct,
+               (m.close_price - m.prev_close) / NULLIF(m.prev_close,0) * 100 AS move_pct,
+               i.rsi_14, i.stoch_k, i.stoch_d, i.cmf_20
+        FROM polygon_market_daily m
+        LEFT JOIN polygon_indicators_daily i
+               ON i.ticker = m.ticker AND i.scan_date = m.scan_date
+        WHERE m.close_price > 0
+          AND m.scan_date >= %s::date - INTERVAL '75 days'
+    ),
+    derived AS (
+        SELECT b.*,
+            LAG(gap_pct,1)         OVER w AS gap_pct_lag1,
+            LAG(gap_pct,2)         OVER w AS gap_pct_lag2,
+            LAG(range_pct,1)       OVER w AS range_pct_lag1,
+            LAG(range_pct,2)       OVER w AS range_pct_lag2,
+            LAG(move_pct,1)        OVER w AS move_pct_lag1,
+            LAG(move_pct,2)        OVER w AS move_pct_lag2,
+            LAG(close_strength,1)  OVER w AS close_strength_lag1,
+            LAG(close_strength,2)  OVER w AS close_strength_lag2,
+            LAG(volume,1)          OVER w AS volume_lag1,
+            LAG(volume,2)          OVER w AS volume_lag2,
+            LAG(rvol,1)            OVER w AS rvol_lag1,
+            LAG(close_price,1)     OVER w AS close_price_lag1,
+            LAG(close_price,2)     OVER w AS close_price_lag2,
+            LAG(cmf_20,15)         OVER w AS cmf_20_lag15,
+            LAG(rsi_14,15)         OVER w AS rsi_14_lag15,
+            LAG(stoch_k,15)        OVER w AS stoch_k_lag15,
+            (cmf_20 - LAG(cmf_20,15) OVER w)  AS cmf_20_delta15,
+            (rsi_14 - LAG(rsi_14,15) OVER w)  AS rsi_14_delta15,
+            AVG(volume) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING) AS volume_avg20,
+            MAX(high_price) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) AS high_5d,
+            MIN(low_price)  OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) AS low_5d
+        FROM base b
+        WINDOW w AS (PARTITION BY ticker ORDER BY scan_date)
+    ),
+    fwd AS (
+        SELECT ticker, scan_date, close_price,
+               LEAD(close_price, {h}) OVER (PARTITION BY ticker ORDER BY scan_date) AS fwd_close
+        FROM derived
+    )
+"""
+
+
+def _mkt_v2_signal_forward_returns(conn, filter_sql, filter_params, start_date, horizon_days=1, limit=200000):
+    """Shared CTE engine for the Category A/B/C retest adapters below. Computes a
+    fixed set of derived columns (lag1/lag2/lag15, delta15, rolling 20d avg
+    volume, rolling 5d high/low — see _MKT_V2_KNOWN_DERIVED_COLS) over a
+    lookback-padded window via one LAG/window-function CTE, then filters and
+    computes forward returns via the same LEAD() pattern _mkt_run_two_group
+    uses for the existing single-row discoveries. filter_sql must reference
+    columns via the 'd.' alias. Returns the same stats shape as
+    _mkt_run_two_group (so downstream diff/gate code needs no changes), or
+    None if either the signal or baseline pull comes back empty."""
+    import numpy as _np
+    from scipy import stats as _sc
+    try:
+        _h = max(1, int(horizon_days))
+    except (TypeError, ValueError):
+        _h = 1
+
+    _cte = _MKT_V2_BASE_CTE.format(h=_h)
+
+    def _fetch(filt_sql, filt_params):
+        sql = _cte + f"""
+            SELECT ((fwd.fwd_close / NULLIF(d.close_price,0)) - 1) * 100
+            FROM derived d
+            JOIN fwd ON fwd.ticker = d.ticker AND fwd.scan_date = d.scan_date
+            WHERE d.scan_date >= %s AND fwd.fwd_close IS NOT NULL
+              AND ({filt_sql})
+            LIMIT {int(limit)}
+        """
+        params = [start_date, start_date] + list(filt_params or [])
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return [r[0] for r in cur.fetchall() if r[0] is not None]
+
+    sig = _fetch(filter_sql, filter_params)
+    base = _fetch("1=1", [])
+    if not sig or not base:
+        return None
+
+    sa, ba = _np.array(sig), _np.array(base)
+    _, pval = _sc.ttest_ind(sa, ba, equal_var=False)
+    return {
+        "signal_n":          len(sa),
+        "signal_win_rate":   round(float(_np.mean(sa > 0)) * 100, 2),
+        "signal_avg_ret":    round(float(_np.mean(sa)), 4),
+        "baseline_n":        len(ba),
+        "baseline_win_rate": round(float(_np.mean(ba > 0)) * 100, 2),
+        "baseline_avg_ret":  round(float(_np.mean(ba)), 4),
+        "edge_winrate":      round(float(_np.mean(sa > 0) - _np.mean(ba > 0)) * 100, 2),
+        "edge_avg_ret":      round(float(_np.mean(sa) - _np.mean(ba)), 4),
+        "p_value":           round(float(pval), 4),
+        "significant":       bool(pval < 0.05),
+        "horizon_days":      _h,
+    }
+
+
+def _mkt_chain_filter_sql(discovery_id: int, conditions: dict):
+    """Category A adapter (discoveries 2/3/4/5): translates the multi-day
+    sequential-chain conditions_json into a filter_sql fragment against the
+    lag0/lag1/lag2 columns from _mkt_v2_signal_forward_returns's derived CTE.
+    This is an EXPLICIT per-discovery mapping, not auto-inferred from key
+    names, because 'prior_day_' means lag2 in the 3-day chains (2,3 — there's
+    an 'inside_day' at lag1 between it and entry) but lag1 in the 2-day
+    chains (4,5 — no inside day). Each mapping is written out so it can be
+    checked directly against that discovery's own hypothesis_text."""
+    parts, params = [], []
+    if discovery_id in (2, 3):
+        # catalyst day (lag2) -> inside day (lag1) -> gap-up entry day (lag0)
+        if "prior_day_move_pct_min" in conditions:
+            parts.append("d.move_pct_lag2 >= %s"); params.append(float(conditions["prior_day_move_pct_min"]))
+        if "prior_day_close_strength_min" in conditions:
+            parts.append("d.close_strength_lag2 >= %s"); params.append(float(conditions["prior_day_close_strength_min"]))
+        if "avg_vol_min" in conditions:
+            parts.append("d.volume_lag2 >= %s"); params.append(float(conditions["avg_vol_min"]))
+        if "price_range" in conditions and isinstance(conditions["price_range"], (list, tuple)) and len(conditions["price_range"]) == 2:
+            lo, hi = conditions["price_range"]
+            parts.append("d.close_price_lag2 BETWEEN %s AND %s"); params.extend([float(lo), float(hi)])
+        if "inside_day_range_max" in conditions:
+            parts.append("d.range_pct_lag1 <= %s"); params.append(float(conditions["inside_day_range_max"]))
+        if "gap_up_pct_min" in conditions:
+            parts.append("d.gap_pct >= %s"); params.append(float(conditions["gap_up_pct_min"]))
+    elif discovery_id == 4:
+        # single day: gap-down range + reversal close, entry same day
+        if "gap_down_range" in conditions and len(conditions["gap_down_range"]) == 2:
+            lo, hi = conditions["gap_down_range"]
+            parts.append("d.gap_pct BETWEEN %s AND %s"); params.extend([float(lo), float(hi)])
+        if "volume_ratio_min" in conditions:
+            parts.append("d.rvol >= %s"); params.append(float(conditions["volume_ratio_min"]))
+        if "close_strength_min" in conditions:
+            parts.append("d.close_strength >= %s"); params.append(float(conditions["close_strength_min"]))
+        if "avg_vol_min" in conditions:
+            parts.append("d.volume >= %s"); params.append(float(conditions["avg_vol_min"]))
+    elif discovery_id == 5:
+        # prior day washout (lag1) -> today flat/small gap (lag0), entry today
+        if "prior_day_move_max" in conditions:
+            parts.append("d.move_pct_lag1 <= %s"); params.append(float(conditions["prior_day_move_max"]))
+        if "prior_day_cs_max" in conditions:
+            parts.append("d.close_strength_lag1 <= %s"); params.append(float(conditions["prior_day_cs_max"]))
+        if "gap_abs_max" in conditions:
+            v = float(conditions["gap_abs_max"]); parts.append("d.gap_pct BETWEEN %s AND %s"); params.extend([-v, v])
+        if "volume_ratio_min" in conditions:
+            parts.append("d.rvol >= %s"); params.append(float(conditions["volume_ratio_min"]))
+        if "avg_vol_min" in conditions:
+            parts.append("d.volume >= %s"); params.append(float(conditions["avg_vol_min"]))
+    else:
+        return None, None
+    if not parts:
+        return None, None
+    return " AND ".join(parts), params
+
+
+def _mkt_lagdelta_filter_sql(conditions: dict):
+    """Category B adapter (discoveries 7/8): parses operator-string values
+    ('> 0.02') combined with '_lagN'/'_deltaN' key suffixes (the exact shape
+    already stored in these two discoveries' conditions_json — no data
+    mutation needed) into a filter against the lag15/delta15 columns from
+    _mkt_v2_signal_forward_returns's derived CTE. Generalizes to any future
+    discovery using this same 'field[_lagN|_deltaN]': '<op> <threshold>'
+    shape. Returns (filter_sql, params, None) on success or
+    (None, None, reason) if a key/value can't be parsed."""
+    parts, params = [], []
+    for key, val in (conditions or {}).items():
+        m = _MKT_OP_RE_V2.match(str(val)) if isinstance(val, str) else None
+        if not m:
+            return None, None, f"value for '{key}' is not a parseable operator-string: {val!r}"
+        op, thresh = m.group(1), float(m.group(2))
+
+        lag_m = _mkt_re_v2.match(r"^(.+)_lag(\d+)$", key)
+        delta_m = _mkt_re_v2.match(r"^(.+)_delta(\d+)$", key)
+        if lag_m:
+            base_field, suffix = lag_m.group(1), f"_lag{lag_m.group(2)}"
+        elif delta_m:
+            base_field, suffix = delta_m.group(1), f"_delta{delta_m.group(2)}"
+        else:
+            base_field, suffix = key, ""
+
+        col = _MKT_FIELD_ALIAS_V2.get(base_field, base_field)
+        derived_col = f"{col}{suffix}"
+        if derived_col not in _MKT_V2_KNOWN_DERIVED_COLS:
+            return None, None, (f"'{derived_col}' is not a precomputed derived column "
+                                 f"(base field '{base_field}' or lag/delta window not supported)")
+        parts.append(f"d.{derived_col} {op} %s")
+        params.append(thresh)
+    if not parts:
+        return None, None, "no parseable conditions"
+    return " AND ".join(parts), params, None
+
+
+def _mkt_accumulation_filter_sql(conditions: dict):
+    """Category C adapter (discovery 1): 'quiet accumulation' — volume >=
+    vol_ratio_min x its own 20-day trailing average while price stays within
+    price_range_max_pct over a 5-day window. The '5-day' window comes from
+    this discovery's own hypothesis_text ('tight 5-day range'), which states
+    it explicitly even though conditions_json only encodes the volume side's
+    lookback (vol_lookback=20) — recovered from the discovery's own stated
+    text, not invented. Returns (filter_sql, params, None) or
+    (None, None, reason)."""
+    parts, params = [], []
+    if conditions.get("vol_lookback") != 20:
+        return None, None, (f"vol_lookback={conditions.get('vol_lookback')!r} != the hardcoded "
+                             f"20-day rolling-avg-volume column this adapter supports")
+    if "vol_ratio_min" in conditions:
+        parts.append("(d.volume / NULLIF(d.volume_avg20,0)) >= %s")
+        params.append(float(conditions["vol_ratio_min"]))
+    if "price_range_max_pct" in conditions:
+        parts.append("((d.high_5d - d.low_5d) / NULLIF(d.close_price,0) * 100) <= %s")
+        params.append(float(conditions["price_range_max_pct"]))
+    if not parts:
+        return None, None, "no parseable conditions"
+    return " AND ".join(parts), params, None
+
+
+def _mkt_washout_ignition_retest(start_date, end_date, horizon_days=1):
+    """Category D adapter (discovery 9): reuses the exact production detector
+    (_scan_washout_ignition_signal) with its 'today only' restriction relaxed
+    via the backtest_range parameter, then computes forward returns for every
+    historical fire in the window using the same LEAD()-based approach as
+    _mkt_run_two_group, via an explicit (ticker,scan_date) VALUES list (fires
+    aren't expressible as a flat WHERE clause). Returns (stats_dict, None) or
+    (None, reason)."""
+    import psycopg2, numpy as _np
+    from scipy import stats as _sc
+    fires = _scan_washout_ignition_signal(save_to_db=False, backtest_range=(start_date, end_date))
+    if not fires:
+        return None, "no historical fires in window (production detector, backtest_range mode)"
+    pairs = [(f["ticker"], f["scan_date"]) for f in fires]
+    try:
+        _h = max(1, int(horizon_days))
+    except (TypeError, ValueError):
+        _h = 1
+    values_sql = ",".join(["(%s,%s)"] * len(pairs))
+    flat_params = [x for p in pairs for x in p]
+    sig_sql = f"""
+        WITH fwd AS (
+            SELECT ticker, scan_date, close_price,
+                   LEAD(close_price, {_h}) OVER (PARTITION BY ticker ORDER BY scan_date) AS fwd_close
+            FROM polygon_market_daily
+            WHERE close_price > 0
+        )
+        SELECT ((fwd_close / NULLIF(close_price,0)) - 1) * 100
+        FROM fwd
+        WHERE (ticker, scan_date) IN ({values_sql})
+          AND fwd_close IS NOT NULL
+    """
+    base_sql = f"""
+        WITH fwd AS (
+            SELECT ticker, scan_date, close_price,
+                   LEAD(close_price, {_h}) OVER (PARTITION BY ticker ORDER BY scan_date) AS fwd_close
+            FROM polygon_market_daily
+            WHERE close_price > 0 AND scan_date >= %s AND scan_date <= %s
+        )
+        SELECT ((fwd_close / NULLIF(close_price,0)) - 1) * 100
+        FROM fwd WHERE fwd_close IS NOT NULL
+        LIMIT 200000
+    """
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute(sig_sql, flat_params)
+        sig = [r[0] for r in cur.fetchall() if r[0] is not None]
+        cur.execute(base_sql, [start_date, end_date])
+        base = [r[0] for r in cur.fetchall() if r[0] is not None]
+    if not sig or not base:
+        return None, f"insufficient forward-return data ({len(sig)} signal, {len(base)} baseline rows)"
+    sa, ba = _np.array(sig), _np.array(base)
+    _, pval = _sc.ttest_ind(sa, ba, equal_var=False)
+    return {
+        "signal_n": len(sa), "signal_win_rate": round(float(_np.mean(sa > 0)) * 100, 2),
+        "signal_avg_ret": round(float(_np.mean(sa)), 4),
+        "baseline_n": len(ba), "baseline_win_rate": round(float(_np.mean(ba > 0)) * 100, 2),
+        "baseline_avg_ret": round(float(_np.mean(ba)), 4),
+        "edge_winrate": round(float(_np.mean(sa > 0) - _np.mean(ba > 0)) * 100, 2),
+        "edge_avg_ret": round(float(_np.mean(sa) - _np.mean(ba)), 4),
+        "p_value": round(float(pval), 4), "significant": bool(pval < 0.05),
+        "horizon_days": _h, "fires_found": len(fires),
+    }, None
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Tool 1: Explore the full market dataset dimensions
 # ──────────────────────────────────────────────────────────────────────────
 _mkt_explore_dimensions_cache: dict = {}
@@ -23988,21 +24306,31 @@ def _mkt_check_discovery_outcomes():
     aiem_signal_discoveries, re-run its stored conditions_json against FRESH
     data only (the window from discovered_at forward to today - never the
     original discovery-period data, so this is a genuine out-of-sample check,
-    not a re-read of the same numbers) using the exact same
-    _mkt_parse_conditions -> _mkt_tool_test_signal pipeline used at discovery
-    time, so signal_win_rate-then vs realized_win_rate-now is apples-to-apples.
+    not a re-read of the same numbers), so signal_win_rate-then vs
+    realized_win_rate-now is apples-to-apples.
 
-    Honesty guarantee: aiem_signal_discoveries holds findings from several
-    different discovery mechanisms built over time. Some use simple single-row
-    conditions (field_min/field_max on polygon_market_daily or
-    polygon_indicators_daily columns) that the generic parser can re-test
-    mechanically. Others (multi-day pattern definitions like 'prior day' /
-    'inside day', or indicator-lag/delta features) use condition schemas the
-    generic single-row WHERE-clause parser cannot express at all. Rather than
-    approximate or silently skip those, every discovery gets a row either way:
-    retestable=True with real realized numbers, or retestable=False with an
-    explicit skip_reason naming exactly which keys couldn't be mapped. Nothing
-    is faked."""
+    Honesty guarantee + retestability fix (2026-07-02): aiem_signal_discoveries
+    holds findings from several different discovery mechanisms built over
+    time. Dispatch by discovery_id / condition shape:
+      - Discoveries with plain field_min/field_max conditions_json (currently
+        id=6): the original generic _mkt_parse_conditions -> _mkt_tool_test_signal
+        single-row pipeline, unchanged.
+      - Category A, multi-day sequential chains (ids 2/3/4/5): explicit
+        per-discovery adapter _mkt_chain_filter_sql over precomputed lag0/1/2
+        columns.
+      - Category B, indicator lag/delta with operator-string values (ids 7/8):
+        generic _mkt_lagdelta_filter_sql, tried as a fallback whenever the
+        plain single-row parser can't map a discovery's keys — so id=6 is
+        never affected.
+      - Category C, rolling-window aggregate (id 1): explicit adapter
+        _mkt_accumulation_filter_sql (volume vs its own 20d average, price
+        range over the discovery's own stated 5-day window).
+      - Category D, multi-stage state machine (id 9): reuses the production
+        _scan_washout_ignition_signal detector itself via its backtest_range
+        parameter, so the retest can never drift from what actually fires live.
+    Every discovery still gets a row either way: retestable=True with real
+    realized numbers, or retestable=False with an explicit skip_reason naming
+    exactly why no adapter could retest it. Nothing is faked."""
     import psycopg2
     import psycopg2.extras
     import datetime as _dt
@@ -24031,16 +24359,6 @@ def _mkt_check_discovery_outcomes():
             win_rate_at_discovery = d["signal_win_rate"]
             discovered_date = d["discovered_at"].date() if d["discovered_at"] else None
 
-            unmappable_keys = []
-            for key in conditions.keys():
-                if key.endswith("_min") or key.endswith("_max"):
-                    field = key[:-4]
-                else:
-                    unmappable_keys.append(key)
-                    continue
-                if not (field in _MKT_SAFE_COLS or field in globals().get("_MKT_INDICATOR_COLS", {})):
-                    unmappable_keys.append(key)
-
             row = {
                 "discovery_id": discovery_id, "horizon": horizon,
                 "win_rate_at_discovery": win_rate_at_discovery,
@@ -24048,11 +24366,9 @@ def _mkt_check_discovery_outcomes():
                 "checked_window_end": _dt.date.today().isoformat(),
             }
 
-            if not conditions or unmappable_keys:
+            if not conditions:
                 not_retestable_count += 1
-                reason = ("conditions_json is empty" if not conditions else
-                          "condition keys not expressible via the generic single-row "
-                          f"parser (needs custom multi-day/lag-aware backtest logic): {unmappable_keys}")
+                reason = "conditions_json is empty"
                 _mkt_insert_discovery_outcome(
                     conn, discovery_id, retestable=False, skip_reason=reason,
                     win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
@@ -24072,13 +24388,61 @@ def _mkt_check_discovery_outcomes():
                 rows_out.append(row)
                 continue
 
-            test_result = _mkt_tool_test_signal(
-                conditions=conditions, horizon=horizon or "next_day",
-                baseline="broad", start_date=discovered_date.isoformat())
+            _h_days = _MKT_HORIZON_DAYS.get(str(horizon or "next_day").lower(), 1)
+            broad = None
+            reason = None
 
-            if test_result.get("status") != "ok":
+            if discovery_id == 9:
+                # Category D: washout-ignition state machine — reuse the live detector
+                broad, reason = _mkt_washout_ignition_retest(
+                    discovered_date.isoformat(), _dt.date.today().isoformat(), horizon_days=_h_days)
+
+            elif discovery_id in (2, 3, 4, 5):
+                # Category A: multi-day sequential chains
+                filt_sql, filt_params = _mkt_chain_filter_sql(discovery_id, conditions)
+                if filt_sql is None:
+                    reason = f"chain adapter could not map conditions_json: {list(conditions.keys())}"
+                else:
+                    broad = _mkt_v2_signal_forward_returns(
+                        conn, filt_sql, filt_params, discovered_date.isoformat(), horizon_days=_h_days)
+                    if broad is None:
+                        reason = "chain adapter query returned no signal or baseline rows"
+
+            elif discovery_id == 1:
+                # Category C: rolling-window accumulation
+                filt_sql, filt_params, adapter_reason = _mkt_accumulation_filter_sql(conditions)
+                if filt_sql is None:
+                    reason = f"accumulation adapter could not map conditions_json: {adapter_reason}"
+                else:
+                    broad = _mkt_v2_signal_forward_returns(
+                        conn, filt_sql, filt_params, discovered_date.isoformat(), horizon_days=_h_days)
+                    if broad is None:
+                        reason = "accumulation adapter query returned no signal or baseline rows"
+
+            else:
+                # Existing generic single-row path (covers discovery 6 unchanged)
+                test_result = _mkt_tool_test_signal(
+                    conditions=conditions, horizon=horizon or "next_day",
+                    baseline="broad", start_date=discovered_date.isoformat())
+                if test_result.get("status") == "ok":
+                    broad = test_result["vs_broad_market"]
+                else:
+                    # Category B fallback: indicator lag/delta w/ operator-string values
+                    # (ids 7/8) — only reached once the generic parser already failed,
+                    # so id=6-style discoveries never touch this path.
+                    filt_sql, filt_params, adapter_reason = _mkt_lagdelta_filter_sql(conditions)
+                    if filt_sql is None:
+                        reason = (f"generic parser failed ({test_result.get('error')}); "
+                                  f"lag/delta adapter also failed: {adapter_reason}")
+                    else:
+                        broad = _mkt_v2_signal_forward_returns(
+                            conn, filt_sql, filt_params, discovered_date.isoformat(), horizon_days=_h_days)
+                        if broad is None:
+                            reason = "lag/delta adapter query returned no signal or baseline rows"
+
+            if broad is None:
                 not_retestable_count += 1
-                reason = f"re-test query failed: {test_result.get('error')}"
+                reason = reason or "retest adapter returned no result"
                 _mkt_insert_discovery_outcome(
                     conn, discovery_id, retestable=False, skip_reason=reason,
                     win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
@@ -24087,7 +24451,6 @@ def _mkt_check_discovery_outcomes():
                 rows_out.append(row)
                 continue
 
-            broad = test_result["vs_broad_market"]
             realized_win_rate = broad["signal_win_rate"]
             diff = (round(realized_win_rate - win_rate_at_discovery, 2)
                     if win_rate_at_discovery is not None else None)
@@ -34579,6 +34942,56 @@ def admin_run_discovery_outcome_check():
     try:
         _result = _mkt_run_discovery_outcome_check()
         return jsonify(_result)
+    except Exception as _e:
+        return jsonify({"status": "error", "error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/test-retest-adapter")
+def admin_test_retest_adapter():
+    """Admin/debug only: directly exercises one Module-1 retest adapter
+    (chain/lagdelta/accumulation/washout) against an arbitrary historical
+    (start_date, end_date) window, bypassing the 'discovered_date must be in
+    the past' gate in _mkt_check_discovery_outcomes. Exists purely so a
+    category's SQL/detector-reuse logic can be verified with real forward-
+    return numbers even for a discovery found today (ids 7/8/9), without
+    waiting for a live forward window. Never called by the scheduler."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        discovery_id = int(request.args.get("discovery_id"))
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+        horizon_days = int(request.args.get("horizon_days", 20))
+        import psycopg2, psycopg2.extras
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT conditions_json FROM aiem_signal_discoveries WHERE id = %s", (discovery_id,))
+                r = cur.fetchone()
+            conditions = (r or {}).get("conditions_json") or {}
+
+            if discovery_id == 9:
+                broad, reason = _mkt_washout_ignition_retest(start_date, end_date, horizon_days=horizon_days)
+            elif discovery_id in (2, 3, 4, 5):
+                filt_sql, filt_params = _mkt_chain_filter_sql(discovery_id, conditions)
+                broad = (_mkt_v2_signal_forward_returns(conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
+                          if filt_sql else None)
+                reason = None if filt_sql else "chain adapter returned no filter_sql"
+            elif discovery_id == 1:
+                filt_sql, filt_params, reason = _mkt_accumulation_filter_sql(conditions)
+                broad = (_mkt_v2_signal_forward_returns(conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
+                          if filt_sql else None)
+            else:
+                filt_sql, filt_params, reason = _mkt_lagdelta_filter_sql(conditions)
+                broad = (_mkt_v2_signal_forward_returns(conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
+                          if filt_sql else None)
+
+        return jsonify({
+            "status": "ok", "discovery_id": discovery_id, "conditions_json": conditions,
+            "start_date": start_date, "end_date": end_date, "horizon_days": horizon_days,
+            "result": broad, "reason": reason,
+        })
     except Exception as _e:
         return jsonify({"status": "error", "error": str(_e)}), 500
 
@@ -49084,8 +49497,17 @@ def _send_accum_leaders_email() -> None:
         print(f"[accum_leaders] email error: {_e}")
 
 
-def _scan_washout_ignition_signal(save_to_db=True) -> list:
+def _scan_washout_ignition_signal(save_to_db=True, backtest_range=None) -> list:
     """
+    backtest_range: optional (start_date, end_date) — date or 'YYYY-MM-DD' string.
+    When None (default), behavior is UNCHANGED from the original: only the single
+    latest completed trading day is checked (live production path, 8:45 AM job).
+    When provided, every historical trading day inside the range is checked using
+    the exact same trough/cross/confirm math computed on the full per-ticker
+    array — used by the Module-1 discovery-outcome retest adapter for discovery
+    id=9 so it can verify out-of-sample fires without duplicating the detection
+    logic. No look-ahead: each candidate day only ever looks backward.
+
     Washout Ignition Signal (aiem_signal_discoveries id=9) — a stacked 3-step
     confirmation discovered by the agent (not AIEM chat) from 19 known winners
     (ORIC/MBX/AGYS/GPGI/GSHD/MPLT/ASTH/FLXS/KRT/QLYS/MAX/BKTI/NUTX/ATEX/ELF/CXT/
@@ -49114,20 +49536,39 @@ def _scan_washout_ignition_signal(save_to_db=True) -> list:
     Runs once daily (8:45 AM ET, right after polygon_market_daily is refreshed
     by the 8:35 AM Polygon RVOL job) against the latest completed trading day.
     """
-    import psycopg2 as _wi_pg, numpy as _wi_np
+    import psycopg2 as _wi_pg, numpy as _wi_np, datetime as _wi_dt
     from collections import defaultdict as _wi_dd
+
+    _bt_start = _bt_end = None
+    if backtest_range is not None:
+        _bt_start, _bt_end = backtest_range
+        if isinstance(_bt_start, str):
+            _bt_start = _wi_dt.date.fromisoformat(_bt_start)
+        if isinstance(_bt_end, str):
+            _bt_end = _wi_dt.date.fromisoformat(_bt_end)
 
     try:
         with _wi_pg.connect(os.environ["DATABASE_URL"], connect_timeout=5,
-                             options="-c statement_timeout=20000") as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT ticker, scan_date, open_price, high_price, low_price, close_price, volume
-                FROM polygon_market_daily
-                WHERE scan_date >= (SELECT MAX(scan_date) - INTERVAL '65 days' FROM polygon_market_daily)
-                  AND close_price BETWEEN 2 AND 500
-                  AND volume >= 300000
-                ORDER BY ticker, scan_date ASC
-            """)
+                             options="-c statement_timeout=30000") as conn, conn.cursor() as cur:
+            if backtest_range is None:
+                cur.execute("""
+                    SELECT ticker, scan_date, open_price, high_price, low_price, close_price, volume
+                    FROM polygon_market_daily
+                    WHERE scan_date >= (SELECT MAX(scan_date) - INTERVAL '65 days' FROM polygon_market_daily)
+                      AND close_price BETWEEN 2 AND 500
+                      AND volume >= 300000
+                    ORDER BY ticker, scan_date ASC
+                """)
+            else:
+                cur.execute("""
+                    SELECT ticker, scan_date, open_price, high_price, low_price, close_price, volume
+                    FROM polygon_market_daily
+                    WHERE scan_date >= %s::date - INTERVAL '90 days'
+                      AND scan_date <= %s
+                      AND close_price BETWEEN 2 AND 500
+                      AND volume >= 300000
+                    ORDER BY ticker, scan_date ASC
+                """, (_bt_start, _bt_end))
             rows = cur.fetchall()
     except Exception as _e:
         app.logger.error(f"[washout_ignition] fetch error: {_e}")
@@ -49144,7 +49585,7 @@ def _scan_washout_ignition_signal(save_to_db=True) -> list:
     fires = []
     for ticker, trows in by_ticker.items():
         n = len(trows)
-        if n < 35 or trows[-1][1] != latest_scan_date:
+        if n < 35:
             continue
 
         dates  = [r[1] for r in trows]
@@ -49198,52 +49639,62 @@ def _scan_washout_ignition_signal(save_to_db=True) -> list:
             prior_20d_high[i]   = float(_wi_np.max(highs[i - 20:i]))
             prior_20d_avgvol[i] = float(_wi_np.mean(vols[i - 20:i]))
 
-        today = n - 1
-        if prior_20d_high[today] is None or not prior_20d_avgvol[today]:
-            continue
-        confirm_today = (closes[today] > prior_20d_high[today]
-                          and vols[today] > 1.5 * prior_20d_avgvol[today]
-                          and rsi14[today] is not None and rsi14[today] >= 70)
-        if not confirm_today:
-            continue
+        if backtest_range is None:
+            # Live mode: preserve EXACT original behavior — only the single latest
+            # completed day, and only if this ticker actually has a fresh row for it.
+            candidate_todays = [n - 1] if dates[n - 1] == latest_scan_date else []
+        else:
+            # Backtest mode: check every historical day inside the requested range
+            # using the identical trough/cross/confirm math, no look-ahead (each
+            # candidate only ever looks backward at already-computed arrays).
+            candidate_todays = [i for i in range(34, n) if _bt_start <= dates[i] <= _bt_end]
 
-        cross_idx = None
-        for j in range(today, max(today - 10, 15) - 1, -1):
-            if (stoch_k[j] is not None and stoch_d[j] is not None
-                    and stoch_k[j - 1] is not None and stoch_d[j - 1] is not None
-                    and stoch_k[j - 1] <= stoch_d[j - 1] and stoch_k[j] > stoch_d[j]
-                    and rsi14[j] is not None and rsi14[j] > 50):
-                cross_idx = j
-                break
-        if cross_idx is None:
-            continue
+        for today in candidate_todays:
+            if prior_20d_high[today] is None or not prior_20d_avgvol[today]:
+                continue
+            confirm_today = (closes[today] > prior_20d_high[today]
+                              and vols[today] > 1.5 * prior_20d_avgvol[today]
+                              and rsi14[today] is not None and rsi14[today] >= 70)
+            if not confirm_today:
+                continue
 
-        trough_idx = None
-        for k in range(cross_idx, max(cross_idx - 10, 19) - 1, -1):
-            if (cmf[k] is not None and cmf[k] < -0.10 and cmf_20d_low[k]
-                    and rsi14[k] is not None and rsi14[k] < 35):
-                trough_idx = k
-                break
-        if trough_idx is None:
-            continue
+            cross_idx = None
+            for j in range(today, max(today - 10, 15) - 1, -1):
+                if (stoch_k[j] is not None and stoch_d[j] is not None
+                        and stoch_k[j - 1] is not None and stoch_d[j - 1] is not None
+                        and stoch_k[j - 1] <= stoch_d[j - 1] and stoch_k[j] > stoch_d[j]
+                        and rsi14[j] is not None and rsi14[j] > 50):
+                    cross_idx = j
+                    break
+            if cross_idx is None:
+                continue
 
-        fires.append({
-            "ticker": ticker,
-            "scan_date": str(dates[today]),
-            "trough_date": str(dates[trough_idx]),
-            "cross_date": str(dates[cross_idx]),
-            "cmf_at_trough": cmf[trough_idx],
-            "rsi_at_trough": rsi14[trough_idx],
-            "rsi_at_cross": rsi14[cross_idx],
-            "rsi_at_confirm": rsi14[today],
-            "close": round(float(closes[today]), 2),
-            "volume": int(vols[today]),
-            "vol_avg20": round(prior_20d_avgvol[today], 0),
-            "prior_20d_high": round(prior_20d_high[today], 2),
-            "breakout_pct": round((closes[today] / prior_20d_high[today] - 1) * 100, 2),
-            "vol_x": round(vols[today] / prior_20d_avgvol[today], 2),
-            "days_since_trough": today - trough_idx,
-        })
+            trough_idx = None
+            for k in range(cross_idx, max(cross_idx - 10, 19) - 1, -1):
+                if (cmf[k] is not None and cmf[k] < -0.10 and cmf_20d_low[k]
+                        and rsi14[k] is not None and rsi14[k] < 35):
+                    trough_idx = k
+                    break
+            if trough_idx is None:
+                continue
+
+            fires.append({
+                "ticker": ticker,
+                "scan_date": str(dates[today]),
+                "trough_date": str(dates[trough_idx]),
+                "cross_date": str(dates[cross_idx]),
+                "cmf_at_trough": cmf[trough_idx],
+                "rsi_at_trough": rsi14[trough_idx],
+                "rsi_at_cross": rsi14[cross_idx],
+                "rsi_at_confirm": rsi14[today],
+                "close": round(float(closes[today]), 2),
+                "volume": int(vols[today]),
+                "vol_avg20": round(prior_20d_avgvol[today], 0),
+                "prior_20d_high": round(prior_20d_high[today], 2),
+                "breakout_pct": round((closes[today] / prior_20d_high[today] - 1) * 100, 2),
+                "vol_x": round(vols[today] / prior_20d_avgvol[today], 2),
+                "days_since_trough": today - trough_idx,
+            })
 
     fires.sort(key=lambda f: f["breakout_pct"], reverse=True)
 
