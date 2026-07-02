@@ -1,0 +1,86 @@
+# Design Approval + Build Instructions — Feedback Loop + Notifications
+
+## Part A — Approval of the proposed design
+
+Message to send the agent:
+
+> Approved, with these confirmations locked in:
+>
+> 1. **Start with option (b)** — validated discoveries become a
+>    bonus/multiplier input read by _run_five_layer_conviction() at
+>    scoring time. Do NOT build option (a) (feeding discoveries back into
+>    the grid battery's search space) yet — that's phase 2, only after
+>    (b) is proven to help.
+>
+> 2. **Weekly scheduled job**, not immediate-on-validation, as you
+>    recommended.
+>
+> 3. **Human approval gate is required, not optional.** Build the staging
+>    table (status='pending_review') and admin-approval flip
+>    (status='live') exactly as proposed. Nothing reaches live scoring
+>    without my explicit approval.
+>
+> 4. **Measurement**: 6-week rolling window, minimum 30 resolved outcomes
+>    per side, stored in discovery_promotion_outcomes. Approved as
+>    proposed.
+>
+> One addition before you build: I need to actually be notified when
+> something needs my attention or has an update — not have to manually
+> query the database to find out. See Module 6 below; build this at the
+> same time, not as an afterthought.
+
+---
+
+## Part B — New Module 6: Notifications & Reporting
+
+**Purpose:** Ensure the person doesn't have to manually check the
+database to know what's happening — the system tells them.
+
+Instruction to give the agent:
+
+> Add a Module 6 alongside the feedback loop build. Before building,
+> answer these directly:
+>
+> 1. You previously found _send_aiem_daily_digest already exists in this
+>    codebase. Confirm: is it live and actually sending right now, and
+>    what channel does it use (email/Telegram)? Show raw evidence, not a
+>    description.
+> 2. Extend that existing digest (don't build a parallel notification
+>    system from scratch) to include:
+>    - Any new discovery sitting in discovery_promotions with
+>      status='pending_review' — flagged clearly as needing my approval
+>    - A weekly summary of currently-live promoted discoveries' tracked
+>      performance so far (from discovery_promotion_outcomes), even
+>      before the 6-week/30-outcome threshold is reached — partial
+>      progress is fine to show, just label it as "still gathering data"
+>      until the threshold is hit
+>    - Once a discovery crosses the 6-week/30-outcome threshold, a clear
+>      one-line verdict: outperforming baseline / underperforming
+>      baseline / no significant difference
+> 3. Confirm what cadence makes sense given the existing digest's
+>    schedule — daily, weekly, or immediate-on-pending-review (recommend:
+>    immediate notification when something needs approval, weekly summary
+>    for performance tracking, to avoid alert fatigue on the latter).
+> 4. Show raw proof this actually sends — a real triggered test with the
+>    actual message content, not a description of what it would contain.
+
+---
+
+## Part C — Build order (unchanged, still applies)
+
+> Do not build all modules at once. Build and verify in this order:
+> 1. Module 1 (Outcome Tracker) — build first, verify end-to-end with raw
+>    proof it ran and produced real rows, before touching anything else.
+> 2. Module 6 (Notifications) — build alongside Module 1 so pending items
+>    are visible from day one, not bolted on later.
+> 3. Module 2 (Decay & Failure Analyzer) — after Module 1 is confirmed
+>    working.
+> 4. Module 4 (Promotion Gate) — before Module 3, since the safety
+>    checkpoint should exist before there's anything to approve.
+> 5. Module 3 (Variant Generator) — gated by Module 4.
+> 6. Module 5 (Performance Dashboard) — last, once real promotion history
+>    exists to report on.
+>
+> After each module, show raw evidence it works (schema, real triggered
+> run, actual output) before moving to the next. Do not report a module
+> as complete without that proof — that standard hasn't changed.

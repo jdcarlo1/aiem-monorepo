@@ -1,0 +1,65 @@
+# Next Questions — Retestability Gap + Module 2 Go-Ahead
+
+## Context
+Module 1 (Outcome Tracker) is built and verified. Of 9 validated
+discoveries, only 1 can currently be mechanically re-tested — the other 8
+use pattern types (multi-day sequences, indicator-lag/delta features, the
+Washout Ignition multi-stage pattern) that the current re-check logic
+can't express as a simple rule. This needs to be addressed before Module
+2 (Decay & Failure Analyzer) is built, since Module 2 can only analyze
+data Module 1 actually produces — and right now that's 1 out of 9.
+
+---
+
+## Question 9 — Fix the retestability gap first
+
+Message to send the agent:
+
+> Before I approve Module 2, I want to address the retestability gap.
+> Right now only 1 of 9 discoveries can be re-checked — Module 2 would
+> only ever have real data from that 1, which isn't enough to build
+> meaningful failure analysis on.
+>
+> Specifically:
+>
+> 1. For each of the 8 non-retestable discoveries, what exactly makes it
+>    unmappable? Show the specific skip_reason for each one.
+> 2. Is this a limitation of the re-check function's design (fixable by
+>    extending it to handle multi-day/lag/multi-stage patterns), or a
+>    limitation of the discoveries' condition data itself (e.g. the
+>    original conditions_json wasn't stored in enough detail to replay
+>    them later)?
+> 3. If it's fixable: what would it take to extend
+>    _mkt_check_discovery_outcomes() to handle at least the multi-day
+>    ("prior day", "inside day") and indicator-lag/delta cases? Estimate
+>    the scope honestly — is this a small extension or a significant
+>    rebuild?
+> 4. If some pattern types (e.g. the Washout Ignition multi-stage
+>    sequence) genuinely can't be mechanically replayed with reasonable
+>    effort, say so plainly rather than forcing a fix. In that case,
+>    confirm: will FUTURE discoveries of this type also be
+>    unretestable, or is this specific to how these 9 happened to be
+>    recorded?
+>
+> Do not build Module 2 yet. Answer this first, with raw evidence for
+> each point — show the actual skip_reason strings and the actual
+> conditions_json for at least 2-3 of the non-retestable discoveries so
+> I can see exactly what's blocking them.
+
+---
+
+## Question 10 — Then, go-ahead on Module 2 (send only after Q9 is resolved)
+
+Message to send the agent once Question 9 is answered:
+
+> Based on your answer to Question 9: [if fixable] please extend the
+> re-check function to cover the additional pattern types before
+> building Module 2. [if not fixable / partially fixable] proceed with
+> Module 2 using what's currently retestable, but the Decay & Failure
+> Analyzer's output should clearly flag when its conclusions are based on
+> a small subset of discoveries (e.g. "based on 1 of 9 discoveries;
+> insufficient for general conclusions") rather than presenting findings
+> as if they cover the whole discovery set.
+>
+> Build Module 2 now. Same standard as always: raw evidence at each step,
+> not a description.
