@@ -1,0 +1,58 @@
+# Before Module 2 — One Question, Raw Answer Required
+
+**Instruction to agent:** Do not begin Module 2 (Decay & Failure
+Analyzer) work until this is answered. Raw data only, same standard as
+Question 9 — no "handled" or "resolved" language without showing the
+underlying mechanism.
+
+## The question
+
+Your Question 9 answer split the `retestable=False` signals into two
+fundamentally different categories:
+
+- **Category A (ids 1, 2, 3, 4):** blocked by generic-parser limitations
+  or insufficient calendar time. Custom backtest logic can close this gap
+  once enough forward days exist. id 1 already proves this works —
+  905 realized trades, 46.96% win rate, p=0.0.
+- **Category B (ids 5, 7, 8, 9):** blocked because the required
+  indicator columns (RSI, CMF, Stochastic, lagged deltas, pattern flags
+  like "cross"/"funnel"/"trough") **do not exist anywhere in
+  `polygon_market_daily` or any other table** — confirmed against the
+  actual schema. No backtest logic, however custom, can retest these
+  without first building and backfilling that data.
+
+Given this split, answer directly:
+
+1. **For Category B specifically** — what would it actually take to make
+   these retestable? Name the specific indicator columns that would need
+   to be added, which table(s) they'd live in, and roughly how much
+   historical backfill would be required (e.g., can it be computed from
+   existing OHLCV data retroactively, or does it require data that was
+   never captured and can only start accumulating from today forward)?
+
+2. **Should Module 2 (Decay & Failure Analyzer) treat Category A and
+   Category B differently?** Category A signals can eventually earn a
+   real decay/failure verdict once enough time and custom logic exist.
+   Category B signals may be structurally unable to receive any verdict
+   until new data infrastructure is built. Confirm whether Module 2
+   should:
+   - Actively evaluate Category A signals now (or as soon as the
+     forward-window requirement is met), and
+   - Explicitly flag Category B signals as "unevaluable — missing
+     source data" rather than silently skipping them or reporting them
+     as "hypothesis" with no explanation.
+
+3. **id 1 status decision input only — do not act.** id 1 now has two
+   independent confirmations of negative, statistically significant
+   performance (n=905, 46.96% win rate, p=0.0). Is there any remaining
+   data-quality concern with this result, or is it clean enough that a
+   human decision on retiring `validated` status can be made from it as-is?
+
+## Standing rule
+
+No proposal for Module 2's design should quietly merge Category A and
+Category B into one uniform "pending" bucket — that would recreate the
+exact kind of fabricated-confidence problem this audit already caught
+twice. If a genuinely unified design is possible without hiding the
+distinction, explain how it preserves the distinction; otherwise keep
+them separate.
