@@ -129,3 +129,4 @@
 - [Probability engine shadow-log leakage](probability-engine-shadow-log-leakage.md) — fixed 2026-07-02 via model_registry versioning; both follow-up gaps (blended endpoint, 12 mislabeled pit_safe rows) resolved 2026-07-03 with DB-level proof
 - [XGBoost native TreeSHAP attribution](xgboost-native-treeshap-attribution.md) — pred_contribs=True gives signed per-feature Shapley attribution with no `shap` package; assert vs predict_proba at 1e-4 (not 1e-6, float32 drift)
 - [Admin-token route consistency](admin-token-route-consistency.md) — sibling GET/POST routes on the same admin-gated resource must copy the SAME auth check; a skeptical auditor will find the unguarded one
+- [AIEM auto-minted verify links + history page](aiem-verify-link-automation.md) — every completed session auto-mints its own 7-day tappable verify link (stored on the row); history page reuses it, never re-mints

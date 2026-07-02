@@ -47833,15 +47833,28 @@ def _aiem_verify(job_id: str, timestamp: str, response_text: str, signature: str
 
 def _qa_db_update(job_id: str, status: str, answer=None, error=None,
                   current_tool=None, tool_trace=None, openai_response_id=None):
-    """Thread-safe DB update for a quant_agent_sessions row."""
+    """Thread-safe DB update for a quant_agent_sessions row.
+
+    When a session finishes signed (status='done' + answer present), this also
+    auto-mints a long-lived (_VERIFY_LINK_TTL_MINUTES) job-scoped verify-link
+    token and stores it on the row, so every completed response can carry its
+    own tappable verify_url without a separate admin mint call.
+    """
     import psycopg2 as _qpg, json as _qj, time as _qt
     _sig = None
     _signed_ts = None
     if status == "done" and answer:
         _signed_ts = str(int(_qt.time()))
         _sig = _aiem_sign(job_id, _signed_ts, answer, openai_response_id or "")
+    _verify_token = None
+    _verify_expires = None
     try:
         with _qpg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            if _sig:
+                try:
+                    _verify_token, _verify_expires = _mint_verify_link_token(_cu, job_id)
+                except Exception as _mt_e:
+                    print(f"[quant_agent] verify-link auto-mint error (non-fatal): {_mt_e}")
             _cu.execute(
                 """UPDATE quant_agent_sessions
                    SET status=%s, answer=%s, error=%s,
@@ -47849,7 +47862,9 @@ def _qa_db_update(job_id: str, status: str, answer=None, error=None,
                        aiem_signature=%s,
                        signed_at=CASE WHEN %s IS NOT NULL THEN NOW() ELSE signed_at END,
                        signed_ts=%s,
-                       openai_response_id=%s
+                       openai_response_id=%s,
+                       verify_token=COALESCE(%s, verify_token),
+                       verify_token_expires_at=COALESCE(%s, verify_token_expires_at)
                    WHERE job_id=%s""",
                 (status, answer, error,
                  current_tool,
@@ -47857,6 +47872,7 @@ def _qa_db_update(job_id: str, status: str, answer=None, error=None,
                  _sig, _sig,
                  _signed_ts,
                  openai_response_id,
+                 _verify_token, _verify_expires,
                  job_id)
             )
             _c.commit()
@@ -47887,6 +47903,17 @@ def reconcile_orphaned_sessions():
             _cu.execute("""
                 ALTER TABLE quant_agent_sessions
                 ADD COLUMN IF NOT EXISTS has_image BOOLEAN NOT NULL DEFAULT FALSE
+            """)
+            # verify_token / verify_token_expires_at: auto-minted browser-tappable
+            # verify link, stored on the row so every completed response can
+            # include its own verify_url with no extra admin mint call.
+            _cu.execute("""
+                ALTER TABLE quant_agent_sessions
+                ADD COLUMN IF NOT EXISTS verify_token TEXT
+            """)
+            _cu.execute("""
+                ALTER TABLE quant_agent_sessions
+                ADD COLUMN IF NOT EXISTS verify_token_expires_at TIMESTAMPTZ
             """)
             _c.commit()
             _cu.execute(
@@ -48153,26 +48180,39 @@ def aiem_chat_start():
 
 @app.route("/stock-api/aiem/chat/<job_id>", methods=["GET"])
 def aiem_chat_poll(job_id):
-    """Poll for a Quant Agent research result."""
-    import psycopg2 as _pp, json as _ppj
+    """Poll for a Quant Agent research result.
+
+    Once the session is signed, this includes a permanent verify_url — a
+    browser-tappable link (auto-minted in _qa_db_update, valid for
+    _VERIFY_LINK_TTL_MINUTES) so no separate admin call is needed to get one.
+    """
+    import psycopg2 as _pp, json as _ppj, os as _ppos
     try:
         with _pp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute(
                 """SELECT status, answer, error, current_tool, tool_trace, created_at,
-                          aiem_signature, signed_at
+                          aiem_signature, signed_at, verify_token, verify_token_expires_at
                    FROM quant_agent_sessions WHERE job_id=%s""",
                 (job_id,)
             )
             row = _cu.fetchone()
             if not row:
                 return jsonify({"error": "job not found"}), 404
-            status, answer, error, current_tool, tool_trace_raw, created_at, aiem_sig, signed_at = row
+            (status, answer, error, current_tool, tool_trace_raw, created_at,
+             aiem_sig, signed_at, verify_token, verify_token_expires_at) = row
             tool_trace = None
             if tool_trace_raw:
                 try:
                     tool_trace = _ppj.loads(tool_trace_raw) if isinstance(tool_trace_raw, str) else tool_trace_raw
                 except Exception:
                     tool_trace = None
+
+            verify_url = f"/stock-api/aiem/verify/{job_id}"  # fallback: admin-header-gated
+            if verify_token:
+                _host = _ppos.environ.get("REPLIT_DEV_DOMAIN", "")
+                _path = f"/stock-api/aiem/verify-link/{job_id}?token={verify_token}"
+                verify_url = f"https://{_host}{_path}" if _host else _path
+
             return jsonify({
                 "job_id":          job_id,
                 "status":          status,
@@ -48183,7 +48223,8 @@ def aiem_chat_poll(job_id):
                 "created_at":      created_at.isoformat() if created_at else None,
                 "aiem_signature":  aiem_sig,
                 "signed_at":       signed_at.isoformat() if signed_at else None,
-                "verify_url":      f"/stock-api/aiem/verify/{job_id}",
+                "verify_url":      verify_url,
+                "verify_url_expires_at": verify_token_expires_at.isoformat() if verify_token_expires_at else None,
             })
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
@@ -48315,10 +48356,14 @@ def aiem_verify(job_id):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Browser-tappable verify link: short-lived, job-scoped token (NOT ADMIN_TOKEN)
-# so a phone browser can hit /verify-link/<job_id>?token=... without headers.
+# Browser-tappable verify link: long-lived-but-expiring, job-scoped token
+# (NOT ADMIN_TOKEN) so a phone browser can hit /verify-link/<job_id>?token=...
+# without headers. Auto-minted on every completed+signed session (see
+# _qa_db_update) so verify_url just shows up in the poll response — no
+# separate admin call needed for the common case.
 # ──────────────────────────────────────────────────────────────────────────
-_VERIFY_LINK_TTL_MINUTES = 20
+_VERIFY_LINK_TTL_MINUTES = 60 * 24 * 7   # 7 days — long enough to sit in job history
+_VERIFY_LINK_TTL_MAX_MINUTES = 60 * 24 * 30  # hard cap on manual override: 30 days
 
 
 def _verify_link_ensure_table(_cu):
@@ -48332,15 +48377,32 @@ def _verify_link_ensure_table(_cu):
     """)
 
 
+def _mint_verify_link_token(_cu, job_id, ttl_minutes=None):
+    """Shared mint logic used both by the admin mint endpoint and the
+    auto-mint in _qa_db_update. Returns (token, expires_at)."""
+    import secrets as _vsec
+    from datetime import datetime as _vdt, timedelta as _vtd, timezone as _vtz
+    ttl_minutes = ttl_minutes or _VERIFY_LINK_TTL_MINUTES
+    _verify_link_ensure_table(_cu)
+    token = _vsec.token_urlsafe(24)
+    expires_at = _vdt.now(_vtz.utc) + _vtd(minutes=ttl_minutes)
+    _cu.execute(
+        "INSERT INTO aiem_verify_link_tokens (token, job_id, expires_at) VALUES (%s, %s, %s)",
+        (token, job_id, expires_at),
+    )
+    return token, expires_at
+
+
 @app.route("/stock-api/aiem/admin/mint-verify-link", methods=["POST"])
 def aiem_mint_verify_link():
-    """Admin-only: mint a short-lived, job-scoped token for the browser-tappable
-    verify link. SAME auth check as /stock-api/aiem/verify/<job_id> (X-API-Key
-    header or ?api_key= must match ADMIN_TOKEN) — kept identical on purpose so a
-    sibling GET/POST auth-consistency audit never finds this route unguarded.
+    """Admin-only: mint a job-scoped token for the browser-tappable verify link
+    (used for one-off/manual re-mints — most jobs already get one automatically
+    on completion, see _qa_db_update). SAME auth check as
+    /stock-api/aiem/verify/<job_id> (X-API-Key header or ?api_key= must match
+    ADMIN_TOKEN) — kept identical on purpose so a sibling GET/POST
+    auth-consistency audit never finds this route unguarded.
     """
-    import os as _mos, hmac as _mh, psycopg2 as _mp, secrets as _msec
-    from datetime import datetime as _mdt, timedelta as _mtd, timezone as _mtz
+    import os as _mos, hmac as _mh, psycopg2 as _mp
 
     _expected_key = _mos.environ.get("ADMIN_TOKEN", "")
     _provided_key = request.headers.get("X-API-Key") or request.args.get("api_key") or ""
@@ -48352,22 +48414,21 @@ def aiem_mint_verify_link():
     if not job_id:
         return jsonify({"error": "job_id is required"}), 400
 
-    token = _msec.token_urlsafe(24)
-    expires_at = _mdt.now(_mtz.utc) + _mtd(minutes=_VERIFY_LINK_TTL_MINUTES)
+    try:
+        ttl_minutes = int(data.get("ttl_minutes") or _VERIFY_LINK_TTL_MINUTES)
+    except Exception:
+        ttl_minutes = _VERIFY_LINK_TTL_MINUTES
+    ttl_minutes = max(1, min(ttl_minutes, _VERIFY_LINK_TTL_MAX_MINUTES))
 
     try:
         with _mp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
-            _verify_link_ensure_table(_cu)
             _cu.execute(
                 "SELECT status FROM quant_agent_sessions WHERE job_id=%s",
                 (job_id,),
             )
             if not _cu.fetchone():
                 return jsonify({"error": f"job_id {job_id} not found"}), 404
-            _cu.execute(
-                "INSERT INTO aiem_verify_link_tokens (token, job_id, expires_at) VALUES (%s, %s, %s)",
-                (token, job_id, expires_at),
-            )
+            token, expires_at = _mint_verify_link_token(_cu, job_id, ttl_minutes)
             _c.commit()
     except Exception as _e:
         return jsonify({"error": f"DB error: {_e}"}), 500
@@ -48379,9 +48440,9 @@ def aiem_mint_verify_link():
         "verify_link_url":  (f"https://{_host}{_path}" if _host else None),
         "job_id":           job_id,
         "expires_at":       expires_at.isoformat(),
-        "ttl_minutes":      _VERIFY_LINK_TTL_MINUTES,
+        "ttl_minutes":      ttl_minutes,
         "note":             "Token is single-purpose: scoped to this job_id only, expires in "
-                             f"{_VERIFY_LINK_TTL_MINUTES} minutes, and is NOT the ADMIN_TOKEN.",
+                             f"{ttl_minutes} minutes, and is NOT the ADMIN_TOKEN.",
     })
 
 
@@ -48491,6 +48552,152 @@ def aiem_verify_link(job_id):
             })
     except Exception as _e:
         return jsonify({"verified": False, "error": str(_e)}), 500
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# History page: lists the last N sessions with per-row tap-to-verify links.
+# Gated by its own long-lived-but-expiring token (NOT ADMIN_TOKEN) so it can
+# be bookmarked in a phone browser, same model as the per-job verify link.
+# ──────────────────────────────────────────────────────────────────────────
+def _history_link_ensure_table(_cu):
+    _cu.execute("""
+        CREATE TABLE IF NOT EXISTS aiem_history_tokens (
+            token      TEXT PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at TIMESTAMPTZ NOT NULL
+        )
+    """)
+
+
+@app.route("/stock-api/aiem/admin/mint-history-link", methods=["POST"])
+def aiem_mint_history_link():
+    """Admin-only: mint a token for the browser-tappable /aiem/history page.
+    SAME auth check as the other admin mint/verify routes (X-API-Key header or
+    ?api_key= must match ADMIN_TOKEN) — kept identical on purpose.
+    """
+    import os as _hmos, hmac as _hmh, psycopg2 as _hmp, secrets as _hmsec
+    from datetime import datetime as _hmdt, timedelta as _hmtd, timezone as _hmtz
+
+    _expected_key = _hmos.environ.get("ADMIN_TOKEN", "")
+    _provided_key = request.headers.get("X-API-Key") or request.args.get("api_key") or ""
+    if not _expected_key or not _hmh.compare_digest(_expected_key, _provided_key):
+        return jsonify({"error": "Unauthorized — provide a valid X-API-Key header or ?api_key= param"}), 401
+
+    data = request.get_json(silent=True) or {}
+    try:
+        ttl_minutes = int(data.get("ttl_minutes") or _VERIFY_LINK_TTL_MINUTES)
+    except Exception:
+        ttl_minutes = _VERIFY_LINK_TTL_MINUTES
+    ttl_minutes = max(1, min(ttl_minutes, _VERIFY_LINK_TTL_MAX_MINUTES))
+
+    token = _hmsec.token_urlsafe(24)
+    expires_at = _hmdt.now(_hmtz.utc) + _hmtd(minutes=ttl_minutes)
+    try:
+        with _hmp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _history_link_ensure_table(_cu)
+            _cu.execute(
+                "INSERT INTO aiem_history_tokens (token, expires_at) VALUES (%s, %s)",
+                (token, expires_at),
+            )
+            _c.commit()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+
+    _host = _hmos.environ.get("REPLIT_DEV_DOMAIN", "")
+    _path = f"/stock-api/aiem/history?token={token}"
+    return jsonify({
+        "history_link_path": _path,
+        "history_link_url":  (f"https://{_host}{_path}" if _host else None),
+        "expires_at":        expires_at.isoformat(),
+        "ttl_minutes":       ttl_minutes,
+        "note":              "Token grants read access to the last 50 job summaries + their own "
+                              f"per-job verify links. Expires in {ttl_minutes} minutes. NOT the ADMIN_TOKEN.",
+    })
+
+
+@app.route("/stock-api/aiem/history", methods=["GET"])
+def aiem_history_page():
+    """Browser-tappable HTML page listing the last 50 AIEM sessions, each with
+    its own Verify link (reusing the per-job verify_token minted in
+    _qa_db_update). Access is gated by ?token= from
+    POST /stock-api/aiem/admin/mint-history-link — not the ADMIN_TOKEN.
+    """
+    import html as _hhtml, psycopg2 as _hp
+    from datetime import datetime as _hdt, timezone as _htz
+
+    token = (request.args.get("token") or "").strip()
+    if not token:
+        return "Missing ?token= query param", 400
+
+    _client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    if _verify_check_rate_limit(_client_ip):
+        return f"Rate limit exceeded — max {_VERIFY_RATE_MAX} requests per {_VERIFY_RATE_WINDOW}s", 429
+
+    try:
+        with _hp.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _history_link_ensure_table(_cu)
+            _cu.execute(
+                "SELECT expires_at FROM aiem_history_tokens WHERE token=%s",
+                (token,),
+            )
+            trow = _cu.fetchone()
+            if not trow:
+                return "Invalid or unknown token", 403
+            (expires_at,) = trow
+            if _hdt.now(_htz.utc) > expires_at:
+                return f"Token expired at {expires_at.isoformat()} — mint a new one", 403
+
+            _cu.execute(
+                """SELECT job_id, question, status, created_at,
+                          verify_token, verify_token_expires_at
+                   FROM quant_agent_sessions
+                   ORDER BY created_at DESC
+                   LIMIT 50"""
+            )
+            rows = _cu.fetchall()
+    except Exception as _e:
+        return f"DB error: {_hhtml.escape(str(_e))}", 500
+
+    import os as _hos
+    _host = _hos.environ.get("REPLIT_DEV_DOMAIN", "")
+    _now = _hdt.now(_htz.utc)
+
+    rows_html = []
+    for job_id, question, status, created_at, v_token, v_expires in rows:
+        q_short = _hhtml.escape((question or "")[:90])
+        created_str = created_at.isoformat() if created_at else ""
+        if v_token and v_expires and v_expires > _now:
+            _vpath = f"/stock-api/aiem/verify-link/{job_id}?token={v_token}"
+            v_url = f"https://{_host}{_vpath}" if _host else _vpath
+            verify_cell = f'<a href="{_hhtml.escape(v_url)}">Verify ✓</a>'
+        else:
+            verify_cell = '<span style="color:#999">link expired</span>'
+        rows_html.append(
+            f"<tr><td>{_hhtml.escape(created_str)}</td>"
+            f"<td>{_hhtml.escape(status or '')}</td>"
+            f"<td>{q_short}</td>"
+            f"<td>{verify_cell}</td></tr>"
+        )
+
+    page = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIEM Session History</title>
+<style>
+body {{ font-family: -apple-system, sans-serif; margin: 16px; background:#0b0f14; color:#e6edf3; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
+th, td {{ text-align: left; padding: 8px; border-bottom: 1px solid #2a2f36; vertical-align: top; }}
+th {{ color: #9aa4af; font-weight: 600; }}
+a {{ color: #58a6ff; text-decoration: none; }}
+h2 {{ font-size: 18px; }}
+</style></head>
+<body>
+<h2>AIEM Session History (last {len(rows)})</h2>
+<table>
+<tr><th>Created (UTC)</th><th>Status</th><th>Question</th><th>Verify</th></tr>
+{''.join(rows_html)}
+</table>
+</body></html>"""
+    return page, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @app.route("/stock-api/aiem/chat/history", methods=["GET"])
