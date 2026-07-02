@@ -1,0 +1,116 @@
+# Verification Request — Gate-Integrity Audit Follow-Up
+
+I need 100% proof on the items below. No summaries, no "all tests passing," no "verified" claims without the raw output attached. Show me the actual terminal output, actual query results, actual code — run it live, right now, don't reference a prior result. No more games.
+
+## 1. Force-bypass audit
+
+- Run `grep -rn "force=True\|force = True" .` across the entire codebase. Paste the raw output.
+- For every call site found, show the surrounding 10 lines of code.
+- Run `grep -n "force: bool" aiem_module4_gate.py main.py` and paste the output — confirm the default is `False` everywhere it's declared.
+- Run `SELECT * FROM aiem_signal_actions WHERE reason LIKE '%FORCE-OVERRIDE%'` and paste the raw result. Is this table empty, or has force already been used? I want the actual rows, not a yes/no.
+
+## 2. id=4 retirement proof
+
+- Paste the raw SQL query and its live output that produces n=337, WR=50.45%, p=0.592. Run it now.
+- Paste the raw SQL query and output for the original claimed n=2224 so I can see exactly where the two diverge.
+- Show the actual p-value calculation — inputs, formula/function call, and both p-values side by side — that produced the "12 orders of magnitude" inconsistency claim.
+
+## 3. LAG test verification (id=2, id=3)
+
+- Paste the full current source of `run_fisher_test_lag()`.
+- id=3 (n=261): run the query fresh and paste the raw non-overlapping trade count, win rate, and p-value.
+- Re-run id=3's test with `pm.range_pct` and `pm.volume` excluded from the CTEs. Paste the output. Does the result change at all? This checks for lookahead introduced by the new columns.
+- id=2 (n=17): do not call this "suggestive." Relabel it in `aiem_discovery_outcomes` as insufficient sample size / underpowered. Paste the updated row.
+- Paste the actual `PARTITION BY` / `ORDER BY` clause used in the LAG(1) window functions. I want to verify there's no cross-contamination between different tickers' time series.
+
+## 4. id=4 — reconcile the three different n values
+
+Telegram gate notification (6:14 PM) shows realized stats for id=4 as **n=9, WR=55.56%, p=0.3936**. This is a THIRD different number from this signal — the original hand-entered claim was n=2224, and the earlier audit session told me the "real" recomputed number was n=337 (WR=50.45%, p=0.592). Now production is firing off n=9.
+
+- Paste the raw SQL query and live output showing exactly how "n=9" was computed for this gate check, and what date range / filter produced it.
+- Paste the raw SQL query and live output for the n=337 figure from the prior session, using the same filter logic.
+- Explain, with query output for each, why these two numbers differ. Same signal, same underlying data — they should not diverge unless the filters or lookback windows are different. If they are different, show exactly what's different and why.
+- Confirm which of these numbers (if either) the retirement decision should actually be based on, and why.
+
+## 5. id=1 — unrounded p-value
+
+Telegram shows id=1's p-value as exactly **p=0.0**. That's an implausible level of precision for a real statistical test.
+
+- Paste the raw, unrounded/unformatted p-value (full float precision, not truncated display) for id=1's n=905 result.
+- Show the exact statistical test/function call and inputs used to produce it.
+- Confirm whether "0.0" is a genuine result or a float underflow / display rounding artifact.
+
+## 7. Force=True grep — separate the real hits from noise
+
+The last grep dump conflated two unrelated things. Most matches (`body = request.get_json(force=True) or {}`) are Flask's standard `request.get_json(force=True)` idiom — this just tells Flask to parse the body as JSON regardless of Content-Type header, and has nothing to do with the gate-bypass logic. Only `aiem_module4_gate.py:155/191/197`, `main.py:10678` (`run_news_catalyst_scan(force=True)`), and `news_catalyst.py:250` are actually relevant to the gate bypass.
+
+- Redo this: give me ONLY the gate-bypass-relevant `force=True` call sites (the ones that actually skip a validation/time-gate), with 10 lines of surrounding context each. Do not include the Flask `get_json(force=True)` noise.
+- For each real hit, confirm: is this bypass currently reachable from any live/production code path, or only from test/dev code?
+- Finish what was asked in item 1 — you stopped partway through. I still need: confirmation `force` defaults to `False` everywhere, and the raw `aiem_signal_actions` query output showing whether force has ever fired in production.
+
+## 8. `.bak_silent_except` files — explain these
+
+The grep output surfaced multiple files named `main.py.bak_silent_except` (e.g. lines around 10310, 36628, 37013, 41343). That naming pattern strongly suggests a backup taken around a change involving silently swallowed exceptions (`try/except: pass` or similar) — which in a trading/signal system could hide real errors instead of surfacing them.
+
+- What are these `.bak_silent_except` files, when were they created, and what changed between them and the current `main.py`?
+- Run `diff` between the current `main.py` and the relevant `.bak_silent_except` file(s) and paste the raw output.
+- Confirm whether any silent exception-swallowing (bare `except:` or `except: pass`, or logging suppressed) currently exists anywhere in the live `main.py`. Paste the raw grep output for `except:` and `except Exception:` blocks with their handling code shown.
+
+## 9. Full per-layer signal integrity audit (AIEM Layers 1–9 + Probability Engine)
+
+**Instructions for how to run this section: do NOT answer all of these at once. Go layer by layer. Finish one layer completely, with raw proof for every bullet, before moving to the next. If you rush and give a partial or summarized answer for any layer, I will send it back and you redo that layer only.**
+
+For EACH layer below, answer all five questions with raw output — no exceptions:
+
+**A. Show me the code.** Paste the actual function/query that computes this layer's score, current version, in full.
+
+**B. Prove it's point-in-time correct (no lookahead).** Show me exactly which data each calculation uses, and confirm none of it could only be known after the fact (e.g. using a day's closing data to score a signal that fired intraday, or using data from after the signal date). If there's a `PARTITION BY` / `ORDER BY` / LAG window involved, paste it and confirm no cross-ticker or cross-time contamination.
+
+**C. Run it live and show the raw output.** Recompute this layer's current stats (n, win rate, p-value, or whatever its scoring output is) right now, from the actual database, and paste the unrounded raw result.
+
+**D. Reproducibility check.** Pull up whatever this layer's stats are recorded as elsewhere (dashboard, stored table, prior claim) and compare to the live number from (C). If they don't match, explain exactly why, with both queries shown side by side — do not paraphrase the discrepancy away.
+
+**E. Failure/edge case check.** What happens when this layer has insufficient data (n too small) or missing inputs? Show the actual fallback/error-handling code. Confirm it does NOT silently default to a neutral or favorable score — it should flag as "insufficient data," not quietly count as a normal pass.
+
+---
+
+### Layer 1 — OI Build
+### Layer 2 — Gamma
+### Layer 3 — Charm
+### Layer 4 — Squeeze Fuel
+### Layer 5 — Dark Pool
+### Layer 6 — Float OD
+### Layer 7 — Sweep
+### Layer 8 — Sector Heat
+### Layer 9 — Statistical Layer (the one already partially covered in items 2–5 above — still needs A/B/E answered fully)
+
+### Probability Engine (live-query)
+- Same A–E structure.
+- Additionally: show the exact query used at serve-time (when a user/subscriber requests a probability) and confirm it's identical to the query used during backtesting/validation. A common failure mode is the live-serving query silently drifting from the validated query over time — prove they match line for line, or explain every difference.
+
+### Layer 10 — Fragility & Crowding Index (if implemented)
+- Same A–E structure, since you mentioned this is still in development — if it's not live yet, confirm explicitly it is NOT contributing to any live conviction score or customer-facing output yet.
+
+---
+
+## 10. Cross-layer consistency
+
+- Show me one real, current ticker/signal example where ALL layers fired together, with each layer's raw contributing score, and the final combined conviction score. I want to see the actual math from raw inputs to final number for one real case, end to end.
+- Confirm the combined/final conviction score formula (how the 9 layers combine) — paste the actual weighting/combination code.
+
+## 12. n=337 backtest — bucket_id / "non-overlapping" claim doesn't hold up
+
+The n=337 backtest query uses `bucket_id = (rn-1)/1` where `rn` comes from `ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY scan_date)`. With a bucket size of 1, `rn` is already unique per (ticker, date) — so `bucket_id` is too. That means the following `DISTINCT ON (ticker, bucket_id)` dedup step removes nothing, because there's nothing to deduplicate. Functionally this query is just a plain per-row scan, identical to not bucketing at all.
+
+This was described as "rigorous non-overlapping LAG-aware testing," which overstates what the query actually does. If the intent was to prevent overlapping multi-day holding periods from double-counting the same move, an H=1 bucket doesn't test that at all — it would need H>1 (a real holding-period window) or explicit exclusion logic to matter.
+
+- Confirm directly: with H=1, is `bucket_id` a no-op? Yes or no.
+- If yes: stop calling this "non-overlapping" testing anywhere in documentation, Telegram messages, or code comments — that language implies a level of rigor this query doesn't have. Either fix the bucketing to use a real H>1 window that actually removes overlap, or relabel this as a plain per-row backtest.
+- If you fix it to a real non-overlapping window, re-run the n=337 backtest with the corrected logic and show whether n, WR, and p change.
+
+## 13. General (final)
+
+- Run the full test suite. Paste the raw pass/fail output — every line, not a summary.
+- After all layers above are verified: give me a plain list of which layers are FULLY verified with raw proof, which are PARTIALLY verified, and which FAILED verification or are NOT YET production-safe. No layer should be marked verified without the A–E proof above attached.
+
+**Every item above needs pasted raw output attached to it. If something can't be verified with raw proof, say so explicitly instead of rounding up to "confirmed." Go one layer at a time. Do not skip ahead.**

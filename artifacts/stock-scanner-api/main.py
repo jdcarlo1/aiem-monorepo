@@ -2738,8 +2738,8 @@ try:
                         )
                 try:
                     _tg_send("\n".join(lines))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    print(f'[silent_except:L2741] {type(_exc).__name__}: {_exc}')
         except Exception as _e:
             print(f"[module6] scheduler error: {_e}")
     _scheduler.add_job(
@@ -2784,8 +2784,8 @@ try:
                         )
                 try:
                     _tg_send("\n".join(lines))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    print(f'[silent_except:L2787] {type(_exc).__name__}: {_exc}')
         except Exception as _e:
             print(f"[module7] scheduler error: {_e}")
     _scheduler.add_job(
@@ -13988,7 +13988,8 @@ def _get_charm_cascade_signals(min_oi: int = 100) -> list:
         except Exception as _exc:
             print(f"[silent_except:L13622] {type(_exc).__name__}: {_exc}")
         return rows
-    except Exception:
+    except Exception as _charm_exc:
+        print(f"[_get_charm_cascade_signals] {type(_charm_exc).__name__}: {_charm_exc}")
         return []
 
 
@@ -17013,8 +17014,8 @@ def _aiem_indep_tool_save_independent_picks(stock_picks=None, option_picks=None)
                         _dte = (_sip_dt.date.fromisoformat(str(expiry_str)) - _sip_dt.date.today()).days
                         if _dte > 0:
                             d = min(d, _dte)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        print(f'[silent_except:L17016] {type(_exc).__name__}: {_exc}')
                 return d
 
             stock_picks = sorted(stock_picks or [], key=lambda p: float(p.get("confidence_score") or 0), reverse=True)[:20]
@@ -23038,8 +23039,8 @@ def _mkt_backfill_indicators_all():
                     errors += 1
                     try:
                         conn.rollback()
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        print(f'[silent_except:L23041] {type(_exc).__name__}: {_exc}')
                 else:
                     written += n
                 done += 1
@@ -23077,8 +23078,8 @@ def _mkt_update_indicators_incremental(scan_date, tickers):
                     errors += 1
                     try:
                         conn.rollback()
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        print(f'[silent_except:L23080] {type(_exc).__name__}: {_exc}')
                 else:
                     written += n
     except Exception as e:
@@ -34778,8 +34779,8 @@ def _aiem_paper_mark_to_market():
             if _social_sentiment:
                 try:
                     _sent_snap = _social_sentiment.compute_sentiment_snapshot(_t)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    print(f'[silent_except:L34781] {type(_exc).__name__}: {_exc}')
             if _sent_snap and _sent_snap.get("bullish_pct") is not None:
                 _pos_entry["social_sentiment_bullish_pct"] = _sent_snap.get("bullish_pct")
 
@@ -34808,8 +34809,8 @@ def _aiem_paper_mark_to_market():
                     _wv = _specialist_council.compute_weighted_verdict(_opinions)
                     # -1 = council leans EXIT/bearish, +1 = council leans HOLD/bullish
                     _pos_entry["specialist_council_score"] = round(_wv.get("weighted_vote", 0), 3)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    print(f'[silent_except:L34811] {type(_exc).__name__}: {_exc}')
 
             _positions_for_ai.append(_pos_entry)
 
@@ -50489,8 +50490,8 @@ def admin_module4_approve():
             ]
             try:
                 _tg_send("\n".join(_tg_lines))
-            except Exception:
-                pass
+            except Exception as _exc:
+                print(f'[silent_except:L50492] {type(_exc).__name__}: {_exc}')
             if action == "retire" and _m6 is not None:
                 import threading as _m6_threading
                 _m6_disc_id = disc_id
@@ -51426,8 +51427,8 @@ def aiem_verify_link(job_id):
                      verified, None if verified else "HMAC mismatch (verify-link)"),
                 )
                 _c.commit()
-            except Exception:
-                pass
+            except Exception as _exc:
+                print(f'[silent_except:L51429] {type(_exc).__name__}: {_exc}')
 
             return jsonify({
                 "verified":           verified,
