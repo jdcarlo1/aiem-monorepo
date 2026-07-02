@@ -33486,6 +33486,96 @@ def aiem_probability_engine_force_run():
         return jsonify({"error": str(_e)}), 500
 
 
+@app.route("/stock-api/aiem-probability-engine/live-query", methods=["POST"])
+def aiem_probability_engine_live_query():
+    """
+    Live, single-ticker "what does AIEM say right now" query, per the
+    audit spec: signed HMAC payload (aiem_provenance.py), honest
+    pit_status='live_unsettled' (never falsely 'pit_safe'), and a real
+    per-row signed layer attribution.
+
+    Same isolation contract as force-run above: live_query.py is invoked
+    as an independent OS subprocess (never imported), and this route
+    synchronously waits for its stdout (bounded by timeout) because the
+    caller needs the signed payload back in the response, not a
+    fire-and-forget "started" ack.
+
+    Body: {"ticker": "AAPL"} OR {"mode": "auto"|"find-conflict"|"find-null"}
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    import json as _lq_json
+    body = request.get_json(silent=True) or {}
+    ticker = (body.get("ticker") or "").strip().upper()
+    mode = (body.get("mode") or "").strip().lower()
+    try:
+        import subprocess as _lq_subproc
+        _pkg_dir = _os_env.path.join(_os_env.path.dirname(_os_env.path.abspath(__file__)), "aiem_probability_engine")
+        if ticker:
+            _args = ["python3", "live_query.py", "--ticker", ticker, "--json"]
+        elif mode == "find-conflict":
+            _args = ["python3", "live_query.py", "--find-conflict", "--json"]
+        elif mode == "find-null":
+            _args = ["python3", "live_query.py", "--find-null", "--json"]
+        else:
+            _args = ["python3", "live_query.py", "--auto", "--json"]
+        _proc = _lq_subproc.run(
+            _args, cwd=_pkg_dir, capture_output=True, text=True, timeout=90,
+        )
+        if _proc.returncode != 0:
+            return jsonify({
+                "error": "live_query.py exited non-zero",
+                "returncode": _proc.returncode,
+                "stderr_tail": _proc.stderr[-4000:] if _proc.stderr else None,
+            }), 500
+        try:
+            result = _lq_json.loads(_proc.stdout.strip().splitlines()[-1])
+        except Exception as _parse_e:
+            return jsonify({
+                "error": f"could not parse live_query.py stdout as JSON: {_parse_e}",
+                "stdout_tail": _proc.stdout[-4000:] if _proc.stdout else None,
+            }), 500
+        return jsonify(result)
+    except _lq_subproc.TimeoutExpired:
+        return jsonify({"error": "live_query.py timed out after 90s"}), 504
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-probability-engine/live-query/verify/<int:row_id>", methods=["GET"])
+def aiem_probability_engine_live_query_verify(row_id):
+    """
+    Auditor-facing independent re-verification: reads the stored signed
+    envelope back from aiem_probability_engine_live_queries and recomputes
+    the HMAC in a SEPARATE process from the one that generated it, so the
+    caller can trust this isn't just echoing back the original in-process
+    'verified: true'.
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    import json as _lqv_json
+    try:
+        import subprocess as _lqv_subproc
+        _pkg_dir = _os_env.path.join(_os_env.path.dirname(_os_env.path.abspath(__file__)), "aiem_probability_engine")
+        _proc = _lqv_subproc.run(
+            ["python3", "-c",
+             f"import json, live_query; print(json.dumps(live_query.verify_stored_live_query({row_id}), default=str))"],
+            cwd=_pkg_dir, capture_output=True, text=True, timeout=30,
+        )
+        if _proc.returncode != 0:
+            return jsonify({
+                "error": "verification subprocess exited non-zero",
+                "stderr_tail": _proc.stderr[-2000:] if _proc.stderr else None,
+            }), 500
+        return jsonify(_lqv_json.loads(_proc.stdout.strip().splitlines()[-1]))
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
 @app.route("/stock-api/backtest", methods=["POST"])
 def backtest():
     body = request.get_json(silent=True) or {}

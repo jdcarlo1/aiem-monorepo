@@ -1,0 +1,59 @@
+# AIEM Probability Verification Test Questions
+
+**Purpose:** Stress-test AIEM's probability scoring on live market state, and require cryptographic proof that the response came from the real pipeline (not a hand-waved or cached answer from Replit's agent).
+
+**Standard for every question below:** "Prove it, don't tell me."
+
+---
+
+## Cryptographic Proof Requirement (apply to every response)
+
+Before accepting any answer as valid, the response must include an HMAC-SHA256 signature over the full payload, generated using the existing provenance key infrastructure. Do not accept a plain-text answer with no signature.
+
+Require the endpoint to return, alongside the probability answer:
+
+1. **The signed payload** — at minimum: `ticker`, `strike`, `expiry`, `as_of_date`, `probability_score`, `contributing_layer`, `model_version`
+2. **The HMAC-SHA256 signature** of that exact payload, using the existing key
+3. **The `pit_status`** the prediction was logged under (must be `pit_safe`, not `leaked` or `contaminated` — if the answer is being generated live and hasn't gone through the settlement gate yet, it should say so explicitly rather than presenting an unsettled number as final)
+
+**Verification step (do this separately, not inside the same chat/process that generated the answer):**
+- Recompute the HMAC over the returned payload using the key
+- Confirm it matches the returned signature byte-for-byte
+- If it doesn't match, or no signature is returned, the answer is not verified — reject it regardless of how confident or detailed the explanation sounds
+
+---
+
+## Test Question 1 — Single-Ticker Directional Probability
+
+> Given current OI build, gamma exposure, and dark pool flow for **[TICKER — pick a name with active options flow today]** at **[a specific strike]** expiring **[a specific date]**, what is the probability of a >2% move in the underlying by Friday's close? Which of the 9 conviction layers contributed most to that score, and what was that layer's raw value?
+
+**Why this is a good test:** Requires live, timestamped market state — can't be answered from memorized patterns. Has a falsifiable outcome within days. Forces layer-level attribution, so a decorative or fabricated score gets caught if the "top layer" doesn't actually match the data.
+
+**Pass condition:** Signed payload + signature verifies + the named layer's raw value is independently checkable against source data (OI, gamma, dark pool feed) for that ticker/strike/date.
+
+---
+
+## Test Question 2 — Layer Disagreement / Conflict Case
+
+> Find a current setup where at least two of the 9 conviction layers are pointing in **opposite directions** (e.g., strong sweep buying but weak dark pool confirmation, or high gamma squeeze fuel but poor sector heat). What's the net probability score, and how did the model weight the conflicting layers to arrive at it?
+
+**Why this is a good test:** A model that's actually deriving a score (not just averaging or picking the loudest signal) should be able to explain *why* it weighted one layer over another. If the explanation is vague or generic, the scoring logic isn't doing real work — it's narrating a number.
+
+**Pass condition:** Signed payload + signature verifies + the weighting explanation references specific layer values, not generic language.
+
+---
+
+## Test Question 3 — Null/Insufficient-Data Honesty Check
+
+> Pick a ticker or setup where one or more of the 9 layers currently has **null or insufficient data** (e.g., gamma_score null, or too few dark pool prints to score reliably). What does AIEM return for the overall probability in that case — does it degrade gracefully, flag the missing layer, or silently substitute a default?
+
+**Why this is a good test:** This is the honesty check. A system that silently fills nulls with defaults and presents a confident-looking number is worse than one that says "insufficient data" — it's exactly the kind of failure mode the pit_safe/leaked audit was built to catch, just at the single-prediction level instead of the dataset level.
+
+**Pass condition:** Signed payload + signature verifies + the response explicitly discloses which layer(s) were null and how that affected the score (rather than silently omitting it).
+
+---
+
+## Notes
+
+- Do not treat a "corrected" (look-ahead-adjusted historical) answer as equivalent to a live `pit_safe` answer — they answer different questions. If AIEM returns a `corrected` bucket number for a forward-looking question, that's a red flag, not a pass.
+- Log every response (payload + signature + verification result) somewhere durable, so these become real data points in the `pit_safe`/`genuine` accumulation you're already tracking — don't let this be a one-off chat exchange with no trace.

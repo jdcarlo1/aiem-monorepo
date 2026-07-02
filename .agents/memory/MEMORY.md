@@ -127,3 +127,5 @@
 - [Heartbeat fire-and-forget anti-pattern](heartbeat-fire-and-forget.md) — job_heartbeats "success" can be logged right after spawning a bg thread, before real work runs; not proof of completion
 - [Risk gate enforcement gaps](risk-gate-enforcement-gaps.md) — risk_gate_passed is cosmetic in email send; reconcile_positions() never called so mismatch check always passes; MTM LLM-outage → HOLD everything, no stop-loss besides 14-day cap
 - [Probability engine shadow-log leakage](probability-engine-shadow-log-leakage.md) — fixed 2026-07-02 via model_registry versioning; both follow-up gaps (blended endpoint, 12 mislabeled pit_safe rows) resolved 2026-07-03 with DB-level proof
+- [XGBoost native TreeSHAP attribution](xgboost-native-treeshap-attribution.md) — pred_contribs=True gives signed per-feature Shapley attribution with no `shap` package; assert vs predict_proba at 1e-4 (not 1e-6, float32 drift)
+- [Admin-token route consistency](admin-token-route-consistency.md) — sibling GET/POST routes on the same admin-gated resource must copy the SAME auth check; a skeptical auditor will find the unguarded one
