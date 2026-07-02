@@ -1,0 +1,39 @@
+# AIEM Live-Query Deployment — Verification Checklist
+
+Verification required before this feature is considered done. For each item, paste raw command output — not a summary.
+
+## 1. Account for the missing ~13,000 lines in main.py
+
+- `git log --oneline -20 -- main.py` — show every commit touching this file in the last 24 hours
+- `git diff <last_known_good_commit> HEAD -- main.py --stat` — total lines added/removed
+- Identify which specific commit caused the drop from ~33,500 to 20,524 lines, and state whether it was:
+  - (a) an intentional refactor/split
+  - (b) a bad merge
+  - (c) a deploy that overwrote current work with a stale build
+- If it was a refactor, show where the extracted code went (new files, line counts, confirm nothing was deleted outright)
+
+## 2. Full route inventory diff, not just the two routes in question
+
+- Dump every registered route on the last known-good commit: `grep -rn "@app.route\|@bp.route" <old_commit>:main.py` (or equivalent for your framework)
+- Dump every registered route on current production
+- Diff the two lists. Any route present in old but missing in new must be explained individually — not waved off as "probably fine"
+
+## 3. Confirm production is running the commit you think it's running
+
+- `process_start_time` vs. the commit timestamp of the *specific commit* you're validating (not just "the feature's first commit" — the actual HEAD)
+- `git rev-parse HEAD` on production's checked-out code, compared against what you intended to deploy
+
+## 4. Re-run the 500 investigation with a timeline, not a shrug
+
+- Exact timestamps: when did 500s start, when did they stop, what was the deploy sequence during that window
+- Was the file-size drop and the 500 window the same event? State yes/no with evidence (timestamps) — don't assume unrelated
+
+## 5. Only after 1–4 are answered: re-confirm the original 3 checks
+
+- POST/GET live-query routes → 200
+- verify/:id endpoint → correct signature match
+- AAPL smoke test → probability_score, layer_conflict, gamma_score disclosure
+
+---
+
+**Standing instruction for the agent:** Do not declare this resolved until you've explained the line-count discrepancy with a specific commit and diff. "The routes exist now" is not sufficient — explain what else was in the 13,000 lines that disappeared.
