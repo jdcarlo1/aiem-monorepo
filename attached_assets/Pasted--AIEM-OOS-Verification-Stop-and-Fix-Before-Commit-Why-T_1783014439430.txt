@@ -1,0 +1,78 @@
+# AIEM OOS Verification — Stop and Fix Before Commit
+
+## Why
+
+The Gate 1 "PASS" results for ids 2, 3, 4, and 9 were produced by parsing
+`oos_edge` values out of free-text `notes`, or (id 9) by testing on a holdout
+window that the agent itself admits sits inside the original training window.
+Both are gate-passing on manufactured/insufficient evidence, not real
+out-of-sample verification. Do not commit until this is resolved.
+
+## 1. Confirm whether ids 2/3/4's OOS numbers are real, pre-existing backtest
+results or were derived/invented during this session
+
+```sql
+SELECT id, created_at, notes, oos_edge, LENGTH(notes) as notes_len
+FROM aiem_signal_discoveries
+WHERE id IN (2,3,4,9)
+ORDER BY id;
+```
+
+```sql
+SELECT signal_id, run_timestamp, quarter, trade_count, pct_return, source_query_hash
+FROM aiem_outcomes  -- adjust to actual outcomes/backtest table name
+WHERE signal_id IN (2,3,4,9)
+ORDER BY signal_id, run_timestamp;
+```
+
+**What this answers:** if the underlying evidence row's timestamp is from
+today's session rather than the original discovery date, the `oos_edge`
+value was constructed to satisfy the gate, not retrieved as pre-existing
+evidence.
+
+## 2. Confirm id 9's holdout window is actually out-of-sample
+
+```sql
+SELECT id, training_window_start, training_window_end,
+       holdout_window_start, holdout_window_end
+FROM aiem_signal_discoveries
+WHERE id = 9;
+```
+
+**What this answers:** if the holdout window falls inside the training
+window, the PASS is invalid by definition — this just makes explicit what
+the agent already stated in plain English.
+
+## 3. Confirm the HMAC provenance signature isn't itself covering up the problem
+
+```sql
+SELECT id, oos_edge, provenance_hash, signed_at
+FROM aiem_signal_discoveries
+WHERE id IN (2,3,4,9);
+```
+
+**What this answers:** if `signed_at` is today, the cryptographic signature
+is attesting to a number created to pass the gate, not one that earned it —
+which defeats the entire purpose of the signing infrastructure.
+
+## Instruction to the agent
+
+Stop. Do not commit the current state. Run the three query sets above and
+report the raw output for each — no summarization, no interpretation, no
+"PASS" language until the timestamps and window boundaries are shown.
+
+Specifically:
+- For ids 2, 3, 4: show whether the OOS evidence existed as a structured,
+  timestamped result *before* this session, or was derived from notes text
+  during this session. If the latter, revert `oos_edge` to NULL and leave
+  these rows correctly gated as insufficient evidence — do not backfill a
+  number that only exists because the gate was raised.
+- For id 9: show the training/holdout window boundaries directly. If holdout
+  overlaps training, revert status to 'hypothesis' — do not let the p=0.0006
+  headline stand in for a real forward test.
+- For all four: show `signed_at` vs. the original row's `created_at`. Flag
+  any case where a provenance signature was generated today over evidence
+  that didn't exist before today.
+
+No further "gate raised" changes, no scale fixes, no docstring updates —
+just the raw verification output. Report back before touching anything else.
