@@ -1,0 +1,62 @@
+# AIEM Verification Questions — Ask Replit After They Update the Probability Model
+
+Use this as a checklist. Ask each question directly and require actual code, output, or a demonstration — not just a "yes, it's done" answer. If they can't show it live, treat it as **not yet verified**.
+
+---
+
+## Live Verification Protocol (do this first)
+
+Before going through the checklist, paste this exact instruction to Replit:
+
+> **CHALLENGE CODE: `A887DC25`**
+> For every live demonstration below, print this exact code inline next to the real output (e.g. `print(f"CHALLENGE-A887DC25: {result}")`). This proves the output was generated live, right now, in this session — not copy-pasted from an old run, a cached screenshot, or fabricated text. Any output missing this code is not verified.
+
+This isn't a cryptographic signature on the data itself — it's a simple nonce/challenge-response trick. If Replit (or the underlying model) tries to hand you old or invented output, it won't contain the code you just gave it, since it can't know it in advance. Change this code each time you re-run this checklist.
+
+---
+
+## PART 1: Statistical / Model Verification
+
+**Data pipeline**
+1. Show me one full day's raw Polygon options pull for one ticker, before any processing — calls, puts, OI, volume, and strikes.
+2. Show me the timestamp on every data field used in a prediction. Confirm none of them were only available after the prediction time.
+
+**Feature standardization**
+3. Show me the z-score or percentile output for 2–3 real tickers on a real date, so I can sanity-check it by hand.
+
+**Model training**
+4. Print the feature importances or coefficients for each horizon model (1-day, 2-day, 3-day, 4-day).
+5. Confirm there are four separate trained models — one per horizon — not one model reused for all four.
+
+**Calibration**
+6. Show me an actual calibration curve chart: predicted probability bucket vs. real outcome rate, on held-out data.
+
+**Validation**
+7. Show me walk-forward backtest results with actual dates, and confirm test periods never overlap with training periods.
+8. Show me the model's performance compared to a naive baseline (e.g. simple put/call ratio or coin flip) — does it actually beat the baseline out-of-sample?
+9. Break out the win rate by market regime — calm vs. volatile. Are they close, or is one much worse than the other?
+
+**Leakage audit (most important)**
+10. Pick one specific historical prediction. Walk me through every input feature and confirm each one was actually available at that exact timestamp — not filled in from later data.
+11. If the backtest win rate is above ~65–70% consistently, walk through why that's not a sign of data leakage before I trust it.
+
+**Live tie-in**
+12. Once this is live, confirm predictions vs. outcomes are being logged daily, and that we can re-run the calibration curve on live data after 30–60 predictions per horizon.
+
+---
+
+## PART 2: Cryptographic Provenance Verification
+
+13. Show me the exact function that generates the HMAC-SHA256 signature for a probability output. Where does the secret key come from — confirm it's not hardcoded or committed to the repo.
+14. Generate one real probability output right now and show me both the output and its signature.
+15. Now verify that exact output against the signature using the verification function — show me it returns true.
+16. Now change one digit in the probability value and re-run verification — confirm it returns false. (Proves the signature actually detects tampering.)
+17. Does the signed payload include the model version and the feature values used, or only the final probability number? (It should cover more than just the final number.)
+18. If the pipeline fails or falls back to a default/placeholder value, is that ever signed as if it were a real prediction? Show me the failure-path code. (Most important — a fallback/error state should never look cryptographically "verified.")
+19. Where and how long are signatures stored, and can I independently re-verify a signature for a prediction from 30 days ago using stored data alone?
+
+---
+
+## How to use this
+
+Go through Part 1 first — confirm the math is real and validated. Then Part 2 — confirm the outputs are genuinely tied to the real pipeline and can't be faked or silently replaced with placeholders. If any answer is vague, can't be demonstrated live (missing the challenge code), or the agent tries to explain instead of show, that's the item to push on before you trust the system.
