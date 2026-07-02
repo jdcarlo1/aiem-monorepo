@@ -19852,9 +19852,13 @@ def _mkt_v2_signal_forward_returns(conn, filter_sql, filter_params, start_date, 
     lookback-padded window via one LAG/window-function CTE, then filters and
     computes forward returns via the same LEAD() pattern _mkt_run_two_group
     uses for the existing single-row discoveries. filter_sql must reference
-    columns via the 'd.' alias. Returns the same stats shape as
-    _mkt_run_two_group (so downstream diff/gate code needs no changes), or
-    None if either the signal or baseline pull comes back empty."""
+    columns via the 'd.' alias. Returns a 3-tuple (stats, skip_code, skip_detail):
+    on success stats is the same shape as _mkt_run_two_group and skip_code/
+    skip_detail are both None. On failure stats is None and skip_code is one
+    of 'no_forward_data_yet' (baseline pull empty - forward-return data hasn't
+    been ingested yet for this window, a data-lag, not a pattern signal) or
+    'pattern_not_recurred' (baseline non-empty but signal pull empty - forward
+    data exists but nothing matched this discovery's own filter)."""
     import numpy as _np
     from scipy import stats as _sc
     try:
@@ -19880,8 +19884,21 @@ def _mkt_v2_signal_forward_returns(conn, filter_sql, filter_params, start_date, 
 
     sig = _fetch(filter_sql, filter_params)
     base = _fetch("1=1", [])
-    if not sig or not base:
-        return None
+    if not base:
+        # No ticker anywhere has an h-day forward close yet since start_date -
+        # this is a data-ingestion lag (polygon_market_daily hasn't caught up
+        # to today - h trading days), NOT evidence the pattern hasn't fired.
+        return None, "no_forward_data_yet", (
+            f"no ticker has a valid {_h}-day forward close for any scan_date "
+            f">= {start_date} yet (polygon_market_daily forward-return frontier "
+            f"hasn't reached this window; ingestion lags live by design)")
+    if not sig:
+        # Forward-data-eligible rows DO exist (base is non-empty) but none of
+        # them satisfy the discovery's own filter_sql - the pattern itself has
+        # genuinely not recurred in the eligible window, not a data-lag issue.
+        return None, "pattern_not_recurred", (
+            f"{len(base)} baseline rows have valid {_h}-day forward data since "
+            f"{start_date}, but zero matched this discovery's specific condition")
 
     sa, ba = _np.array(sig), _np.array(base)
     _, pval = _sc.ttest_ind(sa, ba, equal_var=False)
@@ -19897,7 +19914,7 @@ def _mkt_v2_signal_forward_returns(conn, filter_sql, filter_params, start_date, 
         "p_value":           round(float(pval), 4),
         "significant":       bool(pval < 0.05),
         "horizon_days":      _h,
-    }
+    }, None, None
 
 
 def _mkt_chain_filter_sql(discovery_id: int, conditions: dict):
@@ -20022,13 +20039,19 @@ def _mkt_washout_ignition_retest(start_date, end_date, horizon_days=1):
     via the backtest_range parameter, then computes forward returns for every
     historical fire in the window using the same LEAD()-based approach as
     _mkt_run_two_group, via an explicit (ticker,scan_date) VALUES list (fires
-    aren't expressible as a flat WHERE clause). Returns (stats_dict, None) or
-    (None, reason)."""
+    aren't expressible as a flat WHERE clause). Returns a 3-tuple (stats,
+    skip_code, skip_detail): on success stats is populated and skip_code/
+    skip_detail are None. On failure stats is None and skip_code is one of
+    'pattern_not_recurred' (detector found zero fires in the window) or
+    'no_forward_data_yet' (fires exist but none have forward-return data yet,
+    or no ticker anywhere does - a data-lag, not evidence against the pattern)."""
     import psycopg2, numpy as _np
     from scipy import stats as _sc
     fires = _scan_washout_ignition_signal(save_to_db=False, backtest_range=(start_date, end_date))
     if not fires:
-        return None, "no historical fires in window (production detector, backtest_range mode)"
+        return None, "pattern_not_recurred", (
+            "production washout-ignition detector found zero historical fires "
+            f"in window {start_date}..{end_date}")
     pairs = [(f["ticker"], f["scan_date"]) for f in fires]
     try:
         _h = max(1, int(horizon_days))
@@ -20064,8 +20087,16 @@ def _mkt_washout_ignition_retest(start_date, end_date, horizon_days=1):
         sig = [r[0] for r in cur.fetchall() if r[0] is not None]
         cur.execute(base_sql, [start_date, end_date])
         base = [r[0] for r in cur.fetchall() if r[0] is not None]
-    if not sig or not base:
-        return None, f"insufficient forward-return data ({len(sig)} signal, {len(base)} baseline rows)"
+    if not base:
+        return None, "no_forward_data_yet", (
+            f"no ticker anywhere has a valid {_h}-day forward close for any scan_date "
+            f"in {start_date}..{end_date} yet (forward-return ingestion lag)")
+    if not sig:
+        return None, "no_forward_data_yet", (
+            f"{len(fires)} washout-ignition fires found in window, but none of those "
+            f"specific fire days have a valid {_h}-day forward close yet "
+            f"({len(base)} unrelated baseline rows do) - the fires are too recent, "
+            "not evidence the pattern failed to recur")
     sa, ba = _np.array(sig), _np.array(base)
     _, pval = _sc.ttest_ind(sa, ba, equal_var=False)
     return {
@@ -20077,7 +20108,7 @@ def _mkt_washout_ignition_retest(start_date, end_date, horizon_days=1):
         "edge_avg_ret": round(float(_np.mean(sa) - _np.mean(ba)), 4),
         "p_value": round(float(pval), 4), "significant": bool(pval < 0.05),
         "horizon_days": _h, "fires_found": len(fires),
-    }, None
+    }, None, None
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -24266,6 +24297,7 @@ def _mkt_ensure_discovery_outcomes_table():
                     horizon                   VARCHAR(20),
                     retestable                BOOLEAN NOT NULL,
                     skip_reason               TEXT,
+                    skip_code                 VARCHAR(30),
                     win_rate_at_discovery     DOUBLE PRECISION,
                     realized_n                INTEGER,
                     realized_win_rate         DOUBLE PRECISION,
@@ -24279,11 +24311,13 @@ def _mkt_ensure_discovery_outcomes_table():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_disc_outcomes_discovery_id ON aiem_discovery_outcomes (discovery_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_disc_outcomes_date_checked ON aiem_discovery_outcomes (date_checked)")
+            cur.execute("ALTER TABLE aiem_discovery_outcomes ADD COLUMN IF NOT EXISTS skip_code VARCHAR(30)")
     except Exception as _e:
         print(f"[discovery_outcomes] table init error: {_e}")
 
 
 def _mkt_insert_discovery_outcome(conn, discovery_id, retestable, skip_reason=None,
+                                   skip_code=None,
                                    win_rate_at_discovery=None, horizon=None,
                                    realized_n=None, realized_win_rate=None,
                                    realized_avg_ret=None, realized_p_value=None,
@@ -24292,11 +24326,11 @@ def _mkt_insert_discovery_outcome(conn, discovery_id, retestable, skip_reason=No
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO aiem_discovery_outcomes
-                (discovery_id, horizon, retestable, skip_reason, win_rate_at_discovery,
+                (discovery_id, horizon, retestable, skip_reason, skip_code, win_rate_at_discovery,
                  realized_n, realized_win_rate, realized_avg_ret, realized_p_value,
                  predicted_vs_actual_diff, checked_window_start, checked_window_end)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (discovery_id, horizon, retestable, skip_reason, win_rate_at_discovery,
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (discovery_id, horizon, retestable, skip_reason, skip_code, win_rate_at_discovery,
               realized_n, realized_win_rate, realized_avg_ret, realized_p_value,
               predicted_vs_actual_diff, checked_window_start, checked_window_end))
 
@@ -24369,32 +24403,35 @@ def _mkt_check_discovery_outcomes():
             if not conditions:
                 not_retestable_count += 1
                 reason = "conditions_json is empty"
+                skip_code = "adapter_mapping_error"
                 _mkt_insert_discovery_outcome(
-                    conn, discovery_id, retestable=False, skip_reason=reason,
+                    conn, discovery_id, retestable=False, skip_reason=reason, skip_code=skip_code,
                     win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
                     checked_window_start=discovered_date, checked_window_end=_dt.date.today())
-                row.update({"retestable": False, "skip_reason": reason})
+                row.update({"retestable": False, "skip_reason": reason, "skip_code": skip_code})
                 rows_out.append(row)
                 continue
 
             if not discovered_date or discovered_date >= _dt.date.today():
                 not_retestable_count += 1
                 reason = "no fresh forward window yet (discovered today or discovered_at missing)"
+                skip_code = "no_forward_data_yet"
                 _mkt_insert_discovery_outcome(
-                    conn, discovery_id, retestable=False, skip_reason=reason,
+                    conn, discovery_id, retestable=False, skip_reason=reason, skip_code=skip_code,
                     win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
                     checked_window_start=discovered_date, checked_window_end=_dt.date.today())
-                row.update({"retestable": False, "skip_reason": reason})
+                row.update({"retestable": False, "skip_reason": reason, "skip_code": skip_code})
                 rows_out.append(row)
                 continue
 
             _h_days = _MKT_HORIZON_DAYS.get(str(horizon or "next_day").lower(), 1)
             broad = None
             reason = None
+            skip_code = None
 
             if discovery_id == 9:
                 # Category D: washout-ignition state machine — reuse the live detector
-                broad, reason = _mkt_washout_ignition_retest(
+                broad, skip_code, reason = _mkt_washout_ignition_retest(
                     discovered_date.isoformat(), _dt.date.today().isoformat(), horizon_days=_h_days)
 
             elif discovery_id in (2, 3, 4, 5):
@@ -24402,22 +24439,20 @@ def _mkt_check_discovery_outcomes():
                 filt_sql, filt_params = _mkt_chain_filter_sql(discovery_id, conditions)
                 if filt_sql is None:
                     reason = f"chain adapter could not map conditions_json: {list(conditions.keys())}"
+                    skip_code = "adapter_mapping_error"
                 else:
-                    broad = _mkt_v2_signal_forward_returns(
+                    broad, skip_code, reason = _mkt_v2_signal_forward_returns(
                         conn, filt_sql, filt_params, discovered_date.isoformat(), horizon_days=_h_days)
-                    if broad is None:
-                        reason = "chain adapter query returned no signal or baseline rows"
 
             elif discovery_id == 1:
                 # Category C: rolling-window accumulation
                 filt_sql, filt_params, adapter_reason = _mkt_accumulation_filter_sql(conditions)
                 if filt_sql is None:
                     reason = f"accumulation adapter could not map conditions_json: {adapter_reason}"
+                    skip_code = "adapter_mapping_error"
                 else:
-                    broad = _mkt_v2_signal_forward_returns(
+                    broad, skip_code, reason = _mkt_v2_signal_forward_returns(
                         conn, filt_sql, filt_params, discovered_date.isoformat(), horizon_days=_h_days)
-                    if broad is None:
-                        reason = "accumulation adapter query returned no signal or baseline rows"
 
             else:
                 # Existing generic single-row path (covers discovery 6 unchanged)
@@ -24434,20 +24469,20 @@ def _mkt_check_discovery_outcomes():
                     if filt_sql is None:
                         reason = (f"generic parser failed ({test_result.get('error')}); "
                                   f"lag/delta adapter also failed: {adapter_reason}")
+                        skip_code = "adapter_mapping_error"
                     else:
-                        broad = _mkt_v2_signal_forward_returns(
+                        broad, skip_code, reason = _mkt_v2_signal_forward_returns(
                             conn, filt_sql, filt_params, discovered_date.isoformat(), horizon_days=_h_days)
-                        if broad is None:
-                            reason = "lag/delta adapter query returned no signal or baseline rows"
 
             if broad is None:
                 not_retestable_count += 1
                 reason = reason or "retest adapter returned no result"
+                skip_code = skip_code or "adapter_mapping_error"
                 _mkt_insert_discovery_outcome(
-                    conn, discovery_id, retestable=False, skip_reason=reason,
+                    conn, discovery_id, retestable=False, skip_reason=reason, skip_code=skip_code,
                     win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
                     checked_window_start=discovered_date, checked_window_end=_dt.date.today())
-                row.update({"retestable": False, "skip_reason": reason})
+                row.update({"retestable": False, "skip_reason": reason, "skip_code": skip_code})
                 rows_out.append(row)
                 continue
 
@@ -24456,7 +24491,7 @@ def _mkt_check_discovery_outcomes():
                     if win_rate_at_discovery is not None else None)
             retestable_count += 1
             _mkt_insert_discovery_outcome(
-                conn, discovery_id, retestable=True, skip_reason=None,
+                conn, discovery_id, retestable=True, skip_reason=None, skip_code=None,
                 win_rate_at_discovery=win_rate_at_discovery, horizon=horizon,
                 realized_n=broad["signal_n"], realized_win_rate=realized_win_rate,
                 realized_avg_ret=broad["signal_avg_ret"], realized_p_value=broad["p_value"],
@@ -34971,26 +35006,35 @@ def admin_test_retest_adapter():
                 r = cur.fetchone()
             conditions = (r or {}).get("conditions_json") or {}
 
+            skip_code = None
             if discovery_id == 9:
-                broad, reason = _mkt_washout_ignition_retest(start_date, end_date, horizon_days=horizon_days)
+                broad, skip_code, reason = _mkt_washout_ignition_retest(start_date, end_date, horizon_days=horizon_days)
             elif discovery_id in (2, 3, 4, 5):
                 filt_sql, filt_params = _mkt_chain_filter_sql(discovery_id, conditions)
-                broad = (_mkt_v2_signal_forward_returns(conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
-                          if filt_sql else None)
-                reason = None if filt_sql else "chain adapter returned no filter_sql"
+                if filt_sql:
+                    broad, skip_code, reason = _mkt_v2_signal_forward_returns(
+                        conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
+                else:
+                    broad, reason, skip_code = None, "chain adapter returned no filter_sql", "adapter_mapping_error"
             elif discovery_id == 1:
                 filt_sql, filt_params, reason = _mkt_accumulation_filter_sql(conditions)
-                broad = (_mkt_v2_signal_forward_returns(conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
-                          if filt_sql else None)
+                if filt_sql:
+                    broad, skip_code, reason = _mkt_v2_signal_forward_returns(
+                        conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
+                else:
+                    broad, skip_code = None, "adapter_mapping_error"
             else:
                 filt_sql, filt_params, reason = _mkt_lagdelta_filter_sql(conditions)
-                broad = (_mkt_v2_signal_forward_returns(conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
-                          if filt_sql else None)
+                if filt_sql:
+                    broad, skip_code, reason = _mkt_v2_signal_forward_returns(
+                        conn, filt_sql, filt_params, start_date, horizon_days=horizon_days)
+                else:
+                    broad, skip_code = None, "adapter_mapping_error"
 
         return jsonify({
             "status": "ok", "discovery_id": discovery_id, "conditions_json": conditions,
             "start_date": start_date, "end_date": end_date, "horizon_days": horizon_days,
-            "result": broad, "reason": reason,
+            "result": broad, "skip_code": skip_code, "reason": reason,
         })
     except Exception as _e:
         return jsonify({"status": "error", "error": str(_e)}), 500
