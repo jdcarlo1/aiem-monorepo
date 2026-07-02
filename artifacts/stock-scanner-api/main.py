@@ -124,6 +124,21 @@ try:
 except Exception as _m2_e:
     _m2 = None
     print(f"[module2] load warning: {_m2_e}")
+try:
+    import aiem_module4_gate as _m4
+except Exception as _m4_e:
+    _m4 = None
+    print(f"[module4] load warning: {_m4_e}")
+try:
+    import aiem_module3_promotion as _m3
+except Exception as _m3_e:
+    _m3 = None
+    print(f"[module3] load warning: {_m3_e}")
+try:
+    import aiem_module5_discovery as _m5
+except Exception as _m5_e:
+    _m5 = None
+    print(f"[module5] load warning: {_m5_e}")
 
 from aiem_provenance import (
     sign_payload as _aiem_sign_payload,
@@ -2610,6 +2625,80 @@ try:
         _run_module2_decay,
         CronTrigger(day_of_week="sun", hour=2, minute=30, timezone=_ET),
         id="module2_decay_check",
+        replace_existing=True,
+    )
+    # Module 3 — Hypothesis Promotion Evaluator: Sunday 3:00 AM ET
+    # Runs after Module 2 (2:30 AM) so Module 2 verdicts are fresh.
+    def _run_module3_promotion():
+        try:
+            if _m3 is None:
+                print("[module3] scheduler: module not loaded, skipping")
+                return
+            import psycopg2 as _pg_m3
+            with _pg_m3.connect(os.environ["DATABASE_URL"]) as _c:
+                _c.autocommit = False
+                results = _m3.run_module3(_c)
+            promote_ready = [r for r in results if r["promotion_status"] == "promote_ready"]
+            failing       = [r for r in results if r["promotion_status"] == "hypothesis_failing"]
+            print(
+                f"[module3] Sunday run: {len(results)} hypothesis signals evaluated — "
+                f"{len(promote_ready)} promote_ready, {len(failing)} hypothesis_failing"
+            )
+            if promote_ready or failing:
+                _tg_send(
+                    f"🧪 *Module 3 Promotion Evaluator*\n"
+                    f"Evaluated {len(results)} hypothesis signals.\n"
+                    + (f"✅ *{len(promote_ready)} ready to promote:* "
+                       + ", ".join(f"id={r['discovery_id']}" for r in promote_ready) + "\n"
+                       if promote_ready else "")
+                    + (f"⚠️ *{len(failing)} hypothesis failing:* "
+                       + ", ".join(f"id={r['discovery_id']}" for r in failing) + "\n"
+                       if failing else "")
+                    + "Use POST /admin/module4-approve to act on flagged signals."
+                )
+        except Exception as _e:
+            print(f"[module3] scheduler error: {_e}")
+    _scheduler.add_job(
+        _run_module3_promotion,
+        CronTrigger(day_of_week="sun", hour=3, minute=0, timezone=_ET),
+        id="module3_promotion_check",
+        replace_existing=True,
+    )
+    # Module 5 — Pattern Discovery Engine: Sunday 4:00 AM ET
+    # Runs after Module 3 (3:00 AM). Heavy SQL scan (~60-120s). Admin-only trigger also available.
+    def _run_module5_discovery():
+        try:
+            if _m5 is None:
+                print("[module5] scheduler: module not loaded, skipping")
+                return
+            import psycopg2 as _pg_m5
+            with _pg_m5.connect(os.environ["DATABASE_URL"]) as _c:
+                _c.autocommit = False
+                summary = _m5.run_discovery_batch(_c)
+            n_new = summary.get("discoveries_inserted", 0)
+            print(
+                f"[module5] Sunday run complete: {n_new} new discoveries, "
+                f"elapsed={summary.get('elapsed_seconds')}s"
+            )
+            if n_new > 0:
+                top = summary.get("top_10_by_delta_wr", [])[:3]
+                top_lines = "\n".join(
+                    f"  • {t['condition_name']} h={t['horizon_days']}d "
+                    f"wr={t['cond_wr']}% delta=+{t['delta_wr']}pp n={t['cond_n']}"
+                    for t in top
+                )
+                _tg_send(
+                    f"🔬 *Module 5 Pattern Discovery*\n"
+                    f"New discoveries: *{n_new}*\n"
+                    f"Top candidates:\n{top_lines}\n"
+                    f"Use GET /aiem/module5-status for full report."
+                )
+        except Exception as _e:
+            print(f"[module5] scheduler error: {_e}")
+    _scheduler.add_job(
+        _run_module5_discovery,
+        CronTrigger(day_of_week="sun", hour=4, minute=0, timezone=_ET),
+        id="module5_discovery_batch",
         replace_existing=True,
     )
     # Multi-Day Runner - Day 1 watch scan: Mon-Fri 4:05 PM ET
@@ -26683,6 +26772,32 @@ try:
     print("[signal_trust] schema ready")
 except Exception as _e:
     print(f"[signal_trust] schema init error: {_e}")
+try:
+    if _m4 is not None:
+        import psycopg2 as _pg_m4_init
+        with _pg_m4_init.connect(os.environ["DATABASE_URL"]) as _m4_init_conn:
+            _m4_init_conn.autocommit = False
+            _m4.init_schema(_m4_init_conn)
+        print("[module4] aiem_signal_actions schema ready")
+except Exception as _e:
+    print(f"[module4] schema init error: {_e}")
+try:
+    import psycopg2 as _pg_m3_init
+    if _m3 is not None:
+        with _pg_m3_init.connect(os.environ["DATABASE_URL"]) as _m3_init_conn:
+            _m3_init_conn.autocommit = False
+            _m3.init_schema(_m3_init_conn)
+        print("[module3] aiem_module3_evaluations schema ready")
+except Exception as _e:
+    print(f"[module3] schema init error: {_e}")
+try:
+    import psycopg2 as _pg_m5_init
+    if _m5 is not None:
+        with _pg_m5_init.connect(os.environ["DATABASE_URL"]) as _m5_init_conn:
+            _m5_init_conn.autocommit = False
+            _m5.init_schema(_m5_init_conn)
+except Exception as _e:
+    print(f"[module5] schema init error: {_e}")
 
 
 def _compute_fingerprint(rows):
@@ -50020,6 +50135,207 @@ def aiem_module2_status():
         report = _m2.get_module2_report(_m2_conn)
         _m2_conn.close()
         return jsonify(report)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/run-module3-promotion", methods=["POST"])
+def admin_run_module3_promotion():
+    """Admin: trigger Module 3 hypothesis promotion evaluation immediately."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if _m3 is None:
+        return jsonify({"error": "module3 not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m3r
+        with _pg_m3r.connect(os.environ["DATABASE_URL"]) as _c:
+            _c.autocommit = False
+            results = _m3.run_module3(_c)
+        promote_ready = [r for r in results if r["promotion_status"] == "promote_ready"]
+        failing       = [r for r in results if r["promotion_status"] == "hypothesis_failing"]
+        if promote_ready or failing:
+            _tg_send(
+                f"🧪 *Module 3 Promotion Evaluator* (manual trigger)\n"
+                f"Evaluated {len(results)} hypothesis signals.\n"
+                + (f"✅ *{len(promote_ready)} ready to promote:* "
+                   + ", ".join(f"id={r['discovery_id']}" for r in promote_ready) + "\n"
+                   if promote_ready else "")
+                + (f"⚠️ *{len(failing)} hypothesis failing:* "
+                   + ", ".join(f"id={r['discovery_id']}" for r in failing) + "\n"
+                   if failing else "")
+                + "Use POST /admin/module4-approve to act on flagged signals."
+            )
+        return jsonify({
+            "ok":                  True,
+            "signals_evaluated":   len(results),
+            "promote_ready_count": len(promote_ready),
+            "failing_count":       len(failing),
+            "results":             results,
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem/module3-status", methods=["GET"])
+def aiem_module3_status():
+    """Public (no auth): last stored Module 3 promotion evaluation results."""
+    if _m3 is None:
+        return jsonify({"error": "module3 not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m3s
+        with _pg_m3s.connect(os.environ["DATABASE_URL"]) as _c:
+            report = _m3.get_module3_report(_c)
+        return jsonify(report)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/run-module5-discovery", methods=["POST"])
+def admin_run_module5_discovery():
+    """Admin: trigger Module 5 pattern discovery batch immediately.
+    WARNING: this runs 75 SQL tests against 3.3M rows — expect 60-180 seconds.
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if _m5 is None:
+        return jsonify({"error": "module5 not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m5r
+        with _pg_m5r.connect(os.environ["DATABASE_URL"]) as _c:
+            _c.autocommit = False
+            summary = _m5.run_discovery_batch(_c)
+        n_new = summary.get("discoveries_inserted", 0)
+        if n_new > 0:
+            top = summary.get("top_10_by_delta_wr", [])[:3]
+            top_lines = "\n".join(
+                f"  • {t['condition_name']} h={t['horizon_days']}d "
+                f"wr={t['cond_wr']}% delta=+{t['delta_wr']}pp n={t['cond_n']}"
+                for t in top
+            )
+            _tg_send(
+                f"🔬 *Module 5 Pattern Discovery* (manual trigger)\n"
+                f"New discoveries: *{n_new}*\n"
+                f"Top candidates:\n{top_lines}\n"
+                f"Use GET /aiem/module5-status for full report."
+            )
+        return jsonify(summary)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem/module5-status", methods=["GET"])
+def aiem_module5_status():
+    """Public: last Module 5 discovery run report and any discoveries generated."""
+    if _m5 is None:
+        return jsonify({"error": "module5 not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m5s
+        with _pg_m5s.connect(os.environ["DATABASE_URL"]) as _c:
+            report = _m5.get_last_run_report(_c)
+        return jsonify(report)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/module4-pending", methods=["GET"])
+def admin_module4_pending():
+    """Admin: list signals with actionable Module 2 verdicts awaiting human approval."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if _m4 is None:
+        return jsonify({"error": "aiem_module4_gate not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m4p
+        _m4p_conn = _pg_m4p.connect(os.environ["DATABASE_URL"])
+        _m4p_conn.autocommit = True
+        pending = _m4.get_pending_actions(_m4p_conn)
+        _m4p_conn.close()
+        return jsonify({
+            "pending_count": len(pending),
+            "pending": pending,
+            "valid_actions": sorted(_m4._VALID_ACTIONS),
+            "action_map": {k: v for k, v in _m4._ACTION_TO_STATUS.items()},
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/module4-approve", methods=["POST"])
+def admin_module4_approve():
+    """
+    Admin: apply a human-approved action to a signal.
+
+    Body (JSON):
+      discovery_id  int    — the signal to act on
+      action        str    — 'retire' | 'downgrade' | 'keep' | 'promote'
+      reason        str    — required justification (stored in audit log)
+
+    On success: updates aiem_signal_discoveries.status + logs to aiem_signal_actions
+    + sends Telegram notification.
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if _m4 is None:
+        return jsonify({"error": "aiem_module4_gate not loaded"}), 500
+    try:
+        body = request.get_json(force=True) or {}
+        disc_id = int(body.get("discovery_id", 0))
+        action  = str(body.get("action", "")).strip()
+        reason  = str(body.get("reason", "")).strip()
+        if not disc_id:
+            return jsonify({"error": "discovery_id is required"}), 400
+        if not action:
+            return jsonify({"error": "action is required"}), 400
+        if not reason:
+            return jsonify({"error": "reason is required"}), 400
+        import psycopg2 as _pg_m4a
+        _m4a_conn = _pg_m4a.connect(os.environ["DATABASE_URL"])
+        _m4a_conn.autocommit = False
+        result = _m4.apply_action(_m4a_conn, disc_id, action, reason, approved_by="admin")
+        _m4a_conn.close()
+        if result.get("status_changed"):
+            _action_emoji = {"retire": "🔴", "downgrade": "🟡", "promote": "🟢"}.get(action, "⚪")
+            _tg_lines = [
+                f"{_action_emoji} SIGNAL GATE — id={disc_id} {action.upper()}",
+                f"Verdict : {result.get('decay_verdict') or 'n/a'}",
+                f"Realized: n={result.get('realized_n')}  WR={result.get('realized_win_rate')}%  p={result.get('realized_p_value')}",
+                f"Change  : {result.get('from_status')} → {result.get('to_status')}",
+                f"Reason  : {reason[:200]}",
+                f"Signal  : {result.get('hypothesis_text_snippet') or ''}",
+            ]
+            try:
+                _tg_send("\n".join(_tg_lines))
+            except Exception:
+                pass
+        return jsonify(result)
+    except ValueError as _ve:
+        return jsonify({"error": str(_ve)}), 400
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/module4-history", methods=["GET"])
+def admin_module4_history():
+    """Admin: return recent Module 4 approval history. ?discovery_id=N &limit=50"""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if _m4 is None:
+        return jsonify({"error": "aiem_module4_gate not loaded"}), 500
+    try:
+        disc_id_raw = request.args.get("discovery_id")
+        disc_id = int(disc_id_raw) if disc_id_raw else None
+        limit = min(int(request.args.get("limit", 50)), 200)
+        import psycopg2 as _pg_m4h
+        _m4h_conn = _pg_m4h.connect(os.environ["DATABASE_URL"])
+        _m4h_conn.autocommit = True
+        history = _m4.get_action_history(_m4h_conn, discovery_id=disc_id, limit=limit)
+        _m4h_conn.close()
+        return jsonify({"count": len(history), "history": history})
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
