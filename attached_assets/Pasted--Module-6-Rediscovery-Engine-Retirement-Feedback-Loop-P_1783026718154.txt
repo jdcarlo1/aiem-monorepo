@@ -1,0 +1,57 @@
+# Module 6: Rediscovery Engine (Retirement Feedback Loop)
+
+## Purpose
+Close the loop: discover → validate → decay-check → human decision → **learn from failure** → discover again.
+
+When a signal is retired (Module 4 approval with action=retire), Module 6 tests a small, pre-registered set of statistical neighbors of that signal's condition — NOT an open-ended search — to check whether a nearby variation has real edge the original missed. Anything that clears the bar becomes a new hypothesis, explicitly tagged as a descendant.
+
+## Core design principle (read this before building anything else)
+**The default output of Module 6 should be "nothing found."** If it routinely produces new hypotheses from every retirement, the guardrails have failed and it's p-hacking, not learning. Most retired signals are retired because there's no edge in that neighborhood at all — success looks like rare, clean discoveries, not a steady stream of "fixes."
+
+## Trigger
+- Fires only on `POST /admin/module4-approve` with `action: "retire"`
+- Runs as part of the existing Sunday pipeline, after Module 2 (decay check), same session
+- Suggested slot: Sunday 4:15 AM ET (after Module 5's 4:00 AM run, so it doesn't compete for compute)
+
+## Guardrails against p-hacking (non-negotiable)
+
+1. **Fixed, pre-registered variation set.** For a retired signal with condition `close_strength_min=0.90`, Module 6 does NOT search all possible thresholds. It tests a small fixed grid registered in code before the run — e.g., ±2 discrete steps around the original parameter (0.80, 0.85, 0.90, 0.95 if not already tested), plus at most 1 alternate horizon. Cap: **no more than 6 variations per retired signal.**
+
+2. **Batch-level BH-FDR, not per-signal.** All variations generated in a single Sunday run (across all retirements that week) are corrected together as one batch — same as Module 5's 75-test batch. A variation that "passes" only because it dodged batch correction doesn't count.
+
+3. **Minimum effect size floor, not just p-value.** Require delta ≥ +2.5pp AND p < 0.05 post-correction. A tiny p-value from a huge n (like id=10's p=7.69×10⁻³⁶) is not sufficient alone — the earlier audit already flagged this risk.
+
+4. **Lineage is mandatory and visible.** Every hypothesis Module 6 produces must carry `parent_signal_id` and `generation` fields. No descendant hypothesis is allowed to look identical to a fresh Module 5 discovery in the UI — it must always show "descendant of id=X (retired: reason)."
+
+5. **Generation cap.** A lineage can go at most 2 generations deep (original → 1 correction attempt). If the correction also fails, that lineage is closed permanently — no re-testing the same idea family a third time. Prevents infinite fishing on one bad concept.
+
+## Schema additions
+
+`aiem_signal_discoveries` — add columns:
+- `parent_signal_id` (nullable FK to self)
+- `generation` (int, default 0)
+- `variation_note` (text — what specifically changed vs. parent, e.g. "threshold 0.90→0.85")
+
+`aiem_signal_actions` — no changes needed; existing table already logs retirements, which is what Module 6 reads from.
+
+New table `aiem_rediscovery_runs`:
+- `run_id`, `parent_signal_id`, `variations_tested` (int), `variations_passed` (int), `run_timestamp`, `batch_id` (links to the BH-FDR batch)
+
+## Logic flow
+
+1. Query all signals retired since last Module 6 run (`decay_verdict = 'failing'` AND `to_status = 'retired'`)
+2. For each, generate its fixed variation set (max 6) per the guardrail rules
+3. Run all variations across all retirements this week as **one combined Fisher's exact + BH-FDR batch** (reuse Module 5's existing test harness — don't build a new one)
+4. Any variation clearing delta ≥ +2.5pp AND p < 0.05 (post-correction) → insert into `aiem_signal_discoveries` as a new hypothesis with `parent_signal_id` and `generation` set
+5. Everything else: logged in `aiem_rediscovery_runs` as tested-and-failed, no new row in discoveries
+6. Summary posted same as Module 5's report: "Tested N variations across M retired signals. X passed. [list, or 'none passed']"
+
+## What "success" looks like after a few months
+- Most weeks: 0 new descendant hypotheses. This is expected, not a failure of the module.
+- Occasional weeks: 1 descendant hypothesis with a real, defensible effect size.
+- A visible, honest lineage tree you can review — including the failed correction attempts — so you can see which idea families are genuinely dead vs. which had one parameter wrong.
+
+## Explicit non-goals (so scope doesn't creep)
+- Does not touch position sizing, portfolio-level correlation, or regime detection
+- Does not auto-promote descendant hypotheses to live trading — they still go through the normal validate → Module 2 decay-check → Module 4 human gate pipeline like any other hypothesis
+- Does not run more than once per retirement — no repeated fishing on the same signal

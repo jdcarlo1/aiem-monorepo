@@ -1,0 +1,70 @@
+# Module 7: Sector Rotation Detector
+
+## Purpose
+Daily scan of sector-level price/volume data (via Polygon) to detect which sectors are heating up or cooling off — independent of any single-stock options flow. Surfaces rotation as a tiered-confidence signal (early move → developing trend → confirmed rotation) rather than a single yes/no flag, since one day of data cannot reliably distinguish real rotation from noise.
+
+Output feeds two places:
+1. **Telegram alert** — same channel as existing AIEM alerts
+2. **Conviction weighting input** — sector state should down-weight new bullish signals in cooling sectors and up-weight them in heating sectors, tying directly into the Fragility & Crowding layer
+
+## Universe
+Track sector ETFs as proxies, not individual stocks. Suggested starting list (adjust to what's available on your Polygon plan):
+
+| Ticker | Sector |
+|---|---|
+| XLK | Technology |
+| SMH | Semiconductors |
+| XLF | Financials |
+| XLRE | Real Estate / REITs |
+| XLE | Energy |
+| XLV | Healthcare |
+| XLI | Industrials |
+| XLY | Consumer Discretionary |
+| XLP | Consumer Staples |
+| XLU | Utilities |
+| XLB | Materials |
+| XLC | Communication Services |
+
+## Core metrics (computed daily, end of day)
+
+For each sector ETF:
+1. **Relative strength vs. SPY** — sector return minus SPY return, over 1-day, 3-day, 5-day, 20-day windows
+2. **Volume ratio** — today's volume vs. 20-day average volume
+3. **Rank** — sector's position (1–12) by relative strength for each window, vs. yesterday's rank
+4. **Trend inflection** — was the sector in the bottom half of rankings 5+ days ago and is now trending toward top half (or vice versa for cooling)? Simple rank-of-rank-change over time.
+
+## Tiered confidence logic
+
+**Tier 1 — Early move** (informational only, no alert push, logged only)
+- Trigger: 1-day relative strength move > +1.5 SD from that sector's own 60-day daily move distribution, OR a rank jump of 4+ positions in 1 day
+- Purpose: internal logging so you can later check "did Tier 1 flags actually turn into real trends" — this is your own backtest data on the module itself
+
+**Tier 2 — Developing trend** (Telegram alert, marked "watch")
+- Trigger: relative strength positive (or negative, for cooling) across BOTH the 3-day AND 5-day windows, with volume ratio > 1.2x average on at least 2 of the last 3 days
+- This is roughly the point where the semis-selloff / financials-strength situation would have crossed into "worth watching"
+
+**Tier 3 — Confirmed rotation** (Telegram alert, marked "confirmed," feeds conviction weighting)
+- Trigger: relative strength positive/negative across 3-day, 5-day, AND 20-day windows, sustained rank in top-3 or bottom-3 for 4+ consecutive trading days, volume ratio > 1.2x average sustained
+- Only Tier 3 states should actually adjust AIEM's conviction scores — Tiers 1 and 2 are visibility only, not action triggers, to avoid reacting to noise
+
+## Guardrail: this is directional context, not a trade signal
+This module does not generate buy/sell signals on its own. It answers "which sectors are structurally strong or weak right now" so existing signals get weighted accordingly. A Tier 3 "cooling" flag on semiconductors should make AIEM more skeptical of new bullish semis signals — it should not, by itself, generate a bearish trade.
+
+## Schema
+
+New table `aiem_sector_rotation`:
+- `date`, `sector_ticker`, `spy_relative_1d`, `spy_relative_3d`, `spy_relative_5d`, `spy_relative_20d`, `volume_ratio`, `rank_today`, `rank_yesterday`, `rank_change`, `tier` (1/2/3/null), `direction` (heating/cooling)
+
+New table `aiem_sector_alerts_log`:
+- `date`, `sector_ticker`, `tier`, `direction`, `message_sent` (bool) — lets you later measure how often Tier 1/2 flags actually became Tier 3 confirmed trends, which tells you whether the thresholds are well-calibrated
+
+## Scheduler placement
+Runs daily after market close (suggest 5:00 PM ET, before your existing Sunday-only weekly modules) — this is a daily job, not weekly, since sector rotation is a faster-moving signal than your hypothesis validation pipeline.
+
+## Integration point with Fragility & Crowding (Layer 10)
+Once Tier 3 states exist, Layer 10 should query the current sector state for any ticker being scored and apply a weighting adjustment — e.g., reduce conviction score by a fixed amount for bullish signals in a Tier 3 "cooling" sector, and the inverse for "heating." Exact weighting magnitude should be tuned empirically once you have a few months of Tier 3 history to check against.
+
+## What to watch for once live
+- If Tier 2/3 alerts fire on nearly every sector every week, thresholds are too loose — tighten the SD/rank-jump cutoffs
+- If Tier 1 flags rarely progress to Tier 3, that's expected and fine — it confirms most single-day moves are noise, which is the whole point of the tiering
+- Track false-positive rate on Tier 3 "confirmed" calls over time using the alerts log — this is your evidence for whether the module is actually adding value to conviction scoring, not just adding noise

@@ -139,6 +139,16 @@ try:
 except Exception as _m5_e:
     _m5 = None
     print(f"[module5] load warning: {_m5_e}")
+try:
+    import aiem_module6_rediscovery as _m6
+except Exception as _m6_e:
+    _m6 = None
+    print(f"[module6] load warning: {_m6_e}")
+try:
+    import aiem_module7_sector_rotation as _m7
+except Exception as _m7_e:
+    _m7 = None
+    print(f"[module7] load warning: {_m7_e}")
 
 from aiem_provenance import (
     sign_payload as _aiem_sign_payload,
@@ -2699,6 +2709,89 @@ try:
         _run_module5_discovery,
         CronTrigger(day_of_week="sun", hour=4, minute=0, timezone=_ET),
         id="module5_discovery_batch",
+        replace_existing=True,
+    )
+    def _run_module6_rediscovery():
+        if _m6 is None:
+            print("[module6] scheduler: module not loaded, skipping")
+            return
+        try:
+            import psycopg2 as _pg_m6s
+            with _pg_m6s.connect(os.environ["DATABASE_URL"]) as _c:
+                _c.autocommit = False
+                result = _m6.run_rediscovery_batch(_c)
+            n_disc = result.get("discoveries_inserted", 0)
+            n_test = result.get("total_variations_tested", 0)
+            n_ret  = result.get("retired_signals_scanned", 0)
+            print(
+                f"[module6] Sunday run: {n_ret} retired signal(s) scanned, "
+                f"{n_test} variation(s) tested, {n_disc} new descendant hypothesis(es) inserted"
+            )
+            if n_disc > 0:
+                lines = [f"🔁 MODULE 6 REDISCOVERY — {n_disc} descendant hypothesis(es) found"]
+                for s in result.get("summary", []):
+                    for d in s.get("discoveries", []):
+                        lines.append(
+                            f"  id={d['new_id']} (gen {d['generation']}) "
+                            f"← parent id={s['parent_id']} | {d['variation_note']} "
+                            f"WR={d['cond_wr']}% delta={d['delta_wr']}pp"
+                        )
+                try:
+                    _tg_send("\n".join(lines))
+                except Exception:
+                    pass
+        except Exception as _e:
+            print(f"[module6] scheduler error: {_e}")
+    _scheduler.add_job(
+        _run_module6_rediscovery,
+        CronTrigger(day_of_week="sun", hour=4, minute=15, timezone=_ET),
+        id="module6_rediscovery_batch",
+        replace_existing=True,
+    )
+    def _run_module7_sector_rotation():
+        if _m7 is None:
+            print("[module7] scheduler: module not loaded, skipping")
+            return
+        try:
+            import psycopg2 as _pg_m7s
+            with _pg_m7s.connect(os.environ["DATABASE_URL"]) as _c:
+                _c.autocommit = False
+                result = _m7.run_sector_rotation(_c)
+            if "error" in result:
+                print(f"[module7] run error: {result['error']}")
+                return
+            n2 = result.get("tier2_alerts", 0)
+            n3 = result.get("tier3_alerts", 0)
+            print(
+                f"[module7] daily run complete: {result.get('sectors_stored')} sectors stored, "
+                f"tier-2={n2}, tier-3={n3} (date={result.get('run_date')})"
+            )
+            lines = []
+            if n3 > 0:
+                lines.append(f"🔄 SECTOR ROTATION — {n3} CONFIRMED (Tier 3)")
+            if n2 > 0:
+                lines.append(f"👀 SECTOR ROTATION — {n2} developing (Tier 2, watch)")
+            if lines:
+                for row in result.get("snapshot", []):
+                    t = row.get("tier")
+                    if t and t >= 2:
+                        label = "CONFIRMED" if t == 3 else "watch"
+                        lines.append(
+                            f"  {row['sector_ticker']:5s} ({row['sector_name']:24s}) "
+                            f"{row['direction'].upper():7s} Tier {t} [{label}]  "
+                            f"RS-5d={row.get('spy_relative_5d',0):+.2f}%  "
+                            f"rank #{row.get('rank_today')}"
+                        )
+                try:
+                    _tg_send("\n".join(lines))
+                except Exception:
+                    pass
+        except Exception as _e:
+            print(f"[module7] scheduler error: {_e}")
+    _scheduler.add_job(
+        _run_module7_sector_rotation,
+        CronTrigger(day_of_week="mon,tue,wed,thu,fri", hour=17, minute=0, timezone=_ET),
+        id="module7_sector_rotation_daily",
         replace_existing=True,
     )
     # Multi-Day Runner - Day 1 watch scan: Mon-Fri 4:05 PM ET
@@ -26798,6 +26891,24 @@ try:
             _m5.init_schema(_m5_init_conn)
 except Exception as _e:
     print(f"[module5] schema init error: {_e}")
+try:
+    import psycopg2 as _pg_m6_init
+    if _m6 is not None:
+        with _pg_m6_init.connect(os.environ["DATABASE_URL"]) as _m6_init_conn:
+            _m6_init_conn.autocommit = False
+            _m6.init_schema(_m6_init_conn)
+        print("[module6] schema ready")
+except Exception as _e:
+    print(f"[module6] schema init error: {_e}")
+try:
+    import psycopg2 as _pg_m7_init
+    if _m7 is not None:
+        with _pg_m7_init.connect(os.environ["DATABASE_URL"]) as _m7_init_conn:
+            _m7_init_conn.autocommit = False
+            _m7.init_schema(_m7_init_conn)
+        print("[module7] schema ready")
+except Exception as _e:
+    print(f"[module7] schema init error: {_e}")
 
 
 def _compute_fingerprint(rows):
@@ -50239,6 +50350,73 @@ def aiem_module5_status():
         return jsonify({"error": str(_e)}), 500
 
 
+@app.route("/stock-api/admin/run-module6-rediscovery", methods=["POST"])
+def admin_run_module6_rediscovery():
+    """Admin: trigger Module 6 rediscovery batch immediately.
+    Tests statistical neighbors of all signals retired since last run.
+    Expected output: nothing found (guardrails are strict by design).
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if _m6 is None:
+        return jsonify({"error": "module6 not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m6r
+        with _pg_m6r.connect(os.environ["DATABASE_URL"]) as _c:
+            _c.autocommit = False
+            result = _m6.run_rediscovery_batch(_c)
+        return jsonify(result)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem/module6-status", methods=["GET"])
+def aiem_module6_status():
+    """Public: Module 6 run history, lineage tree, and any descendant hypotheses."""
+    if _m6 is None:
+        return jsonify({"error": "module6 not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m6st
+        with _pg_m6st.connect(os.environ["DATABASE_URL"]) as _c:
+            report = _m6.get_module6_status(_c)
+        return jsonify(report)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/run-module7-scan", methods=["POST"])
+def admin_run_module7_scan():
+    """Admin: trigger Module 7 sector rotation scan immediately (uses DB data, fast)."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if _m7 is None:
+        return jsonify({"error": "module7 not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m7r
+        with _pg_m7r.connect(os.environ["DATABASE_URL"]) as _c:
+            _c.autocommit = False
+            result = _m7.run_sector_rotation(_c)
+        return jsonify(result)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem/module7-status", methods=["GET"])
+def aiem_module7_status():
+    """Public: current sector rotation state — tier/direction for all 12 sectors."""
+    if _m7 is None:
+        return jsonify({"error": "module7 not loaded"}), 500
+    try:
+        import psycopg2 as _pg_m7st
+        with _pg_m7st.connect(os.environ["DATABASE_URL"]) as _c:
+            report = _m7.get_module7_status(_c)
+        return jsonify(report)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
 @app.route("/stock-api/admin/module4-pending", methods=["GET"])
 def admin_module4_pending():
     """Admin: list signals with actionable Module 2 verdicts awaiting human approval."""
@@ -50311,6 +50489,19 @@ def admin_module4_approve():
                 _tg_send("\n".join(_tg_lines))
             except Exception:
                 pass
+            if action == "retire" and _m6 is not None:
+                import threading as _m6_threading
+                _m6_disc_id = disc_id
+                def _m6_bg():
+                    try:
+                        import psycopg2 as _pg_m6bg
+                        with _pg_m6bg.connect(os.environ["DATABASE_URL"]) as _c:
+                            _c.autocommit = False
+                            _m6.run_rediscovery_batch(_c)
+                    except Exception as _m6bg_e:
+                        print(f"[module6] retire-trigger error: {_m6bg_e}")
+                _m6_threading.Thread(target=_m6_bg, daemon=True, name="m6_retire_trigger").start()
+                result["rediscovery_triggered"] = True
         return jsonify(result)
     except ValueError as _ve:
         return jsonify({"error": str(_ve)}), 400
