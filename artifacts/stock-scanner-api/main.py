@@ -39978,6 +39978,35 @@ def admin_test_emails():
     return jsonify({"status": "done", "results": results})
 
 
+@app.route("/stock-api/admin/raw-technicals/<ticker>", methods=["GET"])
+def admin_raw_technicals(ticker):
+    """Admin: compute the full indicator/price-structure/pattern/candlestick
+    stack for one ticker directly (no LLM/AIEM chat involved, zero OpenAI cost).
+    Returns the exact same underlying data AIEM's tools would see."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    ticker = ticker.strip().upper()
+    out = {"ticker": ticker}
+    try:
+        out["indicators"] = _mkt_compute_indicators(ticker)
+    except Exception as e:
+        out["indicators"] = {"status": "error", "error": str(e)}
+    try:
+        out["price_structure"] = _mkt_price_structure(ticker)
+    except Exception as e:
+        out["price_structure"] = {"status": "error", "error": str(e)}
+    try:
+        out["chart_patterns"] = _mkt_chart_patterns(ticker)
+    except Exception as e:
+        out["chart_patterns"] = {"status": "error", "error": str(e)}
+    try:
+        out["candlestick_patterns"] = _mkt_candlestick_patterns(ticker)
+    except Exception as e:
+        out["candlestick_patterns"] = {"status": "error", "error": str(e)}
+    return jsonify(out)
+
+
 @app.route("/stock-api/admin/run-eod-scan", methods=["POST"])
 def admin_run_eod_scan():
     """
