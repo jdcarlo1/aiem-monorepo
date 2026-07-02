@@ -3090,9 +3090,11 @@ try:
         id="aiem_independent_grade",
         replace_existing=True,
     )
-    # Workstream D - AIEM independent Polygon-only scan: 9:20 AM ET Mon-Fri.
-    # AIEM picks up to 20 stocks + 20 call options using ONLY raw Polygon data
-    # and its own reasoning - no website conviction/composite scores involved.
+    # Workstream D - AIEM independent Polygon-only scans, split into two legs
+    # (2026-07-01) since stocks and options have very different data-freshness
+    # timing - see _run_aiem_independent_pick_scan docstring.
+    # Stock leg: 9:20 AM ET Mon-Fri. AIEM picks up to 20 stocks using ONLY raw
+    # Polygon data and its own reasoning - no website conviction/composite scores.
     def _run_aiem_independent_scan_job():
         try:
             import threading as _aisj_thr
@@ -3105,6 +3107,24 @@ try:
         _run_aiem_independent_scan_job,
         CronTrigger(day_of_week="mon-fri", hour=9, minute=20, timezone=_ET),
         id="aiem_independent_scan",
+        replace_existing=True,
+    )
+    # Options leg: 10:20 AM ET Mon-Fri - deliberately after the site's own
+    # 9:36 AM and 10:05 AM unusual-calls sweep scans have both completed, so
+    # AIEM reasons over two real intraday sweep passes instead of the noisy
+    # first 10-15 minutes after the open. AIEM picks up to 20 call options.
+    def _run_aiem_independent_options_scan_job():
+        try:
+            import threading as _aiso_thr
+            _aiso_thr.Thread(target=_run_aiem_independent_options_scan, daemon=True).start()
+            record_job_success("aiem_independent_options_scan")
+        except Exception as e:
+            record_job_failure("aiem_independent_options_scan", str(e))
+            print(f"[scheduler] aiem independent options scan error: {e}")
+    _scheduler.add_job(
+        _run_aiem_independent_options_scan_job,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=20, timezone=_ET),
+        id="aiem_independent_options_scan",
         replace_existing=True,
     )
     # Loop B - prediction grader: 4:35 PM ET Mon-Fri
@@ -16615,9 +16635,14 @@ def _aiem_indep_tool_save_independent_picks(stock_picks=None, option_picks=None)
     """
     Persist AIEM's own independent picks to aiem_independent_picks - a table
     fully separate from aiem_predictions/aiem_paper_trades (which are sourced
-    from website signals). Caps at 30 TOTAL combined across both types per day
-    (not 20+20) - if AIEM's lists exceed that, the lower-confidence picks are
-    dropped regardless of type. Entry price for stocks = today's
+    from website signals). As of 2026-07-01 stocks and call options are
+    decided in SEPARATE scans at separate times of day (9:20 AM stocks /
+    10:20 AM options), so each type is capped independently at 20 (not a
+    combined 30) - if a list exceeds that, the lower-confidence picks in
+    that list are dropped. Each pick's hold_days_max is AI-reasoned per pick
+    (holding_period_days from the calling tool schema), not a fixed default -
+    clamped to a sane 1-15 range (and to days-to-expiry for options) in case
+    the model returns something malformed. Entry price for stocks = today's
     polygon_market_daily close; for call_option picks the entry reference is
     the underlying stock price at detection time (option premium/greeks
     history is not tracked, so P&L on call_option picks is graded on
@@ -16697,33 +16722,43 @@ def _aiem_indep_tool_save_independent_picks(stock_picks=None, option_picks=None)
 
             saved = {"stock": [], "call_option": []}
 
-            # Combined 30-pick cap across BOTH types together (not 20+20=40). If AIEM's
-            # own lists exceed 30 combined, keep the higher-confidence picks regardless
-            # of type rather than truncating each list independently.
-            _combined = (
-                [("stock", p) for p in (stock_picks or [])] +
-                [("call_option", p) for p in (option_picks or [])]
-            )
-            _combined.sort(key=lambda tp: float(tp[1].get("confidence_score") or 0), reverse=True)
-            _combined = _combined[:30]
-            stock_picks = [p for t, p in _combined if t == "stock"]
-            option_picks = [p for t, p in _combined if t == "call_option"]
+            # Each type capped independently at 20 - stocks and options are now
+            # decided in separate scans at separate times of day, so there is no
+            # longer one combined list to sort across types.
+            def _clamp_hold_days(raw, is_option, expiry_str=None):
+                try:
+                    d = int(raw)
+                except (TypeError, ValueError):
+                    d = 3 if is_option else 5
+                d = max(1, min(d, 15))
+                if is_option and expiry_str:
+                    try:
+                        _dte = (_sip_dt.date.fromisoformat(str(expiry_str)) - _sip_dt.date.today()).days
+                        if _dte > 0:
+                            d = min(d, _dte)
+                    except Exception:
+                        pass
+                return d
+
+            stock_picks = sorted(stock_picks or [], key=lambda p: float(p.get("confidence_score") or 0), reverse=True)[:20]
+            option_picks = sorted(option_picks or [], key=lambda p: float(p.get("confidence_score") or 0), reverse=True)[:20]
 
             # Full replace of today's stock picks (handles reruns/idempotency -
-            # never accumulates past the combined 30-pick cap across multiple runs same day).
+            # never accumulates past the 20-pick cap across multiple runs same day).
             _cu.execute("DELETE FROM aiem_independent_picks WHERE pick_date=%s AND pick_type='stock'", (today,))
             for p in stock_picks:
                 ticker = str(p.get("ticker", "")).upper().strip()
                 if not ticker:
                     continue
                 entry = close_map.get(ticker)
+                hold_days = _clamp_hold_days(p.get("holding_period_days"), is_option=False)
                 _cu.execute("""
                     INSERT INTO aiem_independent_picks
                         (pick_date, pick_type, ticker, rank, confidence_score,
                          rationale, features, entry_price, hold_days_max, source)
-                    VALUES (%s,'stock',%s,%s,%s,%s,%s,%s,5,'aiem_independent_polygon')
+                    VALUES (%s,'stock',%s,%s,%s,%s,%s,%s,%s,'aiem_independent_polygon')
                 """, (today, ticker, p.get("rank"), p.get("confidence_score"),
-                      p.get("rationale"), _sip_json.dumps(p.get("features") or {}), entry))
+                      p.get("rationale"), _sip_json.dumps(p.get("features") or {}), entry, hold_days))
                 saved["stock"].append(ticker)
 
             # Full replace of today's call_option picks - contract-level rows, so the
@@ -16736,15 +16771,16 @@ def _aiem_indep_tool_save_independent_picks(stock_picks=None, option_picks=None)
                     continue
                 entry = p.get("underlying_price") or close_map.get(ticker)
                 expiry = p.get("expiry") or None
+                hold_days = _clamp_hold_days(p.get("holding_period_days"), is_option=True, expiry_str=expiry)
                 _cu.execute("""
                     INSERT INTO aiem_independent_picks
                         (pick_date, pick_type, ticker, rank, confidence_score,
                          rationale, features, entry_price, option_strike, option_expiry,
                          hold_days_max, source)
-                    VALUES (%s,'call_option',%s,%s,%s,%s,%s,%s,%s,%s,5,'aiem_independent_polygon')
+                    VALUES (%s,'call_option',%s,%s,%s,%s,%s,%s,%s,%s,%s,'aiem_independent_polygon')
                 """, (today, ticker, p.get("rank"), p.get("confidence_score"),
                       p.get("rationale"), _sip_json.dumps(p.get("features") or {}), entry,
-                      p.get("strike"), expiry))
+                      p.get("strike"), expiry, hold_days))
                 saved["call_option"].append(ticker)
 
             _c.commit()
@@ -29332,7 +29368,7 @@ Your confidence_score should reflect genuine conviction:
 Be specific in your reasoning. Explain the pattern, not just the signals."""
 
 
-_AIEM_INDEPENDENT_TOOLS = [
+_AIEM_INDEPENDENT_STOCK_TOOLS = [
     {"type": "function", "function": {
         "name": "get_raw_stock_universe",
         "description": (
@@ -29347,26 +29383,11 @@ _AIEM_INDEPENDENT_TOOLS = [
         }, "required": []}
     }},
     {"type": "function", "function": {
-        "name": "get_raw_options_universe",
+        "name": "save_independent_stock_picks",
         "description": (
-            "Get today's raw call-sweep tape (strike, expiry, days to expiry, call volume, "
-            "open interest, vol/OI ratio, premium, underlying price, OTM%, IV). RAW facts "
-            "only - no conviction/composite score is present on this data. Apply your OWN "
-            "reasoning about which sweeps look like genuine smart-money positioning."
-        ),
-        "parameters": {"type": "object", "properties": {
-            "min_vol_oi": {"type": "number", "description": "Min vol/OI ratio (default 1.0)"},
-            "days_back": {"type": "integer", "description": "Lookback days (default 3)"}
-        }, "required": []}
-    }},
-    {"type": "function", "function": {
-        "name": "save_independent_picks",
-        "description": (
-            "Save your final independent picks. Call LAST. Your TOTAL combined picks "
-            "(stocks + call options together) must not exceed 30 - split them however "
-            "you think is right based on what you find genuinely convincing today, each "
-            "with your own rationale and confidence. Fewer than 30 is fine - do not pad "
-            "the list with weak ideas."
+            "Save your final independent stock picks. Call LAST. Up to 20 stocks - fewer "
+            "is fine if you don't see enough genuine quality; do not pad the list with weak "
+            "ideas just to hit 20."
         ),
         "parameters": {"type": "object", "properties": {
             "stock_picks": {
@@ -29388,6 +29409,57 @@ _AIEM_INDEPENDENT_TOOLS = [
                     },
                 }, "required": ["ticker", "rank", "confidence_score", "rationale", "holding_period_days"]}
             },
+        }, "required": ["stock_picks"]}
+    }},
+]
+
+_AIEM_INDEPENDENT_STOCK_SYSTEM = """You are AIEM building your OWN independent stock-picking \
+skill, completely separate from this website's scanners and composite scores.
+
+Ground rules:
+- You may ONLY use raw Polygon price/volume data (get_raw_stock_universe). It already \
+excludes the website's own conviction/composite scores - you are looking at the same kind of \
+raw data a human analyst would see on a market data terminal, nothing pre-scored for you. \
+This data is YESTERDAY's finalized close (today hasn't happened yet at your 9:20 AM run \
+time) - you are screening for gap/momentum SETUPS going into today's session, not reacting \
+to today's live price action.
+- Use your own reasoning, pattern recognition, and judgment about risk/reward. You are being \
+graded independently against the website's own picks over time, so the goal is to become a \
+better picker in your own right - not to reverse-engineer the website's formulas.
+- Pick up to 20 stocks you independently believe are likely to move favorably over the next \
+several trading days. Fewer than 20 is fine if you don't see enough genuine quality - do not \
+pad the list with weak ideas just to hit 20.
+- Explain your rationale for each pick in your own words.
+
+PROTOCOL:
+1. Call get_raw_stock_universe to see today's raw candidates.
+2. Reason about each candidate independently - momentum, volume behavior, risk of chasing an \
+extended move, liquidity.
+3. Call save_independent_stock_picks with your final ranked list.
+"""
+
+_AIEM_INDEPENDENT_OPTIONS_TOOLS = [
+    {"type": "function", "function": {
+        "name": "get_raw_options_universe",
+        "description": (
+            "Get today's raw call-sweep tape (strike, expiry, days to expiry, call volume, "
+            "open interest, vol/OI ratio, premium, underlying price, OTM%, IV). RAW facts "
+            "only - no conviction/composite score is present on this data. Apply your OWN "
+            "reasoning about which sweeps look like genuine smart-money positioning."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_vol_oi": {"type": "number", "description": "Min vol/OI ratio (default 1.0)"},
+            "days_back": {"type": "integer", "description": "Lookback days (default 3)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "save_independent_option_picks",
+        "description": (
+            "Save your final independent call-option picks. Call LAST. Up to 20 contracts - "
+            "fewer is fine if you don't see enough genuine quality; do not pad the list with "
+            "weak ideas just to hit 20."
+        ),
+        "parameters": {"type": "object", "properties": {
             "option_picks": {
                 "type": "array", "items": {"type": "object", "properties": {
                     "ticker": {"type": "string", "description": "Underlying ticker"},
@@ -29410,64 +29482,95 @@ _AIEM_INDEPENDENT_TOOLS = [
                     },
                 }, "required": ["ticker", "rank", "confidence_score", "rationale", "holding_period_days"]}
             }
-        }, "required": ["stock_picks", "option_picks"]}
+        }, "required": ["option_picks"]}
     }},
 ]
 
-_AIEM_INDEPENDENT_SYSTEM = """You are AIEM building your OWN independent stock-picking and \
-options-picking skill, completely separate from this website's scanners and composite scores.
+_AIEM_INDEPENDENT_OPTIONS_SYSTEM = """You are AIEM building your OWN independent call-option \
+picking skill, completely separate from this website's scanners and composite scores.
 
 Ground rules:
-- You may ONLY use raw Polygon price/volume data (get_raw_stock_universe) and raw \
-options-tape facts (get_raw_options_universe). Both tools already exclude the website's own \
-conviction/composite scores - you are looking at the same kind of raw data a human analyst \
-would see on a market data terminal, nothing pre-scored for you.
+- You may ONLY use raw options-tape facts (get_raw_options_universe) - no conviction/composite \
+score is present on this data. You are looking at the same kind of raw sweep tape a human \
+analyst would see on a market data terminal, nothing pre-scored for you.
+- IMPORTANT TIMING CONTEXT: you are being run at 10:20 AM ET, deliberately AFTER the site's \
+own sweep-detection scanner has already completed TWO real intraday passes today (9:36 AM and \
+10:05 AM) - not right at the 9:30 AM open. This is intentional so you have real accumulated \
+sweep activity to reason over instead of the noisy, fakeout-prone first 10-15 minutes right \
+after the open. Weight sweeps/contracts that show up as sustained or repeated activity across \
+the morning more heavily than a single-scan blip that hasn't been confirmed.
 - Use your own reasoning, pattern recognition, and judgment about risk/reward. You are being \
 graded independently against the website's own picks over time, so the goal is to become a \
 better picker in your own right - not to reverse-engineer the website's formulas.
-- Pick a combined total of up to 30 stocks and/or call-option setups (across both types \
-together, split however you judge is right) you independently believe are likely to move \
-favorably over the next 5 trading days. Fewer than 30 is fine if you don't see enough \
-genuine quality - do not pad the list with weak ideas just to hit 30.
+- Pick up to 20 call-option setups you independently believe are likely to move favorably. \
+Fewer than 20 is fine if you don't see enough genuine quality - do not pad the list with weak \
+ideas just to hit 20.
 - Explain your rationale for each pick in your own words.
 
 PROTOCOL:
-1. Call get_raw_stock_universe and get_raw_options_universe to see today's raw candidates.
-2. Reason about each candidate independently - momentum, volume behavior, sweep positioning, \
-risk of chasing an extended move, liquidity.
-3. Call save_independent_picks with your final ranked lists.
+1. Call get_raw_options_universe to see today's raw sweep candidates.
+2. Reason about each candidate independently - sweep positioning, whether it looks like \
+genuine smart-money conviction vs. a single noisy print, risk of chasing an extended move, \
+liquidity.
+3. Call save_independent_option_picks with your final ranked list.
 """
 
 
-def _run_aiem_independent_scan():
+def _run_aiem_independent_pick_scan(kind: str):
     """
-    AIEM's own independent daily pick generation - Workstream D. Runs 9:20 AM
-    ET Mon-Fri, after the 8:50 AM grading pass and the 8:35 AM Polygon
-    refresh. Saves to aiem_independent_picks - fully separate from
+    Shared runner for AIEM's own independent daily pick generation -
+    Workstream D. As of 2026-07-01 this is split into two separate scans
+    that run at separate times of day, because the underlying data sources
+    have very different freshness profiles:
+      - kind="stock"   runs 9:20 AM ET, right after the 8:50 AM grading pass
+        and 8:35 AM Polygon refresh. Stock candidates are YESTERDAY's
+        finalized Polygon close data (gap/rvol/momentum) - this doesn't
+        change during the day, so there's no benefit to waiting.
+      - kind="options" runs 10:20 AM ET, deliberately AFTER the site's own
+        9:36 AM and 10:05 AM unusual-calls sweep scans have both completed,
+        so AIEM reasons over two real intraday passes of sweep data instead
+        of the noisy first 10-15 minutes right after the open.
+    Both save to aiem_independent_picks - fully separate from
     aiem_predictions / aiem_paper_trades (which are sourced from this
     website's own scanners).
     """
     import threading as _aist
 
     if not _is_trading_day():
-        print("[aiem_independent] skipped - market closed (holiday/weekend)")
+        print(f"[aiem_independent_{kind}] skipped - market closed (holiday/weekend)")
         return
+
+    if kind == "stock":
+        _tools = _AIEM_INDEPENDENT_STOCK_TOOLS
+        _system = _AIEM_INDEPENDENT_STOCK_SYSTEM
+        _tool_map = {
+            "get_raw_stock_universe": _aiem_indep_tool_stock_universe,
+            "save_independent_stock_picks": lambda **kw: _aiem_indep_tool_save_independent_picks(
+                stock_picks=kw.get("stock_picks")
+            ),
+        }
+        _save_fn_name = "save_independent_stock_picks"
+    else:
+        _tools = _AIEM_INDEPENDENT_OPTIONS_TOOLS
+        _system = _AIEM_INDEPENDENT_OPTIONS_SYSTEM
+        _tool_map = {
+            "get_raw_options_universe": _aiem_indep_tool_options_universe,
+            "save_independent_option_picks": lambda **kw: _aiem_indep_tool_save_independent_picks(
+                option_picks=kw.get("option_picks")
+            ),
+        }
+        _save_fn_name = "save_independent_option_picks"
 
     def _indep_scan_thread():
         import json as _aisj
         try:
-            print("[aiem_independent] starting independent Polygon-only scan...")
+            print(f"[aiem_independent_{kind}] starting independent Polygon-only scan...")
             _oai = _OpenAI(
                 base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
                 api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
             )
-            _indep_tool_map = {
-                "get_raw_stock_universe":   _aiem_indep_tool_stock_universe,
-                "get_raw_options_universe": _aiem_indep_tool_options_universe,
-                "save_independent_picks":  _aiem_indep_tool_save_independent_picks,
-            }
             messages = [
-                {"role": "system", "content": _AIEM_INDEPENDENT_SYSTEM},
+                {"role": "system", "content": _system},
                 {"role": "user", "content": "Run today's independent scan and save your picks."}
             ]
             saved = False
@@ -29475,7 +29578,7 @@ def _run_aiem_independent_scan():
                 _resp = _oai.chat.completions.create(
                     model="gpt-5.4",
                     messages=messages,
-                    tools=_AIEM_INDEPENDENT_TOOLS,
+                    tools=_tools,
                     tool_choice="auto",
                     max_completion_tokens=2500,
                 )
@@ -29493,25 +29596,37 @@ def _run_aiem_independent_scan():
                         args = _aisj.loads(tc.function.arguments or "{}")
                     except Exception:
                         args = {}
-                    fn = _indep_tool_map.get(fn_name)
+                    fn = _tool_map.get(fn_name)
                     result = fn(**args) if fn else {"error": "Unknown tool"}
                     result_str = _aisj.dumps(result, default=str)
                     if len(result_str) > 6000:
                         result_str = result_str[:6000] + "...}"
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_str})
-                    if fn_name == "save_independent_picks":
+                    if fn_name == _save_fn_name:
                         saved = True
-                        print("[aiem_independent] picks saved - loop complete")
+                        print(f"[aiem_independent_{kind}] picks saved - loop complete")
                         break
                 else:
                     continue
                 break
             if not saved:
-                print("[aiem_independent] agent didn't save picks this run")
+                print(f"[aiem_independent_{kind}] agent didn't save picks this run")
         except Exception as _e:
-            print("[aiem_independent] error: {}".format(_e))
+            print(f"[aiem_independent_{kind}] error: {_e}")
 
     _aist.Thread(target=_indep_scan_thread, daemon=True).start()
+
+
+def _run_aiem_independent_scan():
+    """Backward-compat wrapper (was the combined stock+options scan) - now
+    only runs the stock leg. Kept so any existing manual callers still work."""
+    _run_aiem_independent_pick_scan("stock")
+
+
+def _run_aiem_independent_options_scan():
+    """10:20 AM ET Mon-Fri - the options leg of Workstream D. See
+    _run_aiem_independent_pick_scan for why this runs later than stocks."""
+    _run_aiem_independent_pick_scan("options")
 
 
 def _run_aiem_morning_scan():
@@ -46942,15 +47057,32 @@ def admin_run_polygon_rvol():
 
 @app.route("/stock-api/admin/run-aiem-independent-scan", methods=["POST"])
 def admin_run_aiem_independent_scan():
-    """Admin (dev testing): trigger AIEM's independent Polygon-only pick scan
-    (Workstream D) immediately instead of waiting for the 9:20 AM ET cron."""
+    """Admin (dev testing): trigger AIEM's independent Polygon-only STOCK pick
+    scan (Workstream D, stock leg) immediately instead of waiting for the
+    9:20 AM ET cron."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     try:
         _run_aiem_independent_scan()
         return jsonify({"status": "started",
-                        "message": "Running in background - check logs for [aiem_independent]."})
+                        "message": "Running in background - check logs for [aiem_independent_stock]."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/admin/run-aiem-independent-options-scan", methods=["POST"])
+def admin_run_aiem_independent_options_scan():
+    """Admin (dev testing): trigger AIEM's independent OPTIONS pick scan
+    (Workstream D, options leg) immediately instead of waiting for the
+    10:20 AM ET cron."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        _run_aiem_independent_options_scan()
+        return jsonify({"status": "started",
+                        "message": "Running in background - check logs for [aiem_independent_options]."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

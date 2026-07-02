@@ -5,53 +5,68 @@ AIEM TELEGRAM NOTIFIER — READ-ONLY, always-on production process (FIX B).
 
 PURPOSE
   Sends AIEM's own INDEPENDENT picks (Workstream D) to Telegram by READING
-  the aiem_independent_picks table that main.py's
-  _run_aiem_independent_scan() (9:20 AM ET) already wrote. These are picks
-  AIEM reasoned to on its own from RAW Polygon data only (no pre-computed
-  conviction/composite score is ever handed to AIEM for this run) - up to
-  30 picks TOTAL combined across stocks and call options, AIEM's own split.
-  This process NEVER scans and NEVER writes to aiem_independent_picks (or
-  any other table) — it is a pure notifier, so it cannot race or collide
-  with main.py, which remains the single canonical writer.
+  the aiem_independent_picks table that main.py's independent scans already
+  wrote. These are picks AIEM reasoned to on its own from RAW Polygon /
+  raw sweep-tape data only (no pre-computed conviction/composite score is
+  ever handed to AIEM for this run). This process NEVER scans and NEVER
+  writes to aiem_independent_picks (or any other table) — it is a pure
+  notifier, so it cannot race or collide with main.py, which remains the
+  single canonical writer.
 
-  Previously (through 2026-06-30) this process sent a 5-pick brief sourced
-  from aiem_predictions (the website-scored candidates handed to AIEM).
-  That was replaced on 2026-07-01 per explicit user direction: they want
-  AIEM's own independently-reasoned picks, not picks derived from the
-  website's pre-computed scores. If no rows exist in aiem_independent_picks
-  for today, we fail closed: send a "data not ready" message and stop. We
-  do not scan.
+  As of 2026-07-01 this is TWO separate briefs, not one combined message,
+  because stocks and call options are decided by two separate AIEM scans
+  at two separate times of day (see SCHEDULE below) - each brief only
+  contains its own pick_type, sent as soon as that type's scan has had
+  time to finish.
+
+  Previously (through 2026-06-30) this process sent a single 5-pick brief
+  sourced from aiem_predictions (the website-scored candidates handed to
+  AIEM), then briefly a single combined stock+options brief at 9:30 AM.
+  Both were replaced per explicit user direction. If no rows exist in
+  aiem_independent_picks for a given pick_type on a given day, we fail
+  closed: send a "data not ready" message and stop. We do not scan.
 
 SCHEDULE (Eastern Time)
-  09:30  Mon-Fri   Independent picks brief — reads today's
-                   aiem_independent_picks (written by main.py's 9:20 AM
-                   independent scan), sends the Telegram message. (9:30
-                   leaves a 10-minute buffer after the 9:20 canonical write
-                   so the read never races the write.)
+  09:30  Mon-Fri   Stock picks brief — reads today's aiem_independent_picks
+                   pick_type='stock' rows (written by main.py's 9:20 AM
+                   stock scan). 9:30 leaves a 10-minute buffer after the
+                   9:20 canonical write so the read never races the write.
+  10:30  Mon-Fri   Options picks brief — reads today's aiem_independent_picks
+                   pick_type='call_option' rows (written by main.py's
+                   10:20 AM options scan, which itself runs deliberately
+                   after the site's own 9:36 AM and 10:05 AM unusual-calls
+                   sweep scans so AIEM has two real intraday passes of
+                   sweep data instead of just the noisy first few minutes
+                   after the open). 10:30 leaves the same 10-minute buffer
+                   after the 10:20 canonical write.
 
 IDEMPOTENCY (no duplicate sends across restarts/redeploys)
   Owns one dedicated table it created itself, `aiem_notifier_log`
-  (send_date DATE PRIMARY KEY). Before sending, it does an atomic
-  INSERT ... ON CONFLICT DO NOTHING claim for today's ET date. Only the
-  process that wins the claim sends. If a redeploy overlap causes two
-  instances to be alive at 9:30 AM ET simultaneously, only one will
-  successfully claim the row and send; the other logs "already sent
+  (PRIMARY KEY (send_date, brief_type) — brief_type is 'stock' or 'options',
+  so the two daily briefs claim and record independently and can never
+  block or overwrite each other's status). Before sending, it does an
+  atomic INSERT ... ON CONFLICT claim for today's ET date + that brief's
+  type. Only the process that wins the claim sends. If a redeploy overlap
+  causes two instances to be alive at send time simultaneously, only one
+  will successfully claim the row and send; the other logs "already sent
   today, skipping" and does nothing. This table is owned solely by this
   script — it is NOT aiem_independent_picks, so this does not reintroduce
   a two-writer collision.
 
 FAILURE VISIBILITY
   If the Telegram send fails (bad token, network error) or the DB read
-  fails, this is recorded in `aiem_notifier_log` (status column) and in
-  /api/health's `last_run`. This process has no secondary delivery
-  channel of its own — the existing uptime-monitor.py (SMTP-based) has
-  been extended to check this service's /api/health after 9:35 AM ET on
-  weekdays and email the owner if the day's send did not succeed, since
-  a healthy HTTP 200 from this service does not by itself prove today's
-  message actually reached Telegram.
+  fails, this is recorded in `aiem_notifier_log` (status column, per
+  brief_type) and in /api/health's `last_run`. This process has no
+  secondary delivery channel of its own — the existing uptime-monitor.py
+  (SMTP-based) has been extended to check this service's /api/health
+  after 9:35 AM ET (stock brief) and again after 10:35 AM ET (options
+  brief) on weekdays, emailing the owner if that day's send did not
+  succeed, since a healthy HTTP 200 from this service does not by itself
+  prove today's message actually reached Telegram.
 
 HEALTH CHECK
-  GET /api/health  → {"status","scheduler","db","last_run","mode"}
+  GET /api/health  → {"status","scheduler","db","last_run","mode",
+                       "today_status_stock","today_status_options"}
   Bound to AIEM_HEALTH_PORT (default 5051).
 
 REQUIRED ENV VARS
@@ -59,11 +74,12 @@ REQUIRED ENV VARS
   TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID — Telegram delivery
 
 MANUAL TEST
-  python3 aiem_telegram_notifier.py --once   # sends one brief immediately,
-                                              # does not start the scheduler,
-                                              # still goes through the same
+  python3 aiem_telegram_notifier.py --once   # sends both briefs immediately
+                                              # (stock then options), does not
+                                              # start the scheduler, still
+                                              # goes through the same
                                               # claim-before-send idempotency
-                                              # gate as the real 9:30 job
+                                              # gate as the real jobs
 """
 
 import os
@@ -125,22 +141,23 @@ def _tg_send(text: str) -> bool:
 # DB READ — SELECT ONLY. This process must never INSERT/UPDATE/DELETE
 # aiem_predictions; main.py is the single canonical writer.
 # ─────────────────────────────────────────────────────────────
-def _fetch_todays_independent_picks():
+def _fetch_todays_picks(pick_type: str):
     """Read-only: AIEM's own independent picks (Workstream D) for today,
-    both pick_types combined, ordered by AIEM's own confidence score so the
-    message shows its highest-conviction ideas first regardless of type."""
+    filtered to ONE pick_type ('stock' or 'call_option'), ordered by AIEM's
+    own confidence score so the message shows its highest-conviction ideas
+    first."""
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         cur = conn.cursor()
         cur.execute("""
             SELECT pick_type, ticker, confidence_score, rationale,
-                   option_strike, option_expiry
+                   option_strike, option_expiry, hold_days_max
             FROM aiem_independent_picks
-            WHERE pick_date = %s
+            WHERE pick_date = %s AND pick_type = %s
             ORDER BY confidence_score DESC NULLS LAST
-            LIMIT 30
-        """, (date.today(),))
+            LIMIT 20
+        """, (date.today(), pick_type))
         return cur.fetchall()
     finally:
         if conn:
@@ -151,22 +168,64 @@ def _fetch_todays_independent_picks():
 # IDEMPOTENCY — this notifier owns this ONE small table itself.
 # It is NOT aiem_predictions, so writing here does not reintroduce
 # the two-writer collision this whole notifier exists to avoid.
+# Keyed on (send_date, brief_type) so the stock brief (9:30 AM) and the
+# options brief (10:30 AM) claim and record fully independently.
 # ─────────────────────────────────────────────────────────────
 def _ensure_notifier_log_table(conn):
+    """Creates aiem_notifier_log fresh with the new (send_date, brief_type)
+    composite key, OR migrates an existing pre-2026-07-01 table (which had
+    send_date alone as PRIMARY KEY, one row per day total) up to the new
+    schema in place. Migration path is required: this table already exists
+    in production with real rows (today's already-sent combined-format
+    brief), and a bare CREATE TABLE IF NOT EXISTS would silently do nothing
+    on that table, leaving brief_type missing and the new options-brief
+    claim would fail with 'column brief_type does not exist'."""
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS aiem_notifier_log (
-            send_date  DATE PRIMARY KEY,
+            send_date  DATE NOT NULL,
+            brief_type TEXT NOT NULL DEFAULT 'stock',
             claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             status     TEXT,
-            updated_at TIMESTAMPTZ
+            updated_at TIMESTAMPTZ,
+            PRIMARY KEY (send_date, brief_type)
         )
+    """)
+    # Migration for a table that already existed before this column existed.
+    cur.execute("ALTER TABLE aiem_notifier_log ADD COLUMN IF NOT EXISTS brief_type TEXT NOT NULL DEFAULT 'stock'")
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                WHERE tc.table_name = 'aiem_notifier_log'
+                  AND tc.constraint_type = 'PRIMARY KEY'
+                  AND kcu.column_name = 'brief_type'
+            ) THEN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_name = 'aiem_notifier_log' AND constraint_type = 'PRIMARY KEY'
+                ) THEN
+                    EXECUTE (
+                        SELECT 'ALTER TABLE aiem_notifier_log DROP CONSTRAINT ' || quote_ident(constraint_name)
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'aiem_notifier_log' AND constraint_type = 'PRIMARY KEY'
+                        LIMIT 1
+                    );
+                END IF;
+                ALTER TABLE aiem_notifier_log ADD PRIMARY KEY (send_date, brief_type);
+            END IF;
+        END $$;
     """)
     conn.commit()
 
 
-def _claim_todays_send(send_date) -> bool:
-    """Atomic claim: returns True only if THIS call won the right to send today.
+def _claim_todays_send(send_date, brief_type: str) -> bool:
+    """Atomic claim: returns True only if THIS call won the right to send
+    today's brief of this type.
 
     Prevents duplicate sends if two process instances are alive at once
     (e.g. during a redeploy overlap) - via the 'in_progress' exclusion below,
@@ -184,9 +243,9 @@ def _claim_todays_send(send_date) -> bool:
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO aiem_notifier_log (send_date, status, claimed_at)
-            VALUES (%s, 'in_progress', now())
-            ON CONFLICT (send_date) DO UPDATE
+            INSERT INTO aiem_notifier_log (send_date, brief_type, status, claimed_at)
+            VALUES (%s, %s, 'in_progress', now())
+            ON CONFLICT (send_date, brief_type) DO UPDATE
                 SET status = 'in_progress', claimed_at = now()
                 WHERE aiem_notifier_log.status NOT LIKE 'sent_ok=True%%'
                   AND aiem_notifier_log.status NOT LIKE 'sent_empty ok=True%%'
@@ -196,7 +255,7 @@ def _claim_todays_send(send_date) -> bool:
                       )
             RETURNING send_date
             """,
-            (send_date,)
+            (send_date, brief_type)
         )
         row = cur.fetchone()
         conn.commit()
@@ -206,14 +265,14 @@ def _claim_todays_send(send_date) -> bool:
             conn.close()
 
 
-def _record_send_result(send_date, status: str):
+def _record_send_result(send_date, brief_type: str, status: str):
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         cur = conn.cursor()
         cur.execute(
-            "UPDATE aiem_notifier_log SET status = %s, updated_at = now() WHERE send_date = %s",
-            (status, send_date)
+            "UPDATE aiem_notifier_log SET status = %s, updated_at = now() WHERE send_date = %s AND brief_type = %s",
+            (status, send_date, brief_type)
         )
         conn.commit()
     except Exception as e:
@@ -223,61 +282,64 @@ def _record_send_result(send_date, status: str):
             conn.close()
 
 
-def send_independent_picks_brief():
-    """09:30 AM ET Mon-Fri. Read-only w.r.t. aiem_independent_picks; sends
-    AIEM's OWN independently-reasoned picks (Workstream D) - up to 30 total
-    combined across stocks and call options, AIEM's own split, ranked by
-    AIEM's own confidence score. Claim-before-send guarantees at most one
-    send per ET calendar date even if two instances are alive at once."""
+def _send_picks_brief(brief_type: str, pick_type: str, send_hour_label: str):
+    """Shared implementation for both the 9:30 AM stock brief and the
+    10:30 AM options brief. brief_type/pick_type are always in lockstep
+    ('stock'/'stock' or 'options'/'call_option') - kept as two separate
+    params only because the DB pick_type value and the human-readable
+    brief label differ."""
     today = date.today()
+    log_prefix = f"{brief_type}_picks_brief"
 
     try:
-        won_claim = _claim_todays_send(today)
+        won_claim = _claim_todays_send(today, brief_type)
     except Exception as e:
-        log.error(f"independent_picks_brief: idempotency claim failed (DB unreachable): {e}")
+        log.error(f"{log_prefix}: idempotency claim failed (DB unreachable): {e}")
         _last_run.update(status=f"claim_db_error: {e}", timestamp=datetime.utcnow().isoformat())
         return
 
     if not won_claim:
-        log.info(f"independent_picks_brief: {today} already sent (or in progress) by another instance - skipping duplicate")
+        log.info(f"{log_prefix}: {today} already sent (or in progress) by another instance - skipping duplicate")
         _last_run.update(status="skipped_duplicate", timestamp=datetime.utcnow().isoformat())
         return
 
     try:
-        picks = _fetch_todays_independent_picks()
+        picks = _fetch_todays_picks(pick_type)
     except Exception as e:
-        log.error(f"independent_picks_brief: DB read failed: {e}")
+        log.error(f"{log_prefix}: DB read failed: {e}")
         _last_run.update(status=f"db_error: {e}", timestamp=datetime.utcnow().isoformat())
-        _record_send_result(today, f"failed_db_error: {e}")
+        _record_send_result(today, brief_type, f"failed_db_error: {e}")
         return
 
     if not picks:
         ok = _tg_send(
-            f"AIEM 9:30 AM: No independent picks found for {today.strftime('%a %b %d')} - "
-            f"data not ready, or AIEM found nothing genuinely convincing today. "
-            f"(Read-only notifier - did not run a scan.)"
+            f"AIEM {send_hour_label}: No independent {brief_type} picks found for "
+            f"{today.strftime('%a %b %d')} - data not ready, or AIEM found nothing "
+            f"genuinely convincing today. (Read-only notifier - did not run a scan.)"
         )
-        log.warning(f"independent_picks_brief: no picks found in aiem_independent_picks for today (telegram sent={ok})")
+        log.warning(f"{log_prefix}: no picks found in aiem_independent_picks for today (telegram sent={ok})")
         status = f"sent_empty ok={ok}"
         _last_run.update(status=status, timestamp=datetime.utcnow().isoformat())
-        _record_send_result(today, status)
+        _record_send_result(today, brief_type, status)
         return
 
-    header = f"AIEM Independent Picks - {today.strftime('%a %b %d')} ({len(picks)})"
+    label = "Stock" if brief_type == "stock" else "Options"
+    header = f"AIEM Independent {label} Picks - {today.strftime('%a %b %d')} ({len(picks)})"
     sub = "AIEM's own reasoning on raw data - no pre-scored input"
     lines = []
-    for i, (pick_type, ticker, conf, rationale, strike, expiry) in enumerate(picks, start=1):
+    for i, (p_type, ticker, conf, rationale, strike, expiry, hold_days) in enumerate(picks, start=1):
         conf_txt = f"{float(conf):.1f}/10" if conf is not None else "?/10"
-        short_reason = (rationale or "")[:55]
-        if pick_type == "call_option":
+        short_reason = (rationale or "")[:50]
+        hold_txt = f"hold ~{int(hold_days)}d" if hold_days is not None else "hold ?d"
+        if p_type == "call_option":
             strike_txt = f"${float(strike):.2f}" if strike is not None else "?"
             exp_txt = expiry.strftime("%m/%d") if hasattr(expiry, "strftime") else (str(expiry) if expiry else "?")
-            lines.append(f"#{i} ${ticker} CALL {strike_txt} exp {exp_txt} - {conf_txt} - {short_reason}")
+            lines.append(f"#{i} ${ticker} CALL {strike_txt} exp {exp_txt} - {conf_txt} - {hold_txt} - {short_reason}")
         else:
-            lines.append(f"#{i} ${ticker} STOCK - {conf_txt} - {short_reason}")
+            lines.append(f"#{i} ${ticker} STOCK - {conf_txt} - {hold_txt} - {short_reason}")
 
     # Telegram caps a single message at 4096 chars - chunk defensively so a
-    # 30-pick list never silently truncates or fails to send.
+    # 20-pick list never silently truncates or fails to send.
     chunks, cur_chunk = [], [header, sub, "----------------------"]
     cur_len = sum(len(l) + 1 for l in cur_chunk)
     for line in lines:
@@ -296,27 +358,46 @@ def send_independent_picks_brief():
             text = f"(part {idx}/{len(chunks)})\n" + text
         all_ok = _tg_send(text) and all_ok
 
-    log.info(f"independent_picks_brief: sent={all_ok} picks={len(picks)} parts={len(chunks)}")
+    log.info(f"{log_prefix}: sent={all_ok} picks={len(picks)} parts={len(chunks)}")
     status = f"sent_ok={all_ok}"
     _last_run.update(status=status, timestamp=datetime.utcnow().isoformat())
-    _record_send_result(today, status)
+    _record_send_result(today, brief_type, status)
+
+
+def send_independent_stock_picks_brief():
+    """09:30 AM ET Mon-Fri. Read-only w.r.t. aiem_independent_picks; sends
+    AIEM's OWN independently-reasoned STOCK picks (Workstream D, stock leg) -
+    up to 20, ranked by AIEM's own confidence score. Claim-before-send
+    guarantees at most one send per ET calendar date even if two instances
+    are alive at once."""
+    _send_picks_brief("stock", "stock", "9:30 AM")
+
+
+def send_independent_options_picks_brief():
+    """10:30 AM ET Mon-Fri. Read-only w.r.t. aiem_independent_picks; sends
+    AIEM's OWN independently-reasoned CALL OPTION picks (Workstream D,
+    options leg) - up to 20, ranked by AIEM's own confidence score.
+    Claim-before-send guarantees at most one send per ET calendar date even
+    if two instances are alive at once."""
+    _send_picks_brief("options", "call_option", "10:30 AM")
 
 
 # ─────────────────────────────────────────────────────────────
 # HEALTH SERVER — stdlib HTTPServer, GET-only, read-only DB probe
 # ─────────────────────────────────────────────────────────────
-def _fetch_today_notifier_log_status():
+def _fetch_today_notifier_log_status(brief_type: str):
     """Cross-instance source of truth for 'did today's send actually happen',
     read from the shared DB row rather than this process's own in-memory
     _last_run (which would be wrong if a *different* instance won the claim
-    and sent, e.g. during a redeploy overlap)."""
+    and sent, e.g. during a redeploy overlap). brief_type is 'stock' or
+    'options' - each brief has its own independent row."""
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
         cur = conn.cursor()
         cur.execute(
-            "SELECT status, updated_at FROM aiem_notifier_log WHERE send_date = %s",
-            (date.today(),)
+            "SELECT status, updated_at FROM aiem_notifier_log WHERE send_date = %s AND brief_type = %s",
+            (date.today(), brief_type)
         )
         row = cur.fetchone()
         if not row:
@@ -337,13 +418,14 @@ class _HealthHandler(BaseHTTPRequestHandler):
             return
 
         health = {
-            "status":       "ok",
-            "timestamp":    datetime.utcnow().isoformat(),
-            "scheduler":    "unknown",
-            "db":           "unknown",
-            "last_run":     _last_run,                          # this process's own memory
-            "today_status": _fetch_today_notifier_log_status(), # shared DB truth - use this for monitoring
-            "mode":         "read_only_notifier",
+            "status":              "ok",
+            "timestamp":           datetime.utcnow().isoformat(),
+            "scheduler":           "unknown",
+            "db":                  "unknown",
+            "last_run":            _last_run,                                 # this process's own memory (whichever brief last ran)
+            "today_status_stock":  _fetch_today_notifier_log_status("stock"),  # shared DB truth - use this for monitoring
+            "today_status_options": _fetch_today_notifier_log_status("options"),
+            "mode":                "read_only_notifier",
         }
         try:
             health["scheduler"] = "running" if (_scheduler_ref and _scheduler_ref.running) else "stopped"
@@ -398,13 +480,19 @@ def main():
     _scheduler_ref = scheduler
 
     scheduler.add_job(
-        send_independent_picks_brief,
+        send_independent_stock_picks_brief,
         CronTrigger(day_of_week="mon-fri", hour=9, minute=30, timezone=ET),
-        id="aiem_independent_picks_notifier",
+        id="aiem_independent_stock_picks_notifier",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        send_independent_options_picks_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=30, timezone=ET),
+        id="aiem_independent_options_picks_notifier",
         replace_existing=True,
     )
 
-    log.info("AIEM Telegram Notifier started (read-only, sends 9:30 AM ET Mon-Fri)")
+    log.info("AIEM Telegram Notifier started (read-only, sends stock brief 9:30 AM ET + options brief 10:30 AM ET, Mon-Fri)")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
@@ -413,7 +501,8 @@ def main():
 
 if __name__ == "__main__":
     if "--once" in sys.argv:
-        log.info("Manual test mode: sending one brief now, scheduler NOT started")
-        send_independent_picks_brief()
+        log.info("Manual test mode: sending both briefs now (stock then options), scheduler NOT started")
+        send_independent_stock_picks_brief()
+        send_independent_options_picks_brief()
     else:
         main()

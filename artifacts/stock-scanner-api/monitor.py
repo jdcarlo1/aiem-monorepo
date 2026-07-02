@@ -5,15 +5,19 @@ Checks https://nclexai.org/stock-api/ every 30 minutes, 24/7.
 Sends email to owner if the site is down for 2 consecutive checks,
 and a recovery email when it comes back up.
 
-Also checks the AIEM Telegram notifier's /api/health once per weekday
-after 9:35 AM ET. A plain HTTP 200 from that service does not prove
-today's Telegram message actually sent (e.g. Telegram API down, bad
-token, or the DB read failing) — so this reads the JSON body's
-`today_status.status` field (DB-backed, true across process instances -
-NOT `last_run`, which is only in-memory for whichever instance happens
-to answer the request) and emails the owner unless it contains "=True"
-by then. This is the only failure-visibility channel for that notifier,
-since it has no delivery channel of its own besides Telegram.
+Also checks the AIEM Telegram notifier's /api/health twice per weekday -
+once after 9:35 AM ET (stock picks brief) and again after 10:35 AM ET
+(call options picks brief), since 2026-07-01 those are two independent
+sends at two different times, not one combined brief. A plain HTTP 200
+from that service does not prove today's Telegram message actually sent
+(e.g. Telegram API down, bad token, or the DB read failing) — so this
+reads the JSON body's `today_status_stock.status` / `today_status_options
+.status` fields (DB-backed, true across process instances - NOT
+`last_run`, which is only in-memory for whichever instance happens to
+answer the request) and emails the owner unless the relevant one contains
+"=True" by its check time. This is the only failure-visibility channel
+for that notifier, since it has no delivery channel of its own besides
+Telegram.
 
 Run with `--once` to execute both checks a single time and exit,
 instead of the normal infinite loop - useful for manual verification.
@@ -73,12 +77,13 @@ def _ping() -> bool:
         return False
 
 
-def _check_aiem_notifier():
-    """Returns (ok, detail_str). ok=False covers 'unreachable', 'nothing
-    recorded yet', and 'recorded but the send itself failed'.
+def _check_aiem_notifier(brief_type: str):
+    """Returns (ok, detail_str) for ONE brief_type ('stock' or 'options').
+    ok=False covers 'unreachable', 'nothing recorded yet', and 'recorded but
+    the send itself failed'.
 
-    Reads `today_status`, which the notifier populates from its own DB
-    table (shared truth across process instances) — NOT `last_run`,
+    Reads `today_status_<brief_type>`, which the notifier populates from its
+    own DB table (shared truth across process instances) — NOT `last_run`,
     which is only that specific process's in-memory state and would be
     stale/wrong if a *different* instance won the idempotency claim and
     actually sent (e.g. during a redeploy overlap)."""
@@ -91,7 +96,7 @@ def _check_aiem_notifier():
     except Exception as e:
         return False, f"health endpoint unreachable: {e}"
 
-    today_status = body.get("today_status") or {}
+    today_status = body.get(f"today_status_{brief_type}") or {}
     status = str(today_status.get("status", ""))
     # A real successful send looks like "sent_ok=True" or "sent_empty ok=True".
     # "sent_ok=False" / "sent_empty ok=False" / "in_progress" / "failed_*" /
@@ -101,22 +106,24 @@ def _check_aiem_notifier():
     return False, status or "no status recorded for today"
 
 
-def _send_aiem_failure_alert(detail: str, when_str: str):
+def _send_aiem_failure_alert(brief_type: str, detail: str, when_str: str):
+    label = "stock" if brief_type == "stock" else "call options"
     _smtp_send(
-        "🚨 AIEM Telegram independent picks brief did not send",
-        f"<p><strong>No confirmed send as of {when_str}.</strong></p>"
+        f"🚨 AIEM Telegram independent {label} picks brief did not send",
+        f"<p><strong>No confirmed {label} brief send as of {when_str}.</strong></p>"
         f"<p>Health check detail: {detail}</p>"
         f"<p>Checked: <a href='{AIEM_HEALTH_URL}'>{AIEM_HEALTH_URL}</a></p>"
-        f"<p>You likely did NOT receive today's AIEM picks on Telegram.</p>"
+        f"<p>You likely did NOT receive today's AIEM {label} picks on Telegram.</p>"
     )
 
 
 def run():
     print(f"[monitor] started — checking {CHECK_URL} every 30 min, 24/7")
     consecutive_failures  = 0
-    site_was_down         = False
-    last_check_time       = 0.0
-    aiem_alert_sent_date  = None   # ET date string; reset daily to avoid re-alerting every 30 min
+    site_was_down              = False
+    last_check_time            = 0.0
+    aiem_stock_alert_sent_date   = None   # ET date string; reset daily to avoid re-alerting every 30 min
+    aiem_options_alert_sent_date = None
 
     while True:
         now_ts = time.time()
@@ -153,20 +160,31 @@ def run():
                         f"open this project → click <strong>Publish → Redeploy</strong>.</p>"
                     )
 
-            # AIEM Telegram notifier check: once per weekday, after 9:35 AM ET,
-            # confirm today's 9:30 AM independent-picks brief actually went out.
+            # AIEM Telegram notifier checks: once per weekday per brief, after
+            # each brief's own send window - confirm the 9:30 AM stock brief
+            # and, separately, the 10:30 AM options brief actually went out.
             today_str = now_et.strftime("%Y-%m-%d")
             is_weekday = now_et.weekday() < 5
-            past_send_window = (now_et.hour, now_et.minute) >= (9, 35)
-            if is_weekday and past_send_window and aiem_alert_sent_date != today_str:
-                ok, detail = _check_aiem_notifier()
+
+            past_stock_window = (now_et.hour, now_et.minute) >= (9, 35)
+            if is_weekday and past_stock_window and aiem_stock_alert_sent_date != today_str:
+                ok, detail = _check_aiem_notifier("stock")
                 if ok:
-                    print(f"[monitor] {now_str} — AIEM notifier OK ({detail})")
-                    aiem_alert_sent_date = today_str  # don't re-check again today
+                    print(f"[monitor] {now_str} — AIEM stock notifier OK ({detail})")
                 else:
-                    print(f"[monitor] {now_str} — AIEM notifier FAILED ({detail})")
-                    _send_aiem_failure_alert(detail, now_str)
-                    aiem_alert_sent_date = today_str  # one alert per day, not one per 30-min tick
+                    print(f"[monitor] {now_str} — AIEM stock notifier FAILED ({detail})")
+                    _send_aiem_failure_alert("stock", detail, now_str)
+                aiem_stock_alert_sent_date = today_str  # one check/alert per day, not one per 30-min tick
+
+            past_options_window = (now_et.hour, now_et.minute) >= (10, 35)
+            if is_weekday and past_options_window and aiem_options_alert_sent_date != today_str:
+                ok, detail = _check_aiem_notifier("options")
+                if ok:
+                    print(f"[monitor] {now_str} — AIEM options notifier OK ({detail})")
+                else:
+                    print(f"[monitor] {now_str} — AIEM options notifier FAILED ({detail})")
+                    _send_aiem_failure_alert("options", detail, now_str)
+                aiem_options_alert_sent_date = today_str  # one check/alert per day, not one per 30-min tick
 
         time.sleep(SLEEP_TICK)
 
@@ -180,13 +198,14 @@ def run_once():
     up = _ping()
     print(f"[monitor] {now_str} — site ping: {'UP' if up else 'DOWN'} ({CHECK_URL})")
 
-    ok, detail = _check_aiem_notifier()
-    print(f"[monitor] {now_str} — AIEM notifier check against {AIEM_HEALTH_URL}: ok={ok} detail={detail!r}")
-    if ok:
-        print(f"[monitor] AIEM notifier OK — no alert sent")
-    else:
-        print(f"[monitor] AIEM notifier FAILED — sending alert email to {OWNER_EMAIL}")
-        _send_aiem_failure_alert(detail, now_str)
+    for brief_type in ("stock", "options"):
+        ok, detail = _check_aiem_notifier(brief_type)
+        print(f"[monitor] {now_str} — AIEM {brief_type} notifier check against {AIEM_HEALTH_URL}: ok={ok} detail={detail!r}")
+        if ok:
+            print(f"[monitor] AIEM {brief_type} notifier OK — no alert sent")
+        else:
+            print(f"[monitor] AIEM {brief_type} notifier FAILED — sending alert email to {OWNER_EMAIL}")
+            _send_aiem_failure_alert(brief_type, detail, now_str)
 
 
 if __name__ == "__main__":
