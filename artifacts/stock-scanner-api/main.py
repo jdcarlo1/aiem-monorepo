@@ -47998,7 +47998,7 @@ def aiem_chat_start():
     max_iters = _classify_question_complexity(question)
     # Images always need at least 3 iterations — the casual 1-iter path uses a
     # 'conversational message' prompt that never mentions the image, causing empty replies.
-    if image_data_url and max_iters < 3:
+    if image_data_urls and max_iters < 3:
         max_iters = 3
     # Analysis mode: all data is pre-loaded in the question. AIEM synthesizes
     # directly. Only DB-only tools allowed — no live chain/price fetches.
@@ -48051,7 +48051,7 @@ def aiem_chat_start():
             f"SESSION_ID: {job_id}\n"
             f"(Pass this session_id whenever you call log_prediction so your calls are linked back here.)\n\n"
             f"The user asks: '{question}'\n\n"
-            f"{('NOTE: The user has attached an image. Look at it carefully and describe what you see before answering their question.' + chr(10) + chr(10)) if image_data_url else ''}"
+            f"{((f'NOTE: The user has attached {len(image_data_urls)} image(s). Look at each one carefully, compare them against each other, and describe what you see before answering their question.' if len(image_data_urls) > 1 else 'NOTE: The user has attached an image. Look at it carefully and describe what you see before answering their question.') + chr(10) + chr(10)) if image_data_urls else ''}"
             f"{_review_instruction}"
             f"{_log_instruction}"
             f"Research this thoroughly using your tools. "
@@ -48062,6 +48062,15 @@ def aiem_chat_start():
             f"End with a clear, direct answer. Be concise but complete — 3-5 paragraphs max. "
             f"Use bullet points for lists of findings."
         )
+
+    # Deep multi-image / multi-iteration research (e.g. digging through minute/hourly
+    # bars across several tickers to find a shared precursor pattern) genuinely needs
+    # more wall-clock time than a normal chat question. Since this is a polled job
+    # (no client holds a connection open) and each session has no global lock, it's
+    # safe to give heavy sessions more room before the hard-deadline kill switch fires.
+    _session_deadline_s = 120
+    if len(image_data_urls) >= 3 or max_iters >= 10:
+        _session_deadline_s = 480  # 8 min — deep cross-ticker/cross-image research
 
     def _worker():
         # No global lock — each chat session is fully isolated by job_id.
@@ -48074,9 +48083,11 @@ def aiem_chat_start():
             def _on_step(step):
                 _qa_db_update(job_id, "running", current_tool=step.get("tool"))
 
-            # Hard 120s deadline on the session so a hung OpenAI call can never
-            # hold the lock forever.  The session thread is daemon so it won't
-            # prevent process exit; we collect results via the shared list.
+            # Deadline on the session so a hung OpenAI call can never hold the lock
+            # forever. Normal chat = 120s; deep multi-image/multi-ticker research
+            # sessions get more room (see _session_deadline_s above). The session
+            # thread is daemon so it won't prevent process exit; we collect results
+            # via the shared list.
             _sess_result = [None, None, None, None]  # [answer_text, trace, err, openai_id]
             def _sess_run():
                 try:
@@ -48085,7 +48096,7 @@ def aiem_chat_start():
                         focus_prompt=prompt,
                         max_iterations=max_iters,
                         on_step=_on_step,
-                        image_data_url=image_data_url or None,
+                        image_data_urls=image_data_urls or None,
                     )
                     # _run_aiem_focused_session returns (text, trace, err) or (text, trace, err, openai_id)
                     _sess_result[0] = _r[0]
@@ -48098,7 +48109,7 @@ def aiem_chat_start():
             _sess_thr = _wt_thr.Thread(target=_sess_run, daemon=True,
                                         name=f"aiem_sess_{job_id[:8]}")
             _sess_thr.start()
-            _sess_thr.join(timeout=120)
+            _sess_thr.join(timeout=_session_deadline_s)
 
             _session_run_s = round(_wt.time() - _t_session_start, 3)
             _timed_out = _sess_thr.is_alive()
@@ -48121,7 +48132,7 @@ def aiem_chat_start():
 
             if _timed_out:
                 _qa_db_update(job_id, "error",
-                              error="Session exceeded 120s hard deadline (OpenAI hang). The lock has been released — retry.",
+                              error=f"Session exceeded {_session_deadline_s}s hard deadline (OpenAI hang). The lock has been released — retry.",
                               tool_trace=trace)
             elif err and not answer_text:
                 _qa_db_update(job_id, "error", error=err[:400], tool_trace=trace)
