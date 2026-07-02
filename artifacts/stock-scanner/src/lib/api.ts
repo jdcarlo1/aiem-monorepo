@@ -2460,11 +2460,19 @@ export interface AiemProbabilityHorizonSummary {
   n_graded: number;
   accuracy_pct: number | null;
   avg_outcome_ret_pct: number | null;
+  note?: string;
+}
+
+export interface AiemProbabilityTrackRecordSummary {
+  contaminated: Record<string, AiemProbabilityHorizonSummary>;
+  corrected: Record<string, AiemProbabilityHorizonSummary>;
+  genuine: Record<string, AiemProbabilityHorizonSummary>;
 }
 
 export interface AiemProbabilityTrackRecord {
   rows: AiemProbabilityTrackRow[];
-  summary: Record<string, AiemProbabilityHorizonSummary>;
+  summary: AiemProbabilityTrackRecordSummary;
+  pit_status_counts?: Record<string, number>;
   total_logged: number;
   note?: string;
 }

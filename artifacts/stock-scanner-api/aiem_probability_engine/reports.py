@@ -116,23 +116,37 @@ def ensure_table() -> None:
             """)
             # PIT FIX migration: label every existing row honestly. created_at
             # is when the row was actually scored+logged (this table has no
-            # other timestamp); a genuinely PIT-safe row is scored on the same
-            # calendar date as its own signal_date (i.e. logged same-day, the
-            # only way generate_and_log_predictions() could not have used a
-            # model trained on later data). Any row logged on a LATER date
-            # than its signal_date is, by construction, exactly the leak
-            # pattern this migration exists to surface - marked 'leaked', not
-            # silently reinterpreted or dropped. New rows get 'pit_safe' or
-            # 'pit_corrected' explicitly at insert time (see log_predictions()
-            # and pit_correction.py) so this backfill only ever touches rows
-            # that predate this fix.
+            # other timestamp).
+            #
+            # CORRECTED 2026-07-03 (see .agents/memory/probability-engine-shadow-log-leakage.md):
+            # this used to mark a row 'pit_safe' whenever created_at::date <=
+            # signal_date ("logged same-day"). That heuristic is WRONG and was
+            # proven wrong on real data: 12 rows scored via the OLD unversioned
+            # load_models() path (same run, same model_version, same DB
+            # transaction timestamp down to the microsecond as 184 rows
+            # correctly labeled 'leaked' moments earlier) happened to have
+            # signal_date == created_at::date and were incorrectly stamped
+            # 'pit_safe' even though they were produced by the exact same
+            # pre-fix, non-registry-versioned scoring pass. "Logged same-day"
+            # does not imply "scored by a registry-eligible, date-gated
+            # model" - only model_registry.get_as_of() can prove that, and it
+            # cannot be evaluated retroactively for old rows (registry.json is
+            # overwritten in place, not append-only, so the registry state at
+            # the time an old row was logged is unrecoverable).
+            #
+            # Correct, conservative rule: ANY pre-existing row with no
+            # pit_status yet was, by definition, logged before this fix
+            # existed, and therefore was NEVER scored via load_models_as_of()/
+            # get_as_of() - it cannot be proven safe, so it is marked 'leaked'
+            # unconditionally. Only rows inserted AFTER the fix, explicitly
+            # stamped at insert time by log_predictions() (see
+            # generate_and_log_predictions(), which only calls it when
+            # load_models_as_of() returned a real registry-gated model), are
+            # ever allowed to be 'pit_safe'.
             cur.execute(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS pit_status TEXT")
             cur.execute(f"""
                 UPDATE {TABLE}
-                SET pit_status = CASE
-                    WHEN created_at::date <= signal_date THEN 'pit_safe'
-                    ELSE 'leaked'
-                END
+                SET pit_status = 'leaked'
                 WHERE pit_status IS NULL
             """)
         conn.commit()

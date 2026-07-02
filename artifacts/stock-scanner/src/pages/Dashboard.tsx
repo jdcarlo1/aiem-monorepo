@@ -15794,21 +15794,72 @@ export default function Dashboard() {
 
               {aiemProbTrackRecord && (
                 <>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                    {(["1d","2d","3d","4d"] as const).map(h => {
-                      const s = aiemProbTrackRecord.summary?.[h];
-                      return (
-                        <div key={h} className="bg-slate-950/50 border border-amber-900/20 rounded-lg p-3">
-                          <div className="text-slate-500 text-xs mb-1">{h.toUpperCase()} Accuracy</div>
-                          <div className={`text-lg font-bold ${s?.accuracy_pct != null && s.accuracy_pct >= 55 ? "text-emerald-400" : "text-slate-200"}`}>
-                            {s?.accuracy_pct != null ? `${s.accuracy_pct}%` : "—"}
-                          </div>
-                          <div className="text-slate-600 text-xs mt-0.5">
-                            {s?.n_graded ?? 0} graded{s?.avg_outcome_ret_pct != null ? ` · avg ${s.avg_outcome_ret_pct >= 0 ? "+" : ""}${s.avg_outcome_ret_pct}%` : ""}
-                          </div>
-                        </div>
-                      );
-                    })}
+                  <div className="mb-4 space-y-3">
+                    <div>
+                      <div className="text-emerald-400 text-xs font-semibold mb-1.5">✓ Genuine — never contaminated, the only real track record</div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {(["1d","2d","3d","4d"] as const).map(h => {
+                          const s = aiemProbTrackRecord.summary?.genuine?.[h];
+                          return (
+                            <div key={h} className="bg-slate-950/50 border border-emerald-900/30 rounded-lg p-3">
+                              <div className="text-slate-500 text-xs mb-1">{h.toUpperCase()} Accuracy</div>
+                              <div className={`text-lg font-bold ${s?.accuracy_pct != null && s.accuracy_pct >= 55 ? "text-emerald-400" : "text-slate-200"}`}>
+                                {s?.accuracy_pct != null ? `${s.accuracy_pct}%` : "—"}
+                              </div>
+                              <div className="text-slate-600 text-xs mt-0.5">
+                                {s?.n_graded ?? 0} graded{s?.avg_outcome_ret_pct != null ? ` · avg ${s.avg_outcome_ret_pct >= 0 ? "+" : ""}${s.avg_outcome_ret_pct}%` : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-amber-400 text-xs font-semibold mb-1.5">⚠ Corrected — embargo-retrained honest scores on originally-leaked rows</div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {(["1d","2d","3d","4d"] as const).map(h => {
+                          const s = aiemProbTrackRecord.summary?.corrected?.[h];
+                          return (
+                            <div key={h} className="bg-slate-950/50 border border-amber-900/20 rounded-lg p-3">
+                              <div className="text-slate-500 text-xs mb-1">{h.toUpperCase()} Accuracy</div>
+                              <div className="text-lg font-bold text-slate-200">
+                                {s?.accuracy_pct != null ? `${s.accuracy_pct}%` : "—"}
+                              </div>
+                              <div className="text-slate-600 text-xs mt-0.5">
+                                {s?.n_graded ?? 0} graded{s?.avg_outcome_ret_pct != null ? ` · avg ${s.avg_outcome_ret_pct >= 0 ? "+" : ""}${s.avg_outcome_ret_pct}%` : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-red-400 text-xs font-semibold mb-1.5">✗ Contaminated — original leaked scores, inflated by construction, NOT a real accuracy estimate</div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {(["1d","2d","3d","4d"] as const).map(h => {
+                          const s = aiemProbTrackRecord.summary?.contaminated?.[h];
+                          return (
+                            <div key={h} className="bg-slate-950/50 border border-red-900/20 rounded-lg p-3 opacity-70">
+                              <div className="text-slate-500 text-xs mb-1">{h.toUpperCase()} Accuracy</div>
+                              <div className="text-lg font-bold text-slate-400 line-through decoration-red-500/50">
+                                {s?.accuracy_pct != null ? `${s.accuracy_pct}%` : "—"}
+                              </div>
+                              <div className="text-slate-600 text-xs mt-0.5">
+                                {s?.n_graded ?? 0} graded{s?.avg_outcome_ret_pct != null ? ` · avg ${s.avg_outcome_ret_pct >= 0 ? "+" : ""}${s.avg_outcome_ret_pct}%` : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {aiemProbTrackRecord.pit_status_counts && (
+                      <div className="text-slate-600 text-xs">
+                        {Object.entries(aiemProbTrackRecord.pit_status_counts).map(([k, v]) => `${v} ${k}`).join(" · ")}
+                      </div>
+                    )}
                   </div>
 
                   {aiemProbTrackRecord.rows.length > 0 ? (

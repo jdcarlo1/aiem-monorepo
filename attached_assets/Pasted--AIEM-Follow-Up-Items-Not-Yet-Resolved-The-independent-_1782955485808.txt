@@ -1,0 +1,41 @@
+# AIEM Follow-Up — Items Not Yet Resolved
+
+The independent audit confirmed the PIT correction logic itself is sound (re-derived numbers matched exactly: corrected AUC 0.38–0.56 vs. leaked 0.93–0.98). But two issues surfaced during that audit are **not fixed** and should not be waved through as "done." Fix each, or provide direct proof it's already handled — no summaries.
+
+---
+
+## 1. `/track-record` endpoint is still contaminated
+
+**Finding:** The live route in `main.py` (`/stock-api/aiem-probability-engine/track-record`) still computes its summary accuracy with a raw aggregate:
+
+```sql
+SELECT COUNT(*) FILTER (...), AVG(outcome_ret_Nd) FILTER (...)
+FROM aiem_probability_engine_predictions
+```
+
+There is no `WHERE pit_status = ...` clause anywhere in this endpoint. It aggregates over all 225 rows, 213 of which are leaked. The PIT fix never touched this endpoint.
+
+**What's needed:**
+- Update the endpoint's SQL to filter on `pit_status` (or otherwise exclude leaked rows / use corrected values).
+- Confirm this is the *only* place the leaked table is aggregated for external/public-facing consumption — grep for other callers of this table doing raw `AVG`/`COUNT`.
+- Show the updated query and a before/after result on the same date range, so the fix is provable, not just asserted.
+
+## 2. Timestamp contradiction on the 12 "clean" (`pit_safe`) rows
+
+**Finding:**
+- The 12 `pit_safe` predictions were written to the DB at **2026-07-01 22:06:09 UTC**.
+- The model files that would justify their `model_version` tag (`a6b025e24a5b`) weren't created until **2026-07-02 00:56:19 UTC** — confirmed via both file mtimes and `trained_at` in `registry.json`.
+- That's a **2h50m gap**: the rows claim to be scored by a model that didn't exist yet at the time they were logged.
+- `get_as_of()` run against every horizon for `2026-07-01` returns `None` for all of them — under the *current* registry, zero horizons are eligible to score that date.
+- `registry.json` is overwritten in place (not append-only), so there's no way to recover what the registry looked like at 22:06 UTC to check if this is a legitimate registry-reset explanation or a real bug.
+
+**What's needed:**
+- Determine which of the two explanations is true:
+  - (a) the registry was reset/retrained after these 12 rows were written, which is a legitimate (if audit-trail-destroying) explanation, or
+  - (b) these 12 rows did not actually go through the `pit_safe` code path the system claims they did — meaning they may be leaked too.
+- Check for any backup, log, or version-control artifact of `registry.json` from around 22:06 UTC on 2026-07-01 that could resolve this.
+- If it truly can't be resolved, say so explicitly and mark all 12 "clean" rows as **unverified** rather than trusted — don't let them stand in as the one leak-free reference sample until this is settled.
+
+---
+
+## Do not mark the PIT correction "done" until both items above are either fixed with proof, or explicitly documented as open/unresolved with the reasoning why.

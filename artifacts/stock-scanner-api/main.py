@@ -33304,9 +33304,22 @@ def aiem_probability_engine_daily_picks():
 def aiem_probability_engine_track_record():
     """
     Predicted-vs-actual history for the probability engine (read-only) —
-    the "did it learn from its mistakes" view. Every row here was logged
-    BEFORE its outcome was known (shadow_mode log, see reports.py), so
-    this is a genuine track record, not a backtest curve-fit after the fact.
+    the "did it learn from its mistakes" view.
+
+    PIT FIX (2026-07-03): this endpoint used to blend ALL rows (213 leaked +
+    12 pit_safe) into one "summary" accuracy number, which meant it reported
+    the leaked models' inflated accuracy as if it were a live track record.
+    It now reports THREE separate, explicitly-labeled buckets — see
+    aiem_probability_engine/pit_metrics.py for the module this mirrors:
+      - contaminated: pit_status='leaked' rows, ORIGINAL prob_up_Nd (known
+        inflated — kept only for transparency about what the bug produced).
+      - corrected:    those same leaked rows using pit_correction.py's
+        embargo-retrained corrected_prob_up_Nd, where a correction exists.
+      - genuine:      pit_status='pit_safe' rows — real forward predictions
+        that were never contaminated. This is the only bucket that should
+        ever be described as "the track record."
+    Every row returned also carries its own pit_status so no consumer can
+    silently re-blend the buckets back together.
     """
     _limit = min(int(request.args.get("limit", 100)), 500)
     try:
@@ -33321,7 +33334,7 @@ def aiem_probability_engine_track_record():
                 })
 
             _cu.execute("""
-                SELECT signal_date::text, ticker, model_version,
+                SELECT signal_date::text, ticker, model_version, pit_status,
                        prob_up_1d, prob_up_2d, prob_up_3d, prob_up_4d,
                        confidence, regime_tag,
                        outcome_ret_1d, outcome_ret_2d, outcome_ret_3d, outcome_ret_4d,
@@ -33330,7 +33343,7 @@ def aiem_probability_engine_track_record():
                 ORDER BY signal_date DESC, ticker ASC
                 LIMIT %s
             """, (_limit,))
-            _cols = ["signal_date", "ticker", "model_version",
+            _cols = ["signal_date", "ticker", "model_version", "pit_status",
                      "prob_up_1d", "prob_up_2d", "prob_up_3d", "prob_up_4d",
                      "confidence", "regime_tag",
                      "outcome_ret_1d", "outcome_ret_2d", "outcome_ret_3d", "outcome_ret_4d",
@@ -33350,41 +33363,94 @@ def aiem_probability_engine_track_record():
                         _d[f"correct_{_h}d"] = bool((_pred_up and _l == 1) or (not _pred_up and _l == 0))
                 _rows.append(_d)
 
-            # Summary accuracy per horizon, over ALL graded rows in the table
-            # (not just this page), so the headline number doesn't drift
-            # with pagination/limit.
-            _summary = {}
-            for _h in [1, 2, 3, 4]:
-                _cu.execute(f"""
-                    SELECT
-                        COUNT(*) FILTER (WHERE outcome_label_{_h}d IS NOT NULL) AS n_graded,
-                        COUNT(*) FILTER (
-                            WHERE outcome_label_{_h}d IS NOT NULL AND (
-                                (prob_up_{_h}d > 0.5 AND outcome_label_{_h}d = 1) OR
-                                (prob_up_{_h}d <= 0.5 AND outcome_label_{_h}d = 0)
-                            )
-                        ) AS n_correct,
-                        AVG(outcome_ret_{_h}d) FILTER (WHERE outcome_label_{_h}d IS NOT NULL) AS avg_ret
-                    FROM aiem_probability_engine_predictions
-                """)
-                _n_graded, _n_correct, _avg_ret = _cu.fetchone()
-                _summary[f"{_h}d"] = {
-                    "n_graded": int(_n_graded or 0),
-                    "accuracy_pct": round(_n_correct / _n_graded * 100, 1) if _n_graded else None,
-                    "avg_outcome_ret_pct": round(float(_avg_ret), 2) if _avg_ret is not None else None,
-                }
+            def _bucket_summary(_where_sql, _prob_expr_fn, _from_sql):
+                _s = {}
+                for _h in [1, 2, 3, 4]:
+                    _prob_expr = _prob_expr_fn(_h)
+                    _cu.execute(f"""
+                        SELECT
+                            COUNT(*) FILTER (WHERE outcome_label_{_h}d IS NOT NULL AND {_prob_expr} IS NOT NULL) AS n_graded,
+                            COUNT(*) FILTER (
+                                WHERE outcome_label_{_h}d IS NOT NULL AND {_prob_expr} IS NOT NULL AND (
+                                    ({_prob_expr} > 0.5 AND outcome_label_{_h}d = 1) OR
+                                    ({_prob_expr} <= 0.5 AND outcome_label_{_h}d = 0)
+                                )
+                            ) AS n_correct,
+                            AVG(outcome_ret_{_h}d) FILTER (WHERE outcome_label_{_h}d IS NOT NULL AND {_prob_expr} IS NOT NULL) AS avg_ret
+                        FROM {_from_sql}
+                        WHERE {_where_sql}
+                    """)
+                    _n_graded, _n_correct, _avg_ret = _cu.fetchone()
+                    _s[f"{_h}d"] = {
+                        "n_graded": int(_n_graded or 0),
+                        "accuracy_pct": round(_n_correct / _n_graded * 100, 1) if _n_graded else None,
+                        "avg_outcome_ret_pct": round(float(_avg_ret), 2) if _avg_ret is not None else None,
+                    }
+                return _s
+
+            # Bucket 1: contaminated — leaked rows, ORIGINAL (inflated) scores.
+            # Kept only for transparency; NEVER present this as "the" accuracy.
+            _summary_contaminated = _bucket_summary(
+                "pit_status = 'leaked'",
+                lambda h: f"p.prob_up_{h}d",
+                "aiem_probability_engine_predictions p",
+            )
+
+            # Bucket 2: corrected — same leaked rows, embargo-retrained scores
+            # from pit_correction.py where a correction exists for that horizon.
+            _cu.execute("""
+                SELECT to_regclass('public.aiem_probability_engine_pit_corrections')
+            """)
+            if _cu.fetchone()[0] is not None:
+                _summary_corrected = _bucket_summary(
+                    "p.pit_status = 'leaked'",
+                    lambda h: f"c.corrected_prob_up_{h}d",
+                    "aiem_probability_engine_predictions p "
+                    "JOIN aiem_probability_engine_pit_corrections c "
+                    "ON c.original_prediction_id = p.id",
+                )
+            else:
+                _summary_corrected = {f"{h}d": {"n_graded": 0, "accuracy_pct": None,
+                                                 "avg_outcome_ret_pct": None,
+                                                 "note": "pit_correction.py has not been run yet"}
+                                       for h in [1, 2, 3, 4]}
+
+            # Bucket 3: genuine — pit_status='pit_safe' rows. The ONLY bucket
+            # that represents an actual, never-contaminated forward track record.
+            _summary_genuine = _bucket_summary(
+                "pit_status = 'pit_safe'",
+                lambda h: f"p.prob_up_{h}d",
+                "aiem_probability_engine_predictions p",
+            )
+
+            _cu.execute("""
+                SELECT pit_status, COUNT(*) FROM aiem_probability_engine_predictions
+                GROUP BY pit_status
+            """)
+            _status_counts = {r[0]: int(r[1]) for r in _cu.fetchall()}
 
             _cu.execute("SELECT COUNT(*) FROM aiem_probability_engine_predictions")
             _total_logged = _cu.fetchone()[0]
 
         return jsonify({
             "rows": _rows,
-            "summary": _summary,
+            "summary": {
+                "contaminated": _summary_contaminated,
+                "corrected": _summary_corrected,
+                "genuine": _summary_genuine,
+            },
+            "pit_status_counts": _status_counts,
             "total_logged": int(_total_logged or 0),
             "note": (
                 "correct_Nd is null until that horizon's outcome is known "
                 "(e.g. a 4d call made yesterday hasn't graded yet) — this is "
-                "expected, not missing data."
+                "expected, not missing data. 'summary.contaminated' reflects "
+                "leaked rows scored by a model that had already seen "
+                "outcome-adjacent future data — it is optimistic by "
+                "construction, NOT a real accuracy estimate. 'summary.genuine' "
+                "is the only bucket that represents an honest forward track "
+                "record, and n_graded will be small/zero until those rows' "
+                "outcomes settle."
             ),
         })
     except Exception as _e:
