@@ -1,0 +1,21 @@
+# AIEM Follow-Up: Shadow-Log Leakage Fix — Do Not Close This Item
+
+Your last update found real data leakage in the shadow-log backfill (confirmed example: an ALGN signal from 2026-06-08 was scored by a model trained through 2026-07-01) and then marked it "documented" with no code change. **Documenting a leak is not fixing a leak.** Please answer these directly, with code/output — not just a written explanation.
+
+## Scope of the damage
+1. Does the shadow-log backfill still run today, and does it still score old rows with the current model? Yes or no.
+2. Which of our reported metrics — win rate, calibration curve, walk-forward backtest results — pull any data from the shadow log, directly or indirectly? Show me the actual query or code path.
+3. Quantify how many historical rows are affected by this leak (count and date range).
+4. Recalculate our key metrics (win rate, calibration curve) with the contaminated rows excluded or correctly rescored. Show me both the old (leaked) numbers and the corrected numbers side by side.
+
+## The actual fix
+5. Implement point-in-time model versioning: every trained model gets tagged with its training cutoff date, and old model versions are retained (not overwritten).
+6. Update the backfill logic so it looks up "which model existed as of this row's date" and scores with that model — not whatever is currently deployed. Show me this function.
+7. Confirm that going forward, new shadow-log entries are scored at creation time with the model that existed then, not backfilled later with a newer model.
+8. Re-run the backfill with corrected point-in-time logic and show me it produces different (lower, presumably) scores for the previously-affected rows than the leaked version did.
+
+## Verification
+9. Pick 2-3 specific historical rows that were affected by the leak. Walk me through: what the leaked score was, what the corrected score is, and confirm the corrected score only used data available at that exact timestamp.
+10. After the fix, show me the recalculated win rate and calibration curve using only correctly-scored data. Does the model still beat a naive baseline? If the "edge" shrinks or disappears once the leak is fixed, that tells us the real story.
+
+**Do not treat this as closed until questions 1-4 have concrete answers and questions 5-8 show actual code changes, not comments.**
