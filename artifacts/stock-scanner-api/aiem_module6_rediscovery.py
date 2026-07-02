@@ -20,7 +20,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
-from scipy.stats import fisher_exact as _fisher_exact
+import aiem_stat_tests as _stat_tests
 
 log = logging.getLogger("module6_rediscovery")
 
@@ -180,46 +180,17 @@ def _generate_variations(signal: dict) -> list:
 # One-variation test (mirrors Module 5's _run_one_test)
 
 def _run_variation_test(cur, var: dict, horizon: int) -> dict:
-    sql = f"""
-        WITH ranked AS (
-            SELECT
-                pm.close_price,
-                pm.prev_close,
-                LEAD(pm.close_price, %s)
-                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS fwd_close,
-                CASE WHEN {var['sql_filter']} THEN TRUE ELSE FALSE END AS cond_met
-            FROM polygon_market_daily pm
-            WHERE pm.scan_date >= %s
-              AND pm.close_price > 0
-              AND pm.prev_close  > 0
-              AND pm.rvol        IS NOT NULL
-        )
-        SELECT
-            COUNT(*) FILTER (WHERE     cond_met AND fwd_close >  close_price) AS cond_win,
-            COUNT(*) FILTER (WHERE     cond_met AND fwd_close <= close_price) AS cond_lose,
-            COUNT(*) FILTER (WHERE NOT cond_met AND fwd_close >  close_price) AS ctrl_win,
-            COUNT(*) FILTER (WHERE NOT cond_met AND fwd_close <= close_price) AS ctrl_lose
-        FROM ranked
-        WHERE fwd_close IS NOT NULL
     """
-    cur.execute(sql, (horizon, _SCAN_START))
-    cond_win, cond_lose, ctrl_win, ctrl_lose = (int(v) for v in cur.fetchone())
-    cond_n = cond_win + cond_lose
-    ctrl_n = ctrl_win + ctrl_lose
-
-    if cond_n == 0 or ctrl_n == 0:
-        return {"cond_n": cond_n, "ctrl_n": ctrl_n,
-                "cond_wr": None, "ctrl_wr": None, "delta_wr": None, "p_raw": 1.0}
-
-    cond_wr  = round(cond_win / cond_n * 100, 2)
-    ctrl_wr  = round(ctrl_win / ctrl_n * 100, 2)
-    delta_wr = round(cond_wr - ctrl_wr, 2)
-    _, p_raw = _fisher_exact([[cond_win, cond_lose], [ctrl_win, ctrl_lose]], alternative="greater")
-    return {
-        "cond_n": cond_n, "ctrl_n": ctrl_n,
-        "cond_wr": cond_wr, "ctrl_wr": ctrl_wr,
-        "delta_wr": delta_wr, "p_raw": float(p_raw),
-    }
+    Non-overlapping (bucketed) Fisher's exact test for one variation.
+    Delegates to aiem_stat_tests.run_fisher_test — same harness as Module 5.
+    """
+    return _stat_tests.run_fisher_test(
+        cur,
+        sql_filter  = var["sql_filter"],
+        horizon     = horizon,
+        scan_start  = _SCAN_START,
+        alternative = "greater",
+    )
 
 
 # ---------------------------------------------------------------------------

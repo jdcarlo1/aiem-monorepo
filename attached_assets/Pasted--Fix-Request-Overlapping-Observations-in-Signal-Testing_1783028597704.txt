@@ -1,0 +1,28 @@
+# Fix Request: Overlapping Observations in Signal Testing (System-Wide)
+
+## Background
+Replit Agent confirmed that the current Fisher's exact test treats all qualifying (ticker, scan_date) rows as fully independent. In reality, if a ticker fires the same condition on consecutive days, those rows share overlapping forward-return windows, which makes the resulting p-values mildly anti-conservative (overstating statistical confidence). This applies to every signal in `aiem_signal_discoveries` — it is not specific to id=11 or Module 6 — since Module 5's original validation harness uses the same pooling structure.
+
+## What to do
+Implement the non-overlapping window fix Replit Agent already proposed, and apply it consistently across both Module 5 (new discovery testing) and Module 6 (rediscovery/variation testing), not just as a one-off fix for id=11.
+
+**Approach:** Use `DISTINCT ON (ticker, scan_date_bucket)` with non-overlapping windows sized to match each signal's horizon (e.g., 3-day buckets for a 3-day horizon signal, 5-day buckets for a 5-day horizon signal) so that no single outcome day is counted as part of more than one observation.
+
+## Scope of work requested
+
+1. **Implement the bucketed/non-overlapping version of the sample-counting query** as a modification to the shared statistical testing harness (the same one used by both Module 5 and Module 6), not a separate one-off script.
+
+2. **Re-run the existing validated/discovered signals** currently in `aiem_signal_discoveries` through the corrected counting method, and report for each:
+   - Original n and p-value (overlapping method)
+   - Corrected n and p-value (non-overlapping method)
+   - Whether the signal still clears its promotion/validation threshold under the corrected method
+
+3. **Flag specifically id=11** (the current live example) with before/after numbers so we can confirm it survives the stricter count as expected.
+
+4. **Flag any signal that does NOT survive the corrected method** — meaning it passed under the old overlapping-count method but fails under the corrected non-overlapping method. These need explicit review before continuing to treat them as validated.
+
+5. **Going forward:** confirm this corrected method becomes the default for all future Module 5 discoveries and Module 6 rediscovery tests, not just a retroactive check.
+
+## What NOT to do
+- Don't silently swap the method without reporting which existing signals are affected — we need the before/after comparison for every signal currently live, not just id=11.
+- Don't treat this as urgent-emergency (nothing is currently mis-trading because of this) — treat it as a correctness fix to implement properly, tested, before the next Sunday pipeline run.

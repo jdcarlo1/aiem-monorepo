@@ -74,5 +74,13 @@ Module 4 is not scheduled — it is the human approval gate triggered manually v
 - Sunday: M2@2:30AM → M3@3:00AM → M5@4:00AM → M6@4:15AM
 - Weekdays: M7@5:00PM ET
 
+## Shared statistical harness: aiem_stat_tests.py
+- `run_fisher_test(cur, sql_filter, horizon, scan_start, alternative)` — NON-OVERLAPPING default
+- `run_fisher_test_overlapping(...)` — legacy, comparison only; DO NOT use for decisions
+- Bucketing: `(rn-1)/H` integer division per ticker; DISTINCT ON (ticker, bucket_id); earliest row kept
+- Effective n ≈ n_overlapping/H; H=1 signals are identical under both methods (bucket size 1)
+- Both Module 5 and Module 6 delegate to this harness; inline SQL removed from both
+- Retroactive audit (all 11 signals): id=6 ✅, id=10 ✅, id=11 ✅ survive; id=4 ❌ FAILS (no edge detected, hand-crafted, recommend retirement); non-testable: id=2,3,5,7,8,9 (prior_day/CMF/RSI/multi-step)
+
 ## Why
 The gate-integrity audit exists because id=1 was found to have oos_edge=NULL despite being 'validated' status — proving the signal was never properly OOS-tested before promotion. Modules 2-7 together enforce: all validated signals have positive OOS evidence (M2), all hypothesis signals accumulate before promotion (M3), human reviews every status change (M4), new hypotheses require statistical validation (M5), retired signals get one clean retry on neighboring conditions (M6), and sector context weights conviction scores (M7).

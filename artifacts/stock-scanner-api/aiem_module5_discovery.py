@@ -25,7 +25,7 @@ import datetime as _dt
 import json as _json
 import math as _math
 
-from scipy.stats import fisher_exact as _fisher_exact
+import aiem_stat_tests as _stat_tests
 
 
 # ---------------------------------------------------------------------------
@@ -377,65 +377,20 @@ def _bh_fdr_reject(p_values: list[float], alpha: float = 0.05) -> list[bool]:
 
 def _run_one_test(cur, cond: dict, horizon: int) -> dict:
     """
-    Execute Fisher's exact test for one condition × horizon pair.
-    Returns a result dict with cond_n, cond_wr, ctrl_wr, delta_wr, p_raw.
+    Execute non-overlapping (bucketed) Fisher's exact test for one condition × horizon pair.
+    Delegates to aiem_stat_tests.run_fisher_test — the authoritative shared harness.
+
+    Non-overlapping: each ticker's history is divided into H-day calendar buckets;
+    only the earliest row per bucket is kept, so no two retained observations for the
+    same ticker share any forward-return days.
     """
-    sql = f"""
-        WITH ranked AS (
-            SELECT
-                pm.ticker,
-                pm.scan_date,
-                pm.close_price,
-                pm.prev_close,
-                pm.rvol,
-                pm.close_strength,
-                pm.gap_pct,
-                LEAD(pm.close_price, %s)
-                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS fwd_close,
-                CASE WHEN {cond['sql_filter']} THEN TRUE ELSE FALSE END AS cond_met
-            FROM polygon_market_daily pm
-            WHERE pm.scan_date >= %s
-              AND pm.close_price > 0
-              AND pm.prev_close  > 0
-              AND pm.rvol        IS NOT NULL
-        )
-        SELECT
-            COUNT(*) FILTER (WHERE cond_met AND fwd_close >  close_price)  AS cond_win,
-            COUNT(*) FILTER (WHERE cond_met AND fwd_close <= close_price)  AS cond_lose,
-            COUNT(*) FILTER (WHERE NOT cond_met AND fwd_close >  close_price) AS ctrl_win,
-            COUNT(*) FILTER (WHERE NOT cond_met AND fwd_close <= close_price) AS ctrl_lose
-        FROM ranked
-        WHERE fwd_close IS NOT NULL
-    """
-    cur.execute(sql, (horizon, _SCAN_START))
-    row = cur.fetchone()
-    cond_win, cond_lose, ctrl_win, ctrl_lose = (int(v) for v in row)
-
-    cond_n = cond_win + cond_lose
-    ctrl_n = ctrl_win + ctrl_lose
-
-    if cond_n == 0 or ctrl_n == 0:
-        return {
-            "cond_n":    cond_n, "cond_win": cond_win, "cond_lose": cond_lose,
-            "ctrl_n":    ctrl_n, "ctrl_win": ctrl_win, "ctrl_lose": ctrl_lose,
-            "cond_wr":   None,   "ctrl_wr":  None,     "delta_wr": None,
-            "p_raw":     1.0,
-        }
-
-    cond_wr  = round(cond_win / cond_n * 100, 2)
-    ctrl_wr  = round(ctrl_win / ctrl_n * 100, 2)
-    delta_wr = round(cond_wr - ctrl_wr, 2)
-
-    # Fisher's exact test — one-tailed (condition group has higher win rate)
-    table = [[cond_win, cond_lose], [ctrl_win, ctrl_lose]]
-    _, p_raw = _fisher_exact(table, alternative=cond.get("alternative", "greater"))
-
-    return {
-        "cond_n":    cond_n,  "cond_win":  cond_win,  "cond_lose": cond_lose,
-        "ctrl_n":    ctrl_n,  "ctrl_win":  ctrl_win,  "ctrl_lose": ctrl_lose,
-        "cond_wr":   cond_wr, "ctrl_wr":   ctrl_wr,   "delta_wr":  delta_wr,
-        "p_raw":     float(p_raw),
-    }
+    return _stat_tests.run_fisher_test(
+        cur,
+        sql_filter  = cond["sql_filter"],
+        horizon     = horizon,
+        scan_start  = _SCAN_START,
+        alternative = cond.get("alternative", "greater"),
+    )
 
 
 # ---------------------------------------------------------------------------
