@@ -1,0 +1,58 @@
+# AIEM Verification Questions — PIT Correction Fix
+
+Before this fix is marked done, answer each question below with actual data/code — not summaries or descriptions. If something can't be shown, say so explicitly rather than approximating.
+
+---
+
+## 1. Break down the numbers by bucket
+
+Show AUC, win rate, and sample size **separately** for each of the three buckets:
+- 83 fully corrected rows
+- 43 partially corrected rows
+- 87 uncorrectable rows
+
+Don't pool them into the single 0.35–0.53 range. If the 83 "fully corrected" rows alone are near 0.5, that's a stronger and cleaner signal than the aggregate.
+
+## 2. Show the 12 clean same-day rows on their own
+
+What's their standalone win rate / AUC? Small sample, but it's the only truly untainted historical data. Flag if it materially disagrees with the corrected 213.
+
+## 3. Prove the fix prevents the bug going forward — walk through one real example
+
+Pick one concrete new prediction end-to-end:
+- What model version does `load_models()` select for a signal dated today?
+- What model version would it select for a signal dated 10 days from now?
+- Where in `model_registry.py` does that version-selection logic live?
+
+Show the actual code path, not a description of it.
+
+## 4. How was "uncorrectable" decided for the 87 rows?
+
+- What's the specific rule (e.g., "fewer than N days of prior history to retrain safely")?
+- Is that threshold hardcoded?
+- Would this same threshold apply consistently in production going forward, or was it a one-off judgment call for this cleanup?
+
+## 5. Who or what did the "architect review," and what did it check?
+
+- Was this a second pass by the same model/session, or something structurally independent?
+- Did it re-derive the AUC numbers itself, or just read the summary and agree?
+
+## 6. Give row-level data for a random sample
+
+Pull 10 random rows from the "fully corrected" bucket showing:
+- signal_date
+- model version used (before fix vs. after fix)
+- raw prediction
+- outcome
+
+## 7. Is `/track-record` actually fixed?
+
+Does the endpoint's win-rate calculation now exclude leaked rows / use corrected values, or does it still run a raw AVG/COUNT over the full table? State explicitly which it is.
+
+## 8. Any other tables/endpoints with the same bug class?
+
+This fix scoped to `aiem_probability_engine_predictions`. Was any other model-scoring code checked for the same "load whatever's currently on disk, no version awareness" pattern? If not checked, say so.
+
+---
+
+*Prepared to verify the PIT (point-in-time) correction fix for AIEM's probability engine before accepting it as complete.*
