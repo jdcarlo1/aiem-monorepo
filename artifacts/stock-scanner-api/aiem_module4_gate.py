@@ -144,12 +144,18 @@ def apply_action(
     action: str,
     reason: str,
     approved_by: str = "admin",
+    force: bool = False,
 ) -> dict:
     """
     Apply a human-approved action to a signal discovery.
 
     Returns a result dict with full audit information.
     Raises ValueError for invalid inputs or illegal state transitions.
+
+    force=True bypasses the evaluable_now time-gate. Use only when the
+    invalidity is proven at the statistical level (e.g., hand-entered statistics,
+    mathematical inconsistency) rather than observed performance decay.
+    The force flag and evaluation_status are prepended to the audit reason.
     """
     if action not in _VALID_ACTIONS:
         raise ValueError(
@@ -181,12 +187,17 @@ def apply_action(
         (disc_id, from_status, hyp_text,
          decay_verdict, realized_n, realized_wr, realized_p, eval_status) = row
 
-        # Guard: 'keep' is always allowed; other actions require an evaluable_now signal
-        if action != "keep" and eval_status != "evaluable_now":
+        # Guard: 'keep' is always allowed; other actions require evaluable_now,
+        # unless force=True (used when invalidity is proven statistically,
+        # not by live-observation decay).
+        if action != "keep" and eval_status != "evaluable_now" and not force:
             raise ValueError(
                 f"Cannot apply action '{action}' to id={disc_id}: "
-                f"evaluation_status='{eval_status}' (need 'evaluable_now')"
+                f"evaluation_status='{eval_status}' (need 'evaluable_now', "
+                f"or pass force=True with documented statistical justification)"
             )
+        if force and eval_status != "evaluable_now":
+            reason = f"[FORCE-OVERRIDE: eval_status={eval_status}] " + reason.strip()
 
         # Guard: don't apply a transition that is already in place
         if to_status is not None and from_status == to_status:

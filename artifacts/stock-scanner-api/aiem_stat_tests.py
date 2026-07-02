@@ -24,6 +24,21 @@ windows never share a day. The effective n is approximately n_overlapping / H.
 Both methods are available for comparison via `run_fisher_test_overlapping` (legacy)
 and `run_fisher_test` (default, non-overlapping). Only the non-overlapping version
 should be used for promotion/validation decisions.
+
+LAG-aware extension
+--------------------
+`run_fisher_test_lag` extends the standard test by computing prior-day context columns
+in the CTE (prev_close_strength, prev_move_pct, prev_rvol, prev_gap_pct, prev_range_pct).
+sql_filter expressions in the LAG variant reference these without a table-alias prefix.
+Use this for multi-day pattern signals (e.g. "big catalyst day → inside day → gap up").
+
+Available columns in the standard harness (pm. prefix in sql_filter):
+    pm.close_price, pm.prev_close, pm.rvol, pm.close_strength,
+    pm.gap_pct, pm.volume, pm.range_pct
+
+Additional columns in run_fisher_test_lag (no prefix in sql_filter):
+    close_price, prev_close, rvol, close_strength, gap_pct, volume, range_pct,
+    prev_close_strength, prev_move_pct, prev_rvol, prev_gap_pct, prev_range_pct
 """
 
 import logging
@@ -88,7 +103,9 @@ def run_fisher_test(
 
     Parameters
     ----------
-    sql_filter  : SQL CASE condition string referencing 'pm' alias columns
+    sql_filter  : SQL CASE condition string referencing 'pm' alias columns:
+                  pm.close_price, pm.prev_close, pm.rvol, pm.close_strength,
+                  pm.gap_pct, pm.volume, pm.range_pct
     horizon     : Forward-return window in trading days (also the bucket size)
     scan_start  : Earliest scan_date to include (default: polygon_market_daily start)
     alternative : Fisher's exact test tail ('greater', 'less', 'two-sided')
@@ -103,6 +120,8 @@ def run_fisher_test(
                 pm.rvol,
                 pm.close_strength,
                 pm.gap_pct,
+                pm.volume,
+                pm.range_pct,
                 LEAD(pm.close_price, %s)
                     OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS fwd_close,
                 CASE WHEN {sql_filter} THEN TRUE ELSE FALSE END AS cond_met,
@@ -124,6 +143,110 @@ def run_fisher_test(
                 close_price, fwd_close, cond_met
             FROM bucketed
             ORDER BY ticker, bucket_id, scan_date   -- keep earliest in each block
+        )
+        SELECT
+            COUNT(*) FILTER (WHERE     cond_met AND fwd_close >  close_price) AS cond_win,
+            COUNT(*) FILTER (WHERE     cond_met AND fwd_close <= close_price) AS cond_lose,
+            COUNT(*) FILTER (WHERE NOT cond_met AND fwd_close >  close_price) AS ctrl_win,
+            COUNT(*) FILTER (WHERE NOT cond_met AND fwd_close <= close_price) AS ctrl_lose
+        FROM deduped
+    """
+    cur.execute(sql, (horizon, scan_start, horizon))
+    cond_win, cond_lose, ctrl_win, ctrl_lose = _fetch_2x2(cur)
+    return _compute_stats(cond_win, cond_lose, ctrl_win, ctrl_lose, alternative)
+
+
+# ---------------------------------------------------------------------------
+# LAG-aware non-overlapping — for multi-day pattern signals
+
+def run_fisher_test_lag(
+    cur,
+    sql_filter:  str,
+    horizon:     int,
+    scan_start:  str = _SCAN_START,
+    alternative: str = "greater",
+) -> dict:
+    """
+    Non-overlapping bucketed Fisher's exact test with prior-day LAG context.
+
+    Extends run_fisher_test() by computing LAG(1)-derived columns in the CTE,
+    enabling sql_filter expressions that reference yesterday's values. This is
+    needed for multi-day pattern signals such as:
+        "big catalyst day (prior) → tight inside day (today) → gap-up (forward)"
+
+    LAG columns available in sql_filter (reference WITHOUT 'pm.' prefix):
+        prev_close_strength  — yesterday's close_strength
+        prev_move_pct        — ABS(yesterday close − prev_close) / prev_close × 100
+        prev_rvol            — yesterday's rvol
+        prev_gap_pct         — yesterday's gap_pct
+        prev_range_pct       — yesterday's range_pct
+
+    Single-row columns also available (no prefix needed):
+        close_price, prev_close, rvol, close_strength, gap_pct, volume, range_pct
+
+    Example sql_filter:
+        "volume >= 50000 AND range_pct <= 1.5 AND prev_move_pct >= 5.0
+         AND prev_close_strength >= 0.7"
+
+    Parameters
+    ----------
+    sql_filter  : SQL condition string referencing column names WITHOUT 'pm.' prefix
+    horizon     : Forward-return window in trading days (also the bucket size)
+    scan_start  : Earliest scan_date to include (default: polygon_market_daily start)
+    alternative : Fisher's exact test tail ('greater', 'less', 'two-sided')
+
+    Note on the "win" condition
+    ---------------------------
+    The win condition is fwd_close > close_price (positive H-day return). For signals
+    that specify a minimum gap-up threshold on the forward day (e.g., gap_up_pct >= 3%),
+    the current harness does not enforce that threshold on the outcome — it tests whether
+    the H-day return is positive. This is a known approximation; document it in the
+    signal's notes field.
+    """
+    sql = f"""
+        WITH raw AS (
+            SELECT
+                pm.ticker,
+                pm.scan_date,
+                pm.close_price,
+                pm.prev_close,
+                pm.rvol,
+                pm.close_strength,
+                pm.gap_pct,
+                pm.volume,
+                pm.range_pct,
+                LAG(pm.close_strength, 1)
+                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS prev_close_strength,
+                LAG(pm.rvol, 1)
+                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS prev_rvol,
+                LAG(pm.gap_pct, 1)
+                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS prev_gap_pct,
+                LAG(pm.range_pct, 1)
+                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS prev_range_pct,
+                LAG(ABS(pm.close_price - pm.prev_close) / NULLIF(pm.prev_close, 0) * 100, 1)
+                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS prev_move_pct,
+                LEAD(pm.close_price, %s)
+                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS fwd_close,
+                ROW_NUMBER()
+                    OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS rn
+            FROM polygon_market_daily pm
+            WHERE pm.scan_date >= %s
+              AND pm.close_price > 0
+              AND pm.prev_close  > 0
+              AND pm.rvol        IS NOT NULL
+        ),
+        annotated AS (
+            SELECT *,
+                (rn - 1) / %s AS bucket_id,
+                CASE WHEN {sql_filter} THEN TRUE ELSE FALSE END AS cond_met
+            FROM raw
+            WHERE fwd_close IS NOT NULL
+        ),
+        deduped AS (
+            SELECT DISTINCT ON (ticker, bucket_id)
+                close_price, fwd_close, cond_met
+            FROM annotated
+            ORDER BY ticker, bucket_id, scan_date
         )
         SELECT
             COUNT(*) FILTER (WHERE     cond_met AND fwd_close >  close_price) AS cond_win,
@@ -161,6 +284,8 @@ def run_fisher_test_overlapping(
                 pm.rvol,
                 pm.close_strength,
                 pm.gap_pct,
+                pm.volume,
+                pm.range_pct,
                 LEAD(pm.close_price, %s)
                     OVER (PARTITION BY pm.ticker ORDER BY pm.scan_date) AS fwd_close,
                 CASE WHEN {sql_filter} THEN TRUE ELSE FALSE END AS cond_met

@@ -1,0 +1,30 @@
+# Action Items: id=4 Retirement + id=2/id=3 Retestability Fix
+
+## 1. Retire id=4 — approved
+
+The investigation is conclusive. Please proceed with retiring id=4 through the standard Module 4 process:
+
+```
+POST /admin/module4-approve
+{
+  "discovery_id": 4,
+  "action": "retire",
+  "reason": "Stored statistics (n=2,224, WR=58.6%, p=0.0001) were hand-entered, not computed by any automated pipeline. Confirmed by three independent proofs: (1) stored p-value is mathematically inconsistent with stored n by 12 orders of magnitude, (2) baseline_win_rate of exactly 50.0% is not a value a real query returns, (3) n=2,224 cannot be reproduced from any current database table under any plausible reconstruction of the stated conditions. Historical reconstruction (n=337) shows no edge: WR=50.4%, p=0.59. Independent live test (June 27-July 2, realized_n=9) agrees: WR=55.56%, p=0.39, not significant. Retiring as a fabricated/unverified signal that was never properly validated."
+}
+```
+
+## 2. Fix retestability for id=2 and id=3
+
+id=2 and id=3 share the same hand-entered fingerprint as id=4 (baseline_win_rate exactly 50.0%, no automated validation), but their stated win rates (72.9% and 65.7%) are specific enough that they might reflect a real external finding rather than pure fabrication. Unlike id=4, they haven't been disproven — they've just never been properly tested, and they're currently blocked from testing.
+
+**Please investigate and fix:**
+
+1. **Why are id=2 and id=3 marked `retestable=False`?** The stated reason is "prior_day LAG logic not supported." Please explain specifically what about their condition definitions requires prior-day LAG logic, and why the current testing harness (`aiem_stat_tests.py`, built for the overlap-correction fix) doesn't support it.
+
+2. **Can the harness be extended to support this?** If the LAG requirement is a reasonable, common pattern (e.g., comparing today's value to a prior-day baseline), it's likely worth generalizing the harness to handle it rather than leaving these signals permanently unverifiable. Please assess feasibility and rough effort.
+
+3. **Until fixed, relabel them clearly.** In the meantime, please update their status or add a flag so they don't continue appearing as ordinary `hypothesis` signals alongside genuinely pipeline-discovered ones (id=6, 10, 11). They should be visibly distinguished as "unverified external claim — awaiting retestability fix," not treated as signals progressing normally through the Module 3 promotion pipeline.
+
+## 3. One more systemic question
+
+Since id=2, 3, 4, 5 were all hand-entered on the same date (2026-06-27) with the same fabricated-statistics fingerprint, please confirm: are there any other signals currently in `aiem_signal_discoveries` with the same fingerprint (baseline_win_rate = 50.0%, invented_indicator = NULL, not traceable to a Module 5/6 run) that haven't been caught yet? Want to make sure this sweep was complete.

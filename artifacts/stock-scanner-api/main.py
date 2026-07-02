@@ -50473,7 +50473,8 @@ def admin_module4_approve():
         import psycopg2 as _pg_m4a
         _m4a_conn = _pg_m4a.connect(os.environ["DATABASE_URL"])
         _m4a_conn.autocommit = False
-        result = _m4.apply_action(_m4a_conn, disc_id, action, reason, approved_by="admin")
+        result = _m4.apply_action(_m4a_conn, disc_id, action, reason, approved_by="admin",
+                                   force=bool(body.get("force", False)))
         _m4a_conn.close()
         if result.get("status_changed"):
             _action_emoji = {"retire": "🔴", "downgrade": "🟡", "promote": "🟢"}.get(action, "⚪")
