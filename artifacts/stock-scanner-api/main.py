@@ -39982,26 +39982,49 @@ def admin_test_emails():
 def admin_raw_technicals(ticker):
     """Admin: compute the full indicator/price-structure/pattern/candlestick
     stack for one ticker directly (no LLM/AIEM chat involved, zero OpenAI cost).
-    Returns the exact same underlying data AIEM's tools would see."""
+    Returns the exact same underlying data AIEM's tools would see.
+    Optional ?end_date=YYYY-MM-DD lets you replay the snapshot as of a past
+    date (for 'what did this look like a week/month ago' comparisons)."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     ticker = ticker.strip().upper()
-    out = {"ticker": ticker}
+    end_date = request.args.get("end_date") or None
+    out = {"ticker": ticker, "as_of": end_date or "latest"}
     try:
-        out["indicators"] = _mkt_compute_indicators(ticker)
+        out["indicators"] = _mkt_compute_indicators(ticker, end_date=end_date)
     except Exception as e:
         out["indicators"] = {"status": "error", "error": str(e)}
     try:
-        out["price_structure"] = _mkt_price_structure(ticker)
+        out["price_structure"] = _mkt_price_structure(ticker, end_date=end_date)
     except Exception as e:
         out["price_structure"] = {"status": "error", "error": str(e)}
     try:
-        out["chart_patterns"] = _mkt_chart_patterns(ticker)
+        out["chart_patterns"] = _mkt_chart_patterns(ticker, end_date=end_date)
     except Exception as e:
         out["chart_patterns"] = {"status": "error", "error": str(e)}
     try:
-        out["candlestick_patterns"] = _mkt_candlestick_patterns(ticker)
+        if end_date:
+            import psycopg2, candlestick_patterns as _cp
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute("""
+                    SELECT scan_date, open_price, high_price, low_price, close_price
+                    FROM polygon_market_daily
+                    WHERE ticker = %s AND scan_date <= %s
+                    ORDER BY scan_date DESC LIMIT 15
+                """, (ticker, end_date))
+                rows = list(reversed(cur.fetchall()))
+            if len(rows) >= 2:
+                bars = [{"date": str(r[0]), "open": float(r[1] or 0), "high": float(r[2] or 0),
+                         "low": float(r[3] or 0), "close": float(r[4] or 0)} for r in rows]
+                res = _cp.detect_patterns(bars)
+                out["candlestick_patterns"] = {"status": "ok", "ticker": ticker,
+                    "latest_date": bars[-1]["date"], "latest_close": bars[-1]["close"],
+                    "patterns_detected": res.get("patterns", [])}
+            else:
+                out["candlestick_patterns"] = {"status": "error", "error": "not enough data before end_date"}
+        else:
+            out["candlestick_patterns"] = _mkt_candlestick_patterns(ticker)
     except Exception as e:
         out["candlestick_patterns"] = {"status": "error", "error": str(e)}
     return jsonify(out)
