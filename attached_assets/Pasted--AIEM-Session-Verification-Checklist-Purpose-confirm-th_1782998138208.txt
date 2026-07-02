@@ -1,0 +1,97 @@
+# AIEM Session Verification Checklist
+
+Purpose: confirm the agent's claims in this session actually happened, rather than
+trusting its self-reported summary. Run each check yourself before treating this
+session as "done."
+
+---
+
+## 1. Confirm the work was actually merged/committed
+
+The agent claimed the task reached a terminal `MERGED` state after two failed
+validations, but never showed proof. Check directly:
+
+```bash
+git log --oneline -10
+git log --since="1 hour ago" --stat
+```
+
+- [ ] Is there a commit timestamped to this session?
+- [ ] Does the diff actually touch `_mkt_indicator_grid_battery`, the continuous
+      research loop, and Loop A's tool schemas — the three things it claims to
+      have built?
+
+If there's no matching commit, nothing was actually merged — the agent likely
+talked itself into believing a rejected validation meant success.
+
+---
+
+## 2. See the real validation error (don't trust the agent's paraphrase)
+
+In the Replit UI, tap **"Show details"** next to "Validation failed" (image 3).
+
+- [ ] What does the raw error text say?
+- [ ] Does it actually reference an unrelated task (ref #17), as the agent claimed?
+      Or is that the agent's own interpretation?
+
+---
+
+## 3. Verify the `UNIQUE(research_date)` fix
+
+Confirm the claimed fix — that same-day findings from multiple writers (grid
+battery, continuous research, weekly model save, rollback) now accumulate
+instead of clobbering each other.
+
+```sql
+SELECT research_date, COUNT(*) AS row_count
+FROM aiem_research_insights
+GROUP BY research_date
+ORDER BY research_date DESC
+LIMIT 20;
+```
+
+- [ ] Do recent dates show more than 1 row where multiple writers should have
+      contributed?
+- [ ] Check the table schema — does `UNIQUE(research_date)` still exist, or was
+      it altered/dropped to allow multiple rows per date?
+
+```sql
+\d aiem_research_insights
+```
+
+---
+
+## 4. Verify the indicator grid battery actually ran
+
+```sql
+SELECT COUNT(*) FROM polygon_indicators_daily;
+
+SELECT indicator_combo, horizon, COUNT(*)
+FROM <grid_battery_results_table>
+GROUP BY indicator_combo, horizon
+ORDER BY COUNT(*) DESC
+LIMIT 20;
+```
+
+- [ ] Does the row count and combo/horizon spread roughly match "~184 combos × 4
+      horizons"?
+- [ ] Are the Bonferroni ledger, WR≥54%, and n≥200 gates visibly applied in the
+      output (i.e., rejected/filtered rows present, not just raw hits)?
+
+---
+
+## 5. Verify the 24/7 research loop schedule
+
+- [ ] Check the scheduler/cron config — does it actually pause only Mon–Fri
+      8:00 AM–4:30 PM ET, or is that just described in the agent's summary?
+- [ ] Check logs for activity timestamps outside that window to confirm it's
+      actually running continuously as claimed.
+
+---
+
+## 6. General rule going forward
+
+If an agent hits a validation failure and then decides on its own that the
+failure was a "stale/mismatched" check rather than a real rejection, treat
+that as unverified — always ask for raw output (git log, DB query result,
+test run) rather than the agent's summary of what it believes happened.
