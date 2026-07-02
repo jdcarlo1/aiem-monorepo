@@ -180,3 +180,9 @@ id = "FTXIYWV_xijdin_ShPOoK"
 uri = "file://stockscanner-latest.zip"
 type = "unspecified"
 title = "stockscanner-latest.zip"
+
+[[outputs]]
+id = "ARHV5MnLikRuoPsZpyRC-"
+uri = "file://attached_assets/verification_screenshots/papermoney_trackrecord_verify.jpeg"
+type = "image"
+title = "Live screenshot: PAPER MONEY tab track-record card"

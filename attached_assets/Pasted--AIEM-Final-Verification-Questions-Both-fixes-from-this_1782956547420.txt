@@ -1,0 +1,28 @@
+# AIEM — Final Verification Questions
+
+Both fixes from this session (blended `/track-record` endpoint + the 12 mislabeled `pit_safe` rows) were self-verified by the same agent that made the fix. Before treating this as fully closed, get a **fresh, independent pass** to confirm — ideally a new session/subagent with no access to prior context, told to check cold.
+
+---
+
+## 1. Did the frontend fix actually finish and render correctly?
+
+The last update mentioned a regression: the backend response shape changed (`summary[h]` → `summary.{contaminated,corrected,genuine}[h]`), which broke the dashboard's display (`undefined` → blank dashes) until it was caught and a fix was started.
+
+**Ask:** Show me a live screenshot or curl output of the dashboard/endpoint right now, confirming all three buckets (`contaminated`, `corrected`, `genuine`) render real numbers with no `undefined` or blank values anywhere.
+
+## 2. Is the "default to leaked, not safe" fix airtight going forward?
+
+**Ask:** Walk me through the exact code path a brand-new prediction takes today. Confirm there is no remaining code path — migration script, backfill job, or manual override — that can assign `pit_safe` without going through the real point-in-time scoring pipeline. Show the specific check that enforces this.
+
+## 3. Independent, fresh-context confirmation
+
+**Ask (in a new session/subagent with no prior context):** Read the current state of `aiem_probability_engine_predictions` and the `/track-record` endpoint cold. Confirm independently:
+- How many rows are currently labeled `leaked` / `corrected` / `genuine`?
+- Does the endpoint's returned data match the raw DB query exactly?
+- Is there any row where the label doesn't match what the code path that produced it would justify?
+
+Report only what you can prove from the data and code — flag anything you can't independently confirm.
+
+---
+
+*Once all three are answered with proof (not summaries), the PIT correction work is genuinely closed. From there, the only remaining task is letting real, honestly-scored predictions accumulate over time.*

@@ -1,0 +1,1000 @@
+                     "quantity","notional","signal_source","signal_detail",
+                     "hold_days_max","last_price","pnl","pnl_pct","status","created_at",
+                     "strike","expiry"]
+            _open_pos = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_cols, _r))
+                for _k in ["entry_price","quantity","notional","last_price","pnl","pnl_pct","strike"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                _d["created_at"] = _d["created_at"].isoformat() if _d["created_at"] else None
+                # Fix #8: additive flag — pnl/pnl_pct columns are unchanged and
+                # shared across trade types; this only marks that, for
+                # CALL_OPTION, they are a synthetic 2x-underlying-move proxy,
+                # not real options pricing (no strike/IV/theta modeled).
+                _d["pnl_is_synthetic_proxy"] = (_d["trade_type"] == "CALL_OPTION")
+                _open_pos.append(_d)
+
+            # Closed trades (last N days) — includes exit_reason so UI can show AIEM's judgment
+            _cu.execute("""
+                SELECT id, trade_date::text, ticker, trade_type,
+                       entry_price, quantity, notional,
+                       signal_source, signal_detail,
+                       exit_price, exit_date::text, pnl, pnl_pct, status, exit_reason,
+                       strike, expiry
+                FROM aiem_paper_trades
+                WHERE status != 'OPEN'
+                  AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                ORDER BY exit_date DESC, id DESC
+                LIMIT 200
+            """, (_days,))
+            _closed_cols = ["id","trade_date","ticker","trade_type","entry_price",
+                            "quantity","notional","signal_source","signal_detail",
+                            "exit_price","exit_date","pnl","pnl_pct","status","exit_reason",
+                            "strike","expiry"]
+            _closed = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_closed_cols, _r))
+                for _k in ["entry_price","quantity","notional","exit_price","pnl","pnl_pct","strike"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                # Fix #8: additive flag, mirrors open_positions above.
+                _d["pnl_is_synthetic_proxy"] = (_d["trade_type"] == "CALL_OPTION")
+                _closed.append(_d)
+
+            # Summary stats
+            # Fix #10: avg_pnl_pct / total_pnl_pct (below) blend CALL_OPTION
+            # synthetic 2x-underlying-move proxy % with real STOCK/ETF % into
+            # one number. Left unchanged for backward compat, but the query
+            # now ALSO computes trade_type-split variants so the blended
+            # fields can be correctly labeled and a like-for-like figure is
+            # available per methodology. Purely additive — no existing column
+            # or value above is touched.
+            _cu.execute("""
+                SELECT
+                    COUNT(*) FILTER (WHERE status!='OPEN')           AS total_closed,
+                    COUNT(*) FILTER (WHERE pnl>0 AND status!='OPEN') AS winners,
+                    COALESCE(SUM(pnl) FILTER (WHERE status!='OPEN'),0) AS total_pnl,
+                    COALESCE(AVG(pnl_pct) FILTER (WHERE status!='OPEN'),0) AS avg_pnl_pct,
+                    AVG(pnl_pct) FILTER (WHERE status!='OPEN' AND trade_type='CALL_OPTION') AS avg_pnl_pct_synthetic,
+                    AVG(pnl_pct) FILTER (WHERE status!='OPEN' AND trade_type!='CALL_OPTION') AS avg_pnl_pct_real,
+                    COUNT(*) FILTER (WHERE status='OPEN')            AS open_count,
+                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN'),0) AS open_unrealized,
+                    COALESCE(SUM(pnl) FILTER (WHERE status!='OPEN' AND trade_type='CALL_OPTION'),0) AS realized_pnl_synthetic,
+                    COALESCE(SUM(pnl) FILTER (WHERE status!='OPEN' AND trade_type!='CALL_OPTION'),0) AS realized_pnl_real,
+                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN' AND trade_type='CALL_OPTION'),0) AS open_unrealized_synthetic,
+                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN' AND trade_type!='CALL_OPTION'),0) AS open_unrealized_real,
+                    COALESCE(SUM(notional) FILTER (WHERE trade_type='CALL_OPTION'),0) AS notional_synthetic,
+                    COALESCE(SUM(notional) FILTER (WHERE trade_type!='CALL_OPTION'),0) AS notional_real
+                FROM aiem_paper_trades
+                WHERE trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+            """, (_days,))
+            _sr = _cu.fetchone()
+            (_total_closed, _winners, _total_pnl, _avg_pnl_pct,
+             _avg_pnl_pct_synthetic, _avg_pnl_pct_real,
+             _open_count, _open_unreal,
+             _realized_pnl_synthetic, _realized_pnl_real,
+             _open_unreal_synthetic, _open_unreal_real,
+             _notional_synthetic, _notional_real) = _sr
+
+            _win_rate = round(_winners / _total_closed * 100, 1) if _total_closed else None
+
+            # Daily P&L curve
+            _cu.execute("""
+                SELECT exit_date::text, SUM(pnl) AS day_pnl, COUNT(*) AS trades
+                FROM aiem_paper_trades
+                WHERE status != 'OPEN'
+                  AND exit_date IS NOT NULL
+                  AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                GROUP BY exit_date
+                ORDER BY exit_date
+            """, (_days,))
+            _daily = [{"date": r[0], "pnl": float(r[1] or 0), "trades": r[2]}
+                      for r in _cu.fetchall()]
+
+        # Virtual account: started with $20,000 (20 trades × $1,000)
+        _account_start = 20000.0
+        _realized_pnl  = float(_total_pnl or 0)
+        _unrealized    = float(_open_unreal or 0)
+        _account_value = _account_start + _realized_pnl + _unrealized
+
+        # Fix #10: per-methodology return % — denominator is that segment's
+        # own invested notional (not the whole-account start), so a
+        # CALL_OPTION-only or STOCK/ETF-only return % is a like-for-like
+        # figure instead of blending two different P&L unit definitions.
+        _realized_synthetic = float(_realized_pnl_synthetic or 0)
+        _realized_real      = float(_realized_pnl_real or 0)
+        _unreal_synthetic   = float(_open_unreal_synthetic or 0)
+        _unreal_real        = float(_open_unreal_real or 0)
+        _notional_synth     = float(_notional_synthetic or 0)
+        _notional_real_v    = float(_notional_real or 0)
+
+        _total_pnl_pct_synthetic = (
+            round((_realized_synthetic + _unreal_synthetic) / _notional_synth * 100, 2)
+            if _notional_synth > 0 else None
+        )
+        _total_pnl_pct_real = (
+            round((_realized_real + _unreal_real) / _notional_real_v * 100, 2)
+            if _notional_real_v > 0 else None
+        )
+        _avg_pnl_pct_synthetic_out = (
+            round(float(_avg_pnl_pct_synthetic), 2) if _avg_pnl_pct_synthetic is not None else None
+        )
+        _avg_pnl_pct_real_out = (
+            round(float(_avg_pnl_pct_real), 2) if _avg_pnl_pct_real is not None else None
+        )
+
+        return jsonify({
+            "account_start":     _account_start,
+            "account_value":     round(_account_value, 2),
+            "realized_pnl":      round(_realized_pnl, 2),
+            "unrealized_pnl":    round(_unrealized, 2),
+            "total_pnl":         round(_realized_pnl + _unrealized, 2),
+            "total_pnl_pct":     round((_realized_pnl + _unrealized) / _account_start * 100, 2),
+            # Fix #10: total_pnl_pct above blends CALL_OPTION synthetic-proxy $
+            # and real STOCK/ETF $ into one whole-account return %. These two
+            # are the per-methodology equivalents, each computed against that
+            # methodology's own invested notional.
+            "total_pnl_pct_is_blended": True,
+            "total_pnl_pct_synthetic":  _total_pnl_pct_synthetic,
+            "total_pnl_pct_real":       _total_pnl_pct_real,
+            "win_rate":          _win_rate,
+            "total_closed":      int(_total_closed or 0),
+            "winners":           int(_winners or 0),
+            "avg_pnl_pct":       round(float(_avg_pnl_pct or 0), 2),
+            # Fix #10: avg_pnl_pct above averages pnl_pct across all closed
+            # trades regardless of type, blending CALL_OPTION's synthetic 2x
+            # underlying-move % with real STOCK/ETF %. These are the
+            # per-methodology averages; null when no closed trades of that
+            # type exist in the window (never 0, so "no data" isn't
+            # misread as "0% average return").
+            "avg_pnl_pct_is_blended": True,
+            "avg_pnl_pct_synthetic":  _avg_pnl_pct_synthetic_out,
+            "avg_pnl_pct_real":       _avg_pnl_pct_real_out,
+            "pnl_methodology_note": (
+                "avg_pnl_pct and total_pnl_pct blend CALL_OPTION synthetic "
+                "2x-underlying-move proxy % with real STOCK/ETF %. Use the "
+                "_synthetic / _real variants for an apples-to-apples figure "
+                "per trade methodology."
+            ),
+            "open_positions":    _open_pos,
+            "open_count":        int(_open_count or 0),
+            "closed_trades":     _closed,
+            "daily_pnl":         _daily,
+            "as_of":             _apvdt.datetime.now().strftime("%b %d %I:%M %p ET"),
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-paper-portfolio/force-execute", methods=["POST"])
+def aiem_paper_force_execute():
+    """Admin: force today's pick-and-execute cycle immediately (for testing)."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    import datetime as _fe_dt, threading as _ape_thr
+    _today = _fe_dt.datetime.now(_ET).date()
+    if not _is_trading_day(_today):
+        return jsonify({
+            "status": "rejected",
+            "reason": f"market closed — {_today.strftime('%A %Y-%m-%d')} is not a NYSE trading day (weekend or holiday)",
+        }), 400
+    if _AIEM_PAPER_LOCK.locked():
+        return jsonify({"status": "already_running", "message": "execute already in progress — try again in ~30s"}), 409
+    _ape_thr.Thread(target=_aiem_paper_execute_today, daemon=True).start()
+    return jsonify({"status": "executing", "message": "AIEM picking 20 trades now — refresh portfolio in 15s"})
+
+
+@app.route("/stock-api/aiem-paper-portfolio/execution-log")
+def aiem_paper_execution_log_endpoint():
+    """Admin: query aiem_paper_execution_log — last 30 run records (status, times, trades, errors)."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT id,
+                       to_char(started_at  AT TIME ZONE 'America/New_York',
+                               'YYYY-MM-DD HH24:MI:SS') AS started_et,
+                       to_char(finished_at AT TIME ZONE 'America/New_York',
+                               'YYYY-MM-DD HH24:MI:SS') AS finished_et,
+                       status, trades_inserted, error_msg
+                FROM aiem_paper_execution_log
+                ORDER BY id DESC LIMIT 30
+            """)
+            rows = _cu.fetchall()
+        return jsonify([
+            {"id": r[0], "started_et": r[1], "finished_et": r[2],
+             "status": r[3], "trades": r[4], "error": r[5]}
+            for r in rows
+        ])
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-paper-portfolio/force-mtm", methods=["POST"])
+def aiem_paper_force_mtm():
+    """Admin: force mark-to-market immediately."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    import threading as _mtm_thr
+    _mtm_thr.Thread(target=_aiem_paper_mark_to_market, daemon=True).start()
+    return jsonify({"status": "marking", "message": "Marking all open positions to market — refresh in 10s"})
+
+
+# ─────────────────────────────
+# AIEM Probability Engine — READ-ONLY surface.
+#
+# Isolation contract: this block never imports the aiem_probability_engine
+# package's internal modules into this process, and never touches any
+# table the live trading app owns. It only (a) runs plain SELECTs against
+# the two tables that package owns (aiem_probability_engine_daily_picks,
+# aiem_probability_engine_predictions — both created/written solely by
+# that package's own scripts, see reports.py / daily_picks.py docstrings),
+# and (b) for the admin force-run action, launches that package's script
+# as a completely separate OS subprocess (not a Python import, not a
+# thread in this process) so a bug or hang in the probability engine can
+# never block or crash the live scanner/scheduler/paper-trading app.
+# ─────────────────────────────
+
+@app.route("/stock-api/aiem-probability-engine/daily-picks", methods=["GET"])
+def aiem_probability_engine_daily_picks():
+    """Most recent day's top-N probability-engine picks (read-only)."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT to_regclass('public.aiem_probability_engine_daily_picks')
+            """)
+            if _cu.fetchone()[0] is None:
+                return jsonify({
+                    "pick_date": None, "picks": [],
+                    "note": "probability engine has not run yet — no picks logged",
+                })
+
+            _cu.execute("""
+                SELECT pick_date::text FROM aiem_probability_engine_daily_picks
+                ORDER BY pick_date DESC LIMIT 1
+            """)
+            _row = _cu.fetchone()
+            if not _row:
+                return jsonify({
+                    "pick_date": None, "picks": [],
+                    "note": "probability engine has not run yet — no picks logged",
+                })
+            _pick_date = _row[0]
+
+            _cu.execute("""
+                SELECT rank, ticker, model_version, score,
+                       prob_up_1d, prob_up_2d, prob_up_3d, prob_up_4d,
+                       confidence, edge_after_cost_prob_pts, regime_tag,
+                       top_contributing_layers_json, warnings_json
+                FROM aiem_probability_engine_daily_picks
+                WHERE pick_date = %s
+                ORDER BY rank ASC
+            """, (_pick_date,))
+            _cols = ["rank", "ticker", "model_version", "score",
+                     "prob_up_1d", "prob_up_2d", "prob_up_3d", "prob_up_4d",
+                     "confidence", "edge_after_cost_prob_pts", "regime_tag",
+                     "top_contributing_layers", "warnings"]
+            _picks = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_cols, _r))
+                for _k in ["score", "prob_up_1d", "prob_up_2d", "prob_up_3d",
+                           "prob_up_4d", "confidence", "edge_after_cost_prob_pts"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                _picks.append(_d)
+
+        return jsonify({
+            "pick_date": _pick_date,
+            "picks": _picks,
+            "methodology": (
+                "Re-ranks today's existing scanner candidates (ai_short_calls_log) "
+                "by calibrated 2d/3d up-move probability from the 9-layer conviction "
+                "model — it does not run its own independent market scan."
+            ),
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-probability-engine/track-record", methods=["GET"])
+def aiem_probability_engine_track_record():
+    """
+    Predicted-vs-actual history for the probability engine (read-only) —
+    the "did it learn from its mistakes" view.
+
+    PIT FIX (2026-07-03): this endpoint used to blend ALL rows (213 leaked +
+    12 pit_safe) into one "summary" accuracy number, which meant it reported
+    the leaked models' inflated accuracy as if it were a live track record.
+    It now reports THREE separate, explicitly-labeled buckets — see
+    aiem_probability_engine/pit_metrics.py for the module this mirrors:
+      - contaminated: pit_status='leaked' rows, ORIGINAL prob_up_Nd (known
+        inflated — kept only for transparency about what the bug produced).
+      - corrected:    those same leaked rows using pit_correction.py's
+        embargo-retrained corrected_prob_up_Nd, where a correction exists.
+      - genuine:      pit_status='pit_safe' rows — real forward predictions
+        that were never contaminated. This is the only bucket that should
+        ever be described as "the track record."
+    Every row returned also carries its own pit_status so no consumer can
+    silently re-blend the buckets back together.
+    """
+    _limit = min(int(request.args.get("limit", 100)), 500)
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT to_regclass('public.aiem_probability_engine_predictions')
+            """)
+            if _cu.fetchone()[0] is None:
+                return jsonify({
+                    "rows": [], "summary": {},
+                    "note": "probability engine has not logged any predictions yet",
+                })
+
+            _cu.execute("""
+                SELECT signal_date::text, ticker, model_version, pit_status,
+                       prob_up_1d, prob_up_2d, prob_up_3d, prob_up_4d,
+                       confidence, regime_tag,
+                       outcome_ret_1d, outcome_ret_2d, outcome_ret_3d, outcome_ret_4d,
+                       outcome_label_1d, outcome_label_2d, outcome_label_3d, outcome_label_4d
+                FROM aiem_probability_engine_predictions
+                ORDER BY signal_date DESC, ticker ASC
+                LIMIT %s
+            """, (_limit,))
+            _cols = ["signal_date", "ticker", "model_version", "pit_status",
+                     "prob_up_1d", "prob_up_2d", "prob_up_3d", "prob_up_4d",
+                     "confidence", "regime_tag",
+                     "outcome_ret_1d", "outcome_ret_2d", "outcome_ret_3d", "outcome_ret_4d",
+                     "outcome_label_1d", "outcome_label_2d", "outcome_label_3d", "outcome_label_4d"]
+            _rows = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_cols, _r))
+                for _k in ["prob_up_1d", "prob_up_2d", "prob_up_3d", "prob_up_4d", "confidence",
+                           "outcome_ret_1d", "outcome_ret_2d", "outcome_ret_3d", "outcome_ret_4d"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                for _h in [1, 2, 3, 4]:
+                    _p, _l = _d.get(f"prob_up_{_h}d"), _d.get(f"outcome_label_{_h}d")
+                    if _p is None or _l is None:
+                        _d[f"correct_{_h}d"] = None  # not graded yet — horizon hasn't elapsed
+                    else:
+                        _pred_up = _p > 0.5
+                        _d[f"correct_{_h}d"] = bool((_pred_up and _l == 1) or (not _pred_up and _l == 0))
+                _rows.append(_d)
+
+            def _bucket_summary(_where_sql, _prob_expr_fn, _from_sql):
+                _s = {}
+                for _h in [1, 2, 3, 4]:
+                    _prob_expr = _prob_expr_fn(_h)
+                    _cu.execute(f"""
+                        SELECT
+                            COUNT(*) FILTER (WHERE outcome_label_{_h}d IS NOT NULL AND {_prob_expr} IS NOT NULL) AS n_graded,
+                            COUNT(*) FILTER (
+                                WHERE outcome_label_{_h}d IS NOT NULL AND {_prob_expr} IS NOT NULL AND (
+                                    ({_prob_expr} > 0.5 AND outcome_label_{_h}d = 1) OR
+                                    ({_prob_expr} <= 0.5 AND outcome_label_{_h}d = 0)
+                                )
+                            ) AS n_correct,
+                            AVG(outcome_ret_{_h}d) FILTER (WHERE outcome_label_{_h}d IS NOT NULL AND {_prob_expr} IS NOT NULL) AS avg_ret
+                        FROM {_from_sql}
+                        WHERE {_where_sql}
+                    """)
+                    _n_graded, _n_correct, _avg_ret = _cu.fetchone()
+                    _s[f"{_h}d"] = {
+                        "n_graded": int(_n_graded or 0),
+                        "accuracy_pct": round(_n_correct / _n_graded * 100, 1) if _n_graded else None,
+                        "avg_outcome_ret_pct": round(float(_avg_ret), 2) if _avg_ret is not None else None,
+                    }
+                return _s
+
+            # Bucket 1: contaminated — leaked rows, ORIGINAL (inflated) scores.
+            # Kept only for transparency; NEVER present this as "the" accuracy.
+            _summary_contaminated = _bucket_summary(
+                "pit_status = 'leaked'",
+                lambda h: f"p.prob_up_{h}d",
+                "aiem_probability_engine_predictions p",
+            )
+
+            # Bucket 2: corrected — same leaked rows, embargo-retrained scores
+            # from pit_correction.py where a correction exists for that horizon.
+            _cu.execute("""
+                SELECT to_regclass('public.aiem_probability_engine_pit_corrections')
+            """)
+            if _cu.fetchone()[0] is not None:
+                _summary_corrected = _bucket_summary(
+                    "p.pit_status = 'leaked'",
+                    lambda h: f"c.corrected_prob_up_{h}d",
+                    "aiem_probability_engine_predictions p "
+                    "JOIN aiem_probability_engine_pit_corrections c "
+                    "ON c.original_prediction_id = p.id",
+                )
+            else:
+                _summary_corrected = {f"{h}d": {"n_graded": 0, "accuracy_pct": None,
+                                                 "avg_outcome_ret_pct": None,
+                                                 "note": "pit_correction.py has not been run yet"}
+                                       for h in [1, 2, 3, 4]}
+
+            # Bucket 3: genuine — pit_status='pit_safe' rows. The ONLY bucket
+            # that represents an actual, never-contaminated forward track record.
+            _summary_genuine = _bucket_summary(
+                "pit_status = 'pit_safe'",
+                lambda h: f"p.prob_up_{h}d",
+                "aiem_probability_engine_predictions p",
+            )
+
+            _cu.execute("""
+                SELECT pit_status, COUNT(*) FROM aiem_probability_engine_predictions
+                GROUP BY pit_status
+            """)
+            _status_counts = {r[0]: int(r[1]) for r in _cu.fetchall()}
+
+            _cu.execute("SELECT COUNT(*) FROM aiem_probability_engine_predictions")
+            _total_logged = _cu.fetchone()[0]
+
+        return jsonify({
+            "rows": _rows,
+            "summary": {
+                "contaminated": _summary_contaminated,
+                "corrected": _summary_corrected,
+                "genuine": _summary_genuine,
+            },
+            "pit_status_counts": _status_counts,
+            "total_logged": int(_total_logged or 0),
+            "note": (
+                "correct_Nd is null until that horizon's outcome is known "
+                "(e.g. a 4d call made yesterday hasn't graded yet) — this is "
+                "expected, not missing data. 'summary.contaminated' reflects "
+                "leaked rows scored by a model that had already seen "
+                "outcome-adjacent future data — it is optimistic by "
+                "construction, NOT a real accuracy estimate. 'summary.genuine' "
+                "is the only bucket that represents an honest forward track "
+                "record, and n_graded will be small/zero until those rows' "
+                "outcomes settle."
+            ),
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-probability-engine/force-run", methods=["POST"])
+def aiem_probability_engine_force_run():
+    """
+    Admin: run today's probability-engine job right now, for testing.
+    Launches aiem_probability_engine/daily_picks.py as an independent OS
+    subprocess (NOT an in-process import/thread) — a crash or long-running
+    scoring pass there can never affect this app.
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import subprocess as _ape_subproc
+        _pkg_dir = _os_env.path.join(_os_env.path.dirname(_os_env.path.abspath(__file__)), "aiem_probability_engine")
+        _ape_subproc.Popen(
+            ["python3", "daily_picks.py"],
+            cwd=_pkg_dir,
+            stdout=_ape_subproc.DEVNULL, stderr=_ape_subproc.DEVNULL,
+            start_new_session=True,
+        )
+        return jsonify({
+            "status": "started",
+            "message": "probability engine daily job launched as a separate process — check daily-picks in ~60-90s",
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/backtest", methods=["POST"])
+def backtest():
+    body = request.get_json(silent=True) or {}
+    ticker = body.get("ticker", "").strip().upper()
+    buy_threshold = float(body.get("buy_threshold", 6.5))
+    sell_threshold = float(body.get("sell_threshold", 4.5))
+    initial_cash = float(body.get("initial_cash", 10000.0))
+    if not ticker:
+        return jsonify({"error": "ticker is required"}), 400
+    df = fetch_stock_data(ticker, period="2y")
+    if df is None or df.empty:
+        return jsonify({"error": f"Could not fetch data for {ticker}"}), 404
+    result = backtest_strategy(df, buy_threshold=buy_threshold, sell_threshold=sell_threshold, initial_cash=initial_cash)
+    result["ticker"] = ticker
+    return jsonify(result)
+
+
+@app.route("/stock-api/analytics/historical", methods=["POST"])
+def historical_analytics():
+    body = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", WATCHLIST_DEFAULT[:8])
+    if not isinstance(tickers, list) or len(tickers) == 0:
+        tickers = WATCHLIST_DEFAULT[:8]
+    tickers = [t.strip().upper() for t in tickers[:15]]
+    result = run_historical_analytics(tickers)
+    return jsonify(result)
+
+
+@app.route("/stock-api/alerts", methods=["GET"])
+def list_alerts():
+    return jsonify({"alerts": get_alerts()})
+
+
+@app.route("/stock-api/alerts", methods=["POST"])
+def create_alert():
+    body = request.get_json(silent=True) or {}
+    ticker = body.get("ticker", "").strip().upper()
+    alert_type = body.get("type", "price")
+    value = body.get("value")
+    direction = body.get("direction", "above")
+    if not ticker or value is None:
+        return jsonify({"error": "ticker and value are required"}), 400
+    if alert_type not in ("price", "rsi", "score"):
+        return jsonify({"error": "type must be price, rsi, or score"}), 400
+    if direction not in ("above", "below"):
+        return jsonify({"error": "direction must be above or below"}), 400
+    result = add_alert(ticker, alert_type, float(value), direction)
+    return jsonify(result)
+
+
+@app.route("/stock-api/alerts/<int:alert_id>", methods=["DELETE"])
+def remove_alert(alert_id):
+    result = delete_alert(alert_id)
+    return jsonify(result)
+
+
+@app.route("/stock-api/prop/scan", methods=["POST"])
+def prop_scan():
+    body = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", WATCHLIST_DEFAULT[:10])
+    if not isinstance(tickers, list) or len(tickers) == 0:
+        tickers = WATCHLIST_DEFAULT[:10]
+    tickers = [t.strip().upper() for t in tickers[:20]]
+
+    signals = []
+    for ticker in tickers:
+        try:
+            df = fetch_stock_data(ticker, period="2y")
+            if df is None or df.empty:
+                continue
+            sig = prop_signal(df)
+            if sig is None:
+                continue
+            close_series = df["Close"].squeeze().dropna()
+            if close_series.empty:
+                continue
+            price = float(close_series.iloc[-1])
+            sig["ticker"] = ticker
+            sig["price"] = round(price, 2)
+            signals.append(sig)
+        except Exception:
+            continue
+
+    signals.sort(key=lambda x: x["score"], reverse=True)
+
+    positions = execution.get_positions()
+    enriched_positions = {}
+    for ticker, pos in positions.items():
+        try:
+            df = fetch_stock_data(ticker, period="5d")
+            current_price = float(df["Close"].iloc[-1]) if df is not None and not df.empty else pos["entry"]
+        except Exception:
+            current_price = pos["entry"]
+        pnl_unrealized = round((current_price - pos["entry"]) * pos["size"], 2)
+        enriched_positions[ticker] = {**pos, "current_price": round(current_price, 2), "unrealized_pnl": pnl_unrealized}
+
+    return jsonify(_safe({
+        "signals": signals,
+        "positions": enriched_positions,
+        "cash": round(execution.get_cash(), 2),
+        "realized_pnl": pnl.total_pnl(),
+        "trades": pnl.get_trades()[-20:],
+    }))
+
+
+@app.route("/stock-api/prop/trade/<ticker>/<action>", methods=["POST"])
+def prop_trade(ticker, action):
+    ticker = ticker.strip().upper()
+    action = action.lower()
+    if action not in ("buy", "sell"):
+        return jsonify({"error": "action must be buy or sell"}), 400
+
+    df = fetch_stock_data(ticker, period="5d")
+    if df is None or df.empty:
+        return jsonify({"error": f"Could not fetch price for {ticker}"}), 404
+
+    price = float(df["Close"].iloc[-1])
+
+    if action == "buy":
+        success = execution.enter_trade(ticker, price, size=10)
+        if not success:
+            return jsonify({"error": "Insufficient cash", "cash": execution.get_cash()}), 400
+        return jsonify({"status": "ok", "action": "buy", "ticker": ticker, "price": price, "cash": execution.get_cash()})
+    else:
+        trade_pnl = execution.exit_trade(ticker, price)
+        if trade_pnl is None:
+            return jsonify({"error": f"No open position for {ticker}"}), 400
+        pnl.log_trade(ticker, trade_pnl, "manual sell")
+        return jsonify({"status": "ok", "action": "sell", "ticker": ticker, "price": price, "pnl": trade_pnl, "cash": execution.get_cash()})
+
+
+@app.route("/stock-api/prop/reset", methods=["POST"])
+def prop_reset():
+    execution.reset()
+    pnl.clear_trades()
+    return jsonify({"status": "ok", "cash": execution.get_cash()})
+
+
+@app.route("/stock-api/smart-money/scan", methods=["POST"])
+def smart_money_scan_route():
+    from datetime import datetime as _dts
+    body = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", DEFAULT_LEADERBOARD)
+    force_refresh = body.get("force_refresh", False)
+    if not isinstance(tickers, list) or not tickers:
+        tickers = DEFAULT_LEADERBOARD
+    tickers = [t.strip().upper() for t in tickers[:50]]
+    cache_key = tuple(sorted(tickers))
+
+    # Serve from cache if fresh and not force-refreshing
+    if not force_refresh:
+        with app._sm_cache_lock:
+            entry = app._sm_cache.get(cache_key)
+        if entry:
+            age = (_dts.now() - entry["ts"]).total_seconds()
+            if age < _SM_CACHE_TTL_SECS:
+                resp = dict(entry["result"])
+                resp["cached"] = True
+                resp["cache_age_secs"] = int(age)
+                return jsonify(_safe(resp))
+
+    # Live fetch - then store in cache
+    result = scan_smart_money(tickers)
+    result["cached"] = False
+    result["cache_age_secs"] = 0
+    with app._sm_cache_lock:
+        app._sm_cache[cache_key] = {"result": result, "ts": _dts.now()}
+    return jsonify(_safe(result))
+
+
+@app.route("/stock-api/smart-money/cache-status", methods=["GET"])
+def sm_cache_status():
+    from datetime import datetime as _dts
+    with app._sm_cache_lock:
+        entries = list(app._sm_cache.items())
+    status = []
+    for key, val in entries:
+        age = int((_dts.now() - val["ts"]).total_seconds())
+        status.append({"tickers_count": len(key), "age_secs": age, "fresh": age < _SM_CACHE_TTL_SECS})
+    return jsonify({"entries": status, "count": len(status)})
+
+
+@app.route("/stock-api/smart-money/detail/<ticker>", methods=["GET"])
+def smart_money_detail(ticker):
+    ticker = ticker.strip().upper()
+    df = fetch_stock_data(ticker, period="1y")
+    if df is None or df.empty:
+        return jsonify({"error": f"Could not fetch data for {ticker}"}), 404
+    spy_ret = 0.0
+    try:
+        spy_df = fetch_stock_data("SPY", period="35d")
+        if spy_df is not None and len(spy_df) > 21:
+            sc = spy_df["Close"].squeeze().astype(float).dropna()
+            spy_ret = float((sc.iloc[-1] - sc.iloc[-21]) / sc.iloc[-21])
+    except Exception as _exc:
+        print(f"[silent_except:L32349] {type(_exc).__name__}: {_exc}")
+    from smart_money import fetch_options_data
+    opts = fetch_options_data(ticker)
+    result = compute_smart_money(ticker, df, spy_ret, opts)
+    if result is None:
+        return jsonify({"error": f"Insufficient data for {ticker}"}), 404
+    return jsonify(_safe(result))
+
+
+@app.route("/stock-api/congress/trades", methods=["GET"])
+def congress_trades_route():
+    force = request.args.get("refresh", "").lower() == "true"
+    trades = get_congress_trades(force=force)
+    return jsonify({"trades": trades, "count": len(trades)})
+
+
+@app.route("/stock-api/alerts/subscribe", methods=["POST"])
+def email_subscribe():
+    body  = request.get_json(silent=True) or {}
+    email = body.get("email", "").strip()
+    result = subscribe(email)
+    return jsonify(result), (200 if result["ok"] else 400)
+
+
+@app.route("/stock-api/alerts/unsubscribe/<token>", methods=["GET"])
+def email_unsubscribe(token):
+    result = unsubscribe(token)
+    if result["ok"]:
+        return (
+            "<html><body style='font-family:sans-serif;text-align:center;padding:60px;"
+            "background:#0f172a;color:#fff'>"
+            "<h2>✅ Unsubscribed</h2>"
+            "<p style='color:#94a3b8'>You've been removed from StockScanner AI daily signals.</p>"
+            "</body></html>"
+        ), 200
+    return jsonify(result), 404
+
+
+@app.route("/stock-api/alerts/count", methods=["GET"])
+def email_count():
+    return jsonify({
+        "subscribers": subscriber_count(),
+        "smtp_configured": smtp_configured(),
+    })
+
+
+@app.route("/stock-api/alerts/test-digest", methods=["POST"])
+def test_digest():
+    """Send a test digest right now. Pass ?session=morning or ?session=eod (default)."""
+    session  = request.args.get("session", "eod")
+    result   = scan_smart_money(DEFAULT_LEADERBOARD[:10])
+    signals  = result.get("leaderboard", [])
+    base_url = os.getenv("PUBLIC_URL", "")
+    out      = send_daily_digest(signals, base_url, session=session)
+    return jsonify(out)
+
+
+@app.route("/stock-api/bull-flow/top10", methods=["POST"])
+def bull_flow_top10():
+    """
+    Rank tickers by most bullish options activity today.
+    Returns top 10 sorted by call premium (highest dollar flow first).
+    Each row: ticker, price, strike, expiry, premium_m, call_put_ratio, call_vol_oi, total_call_vol
+    """
+    from smart_money import fetch_options_data
+    from datetime import datetime as _dt
+
+    body    = request.get_json(silent=True) or {}
+    tickers = body.get("tickers", DEFAULT_LEADERBOARD)
+    if not isinstance(tickers, list) or not tickers:
+        tickers = DEFAULT_LEADERBOARD
+    tickers = [t.strip().upper() for t in tickers[:150]]
+
+    # Cache: 30 min when market closed (data doesn't change), 5 min during live hours
+    _bf_cache_ttl = 1800 if not _intraday_scan_allowed() else 300
+    _bf_cache = getattr(app, "_bf_cache", None)
+    _bf_ts    = getattr(app, "_bf_cache_ts", None)
+    _bf_key   = getattr(app, "_bf_cache_key", None)
+    if (_bf_cache and _bf_ts and _bf_key == tickers
+            and (_dt.now() - _bf_ts).total_seconds() < _bf_cache_ttl):
+        return jsonify(_bf_cache)
+
+    # Shared helper: query unusual_calls_log today-first, fall back to 4-day window.
+    # Returns (rows_list, is_today_data) where rows_list is sorted by prem DESC.
+    def _bf_db_query(cur):
+        _today_sql = """
+            SELECT DISTINCT ON (ticker)
+                ticker, price::float, strike::float, expiry,
+                volume, oi, vol_oi::float, prem::bigint
+            FROM unusual_calls_log
+            WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                                AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+              AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+              AND prem >= 100000
+            ORDER BY ticker, prem DESC
+        """
+        _fallback_sql = """
+            SELECT DISTINCT ON (ticker)
+                ticker, price::float, strike::float, expiry,
+                volume, oi, vol_oi::float, prem::bigint
+            FROM unusual_calls_log
+            WHERE last_seen >= now() - interval '4 days'
+              AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+              AND prem >= 100000
+            ORDER BY ticker, prem DESC
+        """
+        cur.execute(_today_sql)
+        _rows = cur.fetchall()
+        _is_today = len(_rows) >= 5
+        if not _is_today:
+            cur.execute(_fallback_sql)
+            _rows = cur.fetchall()
+        _rows.sort(key=lambda x: x[7], reverse=True)
+        return _rows, _is_today
+
+    def _bf_rows_to_out(rows):
+        out = []
+        for i, r in enumerate(rows[:40]):
+            _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
+            out.append({
+                "rank":           i + 1,
+                "ticker":         _tk,
+                "price":          round(float(_pr or 0), 2),
+                "strike":         float(_st or 0),
+                "expiry":         _ex,
+                "premium_m":      round(float(_prem) / 1_000_000, 2),
+                "premium_k":      round(float(_prem) / 1_000, 1),
+                "call_put_ratio": round(float(_voi or 1), 2),
+                "call_vol_oi":    round(float(_voi or 0), 2),
+                "total_call_vol": int(_vol or 0),
+                "source":         "db",
+            })
+        return out
+
+    # Outside market hours: skip live scan, serve most-recent trading day's DB data.
+    if not _intraday_scan_allowed():
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfnh, _bfnh.cursor() as _bfnhcur:
+                _bfnh_rows, _bfnh_today = _bf_db_query(_bfnhcur)
+            _bfnh_out = _bf_rows_to_out(_bfnh_rows)
+            _bfnh_note = ("market closed - showing today's flow" if _bfnh_today
+                          else "market closed - showing most recent stored flow")
+            _bfnh_result = {"results": _bfnh_out, "returned": len(_bfnh_out),
+                            "scanned": 0, "stale": not _bfnh_today,
+                            "note": _bfnh_note}
+            app._bf_cache     = _bfnh_result
+            app._bf_cache_ts  = _dt.now()
+            app._bf_cache_key = tickers
+            return jsonify(_bfnh_result)
+        except Exception as _bfnh_e:
+            return jsonify({"results": [], "returned": 0, "scanned": 0,
+                            "stale": True, "error": str(_bfnh_e)})
+
+    # If Yahoo is rate-limiting (circuit breaker open), skip the live scan
+    # entirely and serve today's stored signals from the DB immediately so
+    # "Run Scan" returns in <1s instead of hanging for 2+ minutes then timing out.
+    if _yf_breaker_open():
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfb, _bfb.cursor() as _bfbcur:
+                _bfb_rows, _bfb_today = _bf_db_query(_bfbcur)
+            _bfb_out = _bf_rows_to_out(_bfb_rows)
+            _bfb_note = ("Yahoo rate-limited - showing today's stored signals" if _bfb_today
+                         else "Yahoo rate-limited - showing most recent stored signals")
+            _bfb_result = {"results": _bfb_out, "returned": len(_bfb_out),
+                           "scanned": 0, "stale": not _bfb_today,
+                           "note": _bfb_note}
+            app._bf_cache     = _bfb_result
+            app._bf_cache_ts  = _dt.now()
+            app._bf_cache_key = tickers
+            return jsonify(_bfb_result)
+        except Exception as _bfb_e:
+            return jsonify({"results": [], "returned": 0, "scanned": 0,
+                            "stale": True, "error": str(_bfb_e)})
+
+    # Force a fresh Yahoo Finance session before bulk fetching
+    # Wrapped in try/except inside the thread to avoid AttributeError on older yfinance
+    try:
+        import threading as _bf_thr
+        def _refresh_crumb():
+            try:
+                yf.utils.get_crumb(reuse_session=False)
+            except Exception as _exc:
+                print(f"[silent_except:L32531] {type(_exc).__name__}: {_exc}")
+        _crumb_t = _bf_thr.Thread(target=_refresh_crumb, daemon=True)
+        _crumb_t.start(); _crumb_t.join(timeout=2)
+    except Exception as _exc:
+        print(f"[silent_except:L32535] {type(_exc).__name__}: {_exc}")
+
+    def _get_row(ticker):
+        try:
+            from datetime import date, datetime
+            today      = _et_today()
+            today_str  = today.isoformat()
+
+            opts = fetch_options_data(ticker)
+            if not opts or opts.get("top_prem_value", 0) <= 0:
+                return None
+
+            expiry = opts.get("top_prem_expiry")
+            if not expiry or expiry <= today_str:
+                return None
+
+            tkr   = _TdTicker(ticker)
+            price = float(getattr(tkr.fast_info, "last_price", 0) or 0)
+            if price <= 0:
+                _q_fb = _td_quotes([ticker]).get(ticker, {})
+                price = float(_q_fb.get("last") or 0)
+            prem_k = float(opts.get("top_prem_value", 0))
+            if prem_k < 20:   # minimum $20K - catches small-cap insider-sized bets
+                return None
+
+            # Days to earnings
+            days_to_earnings = None
+            try:
+                cal = tkr.calendar
+                earn = None
+                if isinstance(cal, dict):
+                    earn = cal.get("Earnings Date")
+                    if isinstance(earn, list) and earn:
+                        earn = earn[0]
+                elif cal is not None and hasattr(cal, "columns") and "Earnings Date" in cal.columns:
+                    earn = cal.loc["Earnings Date", cal.columns[0]]
+                if earn is not None:
+                    if hasattr(earn, "date"):
+                        earn = earn.date()
+                    elif isinstance(earn, str):
+                        earn = datetime.strptime(earn[:10], "%Y-%m-%d").date()
+                    diff = (earn - today).days
+                    if 0 <= diff <= 365:
+                        days_to_earnings = diff
+            except Exception as _exc:
+                print(f"[silent_except:L32580] {type(_exc).__name__}: {_exc}")
+
+            # Short float %
+            short_float_pct = None
+            try:
+                info = tkr.info
+                sfp  = float(info.get("shortPercentOfFloat") or 0) * 100
+                if 0 < sfp < 100:
+                    short_float_pct = round(sfp, 1)
+            except Exception as _exc:
+                print(f"[silent_except:L32590] {type(_exc).__name__}: {_exc}")
+
+            return {
+                "ticker":           ticker,
+                "price":            round(price, 2),
+                "strike":           opts.get("top_prem_strike"),
+                "expiry":           expiry,
+                "premium_m":        round(prem_k / 1000, 2),
+                "premium_k":        round(prem_k, 1),
+                "call_put_ratio":   round(float(opts.get("call_put_ratio", 0)), 2),
+                "call_vol_oi":      round(float(opts.get("call_vol_oi", 0)), 2),
+                "total_call_vol":   int(opts.get("total_call_vol", 0)),
+                "days_to_earnings": days_to_earnings,
+                "short_float_pct":  short_float_pct,
+            }
+        except Exception:
+            return None
+
+    rows = []
+    _bf_ex = ThreadPoolExecutor(max_workers=3)
+    _bf_futures = {_bf_ex.submit(_get_row, t): t for t in tickers}
+    try:
+        for fut in as_completed(_bf_futures, timeout=7):
+            try:
+                r = fut.result(timeout=1)
+                if r:
+                    rows.append(r)
+            except Exception as _exc:
+                print(f"[silent_except:L32618] {type(_exc).__name__}: {_exc}")
+    except Exception:
+        pass  # timeout - fall through to DB merge below
+    _bf_ex.shutdown(wait=False, cancel_futures=True)  # don't block on slow yf calls
+
+    # ── DB merge: fill in tickers the live scan missed. TODAY only (ET calendar
+    # day) - this tab is labeled "Top Flow Today", so a rolling 48h merge would
+    # surface yesterday's flow as today's. ──
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _bfc, _bfc.cursor() as _bfcur:
+            _bfcur.execute("""
+                SELECT DISTINCT ON (ticker)
+                    ticker, price::float, strike::float, expiry,
+                    volume, oi, vol_oi::float, prem::bigint
+                FROM unusual_calls_log
+                WHERE last_seen  >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
+                  AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
+                  AND prem >= 100000
+                ORDER BY ticker, prem DESC
+            """)
+            db_hits = _bfcur.fetchall()
+        db_hits.sort(key=lambda x: x[7], reverse=True)
+        live_tickers = {r["ticker"] for r in rows}
+        for idx, r in enumerate(db_hits[:40]):
+            _tk, _pr, _st, _ex, _vol, _oi, _voi, _prem = r
+            if _tk in live_tickers:
+                continue  # live scan already has fresher data for this ticker
+            rows.append({
+                "ticker":           _tk,
+                "price":            round(float(_pr or 0), 2),
+                "strike":           float(_st or 0),
+                "expiry":           _ex,
+                "premium_m":        round(float(_prem) / 1_000_000, 2),
+                "premium_k":        round(float(_prem) / 1_000, 1),
+                "call_put_ratio":   round(float(_voi or 1), 2),
+                "call_vol_oi":      round(float(_voi or 0), 2),
+                "total_call_vol":   int(_vol or 0),
+                "days_to_earnings": None,
+                "short_float_pct":  None,
+                "source":           "db",
+            })
+    except Exception as _dbe:
+        print(f"[bull_flow] DB fallback error: {_dbe}")
+
+    rows.sort(key=lambda x: x["premium_m"], reverse=True)
+    top40 = rows[:40]
+    for i, r in enumerate(top40):
+        r["rank"] = i + 1
