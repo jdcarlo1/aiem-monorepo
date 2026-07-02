@@ -1,0 +1,17 @@
+# Follow-Up: id=4 Sample Size Discrepancy
+
+## What was found
+During the overlap-correction audit, id=4 (hand-crafted signal, not discovered via Module 5) showed a reconstructed n of 337 under the corrected non-overlapping method — but its originally stored n was 2,224. That's an ~85% drop, far larger than the expected ~46-67% reduction seen on other signals with similar horizons (e.g., id=11 dropped from 29,752 to 16,015, about 46%, in line with expectations for H=3).
+
+This mismatch is too large to be explained by the overlap correction alone. It suggests something else is off in how id=4 was originally validated — possibly a different data source, a different date range, a different condition definition at the time it was tested, or a bug in how the original n was calculated.
+
+## What we need before retiring id=4
+
+1. **Identify the source of the discrepancy.** Please investigate and report specifically:
+   - What was the exact query/data source used for id=4's *original* validation (the one that produced n=2,224)? Was it run against `polygon_market_daily`, or a different table/source?
+   - Was the original test run over a different date range than the current reconstruction?
+   - Was the condition (`sql_filter`) for id=4 identical at original validation time to what's stored now, or has it been edited/redefined since?
+
+2. **Check other hand-crafted signals for the same issue.** id=4 was flagged as "not discovered via Module 5 grid" — please check whether any other hand-crafted (non-Module-5-discovered) signals in `aiem_signal_discoveries` have a similar mismatch between originally stored n and a freshly reconstructed n. If id=4 isn't isolated, this could point to a systemic issue with how hand-crafted signals were validated versus grid-discovered ones.
+
+3. **Report back before any retirement action.** Please don't route id=4 through Module 4 for retirement yet — first explain what caused the original n to be so much larger than what the current data/condition actually produces. If it turns out to be a legitimate data source difference (not a bug), that's fine to document and then proceed with retirement as originally recommended. But if it's a bug in the original validation process, that needs to be understood and fixed first, since it may affect trust in other stored signals beyond just id=4.
