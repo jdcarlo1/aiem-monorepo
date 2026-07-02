@@ -184,6 +184,120 @@ both a valid structured `oos_edge` and Gate 2 pass).
 
 ---
 
+## Module 2 Follow-Up Questions — Q1–Q5 (2026-07-02)
+
+### Q1 — id=1 has a `failing` verdict. What kills it?
+
+**Status: ANSWERED — no kill switch exists yet**
+
+Module 2 issued `decay_verdict=failing` for id=1:
+```
+realized_n        = 905
+realized_win_rate = 46.96%   (< 50% random baseline)
+realized_p_value  = 0.0      (statistically significant)
+delta_vs_discovery = −5.39pp
+```
+
+Module 2 does NOT change `aiem_signal_discoveries.status`. That is Module 4 (human
+approval gate), which has not been built yet. Until Module 4 exists:
+
+- id=1 `db_status` remains `validated`
+- The signal continues to fire in every live context that checks `status = 'validated'`
+- No automated suppression occurs based on the `failing` verdict
+
+**Action required (when Module 4 is built):** Module 4 must present the Module 2 verdict,
+require explicit human confirmation, and only then flip `status` to `retired`. The kill-switch
+design intentionally requires a human in the loop — no automated retirement on a single Module 2
+verdict, no matter how statistically decisive.
+
+---
+
+### Q2 — ids 2/3/5/7/8 stuck at `evaluable_pending_columns` — fix
+
+**Status: FIXED — all 5 now show `evaluable_pending_time` (2026-07-02)**
+
+**Root cause:** Module 2's condition-key classifier lumped two distinct situations into one label:
+1. "No evaluation path exists" — genuinely unmapped keys, no adapter
+2. "Evaluation path exists, waiting for forward time" — alias/chain-adapter keys, adapter ready
+
+Both yielded `evaluable_pending_columns`. That was wrong for ids 2/3/5/7/8, whose conditions
+are ALL covered by existing wired adapters.
+
+**Fix applied in `aiem_module2_decay.py`:**
+- Added `_CHAIN_ADAPTER_KNOWN_STEMS` frozenset — all chain adapter condition keys (ids 2/3/4/5)
+- Replaced `_PENDING_COLUMN_KEYS` with `_TRULY_UNMAPPED_KEYS` (currently empty — no signal has
+  a genuinely unmapped key)
+- `_classify_condition_keys` now returns a 5-tuple:
+  `(is_structural, is_evaluable_direct, truly_unmapped_keys, alias_keys, chain_adapter_keys)`
+- Step 3 in `classify_signal`: only `evaluable_pending_columns` when `truly_unmapped_keys`
+  is non-empty; alias/chain-adapter-only signals go to `evaluable_pending_time`
+
+**Live endpoint confirmation (`GET /stock-api/aiem/module2-status`):**
+```
+evaluable_now              = 1   (id=1)
+evaluable_pending_time     = 7   (ids 2,3,4,5,6,7,8)
+unevaluable_structural     = 1   (id=9)
+evaluable_pending_columns  = 0   ← was 5
+```
+
+**Why ids 2/3/5/7/8 still show `evaluable_pending_time` and not `evaluable_now`:**
+- ids 7,8: discovered today (2026-07-02) — no forward data yet; fwd_days=0
+- ids 2,3: horizon=3d, discovered 2026-06-27 — need today's close in polygon_market_daily
+  (EOD ingestion lag; fwd_days=3, data arrives tonight or tomorrow)
+- id=5: horizon=5d, discovered 2026-06-27 — needs close on/after 2026-07-07; fwd_days=3
+
+These will auto-advance once Module 1's 2:00 AM ET outcome checker runs against
+fresh polygon_market_daily data. No code changes needed.
+
+---
+
+### Q3 — Weekly scheduler job for Module 2
+
+**Status: DONE**
+
+APScheduler job added to `main.py` (Sunday 2:30 AM ET, `id="module2_decay_check"`).
+Runs after the Sunday Module 1 discovery outcome check (2:00 AM ET).
+Calls `_m2.run_module2(conn)` and upserts results to `aiem_module2_evaluations`.
+
+---
+
+### Q4 — id=9 `unevaluable_structural` — is this correct?
+
+**Status: ANSWERED — correct and permanent**
+
+id=9 (Washout Ignition) uses stage-label condition keys (`trough`, `fire_day`, `cross`,
+`confirm`) that are steps in a multi-row state machine, not column filters. No `WHERE`
+clause on any column can replicate the detection logic, regardless of what columns exist.
+
+`_mkt_washout_ignition_retest()` is the correct evaluation path. It runs independently
+of Module 2's condition-key classifier. It will produce retestable=True outcomes once
+post-discovery fire events occur (~31/year → est. 1.6 years to n=200).
+
+Module 2's `unevaluable_structural` label for id=9 is accurate and will remain so. No
+code change is needed or appropriate.
+
+---
+
+### Q5 — Module 3 vs Module 4 sequencing
+
+**Status: ANSWERED — Module 4 must come first**
+
+Module 4 (human approval gate) is the kill switch for signals that Module 2 marks as
+`failing`. Without Module 4, Module 2's verdicts sit in `aiem_module2_evaluations` with
+no downstream action — id=1 is the live proof: `decay_verdict=failing` since the first
+Module 2 run, still `validated`, still firing.
+
+**Build order: Module 4 → then Module 3.**
+
+Module 3 (forward-looking signal generator / hypothesis promotion) should not be started
+until Module 4 exists, because:
+1. Module 3 may promote new hypotheses to `validated`
+2. If a Module 2 `failing` verdict doesn't retire the old signal, you accumulate validated
+   signals with confirmed negative OOS results
+3. The audit is not integrity-sound until the feedback loop is closed
+
+---
+
 ## Do not close these items by:
 - Re-deriving numbers from notes, in-sample data, or anything that isn't a genuinely
   realized, post-discovery outcome

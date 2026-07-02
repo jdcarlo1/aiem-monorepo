@@ -2588,6 +2588,30 @@ try:
         id="discovery_outcome_check",
         replace_existing=True,
     )
+    # Module 2 (Decay & Failure Analyzer): weekly Sunday 2:30 AM ET - pure DB,
+    # no live scan, runs after Module 1 (2:00 AM) so its outcome_exists shortcut
+    # always sees the freshest retestable rows.
+    def _run_module2_decay():
+        try:
+            if _m2 is None:
+                print("[scheduler] module2: aiem_module2_decay not loaded, skipping")
+                return
+            import psycopg2 as _pg_m2
+            with _pg_m2.connect(os.environ["DATABASE_URL"]) as _m2c:
+                _m2c.autocommit = False
+                _res2 = _m2.run_module2(_m2c)
+            _counts = {}
+            for _r in _res2:
+                _counts[_r["evaluation_status"]] = _counts.get(_r["evaluation_status"], 0) + 1
+            print(f"[scheduler] module2_decay: {len(_res2)} signals evaluated — {_counts}")
+        except Exception as _e:
+            print(f"[scheduler] module2 decay error: {_e}")
+    _scheduler.add_job(
+        _run_module2_decay,
+        CronTrigger(day_of_week="sun", hour=2, minute=30, timezone=_ET),
+        id="module2_decay_check",
+        replace_existing=True,
+    )
     # Multi-Day Runner - Day 1 watch scan: Mon-Fri 4:05 PM ET
     # Scans large-cap universe for ≥3% ignitions, saves to DB, emails owner watchlist.
     def _run_multiday_day1():
@@ -24386,7 +24410,7 @@ def _mkt_check_discovery_outcomes():
             cur.execute("""
                 SELECT id, conditions_json, horizon, signal_win_rate, discovered_at
                 FROM aiem_signal_discoveries
-                WHERE status = 'validated'
+                WHERE status IN ('validated', 'hypothesis', 'retired')
                 ORDER BY id
             """)
             discoveries = cur.fetchall()

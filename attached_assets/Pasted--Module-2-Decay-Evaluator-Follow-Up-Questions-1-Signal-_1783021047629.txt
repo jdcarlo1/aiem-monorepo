@@ -1,0 +1,60 @@
+# Module 2 (Decay Evaluator) — Follow-Up Questions
+
+## 1. Signal id=1 is failing out-of-sample — what's the plan?
+This is a signal marked "validated" that is now showing verdict=failing with
+n=905, p=0.0, win rate 46.96% (down 5.39pp from original). This is a real,
+statistically-backed decay signal, not a maybe.
+
+- What is the recommended action for a "validated" signal that fails
+  Module 2's decay check? Does it get automatically demoted, flagged for
+  human review, or does nothing happen until Module 4 (human approval gate)
+  exists?
+- Is there a mechanism to prevent this signal from continuing to be used in
+  live/paper trading recommendations while its status is under review?
+
+## 2. Fix the column-aliasing bugs blocking 5 of 9 signals
+ids 2, 3, 5, 7, 8 are blocked as `evaluable_pending_columns` — not because
+data is missing, but because condition keys use aliases/short names
+(`cmf20`, `rsi14`, `cmf_delta15`) and operator-string formats (`"> 0.02"`)
+that aren't mapped to the actual column names in `polygon_market_daily` /
+`polygon_indicators_daily` (`cmf_20`, `rsi_14`, `cmf_20_delta15`, etc.).
+
+- Can you build the adapter/mapping layer so these 5 signals become
+  evaluable? All underlying data already exists — this is a parser-mapping
+  fix, not a data-sourcing task.
+- After the fix, re-run `POST /stock-api/admin/run-module2-decay` and
+  confirm all 5 move from `evaluable_pending_columns` to either
+  `evaluable_now` or `evaluable_pending_time`.
+
+## 3. Is this decay check actually scheduled, or only manually triggered?
+Right now it looks like `POST /stock-api/admin/run-module2-decay` is an
+admin-triggered endpoint, not something that runs automatically.
+
+- Is this wired into the APScheduler jobs in `main.py` to run
+  automatically (e.g., weekly), or does it currently require someone to
+  manually hit the endpoint?
+- If it's not scheduled yet: please add a scheduled job that runs this
+  automatically and stores results, the same way `retrain_pipeline.py` is
+  wired to the Sunday 8 PM job — not just reachable as an admin action.
+
+## 4. id=9 structural mismatch — separate fix needed?
+id=9 is a 3-step sequential state machine (cross → funnel → trough →
+confirm → fire_day → universe) mislabeled as a simple filter condition, so
+Module 2 can't evaluate it with the standard logic. A dedicated retest
+function (`_mkt_washout_ignition_retest()`) already exists and runs
+correctly.
+
+- Should Module 2 be extended with a separate code path for sequential
+  state-machine signals like this one, or should id=9 just be tracked
+  manually outside Module 2 given its low fire rate (~121/year, ~1.6 years
+  to reach n=200)?
+
+## 5. Module 3 gating — confirm before proceeding
+Per the stated rule: don't start Module 3 until (a) Module 2 is verified
+working and (b) Module 4's existence is confirmed.
+
+- Please confirm explicitly: is Module 2 now considered "verified working"
+  now that live endpoints have been checked against the running server? Or
+  are items #1–#3 above blockers to that confirmation?
+- Does Module 4 (human approval gate) exist yet? If not, that needs to be
+  built or scoped before Module 3 starts, per the spec.

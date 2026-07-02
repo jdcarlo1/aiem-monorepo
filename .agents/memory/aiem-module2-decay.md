@@ -1,6 +1,6 @@
 ---
 name: AIEM Module 2 — Decay & Failure Analyzer
-description: Covers design decisions, evaluation_status 4-value system, classification order, wiring points, and what is still pending per signal.
+description: Covers design decisions, evaluation_status 4-value system, classification order, wiring points, and current state per signal as of 2026-07-02.
 ---
 
 ## What Module 2 does
@@ -16,52 +16,81 @@ without genuine OOS evidence.
 - `POST /stock-api/admin/run-module2-decay` — triggers evaluation, returns all 9 results
 - `GET /stock-api/aiem/module2-status` — returns last stored evaluations from DB
 - `aiem_module2_evaluations` table — upserted on every run, UNIQUE(discovery_id)
+- APScheduler job `id="module2_decay_check"` — Sunday 2:30 AM ET (added 2026-07-02)
+
+## Module 1 dependency
+
+Module 2 reads from `aiem_discovery_outcomes` (written by Module 1).
+Module 1 must run first (Sunday 2:00 AM ET) before Module 2 (2:30 AM ET).
+Module 2's outcome-exists shortcut (step 2) only fires on `retestable=True` rows.
+
+**Critical:** Module 1 must use `WHERE status IN ('validated','hypothesis','retired')`
+(not just 'validated') or ids 2/3/5/7/8/9 never get an outcome row.
+This was fixed 2026-07-02 at main.py line ~24413.
 
 ## Classification order (critical — do not change)
 
 1. Structural check → `unevaluable_structural` (before any other check)
 2. **Outcome-exists shortcut** → if `retestable=True` outcome exists, skip condition-key
    analysis and go directly to verdict (this is why id=1 reaches `evaluable_now` even though
-   its condition keys `vol_lookback/vol_ratio_min/price_range_max_pct` aren't in the parser)
-3. Condition-key gap → `evaluable_pending_columns` with specific per-key reason
-4. All keys mappable, no outcome → `evaluable_pending_time`
+   its condition keys `vol_lookback/vol_ratio_min/price_range_max_pct` aren't in the single-row
+   parser — Module 1's standard V2 adapter ran and produced real OOS data)
+3. Genuinely unmapped keys → `evaluable_pending_columns` (no known evaluation path)
+4. All keys have known paths (direct/V2 CTE/alias/chain adapter) → `evaluable_pending_time`
 5. n >= 30 → `evaluable_now` + decay verdict
 
-**Why:** Step 2 must come before step 3 or signals with an existing retestable=True
-outcome get wrongly blocked as `evaluable_pending_columns`. Confirmed bug and fix on 2026-07-02.
+**Why step 2 must come before step 3:** Without it, signals with a working adapter that
+already produced retestable=True results get wrongly blocked as `evaluable_pending_columns`.
 
-## Current state of all 9 signals (as of 2026-07-02)
+## Two-tier condition-key classification (fixed 2026-07-02)
 
-| id | db_status | evaluation_status | decay_verdict | n | notes |
-|----|-----------|-------------------|---------------|---|-------|
-| 1  | validated | evaluable_now | **failing** | 905 | wr=46.96% vs 52.35% disc, p=0.0 |
-| 2  | hypothesis | evaluable_pending_columns | — | — | needs inside_day_flag, prev_close_strength, move_pct_lag1, avg_vol, price_range BETWEEN |
-| 3  | hypothesis | evaluable_pending_columns | — | — | same as 2 minus price_range |
-| 4  | hypothesis | evaluable_pending_time | insufficient_n | 9 | adapter ran, needs more fwd days |
-| 5  | retired | evaluable_pending_columns | — | — | needs gap_abs, prev cs/move lags, avg_vol |
-| 6  | validated | evaluable_pending_time | insufficient_n | 25 | wr=36% vs 55.35% disc, p=0.29 |
-| 7  | retired | evaluable_pending_columns | — | — | data in polygon_indicators_daily; key alias `cmf20`→`cmf_20` not wired |
-| 8  | retired | evaluable_pending_columns | — | — | same pattern; cmf_delta15→cmf_20_delta15 |
-| 9  | hypothesis | unevaluable_structural | — | — | ~121/year fire rate, est 1.6yr to n=200 |
+`evaluable_pending_columns` = no known evaluation path (no adapter, no column, no approx).
+`evaluable_pending_time` = path exists (direct col / V2 CTE / indicator alias / chain adapter);
+block is purely forward-time accumulation.
 
-## Pending column mappings for ids 2,3,5
+Key sets in module:
+- `_DIRECT_MAPPABLE_STEMS` — direct polygon_market_daily / polygon_indicators_daily cols
+- `_V2_CTE_MAPPABLE_STEMS` — lag/delta/rolling V2 CTE derived columns
+- `_INDICATOR_ALIAS_MAP` — lagdelta adapter aliases (cmf20→cmf_20, rsi14→rsi_14, etc.)
+- `_CHAIN_ADAPTER_KNOWN_STEMS` — chain adapter stems (gap_up_pct, inside_day_range,
+  prior_day_move_pct, prior_day_close_strength, avg_vol, price_range, gap_abs, volume_ratio, etc.)
+- `_TRULY_UNMAPPED_KEYS` — currently `frozenset()` — no signal has a genuinely unmapped key
 
-All computable retroactively from existing OHLCV in `polygon_market_daily`:
-- `inside_day_flag`: `high < prev_high AND low > prev_low` (LAG columns)
-- `prev_close_strength`: `LAG(close_strength,1) OVER (PARTITION BY ticker ORDER BY scan_date)`
-- `move_pct_lag1`: `LAG(move_pct,1)` — already computed in V2 CTE but not in parser whitelist
-- `avg_vol_20d`: 20-day rolling avg volume — in V2 CTE as `volume_avg20` but key `avg_vol_min` not mapped
-- `price_range` (list): needs BETWEEN range condition support — parser only handles scalar _min/_max
-
-## Indicator alias fix needed for ids 7,8
-
-Data IS in `polygon_indicators_daily` (rsi_14, cmf_20, stoch_k, stoch_d) and V2 CTE
-(cmf_20_lag15, rsi_14_lag15, cmf_20_delta15, rsi_14_delta15). Only the key alias
-mapping (`cmf20`→`cmf_20`, operator-string format) is missing from the adapter.
+`_classify_condition_keys()` returns 5-tuple:
+`(is_structural, is_evaluable_direct, truly_unmapped_keys, alias_keys, chain_adapter_keys)`
+Only `truly_unmapped_keys` triggers `evaluable_pending_columns`.
 
 ## What Module 2 does NOT do
 
-- Does not retire signals
-- Does not promote signals
-- Does not modify `aiem_signal_discoveries.status`
-- All of those go through Module 4 (human approval gate)
+- Does NOT retire signals (that is Module 4 — human approval gate, not yet built)
+- Does NOT promote signals
+- Does NOT modify `aiem_signal_discoveries.status`
+
+**id=1 has `decay_verdict=failing` (n=905, wr=46.96%, p=0.0) but still fires in live**
+**contexts because Module 4 doesn't exist yet. This is the known gap.**
+
+## Build sequencing rule
+
+Module 4 (human approval gate, kill switch) must be built before Module 3 (hypothesis
+promotion). Without Module 4, verdicts from Module 2 have no downstream action.
+
+## Current state of all 9 signals (as of 2026-07-02 end of session)
+
+| id | db_status  | evaluation_status      | decay_verdict   | n    | notes                                 |
+|----|------------|------------------------|-----------------|------|---------------------------------------|
+| 1  | validated  | evaluable_now          | **failing**     | 905  | wr=46.96% vs 52.35% disc, p=0.0      |
+| 2  | hypothesis | evaluable_pending_time | —               | —    | chain adapter ready; waiting fwd data |
+| 3  | hypothesis | evaluable_pending_time | —               | —    | chain adapter ready; waiting fwd data |
+| 4  | hypothesis | evaluable_pending_time | insufficient_n  | 9    | adapter ran, needs more fwd days      |
+| 5  | retired    | evaluable_pending_time | —               | —    | chain adapter ready; waiting fwd data |
+| 6  | validated  | evaluable_pending_time | insufficient_n  | 25   | wr=36% vs 55.35% disc, p=0.29        |
+| 7  | retired    | evaluable_pending_time | —               | —    | lagdelta adapter ready; disc today    |
+| 8  | retired    | evaluable_pending_time | —               | —    | lagdelta adapter ready; disc today    |
+| 9  | hypothesis | unevaluable_structural | —               | —    | ~31/yr fires, est 1.6yr to n=200     |
+
+## When ids 2/3/5/7/8 will auto-advance
+
+- ids 7,8: discovered 2026-07-02; retestable=True outcomes appear 2026-07-03 AM
+- ids 2,3: horizon=3d from 2026-06-27; needs today's close in polygon_market_daily; 2026-07-03 AM
+- id=5: horizon=5d from 2026-06-27; needs close on/after 2026-07-07 (Mon, Jul 4 holiday)
+- All auto-advance via Module 1 2:00 AM ET → Module 2 2:30 AM ET; no code changes needed

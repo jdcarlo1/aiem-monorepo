@@ -84,34 +84,37 @@ _INDICATOR_ALIAS_MAP = {
     "stoch_d":       "polygon_indicators_daily.stoch_d",
 }
 
-# Keys whose data does NOT yet exist and requires either a new stored column
-# or extended parser support. Both blocking issues are reported explicitly.
-_PENDING_COLUMN_KEYS = frozenset({
-    # Require prev-day lag columns (LAG(1) over ticker+date):
-    "prior_day_close_strength",   # → close_strength_lag1 (not yet mapped)
-    "prior_day_move_pct",         # → gap_pct_lag1 / move_pct_lag1 (not mapped)
-    "prior_day_cs",               # abbreviation of prior_day_close_strength
-    "prev_close_strength",        # same
-    "prev_gap_pct",               # same
-    # Require inside-day detection (high < prev_high AND low > prev_low):
-    "inside_day_range",           # → inside_day_flag (not computed)
-    # Price_range as a list/range condition — not a _min/_max threshold:
-    "price_range",
-    # Gap expressed as absolute value (|gap_pct|), not directional:
-    "gap_abs",
-    # Average volume threshold (20-day rolling avg, not spot volume):
-    "avg_vol",
-    # Indicator aliases that exist in the DB but whose condition key format
-    # uses operator-strings ("> 0.02") rather than _min/_max suffixes,
-    # AND whose key names differ from stored column names:
-    "cmf20",
-    "rsi14",
-    "cmf20_lag15",
-    "rsi14_lag15",
-    "cmf_delta15",
-    "rsi_delta15",
-    "volume_ratio",               # ≈ rvol but not guaranteed identical
+# Condition key stems whose evaluation path already EXISTS via the Category A
+# chain adapter (_mkt_chain_filter_sql in main.py, handles ids 2/3/4/5) or
+# Category B lag/delta adapter (_mkt_lagdelta_filter_sql, handles ids 7/8).
+# Data is in the DB; adapters are wired and verified. The only blocker is
+# forward-time accumulation, not missing data or missing code.
+# These keys should yield evaluation_status="evaluable_pending_time", NOT
+# "evaluable_pending_columns". That label is reserved for keys with NO known
+# evaluation path.
+_CHAIN_ADAPTER_KNOWN_STEMS = frozenset({
+    # Category A chain adapter (ids 2,3,4,5) — all mapped to V2 CTE lag cols
+    "gap_up_pct",               # → d.gap_pct >= threshold
+    "gap_down_range",           # → d.gap_pct BETWEEN lo AND hi (list value)
+    "inside_day_range",         # → d.range_pct_lag1 <= threshold
+    "prior_day_move_pct",       # → d.move_pct_lag2 (ids 2,3) or d.move_pct_lag1 (id 5)
+    "prior_day_close_strength", # → d.close_strength_lag2 (ids 2,3) or lag1 (id 5)
+    "prior_day_cs",             # abbreviation of prior_day_close_strength
+    "prior_day_move",           # → d.move_pct_lag1
+    "prev_close_strength",      # → d.close_strength_lag1
+    "prev_gap_pct",             # → d.gap_pct_lag1
+    "avg_vol",                  # → d.volume_avg20 (V2 CTE rolling 20d avg)
+    "price_range",              # → d.close_price_lag2 BETWEEN lo AND hi (list)
+    "gap_abs",                  # → d.gap_pct BETWEEN -v AND v (ABS approximation)
+    "volume_ratio",             # → d.rvol (approximate; same construct, same data)
 })
+
+# Keys with genuinely NO known evaluation path: no adapter exists, no data
+# column exists, and no approximation is available. Signals with any key in
+# this set block on BOTH missing data AND missing adapter code.
+# Currently empty for all 9 known discoveries — every blocked key either has
+# a chain/lagdelta adapter or is a structural pattern (id=9).
+_TRULY_UNMAPPED_KEYS: frozenset = frozenset()
 
 # Forward trading days required before any decay verdict is possible.
 # Chosen to give at least 30 fires for common daily signals.
@@ -187,22 +190,33 @@ def _key_stem(key: str) -> str:
 
 def _classify_condition_keys(conditions: dict):
     """
-    Analyse a conditions dict and return a tuple:
-      (is_structural, is_evaluable_direct, unmapped_keys, indicator_alias_keys)
+    Analyse a conditions dict and return a 5-tuple:
+      (is_structural, is_evaluable_direct, truly_unmapped_keys,
+       indicator_alias_keys, chain_adapter_keys)
 
-    is_structural:       True if any key is in _STRUCTURAL_PATTERN_KEYS
-    is_evaluable_direct: True if ALL stems are in _DIRECT_MAPPABLE_STEMS
-    unmapped_keys:       List of keys whose stems are not in either mappable set
-    indicator_alias_keys: Subset of keys that exist in the DB under a different name
+    is_structural:        True if any key is in _STRUCTURAL_PATTERN_KEYS
+    is_evaluable_direct:  True if ALL stems are in _DIRECT_MAPPABLE_STEMS
+    truly_unmapped_keys:  Keys with no known evaluation path whatsoever
+    indicator_alias_keys: Keys that exist in the DB under a different name
+                          (lagdelta adapter handles these)
+    chain_adapter_keys:   Keys handled by the chain adapter (ids 2/3/4/5)
+                          or any recognized approximation — adapter is wired
+                          and data exists; only forward time is needed
+
+    Evaluation path exists for a key if it is in any of:
+      _DIRECT_MAPPABLE_STEMS, _V2_CTE_MAPPABLE_STEMS,
+      _INDICATOR_ALIAS_MAP, _CHAIN_ADAPTER_KNOWN_STEMS
+    Only keys in NONE of the above go into truly_unmapped_keys.
     """
     raw_keys = set(conditions.keys())
 
     if raw_keys & _STRUCTURAL_PATTERN_KEYS:
-        return True, False, list(raw_keys), []
+        return True, False, list(raw_keys), [], []
 
-    stems    = {k: _key_stem(k) for k in raw_keys}
-    unmapped = []
-    alias    = []
+    stems     = {k: _key_stem(k) for k in raw_keys}
+    truly_unmapped = []
+    alias     = []
+    chain_adp = []
 
     direct_ok = True
     for raw, stem in stems.items():
@@ -211,19 +225,25 @@ def _classify_condition_keys(conditions: dict):
         if stem in _V2_CTE_MAPPABLE_STEMS:
             continue
         direct_ok = False
-        # Is the raw key (or stem) a known indicator alias with data in the DB?
+        # Indicator alias: data in DB, lagdelta adapter handles it
         if raw in _INDICATOR_ALIAS_MAP or stem in _INDICATOR_ALIAS_MAP:
             alias.append(raw)
-        else:
-            # Check for partial stem match (e.g. "avg_vol" as prefix of "avg_vol_min")
-            matched_pending = False
-            for pk in _PENDING_COLUMN_KEYS:
-                if stem.startswith(pk) or raw.startswith(pk):
-                    matched_pending = True
-                    break
-            unmapped.append(raw)
+            continue
+        # Chain adapter: data in DB, chain adapter handles it
+        if stem in _CHAIN_ADAPTER_KNOWN_STEMS:
+            chain_adp.append(raw)
+            continue
+        # Partial-stem match against chain adapter stems
+        matched = False
+        for ck in _CHAIN_ADAPTER_KNOWN_STEMS:
+            if stem.startswith(ck) or ck.startswith(stem):
+                chain_adp.append(raw)
+                matched = True
+                break
+        if not matched:
+            truly_unmapped.append(raw)
 
-    return False, direct_ok, unmapped, alias
+    return False, direct_ok, truly_unmapped, alias, chain_adp
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +304,7 @@ def classify_signal(discovery: dict, fwd_days: int, last_outcome: Optional[dict]
     disc_wr      = discovery.get("signal_win_rate")
     disc_status  = discovery.get("status")
 
-    is_structural, is_direct, unmapped_keys, alias_keys = _classify_condition_keys(conditions)
+    is_structural, is_direct, unmapped_keys, alias_keys, chain_adapter_keys = _classify_condition_keys(conditions)
 
     result = {
         "discovery_id":              disc_id,
@@ -374,82 +394,60 @@ def classify_signal(discovery: dict, fwd_days: int, last_outcome: Optional[dict]
         return result
 
     # ── 3. No outcome exists — check condition-key mappability ───────────────
-    # Build the specific list of what's missing and why.
-    all_missing = []
+    # Two tiers:
+    #   evaluable_pending_columns — truly_unmapped_keys is non-empty: NO known
+    #     evaluation path exists. Requires new data collection or new adapter.
+    #   evaluable_pending_time    — all keys have a known path (direct, V2 CTE,
+    #     indicator alias, or chain adapter). Block is purely forward time.
+    #
+    # alias_keys and chain_adapter_keys do NOT block evaluation — they are
+    # already handled by the lagdelta/chain adapters in Module 1. Record them
+    # for transparency but do NOT classify the signal as pending_columns.
 
-    if alias_keys:
-        # Data is IN the DB under a different name. Mapping not yet wired.
-        for k in alias_keys:
-            target = _INDICATOR_ALIAS_MAP.get(k) or _INDICATOR_ALIAS_MAP.get(_key_stem(k))
-            all_missing.append(
-                f"{k} (data exists as {target}; condition key alias not wired in parser)"
+    if unmapped_keys:
+        # Genuinely no evaluation path for at least one key.
+        truly_missing = []
+        for k in unmapped_keys:
+            stem = _key_stem(k)
+            truly_missing.append(
+                f"{k} (stem={stem}) → no known adapter or column mapping; "
+                f"requires new data collection and adapter implementation"
             )
-
-    for k in unmapped_keys:
-        if k in alias_keys:
-            continue  # already reported above
-        stem = _key_stem(k)
-        if "prior_day_close_strength" in k or "prior_day_cs" in k:
-            all_missing.append(
-                f"{k} → requires close_strength_lag1 (LAG(close_strength,1) OVER ticker+date); "
-                f"computable from existing data, not yet in parser"
-            )
-        elif "prior_day_move" in k:
-            all_missing.append(
-                f"{k} → requires move_pct_lag1 (LAG(move_pct,1) OVER ticker+date); "
-                f"computable from existing data, not yet in parser"
-            )
-        elif "inside_day" in k:
-            all_missing.append(
-                f"{k} → requires inside_day_flag (high < prev_high AND low > prev_low); "
-                f"computable from existing data, not yet stored or parseable"
-            )
-        elif "price_range" == stem and isinstance(conditions.get(k), list):
-            all_missing.append(
-                f"{k} (list value {conditions[k]}) → requires BETWEEN range condition; "
-                f"parser only handles scalar _min/_max thresholds"
-            )
-        elif "gap_down_range" in k and isinstance(conditions.get(k), list):
-            all_missing.append(
-                f"{k} (list value {conditions[k]}) → requires gap_pct BETWEEN X AND Y; "
-                f"parser only handles scalar _min/_max thresholds"
-            )
-        elif "avg_vol" in stem:
-            all_missing.append(
-                f"{k} → requires 20-day rolling average volume comparison; "
-                f"volume_avg20 is in V2 CTE but key mapping not in parser"
-            )
-        elif "gap_abs" in stem:
-            all_missing.append(
-                f"{k} → requires ABS(gap_pct); absolute-value filter not in parser"
-            )
-        elif "volume_ratio" in stem:
-            all_missing.append(
-                f"{k} → ≈ rvol (close to existing column but not identical derivation); "
-                f"key mapping not in parser"
-            )
-        else:
-            all_missing.append(
-                f"{k} (stem={stem}) → no matching column or parser mapping found"
-            )
-
-    if all_missing:
         result["evaluation_status"] = "evaluable_pending_columns"
         result["blocking_reason"] = (
-            f"{len(all_missing)} condition key(s) cannot be resolved to existing columns "
-            f"or adapter mappings. Each must be specifically addressed before this signal "
-            f"can receive any OOS verdict."
+            f"{len(truly_missing)} condition key(s) have no known evaluation path "
+            f"(no adapter, no column, no approximation). Each must be addressed before "
+            f"this signal can receive any OOS verdict."
         )
-        result["missing_columns"] = all_missing
+        result["missing_columns"] = truly_missing
         return result
 
-    # ── 4. All conditions mappable but no outcome row yet ────────────────────
+    # ── 4. All conditions have known evaluation paths — waiting for forward data ──
+    # alias_keys: lagdelta adapter handles them (lagdelta_filter_sql in Module 1)
+    # chain_adapter_keys: chain adapter handles them (_mkt_chain_filter_sql)
+    # Neither is a blocker once Module 1's outcome tracker generates retestable=True rows.
+    adapter_notes = []
+    for k in alias_keys:
+        target = _INDICATOR_ALIAS_MAP.get(k) or _INDICATOR_ALIAS_MAP.get(_key_stem(k))
+        adapter_notes.append(
+            f"{k} → lagdelta adapter maps to {target}"
+        )
+    for k in chain_adapter_keys:
+        adapter_notes.append(
+            f"{k} → chain adapter maps to V2 CTE derived column"
+        )
+
     result["evaluation_status"] = "evaluable_pending_time"
     result["blocking_reason"] = (
-        f"All condition keys are parseable but no retestable=True outcome row exists. "
+        f"All condition keys have known evaluation paths "
+        f"(direct columns, V2 CTE derived cols, or wired adapters). "
+        f"No retestable=True outcome row exists yet — Module 1's daily outcome "
+        f"checker (2:00 AM ET) will generate it once forward-return data is available. "
         f"Forward trading days accumulated: {fwd_days}. "
-        f"Minimum required before attempting verdict: {_MIN_FWD_DAYS_FOR_VERDICT}."
+        f"Adapter notes: {len(adapter_notes)} key(s) use alias/chain mapping."
     )
+    if adapter_notes:
+        result["missing_columns"] = adapter_notes
     return result
 
 
