@@ -23483,8 +23483,22 @@ def _mkt_continuous_research_loop():
     """Perpetual background loop: keeps working the indicator grid battery
     whenever _mkt_research_loop_allowed() is True, pausing during the daily
     production scan window. Self-throttles once the grid is fully fresh
-    (longer sleep) so it never spins hot for no reason."""
+    (longer sleep) so it never spins hot for no reason.
+
+    Runtime-isolated: every call to _mkt_indicator_grid_battery() runs
+    inside isolated_research_scope(), which raises immediately if this
+    thread ever tries to import openai/anthropic or construct an
+    openai.OpenAI() client. Each batch is also logged to
+    aiem_verification_log with job_type='aiem_self_research' and
+    openai_response_id=NULL, so the audit trail itself proves - per run,
+    not just per code-review - that this loop never touched OpenAI."""
     import time as _crl_t
+    import uuid as _crl_uuid
+    from aiem_isolation_guard import isolated_research_scope, AIEMIsolationViolation
+    try:
+        from aiem_verification import log_research_loop_run
+    except Exception:
+        log_research_loop_run = None
     print("[mkt_continuous_loop] started - free indicator research runs "
           "nights/weekends, pauses 8:00 AM-4:30 PM ET Mon-Fri for production scans")
     while True:
@@ -23492,7 +23506,19 @@ def _mkt_continuous_research_loop():
             if not _mkt_research_loop_allowed():
                 _crl_t.sleep(300)
                 continue
-            result = _mkt_indicator_grid_battery(batch_size=15)
+            _job_id = f"mkt_grid_{_crl_uuid.uuid4().hex[:12]}"
+            try:
+                with isolated_research_scope():
+                    result = _mkt_indicator_grid_battery(batch_size=15)
+                if log_research_loop_run:
+                    log_research_loop_run(_job_id, verified=True,
+                                           reason=f"batch ok: {result.get('status')}")
+            except AIEMIsolationViolation as _oiv:
+                print(f"[mkt_continuous_loop] CRITICAL ISOLATION VIOLATION: {_oiv}")
+                if log_research_loop_run:
+                    log_research_loop_run(_job_id, verified=False, reason=str(_oiv))
+                _crl_t.sleep(300)
+                continue
             if result.get("status") == "idle":
                 _crl_t.sleep(1800)
             else:
@@ -23505,6 +23531,17 @@ def _mkt_continuous_research_loop():
 def _mkt_start_continuous_loop():
     global _MKT_CONTINUOUS_LOOP_STARTED
     if _MKT_CONTINUOUS_LOOP_STARTED:
+        return
+    try:
+        from aiem_isolation_guard import verify_source_isolation
+        _ok, _closure, _violations = verify_source_isolation(os.path.abspath(__file__))
+        if not _ok:
+            print("[mkt_continuous_loop] REFUSING TO START - static isolation "
+                  f"check failed: {_violations}")
+            return
+    except Exception as _vse:
+        print(f"[mkt_continuous_loop] REFUSING TO START - isolation check "
+              f"itself errored (fail closed): {_vse}")
         return
     _MKT_CONTINUOUS_LOOP_STARTED = True
     import threading as _mscl_thr

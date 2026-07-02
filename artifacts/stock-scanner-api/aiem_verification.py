@@ -81,7 +81,8 @@ def _detect_client_ip() -> str | None:
 
 
 def _write_audit_row(job_id, unix_timestamp, openai_response_id,
-                     client_ip, verified, failure_reason) -> None:
+                     client_ip, verified, failure_reason,
+                     job_type=None) -> None:
     """Write one audit row. Never raises."""
     if not _DB_URL:
         return
@@ -91,11 +92,11 @@ def _write_audit_row(job_id, unix_timestamp, openai_response_id,
                 """
                 INSERT INTO aiem_verification_log
                     (job_id, unix_timestamp, openai_response_id,
-                     client_ip, verified, failure_reason)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                     client_ip, verified, failure_reason, job_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (job_id, unix_timestamp, openai_response_id,
-                 client_ip, verified, failure_reason),
+                 client_ip, verified, failure_reason, job_type),
             )
             _c.commit()
     except Exception:
@@ -103,7 +104,8 @@ def _write_audit_row(job_id, unix_timestamp, openai_response_id,
 
 
 def log_audit(verified: bool, ip: str = None, reason: str = None,
-              token_hint: str = None, job_id: str = None) -> None:
+              token_hint: str = None, job_id: str = None,
+              job_type: str = None) -> None:
     """Structured audit record — stdout + DB."""
     record: dict = {
         "at":       datetime.now(timezone.utc).isoformat(),
@@ -111,10 +113,25 @@ def log_audit(verified: bool, ip: str = None, reason: str = None,
         "verified": verified,
     }
     if job_id:      record["job"]        = job_id
+    if job_type:    record["job_type"]   = job_type
     if token_hint:  record["token_hint"] = f"...{token_hint}"
     if reason:      record["reason"]     = reason
     print(f"AUDIT | {record}")
-    _write_audit_row(job_id, None, None, record["ip"], verified, reason)
+    _write_audit_row(job_id, None, None, record["ip"], verified, reason, job_type)
+
+
+def log_research_loop_run(job_id: str, verified: bool = True,
+                           reason: str = None) -> None:
+    """
+    Tag-specific audit entry for the free 24/7 self-research loop
+    (indicator grid battery). Always writes job_type='aiem_self_research'
+    and openai_response_id=NULL — this row is proof-by-construction that
+    this particular job ran with no OpenAI response attached, distinct
+    from the paid chat-assistant rows in the same table (which always
+    carry a real openai_response_id).
+    """
+    log_audit(verified=verified, reason=reason, job_id=job_id,
+              job_type="aiem_self_research")
 
 
 # ── Layer 2: Request signing + auth ──────────────────────────────────────────

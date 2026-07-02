@@ -1,0 +1,96 @@
+# Inventory Check — Does Any Piece of a Self-Improving Feedback Loop Already Exist?
+
+## Purpose
+Before building anything new, find out what (if anything) already exists —
+even partially built, disconnected, or under a different name than expected.
+This covers three possible types of feedback mechanism, since it's not yet
+clear which one (if any) was intended in your original architecture.
+
+---
+
+## Search 1 — Signal promotion pipeline
+(validated discoveries automatically becoming new scan rules/indicator
+combos that future grid-battery runs test for)
+
+Instruction to give the agent:
+
+> Search the entire codebase for anything that takes a row from
+> aiem_signal_discoveries (status='validated') and uses it to generate,
+> add, or modify an indicator combo, scan rule, or WHERE-clause used by
+> future runs of _mkt_indicator_grid_battery or similar scanning functions.
+>
+> ```bash
+> grep -rn "promote\|graduate\|auto_add\|new_combo\|inject_rule" artifacts/stock-scanner-api --include="*.py"
+> ```
+> Also check for any table that might store "promoted" or "active" scan
+> rules separately from the raw discoveries table:
+> ```bash
+> grep -rn "CREATE TABLE" artifacts/stock-scanner-api --include="*.py" | grep -i "rule\|combo\|active_signal\|promoted"
+> ```
+> Report: does anything like this exist, even partially/disconnected? If
+> yes, show the code and confirm whether it's actually wired into the live
+> loop or just defined and unused.
+
+---
+
+## Search 2 — Model retraining / weight updates
+(validated discoveries feeding back into the XGBoost pipeline, probability
+engine, or conviction-stack scoring weights)
+
+Instruction to give the agent:
+
+> Search for any function that reads from aiem_signal_discoveries (or a
+> similar validated-results table) and then updates a model file, a
+> weights table, or a scoring parameter used by the XGBoost pipeline,
+> live-query probability engine, or the 9-layer conviction scoring system.
+>
+> ```bash
+> grep -rn "aiem_signal_discoveries" artifacts/stock-scanner-api --include="*.py"
+> ```
+> For every result, check: does this function only READ from the table
+> (for a report/tool/digest), or does it WRITE to a model/weights/scoring
+> file afterward? Show the exact downstream code for anything that writes.
+>
+> Also check for a retraining job itself, even if disconnected:
+> ```bash
+> grep -rn "retrain\|update_weights\|fit(\|\.train(" artifacts/stock-scanner-api --include="*.py"
+> ```
+> Report: does a retraining mechanism exist anywhere, even scheduled but
+> never actually running, or written but never called?
+
+---
+
+## Search 3 — Adaptive/closed-loop scoring
+(conviction-stack or probability engine weights shifting based on which
+past discoveries actually performed well vs. poorly over time — different
+from Search 2 because this specifically means performance-based weight
+adjustment, not just any training)
+
+Instruction to give the agent:
+
+> Search for anything that compares a discovery's predicted performance
+> (win rate, p-value at time of discovery) against its ACTUAL realized
+> performance afterward, and uses that comparison to adjust any weight,
+> confidence multiplier, or layer score in the 9-layer conviction system.
+>
+> ```bash
+> grep -rn "realized\|actual_performance\|track_record\|performance_decay" artifacts/stock-scanner-api --include="*.py"
+> ```
+> Report: does any code compare predicted vs. actual outcomes per
+> discovery? If yes, does anything downstream use that comparison to
+> change future scoring behavior, or is it purely informational/logged?
+
+---
+
+## What to do with the results
+
+For each of the 3 searches, the agent should report one of:
+- **Doesn't exist at all** — nothing found, not even partial/disconnected code
+- **Exists but disconnected** — code is written but never called from the
+  live loop (show where it sits and why it's not wired in)
+- **Exists and active** — already running (show proof, same standard as
+  everything else: raw output, not a summary)
+
+Once we know which of the three is closest to "exists but disconnected"
+vs. "doesn't exist," we can decide what actually needs to be built vs.
+just wired up and verified.

@@ -11,7 +11,7 @@ that isolation two ways:
   1. RUNTIME GUARD - `isolated_research_scope()` context manager.
      Wrap the loop's entry point with it. If code running inside the scope
      (in THIS thread) imports `openai`/`anthropic`, or constructs a fresh
-     `openai.OpenAI(...)` client, it raises OpenAIIsolationViolation
+     `openai.OpenAI(...)` client, it raises AIEMIsolationViolation
      immediately and loudly instead of silently succeeding. Thread-local, so
      it never interferes with other AIEM features legitimately calling
      OpenAI concurrently in other threads (Flask request threads, the
@@ -38,6 +38,7 @@ instead of silently shipping.
 import ast
 import builtins
 import contextlib
+import copy
 import os
 import sys
 import threading
@@ -63,7 +64,7 @@ FORBIDDEN_TOKENS = (
 )
 
 
-class OpenAIIsolationViolation(RuntimeError):
+class AIEMIsolationViolation(RuntimeError):
     """Raised the instant guarded code tries to touch OpenAI/Anthropic."""
 
 
@@ -79,7 +80,7 @@ def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
         msg = (f"[aiem_isolation_guard] BLOCKED attempted import of '{name}' "
                f"inside the isolated 24/7 free research loop scope")
         print(msg, file=sys.stderr, flush=True)
-        raise OpenAIIsolationViolation(msg)
+        raise AIEMIsolationViolation(msg)
     return _real_import(name, globals, locals, fromlist, level)
 
 
@@ -99,7 +100,7 @@ def isolated_research_scope():
                     msg = ("[aiem_isolation_guard] BLOCKED construction of an "
                            "openai.OpenAI() client inside the isolated research loop scope")
                     print(msg, file=sys.stderr, flush=True)
-                    raise OpenAIIsolationViolation(msg)
+                    raise AIEMIsolationViolation(msg)
 
                 _oa.OpenAI.__init__ = _blocked_init
                 _patched_cls = _oa.OpenAI
@@ -115,14 +116,37 @@ def isolated_research_scope():
 
 # ── Layer 2: static call-graph closure check ────────────────────────────────
 
+def _code_only_source(node):
+    """Return the function's source with its docstring stripped, via
+    ast.unparse() on a copy with the docstring Expr removed. Comments are
+    already absent from the AST entirely (unparse never sees them), so this
+    yields real code only - imports, calls, string-literal arguments like
+    os.environ.get("OPENAI_API_KEY") - with none of the explanatory prose
+    that would otherwise trip false positives (e.g. a docstring describing
+    what this very guard blocks)."""
+    node_copy = copy.deepcopy(node)
+    if (node_copy.body and isinstance(node_copy.body[0], ast.Expr)
+            and isinstance(node_copy.body[0].value, ast.Constant)
+            and isinstance(node_copy.body[0].value.value, str)):
+        node_copy.body = node_copy.body[1:] or [ast.Pass()]
+    try:
+        return ast.unparse(node_copy)
+    except Exception:
+        return ""
+
+
 def _parse_functions(pyfile):
-    """Return {func_name: (source_text, {names it calls via ast.Name})}."""
+    """Return {func_name: (code_only_source, {names it calls via ast.Name})}.
+
+    NOTE: deliberately does NOT use ast.get_source_segment() - on a file this
+    size (1000+ function defs) it re-splitlines() the whole file on every
+    single call, which is O(n * calls) and takes minutes."""
     src = open(pyfile, "r", encoding="utf-8").read()
     tree = ast.parse(src)
     out = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
-            seg = ast.get_source_segment(src, node) or ""
+            seg = _code_only_source(node)
             called = set()
             for sub in ast.walk(node):
                 if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name):

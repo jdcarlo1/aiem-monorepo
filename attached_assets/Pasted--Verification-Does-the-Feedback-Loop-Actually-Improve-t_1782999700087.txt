@@ -1,0 +1,70 @@
+# Verification — Does the Feedback Loop Actually Improve the System?
+
+## Why this matters
+Running the research loop 24/7 definitely means more coverage — more
+indicator combos tested, more candidates screened against your gates
+(n≥200, Bonferroni, WR≥54%). But that's not the same as the system getting
+"smarter" over time. That only happens if discovered patterns actually
+feed back into something that changes future behavior — a model retrain,
+a weight update, an updated scoring rule, etc. This question confirms
+whether that loop is real, and what specifically it does.
+
+## Question 4 — Trace the feedback loop end-to-end with evidence
+
+Instruction to give the agent:
+
+> You've told me there's a feedback loop in this architecture where
+> discoveries from the 24/7 research loop feed back into the system to
+> improve it over time. I need this traced and verified the same way we
+> verified everything else — with raw evidence, not a summary.
+>
+> Specifically:
+>
+> 1. **What consumes the discoveries?** When a finding clears the gates
+>    (n≥200, Bonferroni, WR≥54%) and lands in aiem_signal_discoveries or
+>    wherever confirmed discoveries are stored, what code actually reads
+>    from that table afterward? Show the function(s) and file/line numbers.
+>
+> 2. **What does it change?** Does that downstream code:
+>    - Update weights/parameters in a scoring or prediction model?
+>    - Update a live-query probability engine's inputs?
+>    - Add a new rule/indicator to future scans?
+>    - Or does it currently just get logged/stored with nothing reading it
+>      back yet?
+>    Be specific and show the actual code, not a description of intent.
+>
+> 3. **Prove it happened at least once.** Find a real historical case where
+>    a discovery actually changed downstream behavior — e.g., a scoring
+>    weight that was different before vs. after a specific discovery was
+>    logged. Show the before/after with timestamps and row IDs, not just
+>    that the mechanism exists in theory.
+>
+> 4. **If no downstream consumer exists yet:** say so plainly. Don't
+>    describe planned or intended functionality as if it's already running.
+>    "This is designed to eventually feed X but nothing currently reads
+>    aiem_signal_discoveries" is a valid and useful answer if that's the
+>    truth.
+>
+> Show raw grep/SQL output for each step.
+>
+> Example starting commands:
+> ```bash
+> grep -rn "aiem_signal_discoveries" . --exclude-dir=node_modules --exclude-dir=.git
+> ```
+> ```sql
+> SELECT COUNT(*) FROM aiem_signal_discoveries;
+> ```
+> Then trace forward from there: which functions SELECT from this table,
+> and what do they do with the result?
+
+## What a fully honest answer looks like
+- A named function that reads confirmed discoveries.
+- A concrete description of what changes as a result (weights, rules,
+  future scan parameters — whatever it actually is).
+- At least one real historical example with before/after evidence, OR an
+  honest admission that the loop is built but hasn't fired yet / nothing
+  downstream consumes it yet.
+
+This is the difference between "the system finds more patterns faster"
+(true regardless) and "the system gets measurably better at finding
+patterns over time" (only true if this traces out cleanly).
