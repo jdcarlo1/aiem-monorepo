@@ -1,0 +1,30 @@
+# Verification Request — Gate-Integrity Audit Follow-Up
+
+I need 100% proof on the items below. No summaries, no "all tests passing," no "verified" claims without the raw output attached. Show me the actual terminal output, actual query results, actual code — run it live, right now, don't reference a prior result. No more games.
+
+## 1. Force-bypass audit
+
+- Run `grep -rn "force=True\|force = True" .` across the entire codebase. Paste the raw output.
+- For every call site found, show the surrounding 10 lines of code.
+- Run `grep -n "force: bool" aiem_module4_gate.py main.py` and paste the output — confirm the default is `False` everywhere it's declared.
+- Run `SELECT * FROM aiem_signal_actions WHERE reason LIKE '%FORCE-OVERRIDE%'` and paste the raw result. Is this table empty, or has force already been used? I want the actual rows, not a yes/no.
+
+## 2. id=4 retirement proof
+
+- Paste the raw SQL query and its live output that produces n=337, WR=50.45%, p=0.592. Run it now.
+- Paste the raw SQL query and output for the original claimed n=2224 so I can see exactly where the two diverge.
+- Show the actual p-value calculation — inputs, formula/function call, and both p-values side by side — that produced the "12 orders of magnitude" inconsistency claim.
+
+## 3. LAG test verification (id=2, id=3)
+
+- Paste the full current source of `run_fisher_test_lag()`.
+- id=3 (n=261): run the query fresh and paste the raw non-overlapping trade count, win rate, and p-value.
+- Re-run id=3's test with `pm.range_pct` and `pm.volume` excluded from the CTEs. Paste the output. Does the result change at all? This checks for lookahead introduced by the new columns.
+- id=2 (n=17): do not call this "suggestive." Relabel it in `aiem_discovery_outcomes` as insufficient sample size / underpowered. Paste the updated row.
+- Paste the actual `PARTITION BY` / `ORDER BY` clause used in the LAG(1) window functions. I want to verify there's no cross-contamination between different tickers' time series.
+
+## 4. General
+
+- Run the full test suite. Paste the raw pass/fail output — every line, not a summary.
+
+**Every item above needs pasted raw output attached to it. If something can't be verified with raw proof, say so explicitly instead of rounding up to "confirmed."**
