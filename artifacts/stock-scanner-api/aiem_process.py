@@ -900,10 +900,21 @@ def aiem_pattern_gap_analysis():
 # ─────────────────────────────────────────────────────────────
 def aiem_write_signal_discoveries():
     """
-    Any signal that appeared in ≥2 misses today and has a miss_rate
-    significantly above its pick_rate is flagged as a hypothesis and
-    written to aiem_signal_discoveries (status='hypothesis').
-    The nightly learn will promote it to 'validated' once sample size grows.
+    Any signal that appeared in ≥5 misses today, with a miss_rate ≥ 60%,
+    and a gap ≥ 0.25 above pick_rate, is flagged as a hypothesis and written
+    to aiem_signal_discoveries (status='hypothesis').
+
+    Gates applied here (pre-insert):
+      1. in_misses >= 5      — minimum observations to reduce noise
+      2. miss_rate >= 0.60   — signal must appear in ≥60% of missed runners
+      3. gap >= 0.25         — meaningful difference over pick_rate
+
+    Promotion gate (in nightly_learn, not here):
+      4. rolling_win_rate >= 0.55 AND n_outcomes_observed >= 10
+         (applied via signal_trust_weights join before status → 'validated')
+
+    Scale convention: signal_win_rate and baseline_win_rate are stored on
+    the 0-100 percentage scale, matching _mkt_tool_save_discovery.
     """
     if not _market_day():
         return
@@ -916,10 +927,17 @@ def aiem_write_signal_discoveries():
         log.info("write_signal_discoveries: no gap patterns — skipping")
         return
 
-    # Only flag signals with a meaningful gap and at least 2 misses
+    # Gates (mirrors _mkt_tool_save_discovery conventions):
+    #   1. in_misses >= 5          — minimum sample size to reduce noise
+    #   2. miss_rate >= 0.60       — signal must fire in ≥60% of missed runners
+    #   3. gap >= 0.25             — raised from 0.20; requires a more decisive gap
+    # NOTE: status='hypothesis' rows are further gated at promotion time by
+    # nightly_learn (rolling_win_rate >= 0.55 AND n_outcomes_observed >= 10).
     hypotheses = [
         (sig, stats) for sig, stats in gap_patterns.items()
-        if stats["in_misses"] >= 2 and stats["gap"] >= 0.20
+        if stats["in_misses"] >= 5
+        and stats["miss_rate"] >= 0.60
+        and stats["gap"] >= 0.25
     ]
 
     if not hypotheses:
@@ -954,6 +972,9 @@ def aiem_write_signal_discoveries():
                 "missed_tickers": [m["ticker"] for m in misses[:10]],
             }
 
+            # signal_win_rate and baseline_win_rate are stored on 0-100 scale
+            # (percentage), matching _mkt_tool_save_discovery convention.
+            # miss_rate and pick_rate are raw fractions (0-1); multiply by 100.
             cur.execute("""
                 INSERT INTO aiem_signal_discoveries
                     (hypothesis_text, conditions_json, horizon,
@@ -965,9 +986,9 @@ def aiem_write_signal_discoveries():
                 json.dumps(conditions),
                 "1d",
                 stats["in_misses"],
-                round(stats["miss_rate"], 4),
-                round(stats["pick_rate"], 4),
-                round(stats["gap"], 4),
+                round(stats["miss_rate"] * 100, 2),
+                round(stats["pick_rate"] * 100, 2),
+                round(stats["gap"] * 100, 2),
                 "hypothesis",
                 f"auto-discovered by aiem_process on {today}",
             ))
