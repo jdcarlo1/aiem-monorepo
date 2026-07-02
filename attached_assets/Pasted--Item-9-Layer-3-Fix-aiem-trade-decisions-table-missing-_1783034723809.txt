@@ -1,0 +1,85 @@
+# Item 9 / Layer 3 — Fix: `aiem_trade_decisions` table missing
+
+## The problem
+`log_charm_decision()` is called after every scan to persist charm signals for
+audit, but the target table `aiem_trade_decisions` does not exist. Every call
+throws an exception (logged to console as `[silent_except:L13622]`, not a
+silent swallow) and returns without writing anything. Net effect: **zero
+charm decisions have ever been durably logged.** The scoring math itself is
+correct and verified — this is purely a missing persistence layer.
+
+Confirmed via:
+```sql
+SELECT table_name FROM information_schema.tables
+WHERE table_name = 'aiem_trade_decisions';
+-- returns 0 rows
+```
+
+## Fix — do these steps in order
+
+### 1. Confirm the exact call signature
+Before creating the table, grep for every call site of `log_charm_decision()`
+and confirm the parameter names/types match what's below. If they don't
+match, use the actual signature — don't guess.
+
+Known call (from `_get_charm_cascade_signals()`):
+```python
+_dlh_c.log_charm_decision(
+    ticker=str(_r[0]),
+    strike=float(_r[2]),
+    expiry=str(_r[3]),
+    days_out=int(_r[6]),
+    oi=int(_r[4]),
+    otm_pct=float(_r[5]),
+    charm_score=float(_r[7]),
+)
+```
+
+### 2. Create the table
+```sql
+CREATE TABLE aiem_trade_decisions (
+    id            SERIAL PRIMARY KEY,
+    ticker        TEXT NOT NULL,
+    strike        NUMERIC NOT NULL,
+    expiry        DATE NOT NULL,
+    days_out      INTEGER NOT NULL,
+    oi            INTEGER NOT NULL,
+    otm_pct       NUMERIC NOT NULL,
+    charm_score   NUMERIC NOT NULL,
+    logged_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_aiem_trade_decisions_ticker_date
+    ON aiem_trade_decisions (ticker, logged_at);
+```
+Adjust column types only if step 1 reveals a mismatch with `decision_logging_helper.log_charm_decision()`'s actual implementation.
+
+### 3. Verify it actually persists — do not skip this
+Run `_get_charm_cascade_signals()` once (or trigger a full scan), then:
+
+```sql
+SELECT COUNT(*) FROM aiem_trade_decisions;
+SELECT * FROM aiem_trade_decisions ORDER BY logged_at DESC LIMIT 5;
+```
+
+Paste the raw output. Row count must go from 0 → N where N matches the
+number of charm signals that fired in that run (cross-check against the
+`rows` count already printed in `_get_charm_cascade_signals()`'s live output).
+
+### 4. Confirm the exception path is now dead
+Run the scan again and confirm the console no longer prints
+`[silent_except:L13622]`. If it still throws, the fix is incomplete — do not
+mark this done.
+
+### 5. Update the verification table
+Only change Layer 3 status to **VERIFIED A–E** once steps 3 and 4 both show
+clean raw proof (row counts + a `SELECT *` sample). Do not mark it verified
+on the basis of "should work now" — Claude will ask for the raw output
+either way, so save the round trip and paste it up front.
+
+## Note on historical data
+Charm scores computed before `oi_daily_snapshot` coverage began
+(2026-06-16) cannot be backfilled into this table — the source data no
+longer exists. That's an accepted permanent gap, not something this fix
+needs to solve. Going forward from whenever this table is created, all
+charm decisions will be captured.

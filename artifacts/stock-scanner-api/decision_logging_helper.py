@@ -37,8 +37,8 @@ def log_gamma_decision(ticker: str, fir: float, vol_oi: float,
             direction="long",
             confidence=round(min(0.92, 0.50 + fir * 0.08), 2),
         )
-    except Exception:
-        pass
+    except Exception as _exc:
+        print(f"[log_gamma_decision] {type(_exc).__name__}: {_exc}")
 
 
 def log_charm_decision(ticker: str, strike: float, expiry: str,
@@ -63,8 +63,8 @@ def log_charm_decision(ticker: str, strike: float, expiry: str,
             direction="long",
             confidence=round(min(0.88, 0.40 + min(charm_score, 200) * 0.002), 2),
         )
-    except Exception:
-        pass
+    except Exception as _exc:
+        print(f"[log_charm_decision] {type(_exc).__name__}: {_exc}")
 
 
 def log_dark_pool_decision(ticker: str, off_exchange_pct: float, volume: int):
@@ -86,8 +86,8 @@ def log_dark_pool_decision(ticker: str, off_exchange_pct: float, volume: int):
             direction="long",
             confidence=round(min(0.85, 0.40 + off_exchange_pct * 0.006), 2),
         )
-    except Exception:
-        pass
+    except Exception as _exc:
+        print(f"[log_dark_pool_decision] {type(_exc).__name__}: {_exc}")
 
 
 def log_unusual_calls_decision(ticker: str, call_volume: int, oi: int,
@@ -121,5 +121,5 @@ def log_unusual_calls_decision(ticker: str, call_volume: int, oi: int,
             direction="long",
             confidence=round(min(0.90, 0.45 + min(vol_oi, 5) * 0.06), 2),
         )
-    except Exception:
-        pass
+    except Exception as _exc:
+        print(f"[log_unusual_calls_decision] {type(_exc).__name__}: {_exc}")
