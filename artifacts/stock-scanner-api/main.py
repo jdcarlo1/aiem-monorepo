@@ -16281,12 +16281,22 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
 
         today = _rdt.date.today().isoformat()
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # NOTE: research_date is UNIQUE per day (not per session). If the
+            # indicator grid battery (or other free-tier loop) already wrote
+            # findings for today before this weekly model save runs, a plain
+            # overwrite here would silently discard them. Preserve+append
+            # instead of clobbering.
             _cu.execute("""
                 INSERT INTO aiem_research_insights
                     (research_date, findings, scoring_adjustments, confidence)
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (research_date) DO UPDATE
-                    SET findings=EXCLUDED.findings,
+                    SET findings = CASE
+                            WHEN aiem_research_insights.findings IS NOT NULL
+                                 AND aiem_research_insights.findings <> ''
+                            THEN aiem_research_insights.findings || E'\\n' || EXCLUDED.findings
+                            ELSE EXCLUDED.findings
+                        END,
                         scoring_adjustments=EXCLUDED.scoring_adjustments,
                         confidence=EXCLUDED.confidence,
                         created_at=NOW()
@@ -17573,12 +17583,21 @@ def _aiem_tool_rollback_to_previous_model():
         restored_findings = str(prev_findings or "") + rollback_note
 
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            # NOTE: research_date is UNIQUE per day (not per session). If the
+            # indicator grid battery (or other free-tier loop) already wrote
+            # findings for today before this rollback runs, a plain overwrite
+            # here would silently discard them. Preserve+append instead.
             _cu.execute("""
                 INSERT INTO aiem_research_insights
                     (research_date, findings, scoring_adjustments, confidence)
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (research_date) DO UPDATE
-                    SET findings=EXCLUDED.findings,
+                    SET findings = CASE
+                            WHEN aiem_research_insights.findings IS NOT NULL
+                                 AND aiem_research_insights.findings <> ''
+                            THEN aiem_research_insights.findings || E'\\n' || EXCLUDED.findings
+                            ELSE EXCLUDED.findings
+                        END,
                         scoring_adjustments=EXCLUDED.scoring_adjustments,
                         confidence=EXCLUDED.confidence,
                         created_at=NOW()
@@ -19630,7 +19649,12 @@ def _mkt_init_tables():
 
 
 def _mkt_parse_conditions(conditions: dict):
-    """Convert condition dict → (sql_fragment, params). Whitelist-safe."""
+    """Convert condition dict → (sql_fragment, params). Whitelist-safe.
+    Market columns (polygon_market_daily) are aliased 't.'. Indicator columns
+    (RSI/MACD/ADX/etc, from polygon_indicators_daily — see _MKT_INDICATOR_COLS
+    below) are aliased 'ind.'; _mkt_run_two_group auto-detects the 'ind.'
+    alias in the returned SQL and joins that table in, so no caller here
+    needs to change."""
     parts, params = [], []
     for key, val in (conditions or {}).items():
         if key.endswith("_min"):
@@ -19639,33 +19663,58 @@ def _mkt_parse_conditions(conditions: dict):
             field, op = key[:-4], "<="
         else:
             continue
-        if field not in _MKT_SAFE_COLS:
+        if field in _MKT_SAFE_COLS:
+            col_ref = f"t.{_MKT_SAFE_COLS[field]}"
+        elif field in globals().get("_MKT_INDICATOR_COLS", {}):
+            col_ref = f"ind.{_MKT_INDICATOR_COLS[field]}"
+        else:
             continue
         try:
             val = float(val)
         except (TypeError, ValueError):
             continue
-        parts.append(f"t.{_MKT_SAFE_COLS[field]} {op} %s")
+        parts.append(f"{col_ref} {op} %s")
         params.append(val)
     return (" AND ".join(parts), params)
 
 
-def _mkt_run_two_group(conn, sig_where, sig_params, base_where, base_params, limit=100000):
-    """Fetch returns for two groups and compute all stats. Returns dict or None."""
+def _mkt_run_two_group(conn, sig_where, sig_params, base_where, base_params,
+                        horizon_days=1, limit=100000):
+    """Fetch forward returns for two groups and compute all stats. Returns dict or None.
+    horizon_days: N trading days ahead (1=next day close-to-close, 3/5/10=multi-day).
+    Uses a single LEAD() window-function CTE (not a correlated subquery) so this
+    scales to the full 12K-stock universe regardless of horizon.
+    Auto-joins polygon_indicators_daily (aliased 'ind.') whenever either WHERE
+    fragment references it — indicator-aware conditions from _mkt_parse_conditions
+    work here with zero changes at any of this function's ~20 call sites."""
     import numpy as _np
     from scipy import stats as _sc
 
+    try:
+        _h = max(1, int(horizon_days))
+    except (TypeError, ValueError):
+        _h = 1
+    _needs_join = ("ind." in (sig_where or "")) or ("ind." in (base_where or ""))
+    _join_sql = (
+        "LEFT JOIN polygon_indicators_daily ind "
+        "ON ind.ticker = t.ticker AND ind.scan_date = t.scan_date"
+        if _needs_join else ""
+    )
+
     def _fetch(where, params):
         sql = f"""
-            SELECT ((nxt.close_price / NULLIF(t.close_price,0)) - 1) * 100
-            FROM polygon_market_daily t
-            JOIN polygon_market_daily nxt
-              ON nxt.ticker = t.ticker
-             AND nxt.scan_date = (
-                   SELECT MIN(x.scan_date) FROM polygon_market_daily x
-                   WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
-                 )
-            WHERE t.close_price > 0{(' AND ' + where) if where else ''}
+            WITH fwd AS (
+                SELECT t.ticker, t.scan_date, t.close_price,
+                       LEAD(t.close_price, {_h}) OVER (
+                           PARTITION BY t.ticker ORDER BY t.scan_date
+                       ) AS fwd_close
+                FROM polygon_market_daily t
+                {_join_sql}
+                WHERE t.close_price > 0{(' AND ' + where) if where else ''}
+            )
+            SELECT ((fwd_close / NULLIF(close_price,0)) - 1) * 100
+            FROM fwd
+            WHERE fwd_close IS NOT NULL
             LIMIT {limit}
         """
         with conn.cursor() as cur:
@@ -19691,6 +19740,7 @@ def _mkt_run_two_group(conn, sig_where, sig_params, base_where, base_params, lim
         "edge_avg_ret":      round(float(_np.mean(sa) - _np.mean(ba)), 4),
         "p_value":           round(float(pval), 4),
         "significant":       bool(pval < 0.05),
+        "horizon_days":      _h,
     }
 
 
@@ -19778,7 +19828,15 @@ def _mkt_tool_explore_dimensions():
             "baseline_returns": {k: float(v) if v is not None else None for k, v in baseline.items()},
             "prior_discoveries": disc_count,
             "available_factors": list(_MKT_SAFE_COLS.keys()),
-            "condition_format": "Use {factor}_min and {factor}_max keys, e.g. {'gap_pct_min': 2.0, 'rvol_min': 3.0}",
+            "available_indicator_factors": list(globals().get("_MKT_INDICATOR_COLS", {}).keys()),
+            "indicator_note": (
+                "Indicator factors (RSI/MACD/ADX/etc) live in polygon_indicators_daily, "
+                "joined automatically by mkt_test_signal whenever an indicator field is used. "
+                "Coverage grows daily via a background backfill - if n is unexpectedly low for "
+                "an indicator condition, the backfill may still be catching up on older history."
+            ),
+            "condition_format": "Use {factor}_min and {factor}_max keys, e.g. {'gap_pct_min': 2.0, 'rvol_min': 3.0} or {'rsi_14_max': 30}",
+            "horizons_available": ["next_day", "3d", "5d", "10d"],
         }
         _mkt_explore_dimensions_cache["data"] = result
         _mkt_explore_dimensions_cache["ts"] = _t.time()
@@ -19790,17 +19848,28 @@ def _mkt_tool_explore_dimensions():
 # ──────────────────────────────────────────────────────────────────────────
 # Tool 2: Test any signal against the full 12K universe
 # ──────────────────────────────────────────────────────────────────────────
+_MKT_HORIZON_DAYS = {
+    "next_day": 1, "1d": 1, "1_day": 1,
+    "3d": 3, "3_day": 3,
+    "5d": 5, "5_day": 5,
+    "10d": 10, "10_day": 10,
+}
+
 def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad",
                            start_date=None, end_date=None):
     """Test any combination of market conditions against the full 12K-stock universe.
     Returns signal win_rate, avg_return, edge vs broad market, and p-value.
     conditions: dict e.g. {'gap_pct_min': 2.0, 'rvol_min': 3.0, 'close_strength_min': 0.6}
+    Also accepts indicator conditions (rsi_14_max, macd_hist_min, adx_14_min, etc —
+    see _MKT_INDICATOR_FIELDS) once polygon_indicators_daily is backfilled.
+    horizon: 'next_day' (default), '3d', '5d', or '10d' forward return window.
     baseline: 'broad' (all stocks) or 'tight' (stocks just below each threshold)
     start_date/end_date: optional 'YYYY-MM-DD' strings to restrict to a date window
     """
     import psycopg2
     if not conditions:
         return {"status": "error", "error": "conditions dict required"}
+    _h_days = _MKT_HORIZON_DAYS.get(str(horizon).lower(), 1)
     try:
         sig_where, sig_params = _mkt_parse_conditions(conditions)
         if not sig_where:
@@ -19821,36 +19890,35 @@ def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad",
             # Broad baseline = all stocks (same date window)
             _base_where = _date_clause.replace(" AND t.scan_date", " AND t.scan_date") if _date_clause else ""
             broad_res = _mkt_run_two_group(conn, _sig_where_full, _sig_params_full,
-                                           _base_where.lstrip(" AND "), list(_date_params))
+                                           _base_where.lstrip(" AND "), list(_date_params),
+                                           horizon_days=_h_days)
 
             if baseline == "tight":
                 # Tight baseline: stocks that are "close" but don't meet all conditions
                 # Expand each threshold by 50% in the opposite direction
+                _indicator_cols = globals().get("_MKT_INDICATOR_COLS", {})
                 tight_parts, tight_params = [], []
                 for key, val in (conditions or {}).items():
                     if key.endswith("_min"):
-                        field = key[:-4]
-                        if field not in _MKT_SAFE_COLS:
-                            continue
-                        col = _MKT_SAFE_COLS[field]
-                        try:
-                            v = float(val)
-                        except Exception:
-                            continue
-                        # Tight baseline: value within 50% below threshold
-                        tight_parts.append(f"({col} >= %s AND {col} < %s)")
-                        tight_params.extend([v * 0.5, v])
+                        field, op_lo, op_hi = key[:-4], ">=", "<"
+                        mult_lo, mult_hi = 0.5, 1.0
                     elif key.endswith("_max"):
-                        field = key[:-4]
-                        if field not in _MKT_SAFE_COLS:
-                            continue
-                        col = _MKT_SAFE_COLS[field]
-                        try:
-                            v = float(val)
-                        except Exception:
-                            continue
-                        tight_parts.append(f"({col} > %s AND {col} <= %s)")
-                        tight_params.extend([v, v * 1.5])
+                        field, op_lo, op_hi = key[:-4], ">", "<="
+                        mult_lo, mult_hi = 1.0, 1.5
+                    else:
+                        continue
+                    if field in _MKT_SAFE_COLS:
+                        col = f"t.{_MKT_SAFE_COLS[field]}"
+                    elif field in _indicator_cols:
+                        col = f"ind.{_indicator_cols[field]}"
+                    else:
+                        continue
+                    try:
+                        v = float(val)
+                    except Exception:
+                        continue
+                    tight_parts.append(f"({col} {op_lo} %s AND {col} {op_hi} %s)")
+                    tight_params.extend(sorted([v * mult_lo, v * mult_hi]))
 
                 if tight_parts:
                     tight_where = " OR ".join(tight_parts)
@@ -19858,7 +19926,8 @@ def _mkt_tool_test_signal(conditions=None, horizon="next_day", baseline="broad",
                     tight_where_full = f"({tight_where})" + _date_clause
                     tight_params_full = tight_params + _date_params
                     tight_res = _mkt_run_two_group(conn, _sig_where_full, _sig_params_full,
-                                                   tight_where_full, tight_params_full)
+                                                   tight_where_full, tight_params_full,
+                                                   horizon_days=_h_days)
                 else:
                     tight_res = None
             else:
@@ -19943,18 +20012,34 @@ def _mkt_tool_test_inverse(conditions=None, horizon="next_day"):
 def _mkt_tool_find_thresholds(factor="gap_pct", direction="min", n_steps=20, horizon="next_day"):
     """Grid-search 20 threshold values for a single factor to find the optimal cut.
     direction: 'min' (factor >= threshold) or 'max' (factor <= threshold)
+    factor can be a market column (gap_pct, rvol, ...) or a technical-indicator
+    column (rsi_14, macd_hist, adx_14, ...) from polygon_indicators_daily.
     Returns the threshold that maximizes win-rate edge vs broad baseline."""
     import psycopg2
     import numpy as _np
-    if factor not in _MKT_SAFE_COLS:
-        return {"status": "error", "error": f"Unknown factor. Choose from: {list(_MKT_SAFE_COLS.keys())}"}
-    try:
+    _is_indicator = factor in globals().get("_MKT_INDICATOR_COLS", {})
+    if factor in _MKT_SAFE_COLS:
         col = _MKT_SAFE_COLS[factor]
+        col_ref = f"t.{col}"
+        _from_sql = "FROM polygon_market_daily t"
+    elif _is_indicator:
+        col = _MKT_INDICATOR_COLS[factor]
+        col_ref = f"ind.{col}"
+        _from_sql = ("FROM polygon_market_daily t "
+                     "JOIN polygon_indicators_daily ind "
+                     "ON ind.ticker = t.ticker AND ind.scan_date = t.scan_date")
+    else:
+        _choices = list(_MKT_SAFE_COLS.keys()) + list(globals().get("_MKT_INDICATOR_COLS", {}).keys())
+        return {"status": "error", "error": f"Unknown factor. Choose from: {_choices}"}
+    try:
+        _h_map = {"next_day": 1, "3d": 3, "5d": 5, "10d": 10}
+        _h = _h_map.get(horizon, 1)
         with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute(f"""
-                SELECT PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY {col}),
-                       PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY {col})
-                FROM polygon_market_daily WHERE {col} IS NOT NULL AND close_price > 0
+                SELECT PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY {col_ref}),
+                       PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY {col_ref})
+                {_from_sql}
+                WHERE {col_ref} IS NOT NULL AND t.close_price > 0
             """)
             row = cur.fetchone()
             if not row or row[0] is None:
@@ -19966,10 +20051,10 @@ def _mkt_tool_find_thresholds(factor="gap_pct", direction="min", n_steps=20, hor
         with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
             for thr in thresholds:
                 if direction == "min":
-                    w, p = f"{col} >= %s", [thr]
+                    w, p = f"{col_ref} >= %s", [thr]
                 else:
-                    w, p = f"{col} <= %s", [thr]
-                res = _mkt_run_two_group(conn, w, p, "", [], limit=50000)
+                    w, p = f"{col_ref} <= %s", [thr]
+                res = _mkt_run_two_group(conn, w, p, "", [], horizon_days=_h, limit=50000)
                 if res and res["signal_n"] >= 50:
                     results.append({
                         "threshold": round(float(thr), 4),
@@ -22130,6 +22215,300 @@ def _mkt_compute_indicators(ticker, start_date=None, end_date=None):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# polygon_indicators_daily — materialized technical indicators, one row per
+# (ticker, scan_date), so Loop A/B can cross-sectionally backtest indicator
+# conditions (RSI, MACD, ADX, etc.) across the WHOLE universe the same way
+# mkt_test_signal already does for raw gap/rvol/close_strength factors.
+# Indicators are computed on-the-fly per-ticker in _mkt_compute_indicators
+# (chat tool, single ticker) but were never persisted at scale — this table
+# closes that gap. Only bounded/normalized fields are stored (not raw MAs or
+# OBV, which aren't comparable across tickers of different price/size).
+# ──────────────────────────────────────────────────────────────────────────
+_MKT_INDICATOR_FIELDS = [
+    "rsi_14", "stoch_k", "stoch_d", "macd", "macd_hist", "adx_14",
+    "cmf_20", "mfi_14", "cci_20", "williams_r", "bb_pct", "roc_12",
+    "momentum_10", "atr_pct", "pct_from_sma20", "pct_from_sma50",
+    "pct_from_sma200", "pct_from_52w_high", "pct_from_52w_low",
+]
+
+# Whitelist consumed by _mkt_parse_conditions (defined earlier in the file —
+# looked up at call time via globals(), so definition order here is fine).
+# Maps condition-dict field name -> polygon_indicators_daily column name.
+_MKT_INDICATOR_COLS = {f: f for f in _MKT_INDICATOR_FIELDS}
+
+def _mkt_init_indicator_table():
+    """Create polygon_indicators_daily + indexes if missing."""
+    import psycopg2
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cols_sql = ",\n                    ".join(f"{f} FLOAT" for f in _MKT_INDICATOR_FIELDS)
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS polygon_indicators_daily (
+                    id            SERIAL PRIMARY KEY,
+                    scan_date     DATE NOT NULL,
+                    ticker        VARCHAR(10) NOT NULL,
+                    {cols_sql},
+                    UNIQUE (scan_date, ticker)
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pid_date ON polygon_indicators_daily (scan_date)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pid_ticker ON polygon_indicators_daily (ticker)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pid_ticker_date ON polygon_indicators_daily (ticker, scan_date)")
+        print("[mkt_indicators] polygon_indicators_daily ready")
+    except Exception as e:
+        print(f"[mkt_indicators] table init error: {e}")
+
+
+def _mkt_compute_indicator_series(highs, lows, closes, vols):
+    """Vectorized (pandas) full-history indicator series for one ticker.
+    Same underlying formulas as _mkt_compute_indicators (Wilder-style RSI/ADX/ATR
+    via ewm(alpha=1/period, adjust=False), MACD/BB via standard spans) but returns
+    every date's value instead of just the latest snapshot, for bulk backfill.
+    Returns dict[field] -> list[float|None] aligned index-for-index with inputs."""
+    import numpy as _np
+    import pandas as _pd
+
+    close_s = _pd.Series(closes, dtype="float64")
+    high_s  = _pd.Series(highs, dtype="float64")
+    low_s   = _pd.Series(lows, dtype="float64")
+    vol_s   = _pd.Series(vols, dtype="float64")
+
+    sma20  = close_s.rolling(20).mean()
+    sma50  = close_s.rolling(50).mean()
+    sma200 = close_s.rolling(200).mean()
+    pct_from_sma20  = (close_s - sma20)  / sma20  * 100
+    pct_from_sma50  = (close_s - sma50)  / sma50  * 100
+    pct_from_sma200 = (close_s - sma200) / sma200 * 100
+
+    roll_high_252 = close_s.rolling(252, min_periods=20).max()
+    roll_low_252  = close_s.rolling(252, min_periods=20).min()
+    pct_from_52w_high = (close_s - roll_high_252) / roll_high_252 * 100
+    pct_from_52w_low  = (close_s - roll_low_252)  / roll_low_252  * 100
+
+    delta = close_s.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, _np.nan)
+    rsi_14 = 100 - (100 / (1 + rs))
+    rsi_14 = rsi_14.where(avg_loss.notna())
+
+    ema12 = close_s.ewm(span=12, adjust=False).mean()
+    ema26 = close_s.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    macd_signal = macd_line.ewm(span=9, adjust=False).mean()
+    macd_hist = macd_line - macd_signal
+
+    prev_close = close_s.shift(1)
+    tr = _pd.concat([
+        (high_s - low_s),
+        (high_s - prev_close).abs(),
+        (low_s - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    atr14 = tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    atr_pct = atr14 / close_s * 100
+
+    std20 = close_s.rolling(20).std()
+    bb_upper = sma20 + 2 * std20
+    bb_lower = sma20 - 2 * std20
+    bb_width = (bb_upper - bb_lower).replace(0, _np.nan)
+    bb_pct = (close_s - bb_lower) / bb_width * 100
+
+    low14  = low_s.rolling(14).min()
+    high14 = high_s.rolling(14).max()
+    stoch_range = (high14 - low14).replace(0, _np.nan)
+    stoch_k = (close_s - low14) / stoch_range * 100
+    stoch_d = stoch_k.rolling(3).mean()
+
+    williams_r = (high14 - close_s) / stoch_range * -100
+
+    tp = (high_s + low_s + close_s) / 3
+    tp_sma = tp.rolling(20).mean()
+    tp_mad = tp.rolling(20).apply(lambda x: _np.mean(_np.abs(x - x.mean())), raw=True)
+    cci_20 = (tp - tp_sma) / (0.015 * tp_mad.replace(0, _np.nan))
+
+    up_move = high_s.diff()
+    down_move = -low_s.diff()
+    plus_dm  = _pd.Series(_np.where((up_move > down_move) & (up_move > 0), up_move, 0.0), index=close_s.index)
+    minus_dm = _pd.Series(_np.where((down_move > up_move) & (down_move > 0), down_move, 0.0), index=close_s.index)
+    tr14 = tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    plus_di  = 100 * (plus_dm.ewm(alpha=1/14, min_periods=14, adjust=False).mean()  / tr14.replace(0, _np.nan))
+    minus_di = 100 * (minus_dm.ewm(alpha=1/14, min_periods=14, adjust=False).mean() / tr14.replace(0, _np.nan))
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, _np.nan)
+    adx_14 = dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+
+    tp_diff = tp.diff()
+    raw_mf  = tp * vol_s
+    pos_mf  = raw_mf.where(tp_diff > 0, 0.0)
+    neg_mf  = raw_mf.where(tp_diff < 0, 0.0)
+    mfr = pos_mf.rolling(14).sum() / neg_mf.rolling(14).sum().replace(0, _np.nan)
+    mfi_14 = 100 - (100 / (1 + mfr))
+
+    rng = (high_s - low_s).replace(0, _np.nan)
+    clv = ((close_s - low_s) - (high_s - close_s)) / rng
+    cmf_20 = (clv * vol_s).rolling(20).sum() / vol_s.rolling(20).sum().replace(0, _np.nan)
+
+    roc_12 = (close_s - close_s.shift(12)) / close_s.shift(12) * 100
+    momentum_10 = close_s - close_s.shift(10)
+
+    def _rl(s):
+        return [round(float(v), 4) if _pd.notna(v) and _np.isfinite(v) else None for v in s]
+
+    return {
+        "rsi_14": _rl(rsi_14), "stoch_k": _rl(stoch_k), "stoch_d": _rl(stoch_d),
+        "macd": _rl(macd_line), "macd_hist": _rl(macd_hist), "adx_14": _rl(adx_14),
+        "cmf_20": _rl(cmf_20), "mfi_14": _rl(mfi_14), "cci_20": _rl(cci_20),
+        "williams_r": _rl(williams_r), "bb_pct": _rl(bb_pct), "roc_12": _rl(roc_12),
+        "momentum_10": _rl(momentum_10), "atr_pct": _rl(atr_pct),
+        "pct_from_sma20": _rl(pct_from_sma20), "pct_from_sma50": _rl(pct_from_sma50),
+        "pct_from_sma200": _rl(pct_from_sma200),
+        "pct_from_52w_high": _rl(pct_from_52w_high), "pct_from_52w_low": _rl(pct_from_52w_low),
+    }
+
+
+def _mkt_backfill_indicators_for_ticker(ticker, conn=None, min_date=None):
+    """Compute + upsert the full indicator history for one ticker.
+    Reuses an existing connection if provided (bulk backfill loop), else opens
+    its own (incremental daily hook). Returns rows written or -1 on error."""
+    import psycopg2
+    import psycopg2.extras
+    own_conn = conn is None
+    try:
+        if own_conn:
+            conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        with conn.cursor() as cur:
+            where = ["ticker = %s", "close_price > 0"]
+            params = [ticker]
+            if min_date:
+                where.append("scan_date >= %s"); params.append(min_date)
+            cur.execute(f"""
+                SELECT scan_date, high_price, low_price, close_price, volume
+                FROM polygon_market_daily
+                WHERE {' AND '.join(where)}
+                ORDER BY scan_date ASC
+            """, params)
+            rows = cur.fetchall()
+        if not rows or len(rows) < 20:
+            return 0
+
+        dates  = [r[0] for r in rows]
+        highs  = [float(r[1] or 0) for r in rows]
+        lows   = [float(r[2] or 0) for r in rows]
+        closes = [float(r[3] or 0) for r in rows]
+        vols   = [float(r[4] or 0) for r in rows]
+
+        series = _mkt_compute_indicator_series(highs, lows, closes, vols)
+        n = len(dates)
+        insert_rows = []
+        for i in range(n):
+            vals = [series[f][i] for f in _MKT_INDICATOR_FIELDS]
+            if all(v is None for v in vals):
+                continue
+            insert_rows.append((dates[i], ticker, *vals))
+
+        if not insert_rows:
+            return 0
+
+        cols = ", ".join(_MKT_INDICATOR_FIELDS)
+        placeholders = ", ".join(["%s"] * len(_MKT_INDICATOR_FIELDS))
+        update_set = ", ".join(f"{f}=EXCLUDED.{f}" for f in _MKT_INDICATOR_FIELDS)
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, f"""
+                INSERT INTO polygon_indicators_daily (scan_date, ticker, {cols})
+                VALUES (%s, %s, {placeholders})
+                ON CONFLICT (scan_date, ticker) DO UPDATE SET {update_set}
+            """, insert_rows, page_size=500)
+        conn.commit()
+        return len(insert_rows)
+    except Exception as e:
+        print(f"[mkt_indicators] backfill error for {ticker}: {e}")
+        return -1
+    finally:
+        if own_conn and conn:
+            conn.close()
+
+
+_MKT_INDICATOR_BACKFILL_RUNNING = False
+
+def _mkt_backfill_indicators_all():
+    """One-time (resumable) background backfill of polygon_indicators_daily
+    across every ticker in polygon_market_daily. Idempotent — safe to re-run;
+    ON CONFLICT upserts mean partial/interrupted runs just resume where they
+    left off. Sleeps briefly between tickers to stay off the DB's back."""
+    global _MKT_INDICATOR_BACKFILL_RUNNING
+    if _MKT_INDICATOR_BACKFILL_RUNNING:
+        print("[mkt_indicators] backfill already running, skipping duplicate launch")
+        return
+
+    def _run():
+        global _MKT_INDICATOR_BACKFILL_RUNNING
+        _MKT_INDICATOR_BACKFILL_RUNNING = True
+        import psycopg2, psycopg2.extras, time as _t
+        try:
+            with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT ticker FROM polygon_market_daily ORDER BY ticker")
+                tickers = [r[0] for r in cur.fetchall()]
+            print(f"[mkt_indicators] backfill starting: {len(tickers)} tickers")
+            done, written, errors = 0, 0, 0
+            conn = psycopg2.connect(os.environ["DATABASE_URL"])
+            for ticker in tickers:
+                n = _mkt_backfill_indicators_for_ticker(ticker, conn=conn)
+                if n < 0:
+                    errors += 1
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                else:
+                    written += n
+                done += 1
+                if done % 250 == 0:
+                    print(f"[mkt_indicators] backfill progress: {done}/{len(tickers)} tickers, "
+                          f"{written} rows written, {errors} errors")
+                _t.sleep(0.05)
+            conn.close()
+            print(f"[mkt_indicators] backfill DONE: {done} tickers, {written} rows, {errors} errors")
+        except Exception as e:
+            print(f"[mkt_indicators] backfill fatal error: {e}")
+        finally:
+            _MKT_INDICATOR_BACKFILL_RUNNING = False
+
+    import threading as _ibth
+    _ibth.Thread(target=_run, daemon=True, name="polygon-indicators-backfill").start()
+
+
+def _mkt_update_indicators_incremental(scan_date, tickers):
+    """Daily hook: recompute + upsert indicators only for tickers scanned today.
+    Called right after polygon_market_daily's daily save, before the Loop B
+    post-scan trigger, so Loop A/B always see today's indicator values.
+    Pulls a ~300-trading-day trailing window per ticker (enough for sma200 +
+    52w hi/lo) rather than each ticker's full history, to keep this fast."""
+    import psycopg2
+    written, errors = 0, 0
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            for ticker in tickers:
+                n = _mkt_backfill_indicators_for_ticker(
+                    ticker, conn=conn,
+                    min_date=None,  # keep full history available for accurate sma200/52w calcs
+                )
+                if n < 0:
+                    errors += 1
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                else:
+                    written += n
+    except Exception as e:
+        print(f"[mkt_indicators] incremental update error: {e}")
+    print(f"[mkt_indicators] incremental update for {scan_date}: "
+          f"{len(tickers)} tickers, {written} rows written, {errors} errors")
+    return written
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # mkt_price_structure — pivot points, Fibonacci retracement, S/R zones
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_price_structure(ticker, start_date=None, end_date=None):
@@ -22740,6 +23119,15 @@ try:
     _polygon_backfill_historical()
 except Exception as _bf_e:
     print(f"[backfill] startup error: {_bf_e}")
+try:
+    _mkt_init_indicator_table()
+    _mkt_backfill_indicators_all()
+except Exception as _mkti_e:
+    print(f"[mkt_indicators] startup error: {_mkti_e}")
+# NOTE: _mkt_start_continuous_loop() is defined further down in this file
+# (after _mkt_indicator_grid_battery/_mkt_continuous_research_loop), so it is
+# invoked right after its own definition below, not here - calling it this
+# early raises NameError since the module hasn't finished loading yet.
 
 
 
@@ -22808,30 +23196,36 @@ def _run_aiem_continuous_research():
         # Sort by significance
         findings.sort(key=lambda x: (x["p_value"], -x["n"]))
 
-        # Save significant findings to DB for Sunday consolidation
+        # Save significant findings to DB for Sunday consolidation.
+        # NOTE: aiem_research_insights.research_date has a table-wide UNIQUE
+        # constraint (not per-session), so multiple per-finding INSERTs for
+        # the same day silently lose every row after the first (and can also
+        # collide with the indicator grid battery, which writes under the
+        # same date). Combine into ONE line and upsert-append instead.
         significant = [f for f in findings if f["significant"]]
         if significant:
+            _combined = "\n".join(
+                _crj.dumps({
+                    "type": "continuous_research_finding",
+                    "description": f["description"],
+                    "conditions": f["conditions"],
+                    "target": f["target"],
+                    "n": f["n"],
+                    "win_rate_pct": f["win_rate_pct"],
+                    "p_value": f["p_value"],
+                    "edge_vs_baseline_pct": f["edge_vs_baseline_pct"],
+                    "found_at": _crd.datetime.now().isoformat(),
+                })
+                for f in significant
+            )
+            _conf = "HIGH" if min(f["p_value"] for f in significant) < 0.01 else "MEDIUM"
             with _psycopg2.connect(_DB_URL) as _cs, _cs.cursor() as _cus:
-                for f in significant:
-                    _cus.execute("""
-                        INSERT INTO aiem_research_insights
-                            (research_date, findings, confidence)
-                        VALUES (%s, %s, %s)
-                    """, (
-                        _crd.date.today(),
-                        _crj.dumps({
-                            "type": "continuous_research_finding",
-                            "description": f["description"],
-                            "conditions": f["conditions"],
-                            "target": f["target"],
-                            "n": f["n"],
-                            "win_rate_pct": f["win_rate_pct"],
-                            "p_value": f["p_value"],
-                            "edge_vs_baseline_pct": f["edge_vs_baseline_pct"],
-                            "found_at": _crd.datetime.now().isoformat(),
-                        }),
-                        "HIGH" if f["p_value"] < 0.01 else "MEDIUM",
-                    ))
+                _cus.execute("""
+                    INSERT INTO aiem_research_insights (research_date, findings, confidence)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (research_date) DO UPDATE SET
+                        findings = aiem_research_insights.findings || E'\\n' || EXCLUDED.findings
+                """, (_crd.date.today(), _combined, _conf))
                 _cs.commit()
             print(f"[aiem_continuous] saved {len(significant)} significant finding(s) to DB")
 
@@ -22847,6 +23241,281 @@ def _run_aiem_continuous_research():
     except Exception as e:
         print(f"[aiem_continuous] error: {e}")
         return {"error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Indicator Grid Battery — systematic technical-indicator hypothesis sweep
+# over polygon_indicators_daily (T3). Free/non-GPT: pure SQL + scipy via
+# mkt_test_signal, same Bonferroni ledger as every other market tool. Cleared
+# findings go to aiem_research_insights for Sunday/Loop A consolidation +
+# OOS validation - never straight to aiem_signal_discoveries, which still
+# requires the full 4-gate save flow (oos_edge, p-value, win-rate, n).
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_ensure_grid_state_table():
+    import psycopg2 as _pg_gs
+    try:
+        with _pg_gs.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_grid_test_state (
+                    cell_key       TEXT PRIMARY KEY,
+                    description    TEXT,
+                    conditions     JSONB,
+                    horizon        VARCHAR(10),
+                    last_tested_at TIMESTAMP,
+                    last_n         INTEGER,
+                    last_p_value   FLOAT,
+                    last_win_rate  FLOAT
+                )
+            """)
+    except Exception as _e:
+        print(f"[grid_state] init error: {_e}")
+
+
+def _mkt_indicator_grid_cells():
+    """Build the full technical-indicator hypothesis grid: single-indicator
+    threshold cells (both directions where meaningful) x 4 horizons, plus a
+    curated set of two/three-indicator combo cells x 4 horizons. Returns a
+    list of (cell_key, description, conditions_dict, horizon) tuples."""
+    _horizons = ["next_day", "3d", "5d", "10d"]
+
+    # (field, min_threshold_or_None, max_threshold_or_None, label)
+    _single = [
+        ("rsi_14", None, 30, "RSI oversold (<30)"),
+        ("rsi_14", 70, None, "RSI overbought (>70)"),
+        ("stoch_k", None, 20, "Stoch %K oversold (<20)"),
+        ("stoch_k", 80, None, "Stoch %K overbought (>80)"),
+        ("macd_hist", 0, None, "MACD histogram positive"),
+        ("macd_hist", None, 0, "MACD histogram negative"),
+        ("adx_14", 25, None, "ADX trending (>25)"),
+        ("adx_14", 40, None, "ADX strong trend (>40)"),
+        ("cmf_20", 0.1, None, "Chaikin Money Flow inflow (>0.1)"),
+        ("cmf_20", None, -0.1, "Chaikin Money Flow outflow (<-0.1)"),
+        ("mfi_14", None, 20, "Money Flow Index oversold (<20)"),
+        ("mfi_14", 80, None, "Money Flow Index overbought (>80)"),
+        ("cci_20", 100, None, "CCI overbought (>100)"),
+        ("cci_20", None, -100, "CCI oversold (<-100)"),
+        ("williams_r", None, -80, "Williams %R oversold (<-80)"),
+        ("williams_r", -20, None, "Williams %R overbought (>-20)"),
+        ("bb_pct", None, 0.1, "Near lower Bollinger Band (<0.1)"),
+        ("bb_pct", 0.9, None, "Near upper Bollinger Band (>0.9)"),
+        ("roc_12", 10, None, "12-day ROC strong (>10%)"),
+        ("roc_12", None, -10, "12-day ROC weak (<-10%)"),
+        ("momentum_10", 0, None, "10-day momentum positive"),
+        ("atr_pct", 3, None, "High ATR volatility (>3%)"),
+        ("pct_from_sma20", None, -5, "5%+ below 20-day SMA"),
+        ("pct_from_sma20", 5, None, "5%+ above 20-day SMA"),
+        ("pct_from_sma50", None, -10, "10%+ below 50-day SMA"),
+        ("pct_from_sma50", 10, None, "10%+ above 50-day SMA"),
+        ("pct_from_sma200", None, -15, "15%+ below 200-day SMA"),
+        ("pct_from_sma200", 15, None, "15%+ above 200-day SMA"),
+        ("pct_from_52w_high", None, -10, "Within 10% of 52-week high"),
+        ("pct_from_52w_low", None, 10, "Within 10% of 52-week low"),
+    ]
+
+    _combos = [
+        ("RSI oversold + high volatility", {"rsi_14_max": 30, "atr_pct_min": 3}),
+        ("RSI oversold + near 52w low", {"rsi_14_max": 30, "pct_from_52w_low_max": 10}),
+        ("MACD bullish + ADX trending", {"macd_hist_min": 0, "adx_14_min": 25}),
+        ("MACD bearish + ADX trending", {"macd_hist_max": 0, "adx_14_min": 25}),
+        ("Stoch oversold + CCI oversold", {"stoch_k_max": 20, "cci_20_max": -100}),
+        ("Williams oversold + MFI oversold", {"williams_r_max": -80, "mfi_14_max": 20}),
+        ("Near lower BB + RSI oversold", {"bb_pct_max": 0.1, "rsi_14_max": 30}),
+        ("Near upper BB + RSI overbought", {"bb_pct_min": 0.9, "rsi_14_min": 70}),
+        ("CMF inflow + MACD bullish", {"cmf_20_min": 0.1, "macd_hist_min": 0}),
+        ("CMF outflow + MACD bearish", {"cmf_20_max": -0.1, "macd_hist_max": 0}),
+        ("Above SMA20 + ADX trending", {"pct_from_sma20_min": 5, "adx_14_min": 25}),
+        ("Below SMA20 + high ATR", {"pct_from_sma20_max": -5, "atr_pct_min": 3}),
+        ("ROC strong + RSI not overbought", {"roc_12_min": 10, "rsi_14_max": 70}),
+        ("Near 52w high + ADX trending", {"pct_from_52w_high_max": -10, "adx_14_min": 25}),
+        ("Washout: oversold RSI+Stoch+Williams",
+         {"rsi_14_max": 30, "stoch_k_max": 20, "williams_r_max": -80}),
+        ("Momentum burst: MACD+ROC+ADX",
+         {"macd_hist_min": 0, "roc_12_min": 10, "adx_14_min": 25}),
+    ]
+
+    cells = []
+    for field, mn, mx, label in _single:
+        conditions = {}
+        if mn is not None:
+            conditions[f"{field}_min"] = mn
+        if mx is not None:
+            conditions[f"{field}_max"] = mx
+        for h in _horizons:
+            key = f"{field}|{mn}|{mx}|{h}"
+            cells.append((key, f"{label} -> {h}", dict(conditions), h))
+
+    for label, conditions in _combos:
+        for h in _horizons:
+            key = "combo|" + "|".join(f"{k}={v}" for k, v in sorted(conditions.items())) + f"|{h}"
+            cells.append((key, f"{label} -> {h}", dict(conditions), h))
+
+    return cells
+
+
+def _mkt_indicator_grid_battery(batch_size=15, refresh_days=10):
+    """One batch of the indicator grid sweep. Picks up to batch_size cells that
+    are untested or stale (>refresh_days old), runs mkt_test_signal on each
+    (which auto-logs to aiem_test_ledger - same Bonferroni tracking as every
+    other market tool), and saves anything clearing the CURRENT ledger
+    threshold to aiem_research_insights (Sunday/Loop A consolidation still
+    required before it can become an aiem_signal_discoveries row). Returns a
+    summary dict. Designed to be called repeatedly by
+    _mkt_continuous_research_loop; self-throttles to 'idle' once the whole
+    grid is fresh, since indicator data only updates once a day."""
+    import datetime as _gbd, json as _gbj, psycopg2 as _gbpg
+    _mkt_ensure_grid_state_table()
+    all_cells = _mkt_indicator_grid_cells()
+
+    try:
+        with _gbpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT cell_key, last_tested_at FROM aiem_grid_test_state")
+            _state = {r[0]: r[1] for r in cur.fetchall()}
+    except Exception as _e:
+        print(f"[grid_battery] state load error: {_e}")
+        _state = {}
+
+    now = _gbd.datetime.now()
+    due = []
+    for key, desc, conditions, horizon in all_cells:
+        last = _state.get(key)
+        if last is None or (now - last).days >= refresh_days:
+            due.append((key, desc, conditions, horizon, last is None))
+    if not due:
+        return {"status": "idle", "reason": "grid fully fresh - nothing due for retest",
+                "total_cells": len(all_cells)}
+
+    due.sort(key=lambda x: (not x[4], _state.get(x[0]) or _gbd.datetime.min))
+    batch = due[:batch_size]
+
+    _thr = _mkt_tool_required_pvalue().get("required_p_value", 0.05)
+    tested, findings = [], []
+    for key, desc, conditions, horizon, is_new in batch:
+        try:
+            result = _mkt_tool_test_signal(conditions=conditions, horizon=horizon, baseline="broad")
+            broad = (result or {}).get("vs_broad_market") or {}
+            n = broad.get("signal_n", 0)
+            p = broad.get("p_value", 1.0)
+            wr = broad.get("signal_win_rate", 0)
+            edge = broad.get("edge_winrate", 0)
+            tested.append({"description": desc, "conditions": conditions, "horizon": horizon,
+                            "n": n, "p_value": p, "win_rate_pct": wr, "edge_winrate_pp": edge})
+            if n >= 15 and p < _thr and wr >= 54:
+                findings.append(tested[-1])
+            try:
+                with _gbpg.connect(os.environ["DATABASE_URL"]) as conn2, conn2.cursor() as cur2:
+                    cur2.execute("""
+                        INSERT INTO aiem_grid_test_state
+                            (cell_key, description, conditions, horizon, last_tested_at,
+                             last_n, last_p_value, last_win_rate)
+                        VALUES (%s,%s,%s,%s,NOW(),%s,%s,%s)
+                        ON CONFLICT (cell_key) DO UPDATE SET
+                            last_tested_at = NOW(), last_n = EXCLUDED.last_n,
+                            last_p_value = EXCLUDED.last_p_value,
+                            last_win_rate = EXCLUDED.last_win_rate
+                    """, (key, desc, _gbj.dumps(conditions), horizon, n, p, wr))
+            except Exception as _se:
+                print(f"[grid_battery] state save error ({key}): {_se}")
+        except Exception as _te:
+            print(f"[grid_battery] test error ({desc}): {_te}")
+
+    if findings:
+        # NOTE: aiem_research_insights.research_date has a table-wide UNIQUE
+        # constraint (not per-session), so multiple per-finding INSERTs for
+        # the same day silently lose every row after the first. Combine all
+        # of this batch's findings into ONE line and upsert-append it so we
+        # never clobber rows another job already wrote for today.
+        try:
+            _combined = "\n".join(
+                _gbj.dumps({
+                    "type": "indicator_grid_finding",
+                    "description": f["description"],
+                    "conditions": f["conditions"],
+                    "horizon": f["horizon"],
+                    "n": f["n"], "win_rate_pct": f["win_rate_pct"],
+                    "p_value": f["p_value"], "edge_winrate_pp": f["edge_winrate_pp"],
+                    "found_at": _gbd.datetime.now().isoformat(),
+                })
+                for f in findings
+            )
+            _conf = "HIGH" if min(f["p_value"] for f in findings) < 0.01 else "MEDIUM"
+            with _gbpg.connect(os.environ["DATABASE_URL"]) as conn3, conn3.cursor() as cur3:
+                cur3.execute("""
+                    INSERT INTO aiem_research_insights (research_date, findings, confidence)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (research_date) DO UPDATE SET
+                        findings = aiem_research_insights.findings || E'\\n' || EXCLUDED.findings
+                """, (_gbd.date.today(), _combined, _conf))
+                conn3.commit()
+        except Exception as _fe:
+            print(f"[grid_battery] finding save error: {_fe}")
+
+    print(f"[grid_battery] tested {len(tested)}/{len(due)} due cells "
+          f"({len(all_cells)} total in grid), {len(findings)} cleared "
+          f"p<{_thr:.6f} & WR>=54% & n>=15")
+    return {"status": "ok", "tested": len(tested), "due_remaining": len(due) - len(tested),
+            "total_cells": len(all_cells), "findings": len(findings),
+            "required_p_value": _thr, "top": sorted(tested, key=lambda x: x["p_value"])[:5]}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Continuous scheduler (T5) — runs the free indicator grid nights/weekends,
+# pausing only during the daily production window when the site's own scan
+# jobs (8:35 AM Polygon RVOL scan + 9:30 AM-4:30 PM intraday tabs) are
+# actively picking stocks from live data. Costs no OpenAI tokens, so it can
+# run continuously the rest of the time instead of firing once a day.
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_research_loop_allowed() -> bool:
+    """True except during the daily production window (~8:00 AM-4:30 PM ET,
+    Mon-Fri). Outside this window - nights, pre-market before 8 AM, and all
+    weekend - the free grid loop is clear to run."""
+    import pytz as _rla_tz
+    from datetime import datetime as _rla_dt
+    now = _rla_dt.now(_rla_tz.timezone("America/New_York"))
+    if now.weekday() > 4:
+        return True
+    mins = now.hour * 60 + now.minute
+    return not (480 <= mins <= 990)
+
+
+_MKT_CONTINUOUS_LOOP_STARTED = False
+
+def _mkt_continuous_research_loop():
+    """Perpetual background loop: keeps working the indicator grid battery
+    whenever _mkt_research_loop_allowed() is True, pausing during the daily
+    production scan window. Self-throttles once the grid is fully fresh
+    (longer sleep) so it never spins hot for no reason."""
+    import time as _crl_t
+    print("[mkt_continuous_loop] started - free indicator research runs "
+          "nights/weekends, pauses 8:00 AM-4:30 PM ET Mon-Fri for production scans")
+    while True:
+        try:
+            if not _mkt_research_loop_allowed():
+                _crl_t.sleep(300)
+                continue
+            result = _mkt_indicator_grid_battery(batch_size=15)
+            if result.get("status") == "idle":
+                _crl_t.sleep(1800)
+            else:
+                _crl_t.sleep(300)
+        except Exception as _cle:
+            print(f"[mkt_continuous_loop] error: {_cle}")
+            _crl_t.sleep(300)
+
+
+def _mkt_start_continuous_loop():
+    global _MKT_CONTINUOUS_LOOP_STARTED
+    if _MKT_CONTINUOUS_LOOP_STARTED:
+        return
+    _MKT_CONTINUOUS_LOOP_STARTED = True
+    import threading as _mscl_thr
+    _mscl_thr.Thread(target=_mkt_continuous_research_loop, daemon=True,
+                      name="mkt-continuous-research").start()
+
+
+try:
+    _mkt_start_continuous_loop()
+except Exception as _mktcl_e:
+    print(f"[mkt_continuous_loop] startup error: {_mktcl_e}")
 
 
 def _send_aiem_daily_digest() -> None:
@@ -27174,8 +27843,9 @@ _AIEM_AGENT_TOOLS = [
         ),
         "parameters": {"type": "object", "properties": {
             "conditions": {"type": "object",
-                "description": "Dict of {factor_min/max: value}. Allowed: gap_pct, rvol, close_strength, range_pct, close_price, volume, open_price, high_price, low_price, vwap."},
-            "horizon": {"type": "string", "enum": ["next_day"]},
+                "description": "Dict of {factor_min/max: value}. Price/volume factors: gap_pct, rvol, close_strength, range_pct, close_price, volume, open_price, high_price, low_price, vwap. Technical-indicator factors (joined from polygon_indicators_daily, populated by the daily backfill/incremental job): rsi_14, stoch_k, stoch_d, macd, macd_hist, adx_14, cmf_20, mfi_14, cci_20, williams_r, bb_pct, roc_12, momentum_10, atr_pct, pct_from_sma20, pct_from_sma50, pct_from_sma200, pct_from_52w_high, pct_from_52w_low. Mix both kinds freely in one dict, e.g. {'rsi_14_max': 30, 'gap_pct_min': 1.0}."},
+            "horizon": {"type": "string", "enum": ["next_day", "3d", "5d", "10d"],
+                "description": "Forward-return window: next_day (1 trading day), 3d, 5d, or 10d. Indicator-based signals often play out over several days, not just the next open - test multiple horizons before concluding a signal is weak."},
             "baseline": {"type": "string", "enum": ["broad", "tight"],
                 "description": "broad=vs all stocks; tight=vs stocks just below each threshold."},
         }, "required": ["conditions"]}
@@ -27189,7 +27859,7 @@ _AIEM_AGENT_TOOLS = [
         ),
         "parameters": {"type": "object", "properties": {
             "conditions": {"type": "object"},
-            "horizon": {"type": "string", "enum": ["next_day"]},
+            "horizon": {"type": "string", "enum": ["next_day", "3d", "5d", "10d"]},
         }, "required": ["conditions"]}
     }},
     {"type": "function", "function": {
@@ -27201,10 +27871,12 @@ _AIEM_AGENT_TOOLS = [
         ),
         "parameters": {"type": "object", "properties": {
             "factor": {"type": "string",
-                "description": "Factor name: gap_pct, rvol, close_strength, range_pct, close_price, volume."},
+                "description": "Market factor (gap_pct, rvol, close_strength, range_pct, close_price, volume, ...) or technical-indicator factor (rsi_14, macd_hist, adx_14, cmf_20, mfi_14, cci_20, williams_r, bb_pct, roc_12, momentum_10, atr_pct, pct_from_sma20/50/200, pct_from_52w_high/low)."},
             "direction": {"type": "string", "enum": ["min", "max"],
                 "description": "min = factor >= threshold (looking for high values); max = factor <= threshold."},
             "n_steps": {"type": "integer", "description": "Number of threshold steps (default 20)."},
+            "horizon": {"type": "string", "enum": ["next_day", "3d", "5d", "10d"],
+                "description": "Forward-return window to optimize the threshold against (default next_day)."},
         }, "required": ["factor"]}
     }},
     {"type": "function", "function": {
@@ -28495,7 +29167,15 @@ MANDATORY WORKFLOW FOR MARKET RESEARCH (always follow this sequence):
 2.  mkt_explore_dimensions    - understand dataset size, factor distributions, baseline returns
 3.  mkt_generate_hypotheses   - generate 8 fresh hypotheses from first principles
 4.  mkt_factor_correlations   - find which factors most predict returns (once per session)
-5.  mkt_test_signal           - test each hypothesis (n, win_rate, edge, p-value)
+5.  mkt_test_signal           - test each hypothesis (n, win_rate, edge, p-value). Conditions can mix
+                                 price/volume factors (gap_pct, rvol, etc) AND technical-indicator
+                                 factors (rsi_14, macd_hist, adx_14, cmf_20, mfi_14, cci_20,
+                                 williams_r, bb_pct, roc_12, momentum_10, atr_pct, pct_from_sma20/50/200,
+                                 pct_from_52w_high/low - see mkt_explore_dimensions for the full list).
+                                 Also pass horizon="3d"/"5d"/"10d" (not just next_day) - many indicator
+                                 signals (RSI washouts, MACD crosses, ADX trend confirmation) play out
+                                 over several days, not the next open. Test all 4 horizons before
+                                 concluding an indicator condition is weak.
 6.  mkt_test_inverse          - MANDATORY: confirm signal is directional after any p<0.05 find
 7.  mkt_analyze_top_movers    - what did 5%+ movers look like the day before they moved?
 8.  mkt_analyze_false_signals - find what separates winners from false positives
@@ -28510,6 +29190,19 @@ MANDATORY WORKFLOW FOR MARKET RESEARCH (always follow this sequence):
 17. mkt_validate_oos          - MANDATORY before saving: 60/40 train/test split
 18. mkt_save_discovery        - save ONLY if oos_validated=True AND p<0.05
 19. mkt_signal_drift          - check if any prior discovery is decaying
+
+CONTINUOUS INDICATOR GRID BATTERY (background, free, no OpenAI tokens):
+A separate 24/7 background loop already sweeps ~184 single- and multi-indicator threshold
+combinations (RSI/MACD/ADX/Stochastic/CCI/Williams %R/Bollinger/CMF/MFI/ROC/momentum/ATR/
+moving-average-distance/52-week-range) x 4 horizons against the SAME Bonferroni ledger you use,
+running nights/weekends and pausing only during the 8:00 AM-4:30 PM ET production window. It
+writes anything that clears the ledger's current threshold to aiem_research_insights with
+type="indicator_grid_finding" — NOT straight to aiem_signal_discoveries. When you call
+mkt_load_discoveries / search_past_findings, ALSO check aiem_research_insights for
+"indicator_grid_finding" entries: these are pre-screened candidates that still need
+mkt_test_inverse + adversarial_review + mkt_validate_oos + start_shadow_window before they can
+be saved or promoted — treat them exactly like your own in-session findings, never as
+already-validated. Do NOT re-run the grid battery yourself; just consume its output.
 
 ═══════════════════════════════════════════════════════════════
 RESEARCH INTEGRITY TOOLS — USE THESE TO PREVENT SELF-DECEPTION
@@ -47238,6 +47931,16 @@ def _polygon_full_market_scan() -> list:
                         "close_strength=EXCLUDED.close_strength",
                         _all_rows)
                 app.logger.info(f"[polygon_market_daily] saved {len(_all_rows)} stocks for {yesterday_day}")
+                try:
+                    import threading as _mkti_th
+                    _mkti_tickers = [r[1] for r in _all_rows]
+                    _mkti_th.Thread(
+                        target=_mkt_update_indicators_incremental,
+                        args=(yesterday_day, _mkti_tickers),
+                        daemon=True, name="mkt-indicators-incremental",
+                    ).start()
+                except Exception as _mkti_e:
+                    app.logger.error(f"[mkt_indicators] incremental trigger error: {_mkti_e}")
         except Exception as _e5b:
             app.logger.error(f"[polygon_market_daily] save error: {_e5b}")
 

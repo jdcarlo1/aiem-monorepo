@@ -133,4 +133,5 @@
 - [Admin-token route consistency](admin-token-route-consistency.md) — sibling GET/POST routes on the same admin-gated resource must copy the SAME auth check; a skeptical auditor will find the unguarded one
 - [AIEM auto-minted verify links + history page](aiem-verify-link-automation.md) — every completed session auto-mints its own 7-day tappable verify link (stored on the row); history page reuses it, never re-mints
 - [Pre-move signal lead time is variable](pre-move-signal-lead-time.md) — washout-to-accumulation trough occurs 2-9 weeks before breakout depending on ticker, not a fixed 2-week countdown; find each ticker's own trough, don't hardcode lag
+- [AIEM 24/7 indicator grid battery](aiem-indicator-grid-battery.md) — free-tier continuous technical-indicator sweep, pauses only Mon-Fri 8:00-16:30 ET; low per-cell n is a screen only, real gate is the shared Bonferroni ledger + n>=200 downstream
 - [Pre-washout run-up not a standalone signal](prewashout-runup-not-standalone-signal.md) — real ~4wk/+15% rally precedes Washout Ignition, but predicts trade quality not a separate entry; rejected 2026-07-02, kept as filter idea only
