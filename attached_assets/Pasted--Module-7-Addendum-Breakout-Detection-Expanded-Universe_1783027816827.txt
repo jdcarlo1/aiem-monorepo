@@ -1,0 +1,42 @@
+# Module 7 Addendum: Breakout Detection + Expanded Universe
+
+Add this to the existing Module 7 (Sector Rotation Detector) spec. Two gaps identified after reviewing a live example (EUFN breakout, July 2026) that the original spec would have partially missed.
+
+## Addition 1: Range Breakout Detection
+
+The original spec only measures relative strength vs. SPY and volume ratio. It's missing the single cleanest signal for catching a live breakout: **price clearing its own recent high.**
+
+New metric, computed daily per tracked ETF:
+- `high_20d` — highest close in the trailing 20 trading days (excluding today)
+- `high_60d` — highest close in the trailing 60 trading days (excluding today)
+- `breakout_20d` (bool) — today's close > `high_20d`
+- `breakout_60d` (bool) — today's close > `high_60d`
+
+**New Tier 3 trigger path (in addition to the existing sustained relative-strength path):**
+- A `breakout_60d = true` event, combined with volume ratio > 1.3x average on the breakout day, qualifies as Tier 3 "confirmed breakout" immediately — it does not need to wait for the multi-day sustained relative-strength confirmation the original spec required. A clean range breakout on strong volume is itself a confirmed signal, not just a "watch."
+- A `breakout_20d = true` alone (without the 60-day break or volume confirmation) stays at Tier 2 "developing" — same caution as before, since a 20-day high can still be noise inside a larger range.
+
+**Optional supporting indicators** (add if Replit Agent has easy access to standard TA libraries — these aren't required to make Module 7 work, but they would have flagged EUFN's move about 2-3 weeks earlier than the breakout itself):
+- MACD crossing from negative to positive (12/26/9 standard settings)
+- Price crossing above its 50-day moving average
+- These should log as Tier 1 "early move" only — they're leading indicators with a real false-positive rate and should not independently trigger alerts, just contribute to the eventual Tier 2/3 read when combined with relative strength or breakout confirmation.
+
+## Addition 2: Expand the ETF Universe to Include International Sector Exposure
+
+The original universe was US sector SPDRs only. This misses moves like EUFN (European financials), which was arguably a cleaner and stronger signal than the domestic US financials move it accompanied.
+
+Add to the tracked universe:
+
+| Ticker | Sector / Region |
+|---|---|
+| EUFN | Europe Financials |
+| EWJ | Japan (broad) |
+| EEM | Emerging Markets (broad) |
+| EWG | Germany (broad) |
+| EWU | United Kingdom (broad) |
+| VGK | Europe (broad) |
+
+Note: these aren't all sector-pure like the US SPDRs — some are country-broad ETFs. If Polygon has better granularity (e.g., sector-specific European ETFs beyond EUFN), prioritize those over broad-country funds for cleaner signal. Start with EUFN since it's the one already confirmed relevant; add others only if they prove useful after a few weeks of logging.
+
+## Why this matters
+The original spec would have caught EUFN's move only if it happened to be in the tracked universe (it wasn't) and only via the slower sustained relative-strength path (missing the faster, cleaner breakout signal). This addendum closes both gaps: broader universe so international rotation isn't invisible, and a breakout-specific trigger so a clean technical break doesn't have to wait multiple days for confirmation it may not need.
