@@ -1,0 +1,46 @@
+{
+  "1": [
+    {
+      "cutoff_date": "2026-06-26",
+      "is_trustworthy": true,
+      "label_settled_through": "2026-07-01",
+      "n_samples": 349,
+      "n_unique_dates": 11,
+      "path": "/home/runner/workspace/artifacts/stock-scanner-api/aiem_probability_engine/models/versions/model_horizon_1d__cutoff_2026-06-26.pkl",
+      "trained_at": "2026-07-02T00:56:19.784389+00:00"
+    }
+  ],
+  "2": [
+    {
+      "cutoff_date": "2026-06-26",
+      "is_trustworthy": true,
+      "label_settled_through": "2026-07-02",
+      "n_samples": 349,
+      "n_unique_dates": 11,
+      "path": "/home/runner/workspace/artifacts/stock-scanner-api/aiem_probability_engine/models/versions/model_horizon_2d__cutoff_2026-06-26.pkl",
+      "trained_at": "2026-07-02T00:56:20.297162+00:00"
+    }
+  ],
+  "3": [
+    {
+      "cutoff_date": "2026-06-25",
+      "is_trustworthy": true,
+      "label_settled_through": "2026-07-02",
+      "n_samples": 329,
+      "n_unique_dates": 10,
+      "path": "/home/runner/workspace/artifacts/stock-scanner-api/aiem_probability_engine/models/versions/model_horizon_3d__cutoff_2026-06-25.pkl",
+      "trained_at": "2026-07-02T00:56:20.943986+00:00"
+    }
+  ],
+  "4": [
+    {
+      "cutoff_date": "2026-06-24",
+      "is_trustworthy": true,
+      "label_settled_through": "2026-07-02",
+      "n_samples": 283,
+      "n_unique_dates": 9,
+      "path": "/home/runner/workspace/artifacts/stock-scanner-api/aiem_probability_engine/models/versions/model_horizon_4d__cutoff_2026-06-24.pkl",
+      "trained_at": "2026-07-02T00:56:21.509956+00:00"
+    }
+  ]
+}

@@ -76,25 +76,29 @@ MIN_UNIQUE_DATES_FOR_CV_TRUST = 20
 # scripts/check_data_reality.py periodically; when Tier 2 row counts climb,
 # retrain and check feature_importance reports for Tier 2 contribution.
 #
-# KNOWN LEAKAGE GAP (found during 2026-07-02 audit, still open) — the
-# shadow-mode log (reports.py: aiem_probability_engine_predictions) always
-# scores backlog rows with whatever model_horizon_{h}d.pkl is CURRENTLY on
-# disk, regardless of how old that row's signal_date is. Because train.py
-# always trains on the full historical dataset available at run time, a
-# backfilled prediction for an old signal_date is scored by a model that
-# was trained on rows dated AFTER that signal_date — i.e. the model has
-# seen the future relative to that logged "prediction." This is fine for
-# model-health monitoring but it means historical rows in that table
-# (verified concretely: signal_date=2026-06-08 row logged with
-# created_at=2026-07-01, model_version=79adb318dcbe, n_training_samples=349
-# matching the FULL current dataset) must NOT be read as "what the model
-# would have called in real time on that date." Only walk_forward.py's
-# backtest (which enforces a real train/val date split, confirmed
-# overlap=False) is point-in-time trustworthy today. Fixing this properly
-# would require either (a) snapshotting/versioning a model artifact per
-# historical retrain date, or (b) marking shadow-log rows whose
-# created_at is far past signal_date as "monitoring-only, not PIT-safe."
-# Neither is implemented yet.
+# LEAKAGE GAP — FIXED 2026-07-02 (was open since the 2026-07-02 audit that
+# found it). The shadow-mode log (reports.py: aiem_probability_engine_predictions)
+# used to score backlog rows with whatever model_horizon_{h}d.pkl was
+# CURRENTLY on disk, regardless of how old that row's signal_date was.
+# Because train.py always trains on the full historical dataset available
+# at run time, a backfilled prediction for an old signal_date was scored by
+# a model trained on rows dated AFTER that signal_date — i.e. the model had
+# seen the future relative to that logged "prediction." Concretely: 213/225
+# rows (signal_date 2026-06-08 -> 2026-06-28) were contaminated this way.
+#
+# THE FIX: model_registry.py now versions every trained artifact by
+# per-horizon cutoff_date + a conservative label_settled_through date.
+# predict.load_models_as_of(as_of_date) resolves ONLY models that could not
+# have absorbed outcome information from as_of_date or later; reports.py's
+# generate_and_log_predictions() routes ALL scoring (live and backlog)
+# through it, grouped by signal_date, and skips (never fakes) any date with
+# no eligible model. New rows are stamped pit_status='pit_safe'; the 213
+# pre-fix rows are stamped pit_status='leaked' via a one-time migration in
+# reports.ensure_table() rather than silently reinterpreted. See
+# pit_correction.py for the disclosed, embargoed re-scoring of those 213
+# rows and pit_metrics.py for the honest contaminated-vs-corrected-vs-clean
+# accuracy comparison. walk_forward.py/calibration.py were never affected
+# (they don't read this table).
 
 TIER1_FEATURE_COLUMNS = [
     "vol_oi",

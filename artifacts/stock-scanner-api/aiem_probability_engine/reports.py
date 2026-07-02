@@ -21,15 +21,24 @@ This mirrors the existing convention elsewhere in this codebase (see
 quant_agent_sessions' reconcile_orphaned_sessions()), where package-owned,
 non-ORM tables self-create on first use.
 
-KNOWN LEAKAGE GAP (see config.py "KNOWN LEAKAGE GAP" for full detail) —
-generate_and_log_predictions() always scores unlogged backlog rows with
-whatever model_horizon_{h}d.pkl is CURRENTLY on disk, no matter how old
-that row's signal_date is. Since train.py trains on the full dataset
-available at run time, a backfilled row's signal_date can predate data
-the model was actually trained on - the model has seen the future
-relative to that logged row. Treat rows here as model-health monitoring
-only, NOT as point-in-time-safe historical accuracy - use walk_forward.py
-for that.
+PIT FIX (2026-07-02): generate_and_log_predictions() used to score EVERY
+unlogged row - backlog included - with whatever model_horizon_{h}d.pkl
+happened to be on disk at call time, no matter how old that row's
+signal_date was. Since train.py always trains on the full dataset
+available at run time, a backfilled row's signal_date could (and did, for
+213/225 existing rows) predate data the model was actually trained on -
+the model had, in effect, already seen the future relative to that row.
+
+This is now fixed structurally: predictions are grouped by signal_date and
+each group is scored ONLY with models that model_registry.get_as_of()
+confirms could not have absorbed outcome information from that date or
+later (see model_registry.py + predict.load_models_as_of()). A date with
+no PIT-eligible model is skipped and counted, never silently scored with
+"whatever's currently on disk." Every row logged going forward carries an
+honest pit_status ('pit_safe'), and every row logged BEFORE this fix is
+labeled 'leaked' by the one-time migration in ensure_table() below - see
+pit_correction.py for the separate, disclosed re-scoring of those 213 rows
+and pit_metrics.py for the honest before/after accuracy comparison.
 
 Run directly for a demo (creates the table if missing, logs today's new
 predictions, and prints them back):
@@ -105,6 +114,27 @@ def ensure_table() -> None:
                 SET regime_tag = overlays_json -> 'regime' ->> 'regime_tag'
                 WHERE regime_tag IS NULL AND overlays_json IS NOT NULL
             """)
+            # PIT FIX migration: label every existing row honestly. created_at
+            # is when the row was actually scored+logged (this table has no
+            # other timestamp); a genuinely PIT-safe row is scored on the same
+            # calendar date as its own signal_date (i.e. logged same-day, the
+            # only way generate_and_log_predictions() could not have used a
+            # model trained on later data). Any row logged on a LATER date
+            # than its signal_date is, by construction, exactly the leak
+            # pattern this migration exists to surface - marked 'leaked', not
+            # silently reinterpreted or dropped. New rows get 'pit_safe' or
+            # 'pit_corrected' explicitly at insert time (see log_predictions()
+            # and pit_correction.py) so this backfill only ever touches rows
+            # that predate this fix.
+            cur.execute(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS pit_status TEXT")
+            cur.execute(f"""
+                UPDATE {TABLE}
+                SET pit_status = CASE
+                    WHEN created_at::date <= signal_date THEN 'pit_safe'
+                    ELSE 'leaked'
+                END
+                WHERE pit_status IS NULL
+            """)
         conn.commit()
 
 
@@ -146,12 +176,18 @@ def _json_default(o):
     return str(o)
 
 
-def log_predictions(reports: list, model_version: str) -> int:
+def log_predictions(reports: list, model_version: str, pit_status: str = "pit_safe") -> int:
     """
     Upserts each ProbabilityReport into the shadow log. Returns the number
     of NEW rows actually inserted (ON CONFLICT DO NOTHING means re-running
     on an already-logged date/ticker/model_version is a safe no-op, so this
     can be called from a daily cron-equivalent without double-logging).
+
+    pit_status is stamped explicitly by the caller, never inferred here -
+    generate_and_log_predictions() always passes 'pit_safe' (it only ever
+    scores a date with a model_registry-confirmed-eligible model). Nothing
+    in this file should ever pass 'leaked' - that value only exists on rows
+    written before this fix, via ensure_table()'s one-time migration.
     """
     if not reports:
         return 0
@@ -163,13 +199,13 @@ def log_predictions(reports: list, model_version: str) -> int:
             prob_up_1d, prob_up_2d, prob_up_3d, prob_up_4d, confidence,
             regime_tag, edge_after_cost_prob_pts,
             top_contributing_layers_json, overlays_json, warnings_json,
-            feature_snapshot_json
+            feature_snapshot_json, pit_status
         ) VALUES (
             %(signal_date)s, %(ticker)s, %(model_version)s, %(probability_source_json)s,
             %(prob_up_1d)s, %(prob_up_2d)s, %(prob_up_3d)s, %(prob_up_4d)s, %(confidence)s,
             %(regime_tag)s, %(edge_after_cost_prob_pts)s,
             %(top_contributing_layers_json)s, %(overlays_json)s, %(warnings_json)s,
-            %(feature_snapshot_json)s
+            %(feature_snapshot_json)s, %(pit_status)s
         )
         ON CONFLICT (signal_date, ticker, model_version) DO NOTHING
     """
@@ -193,6 +229,7 @@ def log_predictions(reports: list, model_version: str) -> int:
             "overlays_json": json.dumps(getattr(r, "_overlays", {}), default=_json_default),
             "warnings_json": json.dumps(d["warnings"]),
             "feature_snapshot_json": json.dumps(d.get("_horizon_detail", {}), default=_json_default),
+            "pit_status": pit_status,
         })
 
     with psycopg2.connect(DB_URL) as conn:
@@ -219,63 +256,89 @@ def generate_and_log_predictions(only_new: bool = True, limit: int = None,
     optionally skip already-logged ones, predict, and log. Returns the
     list of ProbabilityReport objects actually scored this run.
 
-    `limit` caps how many rows are scored in this call. Overlay computation
-    (layer9 in particular) costs ~2-3s/row, so a from-scratch backlog of
-    hundreds of rows must be worked through in bounded batches, not one
-    synchronous call - this is a real runtime cost, not a bug.
+    PIT FIX: rows are grouped by signal_date and each date-group is scored
+    ONLY with model_registry-confirmed-eligible models for that date (see
+    predict.load_models_as_of() + module docstring above). A date with no
+    eligible model for any horizon is skipped entirely and counted in
+    `total_skipped_no_model` - never scored with "whatever's on disk," which
+    is exactly the bug that produced 213 leaked rows before this fix. This
+    means a from-scratch backlog is now WORKED THROUGH SLOWER than before
+    (skipped dates simply never get scored until a model with an early
+    enough cutoff_date exists) - that is the correct, disclosed tradeoff:
+    a smaller PIT-safe log beats a larger contaminated one.
+
+    `limit` caps how many rows are scored in this call (across all
+    date-groups combined), oldest signal_date first - overlay computation
+    (layer9 in particular) costs ~2-3s/row, so a large backlog must be
+    worked through in bounded batches, not one synchronous call.
 
     `commit_every` controls how often predictions are logged DURING this
-    run (every N scored rows), not just once at the end. This makes a long
-    run interruption-safe: if the process is killed (e.g. an external
-    timeout) partway through a large `limit`, every already-committed
-    sub-batch survives and a subsequent call with only_new=True resumes
-    from exactly where it left off (idempotent via ON CONFLICT DO NOTHING
-    keyed on signal_date+ticker+model_version) - no work is silently lost
-    and no row is silently skipped.
+    run (every N scored rows within a date-group), not just once at the
+    end, so a killed/timed-out run is interruption-safe: already-committed
+    sub-batches survive and a subsequent only_new=True call resumes from
+    exactly where it left off (idempotent via ON CONFLICT DO NOTHING keyed
+    on signal_date+ticker+model_version).
     """
     from data_snapshot import build_dataset
     from features import add_standardized_features
-    from predict import generate_predictions, load_models, compute_model_version
-
-    models = load_models()
-    if not models:
-        raise RuntimeError("no trained models found - run train.py first")
-    model_version = compute_model_version(models)
+    from predict import generate_predictions, load_models_as_of
+    from model_registry import version_string_for_entries
 
     raw = build_dataset()
     if raw.empty:
         print("[reports] no dataset available")
         return []
     std_df = add_standardized_features(raw)
+    std_df = std_df.sort_values("trade_date")
 
-    if only_new:
-        std_df = filter_unlogged(std_df, model_version)
-    if std_df.empty:
-        print("[reports] nothing new to predict/log")
-        return []
+    all_reports, total_inserted, total_skipped_no_model, scored_count = [], 0, 0, 0
+    unique_dates = sorted(pd.Timestamp(d).date() for d in std_df["trade_date"].unique())
 
-    total_pending = len(std_df)
-    if limit is not None and total_pending > limit:
-        std_df = std_df.sort_values("trade_date").head(limit)
-    else:
-        std_df = std_df.sort_values("trade_date")
+    for as_of in unique_dates:
+        if limit is not None and scored_count >= limit:
+            break
 
-    all_reports, total_inserted = [], 0
-    rows = list(std_df.iterrows())
-    for start in range(0, len(rows), commit_every):
-        chunk_idx = [idx for idx, _ in rows[start:start + commit_every]]
-        chunk_df = std_df.loc[chunk_idx]
-        chunk_reports = generate_predictions(chunk_df)
-        n_inserted = log_predictions(chunk_reports, model_version)
-        total_inserted += n_inserted
-        all_reports.extend(chunk_reports)
-        print(f"[reports] ...committed {len(all_reports)}/{len(rows)} scored so far "
-              f"({total_inserted} new rows logged)", flush=True)
+        date_df = std_df[std_df["trade_date"] == pd.Timestamp(as_of)]
 
-    remaining = total_pending - len(std_df)
-    print(f"[reports] DONE: scored {len(all_reports)} rows, logged {total_inserted} "
-          f"new rows (model_version={model_version}); "
-          + (f"{remaining} still pending" if remaining else "backlog cleared"))
+        models, entries = load_models_as_of(as_of)
+        if not models:
+            total_skipped_no_model += len(date_df)
+            print(f"[reports] SKIPPED {as_of}: no PIT-eligible model yet "
+                  f"(model_registry.get_as_of found nothing with "
+                  f"label_settled_through < {as_of} for any horizon) - "
+                  f"scoring this date now would leak, n={len(date_df)} rows not scored")
+            continue
+
+        model_version = version_string_for_entries(entries)
+
+        if only_new:
+            date_df = filter_unlogged(date_df, model_version)
+        if date_df.empty:
+            continue
+
+        if limit is not None:
+            remaining_budget = limit - scored_count
+            if remaining_budget <= 0:
+                break
+            date_df = date_df.head(remaining_budget)
+
+        rows = list(date_df.iterrows())
+        for start in range(0, len(rows), commit_every):
+            chunk_idx = [idx for idx, _ in rows[start:start + commit_every]]
+            chunk_df = date_df.loc[chunk_idx]
+            chunk_reports = generate_predictions(chunk_df, models=models)
+            n_inserted = log_predictions(chunk_reports, model_version, pit_status="pit_safe")
+            total_inserted += n_inserted
+            all_reports.extend(chunk_reports)
+            scored_count += len(chunk_reports)
+
+        print(f"[reports] {as_of}: scored {len(rows)} rows with model_version="
+              f"{model_version} (horizons={sorted(entries.keys())})", flush=True)
+
+    print(f"[reports] DONE: scored {len(all_reports)} rows across "
+          f"{len(unique_dates)} distinct signal_dates, logged {total_inserted} new "
+          f"rows, ALL pit_status='pit_safe'; {total_skipped_no_model} rows skipped "
+          f"(no PIT-eligible model for their date yet)")
     return all_reports
 
 

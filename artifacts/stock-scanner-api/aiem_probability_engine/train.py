@@ -11,6 +11,8 @@ looping are new here.
 import os
 import sys
 import pickle
+import shutil
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -22,6 +24,7 @@ from model_training import train_model, get_feature_importance, MIN_SAMPLES
 from config import HORIZONS, MODEL_DIR, CONFIDENT_SAMPLES_TARGET, MIN_UNIQUE_DATES_FOR_CV_TRUST
 from data_snapshot import build_dataset
 from features import add_standardized_features, STANDARDIZED_FEATURE_COLUMNS
+import model_registry
 
 
 def train_all_horizons(std_df: pd.DataFrame) -> dict:
@@ -89,10 +92,41 @@ def train_all_horizons(std_df: pd.DataFrame) -> dict:
         except Exception as e:
             print(f"  feature importance unavailable: {e}")
 
-        model_path = os.path.join(MODEL_DIR, f"model_horizon_{h}d.pkl")
-        with open(model_path, "wb") as f:
+        # PIT FIX: write a permanent, NEVER-overwritten versioned copy first
+        # (models/versions/...__cutoff_<date>.pkl), then copy those EXACT
+        # bytes to the legacy "latest" path below - byte-for-byte identical,
+        # not a second pickle.dump() call, so predict.compute_model_version()
+        # (which still hashes the legacy path) and model_registry.
+        # version_string_for_entries() (which hashes the versioned path)
+        # agree whenever "latest" happens to be what's used. cutoff_date is
+        # this horizon's own max labeled trade_date - see model_registry.py
+        # docstring for why that's per-horizon, not per-run.
+        cutoff_date = pd.Timestamp(sub["trade_date"].max()).date()
+        versioned_path = os.path.join(
+            model_registry.VERSIONS_DIR,
+            f"model_horizon_{h}d__cutoff_{cutoff_date.isoformat()}.pkl",
+        )
+        with open(versioned_path, "wb") as f:
             pickle.dump(trained, f)
-        print(f"  saved -> {model_path}")
+
+        model_path = os.path.join(MODEL_DIR, f"model_horizon_{h}d.pkl")
+        shutil.copyfile(versioned_path, model_path)
+        print(f"  saved -> {versioned_path}")
+        print(f"  saved -> {model_path} (latest copy)")
+
+        entry = model_registry.register_model(
+            horizon=h,
+            cutoff_date=cutoff_date,
+            path=versioned_path,
+            n_samples=n_samples,
+            n_unique_dates=n_dates,
+            is_trustworthy=trained.is_trustworthy,
+            trained_at=datetime.now(timezone.utc).isoformat(),
+        )
+        print(f"  registered: cutoff_date={entry['cutoff_date']}  "
+              f"label_settled_through={entry['label_settled_through']} "
+              f"(model_registry.get_as_of({h}, D) will only return this entry for D > "
+              f"{entry['label_settled_through']})")
 
         results[h] = trained
 

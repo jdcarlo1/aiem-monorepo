@@ -58,6 +58,7 @@ from context import (
     layer9_score_as_of,
     edge_after_cost,
 )
+import model_registry
 
 # Cross-horizon prob_up range above which the term-structure is flagged as
 # "disagreeing" (arbitrary but documented: half the distance from a coin
@@ -101,6 +102,35 @@ def load_calibrated_models() -> dict:
         with open(path, "rb") as f:
             calibrated[h] = pickle.load(f)
     return calibrated
+
+
+def load_models_as_of(as_of_date) -> tuple:
+    """
+    PIT-safe replacement for load_models() when the caller is about to
+    score a row/date that has its OWN signal_date - i.e. every backlog or
+    historical scoring path (reports.py). Returns (models, entries) where
+    models={horizon: TrainedModel} and entries={horizon: registry entry},
+    restricted to horizons whose model_registry.get_as_of(horizon,
+    as_of_date) found an entry that could not possibly have absorbed
+    outcome information from as_of_date or later (see model_registry.py).
+
+    A horizon with no eligible entry is simply ABSENT from both dicts -
+    callers must treat a missing horizon as "cannot be scored yet for this
+    date" and skip it, never fall back to load_models() (which would
+    silently reintroduce the exact leak this function exists to prevent).
+
+    Do NOT use this for "what does the model say about the market right
+    now" with no specific signal_date in mind - use load_models() (today's
+    picks, scored today, have no signal_date in the past to leak against).
+    """
+    models, entries = {}, {}
+    for h in HORIZONS:
+        entry = model_registry.get_as_of(h, as_of_date)
+        if entry is None:
+            continue
+        models[h] = model_registry.load_model_from_entry(entry)
+        entries[h] = entry
+    return models, entries
 
 
 def compute_model_version(models: dict) -> str:
@@ -364,16 +394,24 @@ def predict_row(feature_row: pd.Series, models: dict, calibrated: dict,
     return report
 
 
-def generate_predictions(std_df: pd.DataFrame) -> list:
+def generate_predictions(std_df: pd.DataFrame, models: dict = None) -> list:
     """
     Batch entry point: std_df is features.add_standardized_features()'s
     output (or any subset of it - e.g. only unlogged rows, see reports.py).
     Loads history ONCE for the whole batch, not per row.
+
+    models: pass the exact {horizon: TrainedModel} dict to score with (e.g.
+    from load_models_as_of(as_of_date) for PIT-safe historical scoring).
+    Defaults to load_models() (today's latest) for backward compatibility
+    with callers that are genuinely scoring "right now" with no specific
+    signal_date to protect against - see load_models_as_of()'s docstring
+    for when that default is and isn't appropriate.
     """
     if std_df.empty:
         return []
 
-    models = load_models()
+    if models is None:
+        models = load_models()
     if not models:
         raise RuntimeError("no trained models found in MODEL_DIR - run train.py first")
     calibrated = load_calibrated_models()

@@ -125,22 +125,32 @@ def run_daily_job(n: int = 10, model_version: str = None) -> list:
     rows (DELETE + INSERT), so a manual re-run or a retry after a crash
     can't create duplicate/stale ranks for the same date.
     """
-    from predict import load_models, compute_model_version
+    from predict import load_models_as_of
+    from model_registry import version_string_for_entries
     from reports import generate_and_log_predictions, ensure_table as ensure_predictions_table
 
     ensure_predictions_table()
     ensure_table()
 
-    if model_version is None:
-        models = load_models()
-        if not models:
-            print("[daily_picks] no trained models found - run train.py first")
-            return []
-        model_version = compute_model_version(models)
+    pick_date = _et_today()
 
     generate_and_log_predictions(only_new=True, limit=200)
 
-    pick_date = _et_today()
+    if model_version is None:
+        # PIT FIX: resolve the version the SAME way reports.py just did for
+        # today's date-group (load_models_as_of + version_string_for_entries)
+        # instead of the old load_models()+compute_model_version() path -
+        # those two could silently diverge (e.g. one horizon's newest model
+        # isn't PIT-eligible for "today" yet while another's is), which would
+        # make this lookup find zero rows even though reports.py just logged
+        # some. Re-deriving it here (a pure function of the registry state,
+        # which scoring doesn't mutate) always matches exactly.
+        _, entries = load_models_as_of(pick_date)
+        if not entries:
+            print(f"[daily_picks] no PIT-eligible trained models for {pick_date} yet "
+                  f"- run train.py first (or wait for label_settled_through to pass)")
+            return []
+        model_version = version_string_for_entries(entries)
     rows = _fetch_todays_scored_rows(model_version, pick_date)
     if not rows:
         print(f"[daily_picks] no scored rows for {pick_date} under model_version={model_version} "
