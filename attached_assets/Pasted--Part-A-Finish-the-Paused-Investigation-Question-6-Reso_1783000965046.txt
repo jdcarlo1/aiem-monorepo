@@ -1,0 +1,92 @@
+# Part A — Finish the Paused Investigation
+
+## Question 6 — Resolve aiem_process.py: active or dormant?
+
+Instruction to give the agent:
+
+> You paused the aiem_process.py investigation to prioritize Question 5.
+> Finish it now. Specifically:
+>
+> 1. Is aiem_process.py actually invoked anywhere — a scheduled job, a
+>    process manager entry, a workflow config, an import from main.py — or
+>    does nothing ever call/run it?
+> 2. If it IS live: show the trigger (cron schedule, workflow name, or
+>    calling code) and the most recent timestamp it actually executed.
+> 3. If it's dormant: confirm plainly — "nothing calls this file, it does
+>    not run" — and confirm the direct SQL writes to signal_trust_weights
+>    you found earlier have never actually fired in production.
+> 4. Either way, show raw evidence (ps aux / workflow list / cron config /
+>    grep for the calling code) — not a description.
+
+---
+
+# Part B — Wiring a Real Feedback Loop (loopback: saved data → self-improvement)
+
+## Context / what currently exists (confirmed so far)
+- `aiem_signal_discoveries` stores validated findings but nothing reads
+  them back to change scoring, weights, or future scan rules.
+- A separate `retrain_pipeline.py` / `automated_retrain_pipeline.py`
+  exists and retrains on settled trade outcomes from `ai_short_calls_log`
+  — but has zero connection to `aiem_signal_discoveries`.
+- `signal_trust_weights` + `meta_learning_signal_trust.py` may be a real,
+  wired mechanism — pending Question 6 above.
+- No mechanism currently lets the 24/7 research loop look back at its own
+  past discoveries and use them to change future behavior.
+
+## Goal
+Build/wire a real loopback: the system saves discoveries → later reads its
+own saved data → uses it to measurably change future scanning/scoring
+behavior. Not just accumulate more validated rows.
+
+## Question 7 — Design decision needed before building
+
+Instruction to give the agent (this is a design question, answer in plain
+language before writing code):
+
+> Before building anything, propose a concrete design for closing the
+> loop between aiem_signal_discoveries and future behavior. Address:
+>
+> 1. **What should a validated discovery actually change?** Options:
+>    (a) get added as a new scan rule/indicator combo for future grid
+>    battery runs, (b) adjust a weight/confidence multiplier in the
+>    9-layer conviction stack, (c) both.
+> 2. **What triggers the update?** A scheduled job (e.g. weekly, like the
+>    existing auto-retire job) or immediately when a discovery clears the
+>    gates?
+> 3. **Does this require human approval before going live**, or should it
+>    be fully automatic? (Recommend requiring approval initially — an
+>    automatic system that mis-promotes a false-positive pattern into live
+>    scanning could actively hurt results, not just fail to help.)
+> 4. **How do we measure "improvement"?** Propose a concrete metric
+>    (e.g., win rate of newly-promoted combos vs. the original baseline
+>    combos, tracked over N weeks) so we can later verify this is actually
+>    working, not just running.
+
+## Question 8 — Build it, then prove it works (same standard as always)
+
+Once the design is agreed:
+
+> Implement the loop, then verify with raw evidence:
+> 1. Show the exact function(s) that read aiem_signal_discoveries and the
+>    exact function(s)/table(s) they write to as a result.
+> 2. Trigger it once, end-to-end, on a real (or realistic test) discovery,
+>    and show the before/after state — the actual row/weight/rule that
+>    existed before, and what it became after.
+> 3. Confirm this new mechanism respects the existing OpenAI isolation
+>    guard — it must not introduce any new OpenAI/Anthropic dependency
+>    into the research loop's call graph. Re-run the static isolation
+>    check after this change and show it still passes clean.
+> 4. Show the signed/logged audit trail entry generated when the loop
+>    fires, same as the existing verification logging pattern.
+
+## What "wired and working" looks like
+- [ ] Question 6 resolved — aiem_process.py's status is known, not paused
+- [ ] A specific design decision made and documented (Question 7)
+- [ ] Real code that reads discoveries and writes a measurable change
+      somewhere (Question 8, step 1)
+- [ ] At least one real before/after example (Question 8, step 2)
+- [ ] Confirmed the isolation guard still passes after this change
+      (Question 8, step 3)
+- [ ] A defined metric for judging, over time, whether this loop is
+      actually helping (Question 7, item 4) — so future you can check
+      back and verify improvement instead of just assuming it
