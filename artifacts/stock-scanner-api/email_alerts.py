@@ -21,6 +21,12 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
+# ── Master email kill-switch ─────────────────────────────────────────────────
+# Set to True to suppress ALL outbound emails (subscriber alerts, owner briefs,
+# morning emails, digests — everything).  Telegram sends are unaffected because
+# they go through _tg_send() in main.py, which is a completely separate path.
+EMAIL_DISABLED = True
+
 # ── Email verification (in-memory, 15-min TTL) ───────────────────────────────
 # {email: {"code": str, "expires": float}}
 _pending_verifications: dict = {}
@@ -177,6 +183,9 @@ def smtp_configured() -> bool:
 
 
 def send_email_raw(to: str, subject: str, html: str) -> bool:
+    if EMAIL_DISABLED:
+        print(f"[email_alerts] EMAIL_DISABLED=True — suppressed: {subject[:60]!r} → {to}")
+        return False
     cfg = _smtp_cfg()
     if not cfg["user"] or not cfg["password"]:
         print("[email_alerts] SMTP not configured — skipping send")
