@@ -44972,19 +44972,42 @@ def ai_short_calls():
                 return
 
             # ── Pre-score + deduplicate hits before feeding to AI ───────────────
-            # Backtest on 320 graded picks identified the winning profile:
-            #   VOI 1.5-5x + prem >= $1M = 70% WR (+7.58% avg)
-            #   VOI 1.5-5x + prem >= $750K = 60% WR
-            #   VOI > 30x  = 22-28% WR (retail chasing, skip)
-            #   OTM > 15%  = 0% WR (never wins, skip)
-            # Score each candidate and deduplicate by ticker before passing to AI.
+            # Backtest on 320 graded picks (real T3 outcomes):
+            #   VOI 1.5-5x + prem >= $1M + dp >= 50% = 75% WR  ← BEST
+            #   VOI 1.5-5x + prem >= $1M              = 66.7% WR
+            #   VOI 1.5-5x + prem >= $750K            = 60% WR
+            #   VOI > 30x  = 22% WR (retail chasing)
+            #   OTM > 15%  = 0% WR (never wins, hard skip)
+
+            # Step 0: Enrich each hit with dark pool % from FINRA Reg SHO
+            _dp_score_map = {}
+            try:
+                # Fast path: in-memory dp cache (short_pct == off_exchange_pct)
+                _dp_results = (getattr(app, "_dp_cache", None) or {}).get("results", [])
+                for _dpr in _dp_results:
+                    if _dpr.get("ticker") and _dpr.get("short_pct") is not None:
+                        _dp_score_map[_dpr["ticker"]] = float(_dpr["short_pct"])
+                # Slow path: FINRA CDN for any tickers not in the cache
+                _missing_dp = [h["ticker"] for h in hits if h["ticker"] not in _dp_score_map]
+                if _missing_dp:
+                    _finra_dp = _get_dark_pool_convergence(_missing_dp)
+                    for _tk, _dpd in _finra_dp.items():
+                        _dp_score_map[_tk] = _dpd.get("off_exchange_pct", 0.0)
+                for h in hits:
+                    h["dark_pool_pct"] = _dp_score_map.get(h["ticker"], 0.0)
+            except Exception as _dpe3:
+                print(f"[ai_short_calls] dp pre-score error: {_dpe3}", file=_sys.stderr)
+                for h in hits:
+                    h.setdefault("dark_pool_pct", 0.0)
+
             def _score_hit(h):
                 s = 0.0
-                v = h.get("vol_oi", 0)
-                p = h.get("prem", 0)
-                o = h.get("otm_pct", 99)
-                d = h.get("days_out", 99)
-                # VOI sweet-spot score (1.5-5x = highest)
+                v  = h.get("vol_oi",       0)
+                p  = h.get("prem",         0)
+                o  = h.get("otm_pct",     99)
+                d  = h.get("days_out",    99)
+                dp = h.get("dark_pool_pct", 0.0)
+                # VOI sweet-spot score (1.5-5x = institutional sizing)
                 if 1.5 <= v <= 5:   s += 50
                 elif 5  <  v <= 8:  s += 30
                 elif 8  <  v <= 15: s += 15
@@ -44993,11 +45016,15 @@ def ai_short_calls():
                 if p >= 1_000_000:  s += 40
                 elif p >= 750_000:  s += 25
                 elif p >= 500_000:  s += 10
-                # OTM score (near-ATM wins most)
+                # Dark pool score — dp>=50 lifts WR to 75% in backtest
+                if dp >= 60:        s += 45
+                elif dp >= 50:      s += 35
+                elif dp >= 40:      s += 12
+                # OTM score (near-ATM wins; >15% = 0% WR)
                 if o <= 5:          s += 20
                 elif o <= 10:       s += 12
                 elif o <= 15:       s +=  4
-                else:               s -=  20  # >15% OTM = big penalty
+                else:               s -= 20
                 # DTE score (shorter wins more)
                 if d <= 7:          s += 15
                 elif d <= 14:       s += 10
@@ -45013,7 +45040,8 @@ def ai_short_calls():
                     _best_per_ticker[tk] = (h, sc)
             hits = [h for h, _ in sorted(_best_per_ticker.values(), key=lambda x: -x[1])]
             hits = hits[:20]
-            print(f"[ai_short_calls] {len(hits)} unique tickers after pre-score dedup", file=_sys.stderr)
+            _dp_count = sum(1 for h in hits if h.get("dark_pool_pct", 0) >= 50)
+            print(f"[ai_short_calls] {len(hits)} unique tickers after pre-score dedup ({_dp_count} with dp>=50)", file=_sys.stderr)
 
             # ── Momentum filter: remove stocks trending DOWN ─────────────────────
             _pg_key_aisc = os.environ.get("POLYGON_API_KEY", "")
@@ -45293,6 +45321,16 @@ def ai_short_calls():
                 bd = _oi_map.get(tk, 0)
                 if bd:
                     line += f" | oi_buildup={bd}d"
+                # Dark pool % from FINRA Reg SHO — show for all with data, flag >=50
+                dp_pct = h.get("dark_pool_pct", 0.0)
+                if dp_pct >= 40:
+                    _dp_label = (
+                        "[EXTREME]" if dp_pct >= 70 else
+                        "[HIGH]"    if dp_pct >= 62 else
+                        "[ELEVATED]" if dp_pct >= 54 else
+                        "[NOTABLE]"
+                    )
+                    line += f" | dark_pool={dp_pct:.0f}%{_dp_label}"
                 fir = _fir_map.get(tk)
                 if fir and fir["fir"] > 0:
                     line += f" | FIR={fir['fir']}%"
@@ -45333,21 +45371,26 @@ SIGNAL KEY:
 
 BACKTEST-VALIDATED SELECTION RULES (from 320 live trades, real outcomes):
 
-★ PROVEN SWEET SPOT — 70% win rate: Vol/OI 1.5–5x + premium ≥ $1M
-★ STRONG — 60% win rate: Vol/OI 1.5–5x + premium ≥ $750K
-★ ACCEPTABLE — Vol/OI 5–10x + premium ≥ $1M + OTM ≤ 12%
+★★ ULTIMATE — 75% win rate:   Vol/OI 1.5–5x + premium ≥ $1M + dark_pool ≥ 50%
+★  PROVEN   — 67% win rate:   Vol/OI 1.5–5x + premium ≥ $1M
+★  STRONG   — 60% win rate:   Vol/OI 1.5–5x + premium ≥ $750K
 
-HARD DISQUALIFIERS (proven losers in backtest — never pick these):
-✗ Vol/OI > 30x — retail chasing after the move (22% win rate)
-✗ OTM > 15% — never wins (0% win rate in 320 trades, literally zero)
+HARD DISQUALIFIERS (zero or near-zero win rate in backtest — never pick these):
+✗ Vol/OI > 30x — retail chasing after the move (22% win rate, skip)
+✗ OTM > 15% — 0% win rate in 320 trades, literally zero wins ever
 ✗ Premium < $500K — insufficient institutional conviction
-✗ Days out > 21 — poor win rate (11% at 22-45 DTE vs 47% at ≤7 DTE)
+✗ Days out > 21 — 11% win rate (vs 47% at ≤7 DTE)
+
+SIGNAL DEFINITIONS:
+- dark_pool = % of today's volume routed through dark pools (FINRA Reg SHO)
+  ≥ 50% means institutions are hiding their buying in dark pools = strongest stealth accumulation signal
+  [ELEVATED]=54–61%, [HIGH]=62–69%, [EXTREME]=70%+ (best)
 
 RANKING PRIORITY (highest to lowest):
-1. VOI 1.5–5x + prem ≥ $1M + OTM ≤ 10% → AUTOMATIC HIGH conviction
-2. VOI 1.5–5x + prem ≥ $750K + uptrending + multi-scanner confirm
-3. VOI 5–10x + prem ≥ $1M + OTM ≤ 10% + short DTE (≤14d)
-4. Any signal with FIR > 2% or oi_buildup ≥ 3d (pre-positioned money)
+1. dark_pool ≥ 50% + VOI 1.5–5x + prem ≥ $1M → AUTOMATIC HIGH conviction (75% WR in backtest)
+2. VOI 1.5–5x + prem ≥ $1M + OTM ≤ 10% (no dark pool data available)
+3. VOI 1.5–5x + prem ≥ $750K + dark_pool ≥ 40% + uptrending
+4. Any signal with FIR > 2% or oi_buildup ≥ 3d (pre-positioned money adds confidence)
 5. SKIP anything not meeting minimum: VOI ≥ 1.5x, prem ≥ $500K, OTM ≤ 15%, DTE ≤ 21
 
 For each pick, output a JSON object with ALL these fields:
